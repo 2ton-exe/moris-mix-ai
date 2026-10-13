@@ -20,6 +20,7 @@ All changes should be submitted through pull requests for review.
 
 ## Architecture
 
+```text
 Browser (React SPA on Cloudflare Workers)
 │  * Direct supabase.from(...) domain queries & LLM calls prohibited
 │
@@ -39,3 +40,4 @@ Browser (React SPA on Cloudflare Workers)
 │        └── Cloudflare R2
 │
 └── Presigned R2 PUT only after backend authorization
+```
