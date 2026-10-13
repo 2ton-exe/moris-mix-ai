@@ -18,28 +18,28 @@ The pipeline is intended to validate frontend changes through GitHub Actions and
 
 ## 2. Sprint 1 Baseline
 
-| Metric | Current Result |
-| :--- | :--- |
-| PR #1 CI duration | 5 seconds |
-| Deployment PR CI duration | 7 seconds |
-| Average observed PR CI duration | 6 seconds |
-| Observed PR CI success rate | 100% (2/2 runs) |
-| Approved and merged PRs | 1 |
-| Deployment PRs awaiting review | 1 |
-| Successful automated frontend deployments | Pending |
-| Main branch pipeline duration | Not yet measured |
-| Merge-to-live time | Not yet measured |
-| Failed production deployments | Not yet measured |
-| Recovery time | Not yet measured |
+| Metric                                    | Current Result   |
+| :---------------------------------------- | :--------------- |
+| PR #1 CI duration                         | 5 seconds        |
+| Deployment PR CI duration                 | 7 seconds        |
+| Average observed PR CI duration           | 6 seconds        |
+| Observed PR CI success rate               | 100% (2/2 runs)  |
+| Approved and merged PRs                   | 1                |
+| Deployment PRs awaiting review            | 1                |
+| Successful automated frontend deployments | Pending          |
+| Main branch pipeline duration             | Not yet measured |
+| Merge-to-live time                        | Not yet measured |
+| Failed production deployments             | Not yet measured |
+| Recovery time                             | Not yet measured |
 
 **Baseline limitation:** These figures represent two observed bootstrap CI runs, not the complete Sprint 1 pipeline history. Frontend dependency installation, linting, and production build validation were skipped because the frontend scaffold was not yet available. The measurements will be updated as additional pipeline runs occur.
 
 ## 3. Pipeline Run Log
 
-| Run | Trigger | Duration | Result | Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| PR #1 | Pull request | 5s | Passed | Initial CI workflow; frontend validation skipped |
-| Deployment PR | Pull request | 7s | Passed | CI workflow passed; frontend validation skipped |
+| Run           | Trigger      | Duration | Result | Notes                                            |
+| :------------ | :----------- | :------- | :----- | :----------------------------------------------- |
+| PR #1         | Pull request | 5s       | Passed | Initial CI workflow; frontend validation skipped |
+| Deployment PR | Pull request | 7s       | Passed | CI workflow passed; frontend validation skipped  |
 
 Both recorded runs completed successfully. However, neither run establishes that the frontend dependencies can be installed, the source code passes linting, or the production build succeeds.
 
