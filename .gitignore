@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Local Supabase state
+.supabase/
+supabase/.temp/
+supabase/.branches/
+supabase/snippets/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
