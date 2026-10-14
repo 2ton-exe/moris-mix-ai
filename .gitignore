@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Local environment and Worker secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# Build output and local tooling
+dist/
+coverage/
+.wrangler/
+.DS_Store

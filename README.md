@@ -1,19 +1,60 @@
 # Mori's Scraps
 
-An AI-assisted recipe journal developed by Team 2ton.exe.
+An AI-assisted recipe journal and leftover-meal assistant. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
 
-## Project Structure
+## Project Setup
 
-- `frontend/` — React, Vite, TypeScript
-- `supabase/functions/` — REST API and AI backend
-- `supabase/migrations/` — PostgreSQL schema migrations
-- `.github/workflows/` — CI/CD automation
-- `docs/` — project documentation
+The CI workflow uses Node.js 24 and pnpm 10. The frontend and Supabase function source directories have not been added yet, so there is no application install or local run command at this stage.
 
-## Development Workflow
+Copy `.env.example` to `frontend/.env.local` when the Vite frontend is added, then replace its placeholders with your Supabase project URL and public key. Never put service role keys, Gemini credentials, or Cloudflare R2 secrets in frontend environment variables; configure those on the backend.
 
-- `main` — shared integration and deployment branch
-- `feature/*` — feature development
-- `devops/*` — infrastructure and automation
+## Team Roles
 
-All changes should be submitted through pull requests for review.
+| Member | Role |
+|---|---|
+| [@KleinRheePagulongSioson](https://github.com/KleinRheePagulongSioson) | AI Engineer |
+| [@adnro2](https://github.com/adnro2) | Frontend Engineer |
+| [@DanielRamos1186](https://github.com/DanielRamos1186) | Backend Engineer |
+| [@myntchoc](https://github.com/myntchoc) | Full-Stack |
+| [@DaeSaster](https://github.com/DaeSaster) | DevOps Engineer |
+
+## Architecture
+
+```text
+Browser
+├── Supabase Auth → authenticated session/JWT
+├── REST API calls + JWT
+│   └── Supabase Edge Functions
+│       ├── request validation and authorization
+│       ├── recipe CRUD, search, and lineage
+│       ├── AI orchestration and quotas → Gemini via AIProvider
+│       └── R2 signing and verification → Cloudflare R2
+├── Supabase PostgreSQL + RLS (accessed by Edge Functions)
+└── Presigned R2 PUT after backend authorization
+```
+
+## Tech Stack
+
+- Frontend: React, Vite, TypeScript, Tailwind CSS, and shadcn
+- Authentication and database: Supabase Auth and PostgreSQL with RLS
+- Backend: Supabase Edge Functions with Zod validation
+- AI: Gemini through AIProvider
+- Object storage: Cloudflare R2
+- Frontend hosting: Cloudflare Workers
+- Package manager: pnpm
+- CI/CD: GitHub Actions
+
+## Branch Strategy
+
+`main` is the protected production branch. Create one branch per issue using:
+
+```text
+<type>/<issue-id>-short-description
+```
+
+Workflow:
+
+```text
+Issue → Branch → Implementation → Tests → Pull Request
+→ Teammate Review → CI → Merge → Deploy → Verify
+```
