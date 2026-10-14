@@ -6,7 +6,7 @@ An AI-assisted recipe journal and leftover-meal assistant. Save recipes, structu
 
 The CI workflow uses Node.js 24 and pnpm 10. The frontend and Supabase function source directories have not been added yet, so there is no application install or local run command at this stage.
 
-Copy `.env.example` to `frontend/.env.local` when the Vite frontend is added, then replace its placeholders with your Supabase project URL and public key. Never put service role keys, Gemini credentials, or Cloudflare R2 secrets in frontend environment variables; configure those on the backend.
+When the Vite frontend is added, copy only the `VITE_` entries from `.env.example` to `frontend/.env.local`. Configure the backend entries in the local Supabase Edge Function environment. Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
 
 ## Team Roles
 
