@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+**/.pnpm-store/
+
+# Package Manager Debug Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Environment & Secret Files
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+**/.env.*
+!.env.example
+!.env.*.example
+.dev.vars
+.dev.vars.*
+
+# Build Outputs & Caches
+dist/
+dist-ssr/
+build/
+out/
+*.tsbuildinfo
+.eslintcache
+coverage/
+.nyc_output/
+.turbo/
+
+# Platform & Cloud State (Cloudflare & Supabase)
+.wrangler/
+.supabase/
+supabase/.temp/
+supabase/.branches/
+supabase/snippets/
+
+# Operating System Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+desktop.ini
+
+# IDE & Editor Metadata
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+
+# Antigravity Workspace Files
+.gemini/
+.antigravity/
+.agy/
