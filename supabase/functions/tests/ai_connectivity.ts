@@ -1,7 +1,19 @@
 import { GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
 
+// 1. We define a strict type to fix the 'any' lint errors!
+type GoogleModel = {
+  name: string;
+  supportedGenerationMethods: string[];
+};
+
 async function runTest() {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
+  
+  // 2. Ramos's Suggestion: Early guard to prevent undefined API key requests
+  if (!apiKey) {
+    console.error("⚠️ GEMINI_API_KEY environment variable is not set. Please provide it to run the test.");
+    return;
+  }
   
   try {
     console.log("🔍 Fetching available models from Google...");
@@ -10,10 +22,10 @@ async function runTest() {
     
     if (data.error) throw new Error(data.error.message);
 
-    // Get all text generation models, strip the "models/" prefix, and ignore the banned 2.5
+    // Filter using our strict type instead of 'any'
     const textModels = data.models
-      .filter((m: any) => m.supportedGenerationMethods.includes("generateContent"))
-      .map((m: any) => m.name.replace("models/", ""))
+      .filter((m: GoogleModel) => m.supportedGenerationMethods.includes("generateContent"))
+      .map((m: GoogleModel) => m.name.replace("models/", ""))
       .filter((name: string) => !name.includes("2.5")); 
 
     console.log(`✅ Found ${textModels.length} potential models. Trying them to bypass 503 errors...`);
@@ -31,7 +43,6 @@ async function runTest() {
         
       } catch (err) {
         console.log(`⚠️ Failed with ${modelName}: ${(err as Error).message}`);
-        // Continues to the next model in the loop automatically
       }
     }
     
