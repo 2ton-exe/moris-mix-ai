@@ -2,7 +2,7 @@
 
 This contract is shared by the frontend API client (FE-02) and the read-only Edge Function (BE-03). The mock response is in [`fixtures/demo-recipe.json`](../../fixtures/demo-recipe.json).
 
-The `ingredients`, `instructions`, and `flavor_scores` shapes follow the shared `IngredientSchema`, `InstructionSchema`, and `FlavorScoreSchema` in `supabase/functions/_shared/ai/schemas.ts`. Database-backed recipe fields retain their snake_case names (`flavor_scores`, `star_rating`, and `cooked_at`), so the Edge Function does not rename them; nested ingredient fields use the shared schema's exact names, including `quantityText`. This contract does not add a duplicate Zod schema.
+The fields and property names below define the response contract. Recipe fields retain their database `snake_case` names (`flavor_scores`, `star_rating`, and `cooked_at`); nested ingredient objects may also include `quantityText`.
 
 ## Request
 
@@ -65,6 +65,6 @@ Supabase gateway or network failures can occur before the function returns this 
 
 ## CORS and frontend behavior
 
-Handle `OPTIONS` as a CORS preflight for the configured frontend origin. Allow `GET` and `OPTIONS`, and permit the `apikey`, `authorization`, and `content-type` request headers.
+Handle `OPTIONS` as a CORS preflight for the configured frontend origin. Allow `GET` and `OPTIONS`, and permit the `apikey`, `authorization`, `content-type`, and `x-client-info` request headers.
 
 The frontend shows a loading state while the request is pending, renders `recipe` on success, and shows a user-safe, retryable error state for HTTP, network, or response-parsing failures. It must not display raw server or database details.
