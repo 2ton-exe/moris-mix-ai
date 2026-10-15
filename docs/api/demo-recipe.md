@@ -2,6 +2,8 @@
 
 This contract is shared by the frontend API client (FE-02) and the read-only Edge Function (BE-03). The mock response is in [`fixtures/demo-recipe.json`](../../fixtures/demo-recipe.json).
 
+The `ingredients`, `instructions`, and `flavor_scores` shapes follow the shared `IngredientSchema`, `InstructionSchema`, and `FlavorScoreSchema` in `supabase/functions/_shared/ai/schemas.ts`. Database-backed recipe fields retain their snake_case names (`flavor_scores`, `star_rating`, and `cooked_at`), so the Edge Function does not rename them; nested ingredient fields use the shared schema's exact names, including `quantityText`. This contract does not add a duplicate Zod schema.
+
 ## Request
 
 - **Method and path:** `GET /functions/v1/demo-recipe`
@@ -20,20 +22,25 @@ Return `200 OK` with `Content-Type: application/json`:
   "recipe": {
     "id": "11111111-1111-1111-1111-111111111111",
     "title": "Classic Tomato Scraps Pasta",
-    "ingredients": ["200g spaghetti", "2 tbsp tomato paste", "2 cloves garlic", "Fresh basil"],
-    "instructions": [
-      "Boil pasta in salted water.",
-      "Saute minced garlic and tomato paste.",
-      "Toss pasta with sauce and torn basil."
+    "ingredients": [
+      { "name": "spaghetti", "quantity": 200, "unit": "g", "inferred": false },
+      { "name": "tomato paste", "quantity": 2, "unit": "tbsp", "inferred": false },
+      { "name": "garlic", "quantity": 2, "unit": "cloves", "inferred": false },
+      { "name": "Fresh basil", "quantity": null, "unit": null, "inferred": false }
     ],
-    "flavorScores": { "sweet": 2, "salty": 3, "sour": 3, "bitter": 1, "umami": 4 },
-    "starRating": 4,
-    "cookedAt": "2026-10-13"
+    "instructions": [
+      { "step": 1, "text": "Boil pasta in salted water." },
+      { "step": 2, "text": "Saute minced garlic and tomato paste." },
+      { "step": 3, "text": "Toss pasta with sauce and torn basil." }
+    ],
+    "flavor_scores": { "sweet": 2, "salty": 3, "sour": 3, "bitter": 1, "umami": 4, "spicy": 0 },
+    "star_rating": 4,
+    "cooked_at": "2026-10-13"
   }
 }
 ```
 
-The `recipe` fields are required. `id` is a UUID string; `ingredients` and `instructions` are arrays of strings; `flavorScores` maps flavor names to numbers; `starRating` is an integer from 1 to 5 or `null`; and `cookedAt` is an ISO date (`YYYY-MM-DD`) or `null`. The date and other sample values are fixed in the fixture so mock responses are deterministic.
+The `recipe` fields are required. `id` is a UUID string. Each ingredient has `name` (string), `quantity` (number or `null`), `unit` (string or `null`), and `inferred` (boolean, defaulting to `false`); it may also have `quantityText` (string). Each instruction has `step` (number) and `text` (string). `flavor_scores` is required in this response and contains all six shared flavor properties (`sweet`, `salty`, `sour`, `bitter`, `umami`, and `spicy`), each a number from 0 to 5. `star_rating` is an integer from 1 to 5 or `null`; `cooked_at` is an ISO date (`YYYY-MM-DD`) or `null`. The sample values are fixed in the fixture so mock responses are deterministic.
 
 ## Errors
 

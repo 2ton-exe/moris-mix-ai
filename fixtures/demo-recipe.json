@@ -3,24 +3,54 @@
     "id": "11111111-1111-1111-1111-111111111111",
     "title": "Classic Tomato Scraps Pasta",
     "ingredients": [
-      "200g spaghetti",
-      "2 tbsp tomato paste",
-      "2 cloves garlic",
-      "Fresh basil"
+      {
+        "name": "spaghetti",
+        "quantity": 200,
+        "unit": "g",
+        "inferred": false
+      },
+      {
+        "name": "tomato paste",
+        "quantity": 2,
+        "unit": "tbsp",
+        "inferred": false
+      },
+      {
+        "name": "garlic",
+        "quantity": 2,
+        "unit": "cloves",
+        "inferred": false
+      },
+      {
+        "name": "Fresh basil",
+        "quantity": null,
+        "unit": null,
+        "inferred": false
+      }
     ],
     "instructions": [
-      "Boil pasta in salted water.",
-      "Saute minced garlic and tomato paste.",
-      "Toss pasta with sauce and torn basil."
+      {
+        "step": 1,
+        "text": "Boil pasta in salted water."
+      },
+      {
+        "step": 2,
+        "text": "Saute minced garlic and tomato paste."
+      },
+      {
+        "step": 3,
+        "text": "Toss pasta with sauce and torn basil."
+      }
     ],
-    "flavorScores": {
+    "flavor_scores": {
       "sweet": 2,
       "salty": 3,
       "sour": 3,
       "bitter": 1,
-      "umami": 4
+      "umami": 4,
+      "spicy": 0
     },
-    "starRating": 4,
-    "cookedAt": "2026-10-13"
+    "star_rating": 4,
+    "cooked_at": "2026-10-13"
   }
 }
