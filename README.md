@@ -1,10 +1,10 @@
 # Mori's Scraps
 
-An AI-assisted recipe journal and leftover-meal assistant. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
+An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton.exe. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
 
 ## Project Setup
 
-The CI workflow uses Node.js 24 and pnpm 10. The frontend and Supabase function source directories have not been added yet, so there is no application install or local run command at this stage.
+The CI workflow uses Node.js 24 and pnpm 10. The frontend application has not been added yet, so there is no frontend install or run command at this stage. Supabase Edge Function source is under `supabase/functions/`.
 
 When the Vite frontend is added, copy only the `VITE_` entries from `.env.example` to `frontend/.env.local`. Configure the backend entries in the local Supabase Edge Function environment. Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
 
@@ -20,18 +20,7 @@ When the Vite frontend is added, copy only the `VITE_` entries from `.env.exampl
 
 ## Architecture
 
-```text
-Browser
-├── Supabase Auth → authenticated session/JWT
-├── REST API calls + JWT
-│   └── Supabase Edge Functions
-│       ├── request validation and authorization
-│       ├── recipe CRUD, search, and lineage
-│       ├── AI orchestration and quotas → Gemini via AIProvider
-│       └── R2 signing and verification → Cloudflare R2
-├── Supabase PostgreSQL + RLS (accessed by Edge Functions)
-└── Presigned R2 PUT after backend authorization
-```
+See the [Sprint 1 architecture ADR](docs/architecture/sprint-1-adr.md) for the target data flow, API contract, folder and pnpm conventions, and Workers deployment plan.
 
 ## Tech Stack
 
