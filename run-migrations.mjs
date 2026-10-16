@@ -39,8 +39,9 @@ const sslConfig = {
 
 // Sanitize SSL-related query parameters from DATABASE_URL using URL API
 let sanitizedConnectionString;
+let parsedUrl;
 try {
-  const parsedUrl = new URL(process.env.DATABASE_URL);
+  parsedUrl = new URL(process.env.DATABASE_URL);
   const sslParams = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey'];
   for (const param of sslParams) {
     parsedUrl.searchParams.delete(param);
@@ -68,10 +69,15 @@ async function main() {
     // Opt-in demo seeding: execute only when SEED_DEMO === 'true' or --seed CLI flag is passed
     const shouldSeed = process.env.SEED_DEMO === 'true' || process.argv.includes('--seed');
     if (shouldSeed) {
-      const seedPath = path.resolve(__dirname, 'supabase/seed.sql');
-      const seedSql = fs.readFileSync(seedPath, 'utf8');
-      await client.query(seedSql);
-      console.log('SUCCESS: Demo seed applied.');
+      const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1';
+      if (!isLocalhost && process.env.FORCE_REMOTE_SEED !== 'true') {
+        console.warn('WARN: Seeding skipped. Demo seed is restricted to local development.');
+      } else {
+        const seedPath = path.resolve(__dirname, 'supabase/seed.sql');
+        const seedSql = fs.readFileSync(seedPath, 'utf8');
+        await client.query(seedSql);
+        console.log('SUCCESS: Demo seed applied.');
+      }
     } else {
       console.log('INFO: Skipping demo seeding. Set SEED_DEMO=true or pass --seed flag to seed demo data.');
     }

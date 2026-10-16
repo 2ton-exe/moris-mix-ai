@@ -1,5 +1,3 @@
-create extension if not exists pgcrypto with schema extensions;
-
 insert into auth.users (
     id,
     instance_id,
@@ -18,7 +16,7 @@ insert into auth.users (
     'authenticated',
     'authenticated',
     'demo@morisscraps.local',
-    extensions.crypt('password123', extensions.gen_salt('bf')),
+    '',
     now(),
     '{"provider":"email","providers":["email"]}',
     '{"full_name":"Demo Chef"}',
@@ -41,9 +39,9 @@ insert into public.recipes (
     'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f',
     'Classic Tomato Scraps Pasta',
     'Used leftover tomato paste, wilted basil, garlic, and spaghetti.',
-    '["200g spaghetti", "2 tbsp tomato paste", "2 cloves garlic", "Fresh basil"]'::jsonb,
-    '["Boil pasta in salted water.", "Saute minced garlic and tomato paste.", "Toss pasta with sauce and torn basil."]'::jsonb,
-    '{"sweet": 2, "salty": 3, "sour": 3, "bitter": 1, "umami": 4}'::jsonb,
+    '[{"name": "spaghetti", "quantity": 200, "unit": "g", "inferred": false}, {"name": "tomato paste", "quantity": 2, "unit": "tbsp", "inferred": false}, {"name": "garlic", "quantity": 2, "unit": "cloves", "inferred": false}, {"name": "Fresh basil", "quantity": null, "unit": null, "inferred": false}]'::jsonb,
+    '[{"step": 1, "text": "Boil pasta in salted water."}, {"step": 2, "text": "Saute minced garlic and tomato paste."}, {"step": 3, "text": "Toss pasta with sauce and torn basil."}]'::jsonb,
+    '{"sweet": 2, "salty": 3, "sour": 3, "bitter": 1, "umami": 4, "spicy": 0}'::jsonb,
     4,
     current_date - interval '2 days'
 ),
@@ -52,9 +50,9 @@ insert into public.recipes (
     'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f',
     'Spicy Tomato Scraps Pasta (Iteration 1)',
     'Iterated on the classic pasta by adding chili flakes and parmesan rind.',
-    '["200g spaghetti", "2 tbsp tomato paste", "2 cloves garlic", "1 tsp chili flakes", "Parmesan rind"]'::jsonb,
-    '["Simmer sauce with parmesan rind for depth.", "Add chili flakes.", "Combine with spaghetti."]'::jsonb,
-    '{"sweet": 2, "salty": 4, "sour": 3, "spicy": 4, "umami": 5}'::jsonb,
+    '[{"name": "spaghetti", "quantity": 200, "unit": "g", "inferred": false}, {"name": "tomato paste", "quantity": 2, "unit": "tbsp", "inferred": false}, {"name": "garlic", "quantity": 2, "unit": "cloves", "inferred": false}, {"name": "chili flakes", "quantity": 1, "unit": "tsp", "inferred": false}, {"name": "Parmesan rind", "quantity": null, "unit": null, "inferred": false}]'::jsonb,
+    '[{"step": 1, "text": "Simmer sauce with parmesan rind for depth."}, {"step": 2, "text": "Add chili flakes."}, {"step": 3, "text": "Combine with spaghetti."}]'::jsonb,
+    '{"sweet": 2, "salty": 4, "sour": 3, "bitter": 1, "umami": 5, "spicy": 4}'::jsonb,
     5,
     current_date
 ) on conflict (id) do nothing;
