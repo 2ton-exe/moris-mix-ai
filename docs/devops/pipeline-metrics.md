@@ -40,8 +40,9 @@ The pipeline is intended to validate frontend changes through GitHub Actions and
 | :------------ | :----------- | :------- | :----- | :----------------------------------------------- |
 | PR #1         | Pull request | 5s       | Passed | Initial CI workflow; frontend validation skipped |
 | Deployment PR | Pull request | 7s       | Passed | CI workflow passed; frontend validation skipped  |
+| PR #28 / run #36 | Pull request | 18s | Passed | Frozen pnpm install, lint, and production build succeeded |
 
-Both recorded runs completed successfully. However, neither run establishes that the frontend dependencies can be installed, the source code passes linting, or the production build succeeds.
+The two bootstrap runs completed successfully but skipped frontend checks. PR #28 run #36 completed in 18 seconds and verified frozen dependency installation, lint, and the production build. This establishes frontend CI validation, not production deployment.
 
 ## 4. Branch Protection
 
@@ -79,18 +80,17 @@ The existing Hello World Worker confirms that the Cloudflare resource has been c
 
 **Current limitations:**
 
-- CI temporarily skips frontend validation when `frontend/package.json` is absent.
-- Successful bootstrap CI runs do not establish frontend build correctness.
+- The workflow skips frontend validation if `frontend/package.json` is absent; current `main` includes the frontend package, and run #36 passed install, lint, and build.
+- The two initial bootstrap runs do not establish frontend build correctness.
 - Automated frontend deployment remains unverified.
 - Production deployment duration and merge-to-live time have not yet been measured.
 - Recovery time cannot be evaluated without a recorded deployment failure and recovery event.
 
-These limitations will be reassessed as the frontend scaffold and deployment pipeline become operational.
+Frontend validation now runs in CI. Deployment and recovery limitations remain until live production evidence is recorded.
 
 ## 7. Next Improvements
 
-- Verify frontend dependency installation using pnpm.
-- Execute and validate frontend linting and production builds.
+- Keep frontend install, lint, and build checks current as the scaffold evolves.
 - Confirm successful automated deployment to Cloudflare Workers.
 - Record actual deployment duration and merge-to-live time.
 - Update the pipeline run log with additional CI/CD results.
