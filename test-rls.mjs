@@ -41,8 +41,9 @@ const sslConfig = {
 
 // Sanitize SSL query parameters from DATABASE_URL
 let sanitizedConnectionString;
+let parsedUrl;
 try {
-  const parsedUrl = new URL(process.env.DATABASE_URL);
+  parsedUrl = new URL(process.env.DATABASE_URL);
   const sslParams = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey'];
   for (const param of sslParams) {
     parsedUrl.searchParams.delete(param);
@@ -53,9 +54,11 @@ try {
   process.exit(1);
 }
 
+const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1';
+
 const client = new Client({
   connectionString: sanitizedConnectionString,
-  ssl: sslConfig,
+  ssl: isLocalhost ? false : sslConfig,
   connectionTimeoutMillis: 10000
 });
 

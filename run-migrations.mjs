@@ -52,14 +52,22 @@ try {
   process.exit(1);
 }
 
+const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1';
+
 const client = new Client({
   connectionString: sanitizedConnectionString,
-  ssl: sslConfig
+  ssl: isLocalhost ? false : sslConfig
 });
 
 async function main() {
   try {
     await client.connect();
+
+    if (isLocalhost) {
+      const mockAuthPath = path.resolve(__dirname, 'supabase/mock-auth.sql');
+      const mockAuthSql = fs.readFileSync(mockAuthPath, 'utf8');
+      await client.query(mockAuthSql);
+    }
 
     const migrationPath = path.resolve(__dirname, 'supabase/migrations/20261013000000_initial_schema.sql');
     const migrationSql = fs.readFileSync(migrationPath, 'utf8');
@@ -69,7 +77,6 @@ async function main() {
     // Opt-in demo seeding: execute only when SEED_DEMO === 'true' or --seed CLI flag is passed
     const shouldSeed = process.env.SEED_DEMO === 'true' || process.argv.includes('--seed');
     if (shouldSeed) {
-      const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1';
       if (!isLocalhost && process.env.FORCE_REMOTE_SEED !== 'true') {
         console.warn('WARN: Seeding skipped. Demo seed is restricted to local development.');
       } else {
