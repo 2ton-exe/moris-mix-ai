@@ -56,6 +56,11 @@ try {
 
 const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1';
 
+if (!isLocalhost && !process.argv.includes('--allow-remote')) {
+  console.error('RLS tests only run against localhost by default. Use `pnpm test:db -- --allow-remote` only for an isolated test database.');
+  process.exit(1);
+}
+
 const client = new Client({
   connectionString: sanitizedConnectionString,
   ssl: isLocalhost ? false : sslConfig,
