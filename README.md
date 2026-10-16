@@ -1,23 +1,57 @@
 # Mori's Scraps
 
-An AI-assisted recipe journal developed by Team 2ton.exe.
+An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton.exe. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
 
-## Project Structure
+## Project Setup
 
-- `frontend/` — React, Vite, TypeScript
-- `supabase/functions/` — REST API and AI backend
-- `supabase/migrations/` — PostgreSQL schema migrations
-- `.github/workflows/` — CI/CD automation
-- `docs/` — project documentation
+The CI workflow uses Node.js 24 and pnpm 10. The React/Vite frontend is under `frontend/`. From the repository root, install dependencies and start the development server with:
 
-## Development Workflow
+```sh
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev
+```
 
-- `main` — shared integration and deployment branch
-- `feature/*` — feature development
-- `devops/*` — infrastructure and automation
+Supabase Edge Function source is under `supabase/functions/`.
 
-All changes should be submitted through pull requests for review.
+For local frontend development, copy only the `VITE_` entries from `.env.example` to `frontend/.env.local`. Configure the backend entries in the local Supabase Edge Function environment. Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
+
+## Team Roles
+
+| Member | Role |
+|---|---|
+| [@KleinRheePagulongSioson](https://github.com/KleinRheePagulongSioson) | AI Engineer |
+| [@adnro2](https://github.com/adnro2) | Frontend Engineer |
+| [@DanielRamos1186](https://github.com/DanielRamos1186) | Backend Engineer |
+| [@myntchoc](https://github.com/myntchoc) | Full-Stack |
+| [@DaeSaster](https://github.com/DaeSaster) | DevOps Engineer |
 
 ## Architecture
 
 See the [Sprint 1 architecture ADR](docs/architecture/sprint-1-adr.md) for the target data flow, API contract, folder and pnpm conventions, and Workers deployment plan.
+
+## Tech Stack
+
+- Frontend: React, Vite, TypeScript, Tailwind CSS, and shadcn
+- Authentication and database: Supabase Auth and PostgreSQL with RLS
+- Backend: Supabase Edge Functions with Zod validation
+- AI: Gemini through AIProvider
+- Object storage: Cloudflare R2
+- Frontend hosting: Cloudflare Workers
+- Package manager: pnpm
+- CI/CD: GitHub Actions
+
+## Branch Strategy
+
+`main` is the protected production branch. Create one branch per issue using:
+
+```text
+<type>/<issue-id>-short-description
+```
+
+Workflow:
+
+```text
+Issue → Branch → Implementation → Tests → Pull Request
+→ Teammate Review → CI → Merge → Deploy → Verify
+```
