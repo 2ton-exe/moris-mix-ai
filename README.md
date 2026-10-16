@@ -4,9 +4,17 @@ An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton
 
 ## Project Setup
 
-The CI workflow uses Node.js 24 and pnpm 10. The frontend application has not been added yet, so there is no frontend install or run command at this stage. Supabase Edge Function source is under `supabase/functions/`.
+The CI workflow uses Node.js 24 and pnpm 10. The React/Vite frontend is under `frontend/`. From the repository root, install dependencies and start the development server with:
 
-When the Vite frontend is added, copy only the `VITE_` entries from `.env.example` to `frontend/.env.local`. Configure the backend entries in the local Supabase Edge Function environment. Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
+```sh
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Supabase Edge Function source is under `supabase/functions/`.
+
+For local frontend development, copy only the `VITE_` entries from `.env.example` to `frontend/.env.local`. Configure the backend entries in the local Supabase Edge Function environment. Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
 
 ## Team Roles
 
