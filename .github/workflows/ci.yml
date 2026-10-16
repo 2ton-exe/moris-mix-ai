@@ -59,6 +59,36 @@ jobs:
         working-directory: frontend
         run: pnpm build
 
+  test-db:
+    name: Database Tests
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DATABASE_URL != '' }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: pnpm run db:setup
+
+      - name: Run RLS tests
+        run: pnpm test:db
+
   deploy:
     name: Deploy to Cloudflare
     needs: frontend
