@@ -55,7 +55,8 @@ try {
 
 const client = new Client({
   connectionString: sanitizedConnectionString,
-  ssl: sslConfig
+  ssl: sslConfig,
+  connectionTimeoutMillis: 10000
 });
 
 async function runRlsTests() {
@@ -133,8 +134,12 @@ async function runRlsTests() {
         values ($1, 'User B Forged Recipe')
       `, [userA]);
     } catch (err) {
-      insertBlocked = true;
-      console.log(`✓ User B insertion with User A ID was blocked by RLS: ${err.message}`);
+      if (err.code === '42501' || /row-level security policy/i.test(err.message)) {
+        insertBlocked = true;
+        console.log(`✓ User B insertion with User A ID was blocked by RLS: ${err.message}`);
+      } else {
+        throw err;
+      }
     }
     assert.equal(insertBlocked, true, 'User B must be blocked from inserting a recipe with User A user_id');
 

@@ -87,6 +87,7 @@ create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
+set search_path = public, extensions, pg_temp
 as $$
 begin
     insert into public.profiles (id, display_name, avatar_url)

@@ -77,7 +77,7 @@ async function main() {
     }
   } catch (err) {
     console.error('ERROR:', err.message);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     await client.end();
   }
