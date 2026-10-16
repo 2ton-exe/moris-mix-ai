@@ -86,11 +86,10 @@ async function runRlsTests() {
     createdUserIds.push(userA, userB);
     console.log(`✓ Provisioned test users User A (${userA}) and User B (${userB})`);
 
-    // 3. Impersonate User A
-    await client.query('set role authenticated');
-    await client.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE authenticated');
+    await client.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [userA]);
 
-    // 4. User A inserts their own recipe
     const insertRes = await client.query(`
       insert into public.recipes (user_id, title, raw_input, ingredients, instructions)
       values ($1, $2, $3, $4::jsonb, $5::jsonb)
@@ -107,26 +106,31 @@ async function runRlsTests() {
     createdRecipeIds.push(userARecipeId);
     console.log(`✓ User A successfully inserted own recipe (ID: ${userARecipeId})`);
 
-    // 5. User A reads their own recipe
     const readA = await client.query('select id, title, user_id from public.recipes where id = $1', [userARecipeId]);
     assert.equal(readA.rowCount, 1, 'User A should be able to read own recipe');
     assert.equal(readA.rows[0].id, userARecipeId);
     console.log('✓ User A successfully read own recipe');
 
-    // 6. Impersonate User B
-    await client.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+    await client.query('COMMIT');
 
-    // 7. User B queries User A's recipe (should receive 0 rows)
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE authenticated');
+    await client.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [userB]);
+
     const readB = await client.query('select id, title from public.recipes where id = $1', [userARecipeId]);
     assert.equal(readB.rowCount, 0, 'User B must receive 0 rows when reading User A recipe');
     console.log('✓ User B received 0 rows when querying User A recipe (RLS isolation verified)');
 
-    // 8. User B queries all recipes (should only see 0 recipes or only their own)
     const readAllB = await client.query('select id from public.recipes where user_id = $1', [userA]);
     assert.equal(readAllB.rowCount, 0, 'User B must not see any recipes belonging to User A');
     console.log('✓ User B query filtering by User A user_id returned 0 rows');
 
-    // 9. User B attempts to insert a recipe with User A's user_id (should be blocked by RLS)
+    await client.query('COMMIT');
+
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE authenticated');
+    await client.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [userB]);
+
     let insertBlocked = false;
     try {
       await client.query(`
@@ -140,10 +144,15 @@ async function runRlsTests() {
       } else {
         throw err;
       }
+    } finally {
+      await client.query('ROLLBACK');
     }
     assert.equal(insertBlocked, true, 'User B must be blocked from inserting a recipe with User A user_id');
 
-    // 10. User B inserts and reads their own recipe
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE authenticated');
+    await client.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [userB]);
+
     const insertBRes = await client.query(`
       insert into public.recipes (user_id, title)
       values ($1, 'User B Scrap Pie')
@@ -157,6 +166,8 @@ async function runRlsTests() {
     assert.equal(readBOwn.rowCount, 1, 'User B should read their own recipe');
     console.log('✓ User B successfully inserted and read their own recipe');
 
+    await client.query('COMMIT');
+
     console.log('\nPASSED: All RLS policy regression tests completed successfully.');
   } catch (err) {
     console.error('\nFAILED: RLS policy regression tests failed:', err);
@@ -164,7 +175,8 @@ async function runRlsTests() {
   } finally {
     // 11. Scoped Cleanup: Delete only records associated with the exact IDs created during this run
     try {
-      await client.query('reset role');
+      await client.query('ROLLBACK').catch(() => {});
+      await client.query('RESET ROLE').catch(() => {});
       if (createdRecipeIds.length > 0) {
         const recipePlaceholders = createdRecipeIds.map((_, i) => `$${i + 1}`).join(', ');
         await client.query(`delete from public.recipes where id in (${recipePlaceholders})`, createdRecipeIds);
