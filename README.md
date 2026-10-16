@@ -17,3 +17,7 @@ An AI-assisted recipe journal developed by Team 2ton.exe.
 - `devops/*` — infrastructure and automation
 
 All changes should be submitted through pull requests for review.
+
+## Architecture
+
+See the [Sprint 1 architecture ADR](docs/architecture/sprint-1-adr.md) for the target data flow, API contract, folder and pnpm conventions, and Workers deployment plan.
