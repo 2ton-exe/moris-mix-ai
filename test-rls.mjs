@@ -173,23 +173,57 @@ async function runRlsTests() {
     console.error('\nFAILED: RLS policy regression tests failed:', err);
     process.exitCode = 1;
   } finally {
-    // 11. Scoped Cleanup: Delete only records associated with the exact IDs created during this run
+    let cleanupFailed = false;
     try {
-      await client.query('ROLLBACK').catch(() => {});
-      await client.query('RESET ROLE').catch(() => {});
+      try {
+        await client.query('ROLLBACK');
+      } catch {}
+
+      try {
+        await client.query('RESET ROLE');
+      } catch {}
+
       if (createdRecipeIds.length > 0) {
-        const recipePlaceholders = createdRecipeIds.map((_, i) => `$${i + 1}`).join(', ');
-        await client.query(`delete from public.recipes where id in (${recipePlaceholders})`, createdRecipeIds);
+        try {
+          const recipePlaceholders = createdRecipeIds.map((_, i) => `$${i + 1}`).join(', ');
+          await client.query(`delete from public.recipes where id in (${recipePlaceholders})`, createdRecipeIds);
+        } catch (err) {
+          cleanupFailed = true;
+          console.error('Failed to clean up recipes by id:', err.message);
+        }
       }
+
       if (createdUserIds.length > 0) {
         const userPlaceholders = createdUserIds.map((_, i) => `$${i + 1}`).join(', ');
-        await client.query(`delete from public.recipes where user_id in (${userPlaceholders})`, createdUserIds);
-        await client.query(`delete from public.profiles where id in (${userPlaceholders})`, createdUserIds);
-        await client.query(`delete from auth.users where id in (${userPlaceholders})`, createdUserIds);
+
+        try {
+          await client.query(`delete from public.recipes where user_id in (${userPlaceholders})`, createdUserIds);
+        } catch (err) {
+          cleanupFailed = true;
+          console.error('Failed to clean up recipes by user_id:', err.message);
+        }
+
+        try {
+          await client.query(`delete from public.profiles where id in (${userPlaceholders})`, createdUserIds);
+        } catch (err) {
+          cleanupFailed = true;
+          console.error('Failed to clean up profiles:', err.message);
+        }
+
+        try {
+          await client.query(`delete from auth.users where id in (${userPlaceholders})`, createdUserIds);
+        } catch (err) {
+          cleanupFailed = true;
+          console.error('Failed to clean up auth.users:', err.message);
+        }
       }
-      console.log('✓ Test records cleaned up successfully.');
-    } catch (cleanupErr) {
-      console.error('Error during cleanup:', cleanupErr.message);
+
+      if (cleanupFailed) {
+        process.exitCode = 1;
+        console.error('Teardown cleanup failed.');
+      } else {
+        console.log('✓ Test records cleaned up successfully.');
+      }
     } finally {
       await client.end();
     }
