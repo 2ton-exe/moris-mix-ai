@@ -62,7 +62,6 @@ jobs:
   test-db:
     name: Database Tests
     runs-on: ubuntu-latest
-    if: ${{ secrets.DATABASE_URL != '' }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -88,7 +87,7 @@ jobs:
 
       - name: Run RLS tests
         run: pnpm test:db
-
+        
   deploy:
     name: Deploy to Cloudflare
     needs: frontend
