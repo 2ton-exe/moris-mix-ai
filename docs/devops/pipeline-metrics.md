@@ -3,7 +3,8 @@
 **Project:** Mori's Scraps  
 **Team:** 2ton.exe  
 **Maintainer:** Haresco  
-**Sprint:** 1
+**Sprint:** 1\
+**Status:** Initial bootstrap measurements preserved; real frontend CI and first production deployment verified; representative Sprint 1 baseline still in progress
 
 ## 1. Pipeline Overview
 
@@ -14,85 +15,194 @@
 - **Cloudflare Worker:** `moris-mix-ai`
 - **Production Branch:** `main`
 
-The pipeline is intended to validate frontend changes through GitHub Actions and automatically deploy the production build to Cloudflare Workers after changes are merged into `main`.
+The current delivery path uses GitHub Actions to validate frontend changes and deploy qualifying pushes to `main` through Wrangler.
 
-## 2. Sprint 1 Baseline
+The CI and deployment workflows are currently separate workflows triggered by the same qualifying push to `main`. The production deployment workflow does not yet explicitly wait for the main-branch CI workflow to succeed. This is a known delivery-gating limitation and should be corrected in a later pipeline improvement.
 
-| Metric                                    | Current Result   |
-| :---------------------------------------- | :--------------- |
-| PR #1 CI duration                         | 5 seconds        |
-| Deployment PR CI duration                 | 7 seconds        |
-| Average observed PR CI duration           | 6 seconds        |
-| Observed PR CI success rate               | 100% (2/2 runs)  |
-| Approved and merged PRs                   | 1                |
-| Deployment PRs awaiting review            | 1                |
-| Successful automated frontend deployments | Pending          |
-| Main branch pipeline duration             | Not yet measured |
-| Merge-to-live time                        | Not yet measured |
-| Failed production deployments             | Not yet measured |
-| Recovery time                             | Not yet measured |
+## 2. Sprint 1 Measurement Summary
 
-**Baseline limitation:** These figures represent two observed bootstrap CI runs, not the complete Sprint 1 pipeline history. Frontend dependency installation, linting, and production build validation were skipped because the frontend scaffold was not yet available. The measurements will be updated as additional pipeline runs occur.
+### Historical Bootstrap Measurements
+
+These measurements were collected before the real frontend existed on `main`.
+
+| Metric | Result |
+| :--- | :--- |
+| PR #1 CI duration | 5 seconds |
+| Deployment PR CI duration | 7 seconds |
+| Bootstrap PR CI average | 6 seconds |
+| Bootstrap PR CI success rate | 100% (2/2 observed runs) |
+
+These runs are retained as historical evidence of the initial CI setup, but they are **not representative application-pipeline measurements** because frontend installation, linting, and build stages were skipped.
+
+### Real Frontend Measurements Collected
+
+| Metric | Current Result |
+| :--- | :--- |
+| FE-01 PR CI duration | 20 seconds |
+| FE-01 PR CI result | Passed |
+| FE-01 main-branch CI duration | 16 seconds |
+| FE-01 main-branch CI result | Passed |
+| FE-01 production deployment workflow duration | 28 seconds |
+| FE-01 production deployment result | Passed |
+| Successful automated frontend deployments verified | 1 |
+| Failed production deployments observed | 0 |
+| Precise merge-to-live time | Not yet measured |
+| Recovery time | Not applicable; no production recovery event recorded |
+
+**Baseline status:** A real frontend PR CI run, main-branch CI run, and production deployment have now been observed. These are valid application-pipeline measurements, but they are not yet enough to finalize a representative Sprint 1 baseline or claim an optimization.
 
 ## 3. Pipeline Run Log
 
-| Run           | Trigger      | Duration | Result | Notes                                            |
-| :------------ | :----------- | :------- | :----- | :----------------------------------------------- |
-| PR #1         | Pull request | 5s       | Passed | Initial CI workflow; frontend validation skipped |
-| Deployment PR | Pull request | 7s       | Passed | CI workflow passed; frontend validation skipped  |
+| Run | Trigger | Duration | Result | Evidence / Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| PR #1 | Pull request | 5s | Passed | Initial CI workflow; frontend validation skipped because the frontend did not yet exist |
+| Deployment PR | Pull request | 7s | Passed | Bootstrap CI; frontend validation skipped |
+| FE-01 PR #21 CI | Pull request | 20s | Passed | Real frontend present; dependency installation, linting, TypeScript validation through `pnpm build`, and Vite production build executed |
+| FE-01 main CI | Push to `main` | 16s | Passed | Real frontend validation executed after PR #21 was merged |
+| FE-01 Deploy Production #3 | Push to `main` | 28s | Passed | Dependencies installed, frontend built, and assets deployed to Cloudflare Workers through Wrangler |
 
-Both recorded runs completed successfully. However, neither run establishes that the frontend dependencies can be installed, the source code passes linting, or the production build succeeds.
+### Verified FE-01 Execution
 
-## 4. Branch Protection
+FE-01 PR #21 introduced the real React/Vite/TypeScript frontend and was merged into `main`.
 
-The `main` branch is configured with an active GitHub ruleset containing the following protections:
+The observed pull-request CI run successfully executed:
 
-- Pull requests are required before merging.
-- At least one approving review is required.
-- The `Frontend Checks` GitHub Actions status check must pass.
-- Review conversations must be resolved before merging.
-- Force pushes are blocked.
-- Branch deletion is restricted.
+- frontend project detection
+- pnpm setup
+- Node.js setup
+- dependency installation
+- linting
+- production build
+- TypeScript validation as part of the build command
 
-**Verification:** The deployment pull request was blocked from merging while awaiting an approving review, despite passing its required CI check. This confirms enforcement of the required review rule in the observed pull request.
+After the merge to `main`, the main-branch CI workflow also completed successfully.
 
-## 5. Production Deployment
+The same merge triggered `Deploy Production #3`, which successfully executed:
+
+- repository checkout
+- frontend availability check
+- pnpm setup
+- Node.js setup
+- frontend dependency installation
+- frontend production build
+- Wrangler deployment to Cloudflare Workers
+
+The deployment workflow completed successfully in 28 seconds.
+
+## 4. Production Verification
 
 **Cloudflare Worker:** `moris-mix-ai`  
-**Hosting:** Cloudflare Workers  
-**Deployment Method:** GitHub Actions and Wrangler
+**Hosting:** Cloudflare Workers with Static Assets\
+**Deployment Method:** GitHub Actions + Wrangler
 
-**Current state:**
+### Verified State
 
-- The initial Hello World Worker has been created in Cloudflare.
-- Deployment credentials have been configured using GitHub Actions repository secrets.
-- The Wrangler configuration and automated deployment workflow have been prepared in a feature branch.
-- The deployment pull request is awaiting review and merge.
-- The React frontend has not yet been deployed.
-- Automatic production deployment has not yet been verified.
+The FE-01 merge produced the first verified automated deployment of the real React/Vite frontend.
 
-The existing Hello World Worker confirms that the Cloudflare resource has been created. It does not yet demonstrate successful frontend deployment through the CI/CD pipeline.
+Verification performed after the deployment confirmed:
 
-## 6. Incidents and Limitations
+- the production URL served the React application rather than the original Hello World Worker
+- the production root route loaded successfully
+- the `/app` client-side route loaded successfully
+- the deployment workflow's Wrangler step completed successfully
 
-**Recorded incidents:** No production deployment incident has been documented at this stage.
+### Still Unverified
 
-**Current limitations:**
+The following are **not** yet claimed as verified:
 
-- CI temporarily skips frontend validation when `frontend/package.json` is absent.
-- Successful bootstrap CI runs do not establish frontend build correctness.
-- Automated frontend deployment remains unverified.
-- Production deployment duration and merge-to-live time have not yet been measured.
-- Recovery time cannot be evaluated without a recorded deployment failure and recovery event.
+- frontend communication with the Supabase Edge Function
+- deployed browser → API → PostgreSQL data retrieval
+- exact merge-to-live time measured from merge event to confirmed production availability
+- production rollback behavior
+- recovery time after a failed production deployment
 
-These limitations will be reassessed as the frontend scaffold and deployment pipeline become operational.
+The production frontend deployment is therefore verified, while the complete application integration and recovery path remain pending.
 
-## 7. Next Improvements
+## 5. Branch Protection and Quality Gates
 
-- Verify frontend dependency installation using pnpm.
-- Execute and validate frontend linting and production builds.
-- Confirm successful automated deployment to Cloudflare Workers.
-- Record actual deployment duration and merge-to-live time.
-- Update the pipeline run log with additional CI/CD results.
-- Compare later pipeline measurements against the initial Sprint 1 baseline.
-- Document deployment failures, recovery actions, and pipeline optimizations when applicable.
+The `main` branch uses repository rules requiring:
+
+- pull requests before merge
+- at least one approving teammate review
+- the `Frontend Checks` status check
+- resolved review conversations
+- restricted force pushes
+- restricted branch deletion
+
+The protection rules have been observed blocking merge while approval requirements were unsatisfied.
+
+A feature-branch manual production-deployment attempt was also previously tested and the production job was skipped because the deployment workflow restricts production execution to `refs/heads/main`.
+
+## 6. Current Pipeline Limitations
+
+The following limitations remain relevant to Sprint 1:
+
+- CI and deployment still contain a temporary frontend-existence check inherited from the bootstrap stage.
+- Now that `frontend/` is required on `main`, missing frontend files should eventually fail instead of silently skipping application validation or deployment.
+- Production deployment currently starts independently from main-branch CI after a qualifying push to `main`; it does not explicitly depend on successful completion of the separate `Frontend Checks` workflow.
+- TypeScript validation runs inside `pnpm build` rather than appearing as a separately named CI step.
+- Only one representative real-frontend PR/main/deployment sequence has been recorded so far.
+- Precise merge-to-live time has not yet been measured.
+- Frontend-to-backend-to-database integration remains unverified.
+- Production rollback and recovery have not yet been tested.
+- The configured Wrangler version should be reviewed separately because the deployment run reported it as outdated.
+
+## 7. Baseline and Optimization Status
+
+The original 5-second and 7-second CI runs remain useful as bootstrap-history measurements, but they should not be compared directly with real frontend runs as evidence of performance regression or improvement because the workloads are different.
+
+The representative application baseline should be based on comparable runs in which the real frontend validation stages execute.
+
+Current representative observations:
+
+- PR CI samples with real frontend: **1**
+- Main-branch CI samples with real frontend: **1**
+- Verified real frontend production deployments: **1**
+
+More comparable runs are required before calculating a stable average or claiming a measured optimization.
+
+No pipeline optimization is claimed yet.
+
+## 8. Measurements Still Needed
+
+Before finalizing the Sprint 1 baseline, collect additional comparable runs and record:
+
+- at least three representative PR CI durations
+- at least three representative main/deployment observations where possible
+- pipeline success rate using comparable real-application runs
+- production deployment count
+- failed deployment count
+- precise merge-to-live time
+- any deployment or CI incident that reaches `main`
+- recovery time if a production recovery event occurs
+
+If the Sprint 1 schedule does not provide enough naturally occurring comparable runs, record the limitation rather than manufacturing artificial results solely to improve the sample count.
+
+## 9. Next DevOps Improvements
+
+Planned follow-up work should be prioritized by delivery risk and measurable value:
+
+1. Make production deployment depend on successful validation rather than running independently from main-branch CI.
+2. Remove or replace the temporary frontend-existence skip now that the frontend is part of the required repository structure.
+3. Continue collecting representative pipeline measurements.
+4. Integrate deterministic unit/API/security tests as those test suites become available from the development team.
+5. Verify the deployed frontend → Edge Function → PostgreSQL path.
+6. Test and document production rollback/recovery.
+7. Establish a comparable baseline before implementing and claiming performance optimizations.
+8. Evaluate the Wrangler upgrade separately and measure any relevant effect if changed.
+
+## 10. Sprint 1 Metrics Assessment
+
+Sprint 1 has moved beyond bootstrap-only pipeline evidence.
+
+The project now has verified evidence that:
+
+- a real frontend pull request can pass CI
+- the merged frontend can pass main-branch CI
+- a qualifying merge can trigger an automated production deployment
+- Wrangler can deploy the built React frontend to Cloudflare Workers
+- the deployed frontend can be reached through the production URL
+
+However, the metrics baseline is **not finalized**. Full Sprint 1 delivery verification still requires the deployed browser → Edge Function → PostgreSQL path, and representative pipeline averages require additional comparable observations.
+
+Rollback and recovery remain documented procedures rather than tested capabilities.
