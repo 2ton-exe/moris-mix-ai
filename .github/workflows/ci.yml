@@ -1,11 +1,13 @@
-
 name: CI
 
 on:
   pull_request:
     branches: [main]
+
   push:
     branches: [main]
+
+  workflow_dispatch:
 
 jobs:
   frontend:
@@ -37,7 +39,7 @@ jobs:
         if: steps.frontend.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Install dependencies
         if: steps.frontend.outputs.exists == 'true'
@@ -53,3 +55,45 @@ jobs:
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm build
+
+  deploy:
+    name: Deploy to Cloudflare
+    needs: frontend
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc
