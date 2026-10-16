@@ -15,7 +15,7 @@ create table if not exists public.recipes (
     raw_input text,
     ingredients jsonb not null default '[]'::jsonb,
     instructions jsonb not null default '[]'::jsonb,
-    flavor_scores jsonb not null default '{}'::jsonb,
+    flavor_scores jsonb,
     star_rating smallint check (star_rating >= 1 and star_rating <= 5),
     cooked_at date,
     image_url text,
