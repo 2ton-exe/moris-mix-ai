@@ -37,7 +37,7 @@ The plan-label matches above are inferred from the matching workstream and READM
 
 ## Planned commitments and status
 
-Target days were blank in the supplied plan, so they remain unassigned here. Status notes below describe repository evidence at this log snapshot; update them from the board and team reports during stand-ups.
+Target days were blank in the supplied plan, so they remain unassigned here. Status notes below reflect repository and CI evidence at this update; confirm board-only progress with the team during stand-ups.
 
 | Task | Priority | Primary owner | Collaborator / reviewer | Depends on | Status / evidence at log start |
 |---|---:|---|---|---|---|
@@ -45,12 +45,12 @@ Target days were blank in the supplied plan, so they remain unassigned here. Sta
 | BE-01 — Sprint 1 architecture ADR | P0 | @DanielRamos1186 (Ramos) | @myntchoc (Belen) | Approved standards | Done; ADR merged in [PR #7](https://github.com/2ton-exe/moris-mix-ai/pull/7). |
 | DOC-01 — README, safe templates, backlog, board, and sprint log | P0 | @myntchoc (Belen) | @DaeSaster (Haresco) | Repository access | In progress; README and setup changes are in [PR #28](https://github.com/2ton-exe/moris-mix-ai/pull/28), which is open at this snapshot. This file supplies the log; add the confirmed board URL and verify backlog assignments. |
 | FS-01 — demo API contract and fixture | P0 | @myntchoc (Belen) | @DanielRamos1186 (Ramos), @adnro2 (Ong) | BE-01; demo purpose | No API contract or fixture is present in the checked repository snapshot. |
-| FE-01 — React/Vite/TypeScript shell | P0 | @adnro2 (Ong) | @myntchoc (Belen) | Folder and package standards | No `frontend/` project is present in the checked snapshot. |
+| FE-01 — React/Vite/TypeScript shell | P0 | @adnro2 (Ong) | @myntchoc (Belen) | Folder and package standards | Scaffold is present on `main` with `/` and `/about` routes; [CI run #36](https://github.com/2ton-exe/moris-mix-ai/actions/runs/38912161040) passed frozen install, lint, and production build. Confirm the board reflects any remaining acceptance work. |
 | BE-02 — migrations, recipe/lineage schema, RLS, and demo seed | P0 | @DanielRamos1186 (Ramos) | @myntchoc (Belen) | BE-01 schema decisions | No migration or seed files are present in the checked snapshot. |
 | BE-03 — read-only demo-recipe Edge Function | P0 | @DanielRamos1186 (Ramos) | @myntchoc (Belen) | FS-01; BE-02 | No `demo-recipe` function is present in the checked snapshot. |
-| FE-02 — API client and walking-skeleton screen | P0 | @adnro2 (Ong) | @myntchoc (Belen) | FS-01; BE-03 | Waiting on the frontend and deployed demo endpoint. |
+| FE-02 — API client and walking-skeleton screen | P0 | @adnro2 (Ong) | @myntchoc (Belen) | FS-01; BE-03 | The current app entry point still shows starter content; live demo-recipe display, loading/error states, and endpoint connection remain to be verified after FS-01 and BE-03. |
 | AI-01 — AIProvider and controlled Gemini test | P0 | @KleinRheePagulongSioson (Sioson) | @DanielRamos1186 (Ramos) | Gemini key; Supabase access | AI adapter and connectivity-test source are present; live result/evidence is not recorded here. |
-| DEVOPS-01 — PR CI and required review/checks | P0 | @DaeSaster (Haresco) | @myntchoc (Belen) | Repository; FE-01 scripts | CI and branch-protection evidence are documented; frontend checks remain unverified while the frontend is absent. See [pipeline metrics](../devops/pipeline-metrics.md). |
+| DEVOPS-01 — PR CI and required review/checks | P0 | @DaeSaster (Haresco) | @myntchoc (Belen) | Repository; FE-01 scripts | [CI run #36](https://github.com/2ton-exe/moris-mix-ai/actions/runs/38912161040) passed frontend install, lint, and build. Prior branch-protection evidence is recorded in [pipeline metrics](../devops/pipeline-metrics.md); confirm current settings in GitHub. |
 | DEVOPS-02 — Workers hosting and production deployment | P0 | @DaeSaster (Haresco) | @DanielRamos1186 (Ramos), @adnro2 (Ong) | Frontend build; backend deployment inputs | Wrangler and deployment workflow files are present; a live frontend-to-API production integration is not yet verified in the metrics log. |
 | QA-01 — live UI/API/database and Gemini smoke test | P0 | @myntchoc (Belen) | @adnro2 (Ong), @DanielRamos1186 (Ramos), @KleinRheePagulongSioson (Sioson) | FE-02; BE-03; DEVOPS-02; AI-01 | Pending the integrated demo and recorded evidence. |
 | DEVOPS-03 — pipeline documentation and baseline | P0 | @DaeSaster (Haresco) | @myntchoc (Belen) | CI/deployment runs | In progress; bootstrap CI measurements are in [pipeline metrics](../devops/pipeline-metrics.md); production deployment and recovery measurements remain pending there. |
