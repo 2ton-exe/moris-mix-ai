@@ -40,6 +40,8 @@ These runs are retained as historical evidence of the initial CI setup, but they
 | :--- | :--- |
 | FE-01 PR CI duration | 20 seconds |
 | FE-01 PR CI result | Passed |
+| PR #28 / run #36 CI duration | 18 seconds |
+| PR #28 / run #36 CI result | Passed |
 | FE-01 main-branch CI duration | 16 seconds |
 | FE-01 main-branch CI result | Passed |
 | FE-01 production deployment workflow duration | 28 seconds |
@@ -49,7 +51,7 @@ These runs are retained as historical evidence of the initial CI setup, but they
 | Precise merge-to-live time | Not yet measured |
 | Recovery time | Not applicable; no production recovery event recorded |
 
-**Baseline status:** A real frontend PR CI run, main-branch CI run, and production deployment have now been observed. These are valid application-pipeline measurements, but they are not yet enough to finalize a representative Sprint 1 baseline or claim an optimization.
+**Baseline status:** Two real frontend PR CI runs, one main-branch CI run, and one production deployment have now been observed. These are valid application-pipeline measurements, but they are not yet enough to finalize a representative Sprint 1 baseline or claim an optimization.
 
 ## 3. Pipeline Run Log
 
@@ -60,6 +62,9 @@ These runs are retained as historical evidence of the initial CI setup, but they
 | FE-01 PR #21 CI | Pull request | 20s | Passed | Real frontend present; dependency installation, linting, TypeScript validation through `pnpm build`, and Vite production build executed |
 | FE-01 main CI | Push to `main` | 16s | Passed | Real frontend validation executed after PR #21 was merged |
 | FE-01 Deploy Production #3 | Push to `main` | 28s | Passed | Dependencies installed, frontend built, and assets deployed to Cloudflare Workers through Wrangler |
+| PR #28 / run #36 | Pull request | 18s | Passed | Frozen pnpm install, lint, and production build succeeded |
+
+PR #28 / run #36 provides additional frontend CI validation evidence. Production deployment is verified separately by FE-01 Deploy Production #3 and the manual production checks below.
 
 ### Verified FE-01 Execution
 
@@ -102,8 +107,8 @@ The FE-01 merge produced the first verified automated deployment of the real Rea
 Verification performed after the deployment confirmed:
 
 - the production URL served the React application rather than the original Hello World Worker
-- the production root route loaded successfully
-- the `/app` client-side route loaded successfully
+- the production root route was manually verified to load successfully
+- the `/app` client-side route was manually verified to load successfully
 - the deployment workflow's Wrangler step completed successfully
 
 ### Still Unverified
@@ -141,7 +146,7 @@ The following limitations remain relevant to Sprint 1:
 - Now that `frontend/` is required on `main`, missing frontend files should eventually fail instead of silently skipping application validation or deployment.
 - Production deployment currently starts independently from main-branch CI after a qualifying push to `main`; it does not explicitly depend on successful completion of the separate `Frontend Checks` workflow.
 - TypeScript validation runs inside `pnpm build` rather than appearing as a separately named CI step.
-- Only one representative real-frontend PR/main/deployment sequence has been recorded so far.
+- Two real-frontend PR CI runs and one main-branch CI/production deployment sequence have been recorded so far; additional comparable observations are still needed.
 - Precise merge-to-live time has not yet been measured.
 - Frontend-to-backend-to-database integration remains unverified.
 - Production rollback and recovery have not yet been tested.
@@ -155,7 +160,7 @@ The representative application baseline should be based on comparable runs in wh
 
 Current representative observations:
 
-- PR CI samples with real frontend: **1**
+- PR CI samples with real frontend: **2** (FE-01 PR #21 and PR #28 / run #36)
 - Main-branch CI samples with real frontend: **1**
 - Verified real frontend production deployments: **1**
 
