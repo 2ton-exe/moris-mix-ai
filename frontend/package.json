@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.app.json --noEmit && vite build",
+    "build": "tsc -p tsconfig.app.json --noEmit && vite build --configLoader runner",
     "preview": "vite preview",
     "lint": "eslint .",
     "type-check": "tsc -p tsconfig.app.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --configLoader runner"
   },
   "dependencies": {
     "react": "^19.0.0",

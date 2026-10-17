@@ -1,6 +1,6 @@
 export type HttpErrorKind = 'configuration' | 'http' | 'network' | 'invalid-json'
 
-// Client-side transport errors, not the pending FS-01 server error contract.
+// Transport errors keep server payloads opaque so UI code never renders raw details.
 export class HttpError extends Error {
   readonly kind: HttpErrorKind
   readonly status?: number
@@ -21,16 +21,18 @@ export class HttpError extends Error {
 
 interface HttpClientOptions {
   baseUrl?: string
+  apiKey?: string
   fetchImpl?: typeof fetch
 }
 
-export function createHttpClient({ baseUrl, fetchImpl = fetch }: HttpClientOptions = {}) {
+export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch }: HttpClientOptions = {}) {
   return {
     // Return unknown until a contract-specific adapter validates the payload.
     async getJson(path: string, { signal }: { signal?: AbortSignal } = {}): Promise<unknown> {
       let url: URL
       try {
-        if (!baseUrl?.trim() || !path.startsWith('/') || path.startsWith('//')) {
+        if (!baseUrl?.trim() || (apiKey !== undefined && !apiKey.trim()) ||
+          !path.startsWith('/') || path.startsWith('//')) {
           throw new Error('Missing base URL or invalid API path')
         }
         const base = new URL(baseUrl.trim())
@@ -49,7 +51,12 @@ export function createHttpClient({ baseUrl, fetchImpl = fetch }: HttpClientOptio
       try {
         response = await fetchImpl(url.toString(), {
           method: 'GET',
-          headers: { Accept: 'application/json' },
+          headers: {
+            Accept: 'application/json',
+            ...(apiKey === undefined ? {} : {
+              apikey: apiKey.trim(),
+            }),
+          },
           credentials: 'omit',
           signal,
         })
