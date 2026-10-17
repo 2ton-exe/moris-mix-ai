@@ -89,6 +89,377 @@ const EXPECTED_INITIAL_FUNCTIONS = [
   'handle_new_user'
 ];
 
+export function tokenizeSql(sql) {
+  if (!sql || typeof sql !== 'string') return [];
+  const tokens = [];
+  let i = 0;
+  const s = sql.trim();
+  while (i < s.length) {
+    const ch = s[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === '(' || ch === ')' || ch === ',') {
+      tokens.push({ type: ch, value: ch });
+      i++;
+      continue;
+    }
+    if (ch === '=' || ch === '<' || ch === '>' || ch === '!') {
+      let op = ch;
+      if (s[i + 1] === '=' || s[i + 1] === '>') {
+        op += s[i + 1];
+        i += 2;
+      } else {
+        i++;
+      }
+      tokens.push({ type: 'OP', value: op });
+      continue;
+    }
+    if (ch === "'") {
+      let str = "'";
+      i++;
+      while (i < s.length && s[i] !== "'") {
+        str += s[i];
+        i++;
+      }
+      if (i < s.length && s[i] === "'") {
+        str += "'";
+        i++;
+      }
+      tokens.push({ type: 'STRING', value: str });
+      continue;
+    }
+    if (/\d/.test(ch)) {
+      let num = '';
+      while (i < s.length && /\d/.test(s[i])) {
+        num += s[i];
+        i++;
+      }
+      tokens.push({ type: 'NUMBER', value: num });
+      continue;
+    }
+    if (/[a-zA-Z_]/.test(ch)) {
+      let ident = '';
+      while (i < s.length && /[a-zA-Z0-9_.]/.test(s[i])) {
+        ident += s[i];
+        i++;
+      }
+      tokens.push({ type: 'IDENT', value: ident.toLowerCase() });
+      continue;
+    }
+    tokens.push({ type: 'UNKNOWN', value: ch });
+    i++;
+  }
+  return tokens;
+}
+
+export class SqlExpressionParser {
+  constructor(tokens) {
+    this.tokens = tokens;
+    this.pos = 0;
+  }
+  peek() {
+    return this.tokens[this.pos] || null;
+  }
+  consume(type, value) {
+    const tok = this.peek();
+    if (!tok) return null;
+    if (type && tok.type !== type) return null;
+    if (value && tok.value !== value.toLowerCase()) return null;
+    this.pos++;
+    return tok;
+  }
+  parse() {
+    const expr = this.parseOr();
+    if (this.pos < this.tokens.length) {
+      return null;
+    }
+    return expr;
+  }
+  parseOr() {
+    let left = this.parseAnd();
+    if (!left) return null;
+    while (this.peek() && this.peek().type === 'IDENT' && this.peek().value === 'or') {
+      this.consume('IDENT', 'or');
+      const right = this.parseAnd();
+      if (!right) return null;
+      left = { type: 'binary', op: 'OR', left, right };
+    }
+    return left;
+  }
+  parseAnd() {
+    let left = this.parseUnary();
+    if (!left) return null;
+    while (this.peek() && this.peek().type === 'IDENT' && this.peek().value === 'and') {
+      this.consume('IDENT', 'and');
+      const right = this.parseUnary();
+      if (!right) return null;
+      left = { type: 'binary', op: 'AND', left, right };
+    }
+    return left;
+  }
+  parseUnary() {
+    if (this.peek() && this.peek().type === 'IDENT' && this.peek().value === 'not') {
+      this.consume('IDENT', 'not');
+      const expr = this.parseUnary();
+      if (!expr) return null;
+      return { type: 'unary', op: 'NOT', expr };
+    }
+    return this.parseComparison();
+  }
+  parseComparison() {
+    let left = this.parsePrimary();
+    if (!left) return null;
+    const tok = this.peek();
+    if (tok && tok.type === 'OP') {
+      this.consume('OP');
+      const right = this.parsePrimary();
+      if (!right) return null;
+      return { type: 'binary', op: tok.value, left, right };
+    }
+    if (tok && tok.type === 'IDENT' && tok.value === 'is') {
+      this.consume('IDENT', 'is');
+      let not = false;
+      if (this.peek() && this.peek().type === 'IDENT' && this.peek().value === 'not') {
+        this.consume('IDENT', 'not');
+        not = true;
+      }
+      if (this.peek() && this.peek().type === 'IDENT' && this.peek().value === 'null') {
+        this.consume('IDENT', 'null');
+        return { type: 'is_null', not, expr: left };
+      }
+      return null;
+    }
+    return left;
+  }
+  parsePrimary() {
+    const tok = this.peek();
+    if (!tok) return null;
+    if (tok.type === '(') {
+      this.consume('(');
+      const expr = this.parseOr();
+      if (!expr || !this.consume(')')) return null;
+      return expr;
+    }
+    if (tok.type === 'IDENT' && tok.value === 'exists') {
+      this.consume('IDENT', 'exists');
+      if (!this.consume('(')) return null;
+      if (!this.consume('IDENT', 'select')) return null;
+      if (!this.consume('NUMBER', '1')) return null;
+      if (!this.consume('IDENT', 'from')) return null;
+      const fromTok = this.consume('IDENT');
+      if (!fromTok) return null;
+      if (!this.consume('IDENT', 'where')) return null;
+      const whereExpr = this.parseOr();
+      if (!whereExpr) return null;
+      if (!this.consume(')')) return null;
+      const fromTable = fromTok.value.replace(/^public\./, '');
+      return { type: 'exists', from: fromTable, where: whereExpr };
+    }
+    if (tok.type === 'IDENT') {
+      this.consume('IDENT');
+      const name = tok.value.replace(/^public\./, '');
+      if (this.peek() && this.peek().type === '(') {
+        this.consume('(');
+        while (this.peek() && this.peek().type !== ')') {
+          this.parseOr();
+          if (this.peek() && this.peek().type === ',') this.consume(',');
+        }
+        if (!this.consume(')')) return null;
+        return { type: 'call', name };
+      }
+      return { type: 'ident', name };
+    }
+    if (tok.type === 'NUMBER') {
+      this.consume('NUMBER');
+      return { type: 'number', value: tok.value };
+    }
+    if (tok.type === 'STRING') {
+      this.consume('STRING');
+      return { type: 'string', value: tok.value };
+    }
+    return null;
+  }
+}
+
+export function parseAst(sql) {
+  if (!sql || typeof sql !== 'string') return null;
+  const tokens = tokenizeSql(sql);
+  const parser = new SqlExpressionParser(tokens);
+  return parser.parse();
+}
+
+function isAuthUidCall(node) {
+  return Boolean(node && node.type === 'call' && node.name === 'auth.uid');
+}
+
+function isColumnRef(node, colName, tableName) {
+  if (!node || node.type !== 'ident') return false;
+  if (node.name === colName) return true;
+  if (tableName && (node.name === `${tableName}.${colName}` || node.name === `public.${tableName}.${colName}`)) return true;
+  return false;
+}
+
+export function verifyOwnerEqualityPredicate(expr, ownerCol, tableName = null) {
+  const ast = parseAst(expr);
+  if (!ast) return false;
+  if (ast.type !== 'binary' || ast.op !== '=') return false;
+  return (
+    (isAuthUidCall(ast.left) && isColumnRef(ast.right, ownerCol, tableName)) ||
+    (isColumnRef(ast.left, ownerCol, tableName) && isAuthUidCall(ast.right))
+  );
+}
+
+function matchLineageExists(subqueryNode, expectedRecipeCol) {
+  if (!subqueryNode || subqueryNode.type !== 'exists') return false;
+  if (subqueryNode.from !== 'recipes') return false;
+  const where = subqueryNode.where;
+  if (!where || where.type !== 'binary' || where.op !== 'AND') return false;
+
+  const matchIdEquality = (node) => {
+    if (!node || node.type !== 'binary' || node.op !== '=') return false;
+    const isId = (n) => isColumnRef(n, 'id', 'recipes');
+    const isLineageRef = (n) =>
+      n &&
+      n.type === 'ident' &&
+      (n.name === expectedRecipeCol ||
+        n.name === `recipe_lineage.${expectedRecipeCol}` ||
+        n.name === `public.recipe_lineage.${expectedRecipeCol}`);
+    return (isId(node.left) && isLineageRef(node.right)) || (isLineageRef(node.left) && isId(node.right));
+  };
+
+  const matchUserEquality = (node) => {
+    if (!node || node.type !== 'binary' || node.op !== '=') return false;
+    const isUser = (n) => isColumnRef(n, 'user_id', 'recipes');
+    return (isUser(node.left) && isAuthUidCall(node.right)) || (isAuthUidCall(node.left) && isUser(node.right));
+  };
+
+  return (
+    (matchIdEquality(where.left) && matchUserEquality(where.right)) ||
+    (matchUserEquality(where.left) && matchIdEquality(where.right))
+  );
+}
+
+export function verifyLineageParentPredicate(expr) {
+  const ast = parseAst(expr);
+  if (!ast) return false;
+  return matchLineageExists(ast, 'parent_recipe_id');
+}
+
+export function verifyLineageInsertPredicate(expr) {
+  const ast = parseAst(expr);
+  if (!ast) return false;
+  if (ast.type !== 'binary' || ast.op !== 'AND') return false;
+  return (
+    (matchLineageExists(ast.left, 'parent_recipe_id') && matchLineageExists(ast.right, 'child_recipe_id')) ||
+    (matchLineageExists(ast.left, 'child_recipe_id') && matchLineageExists(ast.right, 'parent_recipe_id'))
+  );
+}
+
+const EXPECTED_INITIAL_POLICIES = [
+  {
+    table: 'profiles',
+    name: 'profiles_select_own',
+    cmd: 'SELECT',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'owner_equality',
+    ownerCol: 'id',
+    withCheckKind: null
+  },
+  {
+    table: 'profiles',
+    name: 'profiles_update_own',
+    cmd: 'UPDATE',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'owner_equality',
+    ownerCol: 'id',
+    withCheckKind: 'owner_equality'
+  },
+  {
+    table: 'recipes',
+    name: 'recipes_select_own',
+    cmd: 'SELECT',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'owner_equality',
+    ownerCol: 'user_id',
+    withCheckKind: null
+  },
+  {
+    table: 'recipes',
+    name: 'recipes_insert_own',
+    cmd: 'INSERT',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: null,
+    ownerCol: 'user_id',
+    withCheckKind: 'owner_equality'
+  },
+  {
+    table: 'recipes',
+    name: 'recipes_update_own',
+    cmd: 'UPDATE',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'owner_equality',
+    ownerCol: 'user_id',
+    withCheckKind: 'owner_equality'
+  },
+  {
+    table: 'recipes',
+    name: 'recipes_delete_own',
+    cmd: 'DELETE',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'owner_equality',
+    ownerCol: 'user_id',
+    withCheckKind: null
+  },
+  {
+    table: 'recipe_lineage',
+    name: 'lineage_select_own',
+    cmd: 'SELECT',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'lineage_parent',
+    ownerCol: null,
+    withCheckKind: null
+  },
+  {
+    table: 'recipe_lineage',
+    name: 'lineage_insert_own',
+    cmd: 'INSERT',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: null,
+    ownerCol: null,
+    withCheckKind: 'lineage_insert'
+  },
+  {
+    table: 'recipe_lineage',
+    name: 'lineage_delete_own',
+    cmd: 'DELETE',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'lineage_parent',
+    ownerCol: null,
+    withCheckKind: null
+  },
+  {
+    table: 'ai_usage_daily',
+    name: 'ai_usage_select_own',
+    cmd: 'SELECT',
+    permissive: 'PERMISSIVE',
+    roles: ['public'],
+    qualKind: 'owner_equality',
+    ownerCol: 'user_id',
+    withCheckKind: null
+  }
+];
+
 export function discoverMigrations(migrationsDir) {
   if (!fs.existsSync(migrationsDir)) {
     throw new Error(`Migrations directory not found at ${migrationsDir}`);
@@ -248,6 +619,115 @@ export async function verifyInitialSchemaCompleteness(client) {
     }
   }
 
+  const rlsQuery = await client.query(`
+    SELECT c.relname, c.relrowsecurity
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = ANY($1::text[]);
+  `, [EXPECTED_INITIAL_TABLES]);
+
+  const rlsStatus = new Map(rlsQuery.rows.map((r) => [r.relname, r.relrowsecurity]));
+
+  for (const table of EXPECTED_INITIAL_TABLES) {
+    if (!existingTables.has(table)) {
+      continue;
+    }
+    const isEnabled = rlsStatus.get(table);
+    if (!isEnabled) {
+      errors.push(`Row level security (RLS) is disabled on table public.${table}`);
+    }
+  }
+
+  const polQuery = await client.query(`
+    SELECT tablename, policyname, permissive, roles, cmd, qual, with_check
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = ANY($1::text[]);
+  `, [EXPECTED_INITIAL_TABLES]);
+
+  const actualPolicies = new Map();
+  for (const pol of polQuery.rows) {
+    const key = `${pol.tablename}.${pol.policyname}`;
+    actualPolicies.set(key, pol);
+  }
+
+  const expectedPolicyKeys = new Set();
+  for (const expected of EXPECTED_INITIAL_POLICIES) {
+    const key = `${expected.table}.${expected.name}`;
+    expectedPolicyKeys.add(key);
+    const actual = actualPolicies.get(key);
+    if (!actual) {
+      errors.push(`Missing required policy ${expected.name} on public.${expected.table}`);
+      continue;
+    }
+
+    if (actual.cmd !== expected.cmd) {
+      errors.push(`Policy ${expected.name} command mismatch: expected ${expected.cmd}, found ${actual.cmd}`);
+    }
+
+    if (actual.permissive !== expected.permissive) {
+      errors.push(`Policy ${expected.name} permissive mode mismatch: expected ${expected.permissive}, found ${actual.permissive}`);
+    }
+
+    if (expected.roles && Array.isArray(expected.roles)) {
+      const normalizeRoles = (val) => {
+        if (Array.isArray(val)) {
+          return val.map((r) => String(r).replace(/[{}]/g, '').trim()).filter(Boolean);
+        }
+        if (typeof val === 'string') {
+          return val.replace(/[{}]/g, '').split(',').map((r) => r.trim()).filter(Boolean);
+        }
+        return [];
+      };
+      const actualRoles = normalizeRoles(actual.roles);
+      const expectedSorted = [...expected.roles].map((r) => r.trim()).sort();
+      const actualSorted = [...actualRoles].sort();
+      if (expectedSorted.length !== actualSorted.length || !expectedSorted.every((r, idx) => r === actualSorted[idx])) {
+        errors.push(`Policy ${expected.name} roles mismatch: expected [${expectedSorted.join(', ')}], found [${actualSorted.join(', ')}]`);
+      }
+    }
+
+    if (expected.qualKind === 'owner_equality') {
+      if (!actual.qual) {
+        errors.push(`Policy ${expected.name} missing required USING clause`);
+      } else if (!verifyOwnerEqualityPredicate(actual.qual, expected.ownerCol, expected.table)) {
+        errors.push(`Policy ${expected.name} USING predicate does not strictly enforce owner authorization boundary (${expected.ownerCol} = auth.uid())`);
+      }
+    } else if (expected.qualKind === 'lineage_parent') {
+      if (!actual.qual) {
+        errors.push(`Policy ${expected.name} missing required USING clause`);
+      } else if (!verifyLineageParentPredicate(actual.qual)) {
+        errors.push(`Policy ${expected.name} USING predicate does not strictly enforce parent recipe owner authorization boundary`);
+      }
+    } else if (expected.qualKind === null && actual.qual) {
+      errors.push(`Policy ${expected.name} unexpectedly defines a USING clause`);
+    }
+
+    if (expected.withCheckKind === 'owner_equality') {
+      if (!actual.with_check) {
+        errors.push(`Policy ${expected.name} missing required WITH CHECK clause`);
+      } else if (!verifyOwnerEqualityPredicate(actual.with_check, expected.ownerCol, expected.table)) {
+        errors.push(`Policy ${expected.name} WITH CHECK predicate does not strictly enforce owner authorization boundary (${expected.ownerCol} = auth.uid())`);
+      }
+    } else if (expected.withCheckKind === 'lineage_insert') {
+      if (!actual.with_check) {
+        errors.push(`Policy ${expected.name} missing required WITH CHECK clause`);
+      } else if (!verifyLineageInsertPredicate(actual.with_check)) {
+        errors.push(`Policy ${expected.name} WITH CHECK predicate does not strictly enforce parent and child recipe owner authorization boundary`);
+      }
+    } else if (expected.withCheckKind === null && actual.with_check) {
+      errors.push(`Policy ${expected.name} unexpectedly defines a WITH CHECK clause`);
+    }
+  }
+
+  for (const actual of polQuery.rows) {
+    const key = `${actual.tablename}.${actual.policyname}`;
+    if (!expectedPolicyKeys.has(key)) {
+      errors.push(`Unexpected policy ${actual.policyname} on public.${actual.tablename} may weaken row level security boundaries`);
+    }
+  }
+
   if (errors.length > 0) {
     return { status: 'incomplete', errors };
   }
@@ -276,7 +756,7 @@ export async function reconcileMigrationState({
         const verification = await verifyInitialSchemaCompleteness(client);
         if (verification.status !== 'complete') {
           throw new Error(
-            `Cannot explicitly reconcile initial schema ${INITIAL_SCHEMA_VERSION}: database schema is not complete.\n` +
+            `Cannot explicitly reconcile initial schema ${INITIAL_SCHEMA_VERSION}: database schema or row-level security is not complete.\n` +
             verification.errors.map((e) => `  - ${e}`).join('\n')
           );
         }
@@ -319,12 +799,12 @@ export async function reconcileMigrationState({
         [INITIAL_SCHEMA_VERSION]
       );
       appliedVersions.add(INITIAL_SCHEMA_VERSION);
-      logger.log(`INFO: Reconciled initial schema migration ${INITIAL_SCHEMA_VERSION} from verified database state.`);
+      logger.log(`INFO: Reconciled initial schema migration ${INITIAL_SCHEMA_VERSION} from verified database state and authorization policies.`);
     } else {
       throw new Error(
         `Inconsistent database state: initial schema verification failed:\n` +
         verification.errors.map((e) => `  - ${e}`).join('\n') +
-        `\nAborting to prevent unsafe migration execution. Recovery: inspect existing database schema or perform manual repair.`
+        `\nAborting to prevent unsafe migration execution. Recovery: inspect existing database schema and RLS policies or perform manual repair.`
       );
     }
   }
@@ -359,7 +839,7 @@ export async function runMigrations({
   explicitReconcile = [],
   logger = console
 } = {}) {
-  await client.query('SELECT pg_advisory_lock($1);', [MIGRATION_LOCK_ID]);
+  await client.query(`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID});`);
   const appliedMigrations = [];
 
   try {
@@ -430,7 +910,14 @@ export async function runMigrations({
       appliedMigrations
     };
   } finally {
-    await client.query('SELECT pg_advisory_unlock($1);', [MIGRATION_LOCK_ID]);
+    try {
+      let unlocked = true;
+      while (unlocked) {
+        const { rows } = await client.query(`SELECT pg_advisory_unlock(${MIGRATION_LOCK_ID});`);
+        unlocked = rows && rows[0] && rows[0].pg_advisory_unlock === true;
+      }
+      await client.query('SELECT pg_advisory_unlock_all();');
+    } catch (_e) {}
   }
 }
 
@@ -474,7 +961,7 @@ export async function main() {
     process.exit(1);
   }
 
-  const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1';
+  const isLocalhost = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1' || parsedUrl.hostname === '::1' || parsedUrl.hostname === '[::1]';
 
   const client = new Client({
     connectionString: sanitizedConnectionString,

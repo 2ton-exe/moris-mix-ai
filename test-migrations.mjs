@@ -150,6 +150,257 @@ async function runSchemaVerificationUnitTests() {
   assert.equal(resFresh.status, 'fresh');
   assert.equal(resFresh.errors.length, 0);
 
+  const createMockClientWithCustom = ({ rlsOverrides = {}, policyOverrides = null, extraPolicies = [] } = {}) => {
+    const completeTables = [
+      { table_name: 'profiles' },
+      { table_name: 'recipes' },
+      { table_name: 'recipe_lineage' },
+      { table_name: 'ai_usage_daily' }
+    ];
+
+    const completeColumns = [
+      { table_name: 'profiles', column_name: 'id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'profiles', column_name: 'display_name', udt_name: 'text', is_nullable: 'YES' },
+      { table_name: 'profiles', column_name: 'avatar_url', udt_name: 'text', is_nullable: 'YES' },
+      { table_name: 'profiles', column_name: 'created_at', udt_name: 'timestamptz', is_nullable: 'NO' },
+      { table_name: 'profiles', column_name: 'updated_at', udt_name: 'timestamptz', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'user_id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'title', udt_name: 'text', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'raw_input', udt_name: 'text', is_nullable: 'YES' },
+      { table_name: 'recipes', column_name: 'ingredients', udt_name: 'jsonb', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'instructions', udt_name: 'jsonb', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'flavor_scores', udt_name: 'jsonb', is_nullable: 'YES' },
+      { table_name: 'recipes', column_name: 'star_rating', udt_name: 'int2', is_nullable: 'YES' },
+      { table_name: 'recipes', column_name: 'cooked_at', udt_name: 'date', is_nullable: 'YES' },
+      { table_name: 'recipes', column_name: 'image_url', udt_name: 'text', is_nullable: 'YES' },
+      { table_name: 'recipes', column_name: 'image_path', udt_name: 'text', is_nullable: 'YES' },
+      { table_name: 'recipes', column_name: 'created_at', udt_name: 'timestamptz', is_nullable: 'NO' },
+      { table_name: 'recipes', column_name: 'updated_at', udt_name: 'timestamptz', is_nullable: 'NO' },
+      { table_name: 'recipe_lineage', column_name: 'id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'recipe_lineage', column_name: 'parent_recipe_id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'recipe_lineage', column_name: 'child_recipe_id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'recipe_lineage', column_name: 'created_at', udt_name: 'timestamptz', is_nullable: 'NO' },
+      { table_name: 'ai_usage_daily', column_name: 'id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'ai_usage_daily', column_name: 'user_id', udt_name: 'uuid', is_nullable: 'NO' },
+      { table_name: 'ai_usage_daily', column_name: 'usage_date', udt_name: 'date', is_nullable: 'NO' },
+      { table_name: 'ai_usage_daily', column_name: 'operation_count', udt_name: 'int4', is_nullable: 'NO' },
+      { table_name: 'ai_usage_daily', column_name: 'created_at', udt_name: 'timestamptz', is_nullable: 'NO' },
+      { table_name: 'ai_usage_daily', column_name: 'updated_at', udt_name: 'timestamptz', is_nullable: 'NO' }
+    ];
+
+    const completeConstraints = [
+      { conname: 'profiles_pkey' },
+      { conname: 'recipes_pkey' },
+      { conname: 'recipe_lineage_pkey' },
+      { conname: 'ai_usage_daily_pkey' },
+      { conname: 'check_parent_child_distinct' },
+      { conname: 'unique_parent_child_pair' },
+      { conname: 'unique_user_daily_usage' }
+    ];
+
+    const completeIndexes = [
+      { indexname: 'idx_recipes_user_created' },
+      { indexname: 'idx_recipes_user_rating' },
+      { indexname: 'idx_lineage_parent' },
+      { indexname: 'idx_lineage_child' }
+    ];
+
+    const completeTriggers = [
+      { trigger_name: 'tr_profiles_updated_at' },
+      { trigger_name: 'tr_recipes_updated_at' },
+      { trigger_name: 'tr_ai_usage_daily_updated_at' }
+    ];
+
+    const completeFunctions = [
+      { routine_name: 'set_updated_at' },
+      { routine_name: 'handle_new_user' }
+    ];
+
+    const completeRls = [
+      { relname: 'profiles', relrowsecurity: rlsOverrides.profiles ?? true },
+      { relname: 'recipes', relrowsecurity: rlsOverrides.recipes ?? true },
+      { relname: 'recipe_lineage', relrowsecurity: rlsOverrides.recipe_lineage ?? true },
+      { relname: 'ai_usage_daily', relrowsecurity: rlsOverrides.ai_usage_daily ?? true }
+    ];
+
+    const defaultPolicies = [
+      { tablename: 'profiles', policyname: 'profiles_select_own', cmd: 'SELECT', permissive: 'PERMISSIVE', roles: ['public'], qual: '(auth.uid() = id)', with_check: null },
+      { tablename: 'profiles', policyname: 'profiles_update_own', cmd: 'UPDATE', permissive: 'PERMISSIVE', roles: ['public'], qual: '(auth.uid() = id)', with_check: '(auth.uid() = id)' },
+      { tablename: 'recipes', policyname: 'recipes_select_own', cmd: 'SELECT', permissive: 'PERMISSIVE', roles: ['public'], qual: '(auth.uid() = user_id)', with_check: null },
+      { tablename: 'recipes', policyname: 'recipes_insert_own', cmd: 'INSERT', permissive: 'PERMISSIVE', roles: ['public'], qual: null, with_check: '(auth.uid() = user_id)' },
+      { tablename: 'recipes', policyname: 'recipes_update_own', cmd: 'UPDATE', permissive: 'PERMISSIVE', roles: ['public'], qual: '(auth.uid() = user_id)', with_check: '(auth.uid() = user_id)' },
+      { tablename: 'recipes', policyname: 'recipes_delete_own', cmd: 'DELETE', permissive: 'PERMISSIVE', roles: ['public'], qual: '(auth.uid() = user_id)', with_check: null },
+      { tablename: 'recipe_lineage', policyname: 'lineage_select_own', cmd: 'SELECT', permissive: 'PERMISSIVE', roles: ['public'], qual: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = auth.uid()))', with_check: null },
+      { tablename: 'recipe_lineage', policyname: 'lineage_insert_own', cmd: 'INSERT', permissive: 'PERMISSIVE', roles: ['public'], qual: null, with_check: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = auth.uid()) AND EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.child_recipe_id AND user_id = auth.uid()))' },
+      { tablename: 'recipe_lineage', policyname: 'lineage_delete_own', cmd: 'DELETE', permissive: 'PERMISSIVE', roles: ['public'], qual: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = auth.uid()))', with_check: null },
+      { tablename: 'ai_usage_daily', policyname: 'ai_usage_select_own', cmd: 'SELECT', permissive: 'PERMISSIVE', roles: ['public'], qual: '(auth.uid() = user_id)', with_check: null }
+    ];
+
+    const actualPolicies = policyOverrides ? policyOverrides(defaultPolicies) : [...defaultPolicies, ...extraPolicies];
+
+    return {
+      query: async (sql) => {
+        if (sql.includes('information_schema.tables')) {
+          return { rows: completeTables };
+        }
+        if (sql.includes('information_schema.columns')) {
+          return { rows: completeColumns };
+        }
+        if (sql.includes('pg_constraint')) {
+          return { rows: completeConstraints };
+        }
+        if (sql.includes('pg_indexes')) {
+          return { rows: completeIndexes };
+        }
+        if (sql.includes('information_schema.triggers')) {
+          return { rows: completeTriggers };
+        }
+        if (sql.includes('information_schema.routines')) {
+          return { rows: completeFunctions };
+        }
+        if (sql.includes('pg_class')) {
+          return { rows: completeRls };
+        }
+        if (sql.includes('pg_policies')) {
+          return { rows: actualPolicies };
+        }
+        return { rows: [] };
+      }
+    };
+  };
+
+  const clientValid = createMockClientWithCustom();
+  const resValid = await verifyInitialSchemaCompleteness(clientValid);
+  assert.equal(resValid.status, 'complete');
+  assert.equal(resValid.errors.length, 0);
+
+  const clientDisabledRls = createMockClientWithCustom({ rlsOverrides: { recipes: false } });
+  const resDisabledRls = await verifyInitialSchemaCompleteness(clientDisabledRls);
+  assert.equal(resDisabledRls.status, 'incomplete');
+  assert.ok(resDisabledRls.errors.some((e) => e.includes('Row level security (RLS) is disabled on table public.recipes')));
+
+  const clientMissingPol = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.filter((p) => p.policyname !== 'recipes_select_own')
+  });
+  const resMissingPol = await verifyInitialSchemaCompleteness(clientMissingPol);
+  assert.equal(resMissingPol.status, 'incomplete');
+  assert.ok(resMissingPol.errors.some((e) => e.includes('Missing required policy recipes_select_own on public.recipes')));
+
+  const clientWeakenedUsingTokens = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_select_own' ? { ...p, qual: '((auth.uid() = user_id) OR (user_id IS NOT NULL))' } : p))
+  });
+  const resWeakenedUsingTokens = await verifyInitialSchemaCompleteness(clientWeakenedUsingTokens);
+  assert.equal(resWeakenedUsingTokens.status, 'incomplete');
+  assert.ok(resWeakenedUsingTokens.errors.some((e) => e.includes('Policy recipes_select_own USING predicate does not strictly enforce owner authorization boundary')));
+
+  const clientWeakenedUsingTrue = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_select_own' ? { ...p, qual: '((auth.uid() = user_id) OR true)' } : p))
+  });
+  const resWeakenedUsingTrue = await verifyInitialSchemaCompleteness(clientWeakenedUsingTrue);
+  assert.equal(resWeakenedUsingTrue.status, 'incomplete');
+  assert.ok(resWeakenedUsingTrue.errors.some((e) => e.includes('Policy recipes_select_own USING predicate does not strictly enforce owner authorization boundary')));
+
+  const clientWeakenedUsingNotNull = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_select_own' ? { ...p, qual: '(auth.uid() IS NOT NULL AND user_id IS NOT NULL)' } : p))
+  });
+  const resWeakenedUsingNotNull = await verifyInitialSchemaCompleteness(clientWeakenedUsingNotNull);
+  assert.equal(resWeakenedUsingNotNull.status, 'incomplete');
+  assert.ok(resWeakenedUsingNotNull.errors.some((e) => e.includes('Policy recipes_select_own USING predicate does not strictly enforce owner authorization boundary')));
+
+  const clientWeakenedCheckTokens = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_insert_own' ? { ...p, with_check: '((auth.uid() = user_id) OR true)' } : p))
+  });
+  const resWeakenedCheckTokens = await verifyInitialSchemaCompleteness(clientWeakenedCheckTokens);
+  assert.equal(resWeakenedCheckTokens.status, 'incomplete');
+  assert.ok(resWeakenedCheckTokens.errors.some((e) => e.includes('Policy recipes_insert_own WITH CHECK predicate does not strictly enforce owner authorization boundary')));
+
+  const clientWeakenedLineageParentOr = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'lineage_select_own' ? { ...p, qual: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id OR user_id = auth.uid()))' } : p))
+  });
+  const resWeakenedLineageParentOr = await verifyInitialSchemaCompleteness(clientWeakenedLineageParentOr);
+  assert.equal(resWeakenedLineageParentOr.status, 'incomplete');
+  assert.ok(resWeakenedLineageParentOr.errors.some((e) => e.includes('Policy lineage_select_own USING predicate does not strictly enforce parent recipe owner authorization boundary')));
+
+  const clientWeakenedLineageInsertOr = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'lineage_insert_own' ? { ...p, with_check: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = auth.uid()) OR EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.child_recipe_id AND user_id = auth.uid()))' } : p))
+  });
+  const resWeakenedLineageInsertOr = await verifyInitialSchemaCompleteness(clientWeakenedLineageInsertOr);
+  assert.equal(resWeakenedLineageInsertOr.status, 'incomplete');
+  assert.ok(resWeakenedLineageInsertOr.errors.some((e) => e.includes('Policy lineage_insert_own WITH CHECK predicate does not strictly enforce parent and child recipe owner authorization boundary')));
+
+  const clientWeakenedRole = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_select_own' ? { ...p, qual: "(auth.role() = 'authenticated')" } : p))
+  });
+  const resWeakenedRole = await verifyInitialSchemaCompleteness(clientWeakenedRole);
+  assert.equal(resWeakenedRole.status, 'incomplete');
+  assert.ok(resWeakenedRole.errors.some((e) => e.includes('Policy recipes_select_own USING predicate does not strictly enforce owner authorization boundary')));
+
+  const clientLineageMissingUser = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'lineage_select_own' ? { ...p, qual: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id))' } : p))
+  });
+  const resLineageMissingUser = await verifyInitialSchemaCompleteness(clientLineageMissingUser);
+  assert.equal(resLineageMissingUser.status, 'incomplete');
+  assert.ok(resLineageMissingUser.errors.some((e) => e.includes('Policy lineage_select_own USING predicate does not strictly enforce parent recipe owner authorization boundary')));
+
+  const clientLineageDuplicateChild = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'lineage_insert_own' ? { ...p, with_check: '(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.child_recipe_id AND user_id = auth.uid()) AND EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.child_recipe_id AND user_id = auth.uid()))' } : p))
+  });
+  const resLineageDuplicateChild = await verifyInitialSchemaCompleteness(clientLineageDuplicateChild);
+  assert.equal(resLineageDuplicateChild.status, 'incomplete');
+  assert.ok(resLineageDuplicateChild.errors.some((e) => e.includes('Policy lineage_insert_own WITH CHECK predicate does not strictly enforce parent and child recipe owner authorization boundary')));
+
+  const clientMissingWithCheck = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_insert_own' ? { ...p, with_check: null } : p))
+  });
+  const resMissingWithCheck = await verifyInitialSchemaCompleteness(clientMissingWithCheck);
+  assert.equal(resMissingWithCheck.status, 'incomplete');
+  assert.ok(resMissingWithCheck.errors.some((e) => e.includes('Policy recipes_insert_own missing required WITH CHECK clause')));
+
+  const clientUnexpectedQual = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_insert_own' ? { ...p, qual: '(auth.uid() = user_id)' } : p))
+  });
+  const resUnexpectedQual = await verifyInitialSchemaCompleteness(clientUnexpectedQual);
+  assert.equal(resUnexpectedQual.status, 'incomplete');
+  assert.ok(resUnexpectedQual.errors.some((e) => e.includes('Policy recipes_insert_own unexpectedly defines a USING clause')));
+
+  const clientUnexpectedWithCheck = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_delete_own' ? { ...p, with_check: '(auth.uid() = user_id)' } : p))
+  });
+  const resUnexpectedWithCheck = await verifyInitialSchemaCompleteness(clientUnexpectedWithCheck);
+  assert.equal(resUnexpectedWithCheck.status, 'incomplete');
+  assert.ok(resUnexpectedWithCheck.errors.some((e) => e.includes('Policy recipes_delete_own unexpectedly defines a WITH CHECK clause')));
+
+  const clientCmdMismatch = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_insert_own' ? { ...p, cmd: 'SELECT' } : p))
+  });
+  const resCmdMismatch = await verifyInitialSchemaCompleteness(clientCmdMismatch);
+  assert.equal(resCmdMismatch.status, 'incomplete');
+  assert.ok(resCmdMismatch.errors.some((e) => e.includes('Policy recipes_insert_own command mismatch: expected INSERT, found SELECT')));
+
+  const clientRolesMismatch = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_select_own' ? { ...p, roles: ['authenticated'] } : p))
+  });
+  const resRolesMismatch = await verifyInitialSchemaCompleteness(clientRolesMismatch);
+  assert.equal(resRolesMismatch.status, 'incomplete');
+  assert.ok(resRolesMismatch.errors.some((e) => e.includes('Policy recipes_select_own roles mismatch')));
+
+  const clientPermissiveMismatch = createMockClientWithCustom({
+    policyOverrides: (policies) => policies.map((p) => (p.policyname === 'recipes_select_own' ? { ...p, permissive: 'RESTRICTIVE' } : p))
+  });
+  const resPermissiveMismatch = await verifyInitialSchemaCompleteness(clientPermissiveMismatch);
+  assert.equal(resPermissiveMismatch.status, 'incomplete');
+  assert.ok(resPermissiveMismatch.errors.some((e) => e.includes('Policy recipes_select_own permissive mode mismatch')));
+
+  const clientUnexpectedPolicy = createMockClientWithCustom({
+    extraPolicies: [
+      { tablename: 'recipes', policyname: 'recipes_anonymous_bypass', cmd: 'SELECT', permissive: 'PERMISSIVE', roles: ['anon'], qual: 'true', with_check: null }
+    ]
+  });
+  const resUnexpected = await verifyInitialSchemaCompleteness(clientUnexpectedPolicy);
+  assert.equal(resUnexpected.status, 'incomplete');
+  assert.ok(resUnexpected.errors.some((e) => e.includes('Unexpected policy recipes_anonymous_bypass on public.recipes may weaken row level security boundaries')));
+
   const mockMigrations = [
     { version: '20261013000000', file: '20261013000000_initial_schema.sql' },
     { version: '20261017000001', file: '20261017000001_add_is_public_to_recipes.sql' }
@@ -172,9 +423,19 @@ async function runSchemaVerificationUnitTests() {
 
 async function runDatabaseLifecycleIntegrationTests() {
   const hasOptIn = process.argv.includes('--run-db-tests') || process.env.RUN_MIGRATION_DB_TESTS === 'true';
+  const isCI = process.env.CI === 'true';
+
+  if (isCI && !hasOptIn) {
+    throw new Error('CI failure: Database lifecycle integration tests must not be skipped in CI. Ensure --run-db-tests or RUN_MIGRATION_DB_TESTS=true is enabled.');
+  }
+
   if (!hasOptIn) {
     console.log('INFO: Database lifecycle integration tests skipped. Use --run-db-tests or RUN_MIGRATION_DB_TESTS=true to enable.');
     return;
+  }
+
+  if (isCI && !process.env.DATABASE_URL) {
+    throw new Error('CI failure: DATABASE_URL must be configured in CI.');
   }
 
   if (!process.env.DATABASE_URL) {
@@ -191,15 +452,29 @@ async function runDatabaseLifecycleIntegrationTests() {
     process.exit(1);
   }
 
-  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1' || parsed.hostname === '[::1]';
+  const effectivePort = parsed.port || '5432';
+  const sourceDbName = parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname;
   const allowRemote = process.argv.includes('--allow-remote') || process.env.ALLOW_REMOTE_TEST_DB === 'true';
 
+  if (isCI) {
+    if (!isLocalhost || effectivePort !== '5432' || sourceDbName !== 'postgres' || allowRemote) {
+      throw new Error(`CI target assertion failed: Database tests in CI must execute strictly against local PostgreSQL service container on port 5432 with database 'postgres' without remote overrides (expected localhost/127.0.0.1:5432/postgres, got ${parsed.hostname}:${effectivePort}/${sourceDbName})`);
+    }
+  }
+
   if (!isLocalhost && !allowRemote) {
-    console.warn('SKIP: Remote database lifecycle tests rejected. Target hostname is remote and neither --allow-remote nor ALLOW_REMOTE_TEST_DB=true is specified.');
+    console.warn(`SKIP: Remote database lifecycle tests rejected. Target hostname is remote (${parsed.hostname}) and neither --allow-remote nor ALLOW_REMOTE_TEST_DB=true is specified.`);
+    console.log('\n--- Migration Lifecycle Test Report ---');
+    console.log(`Target: ${parsed.hostname}:${effectivePort}/${sourceDbName}`);
+    console.log(`Opt-in: ${hasOptIn}`);
+    console.log('Scenarios Executed: 0');
+    console.log('Scenarios Passed: 0');
+    console.log('Skipped: true (remote database safety guard prevented execution)');
+    console.log('--------------------------------------\n');
     return;
   }
 
-  const sourceDbName = parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname;
   const testDbSuffix = `${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
   const dbName = `test_mig_suite_${testDbSuffix}`;
 
@@ -222,6 +497,8 @@ async function runDatabaseLifecycleIntegrationTests() {
   let testClient = null;
   let createdDatabase = false;
   let primaryError = null;
+  let scenariosExecuted = 0;
+  let scenariosPassed = 0;
 
   try {
     adminClient = new Client({
@@ -264,6 +541,8 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const demoRow1 = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRow1.rows[0].is_public, true);
+    scenariosExecuted++;
+    scenariosPassed++;
     console.log('PASS: Fresh database initialization applied all migrations once and recorded history.');
 
     await testClient.query('UPDATE public.recipes SET is_public = false WHERE id = \'11111111-1111-1111-1111-111111111111\';');
@@ -281,6 +560,8 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const demoRow2 = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRow2.rows[0].is_public, false);
+    scenariosExecuted++;
+    scenariosPassed++;
     console.log('PASS: Repeated migration execution skipped applied migrations and preserved demo recipe state.');
 
     await testClient.query('DELETE FROM supabase_migrations.schema_migrations WHERE version = \'20261017000001\';');
@@ -304,6 +585,8 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const demoRowAmbiguous = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowAmbiguous.rows[0].is_public, false);
+    scenariosExecuted++;
+    scenariosPassed++;
     console.log('PASS: Ambiguous legacy state halted automatic reconciliation and left data untouched.');
 
     const reconcileResult = await runMigrations({
@@ -323,6 +606,8 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const demoRowReconciled = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowReconciled.rows[0].is_public, false);
+    scenariosExecuted++;
+    scenariosPassed++;
     console.log('PASS: Explicit reconciliation recorded history without executing SQL and preserved demo recipe state.');
 
     const repeatExplicitResult = await runMigrations({
@@ -350,6 +635,139 @@ async function runDatabaseLifecycleIntegrationTests() {
       },
       /Cannot reconcile unknown migration version: 99999999999999/
     );
+
+    await testClient.query('DELETE FROM supabase_migrations.schema_migrations WHERE version = \'20261013000000\';');
+
+    await testClient.query('ALTER TABLE public.recipes DISABLE ROW LEVEL SECURITY;');
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          logger: silentLogger
+        });
+      },
+      /Row level security \(RLS\) is disabled on table public\.recipes/
+    );
+
+    const historyAfterDisabledRls = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations WHERE version = \'20261013000000\';');
+    assert.equal(historyAfterDisabledRls.rows.length, 0);
+    const demoRowDisabledRls = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
+    assert.equal(demoRowDisabledRls.rows[0].is_public, false);
+    await testClient.query('ALTER TABLE public.recipes ENABLE ROW LEVEL SECURITY;');
+    scenariosExecuted++;
+    scenariosPassed++;
+    console.log('PASS: Disabled RLS rejected initial schema reconciliation and preserved unapplied history state.');
+
+    await testClient.query('DROP POLICY "recipes_select_own" ON public.recipes;');
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          logger: silentLogger
+        });
+      },
+      /Missing required policy recipes_select_own on public\.recipes/
+    );
+
+    const historyAfterMissingPolicy = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations WHERE version = \'20261013000000\';');
+    assert.equal(historyAfterMissingPolicy.rows.length, 0);
+    scenariosExecuted++;
+    scenariosPassed++;
+    console.log('PASS: Missing owner-scoped policy rejected initial schema reconciliation.');
+
+    await testClient.query('CREATE POLICY "recipes_select_own" ON public.recipes FOR SELECT USING ((auth.uid() = user_id) OR (user_id IS NOT NULL));');
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          logger: silentLogger
+        });
+      },
+      /Policy recipes_select_own USING predicate does not strictly enforce owner authorization boundary/
+    );
+
+    const historyAfterWeakenedUsing = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations WHERE version = \'20261013000000\';');
+    assert.equal(historyAfterWeakenedUsing.rows.length, 0);
+    await testClient.query('DROP POLICY "recipes_select_own" ON public.recipes;');
+    scenariosExecuted++;
+    scenariosPassed++;
+    console.log('PASS: Weakened policy predicate containing tokens rejected initial schema reconciliation.');
+
+    await testClient.query('CREATE POLICY "recipes_select_own" ON public.recipes FOR DELETE USING (auth.uid() = user_id);');
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          logger: silentLogger
+        });
+      },
+      /Policy recipes_select_own command mismatch/
+    );
+
+    const historyAfterCommandMismatch = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations WHERE version = \'20261013000000\';');
+    assert.equal(historyAfterCommandMismatch.rows.length, 0);
+    await testClient.query('DROP POLICY "recipes_select_own" ON public.recipes;');
+    scenariosExecuted++;
+    scenariosPassed++;
+    console.log('PASS: Policy command mismatch rejected initial schema reconciliation.');
+
+    await testClient.query('CREATE POLICY "recipes_select_own" ON public.recipes FOR SELECT TO authenticated USING (auth.uid() = user_id);');
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          logger: silentLogger
+        });
+      },
+      /Policy recipes_select_own roles mismatch/
+    );
+
+    const historyAfterRolesMismatch = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations WHERE version = \'20261013000000\';');
+    assert.equal(historyAfterRolesMismatch.rows.length, 0);
+    await testClient.query('DROP POLICY "recipes_select_own" ON public.recipes;');
+    scenariosExecuted++;
+    scenariosPassed++;
+    console.log('PASS: Policy roles mismatch rejected initial schema reconciliation.');
+
+    await testClient.query('CREATE POLICY "recipes_select_own" ON public.recipes FOR SELECT USING (auth.uid() = user_id);');
+
+    const recoveredReconciliation = await runMigrations({
+      client: testClient,
+      migrationsDir,
+      seedDir,
+      isLocalhost: true,
+      shouldSeed: false,
+      logger: silentLogger
+    });
+    assert.equal(recoveredReconciliation.appliedMigrations.length, 0);
+
+    const historyRecovered = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
+    assert.deepEqual(historyRecovered.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    const demoRowRecovered = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
+    assert.equal(demoRowRecovered.rows[0].is_public, false);
+    scenariosExecuted++;
+    scenariosPassed++;
+    console.log('PASS: Complete and intact RLS policies reconciled initial schema successfully after correction.');
 
     const failureTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-failure-'));
     try {
@@ -385,10 +803,15 @@ async function runDatabaseLifecycleIntegrationTests() {
 
       const tableCheck = await testClient.query('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\' AND table_name = \'should_not_exist\';');
       assert.equal(tableCheck.rows.length, 0);
+      scenariosExecuted++;
+      scenariosPassed++;
       console.log('PASS: Transactional failure rolled back cleanly without recording migration version.');
     } finally {
       fs.rmSync(failureTempDir, { recursive: true, force: true });
     }
+
+    await testClient.end();
+    testClient = null;
 
     const concurrentClientA = new Client({ connectionString: testDbUrl, ssl: sslConfig });
     const concurrentClientB = new Client({ connectionString: testDbUrl, ssl: sslConfig });
@@ -400,6 +823,8 @@ async function runDatabaseLifecycleIntegrationTests() {
         runMigrations({ client: concurrentClientB, migrationsDir, seedDir, isLocalhost: true, shouldSeed: false, logger: silentLogger })
       ]);
       assert.equal(resA.appliedMigrations.length + resB.appliedMigrations.length, 0);
+      scenariosExecuted++;
+      scenariosPassed++;
       console.log('PASS: Advisory lock serialized concurrent migration executions safely.');
     } finally {
       await concurrentClientA.end();
@@ -428,9 +853,23 @@ async function runDatabaseLifecycleIntegrationTests() {
         },
         /Inconsistent database state: initial schema verification failed/
       );
+      scenariosExecuted++;
+      scenariosPassed++;
       console.log('PASS: Partially initialized database aborted safely without destructive recovery.');
     } finally {
       await inconsistentClient.end();
+    }
+
+    console.log('\n--- Migration Lifecycle Test Report ---');
+    console.log(`Target: ${parsed.hostname}:${effectivePort}/${sourceDbName}`);
+    console.log(`Opt-in: ${hasOptIn}`);
+    console.log(`Scenarios Executed: ${scenariosExecuted}`);
+    console.log(`Scenarios Passed: ${scenariosPassed}`);
+    console.log('Skipped: false');
+    console.log('--------------------------------------\n');
+
+    if (isCI && (scenariosExecuted !== 13 || scenariosPassed !== 13)) {
+      throw new Error(`CI failure: Expected 13 lifecycle integration scenarios to run and pass, but executed ${scenariosExecuted} (passed: ${scenariosPassed})`);
     }
   } catch (err) {
     primaryError = err;
@@ -440,7 +879,7 @@ async function runDatabaseLifecycleIntegrationTests() {
         await testClient.end();
       } catch (_e) {}
     }
-    if (createdDatabase && adminClient) {
+    if (createdDatabase && adminClient && /^test_mig_suite_\d+_\d+$/.test(dbName) && dbName !== sourceDbName) {
       try {
         await adminClient.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE);`);
         console.log(`CLEANUP: Ephemeral database ${dbName} dropped.`);
