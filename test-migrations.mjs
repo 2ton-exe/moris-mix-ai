@@ -9,6 +9,7 @@ import {
   discoverMigrations,
   initializeMigrationHistory,
   verifyInitialSchemaCompleteness,
+  verifyOwnerEqualityPredicate,
   reconcileMigrationState,
   runMigrations
 } from './run-migrations.mjs';
@@ -59,6 +60,11 @@ function runDiscoveryAndIntegrityUnitTests() {
 }
 
 async function runSchemaVerificationUnitTests() {
+  assert.equal(
+    verifyOwnerEqualityPredicate("coalesce(user_id::text, '') = auth.uid()::text OR true", 'user_id', 'recipes'),
+    false
+  );
+
   const mockClientMissingTable = {
     query: async (sql) => {
       if (sql.includes('information_schema.tables')) {

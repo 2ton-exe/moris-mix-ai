@@ -263,7 +263,8 @@ export class SqlExpressionParser {
       if (this.peek() && this.peek().type === '(') {
         this.consume('(');
         while (this.peek() && this.peek().type !== ')') {
-          this.parseOr();
+          const argumentStart = this.pos;
+          if (!this.parseOr() || this.pos === argumentStart) return null;
           if (this.peek() && this.peek().type === ',') this.consume(',');
         }
         if (!this.consume(')')) return null;
