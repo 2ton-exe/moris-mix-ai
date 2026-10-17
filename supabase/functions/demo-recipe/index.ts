@@ -5,7 +5,16 @@ import { DemoRecipeResponseSchema } from "../_shared/schemas.ts";
 const DEMO_RECIPE_ID = "11111111-1111-1111-1111-111111111111";
 const DEMO_USER_ID = "d0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f";
 
-export async function handler(req: Request): Promise<Response> {
+export type DemoRecipeHandlerDeps = {
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+  fetch?: typeof fetch;
+};
+
+export async function handler(
+  req: Request,
+  deps?: DemoRecipeHandlerDeps,
+): Promise<Response> {
   try {
     if (req.method === "OPTIONS") {
       return handleCorsPreflight();
@@ -28,8 +37,8 @@ export async function handler(req: Request): Promise<Response> {
       );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseUrl = deps?.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
+    const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       console.error("Missing required Supabase configuration");
@@ -49,7 +58,8 @@ export async function handler(req: Request): Promise<Response> {
         persistSession: false,
         autoRefreshToken: false,
         detectSessionInUrl: false
-      }
+      },
+      ...(deps?.fetch ? { global: { fetch: deps.fetch } } : {})
     });
 
     const { data, error } = await supabase
@@ -57,6 +67,7 @@ export async function handler(req: Request): Promise<Response> {
       .select("id, title, ingredients, instructions, flavor_scores, star_rating, cooked_at")
       .eq("id", DEMO_RECIPE_ID)
       .eq("user_id", DEMO_USER_ID)
+      .eq("is_public", true)
       .maybeSingle();
 
     if (error) {
@@ -72,7 +83,7 @@ export async function handler(req: Request): Promise<Response> {
       );
     }
 
-    if (!data) {
+    if (!data || data.id !== DEMO_RECIPE_ID) {
       return jsonResponse(
         {
           error: {
@@ -119,4 +130,6 @@ export async function handler(req: Request): Promise<Response> {
   }
 }
 
-Deno.serve(handler);
+if (import.meta.main) {
+  Deno.serve((req) => handler(req));
+}

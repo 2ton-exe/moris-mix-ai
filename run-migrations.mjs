@@ -69,9 +69,44 @@ async function main() {
       await client.query(mockAuthSql);
     }
 
-    const migrationPath = path.resolve(__dirname, 'supabase/migrations/20261013000000_initial_schema.sql');
-    const migrationSql = fs.readFileSync(migrationPath, 'utf8');
-    await client.query(migrationSql);
+    await client.query(`
+      CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+      CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+        version text PRIMARY KEY
+      );
+    `);
+
+    const { rows } = await client.query('SELECT version FROM supabase_migrations.schema_migrations;');
+    const appliedVersions = new Set(rows.map((row) => row.version));
+
+    const migrationsDir = path.resolve(__dirname, 'supabase/migrations');
+    const migrationFiles = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
+
+    for (const file of migrationFiles) {
+      const version = file.includes('_') ? file.split('_')[0] : file.replace(/\.sql$/, '');
+      if (appliedVersions.has(version) || appliedVersions.has(file) || appliedVersions.has(file.replace(/\.sql$/, ''))) {
+        console.log(`INFO: Skipping migration ${file} (already applied).`);
+        continue;
+      }
+
+      console.log(`Applying migration ${file}...`);
+      const migrationSql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+
+      await client.query('BEGIN');
+      try {
+        await client.query(migrationSql);
+        await client.query(
+          'INSERT INTO supabase_migrations.schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING;',
+          [version]
+        );
+        await client.query('COMMIT');
+        appliedVersions.add(version);
+        console.log(`SUCCESS: Applied migration ${file}`);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      }
+    }
     console.log('SUCCESS: Migrations applied successfully.');
 
     // Opt-in demo seeding: execute only when SEED_DEMO === 'true' or --seed CLI flag is passed
