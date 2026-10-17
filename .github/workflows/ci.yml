@@ -1,16 +1,21 @@
-
 name: CI
 
 on:
   pull_request:
     branches: [main]
+
   push:
     branches: [main]
+
+  workflow_dispatch:
 
 jobs:
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
+
+    outputs:
+      exists: ${{ steps.frontend.outputs.exists }}
 
     steps:
       - name: Checkout repository
@@ -37,7 +42,7 @@ jobs:
         if: steps.frontend.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Install dependencies
         if: steps.frontend.outputs.exists == 'true'
@@ -53,3 +58,115 @@ jobs:
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm build
+
+  test-db:
+    name: Database Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/postgres
+      RUN_MIGRATION_DB_TESTS: "true"
+      CI: "true"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify PostgreSQL readiness
+        run: |
+          node -e "
+            import('pg').then(async ({ Client }) => {
+              const url = process.env.DATABASE_URL;
+              for (let i = 0; i < 30; i++) {
+                try {
+                  const client = new Client({ connectionString: url, ssl: false, connectionTimeoutMillis: 2000 });
+                  await client.connect();
+                  await client.query('SELECT 1;');
+                  await client.end();
+                  console.log('PostgreSQL service container is ready and accepting connections.');
+                  return;
+                } catch (err) {
+                  await new Promise((r) => setTimeout(r, 1000));
+                }
+              }
+              console.error('Timed out waiting for PostgreSQL service container.');
+              process.exit(1);
+            });
+          "
+
+      - name: Run database migrations
+        run: pnpm run db:setup
+
+      - name: Run migration tests
+        run: pnpm run test:lifecycle
+
+      - name: Run RLS tests
+        run: pnpm test:db
+        
+  deploy:
+    name: Deploy to Cloudflare
+    needs: frontend
+    if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc
