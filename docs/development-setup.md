@@ -56,7 +56,7 @@ The local stack replays versioned migrations in order, then loads `supabase/seed
 
 Use `supabase db reset --local` to reproduce a clean local schema and seed. It deletes existing local database data first. Do not use the seed against production. For an approved remote schema update, preview and apply pending migrations to the linked project with `supabase db push --dry-run --linked` and `supabase db push --linked`; these commands do not include seed data by default. See Supabase's [local and remote workflow](https://supabase.com/docs/guides/local-development/cli-workflows) for command details. Never run `supabase db reset --linked` against a shared or production project.
 
-The repository also has a Node migration runner (`pnpm db:setup`) that applies SQL to the database named by `DATABASE_URL`. It is not needed for normal local setup. Do not point it at a hosted database unless you have approval to modify that exact project. The root `.env.example` contains placeholders for hosted connection settings; it is not a local Supabase URL.
+The repository also has an optional Node migration runner (`pnpm db:setup`) that applies SQL to the database named by `DATABASE_URL`. Run it from the repository root; if your terminal is still in `frontend/`, return with `cd ..` first (or use a terminal already at the root). It is not needed for normal local setup. Check that `DATABASE_URL` points to the intended database, and do not point it at a hosted database unless you have approval to modify that exact project. The root `.env.example` contains placeholders for hosted connection settings; it is not a local Supabase URL.
 
 ## Demo API
 
@@ -69,7 +69,13 @@ curl --include http://127.0.0.1:54321/functions/v1/demo-recipe \
   --header 'apikey: <local-publishable-or-anon-key>'
 ```
 
-A successful response is `200 OK` with `recipe.title` set to `Classic Tomato Scraps Pasta`. A `404` means the seeded public recipe was not found; other errors use the safe JSON error envelope documented in the API contract.
+In PowerShell, use `curl.exe` with the same URL and key:
+
+```powershell
+curl.exe --include "http://127.0.0.1:54321/functions/v1/demo-recipe" --header "apikey: <local-publishable-or-anon-key>"
+```
+
+A successful response is `200 OK` with `recipe.title` set to `Classic Tomato Scraps Pasta`. A function response with status `404` and JSON `error.code` set to `DEMO_RECIPE_NOT_FOUND` means the seeded public recipe was not found. A generic `404` may instead mean the function is not being served or the URL is incorrect; check the function-serving process and endpoint URL before resetting the database. Gateway and network failures may not use the function's JSON error envelope; see the API contract for the function error format.
 
 ## Checks
 
@@ -88,8 +94,8 @@ pnpm build
 | --- | --- |
 | `supabase start` says Docker is unavailable or a service is unhealthy | Start Docker Desktop or the configured compatible runtime, then run `supabase start` again. |
 | A local port is already in use | Run `supabase status` to see the local services, then stop an old local stack with `supabase stop` before restarting. |
-| The function URL returns 404 or the browser cannot reach it | Keep `supabase functions serve demo-recipe` running and use `http://127.0.0.1:54321` as `VITE_SUPABASE_URL`. |
-| The API returns `DEMO_RECIPE_NOT_FOUND` | Replay the local migrations and seed with `supabase db reset --local`; this deletes and rebuilds the local database. |
+| The function URL returns a generic 404 or the browser cannot reach it | Verify `supabase functions serve demo-recipe` is running and use `http://127.0.0.1:54321` as `VITE_SUPABASE_URL`. |
+| The function response has status `404` and JSON `error.code` is `DEMO_RECIPE_NOT_FOUND` | If replaying the local seed is appropriate, run `supabase db reset --local` to restore the demo data. This deletes existing local database data first. |
 | The frontend reports missing configuration | Check the `VITE_` variable names and restart Vite after editing `frontend/.env.local`. Use only a publishable/anon key in this file. |
 | The browser reports a CORS error after changing the frontend origin | The function allows all origins by default. If `ALLOWED_ORIGIN` is set for local function serving, set it to the exact frontend origin and restart the function. |
 
