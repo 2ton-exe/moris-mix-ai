@@ -1,4 +1,5 @@
 import { Link, Route, Routes } from 'react-router'
+import DemoRecipePage from './pages/DemoRecipePage'
 
 function HomePage() {
   return (
@@ -9,6 +10,7 @@ function HomePage() {
         Your React app is ready. Build a page, add a route, and make this space your own.
       </p>
       <div className="actions">
+        <Link className="button button-primary" to="/demo-recipe">Demonstration recipe</Link>
         <Link className="button button-primary" to="/about">Explore the app <span aria-hidden="true">→</span></Link>
         <a className="button button-secondary" href="https://vite.dev/guide/">Read the Vite guide</a>
       </div>
@@ -55,6 +57,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/about" element={<AboutPage />} />
+      <Route path="/demo-recipe" element={<DemoRecipePage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )
