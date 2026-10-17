@@ -255,75 +255,97 @@ export async function verifyInitialSchemaCompleteness(client) {
   return { status: 'complete', errors: [] };
 }
 
-export async function reconcileInitialSchema(client, appliedVersions, logger = console) {
-  if (appliedVersions.has(INITIAL_SCHEMA_VERSION)) {
-    return;
+export async function reconcileMigrationState({
+  client,
+  appliedVersions,
+  migrations,
+  explicitReconcile = [],
+  logger = console
+}) {
+  const discoveredVersionMap = new Map(migrations.map((m) => [m.version, m]));
+
+  if (explicitReconcile.length > 0) {
+    for (const version of explicitReconcile) {
+      if (!discoveredVersionMap.has(version)) {
+        throw new Error(
+          `Cannot reconcile unknown migration version: ${version}. Version must match a discovered migration in supabase/migrations/.`
+        );
+      }
+
+      if (version === INITIAL_SCHEMA_VERSION) {
+        const verification = await verifyInitialSchemaCompleteness(client);
+        if (verification.status !== 'complete') {
+          throw new Error(
+            `Cannot explicitly reconcile initial schema ${INITIAL_SCHEMA_VERSION}: database schema is not complete.\n` +
+            verification.errors.map((e) => `  - ${e}`).join('\n')
+          );
+        }
+      } else if (version === IS_PUBLIC_MIGRATION_VERSION) {
+        const colRes = await client.query(`
+          SELECT udt_name FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'recipes' AND column_name = 'is_public';
+        `);
+        if (colRes.rows.length === 0) {
+          throw new Error(
+            `Cannot explicitly reconcile migration ${IS_PUBLIC_MIGRATION_VERSION}: column public.recipes.is_public does not exist.`
+          );
+        }
+        if (colRes.rows[0].udt_name !== 'bool') {
+          throw new Error(
+            `Cannot explicitly reconcile migration ${IS_PUBLIC_MIGRATION_VERSION}: column public.recipes.is_public has invalid type ${colRes.rows[0].udt_name} (expected bool).`
+          );
+        }
+      }
+
+      if (!appliedVersions.has(version)) {
+        await client.query(
+          'INSERT INTO supabase_migrations.schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING;',
+          [version]
+        );
+        appliedVersions.add(version);
+        logger.log(`INFO: Explicitly reconciled migration ${version} without executing migration SQL.`);
+      }
+    }
   }
 
-  const verification = await verifyInitialSchemaCompleteness(client);
-
-  if (verification.status === 'fresh') {
-    return;
-  }
-
-  if (verification.status === 'complete') {
-    await client.query(
-      'INSERT INTO supabase_migrations.schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING;',
-      [INITIAL_SCHEMA_VERSION]
-    );
-    appliedVersions.add(INITIAL_SCHEMA_VERSION);
-    logger.log(`INFO: Reconciled initial schema migration ${INITIAL_SCHEMA_VERSION} from verified database state.`);
-    return;
-  }
-
-  throw new Error(
-    `Inconsistent database state: initial schema verification failed:\n` +
-    verification.errors.map((e) => `  - ${e}`).join('\n') +
-    `\nAborting to prevent unsafe migration execution. Recovery: inspect existing database schema or perform manual repair.`
-  );
-}
-
-export async function reconcileIsPublicMigration(client, appliedVersions, logger = console) {
-  if (appliedVersions.has(IS_PUBLIC_MIGRATION_VERSION)) {
-    return;
-  }
-
-  const res = await client.query(`
-    SELECT column_name, udt_name, is_nullable
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'recipes'
-      AND column_name = 'is_public';
-  `);
-
-  if (res.rows.length === 0) {
-    return;
-  }
-
-  const col = res.rows[0];
-  if (col.udt_name !== 'bool') {
-    throw new Error(
-      `Inconsistent database state for migration ${IS_PUBLIC_MIGRATION_VERSION}: column public.recipes.is_public exists but has unexpected type ${col.udt_name} (expected bool). Aborting to prevent data corruption.`
-    );
-  }
-
-  await client.query(
-    'INSERT INTO supabase_migrations.schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING;',
-    [IS_PUBLIC_MIGRATION_VERSION]
-  );
-  appliedVersions.add(IS_PUBLIC_MIGRATION_VERSION);
-  logger.log(`INFO: Reconciled migration ${IS_PUBLIC_MIGRATION_VERSION} (add_is_public_to_recipes) from existing column state without re-running data update.`);
-}
-
-export async function reconcileExplicitVersions(client, appliedVersions, explicitVersions = [], logger = console) {
-  for (const version of explicitVersions) {
-    if (!appliedVersions.has(version)) {
+  if (!appliedVersions.has(INITIAL_SCHEMA_VERSION)) {
+    const verification = await verifyInitialSchemaCompleteness(client);
+    if (verification.status === 'fresh') {
+      return;
+    }
+    if (verification.status === 'complete') {
       await client.query(
         'INSERT INTO supabase_migrations.schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING;',
-        [version]
+        [INITIAL_SCHEMA_VERSION]
       );
-      appliedVersions.add(version);
-      logger.log(`INFO: Explicitly reconciled migration version ${version}.`);
+      appliedVersions.add(INITIAL_SCHEMA_VERSION);
+      logger.log(`INFO: Reconciled initial schema migration ${INITIAL_SCHEMA_VERSION} from verified database state.`);
+    } else {
+      throw new Error(
+        `Inconsistent database state: initial schema verification failed:\n` +
+        verification.errors.map((e) => `  - ${e}`).join('\n') +
+        `\nAborting to prevent unsafe migration execution. Recovery: inspect existing database schema or perform manual repair.`
+      );
+    }
+  }
+
+  if (!appliedVersions.has(IS_PUBLIC_MIGRATION_VERSION)) {
+    const colRes = await client.query(`
+      SELECT column_name, udt_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'recipes'
+        AND column_name = 'is_public';
+    `);
+
+    if (colRes.rows.length > 0) {
+      throw new Error(
+        `Ambiguous database state for migration ${IS_PUBLIC_MIGRATION_VERSION} (add_is_public_to_recipes): ` +
+        `column public.recipes.is_public already exists, but its migration history is missing. ` +
+        `Automatic reconciliation cannot establish whether previous migration operations completed. ` +
+        `Aborting to prevent accidental data modification. ` +
+        `Recovery: run 'node run-migrations.mjs --reconcile ${IS_PUBLIC_MIGRATION_VERSION}' to explicitly record this migration without re-executing SQL.`
+      );
     }
   }
 }
@@ -352,12 +374,13 @@ export async function runMigrations({
     const migrations = discoverMigrations(migrationsDir);
     const appliedVersions = await initializeMigrationHistory(client);
 
-    if (explicitReconcile && explicitReconcile.length > 0) {
-      await reconcileExplicitVersions(client, appliedVersions, explicitReconcile, logger);
-    }
-
-    await reconcileInitialSchema(client, appliedVersions, logger);
-    await reconcileIsPublicMigration(client, appliedVersions, logger);
+    await reconcileMigrationState({
+      client,
+      appliedVersions,
+      migrations,
+      explicitReconcile,
+      logger
+    });
 
     for (const migration of migrations) {
       if (appliedVersions.has(migration.version)) {
@@ -459,9 +482,17 @@ export async function main() {
   });
 
   const explicitReconcile = [];
-  const reconcileIdx = process.argv.indexOf('--reconcile');
-  if (reconcileIdx !== -1 && process.argv[reconcileIdx + 1]) {
-    explicitReconcile.push(...process.argv[reconcileIdx + 1].split(',').map((v) => v.trim()).filter(Boolean));
+  for (let i = 0; i < process.argv.length; i++) {
+    if (process.argv[i] === '--reconcile' && process.argv[i + 1]) {
+      const candidates = process.argv[i + 1].split(',').map((v) => v.trim()).filter(Boolean);
+      for (const cand of candidates) {
+        if (!/^\d+$/.test(cand)) {
+          console.error(`Invalid reconciliation version: ${cand}. Version must be numeric.`);
+          process.exit(1);
+        }
+        explicitReconcile.push(cand);
+      }
+    }
   }
 
   try {

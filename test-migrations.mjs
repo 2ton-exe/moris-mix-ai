@@ -9,9 +9,7 @@ import {
   discoverMigrations,
   initializeMigrationHistory,
   verifyInitialSchemaCompleteness,
-  reconcileInitialSchema,
-  reconcileIsPublicMigration,
-  reconcileExplicitVersions,
+  reconcileMigrationState,
   runMigrations
 } from './run-migrations.mjs';
 
@@ -152,18 +150,22 @@ async function runSchemaVerificationUnitTests() {
   assert.equal(resFresh.status, 'fresh');
   assert.equal(resFresh.errors.length, 0);
 
-  const appliedSet = new Set();
-  const mockClientReconcile = {
-    query: async (sql, params) => {
-      if (sql.includes('INSERT INTO supabase_migrations.schema_migrations')) {
-        appliedSet.add(params[0]);
-      }
-      return { rows: [] };
-    }
-  };
-  await reconcileExplicitVersions(mockClientReconcile, appliedSet, ['20261013000000', '20261017000001'], silentLogger);
-  assert.ok(appliedSet.has('20261013000000'));
-  assert.ok(appliedSet.has('20261017000001'));
+  const mockMigrations = [
+    { version: '20261013000000', file: '20261013000000_initial_schema.sql' },
+    { version: '20261017000001', file: '20261017000001_add_is_public_to_recipes.sql' }
+  ];
+  await assert.rejects(
+    async () => {
+      await reconcileMigrationState({
+        client: mockClientFresh,
+        appliedVersions: new Set(),
+        migrations: mockMigrations,
+        explicitReconcile: ['99999999999999'],
+        logger: silentLogger
+      });
+    },
+    /Cannot reconcile unknown migration version: 99999999999999/
+  );
 
   console.log('PASS: Schema completeness verification and unit assertions verified.');
 }
@@ -281,9 +283,28 @@ async function runDatabaseLifecycleIntegrationTests() {
     assert.equal(demoRow2.rows[0].is_public, false);
     console.log('PASS: Repeated migration execution skipped applied migrations and preserved demo recipe state.');
 
-    await testClient.query('DELETE FROM supabase_migrations.schema_migrations;');
-    const emptyHistory = await testClient.query('SELECT count(*) FROM supabase_migrations.schema_migrations;');
-    assert.equal(Number(emptyHistory.rows[0].count), 0);
+    await testClient.query('DELETE FROM supabase_migrations.schema_migrations WHERE version = \'20261017000001\';');
+
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          logger: silentLogger
+        });
+      },
+      /Ambiguous database state for migration 20261017000001/
+    );
+
+    const historyAfterAmbiguous = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations WHERE version = \'20261017000001\';');
+    assert.equal(historyAfterAmbiguous.rows.length, 0);
+
+    const demoRowAmbiguous = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
+    assert.equal(demoRowAmbiguous.rows[0].is_public, false);
+    console.log('PASS: Ambiguous legacy state halted automatic reconciliation and left data untouched.');
 
     const reconcileResult = await runMigrations({
       client: testClient,
@@ -291,17 +312,44 @@ async function runDatabaseLifecycleIntegrationTests() {
       seedDir,
       isLocalhost: true,
       shouldSeed: false,
+      explicitReconcile: ['20261017000001'],
       logger: silentLogger
     });
 
     assert.equal(reconcileResult.appliedMigrations.length, 0);
 
-    const reconciledHistory = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(reconciledHistory.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    const historyAfterExplicit = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
+    assert.deepEqual(historyAfterExplicit.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
 
     const demoRowReconciled = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowReconciled.rows[0].is_public, false);
-    console.log('PASS: Reconciled missing migration history safely without rerunning SQL and preserved demo recipe state.');
+    console.log('PASS: Explicit reconciliation recorded history without executing SQL and preserved demo recipe state.');
+
+    const repeatExplicitResult = await runMigrations({
+      client: testClient,
+      migrationsDir,
+      seedDir,
+      isLocalhost: true,
+      shouldSeed: false,
+      explicitReconcile: ['20261017000001'],
+      logger: silentLogger
+    });
+    assert.equal(repeatExplicitResult.appliedMigrations.length, 0);
+
+    await assert.rejects(
+      async () => {
+        await runMigrations({
+          client: testClient,
+          migrationsDir,
+          seedDir,
+          isLocalhost: true,
+          shouldSeed: false,
+          explicitReconcile: ['99999999999999'],
+          logger: silentLogger
+        });
+      },
+      /Cannot reconcile unknown migration version: 99999999999999/
+    );
 
     const failureTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-failure-'));
     try {
