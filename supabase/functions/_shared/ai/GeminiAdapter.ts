@@ -1,16 +1,17 @@
 import { AIProvider, ExtractRecipeInput, ExtractedRecipe, GenerateRecipeInput, GeneratedRecipe } from "./AIProvider.ts";
-import { GoogleGenAI } from "npm:@google/genai@2.29.1";
+import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 
 export class GeminiAdapter implements AIProvider {
-  private ai: GoogleGenAI;
+  private ai: GoogleGenerativeAI;
   private modelName: string;
 
+  // We now accept optional overrides for testing!
   constructor(config?: { apiKey?: string; modelName?: string }) {
     const apiKey = config?.apiKey || Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) throw new Error("GEMINI_API_KEY is missing!");
 
-    this.ai = new GoogleGenAI({ apiKey });
-    this.modelName = config?.modelName || Deno.env.get("AI_MODEL") || "gemini-3.8-flash";
+    this.ai = new GoogleGenerativeAI(apiKey);
+    this.modelName = config?.modelName || Deno.env.get("AI_MODEL") || "gemini-1.5-flash";
   }
 
   extractRecipe(_input: ExtractRecipeInput): Promise<ExtractedRecipe> {
@@ -22,13 +23,8 @@ export class GeminiAdapter implements AIProvider {
   }
 
   async testConnection(): Promise<string> {
-    const interaction = await this.ai.interactions.create({
-      model: this.modelName,
-      input: "Respond with exactly: 'Gemini backend connectivity successful.'",
-      store: false,
-    });
-    const response = interaction.output_text?.trim();
-    if (!response) throw new Error("Gemini connectivity check returned no text output.");
-    return response;
+    const model = this.ai.getGenerativeModel({ model: this.modelName });
+    const result = await model.generateContent("Respond with exactly: 'Gemini backend connectivity successful.'");
+    return result.response.text();
   }
 }

@@ -64,7 +64,16 @@ Target days were blank in the supplied plan, so they remain unassigned here. Sta
 
 - Opened the [production frontend](https://moris-mix-ai.diofelgwenharesco.workers.dev). It rendered “Demonstration recipe” and “Classic Tomato Scraps Pasta”. The browser loaded data from the Supabase Edge Function.
 - A direct `GET https://gtbwblxskctpsqhbpebg.supabase.co/functions/v1/demo-recipe` returned `200 OK` with `Content-Type: application/json` and `Cache-Control: public, max-age=60, s-maxage=300`.
-- The Edge Function's database query filters `recipes` by the approved demo ID, owner ID, and `is_public = true`. The successful response confirms the production query can read the expected row and the runtime schema/seed state required by `20261017000001_add_is_public_to_recipes.sql` is present. The connected Supabase account does not have access to this project, so its migration-history ledger could not be read independently.
+- The Edge Function's database query filters `recipes` by the approved demo ID, owner ID, and `is_public = true`. The successful response confirms the production query can read the expected row and the runtime schema/seed state required by `20261017000001_add_is_public_to_recipes.sql` is present.
+- A read-only query of the production `supabase_migrations.schema_migrations` ledger on 2026-10-17 returned versions `20261013000000` and `20261017000001`. The latter matches `20261017000001_add_is_public_to_recipes.sql`, confirming that migration is recorded as applied.
+
+```sql
+SELECT version
+FROM supabase_migrations.schema_migrations
+ORDER BY version;
+```
+
+The ledger table exposes a `version` column only, so the migration version was checked directly.
 
 Sample response:
 
@@ -98,10 +107,10 @@ Sample response:
 
 ### Gemini and project board
 
-- The earlier Gemini model-list request returned `200`. The migrated Interactions API smoke test returned `404 NOT_FOUND` for the configured `gemini-3.8-flash-lite` model; retrying with the supported `gemini-3.8-flash` model returned `403 PERMISSION_DENIED` (`Your project has been denied access`). Generation is not verified; no API key was recorded.
+- The Gemini model-list request returned `200`, but one minimal `generateContent` request to `gemini-flash-latest` returned `403 PERMISSION_DENIED`. Connectivity is not confirmed for generation; no API key was recorded.
 - The linked [repository Projects view](https://github.com/2ton-exe/moris-mix-ai/projects) showed no projects (`Open (0)`, `Closed (0)`), so there was no Sprint 1 board state to verify.
 
-**QA-01 status:** Partial. The production browser → Edge Function → PostgreSQL path passed. Gemini generation remains blocked, the production migration ledger could not be inspected, and the linked repository has no project board.
+**QA-01 status:** Partial. The production browser → Edge Function → PostgreSQL path passed, and the migration ledger records the `is_public` migration as applied. Gemini generation remains blocked, and the linked repository has no project board.
 
 ## Implementation dependencies
 

@@ -137,20 +137,19 @@ After the gated deployment, `https://moris-mix-ai.diofelgwenharesco.workers.dev`
 
 ### QA-01 Smoke Check — 2026-10-17
 
-The production browser loaded the demo recipe through the Supabase Edge Function, and a direct request returned `200 OK` with the seeded PostgreSQL row. The response, CI/PR evidence, Gemini result, and migration-ledger limitation are recorded in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
+The production browser loaded the demo recipe through the Supabase Edge Function, and a direct request returned `200 OK` with the seeded PostgreSQL row. The response, CI/PR evidence, Gemini result, and applied migration version are recorded in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
 ### Still Unverified
 
 The following are **not** yet claimed as verified:
 
-- Gemini Interactions API generation (the configured model returned `404 NOT_FOUND`; a supported model returned `403 PERMISSION_DENIED` because the project was denied access)
-- direct inspection of the production migration-history ledger
+- Gemini `generateContent` (the smoke request returned `403 PERMISSION_DENIED`)
 - exact merge-to-live time measured from merge event to confirmed production availability
 - production rollback behavior
 - recovery time after a failed production deployment
 - Sprint 1 project-board state (the linked repository Projects view contains no projects)
 
-The production frontend deployment and browser → API → PostgreSQL demo read path are verified. Gemini generation, migration-ledger inspection, project-board state, and recovery remain open.
+The production frontend deployment and browser → API → PostgreSQL demo read path are verified. Gemini generation, project-board state, and recovery remain open.
 
 ## 5. Branch Protection and Quality Gates
 
@@ -177,7 +176,7 @@ The following limitations remain relevant to Sprint 1:
 - TypeScript validation runs inside `pnpm build` rather than appearing as a separately named CI step.
 - Two real-frontend PR CI runs and two main-pipeline/deployment observations are recorded; additional comparable observations are still needed.
 - Precise merge-to-live time has not yet been measured.
-- The UI/API/PostgreSQL demo read path passed on 2026-10-17; Gemini generation returned `403 PERMISSION_DENIED`, and production migration-ledger access remains unavailable.
+- The UI/API/PostgreSQL demo read path passed on 2026-10-17, and the production migration ledger records `20261017000001` as applied; Gemini generation returned `403 PERMISSION_DENIED`.
 - Production rollback and recovery have not yet been tested.
 - The configured Wrangler version should be reviewed separately because the deployment run reported it as outdated.
 

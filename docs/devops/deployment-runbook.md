@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1  
-**Status:** Frontend CI, gated automated production deployment, and production UI/API/PostgreSQL smoke check verified; Gemini generation and production migration-ledger access remain pending
+**Status:** Frontend CI, gated automated production deployment, production UI/API/PostgreSQL smoke check, and production migration-ledger entry verified; Gemini generation remains pending
 
 ## 1. Purpose
 
@@ -153,7 +153,7 @@ The production root route was verified to serve the Mori's Scraps React applicat
 
 The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully. On 2026-10-17, the production UI loaded the demo recipe through the Supabase Edge Function, and a direct endpoint request returned the seeded PostgreSQL row with `200 OK`. Full response and qualification notes are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
-The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. The production migration ledger was not directly accessible, and Gemini generation returned `403 PERMISSION_DENIED`; both remain unverified.
+The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). Gemini generation returned `403 PERMISSION_DENIED` and remains unverified.
 
 ## 8. Deployment Credentials
 
@@ -352,8 +352,8 @@ The following limitations or pending items remain:
 - Automated Cloudflare frontend deployment has been verified.
 - Production routing has been manually verified.
 - The production Supabase Edge Function and PostgreSQL demo-row read passed the 2026-10-17 smoke check; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
-- Gemini Interactions API generation returned `403 PERMISSION_DENIED` with a supported model; backend AI generation is not verified. The configured model also returned `404 NOT_FOUND`.
-- The production migration-history ledger could not be read through the connected Supabase account, although the required runtime schema and demo-row state were confirmed by the successful query.
+- Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
+- The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
 - Supabase backend and database deployment procedures are not handled by the current frontend Cloudflare deployment workflow.
 - Production rollback and recovery procedures have not yet been tested.
@@ -390,4 +390,4 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 
 The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
-Sprint 1 delivery tracking remains open for Gemini generation verification, direct inspection of the production migration ledger, and completion of the representative pipeline baseline.
+Sprint 1 delivery tracking remains open for Gemini generation verification and completion of the representative pipeline baseline.
