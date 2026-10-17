@@ -352,7 +352,7 @@ The following limitations or pending items remain:
 - Automated Cloudflare frontend deployment has been verified.
 - Production routing has been manually verified.
 - The production Supabase Edge Function and PostgreSQL demo-row read passed the 2026-10-17 smoke check; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
-- Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
+- Gemini Interactions API generation returned `403 PERMISSION_DENIED` with a supported model; backend AI generation is not verified. The configured model also returned `404 NOT_FOUND`.
 - The production migration-history ledger could not be read through the connected Supabase account, although the required runtime schema and demo-row state were confirmed by the successful query.
 - The linked repository Projects page has no project board, so board status could not be verified.
 - Supabase backend and database deployment procedures are not handled by the current frontend Cloudflare deployment workflow.

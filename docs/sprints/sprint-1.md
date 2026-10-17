@@ -98,7 +98,7 @@ Sample response:
 
 ### Gemini and project board
 
-- The Gemini model-list request returned `200`, but one minimal `generateContent` request to `gemini-flash-latest` returned `403 PERMISSION_DENIED`. Connectivity is not confirmed for generation; no API key was recorded.
+- The earlier Gemini model-list request returned `200`. The migrated Interactions API smoke test returned `404 NOT_FOUND` for the configured `gemini-3.8-flash-lite` model; retrying with the supported `gemini-3.8-flash` model returned `403 PERMISSION_DENIED` (`Your project has been denied access`). Generation is not verified; no API key was recorded.
 - The linked [repository Projects view](https://github.com/2ton-exe/moris-mix-ai/projects) showed no projects (`Open (0)`, `Closed (0)`), so there was no Sprint 1 board state to verify.
 
 **QA-01 status:** Partial. The production browser → Edge Function → PostgreSQL path passed. Gemini generation remains blocked, the production migration ledger could not be inspected, and the linked repository has no project board.

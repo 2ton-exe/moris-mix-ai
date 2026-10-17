@@ -143,7 +143,7 @@ The production browser loaded the demo recipe through the Supabase Edge Function
 
 The following are **not** yet claimed as verified:
 
-- Gemini `generateContent` (the smoke request returned `403 PERMISSION_DENIED`)
+- Gemini Interactions API generation (the configured model returned `404 NOT_FOUND`; a supported model returned `403 PERMISSION_DENIED` because the project was denied access)
 - direct inspection of the production migration-history ledger
 - exact merge-to-live time measured from merge event to confirmed production availability
 - production rollback behavior
