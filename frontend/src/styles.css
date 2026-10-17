@@ -50,6 +50,24 @@ footer { margin-top: auto; padding-top: 76px; color: #a1a8b0; font: 11px ui-mono
 footer span { padding: 0 7px; color: #c1c6cc; }
 code { padding: 2px 5px; border-radius: 4px; background: #eceff2; font-size: .9em; }
 
+button.button { border: 0; font-family: inherit; cursor: pointer; }
+.button:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
+.request-state { width: 100%; margin: 24px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.request-error { padding: 20px; border: 1px solid #e1e5e9; border-radius: 10px; background: #fff; }
+.request-error p { margin: 0 0 16px; }
+.recipe { width: 100%; max-width: 620px; }
+.recipe h2 { margin: 8px 0 28px; font-size: clamp(25px, 4vw, 34px); letter-spacing: -.03em; }
+.recipe section { margin-top: 28px; }
+.recipe h3 { margin: 0 0 12px; font-size: 17px; }
+.recipe ul, .recipe ol { margin: 0; padding-left: 26px; line-height: 1.8; }
+.recipe li { padding-left: 3px; }
+.recipe section p, .recipe-meta { color: #697383; line-height: 1.7; }
+.flavor-scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin: 0; }
+.flavor-scores div { padding: 12px; border: 1px solid #e1e5e9; border-radius: 8px; background: #fff; }
+.flavor-scores dt { text-transform: capitalize; color: #697383; }
+.flavor-scores dd { margin: 4px 0 0; font-weight: 700; }
+.recipe-meta { margin-top: 28px; }
+
 @media (max-width: 540px) {
   .page-shell { width: min(100% - 36px, 780px); padding-top: 92px; }
   .intro { font-size: 14px; }
