@@ -44,8 +44,21 @@ bundled loader cannot resolve config paths in this Windows workspace sandbox.
 
 ## Production verification still needed
 
-Set the deployed Supabase project URL and its public anon key in the frontend
-build environment, and ensure BE-03 is deployed with the demo seed and the
+For the production workflow, configure these GitHub Actions repository variables
+under **Settings → Secrets and variables → Actions → Variables**:
+
+- `VITE_SUPABASE_URL`: the deployed Supabase project origin.
+- `VITE_SUPABASE_PUBLISHABLE_KEY`: the project's public publishable key. If using
+  a legacy public anon JWT instead, set `VITE_SUPABASE_ANON_KEY` and leave the
+  publishable key variable unset. The publishable key takes precedence when both
+  are set.
+
+The deployment job checks for the URL and one public key before building. These
+values are embedded in the browser bundle, so never use a service-role key or
+another private credential. The existing `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` remain GitHub Actions secrets.
+
+Ensure BE-03 is deployed with the demo seed and the
 approved frontend origin in CORS. Then verify in a browser that `/demo-recipe`
 loads the PostgreSQL-backed response, that the request uses GET and public
 headers, and that blocked network access and backend errors show a retryable
