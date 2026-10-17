@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco  
 **Sprint:** 1\
-**Status:** Initial bootstrap measurements preserved; real frontend CI, gated main deployment, and production frontend verified; representative Sprint 1 baseline still in progress
+**Status:** Initial bootstrap measurements preserved; real frontend CI, gated main deployment, production frontend, and UI/API/PostgreSQL integration verified; representative Sprint 1 baseline still in progress
 
 ## 1. Pipeline Overview
 
@@ -112,7 +112,7 @@ Main CI run #48 (GitHub Actions ID `38928750840`) succeeded at merge commit `8f8
 
 Deployment started after Frontend Checks completed, verifying CI-to-production gating on main. The deployment job successfully executed checkout, pnpm setup, Node setup, dependency installation, frontend build, and Cloudflare Wrangler deployment.
 
-The production URL was manually opened after run #48 and the React frontend loaded successfully. This does not verify backend integration or recovery.
+The production URL was manually opened after run #48 and the React frontend loaded successfully. That check verified frontend delivery only; the live API/PostgreSQL path was smoke-tested separately on 2026-10-17. Recovery remains unverified.
 
 ## 4. Production Verification
 
@@ -135,17 +135,21 @@ Verification performed after the deployment confirmed:
 
 After the gated deployment, `https://moris-mix-ai.diofelgwenharesco.workers.dev` was manually opened and the React frontend loaded successfully. The `/app` route checks above remain historical FE-01 evidence.
 
+### QA-01 Smoke Check — 2026-10-17
+
+The production browser loaded the demo recipe through the Supabase Edge Function, and a direct request returned `200 OK` with the seeded PostgreSQL row. The response, CI/PR evidence, Gemini result, and applied migration version are recorded in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
+
 ### Still Unverified
 
 The following are **not** yet claimed as verified:
 
-- frontend communication with the Supabase Edge Function
-- deployed browser → API → PostgreSQL data retrieval
+- Gemini `generateContent` (the smoke request returned `403 PERMISSION_DENIED`)
 - exact merge-to-live time measured from merge event to confirmed production availability
 - production rollback behavior
 - recovery time after a failed production deployment
+- Sprint 1 project-board state (the linked repository Projects view contains no projects)
 
-The production frontend deployment is therefore verified, while the complete application integration and recovery path remain pending.
+The production frontend deployment and browser → API → PostgreSQL demo read path are verified. Gemini generation, project-board state, and recovery remain open.
 
 ## 5. Branch Protection and Quality Gates
 
@@ -172,7 +176,7 @@ The following limitations remain relevant to Sprint 1:
 - TypeScript validation runs inside `pnpm build` rather than appearing as a separately named CI step.
 - Two real-frontend PR CI runs and two main-pipeline/deployment observations are recorded; additional comparable observations are still needed.
 - Precise merge-to-live time has not yet been measured.
-- Frontend-to-backend-to-database integration remains unverified.
+- The UI/API/PostgreSQL demo read path passed on 2026-10-17, and the production migration ledger records `20261017000001` as applied; Gemini generation returned `403 PERMISSION_DENIED`.
 - Production rollback and recovery have not yet been tested.
 - The configured Wrangler version should be reviewed separately because the deployment run reported it as outdated.
 
@@ -233,6 +237,6 @@ The project now has verified evidence that:
 - Wrangler can deploy the built React frontend to Cloudflare Workers
 - the deployed frontend can be reached through the production URL
 
-However, the metrics baseline is **not finalized**. Full Sprint 1 delivery verification still requires the deployed browser → Edge Function → PostgreSQL path, and representative pipeline averages require additional comparable observations.
+However, the metrics baseline is **not finalized**. The deployed browser → Edge Function → PostgreSQL path passed its QA-01 smoke check on 2026-10-17; representative pipeline averages still require additional comparable observations.
 
 Rollback and recovery remain documented procedures rather than tested capabilities.

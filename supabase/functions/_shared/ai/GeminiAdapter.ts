@@ -9,9 +9,9 @@ export class GeminiAdapter implements AIProvider {
   constructor(config?: { apiKey?: string; modelName?: string }) {
     const apiKey = config?.apiKey || Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) throw new Error("GEMINI_API_KEY is missing!");
-    
+
     this.ai = new GoogleGenerativeAI(apiKey);
-    this.modelName = config?.modelName || Deno.env.get("AI_MODEL") || "gemini-1.5-flash"; 
+    this.modelName = config?.modelName || Deno.env.get("AI_MODEL") || "gemini-1.5-flash";
   }
 
   extractRecipe(_input: ExtractRecipeInput): Promise<ExtractedRecipe> {

@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1  
-**Status:** Frontend CI and gated automated production deployment verified; frontend-to-backend-to-database integration pending verification
+**Status:** Frontend CI, gated automated production deployment, production UI/API/PostgreSQL smoke check, and production migration-ledger entry verified; Gemini generation remains pending
 
 ## 1. Purpose
 
@@ -151,9 +151,9 @@ The React/Vite frontend is deployed through GitHub Actions to Cloudflare Workers
 
 The production root route was verified to serve the Mori's Scraps React application.
 
-The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully.
+The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully. On 2026-10-17, the production UI loaded the demo recipe through the Supabase Edge Function, and a direct endpoint request returned the seeded PostgreSQL row with `200 OK`. Full response and qualification notes are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
-Full frontend-to-backend-to-database integration remains pending verification.
+The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). Gemini generation returned `403 PERMISSION_DENIED` and remains unverified.
 
 ## 8. Deployment Credentials
 
@@ -251,8 +251,8 @@ Historical FE-01 checks and the additional run #48 evidence establish the follow
 - [x] Wrangler deployment step executes.
 - [x] Production URL serves the React application instead of the original Hello World Worker.
 - [x] Main application routes load correctly.
-- [ ] Frontend can communicate with the designated Supabase Edge Function.
-- [ ] The deployed integration can retrieve the expected demonstration data.
+- [x] Frontend can communicate with the designated Supabase Edge Function (production smoke check, 2026-10-17).
+- [x] The deployed integration retrieves the expected demonstration data from PostgreSQL (production smoke check, 2026-10-17).
 - [ ] Representative deployment duration and merge-to-live measurements are recorded in the Sprint 1 metrics baseline.
 
 Checks must only be marked complete after actual execution and verification.
@@ -351,8 +351,10 @@ The following limitations or pending items remain:
 - Frontend CI has been verified against the real FE-01 application.
 - Automated Cloudflare frontend deployment has been verified.
 - Production routing has been manually verified.
-- Frontend-to-Supabase Edge Function communication remains unverified.
-- Browser-to-API-to-database demonstration-data retrieval remains unverified.
+- The production Supabase Edge Function and PostgreSQL demo-row read passed the 2026-10-17 smoke check; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
+- Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
+- The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
+- The linked repository Projects page has no project board, so board status could not be verified.
 - Supabase backend and database deployment procedures are not handled by the current frontend Cloudflare deployment workflow.
 - Production rollback and recovery procedures have not yet been tested.
 - The representative Sprint 1 pipeline metrics baseline still needs to be completed.
@@ -382,10 +384,10 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 - [x] Wrangler successfully uploads the production frontend assets.
 - [x] Production URL serves the React application.
 - [x] Client-side application routing works in production.
-- [ ] Deployed frontend-to-backend-to-database integration is verified.
+- [x] Deployed frontend-to-backend-to-database integration is verified by the 2026-10-17 smoke check.
 - [ ] Representative Sprint 1 pipeline and deployment measurements are recorded.
 - [ ] Sprint 1 baseline metrics are finalized.
 
-The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified.
+The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
-Full Sprint 1 delivery verification remains open until the deployed browser-to-API-to-database path is available and successfully tested, and the representative pipeline baseline is completed.
+Sprint 1 delivery tracking remains open for Gemini generation verification and completion of the representative pipeline baseline.

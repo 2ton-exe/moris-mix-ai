@@ -52,9 +52,65 @@ Target days were blank in the supplied plan, so they remain unassigned here. Sta
 | AI-01 — AIProvider and controlled Gemini test | P0 | @KleinRheePagulongSioson (Sioson) | @DanielRamos1186 (Ramos) | Gemini key; Supabase access | AI adapter and connectivity-test source are present; live result/evidence is not recorded here. |
 | DEVOPS-01 — PR CI and required review/checks | P0 | @DaeSaster (Haresco) | @myntchoc (Belen) | Repository; FE-01 scripts | [CI run #36](https://github.com/2ton-exe/moris-mix-ai/actions/runs/38912161040) passed frontend install, lint, and build. Prior branch-protection evidence is recorded in [pipeline metrics](../devops/pipeline-metrics.md); confirm current settings in GitHub. |
 | DEVOPS-02 — Workers hosting and production deployment | P0 | @DaeSaster (Haresco) | @DanielRamos1186 (Ramos), @adnro2 (Ong) | Frontend build; backend deployment inputs | Wrangler and deployment workflow files are present; a live frontend-to-API production integration is not yet verified in the metrics log. |
-| QA-01 — live UI/API/database and Gemini smoke test | P0 | @myntchoc (Belen) | @adnro2 (Ong), @DanielRamos1186 (Ramos), @KleinRheePagulongSioson (Sioson) | FE-02; BE-03; DEVOPS-02; AI-01 | Pending the integrated demo and recorded evidence. |
+| QA-01 — live UI/API/database and Gemini smoke test | P0 | @myntchoc (Belen) | @adnro2 (Ong), @DanielRamos1186 (Ramos), @KleinRheePagulongSioson (Sioson) | FE-02; BE-03; DEVOPS-02; AI-01 | Pending at log start; production UI/API/PostgreSQL path passed 2026-10-17, while Gemini generation was denied (HTTP 403). See the dated record below. |
 | DEVOPS-03 — pipeline documentation and baseline | P0 | @DaeSaster (Haresco) | @myntchoc (Belen) | CI/deployment runs | In progress; bootstrap CI measurements are in [pipeline metrics](../devops/pipeline-metrics.md); production deployment and recovery measurements remain pending there. |
 | DOC-02 — setup, seed, API notes, and troubleshooting | P1 | @myntchoc (Belen) | @DanielRamos1186 (Ramos), @DaeSaster (Haresco) | Working demo; finalized environment | Planned after the runnable demo, as stated in the task dependency. |
+
+## QA-01 smoke-test record 2026-10-17
+
+**Checked:** 2026-10-17 (Asia/Manila)
+
+### Production UI, API, and database
+
+- Opened the [production frontend](https://moris-mix-ai.diofelgwenharesco.workers.dev). It rendered “Demonstration recipe” and “Classic Tomato Scraps Pasta”. The browser loaded data from the Supabase Edge Function.
+- A direct `GET https://gtbwblxskctpsqhbpebg.supabase.co/functions/v1/demo-recipe` returned `200 OK` with `Content-Type: application/json` and `Cache-Control: public, max-age=60, s-maxage=300`.
+- The Edge Function's database query filters `recipes` by the approved demo ID, owner ID, and `is_public = true`. The successful response confirms the production query can read the expected row and the runtime schema/seed state required by `20261017000001_add_is_public_to_recipes.sql` is present.
+- A read-only query of the production `supabase_migrations.schema_migrations` ledger on 2026-10-17 returned versions `20261013000000` and `20261017000001`. The latter matches `20261017000001_add_is_public_to_recipes.sql`, confirming that migration is recorded as applied.
+
+```sql
+SELECT version
+FROM supabase_migrations.schema_migrations
+ORDER BY version;
+```
+
+The ledger table exposes a `version` column only, so the migration version was checked directly.
+
+Sample response:
+
+```json
+{
+  "recipe": {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "title": "Classic Tomato Scraps Pasta",
+    "ingredients": [
+      { "name": "spaghetti", "quantity": 200, "unit": "g", "inferred": false },
+      { "name": "tomato paste", "quantity": 2, "unit": "tbsp", "inferred": false },
+      { "name": "garlic", "quantity": 2, "unit": "cloves", "inferred": false },
+      { "name": "Fresh basil", "quantity": null, "unit": null, "inferred": false }
+    ],
+    "instructions": [
+      { "step": 1, "text": "Boil pasta in salted water." },
+      { "step": 2, "text": "Saute minced garlic and tomato paste." },
+      { "step": 3, "text": "Toss pasta with sauce and torn basil." }
+    ],
+    "flavor_scores": { "sweet": 2, "salty": 3, "sour": 3, "bitter": 1, "umami": 4, "spicy": 0 },
+    "star_rating": 4,
+    "cooked_at": "2026-10-14"
+  }
+}
+```
+
+### CI and reviewed PR evidence
+
+- [PR #31](https://github.com/2ton-exe/moris-mix-ai/pull/31) was approved by @myntchoc on 2026-10-16 15:59:55 UTC and merged as `8f8e0d8456acf3589184c082bfc9f94375c23e67`.
+- [Main CI run #48](https://github.com/2ton-exe/moris-mix-ai/actions/runs/38928750840) completed successfully on that merge. Both `Frontend Checks` and `Deploy to Cloudflare` succeeded.
+
+### Gemini and project board
+
+- The Gemini model-list request returned `200`, but one minimal `generateContent` request to `gemini-flash-latest` returned `403 PERMISSION_DENIED`. Connectivity is not confirmed for generation; no API key was recorded.
+- The linked [repository Projects view](https://github.com/2ton-exe/moris-mix-ai/projects) showed no projects (`Open (0)`, `Closed (0)`), so there was no Sprint 1 board state to verify.
+
+**QA-01 status:** Partial. The production browser → Edge Function → PostgreSQL path passed, and the migration ledger records the `is_public` migration as applied. Gemini generation remains blocked, and the linked repository has no project board.
 
 ## Implementation dependencies
 
