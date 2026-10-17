@@ -72,12 +72,14 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/postgres
+      RUN_MIGRATION_DB_TESTS: "true"
+      CI: "true"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -96,8 +98,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify PostgreSQL readiness
+        run: |
+          node -e "
+            import('pg').then(async ({ Client }) => {
+              const url = process.env.DATABASE_URL;
+              for (let i = 0; i < 30; i++) {
+                try {
+                  const client = new Client({ connectionString: url, ssl: false, connectionTimeoutMillis: 2000 });
+                  await client.connect();
+                  await client.query('SELECT 1;');
+                  await client.end();
+                  console.log('PostgreSQL service container is ready and accepting connections.');
+                  return;
+                } catch (err) {
+                  await new Promise((r) => setTimeout(r, 1000));
+                }
+              }
+              console.error('Timed out waiting for PostgreSQL service container.');
+              process.exit(1);
+            });
+          "
+
       - name: Run database migrations
         run: pnpm run db:setup
+
+      - name: Run migration tests
+        run: pnpm run test:lifecycle
 
       - name: Run RLS tests
         run: pnpm test:db

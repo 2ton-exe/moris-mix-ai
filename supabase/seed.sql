@@ -33,7 +33,8 @@ insert into public.recipes (
     instructions,
     flavor_scores,
     star_rating,
-    cooked_at
+    cooked_at,
+    is_public
 ) values (
     '11111111-1111-1111-1111-111111111111',
     'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f',
@@ -43,7 +44,8 @@ insert into public.recipes (
     '[{"step": 1, "text": "Boil pasta in salted water."}, {"step": 2, "text": "Saute minced garlic and tomato paste."}, {"step": 3, "text": "Toss pasta with sauce and torn basil."}]'::jsonb,
     '{"sweet": 2, "salty": 3, "sour": 3, "bitter": 1, "umami": 4, "spicy": 0}'::jsonb,
     4,
-    current_date - interval '2 days'
+    current_date - interval '2 days',
+    true
 ),
 (
     '22222222-2222-2222-2222-222222222222',
@@ -54,7 +56,8 @@ insert into public.recipes (
     '[{"step": 1, "text": "Simmer sauce with parmesan rind for depth."}, {"step": 2, "text": "Add chili flakes."}, {"step": 3, "text": "Combine with spaghetti."}]'::jsonb,
     '{"sweet": 2, "salty": 4, "sour": 3, "bitter": 1, "umami": 5, "spicy": 4}'::jsonb,
     5,
-    current_date
+    current_date,
+    false
 ) on conflict (id) do nothing;
 
 insert into public.recipe_lineage (

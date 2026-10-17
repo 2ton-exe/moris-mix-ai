@@ -32,3 +32,20 @@ export const ExtractedRecipeSchema = z.object({
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.optional()
 });
+
+export const DemoRecipeSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  ingredients: z.array(IngredientSchema),
+  instructions: z.array(InstructionSchema),
+  flavor_scores: FlavorScoreSchema.nullable(),
+  star_rating: z.number().int().min(1).max(5).nullable(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()
+});
+
+export const DemoRecipeResponseSchema = z.object({
+  recipe: DemoRecipeSchema
+});
+
+export type DemoRecipe = z.infer<typeof DemoRecipeSchema>;
+export type DemoRecipeResponse = z.infer<typeof DemoRecipeResponseSchema>;
