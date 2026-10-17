@@ -4,17 +4,11 @@ An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton
 
 ## Project Setup
 
-The CI workflow uses Node.js 24 and pnpm 10. The React/Vite frontend is under `frontend/`. From the repository root, install dependencies and start the development server with:
+See the [local development and troubleshooting guide](docs/development-setup.md) for frontend setup, the local Supabase stack, migrations and demo seed, and the demo API. It uses local-only credentials and does not require real Supabase or Gemini secrets.
 
-```sh
-cd frontend
-pnpm install --frozen-lockfile
-pnpm dev
-```
+The CI workflow uses Node.js 24 and pnpm 10. The React/Vite frontend is under `frontend/`, and Supabase Edge Function source is under `supabase/functions/`.
 
-Supabase Edge Function source is under `supabase/functions/`.
-
-For local frontend development, copy only the `VITE_` entries from `.env.example` to `frontend/.env.local`. Configure the backend entries in the local Supabase Edge Function environment. Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
+Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to the browser.
 
 ## Team Roles
 
