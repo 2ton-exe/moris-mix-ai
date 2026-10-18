@@ -134,6 +134,24 @@ jobs:
       - name: Run RLS tests
         run: pnpm test:db
         
+  test-edge-api:
+    name: Edge/API Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.7"
+
+      - name: Type-check Edge Function and tests
+        run: deno check --node-modules-dir=auto supabase/functions/demo-recipe/index.ts supabase/functions/tests/demo_recipe_test.ts
+
+      - name: Run deterministic Edge/API tests
+        run: deno test --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts
+
   deploy:
     name: Deploy to Cloudflare
     needs: frontend
