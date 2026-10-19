@@ -3,7 +3,7 @@ import { ExtractedRecipe } from "./AIProvider.ts";
 export const MOCK_EXTRACTED_RECIPE: ExtractedRecipe = {
   title: "Garlic Soy Chicken",
   ingredients: [
-    { name: "chicken", quantity: null, unit: null, quantityText: "some old", inferred: true },
+    { name: "chicken", quantity: null, unit: null, quantityText: "some", inferred: true },
     { name: "soy sauce", quantity: null, unit: null, quantityText: "a splash", inferred: true },
     { name: "garlic", quantity: 2, unit: "cloves", quantityText: undefined, inferred: false }
   ],
