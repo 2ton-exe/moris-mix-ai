@@ -264,7 +264,7 @@ The successful three-job gating path is verified by main run #90. The failed-req
 Historical FE-01 checks, run #48, the 2026-10-17 smoke check, and main run #90 establish the following:
 
 - [x] GitHub Actions deployment completes successfully.
-- [x] Main deployment waits for successful Frontend Checks (run #48).
+- [x] Historical frontend-only deployment gate verified: main deployment waited for successful Frontend Checks (run #48).
 - [x] Successful runtime execution of the three-job deployment gate is verified by main run #90.
 - [ ] Experimentally verify that a failed required validation prevents production deployment from running; this path is configured but unverified.
 - [x] Frontend installation step executes.
