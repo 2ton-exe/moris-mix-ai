@@ -51,6 +51,23 @@ footer span { padding: 0 7px; color: #c1c6cc; }
 code { padding: 2px 5px; border-radius: 4px; background: #eceff2; font-size: .9em; }
 
 button.button { border: 0; font-family: inherit; cursor: pointer; }
+.button:disabled { cursor: wait; opacity: .65; transform: none; }
+a:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
+.auth-shell { max-width: 520px; padding-top: clamp(48px, 10vh, 96px); }
+.auth-shell h1 { font-size: clamp(36px, 6vw, 52px); }
+.auth-form { width: 100%; margin-top: 28px; }
+.auth-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.auth-field { margin-bottom: 20px; }
+.auth-field label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
+.auth-field input { width: 100%; min-width: 0; min-height: 48px; border: 1px solid #a1a8b0; border-radius: 8px; padding: 10px 12px; background: #fff; color: #202631; font: inherit; }
+.auth-field input[aria-invalid="true"] { border-color: #a02c34; }
+.input-row { display: flex; align-items: center; gap: 10px; }
+.password-toggle { flex: none; min-height: 44px; padding: 8px; border: 1px solid #a1a8b0; border-radius: 8px; background: #fff; color: #26394c; cursor: pointer; font: inherit; }
+.field-hint { margin: 0 0 8px; color: #67717f; font-size: 13px; line-height: 1.6; }
+.field-error { color: #a02c34; font-size: 14px; line-height: 1.6; }
+.auth-links { font-size: 14px; line-height: 1.6; }
+.auth-links a { text-decoration: underline; text-underline-offset: 3px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .button:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
 .request-state { width: 100%; margin: 24px 0; line-height: 1.6; overflow-wrap: anywhere; }
 .request-error { padding: 20px; border: 1px solid #e1e5e9; border-radius: 10px; background: #fff; }

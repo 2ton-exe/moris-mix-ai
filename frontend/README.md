@@ -1,4 +1,17 @@
-# FE-02 demo recipe frontend
+# Mori's Mix frontend
+
+FE-03 adds login, signup, email verification, session handling, and a protected
+`/app` journal entry. Open `/home` and select **Your cooking journal**, or go to
+`/login` directly. See the [authentication setup and FS-02 handoff](../docs/frontend/authentication.md)
+for callback allowlist requirements, session interfaces, route ownership, and
+the remaining live verification steps. The public FE-02 demo stays available
+without authentication.
+
+Session initialization offers retry and public demo navigation after a
+15-second deadline. Verification status reflects the current callback's SDK
+result, and callback credentials are removed from the URL on success, failure,
+or timeout. If logout clears this browser session but server revocation fails,
+the login page displays a dismissible notice.
 
 Opening `/` redirects to `/demo-recipe`; the previous starter page remains at
 `/home`. The `/demo-recipe` page requests `GET /functions/v1/demo-recipe` from the configured
