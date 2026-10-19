@@ -154,7 +154,10 @@ jobs:
 
   deploy:
     name: Deploy to Cloudflare
-    needs: frontend
+    needs:
+      - frontend
+      - test-db
+      - test-edge-api
     if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
