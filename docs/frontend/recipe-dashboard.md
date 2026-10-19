@@ -8,6 +8,83 @@ Query hooks, account cache isolation, and an explicit development preview.
 shows a service-unavailable message; it does not present an empty collection or
 substitute sample recipes for server data.
 
+## BE-06 dependency update — October 19, 2026
+
+Ramos has confirmed that **BE-06 implementation has not started and its API
+contracts are not finalized**. The following is coordination information only;
+it does not authorize a live adapter or establish a request/response contract.
+
+| Operation / boundary | Current information | Still required before integration |
+| --- | --- | --- |
+| Recipe list | Provisional `GET /recipes` | Final deployed URL/function prefix, query parameters, ordering/pagination, success envelope and item schema |
+| Recipe detail | Route pattern pending | Method/path, ID rules, success schema, optional fields and missing/foreign-resource behavior |
+| Recipe updates/rating | PATCH contract pending | Separate dependency for later mutations; no FE-04 write implementation |
+| Recipe deletion | DELETE contract pending | Separate dependency for later mutations; no FE-04 delete implementation |
+| Authentication and ownership | Private endpoints will require Bearer JWT; backend will enforce ownership and PostgreSQL RLS | Published authorization/error behavior and backend tests demonstrating ownership enforcement |
+| Validation and errors | Shared Zod validation and consistent error responses are planned | Concrete browser-compatible schema exports, response examples, status/code mapping and error envelope |
+
+Do not turn the provisional list hint into a fetch URL, infer a detail route,
+guess an array/envelope shape, or treat database/demo schemas as private API
+contracts. No temporary REST adapter is added. The existing dashboard, detail
+screens, hooks, account cache isolation and tests remain intact. Synthetic
+fixtures remain confined to tests and the explicitly enabled development
+preview. Production continues to use the unavailable adapter; it never falls
+back to mock recipes after a failed request.
+
+**Ramos / BE-06 must supply:**
+
+1. A finalized, versioned read/list/detail contract: deployed paths and prefixes,
+   ID rules, list parameters and pagination semantics, successful JSON examples,
+   required/nullable/optional metadata, and any related/lineage DTOs.
+2. Shared Zod validators/types for successful and failed responses, usable by
+   the browser build without Deno-only imports. Confirm the status/error-code
+   policy for missing/expired authentication, forbidden access, missing recipes,
+   validation failures, throttling and server failures; no envelope is assumed.
+3. Deployed authenticated endpoints and frontend CORS support, including the
+   Authorization header. Verify that every list/detail operation derives its
+   owner from the JWT and enforces ownership/RLS, including guessed recipe IDs.
+   The frontend's `userId` is only expected-session context, never proof of access.
+
+**Belen / FS-02 must supply:**
+
+The submission review fetched newly published FS-02 transport work on
+`codex/fs-02-session-jwt` at `d0c1a03`, with
+[PR #65](https://github.com/2ton-exe/moris-mix-ai/pull/65). Its transport exposes
+`getAuthenticatedJson(path, { userId, signal })`, resolves the current Auth
+session per request, checks expiry/account identity, and forwards cancellation.
+This is available for review, but has not been merged into this FE-04 branch or
+wired to a finalized recipe contract. Earlier absence findings in this document
+describe the original FE-04 inspection. No new transport validation or live
+integration is claimed by this documentation update.
+
+1. The authenticated REST client interface/configuration, acquiring the current
+   SDK-managed session for every request and handling refresh, missing/expired
+   sessions and authorization failures. Do not capture a token once, hardcode a
+   JWT, add privileged credentials, or duplicate FE-03's auth state/refresh logic.
+2. Expected-account checks after asynchronous session retrieval, AbortSignal
+   propagation through fetch, and safe normalized HTTP/network/contract errors.
+   An old request must not clear a newer session or publish its data into a new
+   account's cache. Preserve the anonymous public demo's existing behavior.
+3. A coordinated mapping from the finalized BE-06 response validators to the
+   existing `RecipeSource.list/detail` frontend interfaces. Include list filters
+   or cursors in query keys if required by the final contract; do not flatten an
+   unknown paginated response into a purported complete collection.
+
+Once both dependencies are ready, validate `unknown` responses with the agreed
+schemas and wire the real adapter through the existing source boundary. Verify
+real list/detail/empty states, token refresh and expiry, account switching,
+logout, cancellation/late results, malformed responses, safe error handling and
+two-user ownership isolation. Only then claim live REST integration; deployed
+acceptance remains a separate verification step. No backend, FE-05 or FE-06
+functionality is part of this dependency update.
+
+**Status remains: frontend implemented and validated; live REST integration
+blocked by BE-06 and FS-02 integration.** The validation results below are the prior FE-04
+implementation results, not new live API evidence. This update changes only
+the handoff document and does not require rerunning unchanged frontend tests.
+
+## Branch dependency
+
 Inspection on October 19, 2026 found a clean working tree on
 `feat/FE-03-authentication-ui` at `c6fcc85`. After fetching origin, `origin/main`
 was still `cbf31cc`, without FE-03. FE-04 therefore uses the explicitly stacked
