@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -38,8 +38,20 @@ function session(userId = 'cook-1', accessToken = 'fresh-access-token', expiresA
   return { user: { id: userId }, access_token: accessToken, expires_at: expiresAt }
 }
 
+function IntegrationAuthProvider({ initialState, children }: { initialState: AuthState; children: ReactNode }) {
+  const [state, setState] = useState(initialState)
+  const value: AuthState = {
+    ...state,
+    logout: async () => {
+      await state.logout()
+      setState((current) => ({ ...current, user: null, session: null, isAuthenticated: false }))
+    },
+  }
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
 function ProtectedRequestPage({ signal }: { signal: AbortSignal }) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [result, setResult] = useState('')
   const [error, setError] = useState<Error | null>(null)
   const showRequestResult = (request: Promise<unknown>) => {
@@ -62,6 +74,7 @@ function ProtectedRequestPage({ signal }: { signal: AbortSignal }) {
         userId: user?.id ?? '', signal,
       }))
     }}>Save protected data</button>
+    <button onClick={() => { void logout() }}>Sign out</button>
     <output aria-label="Request result">{result}</output>
     {error && <RecipeErrorComponent error={error} onRetry={() => {}} />}
   </main>
@@ -93,14 +106,14 @@ afterEach(async () => {
 
 function renderRequest(signal = new AbortController().signal, state = authState()) {
   return render(<MemoryRouter initialEntries={['/app']}>
-    <AuthContext.Provider value={state}>
+    <IntegrationAuthProvider initialState={state}>
       <Routes>
         <Route element={<ProtectedRoute />}>
           <Route path="/app" element={<ProtectedRequestPage signal={signal} />} />
         </Route>
         <Route path="/login" element={<h1>Sign in</h1>} />
       </Routes>
-    </AuthContext.Provider>
+    </IntegrationAuthProvider>
   </MemoryRouter>)
 }
 
@@ -109,6 +122,22 @@ it('redirects unauthenticated visits through the shared route guard without requ
 
   expect(screen.getByRole('heading', { name: 'Sign in' })).toBeTruthy()
   expect(sessionProvider.getSession).not.toHaveBeenCalled()
+  expect(fetchImpl).not.toHaveBeenCalled()
+})
+
+it('redirects after sign-out and blocks the next authenticated request', async () => {
+  const state = authState()
+  state.logout = vi.fn(async () => {
+    sessionProvider.getSession.mockResolvedValue({ data: { session: null }, error: null })
+  })
+  renderRequest(new AbortController().signal, state)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+  expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeTruthy()
+  expect(state.logout).toHaveBeenCalledOnce()
+
+  await expect(apiClient.getAuthenticatedJson('/integration-test-resource', { userId: 'cook-1' }))
+    .rejects.toMatchObject({ status: 401 })
   expect(fetchImpl).not.toHaveBeenCalled()
 })
 
