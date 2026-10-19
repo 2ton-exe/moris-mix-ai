@@ -4,9 +4,11 @@
 
 FE-04 provides the protected dashboard, detail screen, reusable cards, TanStack
 Query hooks, account cache isolation, and an explicit development preview.
-**Live REST integration is blocked by BE-06 and FS-02.** Normal application mode
-shows a service-unavailable message; it does not present an empty collection or
-substitute sample recipes for server data.
+The shared REST client now supports authenticated GET and POST requests using a
+freshly checked SDK session for each request. **Production recipe-source
+integration remains blocked by BE-06's missing endpoint contract.** The
+production source stays unavailable; normal application mode shows a
+service-unavailable message rather than an empty collection or sample recipes.
 
 ## BE-06 dependency update — October 19, 2026
 
@@ -111,7 +113,7 @@ change the requested stacked PR base. FE-04 is tracked in
 | FE-02 / FS-01 | Public `GET /functions/v1/demo-recipe`, `createHttpClient`, `HttpError`, validated demo DTO, shared JSON fixture |
 | FE-03 | `AuthProvider`, `useAuth`, `AuthReady`, `ProtectedRoute`, singleton Auth-only SDK client, journal landing/logout |
 | BE-06 | No authenticated recipe list/detail Edge Functions, GET contracts, or published branch in fetched refs |
-| FS-02 | No authenticated REST client; current FE-02 transport has public `apikey` only and no Bearer-token integration |
+| FS-02 | Shared client supports authenticated GET/POST, per-request SDK session validation, Bearer and public `apikey` headers, cancellation, and safe errors; not yet connected to the recipe source |
 | Shared schemas | `_shared/ai/schemas.ts` defines ingredient, instruction, flavor, extraction and demo Zod shapes using Deno imports; no BE-06 list/detail schema |
 | TanStack Query | Previously absent; FE-04 adds `@tanstack/react-query` 5 and one provider for the protected application |
 | Tests | Existing Vitest/jsdom, Testing Library, mocked HTTP and real-SDK auth regressions reused |
@@ -119,7 +121,9 @@ change the requested stacked PR base. FE-04 is tracked in
 Database columns are not REST contracts. `recipes` has rating/cooked date and
 nullable flavor data, but no notes column; lineage has a separate table. FE-04
 does not infer a private response envelope or query PostgreSQL from the browser.
-Existing FE-02 and Auth transport code is unchanged.
+The recipe source and query integration remain unchanged and unavailable; the
+shared transport now provides the authenticated request capability they can use
+once BE-06 publishes its contract.
 
 ## Routes and screens
 
@@ -170,10 +174,12 @@ Integration work still required:
   and error behavior, browser-compatible DTO/schema source, deployed endpoints
   and CORS configuration. [BE-06 #48](https://github.com/2ton-exe/moris-mix-ai/issues/48)
   remains open with no linked implementation or contract in its comments.
-- **Belen / FS-02:** supply the current-session Bearer-token REST client,
-  cancellation and normalized errors, plus auth/client integration tests.
-  [FS-02 #53](https://github.com/2ton-exe/moris-mix-ai/issues/53) remains open with
-  no published branch, implementation PR or contract in its comments.
+- **Belen / FS-02:** the shared client now supplies fresh-session authenticated
+  GET/POST requests, cancellation, safe errors, and auth/client integration
+  tests. Keep the production recipe source unavailable until BE-06 provides its
+  endpoint and response contract. [FS-02 #53](https://github.com/2ton-exe/moris-mix-ai/issues/53)
+  remains open; the implementation is under review in
+  [PR #65](https://github.com/2ton-exe/moris-mix-ai/pull/65).
 - Potential overlap is `App.tsx` and the query-provider placement. Reuse the
   FE-03 AuthProvider and guards, keep a single QueryClientProvider for the
   protected app, and compose FS-02 routes in that tree. Resolve route edits with
@@ -187,10 +193,11 @@ Integration work still required:
    `await getAuthClient().getSession()` outside React. Check errors, null/expired
    sessions and that its user matches the request's expected user **after** any
    asynchronous refresh. Do not send a request for an obsolete account.
-3. FS-02 must attach the current Bearer token and handle expiry/refresh safely.
-   Never capture a module-level token or add independent auth storage/refresh.
-   Do not blindly retry 401/403 or clear a newer account's session because an
-   older request failed. The anonymous demo must retain its public behavior.
+3. The shared authenticated methods attach the current Bearer token and validate
+   expiry and user identity after the SDK session lookup. Never capture a
+   module-level token or add independent auth storage/refresh. Do not blindly
+   retry 401/403 or clear a newer account's session because an older request
+   failed. The anonymous demo must retain its public behavior.
 4. Pass TanStack Query's `signal` through FS-02 to fetch. Preserve the existing
    `HttpError` status/kind behavior (or normalize FS-02 errors at the adapter).
    Network, 408, 429 and 5xx errors may retry; auth, missing recipe,

@@ -72,16 +72,17 @@ authoritative for stronger project password policy.
 ## Belen: FS-02 integration
 
 - Reuse `ProtectedRoute`, `GuestRoute`, and `AuthReady`; avoid parallel route guards.
-- Use the current `session.access_token` inside the provider tree. For REST calls
-  outside React, `await getAuthClient().getSession()` supplies the SDK-managed
-  current session, including refresh. Handle its error/null result before making
-  authenticated requests. Do not capture a token once at module initialization.
-- FS-02 owns adding the user's Bearer token to the existing REST client and its
-  handling of backend 401 responses. FE-03 adds no interceptor or token headers.
+- The shared REST client now supports authenticated GET and POST requests. Each
+  request calls `await getAuthClient().getSession()`, rejects lookup errors,
+  missing or expired sessions and a session for a different expected user, then
+  sends the current Bearer token and public API key. It passes cancellation
+  through to fetch and keeps transport errors safe. Do not capture a token once
+  at module initialization or add independent auth storage/refresh.
+- The production recipe source remains unavailable until BE-06 supplies its
+  endpoint and response contract. FE-03 continues to own session lifecycle and
+  route guards; the public demo remains anonymous.
 - Keep the anonymous FE-02 demo request behavior. Application data must continue
   through Edge Functions. Frontend guards provide UX, never backend authorization.
-- The inspection found no FS-02 code, published branch, or open integration PR.
-  Unpublished teammate changes still need coordination during review.
 
 ## Ramos: required Supabase configuration and live verification
 
@@ -208,7 +209,8 @@ have automated regression coverage. No unresolved confirmed implementation
 defects from that review remain. The environment-dependent live verification gap
 remains Medium until Ramos confirms configuration and the live smoke checks.
 The entry-bundle warning remains a Low performance follow-up. Belen still needs
-to review the shared guards/session interface and own FS-02 Bearer-token wiring.
+to review the shared guards/session interface and verify the eventual recipe
+source integration against BE-06's contract.
 
 FE-03 is ready for code review when local checks pass. Full live acceptance still
 requires the configuration and smoke checks above, plus Belen's review. This
