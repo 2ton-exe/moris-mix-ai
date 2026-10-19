@@ -33,7 +33,7 @@ The Cloudflare workflow does not deploy Supabase Edge Functions or the database.
 
 ## 2. Preliminary Sprint 1 Comparable Baseline
 
-These samples reflect the earlier two-job validation workload, before Edge/API validation (PR #41) and the all-checks deployment gate (PR #43). They remain a historical preliminary baseline, not measurements of the current three-job workflow. PR workflow durations and main/deployment workflow durations are tracked separately because their workloads differ. They are workflow durations, not precise merge-to-live measurements or individual deployment-job durations.
+The historical samples below reflect the earlier two-job validation workload, before Edge/API validation (PR #41) and the all-checks deployment gate (PR #43). They remain a historical preliminary baseline, not measurements of the current three-job workflow. PR workflow durations and main/deployment workflow durations are tracked separately because their workloads differ. They are workflow durations, not precise merge-to-live measurements or individual deployment-job durations.
 
 ### PR Workflow Observations
 
@@ -81,6 +81,21 @@ This two-run sample is preliminary and too small to establish a stable long-term
 | Application/API request recovery | Verified separately; this is not deployment recovery |
 
 The total Sprint 1 production deployment count has not been fully enumerated.
+
+### Preliminary Current Three-Job Workflow Sample
+
+These current-workflow observations are recorded separately from the historical two-job baseline. Approximate workflow durations are calculated from the supplied creation and completion timestamps; they are not individual job durations or precise merge-to-live measurements.
+
+| Run | Workflow scope | Created (UTC) | Completed (UTC) | Approx. duration | Result |
+| :--- | :--- | :--- | :--- | ---: | :--- |
+| #91 | PR, three-job validation | 2026-10-19T10:08:53Z | 2026-10-19T10:09:30Z | 37s | Success |
+| #92 | PR, three-job validation | 2026-10-19T10:45:23Z | 2026-10-19T10:46:05Z | 42s | Success |
+| #90 | Main/deployment, three-job gate | 2026-10-19T07:04:59Z | 2026-10-19T07:06:04Z | 65s | Success |
+
+- PR sample: **2** runs (#91 and #92); preliminary mean = (37 + 42) / 2 = **39.5s**; observed success rate = **2/2**.
+- Main/deployment sample: **1** run (#90), approximately **65s**, successful; this also verifies the successful three-job deployment gate described in section 5.
+
+This sample is too small to establish a stable baseline or stable reliability. Workload differences prevent direct comparison with the historical two-job sample as proof of improvement or regression; no optimization is claimed. More comparable current-workflow observations are needed. Failed-required-validation blocking remains configured but experimentally unverified. Precise merge-to-live time remains unmeasured; production rollback and failed-deployment recovery remain untested and unmeasured.
 
 ## 3. Historical Measurements
 
@@ -180,7 +195,7 @@ Historically, a manual feature-branch run of the standalone deployment workflow 
 - The frontend-existence check still permits validation/deployment to be skipped when the frontend is absent. Replacing it with a failure for missing required frontend files remains a follow-up candidate.
 - Docs-only pushes to `main` can proceed through deployment. Trigger scope is a possible future efficiency improvement; no benefit has been measured.
 - TypeScript validation runs within `pnpm build` rather than as a separately named step.
-- Four comparable PR observations and two comparable main/deployment observations provide only preliminary evidence. Historical samples have different workloads and are excluded from these calculations.
+- The historical two-job sample (four PR runs and two main/deployment runs) and the separate current three-job sample (two PR runs and one main/deployment run) provide only preliminary evidence; their workloads differ and their calculations are kept separate.
 - Precise merge-to-live time, production rollback, and failed-production-deployment recovery time remain unmeasured or untested.
 - A historical deployment reported its configured Wrangler version as outdated; any upgrade should be evaluated separately.
 
@@ -192,7 +207,7 @@ The earlier bootstrap and frontend runs remain useful historical evidence, but d
 
 ## 8. Measurements Still Needed
 
-Continue collecting naturally occurring comparable runs and record:
+A preliminary current three-job workflow sample now exists in section 2. More comparable observations are still needed; continue collecting naturally occurring runs and record:
 
 - PR workflow durations and results for the current three-job validation workload, collected separately from the historical two-job sample.
 - Main/deployment workflow durations and results, keeping workflow and job timings distinct.
@@ -215,6 +230,6 @@ These are follow-up opportunities, not implemented or proven optimizations.
 
 ## 10. Sprint 1 Metrics Assessment
 
-DEVOPS-03 records a historical preliminary Sprint 1 PR baseline from four comparable successful runs and a separate two-run successful main/deployment sample. The verified current ruleset requires Frontend Checks, Database Tests, and Edge/API Tests before PR merge. Following PRs #41 and #43, production deployment waits for all three jobs to succeed in the main run, with the successful path experimentally verified by run #90. The failed-required-validation blocking path remains configured but experimentally unverified; comparable duration measurements for the changed workload remain to be collected separately.
+DEVOPS-03 records a historical preliminary Sprint 1 PR baseline from four comparable successful runs and a separate two-run successful main/deployment sample. The verified current ruleset requires Frontend Checks, Database Tests, and Edge/API Tests before PR merge. Following PRs #41 and #43, production deployment waits for all three jobs to succeed in the main run, with the successful path experimentally verified by run #90. The failed-required-validation blocking path remains configured but experimentally unverified; a separate preliminary duration sample for the current three-job workflow now exists (PR mean 39.5s across two runs; one main/deployment run at approximately 65s), with more comparable observations still needed.
 
 The production walking skeleton and deployed application/API request retry are verified. Precise merge-to-live timing, production deployment rollback, and recovery time from a failed production deployment remain outstanding. Sprint 1 establishes measured evidence without claiming a performance optimization or a stable long-term baseline.

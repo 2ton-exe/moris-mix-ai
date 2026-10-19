@@ -359,7 +359,7 @@ Measurements must be based on observed workflow runs rather than estimates.
 
 The earlier bootstrap measurements collected before the real frontend existed must remain distinguished from representative application pipeline measurements.
 
-Historical FE-01 runs and unified main CI run #48 provide real frontend validation and deployment execution data. The separate-workflow and unified-workflow durations have different scopes and should not be directly compared as performance evidence. The metrics log now records a preliminary historical baseline of four PR runs and two main/deployment runs for the earlier two-job workload. Collect measurements for the current three-job workload and all-checks gate separately; precise merge-to-live, rollback, and failed-deployment recovery measurements remain outstanding.
+Historical FE-01 runs and unified main CI run #48 provide real frontend validation and deployment execution data. The separate-workflow and unified-workflow durations have different scopes and should not be directly compared as performance evidence. The metrics log now records a preliminary historical baseline of four PR runs and two main/deployment runs for the earlier two-job workload. A separate preliminary current three-job sample is now recorded; more comparable observations are needed; precise merge-to-live, rollback, and failed-deployment recovery measurements remain outstanding.
 
 No optimization should be claimed until a baseline exists and a before-versus-after comparison demonstrates a measurable improvement.
 
@@ -379,7 +379,7 @@ The following limitations or pending items remain:
 - The linked repository Projects page has no project board, so board status could not be verified.
 - Supabase Edge Functions and database deployment are not handled by the current Cloudflare workflow; Supabase production deployment automation remains DEVOPS-07 work.
 - Production rollback and recovery procedures have not yet been tested.
-- The historical preliminary Sprint 1 metrics baseline has a small sample. Run #90 verifies successful three-job gating; comparable current-workload duration measurements and failed-required-validation blocking evidence remain outstanding.
+- The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations and failed-required-validation blocking evidence remain outstanding.
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
 - Docs-only main pushes can currently proceed through the gated deployment job. Evaluate trigger scope later as a possible efficiency improvement; this is not a correctness failure or a proven optimization opportunity.
 
@@ -392,7 +392,7 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 - [x] Frontend Checks, Database Tests, and Edge/API Tests are required by the verified current GitHub ruleset.
 - [x] Teammate approval is required before merge.
 - [x] Unified validation/deployment workflow and Cloudflare configuration are merged.
-- [x] Production deployment depends on successful Frontend Checks; main execution verified in run #48.
+- [x] Historical frontend-only deployment gate was verified by main run #48.
 - [x] Merged PR #43 configures production deployment to depend on all three validation jobs.
 - [x] Main run #90 verifies successful deployment after all three validation jobs succeed.
 - [ ] Experimentally verify failed-required-validation blocking; configuration alone establishes this behavior so far.
@@ -411,7 +411,7 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 - [x] Client-side application routing works in production.
 - [x] Deployed frontend-to-backend-to-database integration is verified by the 2026-10-17 smoke check.
 - [x] Preliminary historical Sprint 1 baseline is recorded for four PR runs and two main/deployment runs.
-- [ ] Comparable measurements for the current three-job workflow are recorded separately.
+- [x] Preliminary measurements for the current three-job workflow are recorded separately; more comparable observations are needed.
 
 The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
