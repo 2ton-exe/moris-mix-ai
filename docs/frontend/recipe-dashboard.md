@@ -178,7 +178,7 @@ Integration work still required:
   GET/POST requests, cancellation, safe errors, and auth/client integration
   tests. Keep the production recipe source unavailable until BE-06 provides its
   endpoint and response contract. [FS-02 #53](https://github.com/2ton-exe/moris-mix-ai/issues/53)
-  remains open; the draft implementation is under review in
+  remains open; the implementation is under review in
   [PR #65](https://github.com/2ton-exe/moris-mix-ai/pull/65).
 - Potential overlap is `App.tsx` and the query-provider placement. Reuse the
   FE-03 AuthProvider and guards, keep a single QueryClientProvider for the
