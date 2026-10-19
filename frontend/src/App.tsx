@@ -5,6 +5,9 @@ import AuthPage from './pages/AuthPage'
 import EmailVerificationPage from './pages/EmailVerificationPage'
 import JournalPage from './pages/JournalPage'
 import DemoRecipePage from './pages/DemoRecipePage'
+import RecipeDashboardPage from './pages/RecipeDashboardPage'
+import RecipeDetailPage from './pages/RecipeDetailPage'
+import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
 function HomePage() {
   return (
@@ -74,7 +77,12 @@ export default function App() {
           </Route>
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route element={<ProtectedRoute />}>
-            <Route path="/app/*" element={<JournalPage />} />
+            <Route path="/app" element={<RecipeQueryProvider><JournalPage /></RecipeQueryProvider>}>
+              <Route index element={<RecipeDashboardPage />} />
+              <Route path="recipes" element={<RecipeDashboardPage />} />
+              <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+            </Route>
+            <Route path="/app/*" element={<NotFoundPage />} />
           </Route>
         </Route>
       </Route>
