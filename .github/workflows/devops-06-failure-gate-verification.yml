@@ -1,0 +1,62 @@
+# Disposable DEVOPS-06 failure-gate experiment for issue #42.
+# Mirrors the production dependency structure, not an actual production deployment.
+# Expected results:
+#   frontend = success
+#   test-edge-api = success
+#   test-db = failure (intentional)
+#   would-deploy = skipped
+name: DEVOPS-06 Failure Gate Verification
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Gate Test - Frontend
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.frontend.outputs.exists }}
+    steps:
+      - name: Expose frontend-existence output
+        id: frontend
+        shell: bash
+        run: echo "exists=true" >> "$GITHUB_OUTPUT"
+
+  test-db:
+    name: Gate Test - Intentional Database Failure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Intentionally fail to verify deployment blocking
+        shell: bash
+        run: |
+          echo "This failure is intentional and exists only to verify deployment blocking."
+          echo "It does not test application correctness."
+          exit 1
+
+  test-edge-api:
+    name: Gate Test - Edge/API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Succeed without testing application code
+        shell: bash
+        run: echo "Synthetic Edge/API validation succeeded for the dependency-gate experiment."
+
+  would-deploy:
+    name: Gate Test - Would Deploy
+    needs:
+      - frontend
+      - test-db
+      - test-edge-api
+    # Keep the implicit success prerequisite: a failed dependency must skip this job.
+    if: needs.frontend.outputs.exists == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if the dependency gate unexpectedly permits execution
+        shell: bash
+        run: |
+          echo "::error::Gate verification failed: this inert job should be skipped after the intentional test-db failure."
+          exit 1
