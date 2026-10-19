@@ -269,7 +269,7 @@ Deno.test("Expired token rejected by Supabase Auth returns 401 UNAUTHORIZED", as
   }
 });
 
-Deno.test("Recognized authentication errors on nonstandard upstream statuses return 401 while invalid server API keys, unrecognized 401/403, and unexpected 404/422/429 return 500", async () => {
+Deno.test("Recognized authentication errors on nonstandard upstream statuses return 401 while invalid server API keys, unrecognized 401/403, and unexpected 404/422 return 500", async () => {
   const recognizedAuthFailureCases = [
     {
       status: 403,
@@ -339,10 +339,6 @@ Deno.test("Recognized authentication errors on nonstandard upstream statuses ret
       status: 422,
       payload: { code: "unexpected_schema_error", message: "Unprocessable upstream proxy configuration" },
     },
-    {
-      status: 429,
-      payload: { message: "Rate limit exceeded on upstream auth service" },
-    },
   ];
 
   for (const testCase of serverErrorCases) {
@@ -367,6 +363,197 @@ Deno.test("Recognized authentication errors on nonstandard upstream statuses ret
       const body = await res.response.json();
       assertEquals(body.error?.code, "INTERNAL_ERROR");
       assertEquals(body.error?.message, "Internal server error.");
+    }
+  }
+});
+
+Deno.test("Upstream HTTP 429 from Supabase Auth returns 503 AUTH_SERVICE_RATE_LIMITED with safe message, security/CORS headers, and never executes database logic", async () => {
+  const sensitiveRateLimitDetail = "UPSTREAM_RATE_LIMIT_INTERNAL_NODE_ip_10_0_0_99_secret";
+  let authVerifyCalls = 0;
+  let postgrestCalled = false;
+
+  const rateLimitPayloads = [
+    {
+      code: 429,
+      error_code: "over_request_rate_limit",
+      msg: `Rate limit exceeded on upstream auth service for ${VALID_TEST_JWT} (${sensitiveRateLimitDetail})`,
+    },
+    {
+      code: 429,
+      error_code: "bad_jwt",
+      msg: `Invalid JWT rate limit check failed for ${TEST_ANON_KEY} (${sensitiveRateLimitDetail})`,
+    },
+  ];
+
+  for (const payload of rateLimitPayloads) {
+    const mockFetch: typeof fetch = (input) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
+
+      if (url.pathname === "/auth/v1/user") {
+        authVerifyCalls++;
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+
+      if (url.pathname.startsWith("/rest/v1/")) {
+        postgrestCalled = true;
+      }
+
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+    };
+
+    const req = new Request("http://localhost/functions/v1/auth-session", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    });
+
+    const authResult = await authenticateRequest(req, {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    });
+
+    assertEquals(authResult.ok, false);
+    if (!authResult.ok) {
+      assertEquals(authResult.response.status, 503);
+      assertEquals(authResult.response.headers.get("content-type"), "application/json");
+      assertEquals(authResult.response.headers.get("cache-control"), "no-store");
+      assertEquals(authResult.response.headers.get("x-content-type-options"), "nosniff");
+      assertEquals(authResult.response.headers.get("access-control-allow-origin"), "*");
+      assertEquals(authResult.response.headers.get("access-control-allow-methods"), "GET, OPTIONS");
+      assertEquals(
+        authResult.response.headers.get("access-control-allow-headers"),
+        "authorization, x-client-info, apikey, content-type",
+      );
+      assertEquals(authResult.response.headers.get("retry-after"), null);
+
+      const rawText = await authResult.response.text();
+      assertEquals(rawText.includes(VALID_TEST_JWT), false);
+      assertEquals(rawText.includes(TEST_ANON_KEY), false);
+      assertEquals(rawText.includes(sensitiveRateLimitDetail), false);
+      assertEquals(rawText.includes("over_request_rate_limit"), false);
+      assertEquals(rawText.includes("at "), false);
+
+      const body = JSON.parse(rawText);
+      assertEquals(body, {
+        error: {
+          code: "AUTH_SERVICE_RATE_LIMITED",
+          message: "Authentication service is temporarily unavailable. Please try again later.",
+        },
+      });
+    }
+
+    const handlerRes = await handler(req, {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    });
+    assertEquals(handlerRes.status, 503);
+    assertEquals(postgrestCalled, false);
+    const handlerBody = await handlerRes.json();
+    assertEquals(handlerBody.error?.code, "AUTH_SERVICE_RATE_LIMITED");
+    assertEquals(
+      handlerBody.error?.message,
+      "Authentication service is temporarily unavailable. Please try again later.",
+    );
+  }
+
+  assertEquals(authVerifyCalls, 4);
+});
+
+Deno.test("Upstream HTTP 429 propagates validated Retry-After header and omits invalid or missing Retry-After values", async () => {
+  const validRetryAfterValues = [
+    { raw: "0", expected: "0" },
+    { raw: "  0  ", expected: "0" },
+    { raw: "60", expected: "60" },
+    { raw: "  120  ", expected: "120" },
+    { raw: "Wed, 21 Oct 2026 07:28:00 GMT", expected: "Wed, 21 Oct 2026 07:28:00 GMT" },
+  ];
+
+  for (const { raw, expected } of validRetryAfterValues) {
+    const req = new Request("http://localhost/functions/v1/auth-session", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    });
+
+    const result = await authenticateRequest(req, {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ code: 429, message: "Too many requests" }),
+            {
+              status: 429,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": raw,
+                "X-Upstream-Internal": "must-not-propagate",
+              },
+            },
+          ),
+        ),
+    });
+
+    assertEquals(result.ok, false);
+    if (!result.ok) {
+      assertEquals(result.response.status, 503);
+      assertEquals(result.response.headers.get("retry-after"), expected);
+      assertEquals(result.response.headers.get("x-upstream-internal"), null);
+      const body = await result.response.json();
+      assertEquals(body.error?.code, "AUTH_SERVICE_RATE_LIMITED");
+    }
+  }
+
+  const invalidRetryAfterValues = [
+    "",
+    "   ",
+    "-1",
+    "-30",
+    "12.5",
+    "60s",
+    "invalid-header-value",
+    "60; injected=1",
+    "9999999999",
+    "Wed, 99 Oct 2026 99:99:99 GMT",
+  ];
+
+  for (const invalidValue of invalidRetryAfterValues) {
+    const req = new Request("http://localhost/functions/v1/auth-session", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    });
+
+    const result = await authenticateRequest(req, {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ code: 429, message: "Too many requests" }),
+            {
+              status: 429,
+              headers: {
+                "Content-Type": "application/json",
+                "Retry-After": invalidValue,
+              },
+            },
+          ),
+        ),
+    });
+
+    assertEquals(result.ok, false);
+    if (!result.ok) {
+      assertEquals(result.response.status, 503);
+      assertEquals(result.response.headers.get("retry-after"), null);
+      const body = await result.response.json();
+      assertEquals(body.error?.code, "AUTH_SERVICE_RATE_LIMITED");
     }
   }
 });

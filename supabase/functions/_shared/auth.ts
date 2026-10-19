@@ -79,6 +79,31 @@ const RECOGNIZED_AUTH_ERROR_MESSAGE_PATTERNS = [
   /\binvalid\b.*\bcredentials\b/i,
 ];
 
+const RETRY_AFTER_SECONDS_PATTERN = /^(?:0|[1-9]\d{0,6})$/;
+const RETRY_AFTER_HTTP_DATE_PATTERN =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+function normalizeRetryAfter(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (RETRY_AFTER_SECONDS_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (RETRY_AFTER_HTTP_DATE_PATTERN.test(trimmed) && !Number.isNaN(Date.parse(trimmed))) {
+    return trimmed;
+  }
+
+  return null;
+}
+
 function unauthorizedHeaderResponse(): Response {
   return jsonResponse(
     {
@@ -103,6 +128,26 @@ function invalidCredentialsResponse(): Response {
   );
 }
 
+function authRateLimitedResponse(retryAfter?: string | null): Response {
+  const headers: Record<string, string> = {};
+  if (retryAfter) {
+    headers["Retry-After"] = retryAfter;
+  }
+
+  return jsonResponse(
+    {
+      error: {
+        code: "AUTH_SERVICE_RATE_LIMITED",
+        message: "Authentication service is temporarily unavailable. Please try again later.",
+      },
+    },
+    {
+      status: 503,
+      headers,
+    },
+  );
+}
+
 function internalErrorResponse(): Response {
   return jsonResponse(
     {
@@ -122,7 +167,7 @@ function isRecognizedUnauthenticatedError(error: {
   name?: string;
 }): boolean {
   const status = error.status;
-  if (typeof status !== "number" || status >= 500 || status < 400) {
+  if (typeof status !== "number" || status >= 500 || status < 400 || status === 429) {
     return false;
   }
 
@@ -209,6 +254,7 @@ export async function authenticateRequest(
   }
 
   let upstreamStatus: number | undefined;
+  let upstreamRetryAfter: string | null = null;
   let upstreamErrorPayload: Record<string, unknown> | undefined;
   let networkFailure = false;
 
@@ -223,6 +269,7 @@ export async function authenticateRequest(
 
       if (requestUrl.includes("/auth/v1/user")) {
         upstreamStatus = response.status;
+        upstreamRetryAfter = normalizeRetryAfter(response.headers.get("Retry-After"));
         if (!response.ok) {
           try {
             const cloned = response.clone();
@@ -268,6 +315,12 @@ export async function authenticateRequest(
       const status = typeof error.status === "number" && error.status > 0
         ? error.status
         : upstreamStatus;
+
+      if (status === 429 || upstreamStatus === 429) {
+        console.error("Authentication upstream rate limit exceeded");
+        return { ok: false, response: authRateLimitedResponse(upstreamRetryAfter) };
+      }
+
       const rawCode = typeof upstreamErrorPayload?.error_code === "string"
         ? upstreamErrorPayload.error_code
         : typeof (error as { code?: unknown }).code === "string"
@@ -300,6 +353,11 @@ export async function authenticateRequest(
 
       console.error("Unexpected authentication upstream error", status ? `status: ${status}` : "");
       return { ok: false, response: internalErrorResponse() };
+    }
+
+    if (upstreamStatus === 429) {
+      console.error("Authentication upstream rate limit exceeded");
+      return { ok: false, response: authRateLimitedResponse(upstreamRetryAfter) };
     }
 
     if (typeof upstreamStatus === "number" && upstreamStatus !== 200) {

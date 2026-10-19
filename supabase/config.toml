@@ -26,6 +26,7 @@ enable_signup = true
 [functions.demo-recipe]
 verify_jwt = false
 
+# Intentionally disabled at the gateway: the handler enforces authentication via authenticateRequest() and handles unauthenticated OPTIONS CORS preflight directly.
 [functions.auth-session]
 verify_jwt = false
 
