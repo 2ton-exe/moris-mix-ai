@@ -263,14 +263,16 @@ it('shows a safe access-denied result without logging out for a protected 403', 
   expect(fetchImpl).toHaveBeenCalledOnce()
 })
 
-it('does not send a request canceled while the SDK session is being read', async () => {
+it('settles an aborted request while the SDK session is still pending', async () => {
   let resolveSession!: (result: unknown) => void
   sessionProvider.getSession.mockReturnValue(new Promise((resolve) => { resolveSession = resolve }))
   const controller = new AbortController()
-  renderRequest(controller.signal)
-  fireEvent.click(screen.getByRole('button', { name: 'Load protected data' }))
+  const request = apiClient.getAuthenticatedJson('/integration-test-resource', {
+    userId: 'cook-1', signal: controller.signal,
+  })
   controller.abort()
 
+  await expect(request).rejects.toMatchObject({ name: 'AbortError' })
   await act(async () => resolveSession({ data: { session: session() }, error: null }))
   expect(fetchImpl).not.toHaveBeenCalled()
 })

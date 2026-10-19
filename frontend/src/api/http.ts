@@ -117,14 +117,27 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     { userId, signal, method, body }: AuthenticatedRequestOptions & { method: 'GET' | 'POST'; body?: unknown },
   ): Promise<unknown> {
     let session: Session | null | undefined
+    let abortListener: (() => void) | undefined
     try {
       signal?.throwIfAborted()
-      const result = await getSession?.()
+      const sessionRequest = getSession?.()
+      const result = signal
+        ? await Promise.race([
+          sessionRequest,
+          new Promise<never>((_, reject) => {
+            abortListener = () => reject(signal.reason)
+            signal.addEventListener('abort', abortListener, { once: true })
+            if (signal.aborted) abortListener()
+          }),
+        ])
+        : await sessionRequest
       signal?.throwIfAborted()
       session = result?.error ? null : result?.data.session
     } catch {
       signal?.throwIfAborted()
       throw authenticationRequired()
+    } finally {
+      if (abortListener) signal?.removeEventListener('abort', abortListener)
     }
 
     if (!session || !session.access_token.trim() || typeof session.expires_at !== 'number' ||

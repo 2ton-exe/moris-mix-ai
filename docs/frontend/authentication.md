@@ -83,9 +83,6 @@ authoritative for stronger project password policy.
   route guards; the public demo remains anonymous.
 - Keep the anonymous FE-02 demo request behavior. Application data must continue
   through Edge Functions. Frontend guards provide UX, never backend authorization.
-- The earlier FE-03 inspection found no FS-02 code, published branch, or open
-  integration PR. Unpublished teammate changes still need coordination during
-  review.
 
 ## Ramos: required Supabase configuration and live verification
 
