@@ -29,6 +29,7 @@ export default function JournalPage() {
       <p className="intro">You are logged in{user?.email ? ` as ${user.email}` : ''}. Your journal is ready for your recipes.</p>
       {error && <p className="field-error" role="alert">{error}</p>}
       <div className="actions">
+        <Link className="button button-primary" to="/app/recipes/new">Start a recipe</Link>
         <Link className="button button-secondary" to="/demo-recipe">Demonstration recipe</Link>
         <button className="button button-primary" type="button" disabled={pending} onClick={() => { void signOut() }}>{pending ? 'Logging out…' : 'Log out'}</button>
       </div>

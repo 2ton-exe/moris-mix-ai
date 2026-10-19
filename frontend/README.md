@@ -1,5 +1,14 @@
 # Mori's Mix frontend
 
+FE-05 adds a reusable recipe editor and protected `/app/recipes/new` and
+`/app/recipes/:recipeId/edit` page boundaries. Creation accepts an in-memory draft;
+saving and existing-recipe loading show an explicit unavailable state until
+BE-05/BE-06 and FS-02 are integrated. Notes are labeled local-only. No mock
+persistence is enabled in production. Dirty drafts are guarded on in-app
+navigation and browser history; auth redirects remain available. See the
+[recipe form handoff](../docs/frontend/recipe-form.md) for schema limits,
+callback interfaces, FE-04 query integration and validation.
+
 FE-03 adds login, signup, email verification, session handling, and a protected
 `/app` journal entry. Open `/home` and select **Your cooking journal**, or go to
 `/login` directly. See the [authentication setup and FS-02 handoff](../docs/frontend/authentication.md)
