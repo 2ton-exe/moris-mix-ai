@@ -28,8 +28,20 @@ interface HttpClientOptions {
   getSession?: () => Promise<{ data: { session: Session | null }; error: unknown }>
 }
 
+interface JsonRequestOptions {
+  signal?: AbortSignal
+  accessToken?: string
+  method?: 'GET' | 'POST'
+  body?: unknown
+}
+
+interface AuthenticatedRequestOptions {
+  userId: string
+  signal?: AbortSignal
+}
+
 export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSession }: HttpClientOptions = {}) {
-  async function requestJson(path: string, { signal, accessToken }: { signal?: AbortSignal; accessToken?: string }): Promise<unknown> {
+  async function requestJson(path: string, { signal, accessToken, method = 'GET', body: jsonBody }: JsonRequestOptions): Promise<unknown> {
     let url: URL
     try {
       if (!baseUrl?.trim() || (apiKey !== undefined && !apiKey.trim()) ||
@@ -47,22 +59,34 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
       throw new HttpError('configuration', 'The API connection is not configured correctly.')
     }
 
+    let requestBody: string | undefined
+    if (method === 'POST') {
+      try {
+        requestBody = JSON.stringify(jsonBody)
+        if (requestBody === undefined) throw new Error('Request body is not JSON serializable')
+      } catch {
+        throw new HttpError('configuration', 'The request could not be prepared.')
+      }
+    }
+
     let response: Response
-    let body: string
+    let responseBody: string
     try {
       response = await fetchImpl(url.toString(), {
-        method: 'GET',
+        method,
         headers: {
           Accept: 'application/json',
           ...(apiKey === undefined ? {} : {
             apikey: apiKey.trim(),
           }),
           ...(accessToken === undefined ? {} : { Authorization: `Bearer ${accessToken}` }),
+          ...(requestBody === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
+        ...(requestBody === undefined ? {} : { body: requestBody }),
         credentials: 'omit',
         signal,
       })
-      body = await response.text()
+      responseBody = await response.text()
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
       throw new HttpError('network', 'Unable to reach the server. Check your connection and try again.')
@@ -71,7 +95,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     let payload: unknown
     let validJson = false
     try {
-      payload = JSON.parse(body)
+      payload = JSON.parse(responseBody)
       validJson = true
     } catch {
       // Preserve HTTP status even when a failed response contains HTML or no body.
@@ -88,28 +112,38 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
 
   const authenticationRequired = () => new HttpError('http', 'Authentication required.', 401)
 
+  async function authenticatedJson(
+    path: string,
+    { userId, signal, method, body }: AuthenticatedRequestOptions & { method: 'GET' | 'POST'; body?: unknown },
+  ): Promise<unknown> {
+    let session: Session | null | undefined
+    try {
+      signal?.throwIfAborted()
+      const result = await getSession?.()
+      signal?.throwIfAborted()
+      session = result?.error ? null : result?.data.session
+    } catch {
+      signal?.throwIfAborted()
+      throw authenticationRequired()
+    }
+
+    if (!session || !session.access_token.trim() || typeof session.expires_at !== 'number' ||
+      !Number.isFinite(session.expires_at) || session.expires_at * 1000 <= Date.now() || session.user.id !== userId) {
+      throw authenticationRequired()
+    }
+    return requestJson(path, { signal, accessToken: session.access_token, method, body })
+  }
+
   return {
     // Return unknown until a contract-specific adapter validates the payload.
     getJson(path: string, { signal }: { signal?: AbortSignal } = {}): Promise<unknown> {
       return requestJson(path, { signal })
     },
-    async getAuthenticatedJson(path: string, { userId, signal }: { userId: string; signal?: AbortSignal }): Promise<unknown> {
-      let session: Session | null | undefined
-      try {
-        signal?.throwIfAborted()
-        const result = await getSession?.()
-        signal?.throwIfAborted()
-        session = result?.error ? null : result?.data.session
-      } catch {
-        signal?.throwIfAborted()
-        throw authenticationRequired()
-      }
-
-      if (!session || !session.access_token.trim() || typeof session.expires_at !== 'number' ||
-        !Number.isFinite(session.expires_at) || session.expires_at * 1000 <= Date.now() || session.user.id !== userId) {
-        throw authenticationRequired()
-      }
-      return requestJson(path, { signal, accessToken: session.access_token })
+    getAuthenticatedJson(path: string, options: AuthenticatedRequestOptions): Promise<unknown> {
+      return authenticatedJson(path, { ...options, method: 'GET' })
+    },
+    postAuthenticatedJson(path: string, body: unknown, options: AuthenticatedRequestOptions): Promise<unknown> {
+      return authenticatedJson(path, { ...options, method: 'POST', body })
     },
   }
 }

@@ -1,12 +1,15 @@
 # Mori's Mix frontend
 
 FE-04 adds the protected recipe dashboard at `/app` and `/app/recipes`, plus
-details at `/app/recipes/:recipeId`, using TanStack Query. **BE-06 and FS-02 are
-not available in this branch**, so normal mode shows an explicit unavailable
-state. For a labeled local sample preview, set `VITE_RECIPE_PREVIEW=true` and
-restart Vite; existing authentication is still required. Production builds
-ignore this flag. See the [FE-04 implementation and integration handoff](../docs/frontend/recipe-dashboard.md)
-for the stacked FE-03 branch dependency, cache behavior, and remaining REST work.
+details at `/app/recipes/:recipeId`, using TanStack Query. The shared REST client
+now supports authenticated GET and POST requests using a freshly checked SDK
+session on each request. BE-06's recipe endpoint contract is still unavailable,
+so the production recipe source remains unavailable and normal mode shows an
+explicit unavailable state. For a labeled local sample preview, set
+`VITE_RECIPE_PREVIEW=true` and restart Vite; existing authentication is still
+required. Production builds ignore this flag. See the [FE-04 implementation and
+integration handoff](../docs/frontend/recipe-dashboard.md) for the remaining
+REST work.
 
 FE-03 adds login, signup, email verification, session handling, and a protected
 `/app` journal entry. Open `/home` and select **Your cooking journal**, or go to

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { ProtectedRoute } from '../auth/AuthRoutes'
 import type { AuthState } from '../auth/context'
 import { AuthContext, useAuth } from '../auth/context'
 
@@ -12,22 +13,23 @@ let apiClient: typeof import('./config').apiClient
 let fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>
 let apiUrl: string
 let projectNumber = 0
+let RecipeErrorComponent: typeof import('../recipes/RecipeStates').RecipeError
 
-function authState(): AuthState {
-  const user = { id: 'cook-1' } as User
+function authState(isAuthenticated = true): AuthState {
+  const user = isAuthenticated ? { id: 'cook-1' } as User : null
   return {
     user,
-    session: { user, access_token: 'react-context-token', token_type: 'bearer', expires_in: 3600,
-      expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: 'test-refresh' } as Session,
+    session: user ? { user, access_token: 'react-context-token', token_type: 'bearer', expires_in: 3600,
+      expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: 'test-refresh' } as Session : null,
     isLoading: false,
-    isAuthenticated: true,
+    isAuthenticated,
     error: null,
     logoutNotice: null,
     dismissLogoutNotice: vi.fn(),
     retryInitialization: vi.fn(),
     login: vi.fn(),
     signup: vi.fn(),
-    logout: vi.fn(),
+    logout: vi.fn(async () => {}),
     resendVerification: vi.fn(),
   }
 }
@@ -39,13 +41,29 @@ function session(userId = 'cook-1', accessToken = 'fresh-access-token', expiresA
 function ProtectedRequestPage({ signal }: { signal: AbortSignal }) {
   const { user } = useAuth()
   const [result, setResult] = useState('')
+  const [error, setError] = useState<Error | null>(null)
+  const showRequestResult = (request: Promise<unknown>) => {
+    void request
+      .then((value) => {
+        setResult(JSON.stringify(value))
+        setError(null)
+      })
+      .catch((requestError: Error) => {
+        setResult(requestError.message)
+        setError(requestError)
+      })
+  }
   return <main>
     <button onClick={() => {
-      void apiClient.getAuthenticatedJson('/integration-test-resource', { userId: user?.id ?? '', signal })
-        .then((value) => setResult(JSON.stringify(value)))
-        .catch((error: Error) => setResult(error.message))
+      showRequestResult(apiClient.getAuthenticatedJson('/integration-test-resource', { userId: user?.id ?? '', signal }))
     }}>Load protected data</button>
+    <button onClick={() => {
+      showRequestResult(apiClient.postAuthenticatedJson('/integration-test-resource', { displayName: 'Rosemary Loaf' }, {
+        userId: user?.id ?? '', signal,
+      }))
+    }}>Save protected data</button>
     <output aria-label="Request result">{result}</output>
+    {error && <RecipeErrorComponent error={error} onRetry={() => {}} />}
   </main>
 }
 
@@ -60,6 +78,7 @@ beforeEach(async () => {
   sessionProvider.getSession.mockReset().mockResolvedValue({ data: { session: session() }, error: null })
   const { getAuthClient } = await import('../auth/client')
   vi.spyOn(getAuthClient(), 'getSession').mockImplementation(() => sessionProvider.getSession())
+  ;({ RecipeError: RecipeErrorComponent } = await import('../recipes/RecipeStates'))
   ;({ apiClient } = await import('./config'))
 })
 
@@ -72,13 +91,26 @@ afterEach(async () => {
   fetchImpl.mockReset()
 })
 
-function renderRequest(signal = new AbortController().signal) {
+function renderRequest(signal = new AbortController().signal, state = authState()) {
   return render(<MemoryRouter initialEntries={['/app']}>
-    <AuthContext.Provider value={authState()}>
-      <Routes><Route path="/app" element={<ProtectedRequestPage signal={signal} />} /></Routes>
+    <AuthContext.Provider value={state}>
+      <Routes>
+        <Route element={<ProtectedRoute />}>
+          <Route path="/app" element={<ProtectedRequestPage signal={signal} />} />
+        </Route>
+        <Route path="/login" element={<h1>Sign in</h1>} />
+      </Routes>
     </AuthContext.Provider>
   </MemoryRouter>)
 }
+
+it('redirects unauthenticated visits through the shared route guard without requesting protected data', () => {
+  renderRequest(new AbortController().signal, authState(false))
+
+  expect(screen.getByRole('heading', { name: 'Sign in' })).toBeTruthy()
+  expect(sessionProvider.getSession).not.toHaveBeenCalled()
+  expect(fetchImpl).not.toHaveBeenCalled()
+})
 
 it('uses the SDK session at request time for a protected REST call', async () => {
   const signal = new AbortController().signal
@@ -94,6 +126,27 @@ it('uses the SDK session at request time for a protected REST call', async () =>
       apikey: 'public-test-key',
       Authorization: 'Bearer fresh-access-token',
     },
+    credentials: 'omit',
+    signal,
+  })
+})
+
+it('sends protected JSON writes with the active session token', async () => {
+  const signal = new AbortController().signal
+  renderRequest(signal)
+  fireEvent.click(screen.getByRole('button', { name: 'Save protected data' }))
+
+  await waitFor(() => expect(screen.getByLabelText('Request result').textContent).toBe('{"ok":true}'))
+  expect(sessionProvider.getSession).toHaveBeenCalledOnce()
+  expect(fetchImpl).toHaveBeenCalledWith(`${apiUrl}/integration-test-resource`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      apikey: 'public-test-key',
+      Authorization: 'Bearer fresh-access-token',
+      'Content-Type': 'application/json',
+    },
+    body: '{"displayName":"Rosemary Loaf"}',
     credentials: 'omit',
     signal,
   })
@@ -157,13 +210,27 @@ it('blocks the request when session lookup rejects without exposing the provider
 })
 
 it('keeps protected REST error details out of the rendered message', async () => {
+  const state = authState()
   fetchImpl.mockResolvedValue(Response.json({ error: { message: 'private backend detail' } }, { status: 401 }))
-  renderRequest()
+  renderRequest(new AbortController().signal, state)
   fireEvent.click(screen.getByRole('button', { name: 'Load protected data' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Request result').textContent)
-    .toBe('The server could not complete the request.'))
+  expect((await screen.findByRole('alert')).textContent)
+    .toBe('Your session could not be verified. Please log out and sign in again.')
   expect(document.body.textContent).not.toContain('private backend detail')
+  expect(fetchImpl).toHaveBeenCalledOnce()
+  expect(state.logout).not.toHaveBeenCalled()
+})
+
+it('shows a safe access-denied result without logging out for a protected 403', async () => {
+  const state = authState()
+  fetchImpl.mockResolvedValue(Response.json({ error: { message: 'private authorization detail' } }, { status: 403 }))
+  renderRequest(new AbortController().signal, state)
+  fireEvent.click(screen.getByRole('button', { name: 'Load protected data' }))
+
+  expect((await screen.findByRole('alert')).textContent).toBe('You do not have permission to view this collection.')
+  expect(document.body.textContent).not.toContain('private authorization detail')
+  expect(state.logout).not.toHaveBeenCalled()
   expect(fetchImpl).toHaveBeenCalledOnce()
 })
 
