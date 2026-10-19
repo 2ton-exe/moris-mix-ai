@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { useContext, useEffect, useRef, useState } from 'react'
+import { Link, Outlet } from 'react-router'
 import { useAuth } from '../auth/context'
+import { RecipeSourceContext } from '../recipes/source'
 
-// Protected landing page for FE-04 to extend with recipe UI.
+// Shared authenticated journal shell, including logout on detail/error screens.
 export default function JournalPage() {
   const { user, logout } = useAuth()
+  const source = useContext(RecipeSourceContext)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submitting = useRef(false)
@@ -23,15 +25,15 @@ export default function JournalPage() {
   }
 
   return (
-    <main className="page-shell">
-      <div className="eyebrow"><span className="status-dot" /> Mori’s Mix</div>
-      <h1>Your cooking journal</h1>
-      <p className="intro">You are logged in{user?.email ? ` as ${user.email}` : ''}. Your journal is ready for your recipes.</p>
+    <main className="page-shell journal-shell" id="journal">
+      <header className="journal-header">
+        <Link className="eyebrow" to="/app/recipes"><span className="status-dot" /> Mori’s Mix</Link>
+        <div className="journal-account"><span>{user?.email}</span><button className="button button-secondary" type="button" disabled={pending} onClick={() => { void signOut() }}>{pending ? 'Logging out…' : 'Log out'}</button></div>
+      </header>
       {error && <p className="field-error" role="alert">{error}</p>}
-      <div className="actions">
-        <Link className="button button-secondary" to="/demo-recipe">Demonstration recipe</Link>
-        <button className="button button-primary" type="button" disabled={pending} onClick={() => { void signOut() }}>{pending ? 'Logging out…' : 'Log out'}</button>
-      </div>
+      {source.mode === 'preview' && <p className="recipe-preview-notice" role="note">Sample recipes · Development preview. These recipes are examples, not your saved collection.</p>}
+      <Outlet />
+      <footer className="journal-footer">A place for the meals that become yours. <Link to="/demo-recipe">Demonstration recipe</Link></footer>
     </main>
   )
 }
