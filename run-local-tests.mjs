@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const DEFAULT_LOCAL_DB_URL =
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const DEFAULT_LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
 const KNOWN_PRODUCTION_REF = "gtbwblxskctpsqhbpebg";
 

@@ -160,10 +160,10 @@ jobs:
         shell: bash
         run: |
           if [[ -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" ]]; then
-            RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts
+            RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           else
             echo "SKIPPED: Hosted BE-04 RLS integration test not executed because dedicated non-production test project secrets (BE04_RLS_TEST_SUPABASE_URL, BE04_RLS_TEST_SUPABASE_ANON_KEY, BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY) are not configured."
-            deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts
+            deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           fi
 
   deploy:
