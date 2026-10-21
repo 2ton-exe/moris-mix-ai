@@ -47,5 +47,12 @@ export const DemoRecipeResponseSchema = z.object({
   recipe: DemoRecipeSchema
 });
 
+export const GeneratedRecipeSchema = z.object({
+  recipe: ExtractedRecipeSchema,
+  parentRecipeIds: z.array(z.string().uuid()),
+});
+ 
+export type GeneratedRecipe = z.infer<typeof GeneratedRecipeSchema>;
+
 export type DemoRecipe = z.infer<typeof DemoRecipeSchema>;
-export type DemoRecipeResponse = z.infer<typeof DemoRecipeResponseSchema>;
+export type DemoRecipeResponse = z.infer<typeof DemoRecipeResponseSchema>;
