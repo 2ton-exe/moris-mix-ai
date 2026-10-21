@@ -1,8 +1,6 @@
 import { z } from "npm:zod@3.22.4";
 
-// Restored for Sprint 1 demo-recipe compatibility
-export const DemoRecipeResponseSchema = z.any();
-
+// --- BASE SCHEMAS ---
 export const IngredientSchema = z.object({
   name: z.string(),
   quantity: z.number().nullable(),
@@ -25,6 +23,7 @@ export const FlavorScoreSchema = z.object({
   spicy: z.number().min(0).max(5)
 });
 
+// --- AI SCHEMAS (SPRINT 2) ---
 export const ExtractedRecipeSchema = z.object({
   title: z.string(),
   ingredients: z.array(IngredientSchema),
@@ -32,8 +31,25 @@ export const ExtractedRecipeSchema = z.object({
   flavor_scores: FlavorScoreSchema.optional()
 });
 
-// NEW: Generation Schema for Belen
 export const GeneratedRecipeSchema = z.object({
   recipe: ExtractedRecipeSchema,
   parentRecipeIds: z.array(z.string())
 });
+
+// --- DEMO SCHEMAS (RESTORED FOR SPRINT 1 CI) ---
+export const DemoRecipeSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  ingredients: z.array(IngredientSchema),
+  instructions: z.array(InstructionSchema),
+  flavor_scores: FlavorScoreSchema.nullable(),
+  star_rating: z.number().int().min(1).max(5).nullable(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()
+});
+
+export const DemoRecipeResponseSchema = z.object({
+  recipe: DemoRecipeSchema
+});
+
+export type DemoRecipe = z.infer<typeof DemoRecipeSchema>;
+export type DemoRecipeResponse = z.infer<typeof DemoRecipeResponseSchema>;
