@@ -16,3 +16,6 @@ coverage/
 .DS_Store
 .supabase/
 supabase/.branches/
+
+# Local review context — do not push to GitHub
+/review-context/
