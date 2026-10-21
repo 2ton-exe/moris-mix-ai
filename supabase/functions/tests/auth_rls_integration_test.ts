@@ -2,17 +2,27 @@ import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import { authenticateRequest } from "../_shared/auth.ts";
 import { handler } from "../auth-session/index.ts";
+import {
+  evaluateHostedRlsPrerequisites,
+  isLegacyServiceRoleJwt,
+  isModernPublishableKey,
+  isModernSecretKey,
+  KNOWN_PRODUCTION_REF,
+  passesRlsTargetSafetyPrecheck,
+} from "../../../run-local-tests.mjs";
 
 const LINKED_PRODUCTION_PROJECT_REF = "gtbwblxskctpsqhbpebg";
 
 const optInEnabled = (Deno.env.get("RUN_BE04_RLS_INTEGRATION") ?? "").trim() === "true";
 const testSupabaseUrl = (Deno.env.get("BE04_RLS_TEST_SUPABASE_URL") ?? "").trim();
-const testAnonKey = (
-  Deno.env.get("BE04_RLS_TEST_SUPABASE_ANON_KEY") ??
-  Deno.env.get("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ??
-  ""
-).trim();
-const testServiceRoleKey = (Deno.env.get("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+const testAnonKey =
+  (Deno.env.get("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
+    Deno.env.get("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
+    "");
+const testServiceRoleKey =
+  (Deno.env.get("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() ||
+    Deno.env.get("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() ||
+    "");
 
 const missingPrerequisites: string[] = [];
 if (!optInEnabled) {
@@ -25,7 +35,7 @@ if (!testAnonKey) {
   missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_ANON_KEY (or BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)");
 }
 if (!testServiceRoleKey) {
-  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY");
+  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY (or BE04_RLS_TEST_SUPABASE_SECRET_KEY)");
 }
 
 const canRunLiveRlsIntegration = missingPrerequisites.length === 0;
@@ -44,6 +54,49 @@ function redactSecrets(message: string, secrets: string[]): string {
     }
   }
   return sanitized;
+}
+
+function isModernApiKey(key: string): boolean {
+  const trimmed = key.trim();
+  return trimmed.startsWith("sb_secret_") || trimmed.startsWith("sb_publishable_");
+}
+
+function createRlsClientFetch(apiKey: string, baseFetch: typeof fetch = fetch): typeof fetch {
+  const trimmedKey = apiKey.trim();
+  if (!isModernApiKey(trimmedKey)) {
+    return baseFetch;
+  }
+  return (input, init) => {
+    const headers = new Headers(init?.headers);
+    const auth = headers.get("authorization");
+    if (auth && auth.trim().toLowerCase() === `bearer ${trimmedKey.toLowerCase()}`) {
+      headers.delete("authorization");
+    }
+    return baseFetch(input, { ...init, headers });
+  };
+}
+
+function createRlsTestClient(
+  url: string,
+  key: string,
+  options?: Parameters<typeof createClient>[2],
+): ReturnType<typeof createClient> {
+  const trimmedKey = key.trim();
+  const baseFetch = options?.global?.fetch ?? fetch;
+
+  return createClient(url, trimmedKey, {
+    ...options,
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      ...options?.auth,
+    },
+    global: {
+      ...options?.global,
+      fetch: createRlsClientFetch(trimmedKey, baseFetch),
+    },
+  });
 }
 
 function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKey: string): void {
@@ -87,6 +140,363 @@ function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKe
   }
 }
 
+Deno.test("Hosted RLS credential validation accepts valid modern sb_secret_* keys alongside legacy service_role JWTs", () => {
+  const validModernSecret = "sb_secret_test_valid_key_1234567890";
+  const validModernPublishable = "sb_publishable_test_valid_key_1234567890";
+  const validLegacyAnonJwt =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTExMTEtMTExMS0xMTExMTExMTExMTEiLCJyZWYiOiJkZWRpY2F0ZWQtdGVzdCIsInJvbGUiOiJhbm9uIn0.valid_anon_sig";
+  const validLegacyServiceRoleJwt =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJyZWYiOiJkZWRpY2F0ZWQtdGVzdCIsInJvbGUiOiJzZXJ2aWNlX3JvbGUifQ.valid_service_sig";
+
+  assertEquals(isModernSecretKey(validModernSecret), true);
+  assertEquals(isModernSecretKey("sb_secret_abc123_-XYZ_9876543210"), true);
+  assertEquals(isModernPublishableKey(validModernPublishable), true);
+  assertEquals(isLegacyServiceRoleJwt(validLegacyServiceRoleJwt), true);
+
+  const passesWithModernSecretAndModernPublishable = passesRlsTargetSafetyPrecheck({
+    rlsUrl: "https://dedicated-test-project.supabase.co",
+    rlsAnonKey: validModernPublishable,
+    rlsServiceRoleKey: validModernSecret,
+    primarySupabaseUrl: "https://app-project.supabase.co",
+    viteSupabaseUrl: "https://app-project.supabase.co",
+  });
+  assertEquals(passesWithModernSecretAndModernPublishable, true);
+
+  const passesWithModernSecretAndLegacyAnon = passesRlsTargetSafetyPrecheck({
+    rlsUrl: "https://dedicated-test-project.supabase.co",
+    rlsAnonKey: validLegacyAnonJwt,
+    rlsServiceRoleKey: validModernSecret,
+    primarySupabaseUrl: "https://app-project.supabase.co",
+  });
+  assertEquals(passesWithModernSecretAndLegacyAnon, true);
+
+  const passesWithModernSecretKeyParam = passesRlsTargetSafetyPrecheck({
+    rlsUrl: "https://dedicated-test-project.supabase.co",
+    rlsPublishableKey: validModernPublishable,
+    rlsSecretKey: validModernSecret,
+    primarySupabaseUrl: "https://app-project.supabase.co",
+  });
+  assertEquals(passesWithModernSecretKeyParam, true);
+
+  const passesWithLegacyServiceRoleJwt = passesRlsTargetSafetyPrecheck({
+    rlsUrl: "https://dedicated-test-project.supabase.co",
+    rlsAnonKey: validLegacyAnonJwt,
+    rlsServiceRoleKey: validLegacyServiceRoleJwt,
+    primarySupabaseUrl: "https://app-project.supabase.co",
+  });
+  assertEquals(passesWithLegacyServiceRoleJwt, true);
+});
+
+Deno.test("Hosted RLS credential validation rejects placeholders, malformed keys, and known production credentials", () => {
+  const validModernPublishable = "sb_publishable_test_valid_key_1234567890";
+  const validModernSecret = "sb_secret_test_valid_key_1234567890";
+
+  const placeholderKeys = [
+    "sb_secret_xxx",
+    "sb_secret_placeholder",
+    "local-service-role-key",
+    "your-service-role-key",
+    "your-secret-key",
+    "your-dedicated-test-service-role-key",
+    "your-dedicated-test-secret-key",
+  ];
+  for (const placeholder of placeholderKeys) {
+    assertEquals(isModernSecretKey(placeholder), false);
+    assertEquals(
+      passesRlsTargetSafetyPrecheck({
+        rlsUrl: "https://dedicated-test.supabase.co",
+        rlsAnonKey: validModernPublishable,
+        rlsServiceRoleKey: placeholder,
+      }),
+      false,
+    );
+  }
+
+  const malformedKeys = [
+    "",
+    "   ",
+    "sb_secret_short",
+    "sb_secret_with$illegal#chars!",
+    "not-a-secret-key",
+    "eyJhbGciOiJub25lIn0.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.wrong_role",
+  ];
+  for (const malformed of malformedKeys) {
+    assertEquals(isModernSecretKey(malformed), false);
+    assertEquals(
+      passesRlsTargetSafetyPrecheck({
+        rlsUrl: "https://dedicated-test.supabase.co",
+        rlsAnonKey: validModernPublishable,
+        rlsServiceRoleKey: malformed,
+      }),
+      false,
+    );
+  }
+
+  const prodRefSecretKey = `sb_secret_${KNOWN_PRODUCTION_REF}_1234567890`;
+  assertEquals(isModernSecretKey(prodRefSecretKey), false);
+
+  const prodRefPayload = btoa(
+    JSON.stringify({
+      sub: "00000000-0000-0000-0000-000000000000",
+      ref: KNOWN_PRODUCTION_REF,
+      role: "service_role",
+    }),
+  )
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  const prodRefJwt = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${prodRefPayload}.signature`;
+  assertEquals(isLegacyServiceRoleJwt(prodRefJwt), false);
+
+  const prodKeyCollision = passesRlsTargetSafetyPrecheck({
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: validModernPublishable,
+    rlsServiceRoleKey: validModernSecret,
+    primaryServiceRoleKey: validModernSecret,
+  });
+  assertEquals(prodKeyCollision, false);
+
+  const keyIdentityCollision = passesRlsTargetSafetyPrecheck({
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: validModernSecret,
+    rlsServiceRoleKey: validModernSecret,
+  });
+  assertEquals(keyIdentityCollision, false);
+});
+
+Deno.test("Preserved URL safety checks enforce production rejection, loopback collisions, and origin separation", () => {
+  const validKey = "sb_secret_test_valid_key_1234567890";
+  const validPub = "sb_publishable_test_valid_key_1234567890";
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: `https://${KNOWN_PRODUCTION_REF}.supabase.co`,
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "http://127.0.0.1:54321",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "http://localhost:54321",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "http://127.0.0.1:54323",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+      primarySupabaseUrl: "http://127.0.0.1:54323",
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "http://127.0.0.1:54323",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+      primarySupabaseUrl: "http://localhost:54323",
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "ftp://dedicated-test.supabase.co",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "not-a-valid-url",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "https://dedicated-test.supabase.co",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+      primarySupabaseUrl: "https://production-app.supabase.co",
+      viteSupabaseUrl: "https://production-app.supabase.co",
+    }),
+    true,
+  );
+});
+
+Deno.test("Missing opt-in flags or dedicated credentials produce explicit skip reason without exposing secrets", () => {
+  const secretValue = "sb_secret_super_sensitive_secret_value_123456789";
+  const publicValue = "sb_publishable_super_sensitive_anon_123456789";
+
+  const missingOptIn = evaluateHostedRlsPrerequisites({
+    optIn: "false",
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: publicValue,
+    rlsServiceRoleKey: secretValue,
+  });
+  assertEquals(missingOptIn.canRun, false);
+  assertEquals(typeof missingOptIn.skipReason, "string");
+  assertEquals(missingOptIn.skipReason!.includes("RUN_BE04_RLS_INTEGRATION=true opt-in flag"), true);
+  assertEquals(missingOptIn.skipReason!.includes(secretValue), false);
+  assertEquals(missingOptIn.skipReason!.includes(publicValue), false);
+
+  const missingUrl = evaluateHostedRlsPrerequisites({
+    optIn: "true",
+    rlsUrl: "",
+    rlsAnonKey: publicValue,
+    rlsServiceRoleKey: secretValue,
+  });
+  assertEquals(missingUrl.canRun, false);
+  assertEquals(missingUrl.skipReason!.includes("BE04_RLS_TEST_SUPABASE_URL"), true);
+
+  const missingPublic = evaluateHostedRlsPrerequisites({
+    optIn: "true",
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: "",
+    rlsServiceRoleKey: secretValue,
+  });
+  assertEquals(missingPublic.canRun, false);
+  assertEquals(missingPublic.skipReason!.includes("valid dedicated public key"), true);
+
+  const missingSecret = evaluateHostedRlsPrerequisites({
+    optIn: "true",
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: publicValue,
+    rlsServiceRoleKey: "",
+  });
+  assertEquals(missingSecret.canRun, false);
+  assertEquals(missingSecret.skipReason!.includes("valid dedicated secret/service-role key"), true);
+
+  const neitherSupplied = evaluateHostedRlsPrerequisites({
+    optIn: "true",
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: publicValue,
+    rlsServiceRoleKey: "",
+    rlsSecretKey: "",
+  });
+  assertEquals(neitherSupplied.canRun, false);
+  assertEquals(neitherSupplied.skipReason!.includes("valid dedicated secret/service-role key"), true);
+
+  const validWithSecretKeyOnly = evaluateHostedRlsPrerequisites({
+    optIn: "true",
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: publicValue,
+    rlsServiceRoleKey: "",
+    rlsSecretKey: secretValue,
+    primarySupabaseUrl: "https://app.supabase.co",
+  });
+  assertEquals(validWithSecretKeyOnly.canRun, true);
+  assertEquals(validWithSecretKeyOnly.skipReason, null);
+  assertEquals(validWithSecretKeyOnly.effectiveSecretKey, secretValue);
+
+  const allValid = evaluateHostedRlsPrerequisites({
+    optIn: "true",
+    rlsUrl: "https://dedicated-test.supabase.co",
+    rlsAnonKey: publicValue,
+    rlsServiceRoleKey: secretValue,
+    primarySupabaseUrl: "https://app.supabase.co",
+  });
+  assertEquals(allValid.canRun, true);
+  assertEquals(allValid.skipReason, null);
+});
+
+Deno.test("RLS test client configuration normalizes modern secret keys and preserves legacy JWT headers", async () => {
+  const modernSecret = "sb_secret_test_admin_key_1234567890";
+  const legacyServiceJwt =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJyZWYiOiJkZWRpY2F0ZWQtdGVzdCIsInJvbGUiOiJzZXJ2aWNlX3JvbGUifQ.legacy_sig";
+  const userJwt =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzMzMzMzMzMy0zMzMzLTMzMzMtMzMzMy0zMzMzMzMzMzMzMzMiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.user_sig";
+
+  const modernCapturedHeaders: Headers[] = [];
+  const modernFetch: typeof fetch = (_input, init) => {
+    modernCapturedHeaders.push(new Headers(init?.headers));
+    return Promise.resolve(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  };
+
+  const modernClient = createRlsTestClient("https://dedicated-test.supabase.co", modernSecret, {
+    global: { fetch: modernFetch },
+  });
+
+  await modernClient.from("profiles").select("id");
+  assertEquals(modernCapturedHeaders.length, 1);
+  assertEquals(modernCapturedHeaders[0].get("apikey"), modernSecret);
+  assertEquals(modernCapturedHeaders[0].get("authorization"), null);
+
+  const legacyCapturedHeaders: Headers[] = [];
+  const legacyFetch: typeof fetch = (_input, init) => {
+    legacyCapturedHeaders.push(new Headers(init?.headers));
+    return Promise.resolve(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  };
+
+  const legacyClient = createRlsTestClient("https://dedicated-test.supabase.co", legacyServiceJwt, {
+    global: { fetch: legacyFetch },
+  });
+
+  await legacyClient.from("profiles").select("id");
+  assertEquals(legacyCapturedHeaders.length, 1);
+  assertEquals(legacyCapturedHeaders[0].get("apikey"), legacyServiceJwt);
+  assertEquals(legacyCapturedHeaders[0].get("authorization"), `Bearer ${legacyServiceJwt}`);
+
+  const sessionCapturedHeaders: Headers[] = [];
+  const sessionFetch: typeof fetch = (_input, init) => {
+    sessionCapturedHeaders.push(new Headers(init?.headers));
+    return Promise.resolve(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  };
+
+  const userSessionClient = createRlsTestClient(
+    "https://dedicated-test.supabase.co",
+    "sb_publishable_test_anon_key_1234567890",
+    {
+      global: {
+        headers: { Authorization: `Bearer ${userJwt}` },
+        fetch: sessionFetch,
+      },
+    },
+  );
+
+  await userSessionClient.from("profiles").select("id");
+  assertEquals(sessionCapturedHeaders.length, 1);
+  assertEquals(sessionCapturedHeaders[0].get("apikey"), "sb_publishable_test_anon_key_1234567890");
+  assertEquals(sessionCapturedHeaders[0].get("authorization"), `Bearer ${userJwt}`);
+});
+
 Deno.test({
   name: "Live PostgreSQL RLS enforcement on public.profiles allows own-profile reads and blocks cross-user reads (hosted integration)",
   ignore: !canRunLiveRlsIntegration,
@@ -94,13 +504,7 @@ Deno.test({
     const knownSecrets = [testAnonKey, testServiceRoleKey];
     validateDedicatedTestTarget(testSupabaseUrl, testAnonKey, testServiceRoleKey);
 
-    const adminClient = createClient(testSupabaseUrl, testServiceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    });
+    const adminClient = createRlsTestClient(testSupabaseUrl, testServiceRoleKey);
 
     const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const userAEmail = `be04-rls-a-${runId}@morisscraps.test`;
@@ -179,13 +583,7 @@ Deno.test({
         );
       }
 
-      const anonClientA = createClient(testSupabaseUrl, testAnonKey, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      });
+      const anonClientA = createRlsTestClient(testSupabaseUrl, testAnonKey);
       const { data: signInA, error: signInErrorA } = await anonClientA.auth.signInWithPassword({
         email: userAEmail,
         password: userAPassword,
@@ -198,13 +596,7 @@ Deno.test({
       const userAAccessToken = signInA.session.access_token;
       knownSecrets.push(userAAccessToken);
 
-      const anonClientB = createClient(testSupabaseUrl, testAnonKey, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      });
+      const anonClientB = createRlsTestClient(testSupabaseUrl, testAnonKey);
       const { data: signInB, error: signInErrorB } = await anonClientB.auth.signInWithPassword({
         email: userBEmail,
         password: userBPassword,

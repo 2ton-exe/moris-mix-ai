@@ -889,18 +889,36 @@ Deno.test("Database insert failures, RLS rejections, ownership mismatches, and i
 const LINKED_PRODUCTION_PROJECT_REF = "gtbwblxskctpsqhbpebg";
 const optInEnabled = (Deno.env.get("RUN_BE04_RLS_INTEGRATION") ?? "").trim() === "true";
 const testSupabaseUrl = (Deno.env.get("BE04_RLS_TEST_SUPABASE_URL") ?? "").trim();
-const testAnonKey = (
-  Deno.env.get("BE04_RLS_TEST_SUPABASE_ANON_KEY") ??
-  Deno.env.get("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ??
-  ""
-).trim();
-const testServiceRoleKey = (Deno.env.get("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+const testAnonKey =
+  (Deno.env.get("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
+    Deno.env.get("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
+    "");
+const testServiceRoleKey =
+  (Deno.env.get("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() ||
+    Deno.env.get("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() ||
+    "");
 
-const canRunLiveRlsIntegration =
-  optInEnabled &&
-  testSupabaseUrl.length > 0 &&
-  testAnonKey.length > 0 &&
-  testServiceRoleKey.length > 0;
+const missingPrerequisites: string[] = [];
+if (!optInEnabled) {
+  missingPrerequisites.push("RUN_BE04_RLS_INTEGRATION=true");
+}
+if (!testSupabaseUrl) {
+  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_URL");
+}
+if (!testAnonKey) {
+  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_ANON_KEY (or BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)");
+}
+if (!testServiceRoleKey) {
+  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY (or BE04_RLS_TEST_SUPABASE_SECRET_KEY)");
+}
+
+const canRunLiveRlsIntegration = missingPrerequisites.length === 0;
+
+if (!canRunLiveRlsIntegration) {
+  console.warn(
+    `[BE-05 RLS Integration] Skipping live hosted PostgreSQL RLS integration test for recipes. Missing prerequisites: ${missingPrerequisites.join(", ")}.`,
+  );
+}
 
 function redactSecrets(message: string, secrets: string[]): string {
   let sanitized = message;
@@ -910,6 +928,49 @@ function redactSecrets(message: string, secrets: string[]): string {
     }
   }
   return sanitized;
+}
+
+function isModernApiKey(key: string): boolean {
+  const trimmed = key.trim();
+  return trimmed.startsWith("sb_secret_") || trimmed.startsWith("sb_publishable_");
+}
+
+function createRlsClientFetch(apiKey: string, baseFetch: typeof fetch = fetch): typeof fetch {
+  const trimmedKey = apiKey.trim();
+  if (!isModernApiKey(trimmedKey)) {
+    return baseFetch;
+  }
+  return (input, init) => {
+    const headers = new Headers(init?.headers);
+    const auth = headers.get("authorization");
+    if (auth && auth.trim().toLowerCase() === `bearer ${trimmedKey.toLowerCase()}`) {
+      headers.delete("authorization");
+    }
+    return baseFetch(input, { ...init, headers });
+  };
+}
+
+function createRlsTestClient(
+  url: string,
+  key: string,
+  options?: Parameters<typeof createClient>[2],
+): ReturnType<typeof createClient> {
+  const trimmedKey = key.trim();
+  const baseFetch = options?.global?.fetch ?? fetch;
+
+  return createClient(url, trimmedKey, {
+    ...options,
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      ...options?.auth,
+    },
+    global: {
+      ...options?.global,
+      fetch: createRlsClientFetch(trimmedKey, baseFetch),
+    },
+  });
 }
 
 function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKey: string): void {
@@ -951,7 +1012,7 @@ Deno.test({
     const knownSecrets = [testAnonKey, testServiceRoleKey];
     validateDedicatedTestTarget(testSupabaseUrl, testAnonKey, testServiceRoleKey);
 
-    const adminClient = createClient(testSupabaseUrl, testServiceRoleKey, {
+    const adminClient = createRlsTestClient(testSupabaseUrl, testServiceRoleKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -997,7 +1058,7 @@ Deno.test({
       const userBId = createdB.user.id;
       createdUserIds.push(userBId);
 
-      const anonClientA = createClient(testSupabaseUrl, testAnonKey, {
+      const anonClientA = createRlsTestClient(testSupabaseUrl, testAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       });
       const { data: signInA, error: signInErrorA } = await anonClientA.auth.signInWithPassword({
@@ -1012,7 +1073,7 @@ Deno.test({
       const userAAccessToken = signInA.session.access_token;
       knownSecrets.push(userAAccessToken);
 
-      const anonClientB = createClient(testSupabaseUrl, testAnonKey, {
+      const anonClientB = createRlsTestClient(testSupabaseUrl, testAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       });
       const { data: signInB, error: signInErrorB } = await anonClientB.auth.signInWithPassword({
@@ -1061,7 +1122,7 @@ Deno.test({
       assertEquals(persistedRow?.user_id, userAId);
       assertEquals(persistedRow?.is_public, false);
 
-      const rlsClientB = createClient(testSupabaseUrl, testAnonKey, {
+      const rlsClientB = createRlsTestClient(testSupabaseUrl, testAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
         global: { headers: { Authorization: `Bearer ${userBAccessToken}` } },
       });

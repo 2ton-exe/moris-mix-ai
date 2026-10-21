@@ -1,4 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { Buffer } from "node:buffer";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_LOCAL_DB_URL =
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -12,8 +16,15 @@ const PLACEHOLDER_VALUES = new Set([
   "your-service-role-key",
   "your-publishable-key",
   "your-secret-key",
+  "your-dedicated-test-anon-key",
+  "your-dedicated-test-service-role-key",
+  "your-dedicated-test-publishable-key",
+  "your-dedicated-test-secret-key",
+  "your-supabase-anon-key",
   "sb_publishable_xxx",
   "sb_secret_xxx",
+  "sb_publishable_placeholder",
+  "sb_secret_placeholder",
 ]);
 
 function isLoopbackHost(hostname) {
@@ -112,7 +123,16 @@ function isLegacyServiceRoleJwt(value) {
 function isModernPublishableKey(value) {
   if (!value || typeof value !== "string") return false;
   const trimmed = value.trim();
-  if (!trimmed || PLACEHOLDER_VALUES.has(trimmed.toLowerCase())) return false;
+  if (
+    !trimmed ||
+    PLACEHOLDER_VALUES.has(trimmed.toLowerCase()) ||
+    trimmed.toLowerCase().includes("placeholder") ||
+    trimmed.toLowerCase().includes("your-") ||
+    /_xxx+$/i.test(trimmed) ||
+    trimmed.toLowerCase().includes(KNOWN_PRODUCTION_REF)
+  ) {
+    return false;
+  }
   return (
     trimmed.length >= 25 && /^sb_publishable_[A-Za-z0-9_-]{10,}$/.test(trimmed)
   );
@@ -121,8 +141,25 @@ function isModernPublishableKey(value) {
 function isModernSecretKey(value) {
   if (!value || typeof value !== "string") return false;
   const trimmed = value.trim();
-  if (!trimmed || PLACEHOLDER_VALUES.has(trimmed.toLowerCase())) return false;
+  if (
+    !trimmed ||
+    PLACEHOLDER_VALUES.has(trimmed.toLowerCase()) ||
+    trimmed.toLowerCase().includes("placeholder") ||
+    trimmed.toLowerCase().includes("your-") ||
+    /_xxx+$/i.test(trimmed) ||
+    trimmed.toLowerCase().includes(KNOWN_PRODUCTION_REF)
+  ) {
+    return false;
+  }
   return trimmed.length >= 20 && /^sb_secret_[A-Za-z0-9_-]{10,}$/.test(trimmed);
+}
+
+function isValidRlsPublicKey(value) {
+  return isLegacyAnonJwt(value) || isModernPublishableKey(value);
+}
+
+function isValidRlsServiceRoleKey(value) {
+  return isLegacyServiceRoleJwt(value) || isModernSecretKey(value);
 }
 
 function isSupportedByDemoRecipeHandler(value) {
@@ -167,22 +204,65 @@ async function canReachLocalDemoEndpoint(supabaseUrl, serviceRoleKey) {
   }
 }
 
-function passesRlsTargetSafetyPrecheck({
-  rlsUrl,
-  rlsAnonKey,
-  rlsPublishableKey,
-  rlsServiceRoleKey,
-  primarySupabaseUrl,
-  viteSupabaseUrl,
-}) {
+function passesRlsTargetSafetyPrecheck(options = {}) {
+  const {
+    rlsUrl,
+    rlsAnonKey,
+    rlsPublishableKey,
+    rlsServiceRoleKey,
+    rlsSecretKey,
+    primarySupabaseUrl,
+    viteSupabaseUrl,
+    primaryServiceRoleKey,
+    primarySecretKey,
+    primaryAnonKey,
+    primaryPublishableKey,
+  } = options;
   if (!rlsUrl || !rlsUrl.trim()) return false;
-  const hasValidPublicKey =
-    isLegacyAnonJwt(rlsAnonKey) || isModernPublishableKey(rlsPublishableKey);
-  if (!hasValidPublicKey || !isLegacyServiceRoleJwt(rlsServiceRoleKey)) {
+
+  const candidatePublicKey = rlsAnonKey || rlsPublishableKey;
+  const effectivePublicKey =
+    (isValidRlsPublicKey(candidatePublicKey) && candidatePublicKey) ||
+    null;
+
+  const candidateServiceRoleKey = rlsServiceRoleKey || rlsSecretKey;
+  const effectiveServiceRoleKey =
+    (isValidRlsServiceRoleKey(candidateServiceRoleKey) && candidateServiceRoleKey) ||
+    null;
+
+  if (!effectivePublicKey || !effectiveServiceRoleKey) {
     return false;
   }
+
+  const trimmedPublic = effectivePublicKey.trim();
+  const trimmedService = effectiveServiceRoleKey.trim();
+
+  if (trimmedPublic === trimmedService) {
+    return false;
+  }
+
+  for (const prodKey of [
+    primaryServiceRoleKey,
+    primarySecretKey,
+    primaryAnonKey,
+    primaryPublishableKey,
+  ]) {
+    if (prodKey && typeof prodKey === "string" && prodKey.trim()) {
+      const normalizedProd = prodKey.trim();
+      if (
+        trimmedService === normalizedProd ||
+        trimmedPublic === normalizedProd
+      ) {
+        return false;
+      }
+    }
+  }
+
   try {
     const parsedRls = new URL(rlsUrl.trim());
+    if (parsedRls.protocol !== "https:" && parsedRls.protocol !== "http:") {
+      return false;
+    }
     const rlsHost = parsedRls.hostname.toLowerCase();
     if (rlsHost.includes(KNOWN_PRODUCTION_REF)) return false;
 
@@ -218,122 +298,254 @@ function passesRlsTargetSafetyPrecheck({
   }
 }
 
-const rawDatabaseUrl = process.env.DATABASE_URL;
-const rawSupabaseUrl = process.env.SUPABASE_URL;
-const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const rawViteSupabaseUrl = process.env.VITE_SUPABASE_URL;
-const rawRlsOptIn = process.env.RUN_BE04_RLS_INTEGRATION;
-const rawRlsUrl = process.env.BE04_RLS_TEST_SUPABASE_URL;
-const rawRlsAnonKey = process.env.BE04_RLS_TEST_SUPABASE_ANON_KEY;
-const rawRlsPublishableKey = process.env.BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY;
-const rawRlsServiceRoleKey =
-  process.env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY;
+function evaluateHostedRlsPrerequisites(options = {}) {
+  const {
+    optIn,
+    rlsUrl,
+    rlsAnonKey,
+    rlsPublishableKey,
+    rlsServiceRoleKey,
+    rlsSecretKey,
+    primarySupabaseUrl,
+    viteSupabaseUrl,
+    primaryServiceRoleKey,
+    primarySecretKey,
+    primaryAnonKey,
+    primaryPublishableKey,
+  } = options;
+  const isOptedIn = optIn === "true";
+  const candidatePublicKey = rlsAnonKey || rlsPublishableKey;
+  const effectivePublicKey =
+    (isValidRlsPublicKey(candidatePublicKey) && candidatePublicKey) ||
+    null;
+  const candidateServiceRoleKey = rlsServiceRoleKey || rlsSecretKey;
+  const effectiveServiceRoleKey =
+    (isValidRlsServiceRoleKey(candidateServiceRoleKey) && candidateServiceRoleKey) ||
+    null;
 
-const env = { ...process.env };
+  const missing = [];
+  if (!isOptedIn) {
+    missing.push("RUN_BE04_RLS_INTEGRATION=true opt-in flag");
+  }
+  if (!rlsUrl || !rlsUrl.trim()) {
+    missing.push("BE04_RLS_TEST_SUPABASE_URL");
+  }
+  if (!effectivePublicKey) {
+    missing.push(
+      "valid dedicated public key (BE04_RLS_TEST_SUPABASE_ANON_KEY or BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)"
+    );
+  }
+  if (!effectiveServiceRoleKey) {
+    missing.push(
+      "valid dedicated secret/service-role key (BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY or BE04_RLS_TEST_SUPABASE_SECRET_KEY: legacy service_role JWT or modern sb_secret_*)"
+    );
+  }
 
-for (const key of [
-  "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
-  "SUPABASE_ANON_KEY",
-  "SUPABASE_PUBLISHABLE_KEY",
-  "SUPABASE_SECRET_KEY",
-  "VITE_SUPABASE_URL",
-  "VITE_SUPABASE_ANON_KEY",
-  "VITE_SUPABASE_PUBLISHABLE_KEY",
-  "RUN_BE04_RLS_INTEGRATION",
-  "BE04_RLS_TEST_SUPABASE_URL",
-  "BE04_RLS_TEST_SUPABASE_ANON_KEY",
-  "BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
-  "BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
-  "RUN_MIGRATION_DB_TESTS",
-]) {
-  delete env[key];
+  const safetyPassed = passesRlsTargetSafetyPrecheck({
+    rlsUrl,
+    rlsAnonKey,
+    rlsPublishableKey,
+    rlsServiceRoleKey,
+    rlsSecretKey,
+    primarySupabaseUrl,
+    viteSupabaseUrl,
+    primaryServiceRoleKey,
+    primarySecretKey,
+    primaryAnonKey,
+    primaryPublishableKey,
+  });
+
+  if (isOptedIn && missing.length === 0 && !safetyPassed) {
+    missing.push(
+      "target safety precheck failed (production ref, URL collision, or invalid protocol/origin)"
+    );
+  }
+
+  const canRun = isOptedIn && safetyPassed;
+  const skipReason = canRun
+    ? null
+    : `Skipping hosted RLS integration test verification: missing or invalid prerequisites: ${missing.join("; ")}.`;
+
+  return {
+    canRun,
+    skipReason,
+    effectivePublicKey,
+    effectiveSecretKey: effectiveServiceRoleKey,
+  };
 }
 
-env.ALLOW_REMOTE_TEST_DB = "false";
-env.FORCE_REMOTE_SEED = "false";
-env.DATABASE_URL = isAllowedLoopbackDatabaseUrl(rawDatabaseUrl)
-  ? rawDatabaseUrl.trim()
-  : DEFAULT_LOCAL_DB_URL;
+async function runMain() {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  const rawSupabaseUrl = process.env.SUPABASE_URL;
+  const rawServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const rawSecretKey = process.env.SUPABASE_SECRET_KEY;
+  const rawAnonKey = process.env.SUPABASE_ANON_KEY;
+  const rawPublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  const rawViteSupabaseUrl = process.env.VITE_SUPABASE_URL;
+  const rawRlsOptIn = process.env.RUN_BE04_RLS_INTEGRATION;
+  const rawRlsUrl = process.env.BE04_RLS_TEST_SUPABASE_URL;
+  const rawRlsAnonKey = process.env.BE04_RLS_TEST_SUPABASE_ANON_KEY;
+  const rawRlsPublishableKey = process.env.BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY;
+  const rawRlsServiceRoleKey =
+    process.env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY;
+  const rawRlsSecretKey = process.env.BE04_RLS_TEST_SUPABASE_SECRET_KEY;
 
-const candidateDemoSupabaseUrl = isAllowedLocalSupabaseUrl(rawSupabaseUrl)
-  ? rawSupabaseUrl.trim()
-  : DEFAULT_LOCAL_SUPABASE_URL;
+  const env = { ...process.env };
 
-if (
-  await canReachLocalDemoEndpoint(candidateDemoSupabaseUrl, rawServiceRoleKey)
-) {
-  env.SUPABASE_URL = candidateDemoSupabaseUrl;
-  env.SUPABASE_SERVICE_ROLE_KEY = rawServiceRoleKey.trim();
-}
+  for (const key of [
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "VITE_SUPABASE_URL",
+    "VITE_SUPABASE_ANON_KEY",
+    "VITE_SUPABASE_PUBLISHABLE_KEY",
+    "RUN_BE04_RLS_INTEGRATION",
+    "BE04_RLS_TEST_SUPABASE_URL",
+    "BE04_RLS_TEST_SUPABASE_ANON_KEY",
+    "BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
+    "BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
+    "BE04_RLS_TEST_SUPABASE_SECRET_KEY",
+    "RUN_MIGRATION_DB_TESTS",
+  ]) {
+    delete env[key];
+  }
 
-if (
-  rawRlsOptIn === "true" &&
-  passesRlsTargetSafetyPrecheck({
+  env.ALLOW_REMOTE_TEST_DB = "false";
+  env.FORCE_REMOTE_SEED = "false";
+  env.DATABASE_URL = isAllowedLoopbackDatabaseUrl(rawDatabaseUrl)
+    ? rawDatabaseUrl.trim()
+    : DEFAULT_LOCAL_DB_URL;
+
+  const candidateDemoSupabaseUrl = isAllowedLocalSupabaseUrl(rawSupabaseUrl)
+    ? rawSupabaseUrl.trim()
+    : DEFAULT_LOCAL_SUPABASE_URL;
+
+  if (
+    await canReachLocalDemoEndpoint(candidateDemoSupabaseUrl, rawServiceRoleKey)
+  ) {
+    env.SUPABASE_URL = candidateDemoSupabaseUrl;
+    env.SUPABASE_SERVICE_ROLE_KEY = rawServiceRoleKey.trim();
+  }
+
+  const rlsEvaluation = evaluateHostedRlsPrerequisites({
+    optIn: rawRlsOptIn,
     rlsUrl: rawRlsUrl,
     rlsAnonKey: rawRlsAnonKey,
     rlsPublishableKey: rawRlsPublishableKey,
     rlsServiceRoleKey: rawRlsServiceRoleKey,
+    rlsSecretKey: rawRlsSecretKey,
     primarySupabaseUrl: env.SUPABASE_URL ?? rawSupabaseUrl,
     viteSupabaseUrl: rawViteSupabaseUrl,
-  })
-) {
-  env.RUN_BE04_RLS_INTEGRATION = "true";
-  env.BE04_RLS_TEST_SUPABASE_URL = rawRlsUrl.trim();
-  env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY = rawRlsServiceRoleKey.trim();
-  if (isLegacyAnonJwt(rawRlsAnonKey)) {
-    env.BE04_RLS_TEST_SUPABASE_ANON_KEY = rawRlsAnonKey.trim();
-  }
-  if (isModernPublishableKey(rawRlsPublishableKey)) {
-    env.BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY = rawRlsPublishableKey.trim();
-  }
-  if (!env.SUPABASE_URL && isValidUrlString(rawSupabaseUrl)) {
-    env.SUPABASE_URL = rawSupabaseUrl.trim();
-  }
-  if (isValidUrlString(rawViteSupabaseUrl)) {
-    env.VITE_SUPABASE_URL = rawViteSupabaseUrl.trim();
-  }
-}
-
-function runCommand(command, args, useShell = false) {
-  const result = spawnSync(command, args, {
-    stdio: "inherit",
-    shell: useShell,
-    env,
+    primaryServiceRoleKey: rawServiceRoleKey,
+    primarySecretKey: rawSecretKey,
+    primaryAnonKey: rawAnonKey,
+    primaryPublishableKey: rawPublishableKey,
   });
 
-  if (result.error) {
-    console.error(result.error.message);
-    process.exit(1);
+  if (rlsEvaluation.canRun) {
+    env.RUN_BE04_RLS_INTEGRATION = "true";
+    env.BE04_RLS_TEST_SUPABASE_URL = rawRlsUrl.trim();
+    env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY =
+      rlsEvaluation.effectiveSecretKey.trim();
+    if (isModernSecretKey(rlsEvaluation.effectiveSecretKey)) {
+      env.BE04_RLS_TEST_SUPABASE_SECRET_KEY =
+        rlsEvaluation.effectiveSecretKey.trim();
+    }
+    if (isLegacyAnonJwt(rlsEvaluation.effectivePublicKey)) {
+      env.BE04_RLS_TEST_SUPABASE_ANON_KEY =
+        rlsEvaluation.effectivePublicKey.trim();
+    } else {
+      env.BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY =
+        rlsEvaluation.effectivePublicKey.trim();
+    }
+    if (!env.SUPABASE_URL && isValidUrlString(rawSupabaseUrl)) {
+      env.SUPABASE_URL = rawSupabaseUrl.trim();
+    }
+    if (isValidUrlString(rawViteSupabaseUrl)) {
+      env.VITE_SUPABASE_URL = rawViteSupabaseUrl.trim();
+    }
+  } else {
+    console.warn(`[run-local-tests] ${rlsEvaluation.skipReason}`);
   }
 
-  if (result.signal) {
-    console.error(`Process terminated by signal: ${result.signal}`);
-    process.exit(1);
+  function runCommand(command, args, useShell = false) {
+    const result = spawnSync(command, args, {
+      stdio: "inherit",
+      shell: useShell,
+      env,
+    });
+
+    if (result.error) {
+      console.error(result.error.message);
+      process.exit(1);
+    }
+
+    if (result.signal) {
+      console.error(`Process terminated by signal: ${result.signal}`);
+      process.exit(1);
+    }
+
+    if (typeof result.status !== "number") {
+      process.exit(1);
+    }
+
+    if (result.status !== 0) {
+      process.exit(result.status);
+    }
   }
 
-  if (typeof result.status !== "number") {
-    process.exit(1);
-  }
+  runCommand(process.execPath, ["test-migrations.mjs", "--run-db-tests"], false);
 
-  if (result.status !== 0) {
-    process.exit(result.status);
-  }
+  const denoArgs = [
+    "test",
+    "--frozen-lockfile",
+    "--node-modules-dir=auto",
+    "--allow-env",
+    "--allow-net",
+    "--allow-read=fixtures/demo-recipe.json",
+    "supabase/functions/tests/demo_recipe_test.ts",
+    "supabase/functions/tests/auth_test.ts",
+    "supabase/functions/tests/auth_rls_integration_test.ts",
+    "supabase/functions/tests/recipes_test.ts",
+  ];
+
+  runCommand("deno", denoArgs, process.platform === "win32");
 }
 
-runCommand(process.execPath, ["test-migrations.mjs", "--run-db-tests"], false);
+const isDirectRun =
+  (typeof import.meta.main === "boolean" && import.meta.main) ||
+  (Boolean(process.argv[1]) &&
+    path.resolve(process.argv[1]).toLowerCase() ===
+      fileURLToPath(import.meta.url).toLowerCase());
 
-const denoArgs = [
-  "test",
-  "--frozen-lockfile",
-  "--node-modules-dir=auto",
-  "--allow-env",
-  "--allow-net",
-  "--allow-read=fixtures/demo-recipe.json",
-  "supabase/functions/tests/demo_recipe_test.ts",
-  "supabase/functions/tests/auth_test.ts",
-  "supabase/functions/tests/auth_rls_integration_test.ts",
-  "supabase/functions/tests/recipes_test.ts",
-];
+if (isDirectRun) {
+  runMain();
+}
 
-runCommand("deno", denoArgs, process.platform === "win32");
+export {
+  DEFAULT_LOCAL_DB_URL,
+  DEFAULT_LOCAL_SUPABASE_URL,
+  KNOWN_PRODUCTION_REF,
+  PLACEHOLDER_VALUES,
+  isLoopbackHost,
+  isAllowedLoopbackDatabaseUrl,
+  isAllowedLocalSupabaseUrl,
+  isValidUrlString,
+  decodeJwtSegment,
+  parseLegacyJwtClaims,
+  isLegacyAnonJwt,
+  isLegacyServiceRoleJwt,
+  isModernPublishableKey,
+  isModernSecretKey,
+  isValidRlsPublicKey,
+  isValidRlsServiceRoleKey,
+  isSupportedByDemoRecipeHandler,
+  buildPostgrestProbeHeaders,
+  canReachLocalDemoEndpoint,
+  passesRlsTargetSafetyPrecheck,
+  evaluateHostedRlsPrerequisites,
+  runMain,
+};
+
