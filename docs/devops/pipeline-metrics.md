@@ -15,22 +15,25 @@
 - **Cloudflare Worker:** `moris-mix-ai`
 - **Production Branch:** `main`
 
-The unified `.github/workflows/ci.yml` runs two parallel required PR validation jobs:
+The unified [CI workflow](../../.github/workflows/ci.yml) runs three parallel validation jobs:
 
 | Job | Workload |
 | :--- | :--- |
 | Frontend Checks (`frontend`) | Install dependencies, lint, frontend tests, and build |
 | Database Tests (`test-db`) | PostgreSQL 16 service, dependency installation, database migrations, migration lifecycle tests, and RLS tests |
+| Edge/API Tests (`test-edge-api`) | Type-checking and deterministic demo-recipe tests |
 
-PR runs validate the application and skip deployment. Branch protection requires both **Frontend Checks** and **Database Tests**, at least one teammate approval, and resolved review conversations before merge.
+PR runs execute all three validation jobs and skip deployment. Verified current GitHub ruleset evidence requires **Frontend Checks**, **Database Tests**, and **Edge/API Tests**, one approving teammate review, and resolved review conversations before merge.
 
 **Deploy to Cloudflare** runs on qualifying `main` pushes or permitted main `workflow_dispatch` runs. It validates public Supabase build configuration, installs frontend dependencies, builds the frontend, and deploys through Wrangler. The temporary frontend-existence mechanism remains, with deployment requiring `needs.frontend.outputs.exists == 'true'`.
 
-The deployment job currently has **`needs: frontend`**, not `needs: [frontend, test-db]`. It waits only for Frontend Checks. Production deployment can begin before the main-run Database Tests finish. This limitation concerns post-merge deployment-job gating; branch protection still requires both jobs before PR merge. Section 5 records the observed evidence.
+The deployment job now declares **`needs: [frontend, test-db, test-edge-api]`**. All three jobs must succeed in the same run before deployment can start. Normal GitHub Actions dependency semantics configure deployment to be blocked if a dependency fails, is cancelled, or is skipped; the failed-required-validation blocking path remains experimentally unverified. PR #43, merged as `7b577e70750ab3ec930ef265211c0fd541834aad`, closed the earlier frontend-only deployment-gate gap. Main run #90 verifies the successful three-job gating path; section 5 records that evidence separately from the historical observations.
+
+The Cloudflare workflow does not deploy Supabase Edge Functions or the database. Supabase production deployment automation remains DEVOPS-07 work and is not implemented by the current workflow.
 
 ## 2. Preliminary Sprint 1 Comparable Baseline
 
-These samples reflect the current application pipeline. PR workflow durations and main/deployment workflow durations are tracked separately because their workloads differ. They are workflow durations, not precise merge-to-live measurements or individual deployment-job durations.
+The historical samples below reflect the earlier two-job validation workload, before Edge/API validation (PR #41) and the all-checks deployment gate (PR #43). They remain a historical preliminary baseline, not measurements of the current three-job workflow. PR workflow durations and main/deployment workflow durations are tracked separately because their workloads differ. They are workflow durations, not precise merge-to-live measurements or individual deployment-job durations.
 
 ### PR Workflow Observations
 
@@ -70,7 +73,7 @@ This two-run sample is preliminary and too small to establish a stable long-term
 
 | Metric | Sprint 1 evidence |
 | :--- | :--- |
-| Current comparable main/deployment sample | 2 successful runs (#73 and #77) |
+| Historical comparable main/deployment sample | 2 successful runs (#73 and #77), before PRs #41 and #43 |
 | Failed production deployments in this comparable sample | 0 observed |
 | Deployment incidents requiring rollback in reviewed evidence | None observed |
 | Production deployment rollback | Not tested |
@@ -78,6 +81,21 @@ This two-run sample is preliminary and too small to establish a stable long-term
 | Application/API request recovery | Verified separately; this is not deployment recovery |
 
 The total Sprint 1 production deployment count has not been fully enumerated.
+
+### Preliminary Current Three-Job Workflow Sample
+
+These current-workflow observations are recorded separately from the historical two-job baseline. Approximate workflow durations are calculated from the supplied creation and completion timestamps; they are not individual job durations or precise merge-to-live measurements.
+
+| Run | Workflow scope | Created (UTC) | Completed (UTC) | Approx. duration | Result |
+| :--- | :--- | :--- | :--- | ---: | :--- |
+| #91 | PR, three-job validation | 2026-10-19T10:08:53Z | 2026-10-19T10:09:30Z | 37s | Success |
+| #92 | PR, three-job validation | 2026-10-19T10:45:23Z | 2026-10-19T10:46:05Z | 42s | Success |
+| #90 | Main/deployment, three-job gate | 2026-10-19T07:04:59Z | 2026-10-19T07:06:04Z | 65s | Success |
+
+- PR sample: **2** runs (#91 and #92); preliminary mean = (37 + 42) / 2 = **39.5s**; observed success rate = **2/2**.
+- Main/deployment sample: **1** run (#90), approximately **65s**, successful; this also verifies the successful three-job deployment gate described in section 5.
+
+This sample is too small to establish a stable baseline or stable reliability. Workload differences prevent direct comparison with the historical two-job sample as proof of improvement or regression; no optimization is claimed. More comparable current-workflow observations are needed. Failed-required-validation blocking remains configured but experimentally unverified. Precise merge-to-live time remains unmeasured; production rollback and failed-deployment recovery remain untested and unmeasured.
 
 ## 3. Historical Measurements
 
@@ -147,16 +165,27 @@ This is verified **application/API request recovery**. It does not measure or ve
 
 ## 5. Branch Protection and Deployment Quality Gates
 
-The `main` branch requires pull requests, at least one approving teammate review, both **Frontend Checks** and **Database Tests**, and resolved review conversations. Force pushes and branch deletion are restricted. Protection rules have been observed blocking merge when approval requirements were unsatisfied.
+Verified current GitHub ruleset evidence for `main` requires pull requests, one approving teammate review, **Frontend Checks**, **Database Tests**, **Edge/API Tests**, and resolved review conversations. Force pushes and branch deletion are restricted. Protection rules have been observed blocking merge when approval requirements were unsatisfied.
 
-Both validation jobs must pass before a PR merges. On the subsequent main run, however, Deploy to Cloudflare depends only on `frontend`. The observed execution order confirms this limitation:
+The current deployment job depends on `frontend`, `test-db`, and `test-edge-api`, so all three must succeed before production deployment starts on an eligible main run. This post-merge gate is separate from required PR status checks.
+
+Before PR #43, Deploy to Cloudflare depended only on `frontend`. The following historical observations documented the gap that PR #43 has since closed:
 
 | Main run | Observed ordering |
 | :--- | :--- |
 | #73 | Frontend Checks completed before deployment started; deployment started while Database Tests were still running |
 | #77 | Frontend Checks completed at about **15:30:54Z**; Cloudflare deployment started at about **15:30:56Z**; Database Tests completed at about **15:31:06Z** |
 
-**Production deployment can begin before the main-run Database Tests finish.** Requiring both jobs as deployment dependencies is a reliability / quality-gate improvement opportunity. No workflow change is made or claimed as part of DEVOPS-03.
+**The frontend-only deployment-gate limitation is resolved by PR #43.** It adds both Database Tests and Edge/API Tests as deployment dependencies. Verified main CI run #90 ran on commit `7b577e70750ab3ec930ef265211c0fd541834aad` and completed successfully:
+
+| Job | Verified result / ordering |
+| :--- | :--- |
+| Edge/API Tests | Completed successfully before deployment |
+| Frontend Checks | Completed successfully before deployment |
+| Database Tests | Completed successfully at approximately 07:05:40 UTC |
+| Deploy to Cloudflare | Started afterward at approximately 07:05:43 UTC and completed successfully |
+
+The successful three-job gating path is verified by main run #90. The failed-required-validation blocking path remains configured through `deploy.needs` and normal GitHub Actions dependency semantics but experimentally unverified. Run #90 is successful-path ordering evidence, not an addition to the earlier two-job duration baseline. No performance optimization is claimed for DEVOPS-06.
 
 Historically, a manual feature-branch run of the standalone deployment workflow skipped the production job. The unified workflow has a configured main-only condition; that feature-branch manual-dispatch guard has not been separately re-tested.
 
@@ -166,21 +195,21 @@ Historically, a manual feature-branch run of the standalone deployment workflow 
 - The frontend-existence check still permits validation/deployment to be skipped when the frontend is absent. Replacing it with a failure for missing required frontend files remains a follow-up candidate.
 - Docs-only pushes to `main` can proceed through deployment. Trigger scope is a possible future efficiency improvement; no benefit has been measured.
 - TypeScript validation runs within `pnpm build` rather than as a separately named step.
-- Four comparable PR observations and two comparable main/deployment observations provide only preliminary evidence. Historical samples have different workloads and are excluded from these calculations.
+- The historical two-job sample (four PR runs and two main/deployment runs) and the separate current three-job sample (two PR runs and one main/deployment run) provide only preliminary evidence; their workloads differ and their calculations are kept separate.
 - Precise merge-to-live time, production rollback, and failed-production-deployment recovery time remain unmeasured or untested.
 - A historical deployment reported its configured Wrangler version as outdated; any upgrade should be evaluated separately.
 
 ## 7. Baseline and Optimization Status
 
-Sprint 1 establishes the baseline. **No performance optimization is claimed for Sprint 1.** The current preliminary PR mean is 41.75s (approximately 42s) across four runs; the preliminary main/deployment mean is approximately 51s across two runs. These observations describe the measured sample, not a guaranteed duration or stable long-term reliability level.
+Sprint 1 establishes the baseline. **No performance optimization is claimed for Sprint 1.** The historical preliminary PR mean is 41.75s (approximately 42s) across four runs; the preliminary main/deployment mean is approximately 51s across two runs. These observations describe the earlier two-job sample, not the current three-job workflow, a guaranteed duration, or a stable long-term reliability level.
 
 The earlier bootstrap and frontend runs remain useful historical evidence, but differences in workload prevent using them to prove an improvement or regression against the current pipeline.
 
 ## 8. Measurements Still Needed
 
-Continue collecting naturally occurring comparable runs and record:
+A preliminary current three-job workflow sample now exists in section 2. More comparable observations are still needed; continue collecting naturally occurring runs and record:
 
-- PR workflow durations and results for the current two-job validation workload.
+- PR workflow durations and results for the current three-job validation workload, collected separately from the historical two-job sample.
 - Main/deployment workflow durations and results, keeping workflow and job timings distinct.
 - Production deployment and failed-deployment counts for a clearly defined observation period.
 - Precise merge-to-live time.
@@ -191,7 +220,7 @@ Keep future measurements separate if the workload or deployment dependencies cha
 
 ## 9. Next DevOps Improvements
 
-1. Evaluate requiring both Frontend Checks and Database Tests before post-merge deployment starts.
+1. Record experimental evidence that a failed required validation prevents production deployment from running when tested or observed; run #90 already verifies successful three-job gating.
 2. Investigate Database Tests timing, including PostgreSQL service-container initialization, as a future optimization candidate.
 3. Continue collecting comparable pipeline observations and precise merge-to-live measurements.
 4. Test and document production deployment rollback and failed-deployment recovery.
@@ -201,6 +230,6 @@ These are follow-up opportunities, not implemented or proven optimizations.
 
 ## 10. Sprint 1 Metrics Assessment
 
-DEVOPS-03 now records a preliminary Sprint 1 PR baseline from four comparable successful runs and a separate two-run successful main/deployment sample. Both frontend and database validation are required before PR merge. Main-run deployment currently waits only for Frontend Checks, leaving a documented post-merge quality-gate improvement opportunity.
+DEVOPS-03 records a historical preliminary Sprint 1 PR baseline from four comparable successful runs and a separate two-run successful main/deployment sample. The verified current ruleset requires Frontend Checks, Database Tests, and Edge/API Tests before PR merge. Following PRs #41 and #43, production deployment waits for all three jobs to succeed in the main run, with the successful path experimentally verified by run #90. The failed-required-validation blocking path remains configured but experimentally unverified; a separate preliminary duration sample for the current three-job workflow now exists (PR mean 39.5s across two runs; one main/deployment run at approximately 65s), with more comparable observations still needed.
 
 The production walking skeleton and deployed application/API request retry are verified. Precise merge-to-live timing, production deployment rollback, and recovery time from a failed production deployment remain outstanding. Sprint 1 establishes measured evidence without claiming a performance optimization or a stable long-term baseline.

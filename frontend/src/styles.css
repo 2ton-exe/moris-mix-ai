@@ -51,6 +51,23 @@ footer span { padding: 0 7px; color: #c1c6cc; }
 code { padding: 2px 5px; border-radius: 4px; background: #eceff2; font-size: .9em; }
 
 button.button { border: 0; font-family: inherit; cursor: pointer; }
+.button:disabled { cursor: wait; opacity: .65; transform: none; }
+a:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
+.auth-shell { max-width: 520px; padding-top: clamp(48px, 10vh, 96px); }
+.auth-shell h1 { font-size: clamp(36px, 6vw, 52px); }
+.auth-form { width: 100%; margin-top: 28px; }
+.auth-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.auth-field { margin-bottom: 20px; }
+.auth-field label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
+.auth-field input { width: 100%; min-width: 0; min-height: 48px; border: 1px solid #a1a8b0; border-radius: 8px; padding: 10px 12px; background: #fff; color: #202631; font: inherit; }
+.auth-field input[aria-invalid="true"] { border-color: #a02c34; }
+.input-row { display: flex; align-items: center; gap: 10px; }
+.password-toggle { flex: none; min-height: 44px; padding: 8px; border: 1px solid #a1a8b0; border-radius: 8px; background: #fff; color: #26394c; cursor: pointer; font: inherit; }
+.field-hint { margin: 0 0 8px; color: #67717f; font-size: 13px; line-height: 1.6; }
+.field-error { color: #a02c34; font-size: 14px; line-height: 1.6; }
+.auth-links { font-size: 14px; line-height: 1.6; }
+.auth-links a { text-decoration: underline; text-underline-offset: 3px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .button:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
 .request-state { width: 100%; margin: 24px 0; line-height: 1.6; overflow-wrap: anywhere; }
 .request-error { padding: 20px; border: 1px solid #e1e5e9; border-radius: 10px; background: #fff; }
@@ -68,10 +85,83 @@ button.button { border: 0; font-family: inherit; cursor: pointer; }
 .flavor-scores dd { margin: 4px 0 0; font-weight: 700; }
 .recipe-meta { margin-top: 28px; }
 
+/* The journal extends FE-01/03's slate, sage, cards, and plain-CSS conventions. */
+.journal-shell { width: min(100% - 64px, 1120px); padding-top: 32px; }
+.journal-header { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 24px; border-bottom: 1px solid #e1e5e9; }
+.journal-account { display: flex; align-items: center; justify-content: flex-end; gap: 16px; min-width: 0; }
+.journal-account > span { color: #67717f; font-size: 13px; overflow-wrap: anywhere; }
+.journal-account .button { flex-shrink: 0; }
+.journal-shell button.button-secondary { border: 1px solid #e1e5e9; }
+.journal-heading { display: flex; width: 100%; align-items: flex-end; justify-content: space-between; gap: 28px; margin: 48px 0 36px; }
+.journal-heading h1 { font-size: clamp(36px, 5vw, 54px); margin: 0 0 18px; }
+.journal-heading > .button { flex-shrink: 0; }
+.journal-heading .intro { color: #626e7c; }
+.recipe-collection { width: 100%; }
+.collection-heading { margin: 0 0 20px; font-size: 15px; font-weight: 600; }
+.collection-heading span { margin-left: 4px; color: #67717f; }
+.recipe-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; list-style: none; padding: 0; margin: 0; width: 100%; }
+.recipe-grid > li { min-width: 0; }
+.recipe-card { display: flex; flex-direction: column; height: 100%; min-height: 240px; padding: 26px; border: 1px solid #dce3df; border-radius: 12px; background: #fff; transition: border-color .18s ease, box-shadow .18s ease; overflow-wrap: anywhere; }
+.recipe-card:hover { border-color: #5a8c78; box-shadow: 0 8px 24px #3442560c; }
+.recipe-card-label { color: #567765; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+.recipe-card h2 { margin: 20px 0; font-size: 24px; line-height: 1.25; letter-spacing: -.03em; font-weight: 600; }
+.recipe-metadata { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 20px; font-size: 13px; }
+.recipe-metadata:empty { display: none; }
+.recipe-metadata div { display: flex; gap: 6px; }
+.recipe-metadata dt { color: #67717f; }
+.recipe-metadata dd { margin: 0; color: #344a3e; }
+.recipe-card-link { display: flex; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 24px; font-size: 13px; font-weight: 600; color: #344a3e; }
+.journal-empty { width: 100%; border: 1px dashed #b5c5bc; border-radius: 12px; padding: 48px 32px; text-align: center; background: #f1f5f2; }
+.empty-mark { font-size: 38px; color: #567765; }
+.journal-empty h2 { font-weight: 600; letter-spacing: -.03em; font-size: clamp(24px, 4vw, 32px); }
+.journal-empty p { color: #626e7c; line-height: 1.8; max-width: 520px; margin: 16px auto 24px; }
+.recipe-start { max-width: 520px; margin: 0 auto 24px; color: #344a3e; }
+.recipe-start summary { cursor: pointer; text-decoration: underline; text-underline-offset: 4px; padding: 10px; }
+summary:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
+.recipe-preview-notice { width: 100%; padding: 16px; border-radius: 8px; background: #fff2d8; color: #6c4c16; font-size: 14px; line-height: 1.6; }
+.recipe-update { color: #626e7c; font-size: 14px; }
+.recipe-loading { width: 100%; margin: 12px 0; }
+.recipe-skeleton { min-height: 240px; padding: 26px; border: 1px solid #e1e5e9; border-radius: 12px; background: #fff; }
+.recipe-skeleton span { display: block; height: 14px; width: 65%; margin-bottom: 24px; border-radius: 4px; background: #e8eeeb; }
+.recipe-skeleton span:nth-child(2) { height: 54px; width: 90%; }
+.recipe-skeleton span:last-child { width: 45%; }
+.recipe-back { margin-top: 32px; font-size: 14px; color: #344a3e; }
+.recipe-back a { display: inline-block; padding: 12px 0; text-decoration: underline; text-underline-offset: 4px; }
+.journal-recipe { width: 100%; overflow-wrap: anywhere; }
+.recipe-detail-header { margin: 32px 0 36px; max-width: 850px; }
+.recipe-detail-header h1 { font-size: clamp(36px, 5vw, 56px); margin: 16px 0 24px; line-height: 1.15; }
+.recipe-detail-columns, .recipe-detail-skeleton { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); gap: 48px; width: 100%; }
+.journal-recipe h2 { margin: 0 0 24px; font-size: 22px; letter-spacing: -.03em; }
+.ingredient-panel { align-self: start; padding: 28px; border: 1px solid #dce3df; border-radius: 12px; background: #f0f4f1; }
+.ingredient-panel ul { list-style: none; padding: 0; margin: 0; }
+.ingredient-panel li { border-top: 1px solid #dce3df; padding: 14px 0; line-height: 1.6; }
+.ingredient-panel p, .instruction-panel p { color: #626e7c; line-height: 1.8; }
+.instruction-panel { padding-top: 28px; }
+.instruction-panel ol { padding-left: 28px; margin: 0; }
+.instruction-panel li { margin-bottom: 24px; padding-left: 12px; line-height: 1.85; }
+.instruction-panel li::marker { color: #567765; font-weight: 700; }
+.recipe-flavors { width: 100%; margin-top: 40px; }
+.journal-footer { display: flex; width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 16px; color: #626e7c; line-height: 1.8; }
+.journal-footer a { text-decoration: underline; text-underline-offset: 4px; }
+
+@media (max-width: 850px) {
+  .recipe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .journal-heading { align-items: flex-start; flex-direction: column; }
+  .recipe-detail-columns, .recipe-detail-skeleton { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+}
+
 @media (max-width: 540px) {
   .page-shell { width: min(100% - 36px, 780px); padding-top: 92px; }
   .intro { font-size: 14px; }
   .starter-card { margin-top: 58px; }
+  .journal-shell { padding-top: 24px; }
+  .journal-header { align-items: flex-start; gap: 16px; }
+  .journal-account { flex-direction: column; align-items: flex-end; gap: 10px; }
+  .journal-header .eyebrow { flex-shrink: 0; padding-top: 10px; }
+  .journal-account > span { font-size: 11px; }
+  .journal-heading { margin-top: 32px; }
+  .recipe-grid { grid-template-columns: minmax(0, 1fr); }
+  .journal-empty { padding: 28px 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
