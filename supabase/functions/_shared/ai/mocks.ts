@@ -22,3 +22,16 @@ export const MOCK_MALFORMED_RECIPE = {
   ingredients: "not an array", // Invalid
   instructions: []
 };
+
+import { GeneratedRecipe } from "./AIProvider.ts"; // Add GeneratedRecipe to your imports at the top!
+
+// NEW: Valid and Malformed Generated Recipe Mocks
+export const MOCK_GENERATED_RECIPE: GeneratedRecipe = {
+  recipe: MOCK_EXTRACTED_RECIPE,
+  parentRecipeIds: ["123e4567-e89b-12d3-a456-426614174000"]
+};
+
+export const MOCK_MALFORMED_GENERATED_RECIPE = {
+  recipe: "This is just a string, not an object", // Invalid
+  parentRecipeIds: [123, 456] // Invalid (should be strings)
+};

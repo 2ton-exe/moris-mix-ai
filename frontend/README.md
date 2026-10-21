@@ -1,4 +1,28 @@
-# FE-02 demo recipe frontend
+# Mori's Mix frontend
+
+FE-04 adds the protected recipe dashboard at `/app` and `/app/recipes`, plus
+details at `/app/recipes/:recipeId`, using TanStack Query. The shared REST client
+now supports authenticated GET and POST requests using a freshly checked SDK
+session on each request. BE-06's recipe endpoint contract is still unavailable,
+so the production recipe source remains unavailable and normal mode shows an
+explicit unavailable state. For a labeled local sample preview, set
+`VITE_RECIPE_PREVIEW=true` and restart Vite; existing authentication is still
+required. Production builds ignore this flag. See the [FE-04 implementation and
+integration handoff](../docs/frontend/recipe-dashboard.md) for the remaining
+REST work.
+
+FE-03 adds login, signup, email verification, session handling, and a protected
+`/app` journal entry. Open `/home` and select **Your cooking journal**, or go to
+`/login` directly. See the [authentication setup and FS-02 handoff](../docs/frontend/authentication.md)
+for callback allowlist requirements, session interfaces, route ownership, and
+the remaining live verification steps. The public FE-02 demo stays available
+without authentication.
+
+Session initialization offers retry and public demo navigation after a
+15-second deadline. Verification status reflects the current callback's SDK
+result, and callback credentials are removed from the URL on success, failure,
+or timeout. If logout clears this browser session but server revocation fails,
+the login page displays a dismissible notice.
 
 Opening `/` redirects to `/demo-recipe`; the previous starter page remains at
 `/home`. The `/demo-recipe` page requests `GET /functions/v1/demo-recipe` from the configured

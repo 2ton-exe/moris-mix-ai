@@ -1,5 +1,13 @@
-import { Link, Navigate, Route, Routes } from 'react-router'
+import { Link, Navigate, Outlet, Route, Routes } from 'react-router'
+import { AuthProvider } from './auth/AuthProvider'
+import { AuthReady, GuestRoute, ProtectedRoute } from './auth/AuthRoutes'
+import AuthPage from './pages/AuthPage'
+import EmailVerificationPage from './pages/EmailVerificationPage'
+import JournalPage from './pages/JournalPage'
 import DemoRecipePage from './pages/DemoRecipePage'
+import RecipeDashboardPage from './pages/RecipeDashboardPage'
+import RecipeDetailPage from './pages/RecipeDetailPage'
+import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
 function HomePage() {
   return (
@@ -10,6 +18,7 @@ function HomePage() {
         Your React app is ready. Build a page, add a route, and make this space your own.
       </p>
       <div className="actions">
+        <Link className="button button-primary" to="/app">Your cooking journal</Link>
         <Link className="button button-primary" to="/demo-recipe">Demonstration recipe</Link>
         <Link className="button button-primary" to="/about">Explore the app <span aria-hidden="true">→</span></Link>
         <a className="button button-secondary" href="https://vite.dev/guide/">Read the Vite guide</a>
@@ -59,6 +68,24 @@ export default function App() {
       <Route path="/home" element={<HomePage />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/demo-recipe" element={<DemoRecipePage />} />
+      <Route element={<AuthProvider><Outlet /></AuthProvider>}>
+        <Route path="/auth/callback" element={<EmailVerificationPage callback />} />
+        <Route element={<AuthReady />}>
+          <Route element={<GuestRoute />}>
+            <Route path="/login" element={<AuthPage key="login" mode="login" />} />
+            <Route path="/signup" element={<AuthPage key="signup" mode="signup" />} />
+          </Route>
+          <Route path="/verify-email" element={<EmailVerificationPage />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/app" element={<RecipeQueryProvider><JournalPage /></RecipeQueryProvider>}>
+              <Route index element={<RecipeDashboardPage />} />
+              <Route path="recipes" element={<RecipeDashboardPage />} />
+              <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+            </Route>
+            <Route path="/app/*" element={<NotFoundPage />} />
+          </Route>
+        </Route>
+      </Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )
