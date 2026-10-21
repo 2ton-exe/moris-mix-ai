@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals } from "jsr:@std/assert@1";
+import { assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import { handler } from "../recipes/index.ts";
 import {
@@ -1075,19 +1075,316 @@ Deno.test({
       const rawMessage = err instanceof Error ? err.message : String(err);
       primaryError = new Error(redactSecrets(rawMessage, knownSecrets));
     } finally {
-      if (createdRecipeIds.length > 0) {
-        await adminClient.from("recipes").delete().in("id", createdRecipeIds);
-      }
-      if (createdUserIds.length > 0) {
-        await adminClient.from("recipes").delete().in("user_id", createdUserIds);
-        await adminClient.from("profiles").delete().in("id", createdUserIds);
-        for (const uid of createdUserIds) {
-          await adminClient.auth.admin.deleteUser(uid);
-        }
-      }
-      if (primaryError) {
-        throw primaryError;
-      }
+      await cleanupRlsTestResources(
+        adminClient,
+        createdRecipeIds,
+        createdUserIds,
+        knownSecrets,
+        primaryError,
+      );
     }
   },
+});
+
+type RlsCleanupAdminClient = {
+  from: (table: string) => {
+    delete: () => {
+      in: (column: string, values: string[]) => PromiseLike<unknown>;
+    };
+  };
+  auth: {
+    admin: {
+      deleteUser: (id: string) => PromiseLike<{ error: { message?: string } | null }>;
+    };
+  };
+};
+
+async function cleanupRlsTestResources(
+  adminClient: RlsCleanupAdminClient,
+  createdRecipeIds: string[],
+  createdUserIds: string[],
+  knownSecrets: string[],
+  primaryError: Error | null,
+): Promise<void> {
+  const cleanupErrors: string[] = [];
+
+  if (createdRecipeIds.length > 0) {
+    await adminClient.from("recipes").delete().in("id", createdRecipeIds);
+  }
+  if (createdUserIds.length > 0) {
+    await adminClient.from("recipes").delete().in("user_id", createdUserIds);
+    await adminClient.from("profiles").delete().in("id", createdUserIds);
+    for (const uid of createdUserIds) {
+      try {
+        const { error: deleteError } = await adminClient.auth.admin.deleteUser(uid);
+        if (deleteError) {
+          cleanupErrors.push(
+            `Failed to delete test user ${uid}: ${redactSecrets(deleteError.message || "unknown error", knownSecrets)}`,
+          );
+        }
+      } catch (err) {
+        const rawMessage = err instanceof Error ? err.message : String(err);
+        cleanupErrors.push(
+          `Failed to delete test user ${uid}: ${redactSecrets(rawMessage, knownSecrets)}`,
+        );
+      }
+    }
+  }
+
+  if (primaryError && cleanupErrors.length > 0) {
+    throw new Error(
+      `${redactSecrets(primaryError.message, knownSecrets)} | Cleanup failed: ${cleanupErrors.join("; ")}`,
+      { cause: primaryError },
+    );
+  }
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (cleanupErrors.length > 0) {
+    throw new Error(`Cleanup failed: ${cleanupErrors.join("; ")}`);
+  }
+}
+
+Deno.test("RLS test cleanup succeeds when all admin.deleteUser calls succeed, fails and redacts secrets on deleteUser error, attempts all users when one fails, and preserves primary test failures alongside cleanup failures", async () => {
+  const mockServiceRoleKey = "secret-service-role-key-value";
+  const mockAnonKey = "secret-anon-key-value";
+  const knownSecrets = [mockAnonKey, mockServiceRoleKey];
+
+  const deletedTables: Array<{ table: string; column: string; values: string[] }> = [];
+  const deletedUsersSuccess: string[] = [];
+
+  const successAdminClient: RlsCleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        in: (column: string, values: string[]) => {
+          deletedTables.push({ table, column, values });
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (id: string) => {
+          deletedUsersSuccess.push(id);
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  await cleanupRlsTestResources(
+    successAdminClient,
+    ["recipe-1"],
+    ["user-a", "user-b"],
+    knownSecrets,
+    null,
+  );
+
+  assertEquals(deletedTables, [
+    { table: "recipes", column: "id", values: ["recipe-1"] },
+    { table: "recipes", column: "user_id", values: ["user-a", "user-b"] },
+    { table: "profiles", column: "id", values: ["user-a", "user-b"] },
+  ]);
+  assertEquals(deletedUsersSuccess, ["user-a", "user-b"]);
+
+  const attemptedUsersOnFailure: string[] = [];
+  const failingAdminClient: RlsCleanupAdminClient = {
+    from: () => ({
+      delete: () => ({
+        in: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (id: string) => {
+          attemptedUsersOnFailure.push(id);
+          if (id === "user-a") {
+            return Promise.resolve({
+              error: {
+                message: `Auth delete failed using key ${mockServiceRoleKey}`,
+              },
+            });
+          }
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  const cleanupOnlyError = await assertRejects(
+    () =>
+      cleanupRlsTestResources(
+        failingAdminClient,
+        ["recipe-1"],
+        ["user-a", "user-b"],
+        knownSecrets,
+        null,
+      ),
+    Error,
+  );
+
+  assertEquals(attemptedUsersOnFailure, ["user-a", "user-b"]);
+  assertEquals(
+    cleanupOnlyError.message.includes(
+      "Failed to delete test user user-a: Auth delete failed using key [REDACTED]",
+    ),
+    true,
+  );
+  assertEquals(cleanupOnlyError.message.includes(mockServiceRoleKey), false);
+  assertEquals(cleanupOnlyError.message.includes(mockAnonKey), false);
+
+  const attemptedUsersWithPrimaryError: string[] = [];
+  const bothFailAdminClient: RlsCleanupAdminClient = {
+    from: () => ({
+      delete: () => ({
+        in: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (id: string) => {
+          attemptedUsersWithPrimaryError.push(id);
+          return Promise.resolve({
+            error: {
+              message: `Delete rejected for ${id} (${mockAnonKey})`,
+            },
+          });
+        },
+      },
+    },
+  };
+
+  const earlierError = new Error("Primary RLS assertion failed: expected 201 to equal 500");
+  const combinedError = await assertRejects(
+    () =>
+      cleanupRlsTestResources(
+        bothFailAdminClient,
+        [],
+        ["user-a", "user-b"],
+        knownSecrets,
+        earlierError,
+      ),
+    Error,
+  );
+
+  assertEquals(attemptedUsersWithPrimaryError, ["user-a", "user-b"]);
+  assertEquals(
+    combinedError.message.includes("Primary RLS assertion failed: expected 201 to equal 500"),
+    true,
+  );
+  assertEquals(
+    combinedError.message.includes(
+      "Failed to delete test user user-a: Delete rejected for user-a ([REDACTED])",
+    ),
+    true,
+  );
+  assertEquals(
+    combinedError.message.includes(
+      "Failed to delete test user user-b: Delete rejected for user-b ([REDACTED])",
+    ),
+    true,
+  );
+  assertEquals(combinedError.message.includes(mockServiceRoleKey), false);
+  assertEquals(combinedError.message.includes(mockAnonKey), false);
+  assertEquals(combinedError.cause, earlierError);
+});
+
+Deno.test("cleanupRlsTestResources handles thrown deleteUser exceptions by failing, attempting remaining users, preserving primary errors, and redacting secrets", async () => {
+  const mockServiceRoleKey = "secret-service-role-key-value";
+  const mockAnonKey = "secret-anon-key-value";
+  const knownSecrets = [mockAnonKey, mockServiceRoleKey];
+
+  const attemptedUsers: string[] = [];
+  const throwingAdminClient: RlsCleanupAdminClient = {
+    from: () => ({
+      delete: () => ({
+        in: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (id: string) => {
+          attemptedUsers.push(id);
+          if (id === "user-a") {
+            return Promise.reject(
+              new Error(`Network exception during deleteUser with ${mockServiceRoleKey}`),
+            );
+          }
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  const thrownCleanupError = await assertRejects(
+    () =>
+      cleanupRlsTestResources(
+        throwingAdminClient,
+        ["recipe-1"],
+        ["user-a", "user-b"],
+        knownSecrets,
+        null,
+      ),
+    Error,
+  );
+
+  assertEquals(attemptedUsers, ["user-a", "user-b"]);
+  assertEquals(
+    thrownCleanupError.message.includes(
+      "Failed to delete test user user-a: Network exception during deleteUser with [REDACTED]",
+    ),
+    true,
+  );
+  assertEquals(thrownCleanupError.message.includes(mockServiceRoleKey), false);
+  assertEquals(thrownCleanupError.message.includes(mockAnonKey), false);
+
+  const attemptedUsersWithPrimary: string[] = [];
+  const throwingWithPrimaryAdminClient: RlsCleanupAdminClient = {
+    from: () => ({
+      delete: () => ({
+        in: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (id: string) => {
+          attemptedUsersWithPrimary.push(id);
+          if (id === "user-a") {
+            throw new Error(`Thrown sync error for ${id} (${mockAnonKey})`);
+          }
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  const earlierError = new Error(
+    `Primary test failure before thrown cleanup (${mockServiceRoleKey})`,
+  );
+  const combinedThrownError = await assertRejects(
+    () =>
+      cleanupRlsTestResources(
+        throwingWithPrimaryAdminClient,
+        [],
+        ["user-a", "user-b"],
+        knownSecrets,
+        earlierError,
+      ),
+    Error,
+  );
+
+  assertEquals(attemptedUsersWithPrimary, ["user-a", "user-b"]);
+  assertEquals(
+    combinedThrownError.message.includes("Primary test failure before thrown cleanup ([REDACTED])"),
+    true,
+  );
+  assertEquals(
+    combinedThrownError.message.includes(
+      "Failed to delete test user user-a: Thrown sync error for user-a ([REDACTED])",
+    ),
+    true,
+  );
+  assertEquals(combinedThrownError.message.includes(mockServiceRoleKey), false);
+  assertEquals(combinedThrownError.message.includes(mockAnonKey), false);
+  assertEquals(combinedThrownError.cause, earlierError);
 });
