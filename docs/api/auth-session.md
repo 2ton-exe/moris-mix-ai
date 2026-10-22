@@ -104,7 +104,7 @@ In `supabase/config.toml`, `[functions.auth-session]` is intentionally configure
 ## Verification and testing (`supabase/functions/tests/`)
 
 The repository separates backend verification into distinct offline and live categories:
-- **Deterministic offline tests (47 tests in Deno):** Run completely offline without database or Auth dependencies, verifying schemas, HTTP methods, error envelopes, caller override protections, and PostgREST client JWT forwarding.
+- **Deterministic offline tests (48 tests in Deno):** Run completely offline without database or Auth dependencies, verifying schemas, HTTP methods, error envelopes, caller override protections, and PostgREST client JWT forwarding.
 - **Database-backed migration lifecycle tests (13 scenarios):** Run against native local PostgreSQL via `node test-migrations.mjs --run-db-tests`.
 - **Migration unit tests:** Run offline via `node test-migrations.mjs`.
 - **Intentionally ignored live tests (3 tests across two distinct gates):**

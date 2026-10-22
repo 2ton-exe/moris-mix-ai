@@ -1,9 +1,10 @@
-import { assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert@1";
+import { assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import { authenticateRequest } from "../_shared/auth.ts";
 import { handler } from "../auth-session/index.ts";
 import {
   evaluateHostedRlsPrerequisites,
+  isLoopbackHost,
   isLegacyServiceRoleJwt,
   isModernPublishableKey,
   isModernSecretKey,
@@ -107,8 +108,13 @@ function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKe
     throw new Error("BE04_RLS_TEST_SUPABASE_URL is not a valid URL.");
   }
 
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("BE04_RLS_TEST_SUPABASE_URL must use http or https protocol.");
+  if (parsed.protocol !== "https:") {
+    throw new Error("BE04_RLS_TEST_SUPABASE_URL must use HTTPS.");
+  }
+  if (isLoopbackHost(parsed.hostname) && (parsed.port || "443") === "54321") {
+    throw new Error(
+      "Safety guard rejected BE04_RLS_TEST_SUPABASE_URL: hosted RLS tests must not target the local Supabase API.",
+    );
   }
 
   if (parsed.hostname.includes(LINKED_PRODUCTION_PROJECT_REF)) {
@@ -268,6 +274,48 @@ Deno.test("Hosted RLS credential validation rejects placeholders, malformed keys
 Deno.test("Preserved URL safety checks enforce production rejection, loopback collisions, and origin separation", () => {
   const validKey = "sb_secret_test_valid_key_1234567890";
   const validPub = "sb_publishable_test_valid_key_1234567890";
+
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "http://dedicated-test-project.supabase.co",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "http://rls-https-guard.supabase.co",
+        validPub,
+        validKey,
+      ),
+    Error,
+    "must use HTTPS",
+  );
+  assertEquals(
+    passesRlsTargetSafetyPrecheck({
+      rlsUrl: "https://127.0.0.1:54321",
+      rlsAnonKey: validPub,
+      rlsServiceRoleKey: validKey,
+    }),
+    false,
+  );
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "https://127.0.0.1:54321",
+        validPub,
+        validKey,
+      ),
+    Error,
+    "must not target the local Supabase API",
+  );
+  validateDedicatedTestTarget(
+    "https://rls-https-guard.supabase.co",
+    validPub,
+    validKey,
+  );
 
   assertEquals(
     passesRlsTargetSafetyPrecheck({

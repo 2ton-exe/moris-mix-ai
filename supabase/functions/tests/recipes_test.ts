@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert@1";
+import { assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import { handler } from "../recipes/index.ts";
 import {
@@ -7,6 +7,7 @@ import {
   ExtractedRecipeSchema,
   RecipeResponseSchema,
 } from "../_shared/schemas.ts";
+import { isLoopbackHost } from "../../../run-local-tests.mjs";
 
 const VALID_TEST_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTk5OTk5OS05OTk5LTk5OTktOTk5OS05OTk5OTk5OTk5OTkiLCJlbWFpbCI6InZlcmlmaWVkQG1vcmlzc2NyYXBzLmxvY2FsIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ.signature_segment_ok";
@@ -975,8 +976,13 @@ function createRlsTestClient(
 
 function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKey: string): void {
   const parsed = new URL(url);
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("BE04_RLS_TEST_SUPABASE_URL must use http or https protocol.");
+  if (parsed.protocol !== "https:") {
+    throw new Error("BE04_RLS_TEST_SUPABASE_URL must use HTTPS.");
+  }
+  if (isLoopbackHost(parsed.hostname) && (parsed.port || "443") === "54321") {
+    throw new Error(
+      "Safety guard rejected BE04_RLS_TEST_SUPABASE_URL: hosted RLS tests must not target the local Supabase API.",
+    );
   }
   if (parsed.hostname.includes(LINKED_PRODUCTION_PROJECT_REF)) {
     throw new Error(
@@ -1004,6 +1010,37 @@ function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKe
     );
   }
 }
+
+Deno.test("Hosted POST /recipes RLS target requires HTTPS", () => {
+  const anonKey = "sb_publishable_test_valid_key_1234567890";
+  const serviceRoleKey = "sb_secret_test_valid_key_1234567890";
+
+  validateDedicatedTestTarget(
+    "https://recipes-https-guard.supabase.co",
+    anonKey,
+    serviceRoleKey,
+  );
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "http://recipes-https-guard.supabase.co",
+        anonKey,
+        serviceRoleKey,
+      ),
+    Error,
+    "must use HTTPS",
+  );
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "https://127.0.0.1:54321",
+        anonKey,
+        serviceRoleKey,
+      ),
+    Error,
+    "must not target the local Supabase API",
+  );
+});
 
 Deno.test({
   name: "Live PostgreSQL persistence and RLS enforcement for POST /recipes (hosted integration)",
@@ -1150,7 +1187,13 @@ Deno.test({
 type RlsCleanupAdminClient = {
   from: (table: string) => {
     delete: () => {
-      in: (column: string, values: string[]) => PromiseLike<unknown>;
+      in: (column: string, values: string[]) => PromiseLike<{ error: { message?: string } | null }>;
+    };
+    select: (columns: string) => {
+      in: (
+        column: string,
+        values: string[],
+      ) => PromiseLike<{ data: Array<{ id: string }> | null; error: { message?: string } | null }>;
     };
   };
   auth: {
@@ -1168,13 +1211,28 @@ async function cleanupRlsTestResources(
   primaryError: Error | null,
 ): Promise<void> {
   const cleanupErrors: string[] = [];
+  const deleteRows = async (table: string, column: string, values: string[], label: string) => {
+    try {
+      const { error } = await adminClient.from(table).delete().in(column, values);
+      if (error) {
+        cleanupErrors.push(
+          `Failed to delete test ${label}: ${redactSecrets(error.message || "unknown error", knownSecrets)}`,
+        );
+      }
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      cleanupErrors.push(
+        `Failed to delete test ${label}: ${redactSecrets(rawMessage, knownSecrets)}`,
+      );
+    }
+  };
 
   if (createdRecipeIds.length > 0) {
-    await adminClient.from("recipes").delete().in("id", createdRecipeIds);
+    await deleteRows("recipes", "id", createdRecipeIds, "recipe rows");
   }
   if (createdUserIds.length > 0) {
-    await adminClient.from("recipes").delete().in("user_id", createdUserIds);
-    await adminClient.from("profiles").delete().in("id", createdUserIds);
+    await deleteRows("recipes", "user_id", createdUserIds, "user recipe rows");
+    await deleteRows("profiles", "id", createdUserIds, "profile rows");
     for (const uid of createdUserIds) {
       try {
         const { error: deleteError } = await adminClient.auth.admin.deleteUser(uid);
@@ -1189,6 +1247,29 @@ async function cleanupRlsTestResources(
           `Failed to delete test user ${uid}: ${redactSecrets(rawMessage, knownSecrets)}`,
         );
       }
+    }
+
+    try {
+      const { data: remainingRecipes, error: verifyError } = await adminClient
+        .from("recipes")
+        .select("id")
+        .in("user_id", createdUserIds);
+      if (verifyError) {
+        cleanupErrors.push(
+          `Failed to verify recipe cleanup: ${redactSecrets(verifyError.message || "unknown error", knownSecrets)}`,
+        );
+      } else if (remainingRecipes === null) {
+        cleanupErrors.push("Failed to verify recipe cleanup: no rows were returned.");
+      } else if (remainingRecipes.length > 0) {
+        cleanupErrors.push(
+          `Cleanup incomplete: ${remainingRecipes.length} test recipe row(s) still present.`,
+        );
+      }
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      cleanupErrors.push(
+        `Failed to verify recipe cleanup: ${redactSecrets(rawMessage, knownSecrets)}`,
+      );
     }
   }
 
@@ -1206,7 +1287,7 @@ async function cleanupRlsTestResources(
   }
 }
 
-Deno.test("RLS test cleanup succeeds when all admin.deleteUser calls succeed, fails and redacts secrets on deleteUser error, attempts all users when one fails, and preserves primary test failures alongside cleanup failures", async () => {
+Deno.test("RLS test cleanup reports table and auth-user failures, redacts secrets, attempts all users, and preserves primary failures", async () => {
   const mockServiceRoleKey = "secret-service-role-key-value";
   const mockAnonKey = "secret-anon-key-value";
   const knownSecrets = [mockAnonKey, mockServiceRoleKey];
@@ -1221,6 +1302,9 @@ Deno.test("RLS test cleanup succeeds when all admin.deleteUser calls succeed, fa
           deletedTables.push({ table, column, values });
           return Promise.resolve({ error: null });
         },
+      }),
+      select: () => ({
+        in: () => Promise.resolve({ data: [], error: null }),
       }),
     }),
     auth: {
@@ -1248,11 +1332,63 @@ Deno.test("RLS test cleanup succeeds when all admin.deleteUser calls succeed, fa
   ]);
   assertEquals(deletedUsersSuccess, ["user-a", "user-b"]);
 
+  const attemptedUsersAfterTableError: string[] = [];
+  const tableFailureAdminClient: RlsCleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        in: (column: string) =>
+          Promise.resolve({
+            error:
+              table === "recipes" && column === "id"
+                ? { message: `Recipe deletion failed with ${mockServiceRoleKey}` }
+                : null,
+          }),
+      }),
+      select: () => ({
+        in: () => Promise.resolve({ data: [{ id: "leftover-recipe" }], error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (id: string) => {
+          attemptedUsersAfterTableError.push(id);
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+  const tableCleanupError = await assertRejects(
+    () =>
+      cleanupRlsTestResources(
+        tableFailureAdminClient,
+        ["recipe-1"],
+        ["user-a"],
+        knownSecrets,
+        null,
+      ),
+    Error,
+  );
+  assertEquals(attemptedUsersAfterTableError, ["user-a"]);
+  assertEquals(
+    tableCleanupError.message.includes(
+      "Failed to delete test recipe rows: Recipe deletion failed with [REDACTED]",
+    ),
+    true,
+  );
+  assertEquals(
+    tableCleanupError.message.includes("Cleanup incomplete: 1 test recipe row(s) still present."),
+    true,
+  );
+  assertEquals(tableCleanupError.message.includes(mockServiceRoleKey), false);
+
   const attemptedUsersOnFailure: string[] = [];
   const failingAdminClient: RlsCleanupAdminClient = {
     from: () => ({
       delete: () => ({
         in: () => Promise.resolve({ error: null }),
+      }),
+      select: () => ({
+        in: () => Promise.resolve({ data: [], error: null }),
       }),
     }),
     auth: {
@@ -1299,6 +1435,9 @@ Deno.test("RLS test cleanup succeeds when all admin.deleteUser calls succeed, fa
     from: () => ({
       delete: () => ({
         in: () => Promise.resolve({ error: null }),
+      }),
+      select: () => ({
+        in: () => Promise.resolve({ data: [], error: null }),
       }),
     }),
     auth: {
@@ -1361,6 +1500,9 @@ Deno.test("cleanupRlsTestResources handles thrown deleteUser exceptions by faili
       delete: () => ({
         in: () => Promise.resolve({ error: null }),
       }),
+      select: () => ({
+        in: () => Promise.resolve({ data: [], error: null }),
+      }),
     }),
     auth: {
       admin: {
@@ -1404,6 +1546,9 @@ Deno.test("cleanupRlsTestResources handles thrown deleteUser exceptions by faili
     from: () => ({
       delete: () => ({
         in: () => Promise.resolve({ error: null }),
+      }),
+      select: () => ({
+        in: () => Promise.resolve({ data: [], error: null }),
       }),
     }),
     auth: {

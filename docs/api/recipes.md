@@ -116,10 +116,16 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 - `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with `Access-Control-Allow-Methods: POST, OPTIONS`, `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`, and `X-Content-Type-Options: nosniff`.
 - In `supabase/config.toml`, `[functions.recipes]` sets `verify_jwt = false` at the gateway so unauthenticated browser `OPTIONS` preflight requests reach the handler while `POST` strictly enforces `authenticateRequest(req, deps)`.
 
+## Frontend behavior
+
+- Keep the recipe submission in a pending state while the authenticated request is in flight.
+- On `201 Created`, treat the returned `recipe` as the saved recipe.
+- For non-2xx responses, network failures, or invalid JSON, show a retryable, user-safe error. Do not display raw backend details.
+
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
 
 Verification for `POST /recipes` is organized into distinct offline deterministic tests and optional live hosted RLS integration testing, fitting within the broader test suite hierarchy:
-- **Deterministic offline tests (47 tests in Deno):** Run completely offline without database or Auth dependencies, including the 14 unit and contract tests in `recipes_test.ts`.
+- **Deterministic offline tests (48 tests in Deno):** Run completely offline without database or Auth dependencies, including the 15 unit and contract tests in `recipes_test.ts`.
 - **Database-backed migration lifecycle tests (13 scenarios):** Run against native local PostgreSQL via `node test-migrations.mjs --run-db-tests`.
 - **Migration unit tests:** Run offline via `node test-migrations.mjs`.
 - **Intentionally ignored live tests (3 tests across two distinct gates):**
@@ -128,7 +134,7 @@ Verification for `POST /recipes` is organized into distinct offline deterministi
 
 ### 1. Deterministic unit and schema tests (`supabase/functions/tests/recipes_test.ts`)
 
-- **Scope:** 14 offline tests executed via Deno without network or database dependencies.
+- **Scope:** 15 offline tests executed via Deno without network or database dependencies.
 - **Verification areas:**
   - `CreateRecipeRequestSchema` and `RecipeResponseSchema` payload validation, including optional field defaulting and nullable columns.
   - Empty or malformed JSON rejection (`400 INVALID_JSON`).
@@ -139,6 +145,7 @@ Verification for `POST /recipes` is organized into distinct offline deterministi
   - Unsupported HTTP method rejection (`405 METHOD_NOT_ALLOWED`).
   - Unsupported sub-path rejection (`404 NOT_FOUND`).
   - Safe internal error handling and sensitive information redaction (`500 INTERNAL_ERROR`).
+  - HTTPS-only hosted RLS target validation.
   - RLS test resource cleanup and exception handling.
 - **Command:**
   ```sh
@@ -172,4 +179,4 @@ Verification for `POST /recipes` is organized into distinct offline deterministi
   deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/recipes_test.ts
   ```
 - **Cleanup approach:**
-  - Setup creates two unique test users (`User A` and `User B`). User A creates a recipe via `POST /recipes`. The test asserts positive retrieval by User A, negative retrieval (`[]` / `null`) by User B, and that the created recipe has `is_public: false`. A `finally` block deletes the created recipes and `auth.users` records via the admin client and verifies zero test recipe rows remain. Any setup, assertion, or cleanup error redacts all tokens, keys, and passwords before reporting.
+  - Setup creates two unique test users (`User A` and `User B`). User A creates a recipe via `POST /recipes`. The test asserts positive retrieval by User A, negative retrieval (`[]` / `null`) by User B, and that the created recipe has `is_public: false`. A `finally` block deletes the created recipes, profiles, and auth users through the admin client, then verifies no recipe rows remain for the test users. Delete, verification, and auth-user cleanup errors fail the test with secrets redacted.

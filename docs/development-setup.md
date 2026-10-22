@@ -1,24 +1,39 @@
 # Local development and troubleshooting
 
-This guide covers local development, testing, and troubleshooting for the project under a strict **no-Docker, no-container policy**. It uses native local tools, checked-in schemas, and migration runners without requiring Docker or container runtimes.
+This guide uses the local Supabase stack for app development and documents standalone PostgreSQL as an optional path for database tests. The local stack provides the Auth and PostgREST services used by the app; deterministic checks can also run without it.
 
 ## Prerequisites
 
 - [Node.js 24](https://nodejs.org/en/download) and pnpm 10 (`npm install --global pnpm@10`; see the [pnpm 10 installation guide](https://pnpm.io/10.x/installation))
+- Supabase CLI 2.x and Docker Desktop or another Docker-compatible runtime (for the local Supabase stack)
 - [Deno](https://deno.land/) (for running Edge Function deterministic and integration test suites)
-- Native PostgreSQL 15+ running as a local service on loopback (`127.0.0.1` or `localhost`)
-- Supabase CLI 2.x (optional; used for Edge Function serving or schema tooling; container commands are not used)
+- Standalone PostgreSQL 15+ on loopback (`127.0.0.1` or `localhost`) only if you choose not to use the local Supabase database for migration lifecycle tests
 
-> [!IMPORTANT]
-> **Strict No-Docker Policy:** The project enforces a strict no-Docker and no-container policy for local development. Tools such as Docker, Docker Compose, and container-based CLI commands like `supabase start` are not required and should not be used.
+## Start local Supabase
 
-## Database setup with native PostgreSQL
+From the repository root, start the local database, Auth, and API services:
 
-Local database operations and migration tests run directly against your native PostgreSQL instance:
+```sh
+supabase start
+```
+
+The first start downloads the local service images, applies migrations in `supabase/migrations/`, and loads `supabase/seed.sql`. Use `supabase status` to see the local URLs and keys. The publishable/anon key can be used by the frontend; never copy the service-role/secret key into frontend configuration or share the full status output.
+
+To recreate a clean local database and replay migrations and seed data, run:
+
+```sh
+supabase db reset --local
+```
+
+This deletes local database data first. Keep `--local`; never run `supabase db reset --linked` against a shared or production project.
+
+## Optional standalone PostgreSQL testing
+
+The local Supabase database is available on loopback port `54322` by default and can be used for migration lifecycle tests. If you prefer a separately installed local PostgreSQL service, use a loopback `DATABASE_URL` override:
 
 1. **Service configuration:** Ensure your native PostgreSQL instance is running on loopback (`127.0.0.1` or `localhost`).
-2. **Default connection settings:** The local test runner defaults `DATABASE_URL` to port `54322` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`), matching the database port configured in `supabase/config.toml` (`[db] port = 54322`).
-3. **Loopback connection overrides:** If your native PostgreSQL installation listens on standard port `5432` or uses different credentials, provide a loopback `DATABASE_URL` override in your environment:
+2. **Default connection settings:** The test runner defaults `DATABASE_URL` to port `54322` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`), matching the local Supabase database port configured in `supabase/config.toml` (`[db] port = 54322`).
+3. **Loopback connection overrides:** If your standalone PostgreSQL installation listens on standard port `5432` or uses different credentials, provide a loopback `DATABASE_URL` override in your environment:
    ```sh
    export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres"
    ```
@@ -26,12 +41,12 @@ Local database operations and migration tests run directly against your native P
    ```powershell
    $env:DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres"
    ```
-4. **Applying migrations:** Apply versioned SQL migrations in `supabase/migrations/` to your native database using the project migration runner:
+4. **Applying migrations:** For a standalone database, apply versioned SQL migrations in `supabase/migrations/` with the project migration runner:
    ```sh
    pnpm db:setup
    ```
    This executes `node run-migrations.mjs`, which validates schema definitions, acquires an advisory lock, executes migrations deterministically in timestamp order, and tracks applied versions in `schema_migrations`.
-5. **Demo seed data:** To seed demo records (e.g. `Classic Tomato Scraps Pasta`) into your native local database for frontend exploration, apply `supabase/seed.sql` using standard PostgreSQL tools (`psql`):
+5. **Demo seed data:** The local Supabase stack loads demo data from `supabase/seed.sql` automatically. For a standalone database, apply it with standard PostgreSQL tools (`psql`) if you need the demo record:
    ```sh
    psql "$DATABASE_URL" -f supabase/seed.sql
    ```
@@ -39,10 +54,9 @@ Local database operations and migration tests run directly against your native P
 
 ## Starting the app and frontend
 
-1. **Serve the Edge Function (optional local serving):**
-   Edge Functions can be served locally using the Supabase CLI without container dependencies:
+1. **Serve the Edge Functions:**
    ```sh
-   supabase functions serve demo-recipe --no-verify-jwt
+   supabase functions serve
    ```
 2. **Configure and start the frontend:**
    In another terminal, configure and launch the Vite development server:
@@ -52,7 +66,7 @@ Local database operations and migration tests run directly against your native P
    cp .env.example .env.local
    ```
    (In PowerShell: `Copy-Item .env.example .env.local`).
-   Set `VITE_SUPABASE_URL` to your local or target Supabase endpoint (e.g. `http://127.0.0.1:54321`) and `VITE_SUPABASE_PUBLISHABLE_KEY` (or `VITE_SUPABASE_ANON_KEY`) to the corresponding public key. Never add service-role or secret keys to frontend configuration.
+   Set `VITE_SUPABASE_URL` to `http://127.0.0.1:54321` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or `VITE_SUPABASE_ANON_KEY`) to the corresponding local public key shown by `supabase status`. Never add service-role or secret keys to frontend configuration.
    Start Vite:
    ```sh
    pnpm dev
@@ -61,10 +75,7 @@ Local database operations and migration tests run directly against your native P
 
 ## Migrations and schema management
 
-The repository manages database schemas via versioned SQL migrations in `supabase/migrations/`.
-- Run migrations against your native PostgreSQL instance with `pnpm db:setup` (`node run-migrations.mjs`).
-- Never run destructive reset commands against remote or production projects.
-- For remote schema updates on approved projects, migrations can be pushed using `supabase db push --dry-run --linked` and `supabase db push --linked`.
+The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. For approved remote schema updates, preview and apply migrations with `supabase db push --dry-run --linked` and `supabase db push --linked`.
 
 ## Demo API
 
@@ -107,17 +118,17 @@ The test suite separates tests into four distinct categories to maintain rigorou
    - **Verification:** Discovers versioned migration files in `supabase/migrations/`, asserts deterministic ascending timestamp sorting, checks filename integrity, validates schema completeness definitions, and tests SQL migration parsing.
 
 2. **Database-backed migration lifecycle integration tests (`node test-migrations.mjs --run-db-tests` or `pnpm run test:lifecycle`):**
-   - **Native PostgreSQL execution:** Runs all 13 migration lifecycle integration scenarios against a running native local PostgreSQL service on loopback.
+   - **Local PostgreSQL execution:** Runs all 13 migration lifecycle integration scenarios against the local database configured by `DATABASE_URL` (the local Supabase database or a standalone PostgreSQL service).
    - **Verification:** Dynamically provisions an isolated temporary database (`test_mig_suite_<timestamp>_<random>`), verifies initial schema creation, column data types, nullability, constraints, indexes, triggers, functions, RLS policies, advisory locks, idempotency across repeated runs, and rollback state reconciliation. Automatically drops the temporary database upon completion.
-   - **Prerequisites:** Requires a native local PostgreSQL instance reachable via loopback `DATABASE_URL` (defaults to port `54322`, or a loopback override like port `5432`). Does **not** require Supabase Auth or PostgREST HTTP APIs.
+   - **Prerequisites:** Requires a local PostgreSQL instance reachable via loopback `DATABASE_URL` (defaults to port `54322`, or a loopback override like port `5432`). Does **not** require Supabase Auth or PostgREST HTTP APIs.
 
-3. **Deterministic Edge Function and contract tests (47 tests in Deno):**
+3. **Deterministic Edge Function and contract tests (48 tests in Deno):**
    - **Offline execution:** Fully offline in CI and local environments without database, Auth, or external network dependencies.
-   - **Test distribution (47 tests total):**
+   - **Test distribution (48 tests total):**
      - `demo_recipe_test.ts` (11 deterministic tests): Validates Zod schema against `fixtures/demo-recipe.json`, tests CORS preflight (`204 No Content`), disallowed HTTP methods (`405 METHOD_NOT_ALLOWED`), unapproved recipe rejection (`404`), and safe internal error envelopes (`500`).
      - `auth_test.ts` (15 deterministic tests): Validates `extractBearerToken()`, `authenticateRequest()`, `GET /auth-session` contract, error classifications (`401 UNAUTHORIZED`, `405 METHOD_NOT_ALLOWED`, `503 AUTH_SERVICE_RATE_LIMITED` with `Retry-After`), caller ID tampering guards, and client PostgREST JWT forwarding.
-     - `auth_rls_integration_test.ts` (5 deterministic tests): Validates acceptance of modern `sb_secret_*` keys and legacy service-role JWTs, placeholder and production credential rejection, loopback port `54321` and URL collision safety checks, explicit skip reporting, and client authentication header normalization.
-     - `recipes_test.ts` (14 deterministic tests): Validates `CreateRecipeRequestSchema` and `RecipeResponseSchema`, CORS preflight (`204`), disallowed methods (`405`), unsupported routes (`404`), ownership and `is_public` tampering prevention, authentication enforcement (`401`), malformed JSON handling (`400`), and safe database error redaction (`500`).
+     - `auth_rls_integration_test.ts` (7 deterministic tests): Validates hosted RLS credential and HTTPS target safety, production and URL-collision rejection, explicit skip reporting, client authentication header normalization, and cleanup error handling.
+     - `recipes_test.ts` (15 deterministic tests): Validates `CreateRecipeRequestSchema` and `RecipeResponseSchema`, CORS preflight (`204`), disallowed methods (`405`), unsupported routes (`404`), ownership and `is_public` tampering prevention, authentication enforcement (`401`), malformed JSON handling (`400`), hosted RLS target HTTPS enforcement, and safe database error redaction (`500`).
    - **Execution command:**
      ```sh
      deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
@@ -155,14 +166,14 @@ pnpm run test:local:all
 
 #### Prerequisites and execution behavior
 
-1. **Native PostgreSQL migration lifecycle:** The runner first executes `node test-migrations.mjs --run-db-tests`, which runs all 13 migration lifecycle integration scenarios against an isolated temporary database created on your native PostgreSQL instance.
+1. **Local PostgreSQL migration lifecycle:** The runner first executes `node test-migrations.mjs --run-db-tests`, which runs all 13 migration lifecycle integration scenarios against an isolated temporary database created on the local PostgreSQL instance configured by `DATABASE_URL`.
 2. **Default database port and overrides:** `DATABASE_URL` defaults to port `54322` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`), matching the local port configured in `supabase/config.toml` (`[db] port = 54322`). If your native PostgreSQL service runs on port `5432` or uses custom credentials, supply `DATABASE_URL="postgresql://<user>:<password>@127.0.0.1:<port>/postgres"`.
 3. **Connection failure behavior:** If the native local database is unreachable (e.g. `ECONNREFUSED 127.0.0.1:54322`), the runner immediately stops execution and propagates exit code `1`. It never silently skips database verification and never falls back to a remote database.
 4. **Loopback safety and forwarding limitation:** `isAllowedLoopbackDatabaseUrl` restricts local database testing strictly to loopback hostnames (`127.0.0.1`, `localhost`, `::1`), preventing direct connections to remote database hostnames. However, loopback address validation prevents direct remote connections but cannot detect whether local loopback ports are actively forwarded to an external or remote database via SSH tunnels, port forwarding, or network proxies. Developers must ensure local loopback ports target a native local development database.
 5. **Separation of migration tests from live API tests:**
-   - **PostgreSQL Migration Tests:** A native PostgreSQL instance satisfies the 13 migration lifecycle integration tests by providing standard PostgreSQL database capabilities.
-   - **Supabase Live API Integration Tests:** A native PostgreSQL database alone **does not** provide the Supabase Auth (GoTrue) or PostgREST HTTP APIs required by live API tests.
-   - The runner evaluates the local demo API probe on loopback port `54321` and evaluates hosted RLS test prerequisites independently. In the absence of dedicated non-production cloud credentials or local loopback API services, the runner safely skips the live tests, logs explicit skip explanations, and executes all 47 deterministic offline tests without error.
+   - **PostgreSQL Migration Tests:** The local Supabase database or a standalone PostgreSQL instance satisfies the 13 migration lifecycle integration tests by providing standard PostgreSQL database capabilities.
+   - **Supabase Live API Integration Tests:** A standalone PostgreSQL database alone **does not** provide the Supabase Auth (GoTrue) or PostgREST HTTP APIs required by live API tests.
+   - The runner evaluates the local demo API probe on loopback port `54321` and evaluates hosted RLS test prerequisites independently. In the absence of dedicated non-production cloud credentials or local loopback API services, the runner safely skips the live tests, logs explicit skip explanations, and executes all 48 deterministic offline tests without error.
 6. **Standalone unit testing without database connectivity:** When a local PostgreSQL service is not available, developers can execute offline unit and schema checks without database connectivity:
    - Migration unit tests: `pnpm test` (or `node test-migrations.mjs`) verifies migration discovery, sorting, and schema assertions without connecting to PostgreSQL.
    - Edge Function deterministic tests:

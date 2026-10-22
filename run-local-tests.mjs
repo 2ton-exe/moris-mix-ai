@@ -260,7 +260,7 @@ function passesRlsTargetSafetyPrecheck(options = {}) {
 
   try {
     const parsedRls = new URL(rlsUrl.trim());
-    if (parsedRls.protocol !== "https:" && parsedRls.protocol !== "http:") {
+    if (parsedRls.protocol !== "https:") {
       return false;
     }
     const rlsHost = parsedRls.hostname.toLowerCase();
@@ -357,7 +357,7 @@ function evaluateHostedRlsPrerequisites(options = {}) {
 
   if (isOptedIn && missing.length === 0 && !safetyPassed) {
     missing.push(
-      "target safety precheck failed (production ref, URL collision, or invalid protocol/origin)"
+      "target safety precheck failed (requires HTTPS and a dedicated non-production target)"
     );
   }
 
@@ -548,4 +548,3 @@ export {
   evaluateHostedRlsPrerequisites,
   runMain,
 };
-
