@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { EVALUATION_DATASET } from "../_shared/ai/eval_dataset.ts";
+import { ExtractedRecipeSchema } from "../_shared/ai/schemas.ts";
 
 Deno.test("Evaluation Dataset contains required test cases with correct properties", () => {
   // Ensure dataset is loaded and has entries
@@ -16,4 +17,18 @@ Deno.test("Evaluation Dataset contains required test cases with correct properti
   // Validate test-06: Should NOT fail, testing injection resilience (empty safe recipe)
   assertEquals(injectionTest?.shouldFail, false);
   assertEquals(injectionTest?.failureReason, null);
+  assertEquals(injectionTest?.expectedIngredients.length, 0);
+
+  const fallbackRecipe = {
+    title: "No recipe extracted",
+    ingredients: (injectionTest?.expectedIngredients ?? []).map((name) => ({
+      name,
+      quantity: null,
+      unit: null,
+      inferred: false,
+    })),
+    instructions: [],
+  };
+
+  assertEquals(ExtractedRecipeSchema.safeParse(fallbackRecipe).success, true);
 });
