@@ -47,6 +47,43 @@ export const DemoRecipeResponseSchema = z.object({
   recipe: DemoRecipeSchema
 });
 
+function isValidCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+}
+
+export const CreateRecipeRequestSchema = z.object({
+  title: z.string().trim().min(1),
+  raw_input: z.string().nullable().optional(),
+  ingredients: z.array(IngredientSchema),
+  instructions: z.array(InstructionSchema),
+  flavor_scores: FlavorScoreSchema.nullable().optional(),
+  star_rating: z.number().int().min(1).max(5).nullable().optional(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable().optional(),
+});
+
+export const RecipeSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  title: z.string().min(1),
+  raw_input: z.string().nullable(),
+  ingredients: z.array(IngredientSchema),
+  instructions: z.array(InstructionSchema),
+  flavor_scores: FlavorScoreSchema.nullable(),
+  star_rating: z.number().int().min(1).max(5).nullable(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable(),
+  image_url: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const RecipeResponseSchema = z.object({
+  recipe: RecipeSchema,
+});
+
 export const GeneratedRecipeSchema = z.object({
   recipe: ExtractedRecipeSchema,
   parentRecipeIds: z.array(z.string().uuid()),
@@ -56,3 +93,6 @@ export type GeneratedRecipe = z.infer<typeof GeneratedRecipeSchema>;
 
 export type DemoRecipe = z.infer<typeof DemoRecipeSchema>;
 export type DemoRecipeResponse = z.infer<typeof DemoRecipeResponseSchema>;
+export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;
+export type Recipe = z.infer<typeof RecipeSchema>;
+export type RecipeResponse = z.infer<typeof RecipeResponseSchema>;
