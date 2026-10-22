@@ -16,3 +16,6 @@ coverage/
 .DS_Store
 .supabase/
 supabase/.branches/
+
+# Local agent instructions — do not push to GitHub
+/AGENTS.md
