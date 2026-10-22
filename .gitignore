@@ -18,6 +18,3 @@ coverage/
 supabase/.branches/
 
 supabase/.temp/
-
-# Local agent instructions — do not push to GitHub
-/AGENTS.md
