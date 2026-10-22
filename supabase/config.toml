@@ -30,3 +30,6 @@ verify_jwt = false
 [functions.auth-session]
 verify_jwt = false
 
+[functions.recipes]
+verify_jwt = false
+
