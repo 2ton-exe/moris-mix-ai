@@ -103,7 +103,13 @@ In `supabase/config.toml`, `[functions.auth-session]` is intentionally configure
 
 ## Verification and testing (`supabase/functions/tests/`)
 
-BE-04 separates deterministic unit/contract tests from live hosted PostgreSQL Row Level Security (RLS) integration testing:
+The repository separates backend verification into distinct offline and live categories:
+- **Deterministic offline tests (47 tests in Deno):** Run completely offline without database or Auth dependencies, verifying schemas, HTTP methods, error envelopes, caller override protections, and PostgREST client JWT forwarding.
+- **Database-backed migration lifecycle tests (13 scenarios):** Run against native local PostgreSQL via `node test-migrations.mjs --run-db-tests`.
+- **Migration unit tests:** Run offline via `node test-migrations.mjs`.
+- **Intentionally ignored live tests (3 tests across two distinct gates):**
+  1. *Gate A (Local Demo Live Integration Test):* In `demo_recipe_test.ts`, requires a compatible local API endpoint running on loopback port `54321`. Hosted project secrets cannot enable it.
+  2. *Gate B (Hosted Non-Production RLS Integration Tests):* In `auth_rls_integration_test.ts` (profiles) and `recipes_test.ts` (POST `/recipes`), which require a dedicated non-production Supabase project and dedicated secrets.
 
 ### 1. Deterministic authentication and JWT-forwarding tests (`supabase/functions/tests/auth_test.ts`)
 
@@ -117,16 +123,21 @@ BE-04 separates deterministic unit/contract tests from live hosted PostgreSQL Ro
 ### 2. Hosted PostgreSQL RLS integration test (`supabase/functions/tests/auth_rls_integration_test.ts`)
 
 - **Purpose:** Exercises real Supabase Auth and live PostgreSQL RLS enforcement on `public.profiles` (`profiles_select_own`: `auth.uid() = id`) against a dedicated hosted, non-production Supabase test project without using Docker or local containers.
-- **Prerequisites and required environment variables:**
-  - `RUN_BE04_RLS_INTEGRATION=true` — explicit opt-in flag required to execute the live test.
-  - `BE04_RLS_TEST_SUPABASE_URL` — project URL of the dedicated non-production Supabase test project (must have the repository's `public.profiles` schema and RLS policies applied).
-  - `BE04_RLS_TEST_SUPABASE_ANON_KEY` (or `BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY`) — public anon or publishable key for the dedicated test project.
-  - `BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY` — service-role key for the dedicated test project, used strictly for test user/profile setup and teardown cleanup (never passed to `authenticateRequest()`, `handler()`, or user-scoped queries).
+- **Prerequisites and supported GitHub Actions secrets:**
+  - `BE04_RLS_TEST_SUPABASE_URL` (`${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}`) — project URL of the dedicated non-production Supabase test project (must have the repository's `public.profiles` schema and RLS policies applied).
+  - `BE04_RLS_TEST_SUPABASE_ANON_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}`) — public key for the dedicated test project. In CI (`.github/workflows/ci.yml`), this is the single mapped public key secret, accepting either a legacy `anon` JWT or a modern `sb_publishable_*` key. (Local runs also accept `BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY` as an optional local environment variable override).
+  - `BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}`) or `BE04_RLS_TEST_SUPABASE_SECRET_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}`) — administrative credentials (legacy `service_role` JWT or modern `sb_secret_*` key) for the dedicated test project, used strictly for test user/profile setup and teardown cleanup (never passed to `authenticateRequest()`, `handler()`, or user-scoped queries).
+  - `RUN_BE04_RLS_INTEGRATION=true` — explicit opt-in flag required to execute the live test (set automatically in CI when prerequisite secrets are present).
+- **Supported key formats and Supabase client behavior:**
+  - *Public / Anon key:* Accepts either a legacy `anon` JWT (`header.payload.signature` signed with HMAC/SHA-256 with `role: "anon"`) or a modern publishable key (`sb_publishable_[A-Za-z0-9_-]{10,}`). When a modern key is used, test clients automatically set `apikey: <key>` and strip the synthetic `Authorization: Bearer <publishable_key>` header to avoid conflicting with user session bearer tokens.
+  - *Service-role / Secret key:* Accepts either a legacy `service_role` JWT (`role: "service_role"`) or a modern secret key (`sb_secret_[A-Za-z0-9_-]{10,}`). When an `sb_secret_*` key is used, admin test clients normalize headers by setting `apikey: <key>` and omitting any `Authorization: Bearer <secret_key>` header so PostgREST and GoTrue accept the opaque key.
+- **Gate isolation from local demo test:**
+  - Hosted project secrets (`BE04_RLS_TEST_*`) are shared with the hosted POST `/recipes` live test (`recipes_test.ts`), but **cannot** enable the separate local demo live integration test in `demo_recipe_test.ts` (which strictly requires a compatible API endpoint at the expected local loopback address and port `54321`).
 - **Explicit opt-in and safety guards:**
   - The test never loads `.env` files automatically and never falls back to `SUPABASE_URL`, `VITE_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, or `DATABASE_URL`.
-  - Safety checks reject execution if `BE04_RLS_TEST_SUPABASE_URL` points to the primary linked project (`gtbwblxskctpsqhbpebg`), matches `SUPABASE_URL` / `VITE_SUPABASE_URL`, or if the anon key equals the service-role key.
+  - Safety checks reject execution if `BE04_RLS_TEST_SUPABASE_URL` points to the primary linked project (`gtbwblxskctpsqhbpebg`), matches `SUPABASE_URL` / `VITE_SUPABASE_URL`, uses local loopback port `54321`, or if the anon key equals the service-role key.
 - **Skip behavior:**
-  - When `RUN_BE04_RLS_INTEGRATION=true` or any `BE04_RLS_TEST_*` variable is not set, the test logs the missing prerequisite variable names and registers with `ignore: true` so Deno reports `0 passed | 1 ignored` (never reporting an unexecuted integration test as passed).
+  - When `RUN_BE04_RLS_INTEGRATION=true` or any `BE04_RLS_TEST_*` secret is missing, or if target safety prechecks fail, the test logs an explicit skip explanation and registers with `ignore: true` so Deno reports `0 passed | 1 ignored`. Unexecuted integration tests are never reported as passed and production credentials are never touched.
 - **Execution command:**
   ```sh
   RUN_BE04_RLS_INTEGRATION=true \
@@ -137,4 +148,3 @@ BE-04 separates deterministic unit/contract tests from live hosted PostgreSQL Ro
   ```
 - **Cleanup approach:**
   - Setup creates two unique test users (`User A` and `User B`) and ensures their `public.profiles` rows exist. After verifying positive own-profile reads, cross-user negative reads (`[]` / `null`), unfiltered query isolation, and user JWT preservation on PostgREST requests, a `finally` block deletes the created `public.profiles` rows and `auth.users` records via the admin client and verifies that zero test profile rows remain. Any setup, assertion, or cleanup error redacts all tokens, keys, and passwords before reporting.
-
