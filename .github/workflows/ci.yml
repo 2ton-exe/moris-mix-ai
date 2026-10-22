@@ -134,7 +134,7 @@ jobs:
       - name: Run RLS tests
         run: pnpm test:db
         
-test-edge-api:
+  test-edge-api:
     name: Edge/API Tests
     runs-on: ubuntu-latest
     steps:
