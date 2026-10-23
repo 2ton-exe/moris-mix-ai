@@ -49,23 +49,44 @@ and [workflow reuse guide](https://docs.github.com/en/actions/how-tos/reuse-auto
 
 ## Evidence needed before retiring ci.yml
 
-Stage 1 is configured locally and has passed actionlint and local architecture
-and parity assertions. The new workflows have not yet been executed in GitHub,
-the modular checks have not been proven as required checks, and the reusable
-Cloudflare workflow has not been used for production deployment.
+Stage 1 has passed actionlint and local architecture and parity assertions.
+Both the authoritative CI workflow and Modular PR Validation executed
+successfully on PR #74. The observed GitHub checks were:
 
-Local YAML/static validation cannot establish GitHub execution, actual check
-names, secret availability, service startup, output propagation, or production
-concurrency behavior. Record real PR run URLs, commit SHAs, jobs and conclusions.
+| Authoritative CI check | Conclusion | Composed modular check | Conclusion |
+| --- | --- | --- | --- |
+| `Frontend Checks` | success | `Modular Frontend / Frontend Checks` | success |
+| `Database Tests` | success | `Modular Database / Database Tests` | success |
+| `Edge/API Tests` | success | `Modular Edge/API / Edge/API Tests` | success |
 
-1. Confirm both CI and Modular PR Validation run on a real PR targeting main.
-   Compare all three reusable jobs with their authoritative counterparts,
+`Deploy to Cloudflare` was skipped on the pull request as expected. This confirms
+PR validation without production deployment and establishes the actual composed
+modular check names. The existing `ci.yml` remains authoritative.
+
+The modular checks are not yet required by the active ruleset. No modular main
+orchestration has executed, frontend-output propagation into a modular main
+deployment gate remains unproven, and `reusable-cloudflare.yml` has not been used
+for production deployment. No production/main cutover has occurred; `ci.yml`
+must not yet be retired.
+
+Local YAML/static validation alone cannot establish runtime behavior. PR #74
+provides GitHub PR execution and check-name evidence; it does not establish
+modular main output propagation or production concurrency behavior. Retain real
+PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
+
+1. PR #74 confirms both CI and Modular PR Validation ran and all three modular
+   validation jobs passed under the composed names recorded above. For the
+   remaining detailed parity review, compare the reusable jobs with their
+   authoritative counterparts,
    including frontend lint/tests/build, PostgreSQL readiness/migrations/lifecycle/
    RLS tests, Deno type checks/deterministic tests, and the hosted integration or
    missing-secret fallback path. Confirm the existing exact required checks still
-   satisfy branch protection and record the actual composed modular check names.
-2. Confirm no production job runs on PRs, no Cloudflare secrets are passed by
-   the modular PR caller, and no workflow calls `reusable-cloudflare.yml`.
+   satisfy branch protection before any required-check handoff; the observed
+   modular names do not establish ruleset enforcement.
+2. PR #74 confirms validation without production deployment, with the existing
+   deployment job skipped. Continue to ensure no Cloudflare secrets are passed
+   by the modular PR caller and no workflow calls `reusable-cloudflare.yml`
+   during stage 1.
 3. In a later, reviewed migration, prove frontend output propagation and the
    future main caller's gate using an inert downstream job with no production
    credentials or deployment commands. It must declare
