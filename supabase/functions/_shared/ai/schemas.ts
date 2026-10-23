@@ -33,6 +33,11 @@ export const ExtractedRecipeSchema = z.object({
   flavor_scores: FlavorScoreSchema.optional()
 });
 
+export const GeneratedRecipeSchema = z.object({
+  recipe: ExtractedRecipeSchema,
+  parentRecipeIds: z.array(z.string())
+});
+
 export const DemoRecipeSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1),
