@@ -1,1 +1,1 @@
-alter table public.recipes add column if not exists notes text;
+alter table public.recipes add column notes text;

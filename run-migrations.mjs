@@ -1129,11 +1129,10 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
     getEnv('BE06_RLS_TEST_PROJECT_REF') ??
     ''
   ).trim();
-  const be06ServiceKey = (
-    getEnv('BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY') ??
-    getEnv('BE06_RLS_TEST_SUPABASE_SECRET_KEY') ??
-    ''
-  ).trim();
+  const be06ServiceKey =
+    getEnv('BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY')?.trim() ||
+    getEnv('BE06_RLS_TEST_SUPABASE_SECRET_KEY')?.trim() ||
+    '';
   const be06AnonKey = (
     getEnv('BE06_RLS_TEST_SUPABASE_ANON_KEY') ??
     getEnv('BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??
@@ -1148,11 +1147,10 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
     getEnv('BE04_RLS_TEST_PROJECT_REF') ??
     ''
   ).trim();
-  const be04ServiceKey = (
-    getEnv('BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY') ??
-    getEnv('BE04_RLS_TEST_SUPABASE_SECRET_KEY') ??
-    ''
-  ).trim();
+  const be04ServiceKey =
+    getEnv('BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY')?.trim() ||
+    getEnv('BE04_RLS_TEST_SUPABASE_SECRET_KEY')?.trim() ||
+    '';
   const be04AnonKey = (
     getEnv('BE04_RLS_TEST_SUPABASE_ANON_KEY') ??
     getEnv('BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??

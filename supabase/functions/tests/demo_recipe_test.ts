@@ -337,8 +337,8 @@ Deno.test("Database query error returns 500 with internal error envelope and no-
 });
 
 const hasDbEnv = Boolean(
-  Deno.env.get("SUPABASE_URL") &&
-    (Deno.env.get("SUPABASE_SECRET_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")),
+  Deno.env.get("SUPABASE_URL")?.trim() &&
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim(),
 );
 
 Deno.test({
