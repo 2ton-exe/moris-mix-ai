@@ -1089,6 +1089,10 @@ async function runTestTargetMigrationUnitTests() {
   assert.doesNotThrow(() => {
     validateDatabaseTarget('postgresql://postgres:pass@127.0.0.1:5432/postgres', '', '');
   });
+  assert.throws(
+    () => validateDatabaseTarget('postgresql://postgres:pass@remote.example.com:5432/postgres', null, null),
+    /remote database requires RLS_EXPECTED_PROJECT_REF or a Supabase project URL/
+  );
 
   assert.throws(
     () => validateDatabaseTarget('', 'gtbwblxskctpsqhbpebg', null),

@@ -15,10 +15,9 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 
 ## Headers and Authentication
 
-- **Required headers for all mutating and data operations:**
-  - `Authorization: Bearer <supabase-access-token>` (required)
-  - `apikey: <supabase-anon-or-publishable-key>`
-  - `Content-Type: application/json` (for `POST` and `PATCH`)
+- **Authentication:** `Authorization: Bearer <supabase-access-token>` is required and verified by the handler.
+- **API key:** `apikey` is optional for this handler and is not used to authenticate the caller. Supabase clients may send the project key alongside the user token.
+- **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended but the handler does not enforce the header.
 - **Query parameters:** none (any caller-supplied query parameters are ignored).
 - **Access control:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`).
 - **Preflight exception:** `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with CORS headers.
@@ -30,7 +29,7 @@ Retrieves recipes belonging to the authenticated user, ordered by `created_at` d
 ### Request
 
 - **Method and path:** `GET /functions/v1/recipes` (or `GET /recipes`)
-- **Headers:** `Authorization: Bearer <token>`, `apikey: <key>`
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
 - **Body:** none
 
 ### Response (`200 OK`)
@@ -82,7 +81,7 @@ Retrieves a single recipe owned by the authenticated caller.
 
 - **Method and path:** `GET /functions/v1/recipes/:id` (or `GET /recipes/:id`)
 - **Parameters:** `:id` must be a valid RFC 4122 UUID.
-- **Headers:** `Authorization: Bearer <token>`, `apikey: <key>`
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
 - **Body:** none
 
 ### Response (`200 OK`)
@@ -185,7 +184,7 @@ Applies partial updates to an owned recipe.
 
 - **Method and path:** `PATCH /functions/v1/recipes/:id` (or `PATCH /recipes/:id`)
 - **Parameters:** `:id` must be a valid RFC 4122 UUID.
-- **Headers:** `Authorization: Bearer <token>`, `apikey: <key>`, `Content-Type: application/json`
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional. `Content-Type: application/json` is recommended.
 
 ### Request body (`UpdateRecipeRequestSchema`)
 
@@ -237,7 +236,7 @@ Deletes an owned recipe according to the database model.
 
 - **Method and path:** `DELETE /functions/v1/recipes/:id` (or `DELETE /recipes/:id`)
 - **Parameters:** `:id` must be a valid RFC 4122 UUID.
-- **Headers:** `Authorization: Bearer <token>`, `apikey: <key>`
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
 - **Body:** none
 
 ### Deletion and lineage behavior
@@ -283,10 +282,16 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 - `OPTIONS` preflight requests return `204 No Content` with `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`, and `X-Content-Type-Options: nosniff`.
 - In `supabase/config.toml`, `[functions.recipes]` sets `verify_jwt = false` at the gateway so unauthenticated browser `OPTIONS` preflight requests reach the handler while all data operations strictly enforce `authenticateRequest(req, deps)`.
 
+## Frontend behavior
+
+- Show a pending state while each authenticated recipe request is in flight.
+- On success, use the returned `recipes` or `recipe` envelope; after `204 No Content` from delete, remove the recipe without trying to parse a response body.
+- For non-2xx responses, network failures, or invalid JSON, show a retryable, user-safe error and do not display raw backend details.
+
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
 
 Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
-- **Deterministic offline tests (31 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies.
+- **Deterministic offline tests (35 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies. The two hosted integration tests are conditionally ignored unless their dedicated test project is configured.
 - **Database migration tests:** Run offline via `node test-migrations.mjs`.
 - **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.
 - **Command:**

@@ -2,15 +2,16 @@
 
 ## Stage 1 authority
 
-`.github/workflows/ci.yml` is unchanged. It remains the source of the required
-`Frontend Checks`, `Database Tests`, and `Edge/API Tests` checks and the only
-active production deployment path. Its deployment still depends on all three
-successful validation jobs, frontend existence, and a push or manual dispatch
-on `refs/heads/main`.
+`.github/workflows/ci.yml` remains the source of the required `Frontend Checks`,
+`Database Tests`, and `Edge/API Tests` checks and the active production path. On
+main pushes and manual dispatches, its protected `migrate-production` job runs
+after validation, and Cloudflare deployment depends on migration success as well
+as all three checks and frontend existence. Pull requests skip both production
+jobs.
 
 | File in `.github/workflows/` | Responsibility in stage 1 |
 | --- | --- |
-| `ci.yml` | Authoritative PR/main validation and gated Cloudflare deployment |
+| `ci.yml` | Authoritative PR/main validation, protected production migration, and gated Cloudflare deployment |
 | `modular-pr-validation.yml` | PRs targeting main only; comparison runs of the reusable validations |
 | `reusable-frontend.yml` | Existing frontend steps and exported `exists` output |
 | `reusable-database.yml` | Existing PostgreSQL service, environment, migration and RLS tests |
@@ -115,7 +116,9 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
    disabled. Verify main ordering and concurrency in GitHub during the eventual
    authorized cutover before declaring the migration complete.
 
-Stage 1 does not implement a main replacement caller, path filters, pipeline
-optimizations, Supabase deployment, or any changes to production configuration.
-Keep the original workflow until the replacement behavior has execution evidence
-and the required-check and deployment handoff is ready.
+The Stage 1 validation did not include a main replacement caller, path filters,
+pipeline optimizations, Supabase function deployment, or a modular production
+handoff. Subsequent changes added protected production database migrations to
+the existing `ci.yml` path. Keep `ci.yml` authoritative until the modular
+replacement behavior has execution evidence and the required-check and
+deployment handoff is ready.

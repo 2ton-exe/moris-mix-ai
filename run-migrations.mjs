@@ -1019,6 +1019,10 @@ export function validateDatabaseTarget(connectionString, expectedProjectRef, sup
 
   const targetExpectedRef = expectedRef || expectedFromUrl;
 
+  if (!targetExpectedRef && !isLocal) {
+    throw new Error('Safety guard rejected database target: remote database requires RLS_EXPECTED_PROJECT_REF or a Supabase project URL.');
+  }
+
   if (targetExpectedRef) {
     if (isLocal) {
       throw new Error(`Safety guard rejected database target: cannot target localhost when expected project reference '${targetExpectedRef}' is configured.`);
