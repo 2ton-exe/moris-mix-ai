@@ -13,6 +13,7 @@ export interface RecipeDetail extends RecipeSummary {
   ingredients: Ingredient[]
   instructions: Instruction[]
   flavor_scores?: FlavorScores | null
+  notes?: string | null
 }
 
 export interface RecipeRequest {

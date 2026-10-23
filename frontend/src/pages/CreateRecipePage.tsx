@@ -6,12 +6,12 @@ import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
 
-export default function CreateRecipePage({ save, notesSupported = false }: { save?: SaveRecipeDraft; notesSupported?: boolean }) {
+export default function CreateRecipePage({ save, notesSupported = true }: { save?: SaveRecipeDraft; notesSupported?: boolean }) {
   const navigate = useNavigate()
   const [dirty, setDirty] = useState(false)
   const submit = useRecipeSave(save)
   useUnsavedChangesGuard(dirty)
-  return <RecipeEditorFrame mode="create" connected={!!save}>
+  return <RecipeEditorFrame mode="create" connected>
     <RecipeForm mode="create" onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate('/app')} />
   </RecipeEditorFrame>
 }

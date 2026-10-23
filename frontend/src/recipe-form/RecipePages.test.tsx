@@ -11,6 +11,7 @@ import { createAppRouteElements } from '../App'
 import { HttpError } from '../api/http'
 import CreateRecipePage from '../pages/CreateRecipePage'
 import EditRecipePage from '../pages/EditRecipePage'
+import { recipeFormApi } from './api'
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
 
@@ -284,21 +285,29 @@ it.each([401, 403, 404, 422, 500])('handles HTTP %s from a save without exposing
   expect(screen.queryByText('Recipe saved.')).toBeNull()
 })
 
-it('preserves the production unavailable boundary with no mock persistence or network calls', async () => {
+it('sends the production save through the authenticated client and keeps auth failures safe', async () => {
   const fetch = vi.spyOn(globalThis, 'fetch')
   render(tree())
-  expect(screen.getByRole('note').textContent).toContain('Nothing on this page is saved')
   title('Local draft')
   click('Save recipe')
-  expect((await screen.findByRole('alert')).textContent).toContain('not connected yet')
+  expect((await screen.findByRole('alert')).textContent).toContain('session could not be verified')
   expect(fetch).not.toHaveBeenCalled()
   fetch.mockRestore()
 })
 
-it('does not show a blank edit form when the existing recipe loader is unavailable', () => {
+it('loads the existing recipe through the authenticated client before showing edit fields', async () => {
   render(tree({ path: '/app/recipes/recipe-a/edit' }))
-  expect(screen.getByRole('status').textContent).toContain('not available for editing yet')
+  expect((await screen.findByRole('alert')).textContent).toContain('Sign in again to edit this recipe.')
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
+})
+
+it('populates edit fields from the current authenticated recipe response', async () => {
+  const load = vi.spyOn(recipeFormApi, 'load').mockResolvedValue(record())
+  render(tree({ path: '/app/recipes/recipe-a/edit' }))
+  expect(await screen.findByDisplayValue(draft.title)).toBeTruthy()
+  expect(load).toHaveBeenCalledWith('recipe-a', expect.objectContaining({
+    userId: 'cook-a', signal: expect.any(AbortSignal),
+  }))
 })
 
 it('supports host-provided edit loading and missing-recipe error states', () => {

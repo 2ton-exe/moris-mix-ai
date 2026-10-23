@@ -1,9 +1,11 @@
+import { useContext } from 'react'
 import { Link, useParams } from 'react-router'
 import type { Ingredient } from '../api/demoRecipe'
 import { RecipeMetadata } from '../recipes/RecipeCard'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
 import { isRecipeAccessError } from '../recipes/errors'
 import { useRecipe } from '../recipes/queries'
+import { RecipeSourceContext } from '../recipes/source'
 
 function ingredientLabel(ingredient: Ingredient) {
   const amount = ingredient.quantityText ?? [ingredient.quantity, ingredient.unit]
@@ -13,6 +15,7 @@ function ingredientLabel(ingredient: Ingredient) {
 
 export default function RecipeDetailPage() {
   const { recipeId = '' } = useParams()
+  const source = useContext(RecipeSourceContext)
   const query = useRecipe(recipeId)
   const recipe = isRecipeAccessError(query.error) ? undefined : query.data
   return (
@@ -23,6 +26,9 @@ export default function RecipeDetailPage() {
       {query.isError && <>{!recipe && <h1>Recipe unavailable</h1>}<RecipeError detail error={query.error} onRetry={() => { void query.refetch() }} /></>}
       {recipe && <article className="journal-recipe">
         <header className="recipe-detail-header"><span className="recipe-card-label">Made to be remembered</span><h1>{recipe.title}</h1><RecipeMetadata recipe={recipe} /></header>
+        {source.mode === 'live' && <nav className="recipe-detail-actions" aria-label="Recipe actions">
+          <Link className="button button-secondary" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`}>Edit recipe</Link>
+        </nav>}
         {query.isFetching && <p role="status">Updating recipe…</p>}
         {query.isError && <p className="recipe-update">Showing the last loaded recipe.</p>}
         <div className="recipe-detail-columns">

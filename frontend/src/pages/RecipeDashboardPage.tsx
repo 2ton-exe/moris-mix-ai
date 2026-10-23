@@ -35,7 +35,6 @@ export default function RecipeDashboardPage() {
             <span className="empty-mark" aria-hidden="true">✧</span>
             <h2 id="empty-heading">A fresh page for your next favorite.</h2>
             <p>You haven’t saved any recipes yet. Start with a dish you love and make a little room for discovery.</p>
-            <details className="recipe-start"><summary>Plan your first recipe</summary><p>Start a recipe draft now; saving will be available when recipe storage is connected.</p></details>
             <Link className="button button-primary" to="/demo-recipe">Explore a demonstration recipe</Link>
           </section>
         )}
