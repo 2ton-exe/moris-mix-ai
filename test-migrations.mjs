@@ -523,6 +523,9 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const migrationsDir = path.resolve(__dirname, 'supabase/migrations');
     const seedDir = path.resolve(__dirname, 'supabase');
+    const discoveredMigrations = discoverMigrations(migrationsDir);
+    const expectedMigrationVersions = discoveredMigrations.map((m) => m.version);
+    const expectedMigrationFiles = discoveredMigrations.map((m) => m.file);
 
     const mockAuthPath = path.resolve(seedDir, 'mock-auth.sql');
     if (fs.existsSync(mockAuthPath)) {
@@ -539,11 +542,17 @@ async function runDatabaseLifecycleIntegrationTests() {
       logger: silentLogger
     });
 
-    assert.equal(freshResult.appliedMigrations.length, 2);
-    assert.deepEqual(freshResult.appliedVersions.sort(), ['20261013000000', '20261017000001']);
+    assert.equal(freshResult.appliedMigrations.length, expectedMigrationVersions.length);
+    assert.deepEqual(freshResult.appliedMigrations, expectedMigrationFiles);
+    assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());
 
     const historyRows = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(historyRows.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    assert.deepEqual(historyRows.rows.map((r) => r.version), expectedMigrationVersions);
+
+    const notesCol = await testClient.query("SELECT column_name, udt_name, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'recipes' AND column_name = 'notes';");
+    assert.equal(notesCol.rows.length, 1);
+    assert.equal(notesCol.rows[0].udt_name, 'text');
+    assert.equal(notesCol.rows[0].is_nullable, 'YES');
 
     const demoRow1 = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRow1.rows[0].is_public, true);
@@ -608,7 +617,7 @@ async function runDatabaseLifecycleIntegrationTests() {
     assert.equal(reconcileResult.appliedMigrations.length, 0);
 
     const historyAfterExplicit = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(historyAfterExplicit.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    assert.deepEqual(historyAfterExplicit.rows.map((r) => r.version), expectedMigrationVersions);
 
     const demoRowReconciled = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowReconciled.rows[0].is_public, false);
@@ -768,7 +777,7 @@ async function runDatabaseLifecycleIntegrationTests() {
     assert.equal(recoveredReconciliation.appliedMigrations.length, 0);
 
     const historyRecovered = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(historyRecovered.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    assert.deepEqual(historyRecovered.rows.map((r) => r.version), expectedMigrationVersions);
     const demoRowRecovered = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowRecovered.rows[0].is_public, false);
     scenariosExecuted++;
@@ -777,14 +786,9 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const failureTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-failure-'));
     try {
-      fs.copyFileSync(
-        path.join(migrationsDir, '20261013000000_initial_schema.sql'),
-        path.join(failureTempDir, '20261013000000_initial_schema.sql')
-      );
-      fs.copyFileSync(
-        path.join(migrationsDir, '20261017000001_add_is_public_to_recipes.sql'),
-        path.join(failureTempDir, '20261017000001_add_is_public_to_recipes.sql')
-      );
+      for (const m of discoveredMigrations) {
+        fs.copyFileSync(m.filePath, path.join(failureTempDir, m.file));
+      }
       fs.writeFileSync(
         path.join(failureTempDir, '20261099999999_failing_migration.sql'),
         'CREATE TABLE public.should_not_exist (id int); INVALID SYNTAX ERROR;'

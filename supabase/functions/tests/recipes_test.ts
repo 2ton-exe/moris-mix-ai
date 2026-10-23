@@ -2885,6 +2885,33 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
   assertEquals(legacyIncompleteResult.source, "BE-04");
   assertNotEquals(legacyIncompleteResult.error, undefined);
 
+  const envLegacyMissingRef: Record<string, string> = {
+    RUN_BE04_RLS_INTEGRATION: "true",
+    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    BE04_RLS_TEST_SUPABASE_ANON_KEY: anonKey,
+    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
+  };
+  const legacyMissingRefResult = resolveRlsConfiguration((k) => envLegacyMissingRef[k]);
+  assertEquals(legacyMissingRefResult.shouldRun, true);
+  assertEquals(legacyMissingRefResult.source, "BE-04");
+  assertEquals(
+    legacyMissingRefResult.error,
+    "Legacy BE-04 live RLS integration test enabled but configuration is incomplete: missing BE04_RLS_TEST_EXPECTED_PROJECT_REF.",
+  );
+
+  const envLegacyProjectRefAlias: Record<string, string> = {
+    RUN_BE04_RLS_INTEGRATION: "true",
+    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    BE04_RLS_TEST_SUPABASE_ANON_KEY: anonKey,
+    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
+    BE04_RLS_TEST_PROJECT_REF: "be04-test",
+  };
+  const legacyAliasResult = resolveRlsConfiguration((k) => envLegacyProjectRefAlias[k]);
+  assertEquals(legacyAliasResult.shouldRun, true);
+  assertEquals(legacyAliasResult.source, "BE-04");
+  assertEquals(legacyAliasResult.error, undefined);
+  assertEquals(legacyAliasResult.expectedProjectRef, "be04-test");
+
   const envInconsistentMixedOptIn: Record<string, string> = {
     RUN_BE04_RLS_INTEGRATION: "true",
     BE06_RLS_TEST_SUPABASE_URL: "https://be06-test.supabase.co",
