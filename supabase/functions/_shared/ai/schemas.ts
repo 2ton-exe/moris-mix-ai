@@ -61,6 +61,7 @@ function isValidCalendarDate(value: string): boolean {
 export const CreateRecipeRequestSchema = z.object({
   title: z.string().trim().min(1),
   raw_input: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.nullable().optional(),
@@ -73,6 +74,7 @@ export const RecipeSchema = z.object({
   user_id: z.string().uuid(),
   title: z.string().min(1),
   raw_input: z.string().nullable(),
+  notes: z.string().nullable(),
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.nullable(),
@@ -87,6 +89,33 @@ export const RecipeResponseSchema = z.object({
   recipe: RecipeSchema,
 });
 
+export const RecipeIdParamSchema = z.string().uuid();
+
+export const RecipeParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const RecipeListResponseSchema = z.object({
+  recipes: z.array(RecipeSchema),
+});
+
+export const UpdateRecipeRequestSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  raw_input: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(IngredientSchema).optional(),
+  instructions: z.array(InstructionSchema).optional(),
+  flavor_scores: FlavorScoreSchema.nullable().optional(),
+  star_rating: z.number().int().min(1).max(5).nullable().optional(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable().optional(),
+}).strict().refine(
+  (data) => Object.keys(data).length > 0,
+  { message: "At least one field must be provided for update." },
+);
+
 export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;
 export type Recipe = z.infer<typeof RecipeSchema>;
 export type RecipeResponse = z.infer<typeof RecipeResponseSchema>;
+export type RecipeParams = z.infer<typeof RecipeParamsSchema>;
+export type RecipeListResponse = z.infer<typeof RecipeListResponseSchema>;
+export type UpdateRecipeRequest = z.infer<typeof UpdateRecipeRequestSchema>;
