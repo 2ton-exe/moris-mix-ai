@@ -3,24 +3,15 @@
 ## Status and branch foundation
 
 FE-05 implements and tests the reusable create/edit form and protected page
-boundaries. **Authenticated REST create/edit/rating, query mutation wiring, and
-production acceptance remain blocked.** No backend persistence is simulated in
-the application.
+boundaries. **Recipe mutation wiring, edit/rating support, query mutation
+wiring, and production acceptance remain pending.** No backend persistence is
+simulated in the application.
 
-Work is on `feat/FE-05-recipe-form`, based directly on FE-03 commit
-`c6fcc858abeb99eea47caea367eab8a3a0923b15`. The review started with 21 FE-05
-files in the working tree: six modified tracked files and fifteen new files.
-Every changed path belongs to the form, its protected routes, the dependency,
-or its documentation. FE-04 is on a separate local branch and contributes no
-commits or working-tree files here. No changes were discarded, shared history
-rewritten, commits created, branch pushed, or PR opened for FE-05.
-
-FE-04's QueryClientProvider, keys and recipe hooks are on its separate branch.
-They were inspected but not copied. Compose these pages with that provider after
-the branches and shared interfaces are reconciled. Until then, FE-05 uses
-injected async save callbacks and host-provided edit loading props; it adds no
-competing query provider, key factory, mutation cache, fetch client or domain
-loader.
+FE-05's editor is composed with FE-04's protected dashboard and query provider.
+The default create and edit routes still have no save adapter or edit-record
+loader, so they cannot persist or load saved recipes. The form keeps its injected
+callback and record-loading interfaces; it adds no competing query provider,
+key factory, fetch client or domain loader.
 
 ## Components and routes
 
@@ -39,13 +30,15 @@ loader.
 Protected routes reuse FE-03's existing AuthProvider, AuthReady and
 ProtectedRoute:
 
+- `/app` and `/app/recipes`: FE-04's protected recipe dashboard and collection.
+- `/app/recipes/:recipeId`: FE-04's protected recipe detail page.
 - `/app/recipes/new`: editable local form with an upfront unavailable notice.
   Save reports that nothing was saved when no integration is supplied.
 - `/app/recipes/:recipeId/edit`: unavailable until a matching account-scoped
-  record is supplied by the future FE-04 loader. It never creates a blank edit
+  record is supplied by an edit loader. It never creates a blank edit
   form for missing data. Host-provided loading, retry and access-error states
   are supported.
-- `/app/*`: FE-03 journal remains unchanged apart from a **Start a recipe** link.
+- Unknown `/app/*` routes show the protected not-found page.
 
 The form supports both modes and optional initial values suitable for a future
 Quick AI Entry preview. Same-record prop refreshes do not reinitialize a dirty
@@ -56,12 +49,12 @@ failures remove the form; account and recipe identity changes remount or hide it
 
 The available shared Zod source is
 `supabase/functions/_shared/ai/schemas.ts`, imported through Deno's
-`npm:zod@3.22.4`. It defines extraction/demo shapes, not BE-05/BE-06 write
-requests, and cannot be imported directly into Vite. FE-05 pins browser Zod to
-the same version and provides a documented draft-validation bridge, with
-ingredient/instruction output types checked against FE-02's existing types.
-Ramos/Belen must supply a browser-compatible shared schema/package for the
-final request contract. Backend validation remains authoritative.
+`npm:zod@3.22.4`. It defines extraction/demo shapes and cannot be imported
+directly into Vite. The BE-05 create contract is documented in
+[`docs/api/recipes.md`](../api/recipes.md); FE-05 pins browser Zod to the same
+version and provides a draft-validation bridge, with ingredient/instruction
+output types checked against FE-02's existing types. The form draft is not the
+BE-05 transport schema. Backend validation remains authoritative.
 
 | Field | Implemented behavior | Published basis / pending decision |
 | --- | --- | --- |
@@ -69,7 +62,7 @@ final request contract. Backend validation remains authoritative.
 | Ingredients | Add/edit/remove/reorder; stable keys; name, optional numeric amount/unit/amount description; inferred flag preserved | Shared ingredient fields; no required units, enum or item minimum |
 | Quantity | Blank becomes null; finite decimal number; zero and negative values allowed because no shared lower bound exists | Shared nullable number; fractional text such as `1/2` belongs in amount description rather than a numeric guess |
 | Steps | Add/edit/delete/reorder; multiline text; serialize contiguous positions 1..n | Shared `{ step, text }` objects; no published text/item minimum |
-| Rating | Unrated/null or integer 1–5; existing values retained | Shared/demo schema and database use this scale; BE-05/BE-06 write contract still needs confirmation |
+| Rating | Unrated/null or integer 1–5; existing values retained | Shared/demo schema and BE-05 create contract use this scale; BE-06 update/rating semantics remain pending |
 | Cooked date | Optional/null or real `YYYY-MM-DD` calendar date; no timezone conversion | Shared date-only shape; no invented future/past restriction |
 | Notes | Optional multiline local draft, default empty, rendered as plain text | No notes field/column or maximum has been published; not a final API field |
 
@@ -81,9 +74,9 @@ items, required nested text and maximum lengths before the live adapter ships.
 Normalized server validation codes support `required`, `invalid` and `too-long`
 feedback without rendering raw backend messages.
 
-The current editor validates rating against the published shared/demo schema.
-BE-05/BE-06 must confirm the write contract before an adapter sends that field;
-the demo constraint is not a substitute for an unconfirmed write contract.
+The current editor accepts the BE-05 create contract's rating range, but an
+adapter still needs to map the draft to that request schema. BE-06 update/rating
+semantics remain pending.
 
 Notes are clearly labeled as local-only by default. If a connected callback is
 supplied while notes are nonempty and `notesSupported` is false, submission is
@@ -160,21 +153,20 @@ production mock persistence were found. The `useBlocker` route guard now covers
 links, programmatic navigation, Back/Forward, another recipe ID and the editor
 Back action; FE-03 auth redirects bypass it to avoid trapping authentication.
 
-FE-05 remains frontend-only. No confirmed BE-05/BE-06 write contract or FS-02
-authenticated recipe adapter is available as an integration dependency in this
-checkout. The form accepts an injected callback and host-provided loading state;
-the default application routes have no save adapter and cannot report a fake
-persistent success.
+BE-05's authenticated create contract is published in
+[the recipe API handoff](../api/recipes.md), and FS-02 provides the shared
+authenticated request client. FE-05 has not wired that contract to its save
+callback. BE-06's update/rating contract and an edit-record loader are still
+pending; the default routes cannot report a fake persistent success.
 
 ## Belen: FE-04 / FS-02 integration
 
-1. Reconcile FE-04's shared query infrastructure before adding real mutations.
-   Keep one account-scoped QueryClientProvider and reuse its `recipeKeys`; do
-   not add a second provider/key factory. FE-04 reference:
+1. Reuse FE-04's account-scoped QueryClientProvider and `recipeKeys`; do not add
+   a second provider or key factory. FE-04 reference:
    [recipe-dashboard handoff](https://github.com/2ton-exe/moris-mix-ai/blob/feat/FE-04-recipe-dashboard/docs/frontend/recipe-dashboard.md).
-2. Supply create/update `useMutation` adapters around FS-02's authenticated
-   client using the agreed BE-05/BE-06 methods, routes and envelopes. There is
-   no POST/PATCH URL or final wire serializer in FE-05.
+2. Wire create to BE-05's authenticated `POST /functions/v1/recipes` contract
+   through FS-02's client, mapping the form draft to the published request
+   schema. Update and rating mutations still need BE-06's contract.
 3. Map draft fields to approved write schemas; preserve untouched recipe fields
    such as flavor/lineage data by using the actual PATCH semantics. Validate
    confirmations with the real response schema before resolving `{ id }`.
@@ -185,9 +177,8 @@ persistent success.
    Bind cache operations to the originating client/account and ignore obsolete
    results. Keep cache-refresh failures distinct from failed persistence.
 6. Map FE-04's account-scoped detail query to EditRecipePage's loading/record
-   props. Compose routes once; these standalone pages own a `<main>`, so do not
-   nest them inside the journal's existing `<main>` without adapting the shell.
-   Expected merge overlap is `App.tsx` and the journal creation link.
+   props. These standalone pages own a `<main>`, so keep them outside the
+   journal's existing `<main>` shell.
 7. Add real adapter/mutation tests for token freshness, session races, write
    validation, confirmed persistence and list/detail invalidation. **Actual
    TanStack mutation execution and cache invalidation are deferred and not
@@ -195,9 +186,6 @@ persistent success.
 
 ## Ramos: backend requirements
 
-- [BE-05 #47](https://github.com/2ton-exe/moris-mix-ai/issues/47): publish the
-  authenticated create endpoint, request/response schema, validation errors,
-  persistence confirmation and deployment/CORS configuration.
 - [BE-06 #48](https://github.com/2ton-exe/moris-mix-ai/issues/48): publish update/
   rating PATCH semantics, supported fields, ownership and missing-recipe errors.
 - Confirm notes support and its storage, limits for every field/list, nested
@@ -206,11 +194,11 @@ persistent success.
   schema or database columns as a final create/update contract.
 - Coordinate with [FS-02 #53](https://github.com/2ton-exe/moris-mix-ai/issues/53)
   on current Bearer tokens and consistent safe error handling. Inspection found
-  no confirmed recipe write contracts.
+  create uses the published BE-05 contract; update/rating still needs BE-06.
 
-FS-02 is not a confirmed integration dependency for this FE-05 checkout. Keep
-the save callback behind the existing page interface until Belen supplies the
-approved authenticated client. At request time that client must retrieve or
+FS-02's authenticated client is available, but FE-05 has not connected a recipe
+mutation adapter. Keep the save callback behind the existing page interface.
+At request time the adapter must retrieve or
 refresh the current session, compare the expected account, attach the current
 Bearer token, honor the passed `AbortSignal`, map safe status/field errors, and
 return only after validating the real persistence response. It must not trust
@@ -271,9 +259,10 @@ of Done is claimed.
 | --- | --- |
 | Reusable form and page boundaries | Implemented |
 | Deterministic draft/interaction/callback validation | Implemented; 214 frontend tests pass, including all FE-03 regressions |
-| FE-04 query provider and route composition | Pending branch reconciliation; no duplicate query infrastructure added |
-| REST create/edit/rating integration | Blocked by confirmed BE-05/BE-06 contracts and FS-02 adapter |
-| TanStack mutations and real cache invalidation | Blocked on shared FE-04 infrastructure and REST adapter |
+| FE-04 query provider and route composition | Integrated; one provider and route tree |
+| REST create integration | BE-05 contract and FS-02 client available; FE-05 adapter not connected |
+| REST edit/rating integration | Blocked on BE-06 update contract and edit-record loader |
+| TanStack mutations and real cache invalidation | Not implemented |
 | Deployed production acceptance | Not performed |
 
 FE-05 is ready for contract and shared-query integration, not fully Done. No

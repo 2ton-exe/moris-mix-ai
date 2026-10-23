@@ -26,7 +26,7 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Wrangler                              |
 
-The unified frontend CI/deployment workflow does not deploy the Supabase backend or database.
+The unified frontend CI/deployment workflow does not deploy Supabase Edge Functions or the database. Supabase production deployment automation remains DEVOPS-07 work and is not implemented by the current Cloudflare workflow.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -38,11 +38,11 @@ Pull request targeting `main`
 ↓  
 GitHub Actions — `ci.yml`\
 ↓  
-Frontend dependency installation, linting, TypeScript validation through the build command, and production build\
+Three parallel jobs: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`\
 ↓  
-Required `Frontend Checks` status check (deployment skipped on PR runs)\
+Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; deployment skipped on PR runs\
 ↓  
-At least one teammate approval  
+At least one teammate approval and resolved review conversations\
 ↓  
 Merge into `main`
 
@@ -52,11 +52,11 @@ Approved merge into `main` produces a push event; permitted `workflow_dispatch` 
 ↓  
 GitHub Actions — `ci.yml`\
 ↓  
-`Frontend Checks`: frontend detection, setup, dependency installation, lint, TypeScript validation and production build\
+`Frontend Checks`, `Database Tests`, and `Edge/API Tests` run in parallel\
 ↓  
-Successful validation and `needs.frontend.outputs.exists == 'true'`\
+All three jobs succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓  
-`Deploy to Cloudflare` (`deploy`, `needs: frontend`): checkout, pnpm/Node setup, dependency installation and frontend build\
+`Deploy to Cloudflare` (`deploy`, `needs: [frontend, test-db, test-edge-api]`): checkout, pnpm/Node setup, dependency installation and frontend build\
 ↓  
 Wrangler uploads static assets to Cloudflare Workers  
 ↓  
@@ -70,7 +70,7 @@ A green workflow alone is not considered sufficient deployment evidence. The rel
 
 The relevant DevOps files are organized as follows:
 
-- `.github/workflows/ci.yml` — Frontend validation and gated Cloudflare production deployment
+- `.github/workflows/ci.yml` — Frontend, database, and Edge/API validation plus gated Cloudflare production deployment
 - `wrangler.jsonc` — Cloudflare Worker configuration
 - `docs/devops/pipeline-metrics.md` — Pipeline measurements and results
 - `docs/devops/deployment-runbook.md` — Deployment and recovery documentation
@@ -81,7 +81,7 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-The unified CI workflow runs through GitHub Actions when a pull request targets `main`, when an approved merge produces a push event on `main`, or through manual dispatch. PR runs execute `Frontend Checks` and skip `Deploy to Cloudflare`. Main pushes and permitted manual main runs deploy after successful validation and a true frontend-existence output.
+The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs execute all three validation jobs and skip `Deploy to Cloudflare`. Main pushes and permitted manual main runs deploy only after all three jobs succeed and the frontend-existence output is true.
 
 Its frontend validation stages are:
 
@@ -90,9 +90,12 @@ Its frontend validation stages are:
 3. Set up pnpm and Node.js.
 4. Install dependencies using `pnpm install --frozen-lockfile`.
 5. Run `pnpm lint`.
-6. Run `pnpm build`.
+6. Run `pnpm test`.
+7. Run `pnpm build`.
 
-**Required status check:** `Frontend Checks`
+In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks the demo Edge Function and tests, then runs deterministic tests. These jobs validate backend code without deploying Supabase Edge Functions or the database.
+
+**Required PR status checks:** `Frontend Checks`, `Database Tests`, and `Edge/API Tests`, as confirmed by the verified current GitHub ruleset evidence.
 
 The frontend build command currently performs TypeScript validation before the Vite production build:
 
@@ -120,16 +123,16 @@ This establishes that the frontend CI path is now executing meaningful applicati
 
 The default branch, `main`, is protected through a GitHub repository ruleset.
 
-The configured requirements include:
+The verified current GitHub ruleset requirements include:
 
 - Changes must be submitted through pull requests.
-- At least one approving review is required.
-- The `Frontend Checks` status check must pass.
+- One approving teammate review is required.
+- The `Frontend Checks`, `Database Tests`, and `Edge/API Tests` status checks must pass.
 - Review conversations must be resolved.
 - Force pushes are blocked.
 - Branch deletion is restricted.
 
-The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval.
+The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. All three required validation jobs are also dependencies of production deployment in the subsequent main run.
 
 Development should take place on feature branches. Approved changes are merged into `main` through GitHub's pull request interface.
 
@@ -174,21 +177,23 @@ The Cloudflare API token is restricted to the intended Cloudflare account.
 
 ## 9. Automated Deployment Procedure
 
-Production deployment is a `deploy` job inside `.github/workflows/ci.yml`. In the reviewed delivery path, an approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`. Permitted `workflow_dispatch` runs on `main` may also deploy after validation. PR runs skip deployment.
+Production deployment is a `deploy` job inside `.github/workflows/ci.yml`. In the reviewed delivery path, an approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, and `Edge/API Tests` in that same run. Permitted `workflow_dispatch` runs on `main` may also deploy after all three succeed. PR runs skip deployment.
 
-The job declares `needs: frontend` and uses this condition:
+The job declares `needs: [frontend, test-db, test-edge-api]` and uses this condition:
 
 ```text
 needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
 ```
+
+The `deploy.needs` configuration and normal GitHub Actions dependency semantics prevent deployment when a dependency fails, is cancelled, or is skipped. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. Run #90 verifies successful production ordering separately.
 
 The workflow currently has no push path filter: docs-only main pushes can also proceed through deployment. Evaluating trigger scope is possible future efficiency work, not a correctness failure or a proven optimization opportunity.
 
 ### Deployment Steps
 
 1. Changes are reviewed and merged into `main`; the resulting push event triggers the unified CI workflow. Alternatively, use a permitted `workflow_dispatch` run on `main`.
-2. `Frontend Checks` detects the frontend, sets up pnpm/Node, installs dependencies, lints, and builds with TypeScript validation.
-3. Confirm validation succeeded and the frontend-existence job output is true; only then can `Deploy to Cloudflare` start.
+2. The three validation jobs run in parallel: frontend detection, install, lint, tests and build; database migrations/lifecycle/RLS tests; and Edge/API type-checking and deterministic tests.
+3. Confirm all three jobs succeeded and the frontend-existence job output is true; only then can `Deploy to Cloudflare` start.
 4. The deployment job checks out source and configures pnpm and Node.js.
 5. Frontend dependencies are installed and the React/Vite production build is generated.
 6. Wrangler uploads the generated static assets to Cloudflare Workers.
@@ -223,7 +228,7 @@ fa7b547a-2e54-4e93-9be4-13e573f11812
 
 The resulting application was then manually verified through the production URL.
 
-### Verified Gated Main Deployment: Run #48
+### Historical Frontend-Gated Main Deployment: Run #48
 
 PR #31, `fix(devops): gate production deploy on CI`, was reviewed, approved, and squash-merged into `main` as `8f8e0d8456acf3589184c082bfc9f94375c23e67`. It removed the old standalone deployment workflow and moved deployment into `ci.yml` with `needs: frontend` and the frontend-existence output condition.
 
@@ -239,12 +244,46 @@ Deployment started only after Frontend Checks completed, verifying CI-to-product
 
 After run #48, the production URL was manually opened and the React frontend loaded successfully. This verifies the gated frontend delivery path, not frontend-to-API-to-PostgreSQL integration or rollback/recovery. The gate is a correctness/reliability improvement; no performance optimization is claimed.
 
+### Verified Three-Job Main Deployment: Run #90 (DEVOPS-06)
+
+PR #41 added Edge/API validation. PR #43, merged as `7b577e70750ab3ec930ef265211c0fd541834aad`, then changed deployment dependencies from `frontend` alone to `frontend`, `test-db`, and `test-edge-api`. The earlier database-gate gap documented for runs #73 and #77 is resolved in the merged configuration. Those runs and run #48 remain historical evidence of the earlier frontend-only gate.
+
+Verified GitHub execution evidence confirms main CI run #90 ran on commit `7b577e70750ab3ec930ef265211c0fd541834aad` and completed successfully:
+
+| Job | Verified result / ordering |
+| :--- | :--- |
+| Edge/API Tests | Completed successfully before deployment |
+| Frontend Checks | Completed successfully before deployment |
+| Database Tests | Completed successfully at approximately 07:05:40 UTC |
+| Deploy to Cloudflare | Started afterward at approximately 07:05:43 UTC and completed successfully |
+
+The successful three-job gating path is verified by main run #90. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. Run #90 is separate from the historical two-job baseline in [pipeline metrics](pipeline-metrics.md); DEVOPS-06 does not claim a performance optimization.
+
+### Controlled Non-Production Failure-Gate Experiment (DEVOPS-06)
+
+Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed controlled experimental run `39279387584` with these results:
+
+| Experimental job | Result |
+| :--- | :--- |
+| Gate Test - Frontend | Success |
+| Gate Test - Edge/API | Success |
+| Gate Test - Intentional Database Failure | Failure by design |
+| Gate Test - Would Deploy | Skipped |
+
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the production deploy gate's three-dependency structure. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+
+The evidence chain is production configuration (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
+
+Normal CI run #98 on the same PR completed Frontend Checks, Database Tests, and Edge/API Tests successfully; Deploy to Cloudflare was skipped because this was a PR. Run #98 is PR validation evidence, not production deployment evidence. Neither the controlled experiment nor the unusually delayed workflow runs associated with PR #68 are added to a performance baseline; no comparable-duration justification or performance optimization is claimed.
+
 ## 10. Deployment Verification Checklist
 
-Historical FE-01 checks and the additional run #48 evidence establish the following:
+Historical FE-01 checks, run #48, the 2026-10-17 smoke check, main run #90, and the controlled PR #68 experiment establish the following:
 
 - [x] GitHub Actions deployment completes successfully.
-- [x] Main deployment waits for successful Frontend Checks (run #48).
+- [x] Historical frontend-only deployment gate verified: main deployment waited for successful Frontend Checks (run #48).
+- [x] Successful runtime execution of the three-job deployment gate is verified by main run #90.
+- [x] Verify failed-dependency blocking through the controlled non-production equivalent dependency-gate experiment (PR #68 / run `39279387584`); the inert downstream job was skipped.
 - [x] Frontend installation step executes.
 - [x] Frontend build step executes.
 - [x] TypeScript validation executes through the frontend build command.
@@ -290,7 +329,7 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 - Confirm the actual deployment step executed rather than being skipped.
 - Confirm `frontend/package.json` exists on `main`.
-- Confirm the unified CI workflow ran for the expected commit and Frontend Checks succeeded with a true frontend-existence output.
+- Confirm the unified CI workflow ran for the expected commit, all three validation jobs succeeded, and the frontend-existence output is true.
 - Inspect the Wrangler deployment output.
 - Inspect the latest Cloudflare Worker deployment.
 - Check the production URL independently.
@@ -337,7 +376,7 @@ Measurements must be based on observed workflow runs rather than estimates.
 
 The earlier bootstrap measurements collected before the real frontend existed must remain distinguished from representative application pipeline measurements.
 
-Historical FE-01 runs and unified main CI run #48 provide real frontend validation and deployment execution data. The separate-workflow and unified-workflow durations have different scopes and should not be directly compared as performance evidence. However, the Sprint 1 representative baseline is not complete until enough comparable runs are collected to support the planned baseline calculation.
+Historical FE-01 runs and unified main CI run #48 provide real frontend validation and deployment execution data. The separate-workflow and unified-workflow durations have different scopes and should not be directly compared as performance evidence. The metrics log now records a preliminary historical baseline of four PR runs and two main/deployment runs for the earlier two-job workload. A separate preliminary current three-job sample is now recorded; more comparable observations are needed; precise merge-to-live, rollback, and failed-deployment recovery measurements remain outstanding.
 
 No optimization should be claimed until a baseline exists and a before-versus-after comparison demonstrates a measurable improvement.
 
@@ -355,9 +394,9 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- Supabase backend and database deployment procedures are not handled by the current frontend Cloudflare deployment workflow.
+- Supabase Edge Functions and database deployment are not handled by the current Cloudflare workflow; Supabase production deployment automation remains DEVOPS-07 work.
 - Production rollback and recovery procedures have not yet been tested.
-- The representative Sprint 1 pipeline metrics baseline still needs to be completed.
+- The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
 - Docs-only main pushes can currently proceed through the gated deployment job. Evaluate trigger scope later as a possible efficiency improvement; this is not a correctness failure or a proven optimization opportunity.
 
@@ -367,10 +406,13 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 
 - [x] Initial CI workflow is merged.
 - [x] Branch protection ruleset is active.
-- [x] Required pull-request CI check is configured.
+- [x] Frontend Checks, Database Tests, and Edge/API Tests are required by the verified current GitHub ruleset.
 - [x] Teammate approval is required before merge.
 - [x] Unified validation/deployment workflow and Cloudflare configuration are merged.
-- [x] Production deployment depends on successful Frontend Checks; main execution verified in run #48.
+- [x] Historical frontend-only deployment gate was verified by main run #48.
+- [x] Merged PR #43 configures production deployment to depend on all three validation jobs.
+- [x] Main run #90 verifies successful deployment after all three validation jobs succeed.
+- [x] Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment (PR #68 / run `39279387584`).
 - [x] Current unified workflow has a configured main-only production condition.
 - [x] Previous standalone workflow skipped production in a feature-branch manual-dispatch test (historical evidence).
 - [ ] Current unified workflow feature-branch manual-dispatch guard is separately re-tested.
@@ -385,9 +427,9 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 - [x] Production URL serves the React application.
 - [x] Client-side application routing works in production.
 - [x] Deployed frontend-to-backend-to-database integration is verified by the 2026-10-17 smoke check.
-- [ ] Representative Sprint 1 pipeline and deployment measurements are recorded.
-- [ ] Sprint 1 baseline metrics are finalized.
+- [x] Preliminary historical Sprint 1 baseline is recorded for four PR runs and two main/deployment runs.
+- [x] Preliminary measurements for the current three-job workflow are recorded separately; more comparable observations are needed.
 
 The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
-Sprint 1 delivery tracking remains open for Gemini generation verification and completion of the representative pipeline baseline.
+Sprint 1 delivery tracking remains open for Gemini generation verification and further comparable pipeline measurements. The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-dependency blocking mechanism is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).

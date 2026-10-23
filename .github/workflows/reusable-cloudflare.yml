@@ -1,0 +1,77 @@
+name: Reusable Cloudflare Deployment
+
+# Dormant during stage 1: no workflow calls this file.
+# A future caller MUST depend on all three successful validation jobs in its run.
+# The input carries frontend existence only; it is not proof of validation success.
+on:
+  workflow_call:
+    inputs:
+      frontend-exists:
+        description: Frontend existence output from the caller's frontend validation
+        required: true
+        type: boolean
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare
+    if: inputs.frontend-exists && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+
+    env:
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate public Supabase build configuration
+        shell: bash
+        run: |
+          if [[ -z "${VITE_SUPABASE_URL//[[:space:]]/}" ]]; then
+            echo "::error::Configure the VITE_SUPABASE_URL repository variable."
+            exit 1
+          fi
+          public_key="${VITE_SUPABASE_PUBLISHABLE_KEY:-$VITE_SUPABASE_ANON_KEY}"
+          if [[ -z "${public_key//[[:space:]]/}" ]]; then
+            echo "::error::Configure the VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY repository variable."
+            exit 1
+          fi
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc

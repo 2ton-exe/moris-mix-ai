@@ -1,0 +1,25 @@
+name: Modular PR Validation
+
+# Stage 1 comparison runs only. ci.yml remains authoritative for required
+# checks and is the sole production deployment entry point.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Modular Frontend
+    uses: ./.github/workflows/reusable-frontend.yml
+
+  test-db:
+    name: Modular Database
+    uses: ./.github/workflows/reusable-database.yml
+
+  test-edge-api:
+    name: Modular Edge/API
+    uses: ./.github/workflows/reusable-edge-api.yml
+    secrets:
+      BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
+      BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
+      BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}

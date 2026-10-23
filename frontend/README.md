@@ -1,16 +1,22 @@
 # Mori's Mix frontend
 
-FE-05 adds a reusable recipe editor and protected `/app/recipes/new` and
-`/app/recipes/:recipeId/edit` page boundaries. Creation accepts an in-memory draft;
-saving and existing-recipe loading show an explicit unavailable state until
-BE-05/BE-06 and FS-02 are integrated. Notes are labeled local-only. No mock
-persistence is enabled in production. Dirty drafts are guarded on in-app
-navigation and browser history; auth redirects remain available. See the
-[recipe form handoff](../docs/frontend/recipe-form.md) for schema limits,
-callback interfaces, FE-04 query integration and validation.
+FE-04 adds the protected recipe dashboard at `/app` and `/app/recipes`, plus
+details at `/app/recipes/:recipeId`, using TanStack Query. The shared REST client
+supports authenticated requests using a freshly checked SDK session. BE-06's
+recipe read contract is still unavailable, so normal mode reports an unavailable
+service rather than showing sample recipes.
 
-FE-03 adds login, signup, email verification, session handling, and a protected
-`/app` journal entry. Open `/home` and select **Your cooking journal**, or go to
+FE-05 adds a reusable recipe editor and protected `/app/recipes/new` and
+`/app/recipes/:recipeId/edit` page boundaries. The forms keep drafts locally and
+show an explicit unavailable state until save and edit-loading adapters are
+connected. Notes stay local-only. Dirty drafts are guarded on in-app navigation
+and browser history; auth redirects remain available. See the [recipe form
+handoff](../docs/frontend/recipe-form.md) for schema limits and integration
+status. For a labeled local sample preview, set `VITE_RECIPE_PREVIEW=true` and
+restart Vite; production builds ignore it.
+
+FE-03 adds login, signup, email verification, and session handling for the
+protected recipe dashboard. Open `/home` and select **Your cooking journal**, or go to
 `/login` directly. See the [authentication setup and FS-02 handoff](../docs/frontend/authentication.md)
 for callback allowlist requirements, session interfaces, route ownership, and
 the remaining live verification steps. The public FE-02 demo stays available

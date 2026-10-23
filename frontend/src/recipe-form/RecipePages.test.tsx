@@ -98,7 +98,7 @@ function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe t
 it.each([
   ['/app/recipes/new', '/app/recipes/new'],
   ['/app/recipes/recipe-a/edit', '/app/recipes/:recipeId/edit'],
-  ['/app/recipes', '/app/*'],
+  ['/app/recipes', 'recipes'],
 ])('keeps the production data-router route tree matching %s', (path, expectedRoute) => {
   const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), path)
   expect(matches?.at(-1)?.route.path).toBe(expectedRoute)

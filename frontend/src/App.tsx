@@ -7,6 +7,9 @@ import JournalPage from './pages/JournalPage'
 import DemoRecipePage from './pages/DemoRecipePage'
 import CreateRecipePage from './pages/CreateRecipePage'
 import EditRecipePage from './pages/EditRecipePage'
+import RecipeDashboardPage from './pages/RecipeDashboardPage'
+import RecipeDetailPage from './pages/RecipeDetailPage'
+import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
 function HomePage() {
   return (
@@ -79,7 +82,12 @@ export const createAppRouteElements = () => (
           <Route element={<ProtectedRoute />}>
             <Route path="/app/recipes/new" element={<CreateRecipePage />} />
             <Route path="/app/recipes/:recipeId/edit" element={<EditRecipePage />} />
-            <Route path="/app/*" element={<JournalPage />} />
+            <Route path="/app" element={<RecipeQueryProvider><JournalPage /></RecipeQueryProvider>}>
+              <Route index element={<RecipeDashboardPage />} />
+              <Route path="recipes" element={<RecipeDashboardPage />} />
+              <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+            </Route>
+            <Route path="/app/*" element={<NotFoundPage />} />
           </Route>
         </Route>
       </Route>
