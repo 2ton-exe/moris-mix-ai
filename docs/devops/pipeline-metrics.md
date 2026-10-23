@@ -27,7 +27,7 @@ PR runs execute all three validation jobs and skip deployment. Verified current 
 
 **Deploy to Cloudflare** runs on qualifying `main` pushes or permitted main `workflow_dispatch` runs. It validates public Supabase build configuration, installs frontend dependencies, builds the frontend, and deploys through Wrangler. The temporary frontend-existence mechanism remains, with deployment requiring `needs.frontend.outputs.exists == 'true'`.
 
-The deployment job now declares **`needs: [frontend, test-db, test-edge-api]`**. All three jobs must succeed in the same run before deployment can start. Normal GitHub Actions dependency semantics configure deployment to be blocked if a dependency fails, is cancelled, or is skipped; the failed-required-validation blocking path remains experimentally unverified. PR #43, merged as `7b577e70750ab3ec930ef265211c0fd541834aad`, closed the earlier frontend-only deployment-gate gap. Main run #90 verifies the successful three-job gating path; section 5 records that evidence separately from the historical observations.
+The deployment job now declares **`needs: [frontend, test-db, test-edge-api]`**. All three jobs must succeed in the same run before deployment can start. Normal GitHub Actions dependency semantics configure deployment to be blocked if a dependency fails, is cancelled, or is skipped; failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. PR #43, merged as `7b577e70750ab3ec930ef265211c0fd541834aad`, closed the earlier frontend-only deployment-gate gap. Main run #90 verifies the successful three-job gating path; section 5 records that evidence separately from the historical observations.
 
 The Cloudflare workflow does not deploy Supabase Edge Functions or the database. Supabase production deployment automation remains DEVOPS-07 work and is not implemented by the current workflow.
 
@@ -95,7 +95,7 @@ These current-workflow observations are recorded separately from the historical 
 - PR sample: **2** runs (#91 and #92); preliminary mean = (37 + 42) / 2 = **39.5s**; observed success rate = **2/2**.
 - Main/deployment sample: **1** run (#90), approximately **65s**, successful; this also verifies the successful three-job deployment gate described in section 5.
 
-This sample is too small to establish a stable baseline or stable reliability. Workload differences prevent direct comparison with the historical two-job sample as proof of improvement or regression; no optimization is claimed. More comparable current-workflow observations are needed. Failed-required-validation blocking remains configured but experimentally unverified. Precise merge-to-live time remains unmeasured; production rollback and failed-deployment recovery remain untested and unmeasured.
+This sample is too small to establish a stable baseline or stable reliability. Workload differences prevent direct comparison with the historical two-job sample as proof of improvement or regression; no optimization is claimed. More comparable current-workflow observations are needed. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. This mechanism evidence is separate from the duration sample. Precise merge-to-live time remains unmeasured; production rollback and failed-deployment recovery remain untested and unmeasured.
 
 ## 3. Historical Measurements
 
@@ -185,7 +185,24 @@ Before PR #43, Deploy to Cloudflare depended only on `frontend`. The following h
 | Database Tests | Completed successfully at approximately 07:05:40 UTC |
 | Deploy to Cloudflare | Started afterward at approximately 07:05:43 UTC and completed successfully |
 
-The successful three-job gating path is verified by main run #90. The failed-required-validation blocking path remains configured through `deploy.needs` and normal GitHub Actions dependency semantics but experimentally unverified. Run #90 is successful-path ordering evidence, not an addition to the earlier two-job duration baseline. No performance optimization is claimed for DEVOPS-06.
+The successful three-job gating path is verified by main run #90. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. Run #90 is successful-path ordering evidence, not an addition to the earlier two-job duration baseline. No performance optimization is claimed for DEVOPS-06.
+
+### Controlled Non-Production Failure-Gate Experiment (DEVOPS-06)
+
+Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed controlled experimental run `39279387584` with these results:
+
+| Experimental job | Result |
+| :--- | :--- |
+| Gate Test - Frontend | Success |
+| Gate Test - Edge/API | Success |
+| Gate Test - Intentional Database Failure | Failure by design |
+| Gate Test - Would Deploy | Skipped |
+
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the production deploy gate's three-dependency structure. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+
+The evidence chain is production configuration (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
+
+Normal CI run #98 on the same PR completed Frontend Checks, Database Tests, and Edge/API Tests successfully; Deploy to Cloudflare was skipped because this was a PR. Run #98 is PR validation evidence, not production deployment evidence. Neither the controlled experiment nor the unusually delayed workflow runs associated with PR #68 are added to a performance baseline; no comparable-duration justification or performance optimization is claimed.
 
 Historically, a manual feature-branch run of the standalone deployment workflow skipped the production job. The unified workflow has a configured main-only condition; that feature-branch manual-dispatch guard has not been separately re-tested.
 
@@ -220,16 +237,15 @@ Keep future measurements separate if the workload or deployment dependencies cha
 
 ## 9. Next DevOps Improvements
 
-1. Record experimental evidence that a failed required validation prevents production deployment from running when tested or observed; run #90 already verifies successful three-job gating.
-2. Investigate Database Tests timing, including PostgreSQL service-container initialization, as a future optimization candidate.
-3. Continue collecting comparable pipeline observations and precise merge-to-live measurements.
-4. Test and document production deployment rollback and failed-deployment recovery.
-5. Evaluate docs-only trigger scope, replacement of the frontend-existence skip, and any Wrangler upgrade separately.
+1. Investigate Database Tests timing, including PostgreSQL service-container initialization, as a future optimization candidate.
+2. Continue collecting comparable pipeline observations and precise merge-to-live measurements.
+3. Test and document production deployment rollback and failed-deployment recovery.
+4. Evaluate docs-only trigger scope, replacement of the frontend-existence skip, and any Wrangler upgrade separately.
 
 These are follow-up opportunities, not implemented or proven optimizations.
 
 ## 10. Sprint 1 Metrics Assessment
 
-DEVOPS-03 records a historical preliminary Sprint 1 PR baseline from four comparable successful runs and a separate two-run successful main/deployment sample. The verified current ruleset requires Frontend Checks, Database Tests, and Edge/API Tests before PR merge. Following PRs #41 and #43, production deployment waits for all three jobs to succeed in the main run, with the successful path experimentally verified by run #90. The failed-required-validation blocking path remains configured but experimentally unverified; a separate preliminary duration sample for the current three-job workflow now exists (PR mean 39.5s across two runs; one main/deployment run at approximately 65s), with more comparable observations still needed.
+DEVOPS-03 records a historical preliminary Sprint 1 PR baseline from four comparable successful runs and a separate two-run successful main/deployment sample. The verified current ruleset requires Frontend Checks, Database Tests, and Edge/API Tests before PR merge. Following PRs #41 and #43, production deployment waits for all three jobs to succeed in the main run, with the successful path experimentally verified by run #90. The failed-dependency blocking mechanism is verified separately by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`; a separate preliminary duration sample for the current three-job workflow now exists (PR mean 39.5s across two runs; one main/deployment run at approximately 65s), with more comparable observations still needed.
 
 The production walking skeleton and deployed application/API request retry are verified. Precise merge-to-live timing, production deployment rollback, and recovery time from a failed production deployment remain outstanding. Sprint 1 establishes measured evidence without claiming a performance optimization or a stable long-term baseline.
