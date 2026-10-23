@@ -917,6 +917,30 @@ async function runDatabaseLifecycleIntegrationTests() {
 }
 
 async function runTestTargetMigrationUnitTests() {
+  const originalFetch = globalThis.fetch;
+  const probeHeaders = [];
+  try {
+    globalThis.fetch = async (_url, options) => {
+      probeHeaders.push(options.headers);
+      return { status: 200 };
+    };
+
+    for (const key of ['sb_secret_test', 'sb_publishable_test']) {
+      await probePostgrestNotesColumn('https://test-project.supabase.co', key);
+      assert.deepEqual(probeHeaders.at(-1), { apikey: key });
+    }
+
+    const legacyJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJl';
+    await probePostgrestNotesColumn('https://test-project.supabase.co', legacyJwt);
+    assert.deepEqual(probeHeaders.at(-1), {
+      apikey: legacyJwt,
+      Authorization: `Bearer ${legacyJwt}`
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  console.log('PASS: PostgREST probe uses compatible auth headers for modern and legacy API keys.');
+
   assert.equal(
     sanitizeDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres"'),
     'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'

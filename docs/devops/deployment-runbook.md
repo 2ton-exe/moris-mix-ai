@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1  
-**Status:** Frontend CI, gated automated production deployment, production UI/API/PostgreSQL smoke check, and production migration-ledger entry verified; Gemini generation remains pending
+**Status:** Frontend CI and gated Cloudflare deployment verified; the approval-gated production migration job is configured in CI, with GitHub environment setup pending; Gemini generation remains pending
 
 ## 1. Purpose
 
@@ -26,7 +26,7 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Wrangler                              |
 
-The unified frontend CI/deployment workflow does not deploy Supabase Edge Functions or the database. Supabase production deployment automation remains DEVOPS-07 work and is not implemented by the current Cloudflare workflow.
+The unified CI/deployment workflow runs production database migrations through the approval-gated `migrate-production` job before deploying the frontend to Cloudflare. Supabase Edge Function deployment remains a separate process.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -38,9 +38,9 @@ Pull request targeting `main`
 ↓  
 GitHub Actions — `ci.yml`\
 ↓  
-Three parallel jobs: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`\
+`Frontend Checks` and `Database Tests` start in parallel; `Edge/API Tests` follows the database job\
 ↓  
-Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; deployment skipped on PR runs\
+Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; production jobs skipped on PR runs\
 ↓  
 At least one teammate approval and resolved review conversations\
 ↓  
@@ -52,11 +52,13 @@ Approved merge into `main` produces a push event; permitted `workflow_dispatch` 
 ↓  
 GitHub Actions — `ci.yml`\
 ↓  
-`Frontend Checks`, `Database Tests`, and `Edge/API Tests` run in parallel\
+`Frontend Checks` and `Database Tests` start in parallel; `Edge/API Tests` follows the database job\
 ↓  
-All three jobs succeed and `needs.frontend.outputs.exists == 'true'`\
+All three validation jobs succeed\
+↓\
+`Migrate Production Database` waits for approval in `production-db`, then runs guarded migrations\
 ↓  
-`Deploy to Cloudflare` (`deploy`, `needs: [frontend, test-db, test-edge-api]`): checkout, pnpm/Node setup, dependency installation and frontend build\
+`Deploy to Cloudflare` (`deploy`, needs all validation jobs and `migrate-production`): frontend build and deploy\
 ↓  
 Wrangler uploads static assets to Cloudflare Workers  
 ↓  
@@ -70,7 +72,7 @@ A green workflow alone is not considered sufficient deployment evidence. The rel
 
 The relevant DevOps files are organized as follows:
 
-- `.github/workflows/ci.yml` — Frontend, database, and Edge/API validation plus gated Cloudflare production deployment
+- `.github/workflows/ci.yml` — Frontend, database, and Edge/API validation, approval-gated production migrations, and Cloudflare deployment
 - `wrangler.jsonc` — Cloudflare Worker configuration
 - `docs/devops/pipeline-metrics.md` — Pipeline measurements and results
 - `docs/devops/deployment-runbook.md` — Deployment and recovery documentation
@@ -81,7 +83,7 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs execute all three validation jobs and skip `Deploy to Cloudflare`. Main pushes and permitted manual main runs deploy only after all three jobs succeed and the frontend-existence output is true.
+The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs execute all three validation jobs and skip both production jobs. Main pushes and manual dispatches from `main` start production migration only after all three jobs succeed; deployment waits for migration success and the frontend-existence output to be true.
 
 Its frontend validation stages are:
 
@@ -93,7 +95,7 @@ Its frontend validation stages are:
 6. Run `pnpm test`.
 7. Run `pnpm build`.
 
-In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks the demo Edge Function and tests, then runs deterministic tests. These jobs validate backend code without deploying Supabase Edge Functions or the database.
+`Database Tests` validates migrations, migration lifecycle behavior, and RLS against a disposable PostgreSQL service container. `Edge/API Tests` type-checks the demo Edge Function and tests, then runs deterministic tests after the database job. On main runs, `Migrate Production Database` applies migrations only after these checks and the `production-db` approval; Supabase Edge Function deployment remains separate.
 
 **Required PR status checks:** `Frontend Checks`, `Database Tests`, and `Edge/API Tests`, as confirmed by the verified current GitHub ruleset evidence.
 
@@ -175,29 +177,52 @@ Secret values must never be committed to Git, included in pull request descripti
 
 The Cloudflare API token is restricted to the intended Cloudflare account.
 
+### Production Database Environment
+
+The `migrate-production` job uses the `production-db` GitHub Environment. Create and configure it before merging this workflow in GitHub Repository → Settings → Environments with these protection rules:
+
+- Restrict deployment branches to `main`.
+- Require at least one reviewer and prevent reviewers from approving their own deployments.
+- Store production database credentials as environment secrets, not repository-level Actions secrets. Use the dedicated names below and do not define them at organization or repository scope; this prevents existing repository secrets from satisfying the job if environment setup is incomplete.
+
+Configure these environment secrets:
+
+| Environment secret | Purpose |
+| :--- | :--- |
+| `PRODUCTION_DATABASE_URL` | Production PostgreSQL connection string (mapped to `DATABASE_URL` for the runner) |
+| `PRODUCTION_SUPABASE_SECRET_KEY` or `PRODUCTION_SUPABASE_SERVICE_ROLE_KEY` | Secret key used by the guarded migration runner; the legacy service-role name is supported |
+
+Configure these environment variables:
+
+| Environment variable | Purpose |
+| :--- | :--- |
+| `RLS_EXPECTED_PROJECT_REF` | Expected Supabase project reference for the database target guard |
+| `SUPABASE_URL` | Supabase project URL; its project reference must match the expected reference |
+
+The job fails before installing dependencies if any required value is missing. The migration runner rejects a database URL whose Supabase project reference does not match these settings. Environment secrets are made available to the job only after its environment protection rules pass. See [GitHub deployment environment protection rules](https://docs.github.com/en/actions/concepts/workflows-and-actions/deployment-environments).
+
 ## 9. Automated Deployment Procedure
 
-Production deployment is a `deploy` job inside `.github/workflows/ci.yml`. In the reviewed delivery path, an approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, and `Edge/API Tests` in that same run. Permitted `workflow_dispatch` runs on `main` may also deploy after all three succeed. PR runs skip deployment.
+Production database migration and Cloudflare deployment are jobs inside `.github/workflows/ci.yml`. An approved merge into `main` produces a push event that starts CI; `workflow_dispatch` from `main` uses the same gated path. PR runs do not start either production job.
 
-The job declares `needs: [frontend, test-db, test-edge-api]` and uses this condition:
+The `migrate-production` job declares `needs: [frontend, test-db, test-edge-api]`, runs only for pushes and manual dispatches from `main`, and uses the `production-db` environment. Once all three validation jobs succeed, GitHub pauses the migration job until an eligible reviewer approves it. After approval, it validates the production configuration and runs the guarded `node run-migrations.mjs` command. Production migration runs are serialized with the `production-database-migrations` concurrency group.
 
-```text
-needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-```
+The `deploy` job additionally needs `migrate-production`, so a failed migration blocks the Cloudflare deployment. It still requires the frontend project to exist and only runs on pushes and manual dispatches from `main`.
 
-The `deploy.needs` configuration and normal GitHub Actions dependency semantics prevent deployment when a dependency fails, is cancelled, or is skipped. A failed required validation preventing production deployment from running remains experimentally unverified; run #90 verifies the successful path only.
+The jobs' `needs` configuration and normal GitHub Actions dependency semantics prevent migration or deployment when a required check fails, is cancelled, or is skipped. The new approval and migration path is configured in the workflow but must be exercised after the `production-db` environment and its credentials are configured.
 
 The workflow currently has no push path filter: docs-only main pushes can also proceed through deployment. Evaluating trigger scope is possible future efficiency work, not a correctness failure or a proven optimization opportunity.
 
 ### Deployment Steps
 
-1. Changes are reviewed and merged into `main`; the resulting push event triggers the unified CI workflow. Alternatively, use a permitted `workflow_dispatch` run on `main`.
-2. The three validation jobs run in parallel: frontend detection, install, lint, tests and build; database migrations/lifecycle/RLS tests; and Edge/API type-checking and deterministic tests.
-3. Confirm all three jobs succeeded and the frontend-existence job output is true; only then can `Deploy to Cloudflare` start.
-4. The deployment job checks out source and configures pnpm and Node.js.
-5. Frontend dependencies are installed and the React/Vite production build is generated.
-6. Wrangler uploads the generated static assets to Cloudflare Workers.
-7. Confirm the deployment steps actually executed, then check the application at the production URL.
+1. Changes are reviewed and merged into `main`; the resulting push event triggers the unified CI workflow. Alternatively, use `workflow_dispatch` on `main`.
+2. Frontend checks and database migration/lifecycle/RLS tests start in parallel; Edge/API tests follow the database job. All three required jobs must succeed.
+3. After all three jobs succeed, an eligible reviewer approves the waiting `Migrate Production Database` job in the `production-db` environment.
+4. Confirm the migration job validates its target and completes `node run-migrations.mjs`; a failed or rejected migration prevents deployment.
+5. Confirm the frontend-existence job output is true; only then can `Deploy to Cloudflare` start.
+6. The deployment job checks out source, configures pnpm and Node.js, installs frontend dependencies, and builds the React/Vite production assets.
+7. Wrangler uploads the generated static assets to Cloudflare Workers.
+8. Confirm the deployment steps actually executed, then check the application at the production URL.
 
 ### Historical FE-01 Deployment
 
@@ -312,7 +337,7 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 - Confirm the actual deployment step executed rather than being skipped.
 - Confirm `frontend/package.json` exists on `main`.
-- Confirm the unified CI workflow ran for the expected commit, all three validation jobs succeeded, and the frontend-existence output is true.
+- Confirm the unified CI workflow ran for the expected commit, all three validation jobs succeeded, production migration was approved and completed, and the frontend-existence output is true.
 - Inspect the Wrangler deployment output.
 - Inspect the latest Cloudflare Worker deployment.
 - Check the production URL independently.
@@ -377,9 +402,10 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- Supabase Edge Functions and database deployment are not handled by the current Cloudflare workflow; Supabase production deployment automation remains DEVOPS-07 work.
+- Supabase database migrations run through the approval-gated `migrate-production` job. Supabase Edge Function deployment remains a separate process.
+- Production migration approval and execution have not yet been verified in a main-branch workflow run; the `production-db` environment protection rules and environment-scoped values must be configured by a repository administrator.
 - Production rollback and recovery procedures have not yet been tested.
-- The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations and failed-required-validation blocking evidence remain outstanding.
+- The historical preliminary Sprint 1 metrics baseline has a small sample. A separate three-check sample predates the production migration gate and includes run #90's successful ordering evidence; more observations of the current gated flow and failed-required-validation blocking are needed.
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
 - Docs-only main pushes can currently proceed through the gated deployment job. Evaluate trigger scope later as a possible efficiency improvement; this is not a correctness failure or a proven optimization opportunity.
 

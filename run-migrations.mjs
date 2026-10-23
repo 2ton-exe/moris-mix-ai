@@ -1093,11 +1093,12 @@ export async function probePostgrestNotesColumn(url, key) {
   if (!url || !key) return { ok: false, error: 'missing url or key' };
   try {
     const probeUrl = new URL('/rest/v1/recipes?select=notes&limit=0', url);
+    const headers = { apikey: key };
+    if (/^[^.]+\.[^.]+\.[^.]+$/.test(key)) {
+      headers.Authorization = `Bearer ${key}`;
+    }
     const res = await fetch(probeUrl.toString(), {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`
-      }
+      headers
     });
     if (res.status === 200) {
       return { ok: true, status: 200 };
