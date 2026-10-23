@@ -31,7 +31,7 @@ interface HttpClientOptions {
 interface JsonRequestOptions {
   signal?: AbortSignal
   accessToken?: string
-  method?: 'GET' | 'POST'
+  method?: RequestInit['method']
   body?: unknown
 }
 
@@ -60,7 +60,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     }
 
     let requestBody: string | undefined
-    if (method === 'POST') {
+    if (method === 'POST' || method === 'PATCH') {
       try {
         requestBody = JSON.stringify(jsonBody)
         if (requestBody === undefined) throw new Error('Request body is not JSON serializable')
@@ -114,7 +114,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
 
   async function authenticatedJson(
     path: string,
-    { userId, signal, method, body }: AuthenticatedRequestOptions & { method: 'GET' | 'POST'; body?: unknown },
+    { userId, signal, method, body }: AuthenticatedRequestOptions & { method: RequestInit['method']; body?: unknown },
   ): Promise<unknown> {
     let session: Session | null | undefined
     let abortListener: (() => void) | undefined
@@ -157,6 +157,12 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     },
     postAuthenticatedJson(path: string, body: unknown, options: AuthenticatedRequestOptions): Promise<unknown> {
       return authenticatedJson(path, { ...options, method: 'POST', body })
+    },
+    patchAuthenticatedJson(path: string, body: unknown, options: AuthenticatedRequestOptions): Promise<unknown> {
+      return authenticatedJson(path, { ...options, method: 'PATCH', body })
+    },
+    deleteAuthenticatedJson(path: string, options: AuthenticatedRequestOptions): Promise<unknown> {
+      return authenticatedJson(path, { ...options, method: 'DELETE' })
     },
   }
 }

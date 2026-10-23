@@ -13,6 +13,7 @@ export interface RecipeDetail extends RecipeSummary {
   ingredients: Ingredient[]
   instructions: Instruction[]
   flavor_scores?: FlavorScores | null
+  notes?: string | null
 }
 
 export interface RecipeRequest {
@@ -26,6 +27,5 @@ export interface RecipeSource {
   list: (request: RecipeRequest) => Promise<RecipeSummary[]>
   detail: (id: string, request: RecipeRequest) => Promise<RecipeDetail>
   // Must resolve only after the authenticated backend confirms deletion.
-  // No production implementation is configured until BE-06 and FS-02 agree.
   deleteRecipe?: (id: string, request: RecipeRequest) => Promise<void>
 }
