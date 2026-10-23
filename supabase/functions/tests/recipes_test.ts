@@ -2417,6 +2417,7 @@ type RlsResolvedConfig = {
   anonKey: string;
   serviceRoleKey: string;
   expectedProjectRef: string;
+  databaseUrl?: string;
 };
 
 function extractSupabaseProjectRef(url: string): string | null {
@@ -2460,6 +2461,7 @@ function resolveRlsConfiguration(
 ): RlsResolvedConfig {
   const be06OptIn = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim();
   const be06Url = (getEnv("BE06_RLS_TEST_SUPABASE_URL") ?? "").trim();
+  const be06DbUrl = (getEnv("BE06_RLS_TEST_DATABASE_URL") ?? "").trim();
   const be06Anon = (
     getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
     getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
@@ -2477,7 +2479,7 @@ function resolveRlsConfiguration(
   );
 
   const hasAnyBe06 = Boolean(
-    be06OptIn || be06Url || be06Anon || be06Service || be06ExpectedRef,
+    be06OptIn || be06Url || be06DbUrl || be06Anon || be06Service || be06ExpectedRef,
   );
 
   if (hasAnyBe06) {
@@ -2533,6 +2535,7 @@ function resolveRlsConfiguration(
       anonKey: be06Anon,
       serviceRoleKey: be06Service,
       expectedProjectRef: be06ExpectedRef,
+      databaseUrl: be06DbUrl || undefined,
     };
   }
 
@@ -2550,6 +2553,7 @@ function resolveRlsConfiguration(
   }
 
   const be04Url = (getEnv("BE04_RLS_TEST_SUPABASE_URL") ?? "").trim();
+  const be04DbUrl = (getEnv("BE04_RLS_TEST_DATABASE_URL") ?? "").trim();
   const be04Anon = (
     getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
     getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
@@ -2597,6 +2601,7 @@ function resolveRlsConfiguration(
     anonKey: be04Anon,
     serviceRoleKey: be04Service,
     expectedProjectRef: be04ExpectedRef,
+    databaseUrl: be04DbUrl || undefined,
   };
 }
 
@@ -2605,6 +2610,7 @@ const testSupabaseUrl = rlsConfig.url;
 const testAnonKey = rlsConfig.anonKey;
 const testServiceRoleKey = rlsConfig.serviceRoleKey;
 const testExpectedProjectRef = rlsConfig.expectedProjectRef;
+const testDatabaseUrl = rlsConfig.databaseUrl;
 
 if (!rlsConfig.shouldRun) {
   console.warn(
@@ -2730,6 +2736,72 @@ function validateDedicatedTestTarget(
     throw new Error(
       "Safety guard rejected test keys: anon key must not equal service role key.",
     );
+  }
+}
+
+function extractProjectRefFromDatabaseUrl(connectionString: string): string | null {
+  if (!connectionString || typeof connectionString !== "string") return null;
+  try {
+    const parsed = new URL(connectionString);
+    if (parsed.username) {
+      const userParts = parsed.username.split(".");
+      if (userParts.length >= 2 && userParts[1].trim()) {
+        return userParts[1].trim();
+      }
+    }
+    const host = parsed.hostname.toLowerCase();
+    const hostMatch = host.match(/^db\.([a-z0-9_-]+)\.supabase\.(?:co|com|net)$/);
+    if (hostMatch && hostMatch[1]) {
+      return hostMatch[1];
+    }
+    const poolerMatch = host.match(/^([a-z0-9_-]+)\.pooler\.supabase\.com$/);
+    if (poolerMatch && poolerMatch[1]) {
+      return poolerMatch[1];
+    }
+    const directMatch = host.match(/^([a-z0-9_-]+)\.supabase\.(?:co|com|net)$/);
+    if (directMatch && directMatch[1]) {
+      return directMatch[1];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function validateTestDatabaseTarget(connectionString: string, expectedProjectRef: string): void {
+  if (!connectionString || typeof connectionString !== "string" || !connectionString.trim()) {
+    throw new Error("Test database connection string is missing.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(connectionString);
+  } catch {
+    throw new Error("Test database connection string is invalid.");
+  }
+  if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
+    throw new Error("Test database connection string must use postgresql: protocol.");
+  }
+  const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1" || parsed.hostname === "[::1]";
+  if (isLocal) {
+    throw new Error("Safety guard rejected test database target: hosted test database must not target localhost/loopback.");
+  }
+  if (!expectedProjectRef || typeof expectedProjectRef !== "string" || !expectedProjectRef.trim()) {
+    throw new Error("Safety guard rejected test database target: expected test-project reference must be explicitly configured.");
+  }
+  const extractedRef = extractProjectRefFromDatabaseUrl(connectionString);
+  if (!extractedRef) {
+    throw new Error("Safety guard rejected test database target: unable to extract Supabase project reference from connection string.");
+  }
+  if (extractedRef.toLowerCase() !== expectedProjectRef.trim().toLowerCase()) {
+    throw new Error(`Safety guard rejected test database target: expected project reference '${expectedProjectRef.trim()}' does not match database URL project reference '${extractedRef}'.`);
+  }
+  const knownProductionRef = "gtbwblxskctpsqhbpebg";
+  if (
+    extractedRef.toLowerCase() === knownProductionRef.toLowerCase() ||
+    parsed.hostname.toLowerCase().includes(knownProductionRef) ||
+    parsed.username.toLowerCase().includes(knownProductionRef)
+  ) {
+    throw new Error("Safety guard rejected test database target: refuses to target the primary linked production project (gtbwblxskctpsqhbpebg).");
   }
 }
 
@@ -2934,6 +3006,102 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
   assertEquals(legacyJwtResult.source, "BE-04");
   assertEquals(legacyJwtResult.error, undefined);
   assertEquals(legacyJwtResult.expectedProjectRef, "jwt-proj");
+
+  assertEquals(
+    extractProjectRefFromDatabaseUrl("postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"),
+    "my-test-proj",
+  );
+  assertEquals(
+    extractProjectRefFromDatabaseUrl("postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres"),
+    "my-test-proj",
+  );
+  assertEquals(
+    extractProjectRefFromDatabaseUrl("postgresql://postgres:secret@127.0.0.1:5432/postgres"),
+    null,
+  );
+
+  assertThrows(
+    () => validateTestDatabaseTarget("", "my-test-proj"),
+    Error,
+    "Test database connection string is missing.",
+  );
+  assertThrows(
+    () => validateTestDatabaseTarget("http://my-host:5432/postgres", "my-test-proj"),
+    Error,
+    "Test database connection string must use postgresql: protocol.",
+  );
+  assertThrows(
+    () => validateTestDatabaseTarget("postgresql://postgres:pass@127.0.0.1:5432/postgres", "my-test-proj"),
+    Error,
+    "Safety guard rejected test database target: hosted test database must not target localhost/loopback.",
+  );
+  assertThrows(
+    () => validateTestDatabaseTarget("postgresql://postgres.other-proj:pass@aws-0.pooler.supabase.com:5432/postgres", "my-test-proj"),
+    Error,
+    "expected project reference 'my-test-proj' does not match database URL project reference 'other-proj'",
+  );
+  assertThrows(
+    () => validateTestDatabaseTarget("postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0.pooler.supabase.com:5432/postgres", "gtbwblxskctpsqhbpebg"),
+    Error,
+    "refuses to target the primary linked production project",
+  );
+
+  const envBe06WithDbUrl: Record<string, string> = {
+    ...envBe06Complete,
+    BE06_RLS_TEST_DATABASE_URL: "postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres",
+  };
+  const be06WithDbUrlResult = resolveRlsConfiguration((k) => envBe06WithDbUrl[k]);
+  assertEquals(be06WithDbUrlResult.shouldRun, true);
+  assertEquals(be06WithDbUrlResult.databaseUrl, "postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres");
+
+  const envLegacyWithDbUrl: Record<string, string> = {
+    ...envLegacyComplete,
+    BE04_RLS_TEST_DATABASE_URL: "postgresql://postgres.be04-test:pass@aws-0.pooler.supabase.com:5432/postgres",
+  };
+  const legacyWithDbUrlResult = resolveRlsConfiguration((k) => envLegacyWithDbUrl[k]);
+  assertEquals(legacyWithDbUrlResult.shouldRun, true);
+  assertEquals(legacyWithDbUrlResult.databaseUrl, "postgresql://postgres.be04-test:pass@aws-0.pooler.supabase.com:5432/postgres");
+});
+
+Deno.test({
+  name: "Live PostgreSQL schema preflight: public.recipes.notes is present and queryable as nullable text (hosted integration)",
+  ignore: !rlsConfig.shouldRun,
+  fn: async () => {
+    if (rlsConfig.error) {
+      throw new Error(rlsConfig.error);
+    }
+    validateDedicatedTestTarget(
+      testSupabaseUrl,
+      testAnonKey,
+      testServiceRoleKey,
+      testExpectedProjectRef,
+    );
+    if (testDatabaseUrl) {
+      validateTestDatabaseTarget(testDatabaseUrl, testExpectedProjectRef);
+    }
+
+    const adminClient = createRlsTestClient(testSupabaseUrl, testServiceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+
+    const { error: probeError } = await adminClient
+      .from("recipes")
+      .select("notes")
+      .limit(0);
+
+    if (probeError) {
+      if (probeError.code === "PGRST204" || probeError.message?.includes("notes")) {
+        throw new Error(
+          `Preflight verification failed: PostgREST returned PGRST204 for column 'notes' in schema cache. Migration '20261023000002_add_notes_to_recipes.sql' must be applied to the test database and PostgREST schema cache reloaded. Set BE06_RLS_TEST_DATABASE_URL (or BE04_RLS_TEST_DATABASE_URL) to apply test database migrations.`,
+        );
+      }
+      throw new Error(`Preflight verification failed: ${probeError.message}`);
+    }
+  },
 });
 
 Deno.test({
@@ -2958,6 +3126,19 @@ Deno.test({
         detectSessionInUrl: false,
       },
     });
+
+    const { error: preflightError } = await adminClient
+      .from("recipes")
+      .select("notes")
+      .limit(0);
+    if (preflightError) {
+      if (preflightError.code === "PGRST204" || preflightError.message?.includes("notes")) {
+        throw new Error(
+          `Preflight verification failed: PostgREST returned PGRST204 for column 'notes'. Migration '20261023000002_add_notes_to_recipes.sql' must be applied to the dedicated test database before running hosted CRUD tests. Set BE06_RLS_TEST_DATABASE_URL (or BE04_RLS_TEST_DATABASE_URL).`,
+        );
+      }
+      throw new Error(`Preflight verification failed: ${preflightError.message}`);
+    }
 
     const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const userAEmail = `be05-rls-a-${runId}@morisscraps.test`;

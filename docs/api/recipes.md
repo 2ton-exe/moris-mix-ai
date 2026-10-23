@@ -301,9 +301,16 @@ Verification is organized into deterministic offline tests and optional live hos
   - Target URL must use `https:` and its subdomain project reference (e.g. `<ref>.supabase.co`) must strictly match `BE06_RLS_TEST_EXPECTED_PROJECT_REF`.
   - Safety checks strictly reject the primary production project ref (`gtbwblxskctpsqhbpebg`), local loopback port 54321, matching application URLs (`SUPABASE_URL` / `VITE_SUPABASE_URL`), and identical anon and service-role keys.
 - **Unmixed Credential Selection:**
-  - BE-06 credentials are treated as an atomic set: `RUN_BE06_RLS_INTEGRATION`, `BE06_RLS_TEST_SUPABASE_URL`, `BE06_RLS_TEST_SUPABASE_ANON_KEY`, `BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`, and `BE06_RLS_TEST_EXPECTED_PROJECT_REF`.
+  - BE-06 credentials are treated as an atomic set: `RUN_BE06_RLS_INTEGRATION`, `BE06_RLS_TEST_SUPABASE_URL`, `BE06_RLS_TEST_SUPABASE_ANON_KEY`, `BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`, `BE06_RLS_TEST_EXPECTED_PROJECT_REF`, and optional `BE06_RLS_TEST_DATABASE_URL`.
   - If any BE-06 variable is set, credential selection never falls back to or mixes with `BE04_*` variables.
   - Legacy BE-04 compatibility is preserved only when the BE-06 configuration is entirely absent and `RUN_BE04_RLS_INTEGRATION=true` is explicitly enabled.
+- **Dedicated Test Database Migration Preflight & Schema Cache Reloading:**
+  - Before hosted integration tests execute, `run-migrations.mjs --test-target` validates that the database connection string (`BE06_RLS_TEST_DATABASE_URL` or `BE04_RLS_TEST_DATABASE_URL`) targets the dedicated test project and strictly rejects production (`gtbwblxskctpsqhbpebg`).
+  - Applies pending versioned migrations (`20261023000002_add_notes_to_recipes.sql`).
+  - Notifies PostgREST to reload its in-memory schema cache (`NOTIFY pgrst, 'reload schema'`).
+  - Verifies that `public.recipes.notes` exists in PostgreSQL as `text` with `is_nullable = YES`.
+  - Probes the PostgREST API to confirm the schema cache exposes `notes` without `PGRST204`.
+  - If PostgREST returns `PGRST204` and the database connection is unconfigured, fails with a clear diagnostic identifying the required secret (`BE06_RLS_TEST_DATABASE_URL` or `BE04_RLS_TEST_DATABASE_URL`).
 - **Fail-Closed Opt-In Safety:**
   - When opt-in is disabled, remote tests are safely skipped (`ignored`) to allow fast, deterministic offline testing without credentials or network access.
   - When opt-in is enabled, any missing variable, project ref mismatch, or unsafe target causes the test to **fail closed** with an error before initiating network activity.
