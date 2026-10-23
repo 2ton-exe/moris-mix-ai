@@ -2423,16 +2423,11 @@ type RlsResolvedConfig = {
 function extractSupabaseProjectRef(url: string): string | null {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) {
+      return null;
+    }
     const host = parsed.hostname.toLowerCase();
-    const match = host.match(/^([a-z0-9_-]+)\.supabase\.(?:co|in|net)$/);
-    if (match && match[1]) {
-      return match[1];
-    }
-    const parts = host.split(".");
-    if (parts.length >= 3 && parts[1] === "supabase") {
-      return parts[0];
-    }
-    return null;
+    return host.match(/^([a-z0-9-]+)\.supabase\.co$/)?.[1] ?? null;
   } catch {
     return null;
   }
@@ -2757,24 +2752,13 @@ function extractProjectRefFromDatabaseUrl(connectionString: string): string | nu
   if (!sanitized) return null;
   try {
     const parsed = new URL(sanitized);
-    if (parsed.username) {
-      const userParts = parsed.username.split(".");
-      if (userParts.length >= 2 && userParts[1].trim()) {
-        return userParts[1].trim();
-      }
-    }
     const host = parsed.hostname.toLowerCase();
-    const hostMatch = host.match(/^db\.([a-z0-9_-]+)\.supabase\.(?:co|com|net)$/);
+    const hostMatch = host.match(/^db\.([a-z0-9-]+)\.supabase\.co$/);
     if (hostMatch && hostMatch[1]) {
       return hostMatch[1];
     }
-    const poolerMatch = host.match(/^([a-z0-9_-]+)\.pooler\.supabase\.com$/);
-    if (poolerMatch && poolerMatch[1]) {
-      return poolerMatch[1];
-    }
-    const directMatch = host.match(/^([a-z0-9_-]+)\.supabase\.(?:co|com|net)$/);
-    if (directMatch && directMatch[1]) {
-      return directMatch[1];
+    if (/^[a-z0-9-]+\.pooler\.supabase\.com$/.test(host)) {
+      return parsed.username.match(/^[^.]+\.([a-z0-9-]+)$/)?.[1] ?? null;
     }
     return null;
   } catch {
@@ -2859,10 +2843,10 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
   assertThrows(
     () =>
       validateDedicatedTestTarget(
-        "https://not-a-supabase-domain.com",
+        "https://expected-ref.supabase.attacker.example",
         anonKey,
         serviceRoleKey,
-        "not-a-supabase-domain",
+        "expected-ref",
       ),
     Error,
     "unable to extract valid Supabase project reference",

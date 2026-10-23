@@ -948,24 +948,14 @@ export function extractProjectRefFromDatabaseUrl(connectionString) {
   if (!sanitized) return null;
   try {
     const parsed = new URL(sanitized);
-    if (parsed.username) {
-      const userParts = parsed.username.split('.');
-      if (userParts.length >= 2 && userParts[1].trim()) {
-        return userParts[1].trim();
-      }
-    }
     const host = parsed.hostname.toLowerCase();
-    const hostMatch = host.match(/^db\.([a-z0-9_-]+)\.supabase\.(?:co|com|net)$/);
+    const hostMatch = host.match(/^db\.([a-z0-9-]+)\.supabase\.co$/);
     if (hostMatch && hostMatch[1]) {
       return hostMatch[1];
     }
-    const poolerMatch = host.match(/^([a-z0-9_-]+)\.pooler\.supabase\.com$/);
-    if (poolerMatch && poolerMatch[1]) {
-      return poolerMatch[1];
-    }
-    const directMatch = host.match(/^([a-z0-9_-]+)\.supabase\.(?:co|com|net)$/);
-    if (directMatch && directMatch[1]) {
-      return directMatch[1];
+    if (/^[a-z0-9-]+\.pooler\.supabase\.com$/.test(host)) {
+      const poolerUsername = parsed.username.match(/^[^.]+\.([a-z0-9-]+)$/);
+      return poolerUsername?.[1] ?? null;
     }
     return null;
   } catch {
@@ -977,18 +967,23 @@ export function extractProjectRefFromSupabaseUrl(url) {
   if (!url || typeof url !== 'string') return null;
   try {
     const parsed = new URL(url.trim());
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) return null;
     const host = parsed.hostname.toLowerCase();
-    const match = host.match(/^([a-z0-9_-]+)\.supabase\.(?:co|in|net|com)$/);
-    if (match && match[1]) {
-      return match[1];
-    }
-    const parts = host.split('.');
-    if (parts.length >= 3 && parts[1] === 'supabase') {
-      return parts[0];
-    }
-    return null;
+    return host.match(/^([a-z0-9-]+)\.supabase\.co$/)?.[1] ?? null;
   } catch {
     return null;
+  }
+}
+
+function isLocalSupabaseApiUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' &&
+      ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) &&
+      parsed.port === '54321' &&
+      !parsed.username && !parsed.password;
+  } catch {
+    return false;
   }
 }
 
@@ -1010,6 +1005,13 @@ export function validateDatabaseTarget(connectionString, expectedProjectRef, sup
 
   const expectedRef = (expectedProjectRef ?? '').trim();
   const expectedFromUrl = supabaseUrl ? extractProjectRefFromSupabaseUrl(supabaseUrl) : null;
+  const isLocalApi = Boolean(supabaseUrl && isLocalSupabaseApiUrl(supabaseUrl));
+  if (supabaseUrl && !expectedFromUrl && !isLocalApi) {
+    throw new Error('Safety guard rejected Supabase URL: expected an HTTPS project URL on <project-ref>.supabase.co.');
+  }
+  if (isLocalApi && (!isLocal || expectedRef)) {
+    throw new Error('Safety guard rejected Supabase URL: local Supabase API URLs are only allowed with an unpinned local database target.');
+  }
 
   if (expectedRef && expectedFromUrl && expectedRef.toLowerCase() !== expectedFromUrl.toLowerCase()) {
     throw new Error(`Safety guard rejected database target: RLS_EXPECTED_PROJECT_REF '${expectedRef}' does not match SUPABASE_URL project reference '${expectedFromUrl}'.`);
@@ -1091,6 +1093,9 @@ export async function verifyColumnMetadata(client, tableName, columnName) {
 
 export async function probePostgrestNotesColumn(url, key) {
   if (!url || !key) return { ok: false, error: 'missing url or key' };
+  if (!extractProjectRefFromSupabaseUrl(url) && !isLocalSupabaseApiUrl(url)) {
+    return { ok: false, error: 'untrusted Supabase URL' };
+  }
   try {
     const probeUrl = new URL('/rest/v1/recipes?select=notes&limit=0', url);
     const headers = { apikey: key };
@@ -1252,6 +1257,10 @@ export async function runTestDatabaseMigrations(options = {}) {
 
   const probeApiKey = config.serviceKey || config.anonKey;
   const cleanDbUrl = sanitizeDatabaseUrl(config.databaseUrl);
+  const apiProjectRef = extractProjectRefFromSupabaseUrl(config.url);
+  if (!apiProjectRef || apiProjectRef.toLowerCase() !== config.expectedProjectRef.toLowerCase()) {
+    throw new Error('Safety guard rejected test target: Supabase URL project reference does not match the expected test project.');
+  }
   if (!cleanDbUrl) {
     if (config.url && probeApiKey) {
       const probe = await probePostgrestNotesColumn(config.url, probeApiKey);
@@ -1446,13 +1455,18 @@ export async function main() {
 
     const secretKey = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
     if (supabaseUrl && secretKey) {
+      let postgrestReady = false;
       for (let attempt = 1; attempt <= 5; attempt++) {
         const probe = await probePostgrestNotesColumn(supabaseUrl, secretKey);
         if (probe.ok) {
+          postgrestReady = true;
           break;
         }
         await reloadPostgrestSchemaCache(client);
         await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!postgrestReady) {
+        throw new Error("Verification failed: PostgREST schema cache did not expose 'notes' after five attempts.");
       }
     }
 

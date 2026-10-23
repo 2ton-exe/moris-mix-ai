@@ -973,12 +973,12 @@ async function runTestTargetMigrationUnitTests() {
     'my-test-proj'
   );
   assert.equal(
-    extractProjectRefFromDatabaseUrl('postgresql://postgres:secret@db.my-test-proj.supabase.com:5432/postgres'),
-    'my-test-proj'
+    extractProjectRefFromDatabaseUrl('postgresql://postgres.expected-ref:secret@unrelated-db.example.com:5432/postgres'),
+    null
   );
   assert.equal(
     extractProjectRefFromDatabaseUrl('postgresql://postgres:secret@my-test-proj.pooler.supabase.com:5432/postgres'),
-    'my-test-proj'
+    null
   );
   assert.equal(
     extractProjectRefFromDatabaseUrl('postgresql://postgres:secret@127.0.0.1:5432/postgres'),
@@ -1055,8 +1055,8 @@ async function runTestTargetMigrationUnitTests() {
     'gtbwblxskctpsqhbpebg'
   );
   assert.equal(
-    extractProjectRefFromSupabaseUrl('https://my-test-proj.supabase.com'),
-    'my-test-proj'
+    extractProjectRefFromSupabaseUrl('https://expected-ref.supabase.attacker.example'),
+    null
   );
   assert.equal(extractProjectRefFromSupabaseUrl('not-a-url'), null);
   assert.equal(extractProjectRefFromSupabaseUrl(''), null);

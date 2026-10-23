@@ -14,14 +14,18 @@ on `refs/heads/main`.
 | `modular-pr-validation.yml` | PRs targeting main only; comparison runs of the reusable validations |
 | `reusable-frontend.yml` | Existing frontend steps and exported `exists` output |
 | `reusable-database.yml` | Existing PostgreSQL service, environment, migration and RLS tests |
-| `reusable-edge-api.yml` | Existing Deno checks, deterministic tests and optional hosted integration tests |
+| `reusable-edge-api.yml` | Deno checks, deterministic tests, and optional hosted database migration and integration tests |
 | `reusable-cloudflare.yml` | Dormant deployment implementation; `workflow_call` only, no caller |
 
-The reusable jobs retain the original internal names, steps, versions, commands,
-and configuration. Edge/API secrets are declared optional and passed explicitly
-by the PR caller, preserving the existing missing-secret fallback. The PR caller
-does not forward Cloudflare secrets to any reusable workflow. Public Supabase
-build variables remain read through `vars` inside the reusable deployment job.
+The reusable jobs retain their internal names and existing validation commands.
+Edge/API credentials, the expected test project reference, and dedicated
+database URL are optional; the PR caller forwards configured secrets, and
+repository variables remain available through `vars`. When the hosted
+credentials, expected reference, and database URL are configured, the reusable
+Edge/API workflow applies pending migrations before the hosted suite. The PR
+caller does not forward Cloudflare secrets to any reusable workflow. Public
+Supabase build variables remain read through `vars` inside the reusable
+deployment job.
 
 Duplicate validation work on PRs is intentional during migration. The comparison
 caller uses distinct `Modular ...` job names because GitHub can compose reusable

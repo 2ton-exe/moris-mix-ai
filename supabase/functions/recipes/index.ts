@@ -23,7 +23,7 @@ function parseRoute(pathname: string): RouteMatch {
     path = path.slice("/functions/v1/recipes".length);
   } else if (path === "/recipes" || path.startsWith("/recipes/")) {
     path = path.slice("/recipes".length);
-  } else if (path !== "/" && !path.startsWith("/")) {
+  } else if (path !== "/") {
     return { kind: "NOT_FOUND" };
   }
 
