@@ -147,24 +147,23 @@ jobs:
           deno-version: "2.9.7"
 
       - name: Type-check Edge Function and tests
-        run: deno check --frozen-lockfile --node-modules-dir=auto supabase/functions/_shared/auth.ts supabase/functions/demo-recipe/index.ts supabase/functions/auth-session/index.ts supabase/functions/recipes/index.ts supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts
+        run: deno check --frozen-lockfile --node-modules-dir=auto supabase/functions/_shared/auth.ts supabase/functions/demo-recipe/index.ts supabase/functions/auth-session/index.ts supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts
 
       - name: Run deterministic Edge/API tests
-        run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts
+        run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts
 
       - name: Run hosted BE-04 RLS integration test (optional)
         env:
           BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
           BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
           BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
         shell: bash
         run: |
-          if [[ -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE04_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) ]]; then
-            RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+          if [[ -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" ]]; then
+            RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts
           else
-            echo "SKIPPED: Hosted BE-04 RLS integration test not executed because dedicated non-production test project secrets (BE04_RLS_TEST_SUPABASE_URL, BE04_RLS_TEST_SUPABASE_ANON_KEY, and BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY or BE04_RLS_TEST_SUPABASE_SECRET_KEY) are not configured."
-            deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+            echo "SKIPPED: Hosted BE-04 RLS integration test not executed because dedicated non-production test project secrets (BE04_RLS_TEST_SUPABASE_URL, BE04_RLS_TEST_SUPABASE_ANON_KEY, BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY) are not configured."
+            deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts
           fi
 
   deploy:
