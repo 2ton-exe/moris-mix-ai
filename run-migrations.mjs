@@ -930,10 +930,24 @@ export async function reloadPostgrestSchemaCache(client) {
   } catch (_e) {}
 }
 
+export function sanitizeDatabaseUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  let str = url.trim();
+  while (
+    (str.startsWith('"') && str.endsWith('"')) ||
+    (str.startsWith("'") && str.endsWith("'")) ||
+    (str.startsWith('`') && str.endsWith('`'))
+  ) {
+    str = str.slice(1, -1).trim();
+  }
+  return str;
+}
+
 export function extractProjectRefFromDatabaseUrl(connectionString) {
-  if (!connectionString || typeof connectionString !== 'string') return null;
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) return null;
   try {
-    const parsed = new URL(connectionString);
+    const parsed = new URL(sanitized);
     if (parsed.username) {
       const userParts = parsed.username.split('.');
       if (userParts.length >= 2 && userParts[1].trim()) {
@@ -959,13 +973,72 @@ export function extractProjectRefFromDatabaseUrl(connectionString) {
   }
 }
 
+export function extractProjectRefFromSupabaseUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const parsed = new URL(url.trim());
+    const host = parsed.hostname.toLowerCase();
+    const match = host.match(/^([a-z0-9_-]+)\.supabase\.(?:co|in|net|com)$/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    const parts = host.split('.');
+    if (parts.length >= 3 && parts[1] === 'supabase') {
+      return parts[0];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function validateDatabaseTarget(connectionString, expectedProjectRef, supabaseUrl) {
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) {
+    throw new Error('Database connection string is missing.');
+  }
+  let parsed;
+  try {
+    parsed = new URL(sanitized);
+  } catch {
+    throw new Error('Database connection string is invalid.');
+  }
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error('Database connection string must use postgresql: protocol.');
+  }
+  const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1' || parsed.hostname === '[::1]';
+
+  const expectedRef = (expectedProjectRef ?? '').trim();
+  const expectedFromUrl = supabaseUrl ? extractProjectRefFromSupabaseUrl(supabaseUrl) : null;
+
+  if (expectedRef && expectedFromUrl && expectedRef.toLowerCase() !== expectedFromUrl.toLowerCase()) {
+    throw new Error(`Safety guard rejected database target: RLS_EXPECTED_PROJECT_REF '${expectedRef}' does not match SUPABASE_URL project reference '${expectedFromUrl}'.`);
+  }
+
+  const targetExpectedRef = expectedRef || expectedFromUrl;
+
+  if (targetExpectedRef) {
+    if (isLocal) {
+      throw new Error(`Safety guard rejected database target: cannot target localhost when expected project reference '${targetExpectedRef}' is configured.`);
+    }
+    const extractedRef = extractProjectRefFromDatabaseUrl(sanitized);
+    if (!extractedRef) {
+      throw new Error('Safety guard rejected database target: unable to extract Supabase project reference from connection string.');
+    }
+    if (extractedRef.toLowerCase() !== targetExpectedRef.toLowerCase()) {
+      throw new Error(`Safety guard rejected database target: expected project reference '${targetExpectedRef}' does not match database URL project reference '${extractedRef}'.`);
+    }
+  }
+}
+
 export function validateTestDatabaseTarget(connectionString, expectedProjectRef) {
-  if (!connectionString || typeof connectionString !== 'string' || !connectionString.trim()) {
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) {
     throw new Error('Test database connection string is missing.');
   }
   let parsed;
   try {
-    parsed = new URL(connectionString);
+    parsed = new URL(sanitized);
   } catch {
     throw new Error('Test database connection string is invalid.');
   }
@@ -979,18 +1052,21 @@ export function validateTestDatabaseTarget(connectionString, expectedProjectRef)
   if (!expectedProjectRef || typeof expectedProjectRef !== 'string' || !expectedProjectRef.trim()) {
     throw new Error('Safety guard rejected test database target: expected test-project reference must be explicitly configured.');
   }
-  const extractedRef = extractProjectRefFromDatabaseUrl(connectionString);
+  const extractedRef = extractProjectRefFromDatabaseUrl(sanitized);
   if (!extractedRef) {
     throw new Error('Safety guard rejected test database target: unable to extract Supabase project reference from connection string.');
   }
   if (extractedRef.toLowerCase() !== expectedProjectRef.trim().toLowerCase()) {
     throw new Error(`Safety guard rejected test database target: expected project reference '${expectedProjectRef.trim()}' does not match database URL project reference '${extractedRef}'.`);
   }
+  const configuredMainRef = (process.env.RLS_EXPECTED_PROJECT_REF || '').trim().toLowerCase();
   const knownProductionRef = 'gtbwblxskctpsqhbpebg';
   if (
-    extractedRef.toLowerCase() === knownProductionRef.toLowerCase() ||
+    extractedRef.toLowerCase() === knownProductionRef ||
+    (configuredMainRef && extractedRef.toLowerCase() === configuredMainRef) ||
     parsed.hostname.toLowerCase().includes(knownProductionRef) ||
-    parsed.username.toLowerCase().includes(knownProductionRef)
+    parsed.username.toLowerCase().includes(knownProductionRef) ||
+    (configuredMainRef && (parsed.hostname.toLowerCase().includes(configuredMainRef) || parsed.username.toLowerCase().includes(configuredMainRef)))
   ) {
     throw new Error('Safety guard rejected test database target: refuses to target the primary linked production project (gtbwblxskctpsqhbpebg).');
   }
@@ -1041,7 +1117,7 @@ export async function probePostgrestNotesColumn(url, key) {
 export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k]) {
   const be06OptIn = (getEnv('RUN_BE06_RLS_INTEGRATION') ?? '').trim();
   const be06Url = (getEnv('BE06_RLS_TEST_SUPABASE_URL') ?? '').trim();
-  const be06DbUrl = (getEnv('BE06_RLS_TEST_DATABASE_URL') ?? '').trim();
+  const be06DbUrl = sanitizeDatabaseUrl(getEnv('BE06_RLS_TEST_DATABASE_URL'));
   const be06ExpectedRef = (
     getEnv('BE06_RLS_TEST_EXPECTED_PROJECT_REF') ??
     getEnv('BE06_RLS_TEST_PROJECT_REF') ??
@@ -1058,13 +1134,47 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
     ''
   ).trim();
 
+  const be04OptIn = (getEnv('RUN_BE04_RLS_INTEGRATION') ?? '').trim();
+  const be04Url = (getEnv('BE04_RLS_TEST_SUPABASE_URL') ?? '').trim();
+  const be04DbUrl = sanitizeDatabaseUrl(getEnv('BE04_RLS_TEST_DATABASE_URL'));
+  const be04ExpectedRef = (
+    getEnv('BE04_RLS_TEST_EXPECTED_PROJECT_REF') ??
+    getEnv('BE04_RLS_TEST_PROJECT_REF') ??
+    ''
+  ).trim();
+  const be04ServiceKey = (
+    getEnv('BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY') ??
+    getEnv('BE04_RLS_TEST_SUPABASE_SECRET_KEY') ??
+    ''
+  ).trim();
+  const be04AnonKey = (
+    getEnv('BE04_RLS_TEST_SUPABASE_ANON_KEY') ??
+    getEnv('BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??
+    ''
+  ).trim();
+
+  const isBe04OptedIn = be04OptIn.toLowerCase() === 'true' || be04OptIn === '1';
+  const isBe06OptedIn = be06OptIn.toLowerCase() === 'true' || be06OptIn === '1';
+
   const hasAnyBe06 = Boolean(
     be06OptIn || be06Url || be06DbUrl || be06ExpectedRef || be06ServiceKey || be06AnonKey
   );
 
   if (hasAnyBe06) {
-    const isOptedIn = be06OptIn.toLowerCase() === 'true' || be06OptIn === '1';
-    if (!isOptedIn) {
+    if (!isBe06OptedIn) {
+      if (isBe04OptedIn) {
+        return {
+          shouldRun: true,
+          source: 'BE-06',
+          isOptedIn: true,
+          error: 'Inconsistent test database configuration: RUN_BE04_RLS_INTEGRATION is enabled but BE-06 variables are present without RUN_BE06_RLS_INTEGRATION=true. BE-06 credentials cannot be mixed with BE-04.',
+          url: be06Url,
+          databaseUrl: be06DbUrl,
+          expectedProjectRef: be06ExpectedRef,
+          serviceKey: be06ServiceKey,
+          anonKey: be06AnonKey
+        };
+      }
       return { shouldRun: false, source: 'BE-06', isOptedIn: false };
     }
     const missing = [];
@@ -1095,29 +1205,9 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
     };
   }
 
-  const be04OptIn = (getEnv('RUN_BE04_RLS_INTEGRATION') ?? '').trim();
-  const isLegacyOptedIn = be04OptIn.toLowerCase() === 'true' || be04OptIn === '1';
-  if (!isLegacyOptedIn) {
+  if (!isBe04OptedIn) {
     return { shouldRun: false, source: 'BE-04', isOptedIn: false };
   }
-
-  const be04Url = (getEnv('BE04_RLS_TEST_SUPABASE_URL') ?? '').trim();
-  const be04DbUrl = (getEnv('BE04_RLS_TEST_DATABASE_URL') ?? '').trim();
-  const be04ExpectedRef = (
-    getEnv('BE04_RLS_TEST_EXPECTED_PROJECT_REF') ??
-    getEnv('BE04_RLS_TEST_PROJECT_REF') ??
-    ''
-  ).trim();
-  const be04ServiceKey = (
-    getEnv('BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY') ??
-    getEnv('BE04_RLS_TEST_SUPABASE_SECRET_KEY') ??
-    ''
-  ).trim();
-  const be04AnonKey = (
-    getEnv('BE04_RLS_TEST_SUPABASE_ANON_KEY') ??
-    getEnv('BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??
-    ''
-  ).trim();
 
   const missingLegacy = [];
   if (!be04Url) missingLegacy.push('BE04_RLS_TEST_SUPABASE_URL');
@@ -1160,7 +1250,8 @@ export async function runTestDatabaseMigrations(options = {}) {
   }
 
   const probeApiKey = config.serviceKey || config.anonKey;
-  if (!config.databaseUrl) {
+  const cleanDbUrl = sanitizeDatabaseUrl(config.databaseUrl);
+  if (!cleanDbUrl) {
     if (config.url && probeApiKey) {
       const probe = await probePostgrestNotesColumn(config.url, probeApiKey);
       if (probe.ok) {
@@ -1178,7 +1269,7 @@ export async function runTestDatabaseMigrations(options = {}) {
     );
   }
 
-  validateTestDatabaseTarget(config.databaseUrl, config.expectedProjectRef);
+  validateTestDatabaseTarget(cleanDbUrl, config.expectedProjectRef);
 
   let caCert;
   const caPath = path.resolve(__dirname, 'supabase/prod-ca-2021.crt');
@@ -1187,7 +1278,7 @@ export async function runTestDatabaseMigrations(options = {}) {
   }
 
   let sanitizedConnectionString;
-  const parsedUrl = new URL(config.databaseUrl);
+  const parsedUrl = new URL(cleanDbUrl);
   const sslParams = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey'];
   for (const param of sslParams) {
     parsedUrl.searchParams.delete(param);
@@ -1274,6 +1365,17 @@ export async function main() {
     process.exit(1);
   }
 
+  const rawDbUrl = process.env.DATABASE_URL;
+  const expectedProjectRef = process.env.RLS_EXPECTED_PROJECT_REF;
+  const supabaseUrl = process.env.SUPABASE_URL;
+
+  try {
+    validateDatabaseTarget(rawDbUrl, expectedProjectRef, supabaseUrl);
+  } catch (err) {
+    console.error(`Target validation failed: ${err.message}`);
+    process.exit(1);
+  }
+
   const caPath = path.resolve(__dirname, 'supabase/prod-ca-2021.crt');
   let caCert;
   try {
@@ -1291,13 +1393,13 @@ export async function main() {
 
   const sslConfig = {
     rejectUnauthorized: true,
-    ca: caCert
+    ca: [caCert, ...tls.rootCertificates]
   };
 
   let sanitizedConnectionString;
   let parsedUrl;
   try {
-    parsedUrl = new URL(process.env.DATABASE_URL);
+    parsedUrl = new URL(sanitizeDatabaseUrl(process.env.DATABASE_URL));
     const sslParams = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey'];
     for (const param of sslParams) {
       parsedUrl.searchParams.delete(param);
@@ -1332,12 +1434,28 @@ export async function main() {
   try {
     await client.connect();
     const shouldSeed = process.env.SEED_DEMO === 'true' || process.argv.includes('--seed');
-    await runMigrations({
+    const result = await runMigrations({
       client,
       isLocalhost,
       shouldSeed,
       explicitReconcile
     });
+
+    await reloadPostgrestSchemaCache(client);
+
+    const secretKey = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    if (supabaseUrl && secretKey) {
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        const probe = await probePostgrestNotesColumn(supabaseUrl, secretKey);
+        if (probe.ok) {
+          break;
+        }
+        await reloadPostgrestSchemaCache(client);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+
+    return result;
   } catch (err) {
     console.error('ERROR:', err.message);
     process.exitCode = 1;

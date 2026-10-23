@@ -13,6 +13,9 @@ import {
   reconcileMigrationState,
   runMigrations,
   extractProjectRefFromDatabaseUrl,
+  extractProjectRefFromSupabaseUrl,
+  sanitizeDatabaseUrl,
+  validateDatabaseTarget,
   validateTestDatabaseTarget,
   verifyColumnMetadata,
   probePostgrestNotesColumn,
@@ -915,7 +918,30 @@ async function runDatabaseLifecycleIntegrationTests() {
 
 async function runTestTargetMigrationUnitTests() {
   assert.equal(
+    sanitizeDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres"'),
+    'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'
+  );
+  assert.equal(
+    sanitizeDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'"),
+    'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'
+  );
+  assert.equal(
+    sanitizeDatabaseUrl('   "postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres"  '),
+    'postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres'
+  );
+  assert.equal(sanitizeDatabaseUrl(''), '');
+  assert.equal(sanitizeDatabaseUrl(null), '');
+
+  assert.equal(
     extractProjectRefFromDatabaseUrl('postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'),
+    'my-test-proj'
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"'),
+    'my-test-proj'
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'"),
     'my-test-proj'
   );
   assert.equal(
@@ -987,6 +1013,91 @@ async function runTestTargetMigrationUnitTests() {
       'my-test-proj'
     );
   });
+  assert.doesNotThrow(() => {
+    validateTestDatabaseTarget(
+      '"postgresql://postgres.my-test-proj:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres"',
+      'my-test-proj'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateTestDatabaseTarget(
+      "'postgresql://postgres:pass@db.my-test-proj.supabase.co:5432/postgres'",
+      'my-test-proj'
+    );
+  });
+
+  assert.equal(
+    extractProjectRefFromSupabaseUrl('https://gtbwblxskctpsqhbpebg.supabase.co'),
+    'gtbwblxskctpsqhbpebg'
+  );
+  assert.equal(
+    extractProjectRefFromSupabaseUrl('https://my-test-proj.supabase.com'),
+    'my-test-proj'
+  );
+  assert.equal(extractProjectRefFromSupabaseUrl('not-a-url'), null);
+  assert.equal(extractProjectRefFromSupabaseUrl(''), null);
+  assert.equal(extractProjectRefFromSupabaseUrl(null), null);
+
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget(
+      'postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres',
+      'gtbwblxskctpsqhbpebg',
+      'https://gtbwblxskctpsqhbpebg.supabase.co'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget(
+      '"postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres"',
+      'gtbwblxskctpsqhbpebg',
+      'https://gtbwblxskctpsqhbpebg.supabase.co'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget(
+      "'postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres'",
+      'gtbwblxskctpsqhbpebg',
+      null
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget('postgresql://postgres:pass@localhost:5432/postgres', null, null);
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget('postgresql://postgres:pass@127.0.0.1:5432/postgres', '', '');
+  });
+
+  assert.throws(
+    () => validateDatabaseTarget('', 'gtbwblxskctpsqhbpebg', null),
+    /Database connection string is missing/
+  );
+  assert.throws(
+    () => validateDatabaseTarget('http://localhost:5432/postgres', null, null),
+    /must use postgresql: protocol/
+  );
+  assert.throws(
+    () => validateDatabaseTarget(
+      'postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0.pooler.supabase.com:5432/postgres',
+      'other-ref',
+      'https://gtbwblxskctpsqhbpebg.supabase.co'
+    ),
+    /RLS_EXPECTED_PROJECT_REF 'other-ref' does not match SUPABASE_URL project reference 'gtbwblxskctpsqhbpebg'/
+  );
+  assert.throws(
+    () => validateDatabaseTarget(
+      'postgresql://postgres.other-ref:pass@aws-0.pooler.supabase.com:5432/postgres',
+      'gtbwblxskctpsqhbpebg',
+      null
+    ),
+    /expected project reference 'gtbwblxskctpsqhbpebg' does not match database URL project reference 'other-ref'/
+  );
+  assert.throws(
+    () => validateDatabaseTarget(
+      'postgresql://postgres:pass@127.0.0.1:5432/postgres',
+      'gtbwblxskctpsqhbpebg',
+      null
+    ),
+    /cannot target localhost when expected project reference 'gtbwblxskctpsqhbpebg' is configured/
+  );
 
   const envNotOptedIn = () => undefined;
   const cfgNotOptedIn = resolveTestDatabaseConfiguration(envNotOptedIn);

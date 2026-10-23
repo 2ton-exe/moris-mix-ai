@@ -2456,12 +2456,25 @@ function extractProjectRefFromKey(key: string): string | null {
   return null;
 }
 
+function sanitizeDatabaseUrl(url: string | undefined): string {
+  if (!url || typeof url !== "string") return "";
+  let str = url.trim();
+  while (
+    (str.startsWith('"') && str.endsWith('"')) ||
+    (str.startsWith("'") && str.endsWith("'")) ||
+    (str.startsWith("`") && str.endsWith("`"))
+  ) {
+    str = str.slice(1, -1).trim();
+  }
+  return str;
+}
+
 function resolveRlsConfiguration(
   getEnv: (key: string) => string | undefined = (k) => Deno.env.get(k),
 ): RlsResolvedConfig {
   const be06OptIn = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim();
   const be06Url = (getEnv("BE06_RLS_TEST_SUPABASE_URL") ?? "").trim();
-  const be06DbUrl = (getEnv("BE06_RLS_TEST_DATABASE_URL") ?? "").trim();
+  const be06DbUrl = sanitizeDatabaseUrl(getEnv("BE06_RLS_TEST_DATABASE_URL"));
   const be06Anon = (
     getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
     getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
@@ -2553,7 +2566,7 @@ function resolveRlsConfiguration(
   }
 
   const be04Url = (getEnv("BE04_RLS_TEST_SUPABASE_URL") ?? "").trim();
-  const be04DbUrl = (getEnv("BE04_RLS_TEST_DATABASE_URL") ?? "").trim();
+  const be04DbUrl = sanitizeDatabaseUrl(getEnv("BE04_RLS_TEST_DATABASE_URL"));
   const be04Anon = (
     getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
     getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
@@ -2740,9 +2753,10 @@ function validateDedicatedTestTarget(
 }
 
 function extractProjectRefFromDatabaseUrl(connectionString: string): string | null {
-  if (!connectionString || typeof connectionString !== "string") return null;
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) return null;
   try {
-    const parsed = new URL(connectionString);
+    const parsed = new URL(sanitized);
     if (parsed.username) {
       const userParts = parsed.username.split(".");
       if (userParts.length >= 2 && userParts[1].trim()) {
@@ -2769,12 +2783,13 @@ function extractProjectRefFromDatabaseUrl(connectionString: string): string | nu
 }
 
 function validateTestDatabaseTarget(connectionString: string, expectedProjectRef: string): void {
-  if (!connectionString || typeof connectionString !== "string" || !connectionString.trim()) {
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) {
     throw new Error("Test database connection string is missing.");
   }
   let parsed: URL;
   try {
-    parsed = new URL(connectionString);
+    parsed = new URL(sanitized);
   } catch {
     throw new Error("Test database connection string is invalid.");
   }
@@ -2788,18 +2803,21 @@ function validateTestDatabaseTarget(connectionString: string, expectedProjectRef
   if (!expectedProjectRef || typeof expectedProjectRef !== "string" || !expectedProjectRef.trim()) {
     throw new Error("Safety guard rejected test database target: expected test-project reference must be explicitly configured.");
   }
-  const extractedRef = extractProjectRefFromDatabaseUrl(connectionString);
+  const extractedRef = extractProjectRefFromDatabaseUrl(sanitized);
   if (!extractedRef) {
     throw new Error("Safety guard rejected test database target: unable to extract Supabase project reference from connection string.");
   }
   if (extractedRef.toLowerCase() !== expectedProjectRef.trim().toLowerCase()) {
     throw new Error(`Safety guard rejected test database target: expected project reference '${expectedProjectRef.trim()}' does not match database URL project reference '${extractedRef}'.`);
   }
+  const configuredMainRef = (Deno.env.get("RLS_EXPECTED_PROJECT_REF") || "").trim().toLowerCase();
   const knownProductionRef = "gtbwblxskctpsqhbpebg";
   if (
-    extractedRef.toLowerCase() === knownProductionRef.toLowerCase() ||
+    extractedRef.toLowerCase() === knownProductionRef ||
+    (configuredMainRef && extractedRef.toLowerCase() === configuredMainRef) ||
     parsed.hostname.toLowerCase().includes(knownProductionRef) ||
-    parsed.username.toLowerCase().includes(knownProductionRef)
+    parsed.username.toLowerCase().includes(knownProductionRef) ||
+    (configuredMainRef && (parsed.hostname.toLowerCase().includes(configuredMainRef) || parsed.username.toLowerCase().includes(configuredMainRef)))
   ) {
     throw new Error("Safety guard rejected test database target: refuses to target the primary linked production project (gtbwblxskctpsqhbpebg).");
   }
@@ -3008,7 +3026,23 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
   assertEquals(legacyJwtResult.expectedProjectRef, "jwt-proj");
 
   assertEquals(
+    sanitizeDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres"'),
+    "postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres",
+  );
+  assertEquals(
+    sanitizeDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'"),
+    "postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres",
+  );
+  assertEquals(
     extractProjectRefFromDatabaseUrl("postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"),
+    "my-test-proj",
+  );
+  assertEquals(
+    extractProjectRefFromDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"'),
+    "my-test-proj",
+  );
+  assertEquals(
+    extractProjectRefFromDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'"),
     "my-test-proj",
   );
   assertEquals(
@@ -3044,6 +3078,15 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
     () => validateTestDatabaseTarget("postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0.pooler.supabase.com:5432/postgres", "gtbwblxskctpsqhbpebg"),
     Error,
     "refuses to target the primary linked production project",
+  );
+
+  validateTestDatabaseTarget(
+    '"postgresql://postgres.my-test-proj:pass@aws-0.pooler.supabase.com:5432/postgres"',
+    "my-test-proj",
+  );
+  validateTestDatabaseTarget(
+    "'postgresql://postgres:pass@db.my-test-proj.supabase.co:5432/postgres'",
+    "my-test-proj",
   );
 
   const envBe06WithDbUrl: Record<string, string> = {

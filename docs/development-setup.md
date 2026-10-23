@@ -75,7 +75,7 @@ The local Supabase database is available on loopback port `54322` by default and
 
 ## Migrations and schema management
 
-The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. For approved remote schema updates, preview and apply migrations with `supabase db push --dry-run --linked` and `supabase db push --linked`.
+The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For database migrations, use `pnpm db:setup` (`node run-migrations.mjs`). When executing migrations against the main Supabase database, configure `DATABASE_URL`, `RLS_EXPECTED_PROJECT_REF`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SECRET_KEY`. The migration runner validates that `DATABASE_URL` matches `RLS_EXPECTED_PROJECT_REF` and `SUPABASE_URL` before connecting or executing migrations. Never run destructive reset commands against remote or production projects. For approved remote schema updates, preview and apply migrations with `supabase db push --dry-run --linked` and `supabase db push --linked`.
 
 ## Demo API
 
@@ -153,7 +153,6 @@ The test suite separates tests into four distinct categories to maintain rigorou
        - `BE04_RLS_TEST_EXPECTED_PROJECT_REF` (`${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF }}`): Expected Supabase project reference to verify the target URL and database connection string.
        - `BE04_RLS_TEST_DATABASE_URL` (`${{ secrets.BE04_RLS_TEST_DATABASE_URL }}`): Dedicated test project database connection string, used by `run-migrations.mjs --test-target` to apply pending migrations and reload PostgREST schema cache.
        - `RUN_BE04_RLS_INTEGRATION=true`: Explicit opt-in flag (set automatically in CI when prerequisite secrets are present).
-       - *BE-06 atomic configuration:* `BE06_RLS_TEST_*` variables are also supported as an isolated credential set. If any BE-06 variable is set, it never mixes with or falls back to BE-04 variables.
      - **Supported key formats and Supabase client behavior:**
        - *Public / Anon key:* Accepts either a legacy `anon` JWT (`role: "anon"`) or a modern `sb_publishable_*` key. Test clients set `apikey: <key>` and strip any synthetic `Authorization: Bearer <key>` header to preserve user bearer tokens.
        - *Service-role / Secret key:* Accepts either a legacy `service_role` JWT (`role: "service_role"`) or a modern `sb_secret_*` key. Admin test clients set `apikey: <key>` and omit the synthetic bearer header so the opaque secret key is accepted directly by PostgREST and Auth.

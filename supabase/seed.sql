@@ -67,13 +67,3 @@ insert into public.recipe_lineage (
     '11111111-1111-1111-1111-111111111111',
     '22222222-2222-2222-2222-222222222222'
 ) on conflict do nothing;
-
-insert into public.ai_usage_daily (
-    user_id,
-    usage_date,
-    operation_count
-) values (
-    'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f',
-    current_date,
-    1
-) on conflict (user_id, usage_date) do nothing;

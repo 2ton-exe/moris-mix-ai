@@ -133,10 +133,26 @@ jobs:
 
       - name: Run RLS tests
         run: pnpm test:db
-        
+
+      - name: Run main database migrations (optional)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RLS_EXPECTED_PROJECT_REF: ${{ vars.RLS_EXPECTED_PROJECT_REF || secrets.RLS_EXPECTED_PROJECT_REF }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          if [[ -n "${DATABASE_URL//[[:space:]]/}" && -n "${RLS_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
+            node run-migrations.mjs
+          else
+            echo "SKIPPED: Main database migration not executed (DATABASE_URL or RLS_EXPECTED_PROJECT_REF not configured)."
+          fi
+
   test-edge-api:
     name: Edge/API Tests
     runs-on: ubuntu-latest
+    needs: test-db
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -152,7 +168,7 @@ jobs:
       - name: Run deterministic Edge/API tests
         run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts
 
-      - name: Run hosted RLS integration test (optional)
+      - name: Run hosted BE-04 RLS integration test (optional)
         env:
           BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
           BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
@@ -160,19 +176,9 @@ jobs:
           BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
           BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE04_RLS_TEST_PROJECT_REF || secrets.BE04_RLS_TEST_PROJECT_REF }}
           BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
-          BE06_RLS_TEST_SUPABASE_URL: ${{ secrets.BE06_RLS_TEST_SUPABASE_URL }}
-          BE06_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE06_RLS_TEST_SUPABASE_ANON_KEY }}
-          BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          BE06_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE06_RLS_TEST_SUPABASE_SECRET_KEY }}
-          BE06_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE06_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE06_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE06_RLS_TEST_PROJECT_REF || secrets.BE06_RLS_TEST_PROJECT_REF }}
-          BE06_RLS_TEST_DATABASE_URL: ${{ secrets.BE06_RLS_TEST_DATABASE_URL }}
         shell: bash
         run: |
-          if [[ -n "${BE06_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE06_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE06_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && -n "${BE06_RLS_TEST_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
-            RUN_BE06_RLS_INTEGRATION=true deno run --frozen-lockfile --node-modules-dir=auto --allow-read --allow-env --allow-net run-migrations.mjs --test-target
-            RUN_BE06_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
-          elif [[ -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE04_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && -n "${BE04_RLS_TEST_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
-            RUN_BE04_RLS_INTEGRATION=true deno run --frozen-lockfile --node-modules-dir=auto --allow-read --allow-env --allow-net run-migrations.mjs --test-target
+          if [[ -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE04_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && -n "${BE04_RLS_TEST_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
             RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           else
             echo "SKIPPED: Hosted RLS integration test not executed because dedicated non-production test project configuration is not completely configured."

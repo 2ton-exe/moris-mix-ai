@@ -294,32 +294,23 @@ Verification is organized into deterministic offline tests and optional live hos
   deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/recipes_test.ts
   ```
 
-### Live hosted PostgreSQL RLS integration test
+### Main Database Configuration and Migration Lifecycle
 
-- **Target Verification & Project Reference Matching:**
-  - Requires an explicitly configured expected test project reference (`BE06_RLS_TEST_EXPECTED_PROJECT_REF`).
-  - Target URL must use `https:` and its subdomain project reference (e.g. `<ref>.supabase.co`) must strictly match `BE06_RLS_TEST_EXPECTED_PROJECT_REF`.
-  - Safety checks strictly reject the primary production project ref (`gtbwblxskctpsqhbpebg`), local loopback port 54321, matching application URLs (`SUPABASE_URL` / `VITE_SUPABASE_URL`), and identical anon and service-role keys.
-- **Unmixed Credential Selection:**
-  - BE-06 credentials are treated as an atomic set: `RUN_BE06_RLS_INTEGRATION`, `BE06_RLS_TEST_SUPABASE_URL`, `BE06_RLS_TEST_SUPABASE_ANON_KEY`, `BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`, `BE06_RLS_TEST_EXPECTED_PROJECT_REF`, and optional `BE06_RLS_TEST_DATABASE_URL`.
-  - If any BE-06 variable is set, credential selection never falls back to or mixes with `BE04_*` variables.
-  - Legacy BE-04 compatibility is preserved only when the BE-06 configuration is entirely absent and `RUN_BE04_RLS_INTEGRATION=true` is explicitly enabled.
-- **Dedicated Test Database Migration Preflight & Schema Cache Reloading:**
-  - Before hosted integration tests execute, `run-migrations.mjs --test-target` validates that the database connection string (`BE06_RLS_TEST_DATABASE_URL` or `BE04_RLS_TEST_DATABASE_URL`) targets the dedicated test project and strictly rejects production (`gtbwblxskctpsqhbpebg`).
-  - Applies pending versioned migrations (`20261023000002_add_notes_to_recipes.sql`).
-  - Notifies PostgREST to reload its in-memory schema cache (`NOTIFY pgrst, 'reload schema'`).
-  - Verifies that `public.recipes.notes` exists in PostgreSQL as `text` with `is_nullable = YES`.
-  - Probes the PostgREST API to confirm the schema cache exposes `notes` without `PGRST204`.
-  - If PostgREST returns `PGRST204` and the database connection is unconfigured, fails with a clear diagnostic identifying the required secret (`BE06_RLS_TEST_DATABASE_URL` or `BE04_RLS_TEST_DATABASE_URL`).
-- **Fail-Closed Opt-In Safety:**
-  - When opt-in is disabled, remote tests are safely skipped (`ignored`) to allow fast, deterministic offline testing without credentials or network access.
-  - When opt-in is enabled, any missing variable, project ref mismatch, or unsafe target causes the test to **fail closed** with an error before initiating network activity.
-- **Test Data and Cleanup Isolation:**
-  - Creates dedicated test users and recipes with unique IDs per run.
-  - Executes full CRUD lifecycle verifying cross-user isolation and RLS boundaries.
-  - A `finally` block guarantees deletion of test-created recipe rows, profiles, and auth users without affecting unrelated data. Secrets are redacted from error logs.
-- **Verification Status Note:**
-  - Offline runs execute local schema, route, and mock tests; live PostgreSQL RLS enforcement is verified only when executed against a positively identified, dedicated test project. Local guard tests verify that remote targets are rejected locally, not that hosted PostgreSQL RLS is active.
+- **Environment Variables:**
+  - `DATABASE_URL`: Main PostgreSQL connection string for database migrations.
+  - `RLS_EXPECTED_PROJECT_REF`: Expected main Supabase project reference (`gtbwblxskctpsqhbpebg`).
+  - `SUPABASE_URL`: Main Supabase project URL (`https://<ref>.supabase.co`).
+  - `SUPABASE_ANON_KEY`: Main project's anon/publishable key.
+  - `SUPABASE_SECRET_KEY`: Main project's secret key for authorized administrative operations only.
+- **Migration Target Validation:**
+  - `node run-migrations.mjs` targets `DATABASE_URL` and validates its project reference against `RLS_EXPECTED_PROJECT_REF` and `SUPABASE_URL` before connecting or executing migrations.
+  - Automatically reloads the PostgREST schema cache (`NOTIFY pgrst, 'reload schema'`) upon applying pending migrations.
+- **Application CRUD & Request-Scoped Isolation:**
+  - Edge Functions authenticate caller JWT tokens via `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+  - Ordinary recipe CRUD operations execute through request-scoped clients carrying the caller's bearer token. `SUPABASE_SECRET_KEY` is strictly reserved for authorized administrative operations and is never used to bypass RLS for user CRUD.
+- **Test Isolation from Main Database:**
+  - Destructive integration test fixtures and automated user/recipe cleanup run exclusively against dedicated non-production test projects (`BE04_RLS_TEST_*`).
+  - Safety guards refuse to run destructive test fixtures against the main production database (`gtbwblxskctpsqhbpebg`).
 
 ### Schema and migration history
 
