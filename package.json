@@ -8,7 +8,8 @@
     "test:migrations": "node test-migrations.mjs",
     "test:lifecycle": "node test-migrations.mjs --run-db-tests",
     "db:setup": "node run-migrations.mjs",
-    "test:db": "node test-rls-guard.mjs && node test-rls.mjs"
+    "test:db": "node test-rls-guard.mjs && node test-rls.mjs",
+    "test:local:all": "node run-local-tests.mjs"
   },
   "keywords": [],
   "author": "",

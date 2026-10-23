@@ -185,7 +185,7 @@ The job declares `needs: [frontend, test-db, test-edge-api]` and uses this condi
 needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
 ```
 
-The `deploy.needs` configuration and normal GitHub Actions dependency semantics prevent deployment when a dependency fails, is cancelled, or is skipped. A failed required validation preventing production deployment from running remains experimentally unverified; run #90 verifies the successful path only.
+The `deploy.needs` configuration and normal GitHub Actions dependency semantics prevent deployment when a dependency fails, is cancelled, or is skipped. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. Run #90 verifies successful production ordering separately.
 
 The workflow currently has no push path filter: docs-only main pushes can also proceed through deployment. Evaluating trigger scope is possible future efficiency work, not a correctness failure or a proven optimization opportunity.
 
@@ -257,16 +257,33 @@ Verified GitHub execution evidence confirms main CI run #90 ran on commit `7b577
 | Database Tests | Completed successfully at approximately 07:05:40 UTC |
 | Deploy to Cloudflare | Started afterward at approximately 07:05:43 UTC and completed successfully |
 
-The successful three-job gating path is verified by main run #90. The failed-required-validation blocking path remains configured but experimentally unverified. Run #90 is separate from the historical two-job baseline in [pipeline metrics](pipeline-metrics.md); DEVOPS-06 does not claim a performance optimization.
+The successful three-job gating path is verified by main run #90. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. Run #90 is separate from the historical two-job baseline in [pipeline metrics](pipeline-metrics.md); DEVOPS-06 does not claim a performance optimization.
+
+### Controlled Non-Production Failure-Gate Experiment (DEVOPS-06)
+
+Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed controlled experimental run `39279387584` with these results:
+
+| Experimental job | Result |
+| :--- | :--- |
+| Gate Test - Frontend | Success |
+| Gate Test - Edge/API | Success |
+| Gate Test - Intentional Database Failure | Failure by design |
+| Gate Test - Would Deploy | Skipped |
+
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the production deploy gate's three-dependency structure. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+
+The evidence chain is production configuration (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
+
+Normal CI run #98 on the same PR completed Frontend Checks, Database Tests, and Edge/API Tests successfully; Deploy to Cloudflare was skipped because this was a PR. Run #98 is PR validation evidence, not production deployment evidence. Neither the controlled experiment nor the unusually delayed workflow runs associated with PR #68 are added to a performance baseline; no comparable-duration justification or performance optimization is claimed.
 
 ## 10. Deployment Verification Checklist
 
-Historical FE-01 checks, run #48, the 2026-10-17 smoke check, and main run #90 establish the following:
+Historical FE-01 checks, run #48, the 2026-10-17 smoke check, main run #90, and the controlled PR #68 experiment establish the following:
 
 - [x] GitHub Actions deployment completes successfully.
 - [x] Historical frontend-only deployment gate verified: main deployment waited for successful Frontend Checks (run #48).
 - [x] Successful runtime execution of the three-job deployment gate is verified by main run #90.
-- [ ] Experimentally verify that a failed required validation prevents production deployment from running; this path is configured but unverified.
+- [x] Verify failed-dependency blocking through the controlled non-production equivalent dependency-gate experiment (PR #68 / run `39279387584`); the inert downstream job was skipped.
 - [x] Frontend installation step executes.
 - [x] Frontend build step executes.
 - [x] TypeScript validation executes through the frontend build command.
@@ -379,7 +396,7 @@ The following limitations or pending items remain:
 - The linked repository Projects page has no project board, so board status could not be verified.
 - Supabase Edge Functions and database deployment are not handled by the current Cloudflare workflow; Supabase production deployment automation remains DEVOPS-07 work.
 - Production rollback and recovery procedures have not yet been tested.
-- The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations and failed-required-validation blocking evidence remain outstanding.
+- The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
 - Docs-only main pushes can currently proceed through the gated deployment job. Evaluate trigger scope later as a possible efficiency improvement; this is not a correctness failure or a proven optimization opportunity.
 
@@ -395,7 +412,7 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 - [x] Historical frontend-only deployment gate was verified by main run #48.
 - [x] Merged PR #43 configures production deployment to depend on all three validation jobs.
 - [x] Main run #90 verifies successful deployment after all three validation jobs succeed.
-- [ ] Experimentally verify failed-required-validation blocking; configuration alone establishes this behavior so far.
+- [x] Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment (PR #68 / run `39279387584`).
 - [x] Current unified workflow has a configured main-only production condition.
 - [x] Previous standalone workflow skipped production in a feature-branch manual-dispatch test (historical evidence).
 - [ ] Current unified workflow feature-branch manual-dispatch guard is separately re-tested.
@@ -415,4 +432,4 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 
 The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
-Sprint 1 delivery tracking remains open for Gemini generation verification and further comparable pipeline measurements. The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-required-validation blocking path remains configured but experimentally unverified.
+Sprint 1 delivery tracking remains open for Gemini generation verification and further comparable pipeline measurements. The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-dependency blocking mechanism is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).

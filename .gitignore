@@ -17,5 +17,7 @@ coverage/
 .supabase/
 supabase/.branches/
 
+supabase/.temp/
+
 # Local review context — do not push to GitHub
 /review-context/
