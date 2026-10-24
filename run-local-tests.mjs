@@ -389,6 +389,9 @@ async function runMain() {
   const rawRlsServiceRoleKey =
     process.env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY;
   const rawRlsSecretKey = process.env.BE04_RLS_TEST_SUPABASE_SECRET_KEY;
+  const rawDbMigrationOptIn =
+    process.env.RUN_DB_MIGRATION_TESTS === "true" ||
+    process.env.RUN_MIGRATION_DB_TESTS === "true";
 
   const env = { ...process.env };
 
@@ -422,6 +425,7 @@ async function runMain() {
     "BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
     "BE04_RLS_TEST_SUPABASE_SECRET_KEY",
     "RUN_MIGRATION_DB_TESTS",
+    "RUN_DB_MIGRATION_TESTS",
   ]) {
     delete env[key];
   }
@@ -510,14 +514,17 @@ async function runMain() {
     }
   }
 
-  runCommand(process.execPath, ["test-migrations.mjs", "--run-db-tests"], false);
+  const migrationArgs = rawDbMigrationOptIn
+    ? ["test-migrations.mjs", "--run-db-tests"]
+    : ["test-migrations.mjs"];
+  runCommand(process.execPath, migrationArgs, false);
 
   const denoArgs = [
     "test",
     "--frozen-lockfile",
     "--node-modules-dir=auto",
     "--allow-env",
-    "--allow-net",
+    ...(rlsEvaluation.canRun ? ["--allow-net"] : []),
     "--allow-read=fixtures/demo-recipe.json",
     "supabase/functions/tests/demo_recipe_test.ts",
     "supabase/functions/tests/auth_test.ts",
