@@ -11,10 +11,11 @@ import { ProtectedRoute } from '../auth/AuthRoutes'
 import { createAppRouteElements } from '../App'
 import { HttpError } from '../api/http'
 import { recipeKeys } from '../recipes/queryOptions'
+import { RecipeSourceContext } from '../recipes/source'
+import type { RecipeSource } from '../recipes/types'
 import CreateRecipePage from '../pages/CreateRecipePage'
 import EditRecipePage from '../pages/EditRecipePage'
 import { RecipeQueryProvider } from '../recipes/RecipeQueryProvider'
-import { recipeFormApi } from './api'
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
 
@@ -31,7 +32,7 @@ afterEach(() => { queryClient.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks
 type PageOptions = {
   path: string; state: AuthState; save?: SaveRecipeDraft; initial?: RecipeEditorRecord
   isLoading?: boolean; loadError?: Error; loadMatchingRecordOnRouteChange?: boolean
-  history?: string[]; initialIndex?: number
+  history?: string[]; initialIndex?: number; source?: RecipeSource
 }
 const PageOptionsContext = createContext<PageOptions | null>(null)
 
@@ -84,7 +85,10 @@ function RoutedTree({ options }: { options: PageOptions }) {
     initialEntries: options.history ?? ['/app', options.path],
     initialIndex: options.initialIndex,
   }))
-  return <PageOptionsContext.Provider value={options}><RouterProvider router={router} /></PageOptionsContext.Provider>
+  const routes = <PageOptionsContext.Provider value={options}><RouterProvider router={router} /></PageOptionsContext.Provider>
+  return options.source
+    ? <RecipeSourceContext.Provider value={options.source}>{routes}</RecipeSourceContext.Provider>
+    : routes
 }
 
 function authState(id: string | null = 'cook-a', expired = false): AuthState {
@@ -344,17 +348,21 @@ it('sends the production save through the authenticated client and keeps auth fa
   fetch.mockRestore()
 })
 
-it('loads the existing recipe through the authenticated client before showing edit fields', async () => {
-  render(tree({ path: '/app/recipes/recipe-a/edit' }))
+it('shows safe access errors from the shared account-scoped recipe query', async () => {
+  const detail = vi.fn<RecipeSource['detail']>().mockRejectedValue(new HttpError('http', 'private response', 401))
+  const source: RecipeSource = { mode: 'live', list: vi.fn().mockResolvedValue([]), detail }
+  render(tree({ path: '/app/recipes/recipe-a/edit', source }))
   expect((await screen.findByRole('alert')).textContent).toContain('Sign in again to edit this recipe.')
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
+  expect(detail).toHaveBeenCalledWith('recipe-a', expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
 })
 
-it('populates edit fields from the current authenticated recipe response', async () => {
-  const load = vi.spyOn(recipeFormApi, 'load').mockResolvedValue(record())
-  render(tree({ path: '/app/recipes/recipe-a/edit' }))
+it('populates edit fields from the shared account-scoped recipe query', async () => {
+  const detail = vi.fn<RecipeSource['detail']>().mockResolvedValue({ id: 'recipe-a', ...draft })
+  const source: RecipeSource = { mode: 'live', list: vi.fn().mockResolvedValue([]), detail }
+  render(tree({ path: '/app/recipes/recipe-a/edit', source }))
   expect(await screen.findByDisplayValue(draft.title)).toBeTruthy()
-  expect(load).toHaveBeenCalledWith('recipe-a', expect.objectContaining({
+  expect(detail).toHaveBeenCalledWith('recipe-a', expect.objectContaining({
     userId: 'cook-a', signal: expect.any(AbortSignal),
   }))
 })

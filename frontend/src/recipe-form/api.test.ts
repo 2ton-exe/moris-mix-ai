@@ -27,26 +27,20 @@ function client(fetchImpl: typeof fetch) {
   })
 }
 
-it('loads an owned recipe and sends complete create and edit drafts to the REST contract', async () => {
+it('sends complete create and edit drafts to the REST contract', async () => {
   const updatedRecipe = { ...serverRecipe, title: 'Updated rice', notes: 'More ginger.', star_rating: null, cooked_at: null }
   const fetchImpl = vi.fn<typeof fetch>()
-    .mockResolvedValueOnce(Response.json({ recipe: serverRecipe }))
     .mockResolvedValueOnce(Response.json({ recipe: serverRecipe }, { status: 201 }))
     .mockResolvedValueOnce(Response.json({ recipe: updatedRecipe }))
   const api = createRecipeFormApi(client(fetchImpl))
   const request = { userId: 'cook-a', signal: new AbortController().signal }
 
-  await expect(api.load(recipeId, request)).resolves.toMatchObject({
-    id: recipeId,
-    userId: 'cook-a',
-    values: { title: recipeFormFixture.title, notes: recipeFormFixture.notes, star_rating: 4, cooked_at: '2026-10-19' },
-  })
   await expect(api.save(recipeFormFixture, request)).resolves.toEqual({ id: recipeId })
   await expect(api.save({ ...recipeFormFixture, ...updatedRecipe }, request, recipeId)).resolves.toEqual({ id: recipeId })
 
-  expect(fetchImpl.mock.calls.map(([, options]) => options?.method)).toEqual(['GET', 'POST', 'PATCH'])
-  expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string)).toEqual(recipeFormFixture)
-  expect(JSON.parse(fetchImpl.mock.calls[2][1]?.body as string)).toEqual({
+  expect(fetchImpl.mock.calls.map(([, options]) => options?.method)).toEqual(['POST', 'PATCH'])
+  expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual(recipeFormFixture)
+  expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string)).toEqual({
     ...recipeFormFixture,
     title: 'Updated rice',
     notes: 'More ginger.',
@@ -63,5 +57,5 @@ it('loads an owned recipe and sends complete create and edit drafts to the REST 
 it('rejects a response owned by a different account', async () => {
   const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ recipe: { ...serverRecipe, user_id: 'cook-b' } }))
   const api = createRecipeFormApi(client(fetchImpl))
-  await expect(api.load(recipeId, { userId: 'cook-a', signal: new AbortController().signal })).rejects.toThrow()
+  await expect(api.save(recipeFormFixture, { userId: 'cook-a', signal: new AbortController().signal })).rejects.toThrow()
 })
