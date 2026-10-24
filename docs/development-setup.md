@@ -5,7 +5,7 @@ This guide uses the local Supabase stack for app development and documents stand
 ## Prerequisites
 
 - [Node.js 24](https://nodejs.org/en/download) and pnpm 10 (`npm install --global pnpm@10`; see the [pnpm 10 installation guide](https://pnpm.io/10.x/installation))
-- Supabase CLI 2.x and Docker Desktop or another Docker-compatible runtime (the repository-pinned CLI 2.122.0 is used by E2E setup)
+- Supabase CLI 2.x and Docker Desktop or another Docker-compatible runtime (the frontend-pinned CLI 2.122.0 is used by E2E setup)
 - [Deno](https://deno.land/) (for running Edge Function deterministic and integration test suites)
 - Standalone PostgreSQL 15+ on loopback (`127.0.0.1` or `localhost`) only if you choose not to use the local Supabase database for migration lifecycle tests
 
@@ -75,7 +75,7 @@ The local Supabase database is available on loopback port `54322` by default and
 
 ## Authenticated recipe CRUD browser journey
 
-The Playwright journey signs in through the UI with the synthetic local account, then creates, opens, edits, rates, reloads, and deletes a recipe through the application and authenticated Edge Function. The root package pins Supabase CLI 2.122.0, and the frontend pins Playwright 1.64.1; the local runner uses Docker-compatible Supabase stacks.
+The Playwright journey signs in through the UI with the synthetic local account, then creates, opens, edits, rates, reloads, and deletes a recipe through the application and authenticated Edge Function. The frontend package pins Supabase CLI 2.122.0 and Playwright 1.64.1; the local runner uses Docker-compatible Supabase stacks.
 
 From the repository root, install the pinned tools and Chromium, then run:
 
@@ -86,7 +86,7 @@ pnpm --dir frontend exec playwright install chromium
 pnpm --dir frontend run test:e2e:local
 ```
 
-The command starts a dedicated Supabase stack in the ignored `.e2e-supabase/` workdir, applies the repository migrations, prepares or reuses `fs03-playwright@example.test` through the local Auth admin API, serves the `recipes` Edge Function and starts Vite on `127.0.0.1:4173`. This project has its own stable local project ID and Supabase CLI assigns it separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack. The generated local service key stays in the setup process and the runner refuses a non-loopback Supabase URL. Playwright and Vite receive only an allowlisted process environment, the local Supabase URL and its public key; Vite reads from a separate empty env directory and does not load the developer's `.env.local`. The journey does not call `supabase db reset`, use hosted credentials, or invoke Gemini. Playwright retains a trace, screenshot, and video on failure; CI uploads those files as an artifact.
+The command starts a dedicated Supabase stack in the ignored `.e2e-supabase/` workdir, applies the repository migrations, prepares or reuses `fs03-playwright@example.test` through the local Auth admin API, starts `supabase functions serve recipes` against that workdir, waits for the handler's unauthenticated response, and starts Vite on `127.0.0.1:4173`. The readiness check expects the recipe handler's 401 response, so it does not mistake the gateway's pre-existing function route for a ready handler. The function server stops after the journey; the isolated Supabase stack and its local data remain available. This project has its own stable local project ID and Supabase CLI assigns it separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack. The generated local service key stays in the setup process and the runner refuses a non-loopback Supabase URL. Playwright and Vite receive only an allowlisted process environment, the local Supabase URL and its public key; Vite reads from a separate empty env directory and does not load the developer's `.env.local`. The journey does not call `supabase db reset`, use hosted credentials, or invoke Gemini. Playwright retains a trace, screenshot, and video on failure; CI uploads those files as an artifact.
 
 The synthetic account remains in the dedicated E2E Auth database for reuse. The runner stores its returned Auth user ID in the ignored E2E workdir and updates only that account on later runs. Each recipe title includes a fresh UUID and the successful journey deletes its recipe; a failed run may leave that uniquely named recipe in the E2E collection. The E2E Supabase stack remains running after the command. Its files and Docker data are separate from the developer stack and persist across runs; the runner never stops or destroys either stack.
 

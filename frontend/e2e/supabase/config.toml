@@ -16,6 +16,9 @@ major_version = 15
 enabled = true
 sql_paths = ["./seed.sql"]
 
+[edge_runtime]
+policy = "per_worker"
+
 [auth]
 enabled = true
 site_url = "http://127.0.0.1:4173"

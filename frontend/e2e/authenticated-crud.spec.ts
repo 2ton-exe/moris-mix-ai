@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 import { localE2eUser } from './local-user.mjs'
 
 test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async ({ page }) => {
+  test.setTimeout(90_000)
+
   const recipeTitle = `FS-03 Playwright ${crypto.randomUUID()}`
   const updatedTitle = `${recipeTitle} revised`
 
@@ -13,6 +15,13 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await page.getByRole('button', { name: 'Log in' }).click()
     await expect(page).toHaveURL(/\/app\/?$/)
     await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  })
+
+  await test.step('wait for the journal collection to finish loading', async () => {
+    await expect(
+      page.getByRole('heading', { name: 'A fresh page for your next favorite.' })
+        .or(page.getByRole('heading', { name: /Saved recipes/ })),
+    ).toBeVisible({ timeout: 30_000 })
   })
 
   await test.step('create a recipe through the application form', async () => {
@@ -70,7 +79,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await page.reload()
     await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
 
-    await page.goto(deletedRecipeUrl)
-    await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible()
+    await page.goto(deletedRecipeUrl, { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible({ timeout: 30_000 })
   })
 })
