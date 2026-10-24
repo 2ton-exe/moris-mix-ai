@@ -389,6 +389,9 @@ async function runMain() {
   const rawRlsServiceRoleKey =
     process.env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY;
   const rawRlsSecretKey = process.env.BE04_RLS_TEST_SUPABASE_SECRET_KEY;
+  const rawDbMigrationOptIn =
+    process.env.RUN_DB_MIGRATION_TESTS === "true" ||
+    process.env.RUN_MIGRATION_DB_TESTS === "true";
 
   const env = { ...process.env };
 
@@ -401,13 +404,28 @@ async function runMain() {
     "VITE_SUPABASE_URL",
     "VITE_SUPABASE_ANON_KEY",
     "VITE_SUPABASE_PUBLISHABLE_KEY",
+    "RUN_BE07_RLS_INTEGRATION",
+    "RUN_BE06_RLS_INTEGRATION",
     "RUN_BE04_RLS_INTEGRATION",
+    "BE07_RLS_TEST_SUPABASE_URL",
+    "BE07_RLS_TEST_SUPABASE_ANON_KEY",
+    "BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
+    "BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
+    "BE07_RLS_TEST_SUPABASE_SECRET_KEY",
+    "BE07_RLS_TEST_EXPECTED_PROJECT_REF",
+    "BE06_RLS_TEST_SUPABASE_URL",
+    "BE06_RLS_TEST_SUPABASE_ANON_KEY",
+    "BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
+    "BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
+    "BE06_RLS_TEST_SUPABASE_SECRET_KEY",
+    "BE06_RLS_TEST_EXPECTED_PROJECT_REF",
     "BE04_RLS_TEST_SUPABASE_URL",
     "BE04_RLS_TEST_SUPABASE_ANON_KEY",
     "BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
     "BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
     "BE04_RLS_TEST_SUPABASE_SECRET_KEY",
     "RUN_MIGRATION_DB_TESTS",
+    "RUN_DB_MIGRATION_TESTS",
   ]) {
     delete env[key];
   }
@@ -496,19 +514,23 @@ async function runMain() {
     }
   }
 
-  runCommand(process.execPath, ["test-migrations.mjs", "--run-db-tests"], false);
+  const migrationArgs = rawDbMigrationOptIn
+    ? ["test-migrations.mjs", "--run-db-tests"]
+    : ["test-migrations.mjs"];
+  runCommand(process.execPath, migrationArgs, false);
 
   const denoArgs = [
     "test",
     "--frozen-lockfile",
     "--node-modules-dir=auto",
     "--allow-env",
-    "--allow-net",
+    ...(rlsEvaluation.canRun ? ["--allow-net"] : []),
     "--allow-read=fixtures/demo-recipe.json",
     "supabase/functions/tests/demo_recipe_test.ts",
     "supabase/functions/tests/auth_test.ts",
     "supabase/functions/tests/auth_rls_integration_test.ts",
     "supabase/functions/tests/recipes_test.ts",
+    "supabase/functions/tests/cross_user_rls_lineage_test.ts",
   ];
 
   runCommand("deno", denoArgs, process.platform === "win32");
