@@ -1,29 +1,35 @@
 # Modular workflow migration (issue #73)
 
-## Stage 1 authority
+## Authority through Stage 2A
 
 `.github/workflows/ci.yml` remains the source of the required `Frontend Checks`,
 `Database Tests`, and `Edge/API Tests` checks and the active production path.
 Cloudflare deployment follows successful validation and frontend existence on
 main pushes and manual dispatches. Pull requests skip deployment.
 
-| File in `.github/workflows/` | Responsibility in stage 1 |
+| File in `.github/workflows/` | Responsibility through Stage 2A |
 | --- | --- |
 | `ci.yml` | Authoritative PR/main validation and gated Cloudflare deployment |
 | `modular-pr-validation.yml` | PRs targeting main only; comparison runs of the reusable validations |
+| `modular-main.yml` | Shadow main validation and an inert downstream evidence gate |
+| `modular-gate-experiment.yml` | Manual, secret-free dependency-gate experiments |
+| `reusable-gate-fixture.yml` | Deterministic, secret-free simulated validation dependencies |
 | `reusable-frontend.yml` | Existing frontend steps and exported `exists` output |
 | `reusable-database.yml` | Existing PostgreSQL service, environment, migration and RLS tests |
 | `reusable-edge-api.yml` | Deno checks, deterministic tests, and optional hosted database migration and integration tests |
 | `reusable-cloudflare.yml` | Dormant deployment implementation; `workflow_call` only, no caller |
 
-The reusable jobs retain their internal names and existing validation commands.
+The reusable jobs retain their internal names. Edge/API validation includes
+BE-06 recipe CRUD coverage and the AI contract/evaluation checks from `ci.yml`.
 Edge/API credentials, the expected test project reference, and dedicated
-database URL are optional; the PR caller forwards configured secrets, and
+database URL are optional; both modular callers forward configured secrets, and
 repository variables remain available through `vars`. When the hosted
 credentials, expected reference, and database URL are configured, the reusable
-Edge/API workflow applies pending migrations before the hosted suite. The PR
-caller does not forward Cloudflare secrets to any reusable workflow. Public
-Supabase build variables remain read through `vars` inside the reusable
+Edge/API workflow applies pending migrations to the dedicated non-production
+test database before the hosted auth/RLS and recipe CRUD integration suite.
+Incomplete configuration retains the explicit hosted-test skip and offline
+fallback. Neither caller forwards Cloudflare secrets to any reusable workflow.
+Public Supabase build variables remain read through `vars` inside the reusable
 deployment job.
 
 Duplicate validation work on PRs is intentional during migration. The comparison
@@ -44,11 +50,74 @@ trigger. Its guard also excludes PR callers.
 Reusable workflows are called with job-level `uses`, not from steps. A caller's
 `needs` refers to jobs in that caller, not jobs inside another workflow. The
 frontend output is therefore explicitly exported through
-`on.workflow_call.outputs.exists` for a future downstream caller job to consume.
+`on.workflow_call.outputs.exists` for the shadow main gate to consume.
 Caller workflow `env` values do not automatically propagate; secrets must be
 passed and repository variables are available through `vars`. See GitHub's
 [reusable configuration reference](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)
 and [workflow reuse guide](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
+
+## Stage 2A: shadow validation and controlled gate experiments
+
+`modular-main.yml` runs on pushes to main and supports manual dispatch; it has
+no PR trigger. Its caller names are `Modular Main Frontend`, `Modular Main
+Database`, and `Modular Main Edge/API`. Actual composed main check names still
+need to be observed in GitHub. The caller forwards all six optional BE04
+non-production test secrets: Supabase URL, anon key, service-role key, secret
+key, expected project reference, and dedicated database URL. Like the PR caller,
+it forwards the expected-reference secret with a legacy `BE04_RLS_TEST_PROJECT_REF`
+secret fallback; the reusable workflow also reads repository-variable fallbacks.
+It never calls `reusable-cloudflare.yml`, receives no Cloudflare production
+secrets, and contains no deployment commands.
+
+The final `gate-evidence` job declares
+`needs: [frontend, test-db, test-edge-api]`, requires
+`needs.frontend.outputs.exists == 'true'`, and restricts itself to main
+push/manual-dispatch events. It uses normal implicit success semantics, with no
+`always()` or `continue-on-error`. It has no token permissions, credentials,
+checkout, or production actions; it only logs inert evidence. Existing `ci.yml`
+continues independently as the sole production deployment path.
+
+`modular-gate-experiment.yml` is manual-dispatch only. It and its reusable fixture
+declare `permissions: {}`, accept no secrets, and perform no checkout, network,
+provider, or deployment actions. The fixture has boolean inputs for intentional
+failure, simulated frontend existence, and a five-minute cancellation window.
+Its `exists` output traverses step, job, and reusable workflow outputs. The
+experiment's `would-deploy` job mirrors the three validation dependencies and
+frontend existence condition with normal success semantics. Its logs explicitly
+state that no production deployment occurred. This synthetic gate can run on a
+selected ref; main event/ref restrictions are enforced separately by the shadow
+main gate, and must remain part of any future production caller.
+
+| Dispatch scenario | Intended result (not yet observed in GitHub) |
+| --- | --- |
+| `all-success` | All dependencies succeed; inert gate runs |
+| `fail-frontend` | Frontend fixture fails; gate is skipped |
+| `fail-database` | Database fixture fails; gate is skipped |
+| `fail-edge-api` | Edge/API fixture fails; gate is skipped |
+| `missing-frontend` | Dependencies succeed but `exists` is `false`; gate is skipped |
+| `skip-database` | Database caller is skipped by a job condition; gate is skipped |
+| `cancel-window` | Database fixture waits five minutes for real manual cancellation |
+
+For cancellation evidence, cancel a running `cancel-window` experiment while
+the database fixture is waiting and record the actual job/run conclusions and
+gate result. Cancellation is never simulated by an exit code. If not cancelled,
+the fixture succeeds after the wait and the gate can run. Manual dispatch from
+the GitHub UI normally requires the workflow to be present on the default branch.
+
+These Stage 2A workflows are introduced as infrastructure only. No Stage 2A
+runtime result, main output propagation, failure/skip/cancellation blocking, or
+composed main check identity is proven until real GitHub Actions runs occur.
+Record run URLs, commit SHAs, selected scenarios, dependency conclusions, exported
+frontend existence, and gate conclusions before treating them as evidence.
+
+This branch reconciles static Edge/API command parity with authoritative
+`ci.yml`: both type-check the recipe and AI contract/evaluation files and run
+the same deterministic test files. BE-06's guarded hosted non-production
+migration and auth/RLS/recipe integration coverage remains intact, and both
+modular callers forward the same optional hosted-test secrets. This static
+reconciliation does not establish runtime parity: Stage 2A shadow main and
+gate-experiment execution evidence is still pending. No successful modular
+main execution is claimed.
 
 ## Evidence needed before retiring ci.yml
 
@@ -65,6 +134,10 @@ successfully on PR #74. The observed GitHub checks were:
 `Deploy to Cloudflare` was skipped on the pull request as expected. This confirms
 PR validation without production deployment and establishes the actual composed
 modular check names. The existing `ci.yml` remains authoritative.
+
+Stage 1 merged to main. The post-merge authoritative main run passed frontend,
+database, and Edge/API validations, and its existing Cloudflare production
+deployment succeeded. This is evidence for the authoritative path only.
 
 The modular checks are not yet required by the active ruleset. No modular main
 orchestration has executed, frontend-output propagation into a modular main
@@ -89,13 +162,15 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
 2. PR #74 confirms validation without production deployment, with the existing
    deployment job skipped. Continue to ensure no Cloudflare secrets are passed
    by the modular PR caller and no workflow calls `reusable-cloudflare.yml`
-   during stage 1.
-3. In a later, reviewed migration, prove frontend output propagation and the
-   future main caller's gate using an inert downstream job with no production
-   credentials or deployment commands. It must declare
-   `needs: [frontend, test-db, test-edge-api]`, use normal success semantics
-   (no `always()` or `continue-on-error` bypass), and require
-   `needs.frontend.outputs.exists == 'true'`. Demonstrate success and blocking
+   through Stage 2A.
+3. Execute the Stage 2A shadow main workflow and controlled gate experiments
+   to prove frontend output propagation and dependency gating using the inert
+   downstream jobs with no production credentials or deployment commands.
+   The main gate declares
+   `needs: [frontend, test-db, test-edge-api]`, uses normal success semantics
+   (no `always()` or `continue-on-error` bypass), and requires
+   `needs.frontend.outputs.exists == 'true'`. Runtime evidence must demonstrate
+   success and blocking
    for failed, cancelled and skipped dependencies, missing frontend, PR events
    and non-main refs. Preserve the push/manual-dispatch restriction.
 4. Only after that evidence, prepare the production handoff as a separate change:
@@ -114,10 +189,14 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
    disabled. Verify main ordering and concurrency in GitHub during the eventual
    authorized cutover before declaring the migration complete.
 
-The Stage 1 validation did not include a main replacement caller, path filters,
-pipeline optimizations, Supabase function deployment, or a modular production
-handoff. BE-06 adds recipe/API validation and guarded migrations for optional
-hosted test-database integration; production database migration automation
-remains a separate follow-up. Keep `ci.yml` authoritative until the modular
-replacement behavior has execution evidence and the required-check and
-deployment handoff is ready.
+Stage 2A does not complete modular required-check/ruleset migration, production
+deployment ownership transfer, use of `reusable-cloudflare.yml` by the modular
+main caller, or retirement of `ci.yml`. BE-06 adds recipe/API validation and
+guarded migrations for optional hosted non-production test-database integration.
+Stage 2A performs no production deployment or production database migration;
+production database migration automation remains a separate follow-up. Supabase
+function deployment automation and post-deployment smoke verification also
+remain unimplemented. This stage adds no path filters, pipeline optimizations,
+or production configuration changes.
+Keep the original workflow until the replacement behavior has execution evidence
+and the required-check and deployment handoff is ready.
