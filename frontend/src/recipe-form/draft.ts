@@ -25,8 +25,7 @@ export const recipeDraftSchema = z.object({
   instructions: z.array(instructionSchema),
   star_rating: z.number().int().min(1).max(5).nullable(),
   cooked_at: z.string().refine(calendarDate, 'Enter a valid calendar date.').nullable(),
-  // No published notes column/contract or length limit. Local draft only until
-  // the host's REST adapter explicitly supports it; never silently drop notes.
+  // BE-06 accepts recipe notes, but publishes no length limit for this field.
   notes: z.string().default(''),
 })
 export type RecipeDraft = z.infer<typeof recipeDraftSchema>

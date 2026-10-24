@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createContext, useContext, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createMemoryRouter, createRoutesFromElements, Link, matchRoutes, Outlet, Route, RouterProvider, useNavigate, useParams } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -9,6 +10,7 @@ import type { AuthState } from '../auth/context'
 import { ProtectedRoute } from '../auth/AuthRoutes'
 import { createAppRouteElements } from '../App'
 import { HttpError } from '../api/http'
+import { recipeKeys } from '../recipes/queryOptions'
 import CreateRecipePage from '../pages/CreateRecipePage'
 import EditRecipePage from '../pages/EditRecipePage'
 import { recipeFormApi } from './api'
@@ -17,12 +19,14 @@ import { recipeFormFixture } from './testing/fixtures'
 
 const draft = { ...recipeFormFixture, notes: '' }
 const NativeRequest = globalThis.Request
+let queryClient: QueryClient
 beforeEach(() => vi.stubGlobal('Request', class TestRequest extends NativeRequest {
   constructor(input: RequestInfo | URL, init?: RequestInit) {
     super(input, init ? { ...init, signal: undefined } : undefined)
   }
 }))
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+beforeEach(() => { queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }) })
+afterEach(() => { queryClient.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 type PageOptions = {
   path: string; state: AuthState; save?: SaveRecipeDraft; initial?: RecipeEditorRecord
   isLoading?: boolean; loadError?: Error; loadMatchingRecordOnRouteChange?: boolean
@@ -91,7 +95,7 @@ function authState(id: string | null = 'cook-a', expired = false): AuthState {
 function record(userId = 'cook-a', id = 'recipe-a'): RecipeEditorRecord { return { userId, id, values: draft } }
 function tree(options: Partial<PageOptions> = {}) {
   const complete: PageOptions = { path: '/app/recipes/new', state: authState(), ...options }
-  return <StrictMode><RoutedTree options={complete} /></StrictMode>
+  return <StrictMode><QueryClientProvider client={queryClient}><RoutedTree options={complete} /></QueryClientProvider></StrictMode>
 }
 function click(name: string) { fireEvent.click(screen.getByRole('button', { name })) }
 function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value } }) }
@@ -121,11 +125,17 @@ it('gates an edit deep link without exposing existing recipe values', () => {
 it('sends a normalized create draft with account identity and cancellation to the injected adapter', async () => {
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const save = vi.fn().mockResolvedValue({ id: 'created' })
+  const accountList = recipeKeys.lists('cook-a')
+  const otherAccountList = recipeKeys.lists('cook-b')
+  queryClient.setQueryData(accountList, [])
+  queryClient.setQueryData(otherAccountList, [])
   render(tree({ save }))
   title('  A new recipe  ')
   click('Save recipe')
   await screen.findByText('Recipe saved.')
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ title: 'A new recipe' }), expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
+  expect(queryClient.getQueryState(accountList)?.isInvalidated).toBe(true)
+  expect(queryClient.getQueryState(otherAccountList)?.isInvalidated).toBe(false)
   click('Back to journal')
   expect(confirm).not.toHaveBeenCalled()
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
@@ -177,6 +187,8 @@ it('blocks browser forward navigation when it would leave the form', () => {
 
 it('keeps a pending save on Stay and aborts it when confirmed navigation leaves the route', async () => {
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  const accountList = recipeKeys.lists('cook-a')
+  queryClient.setQueryData(accountList, [])
   let resolve!: (value: { id: string }) => void
   const save = vi.fn().mockImplementation(() => new Promise<{ id: string }>((res) => { resolve = res }))
   render(tree({ save }))
@@ -195,6 +207,7 @@ it('keeps a pending save on Stay and aborts it when confirmed navigation leaves 
   expect(signal.aborted).toBe(true)
   await act(async () => resolve({ id: 'created-after-leave' }))
   expect(screen.queryByText('Recipe saved.')).toBeNull()
+  expect(queryClient.getQueryState(accountList)?.isInvalidated).toBe(true)
 })
 
 it('blocks navigation to another recipe without replacing the current edit draft', () => {
@@ -249,19 +262,31 @@ it('does not prompt after a confirmed save when leaving the page', async () => {
 
 it('submits edited values and a nullable rating only after the adapter confirms the same recipe', async () => {
   const save = vi.fn().mockResolvedValue({ id: 'recipe-a' })
+  const accountList = recipeKeys.lists('cook-a')
+  const recipeDetail = recipeKeys.detail('cook-a', 'recipe-a')
+  queryClient.setQueryData(accountList, [])
+  queryClient.setQueryData(recipeDetail, {})
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), save }))
   title('Updated rice')
   fireEvent.change(screen.getByLabelText('Rating'), { target: { value: '' } })
   click('Save changes')
   await screen.findByText('Recipe saved.')
   expect(save.mock.calls[0][0]).toMatchObject({ title: 'Updated rice', star_rating: null })
+  expect(queryClient.getQueryState(accountList)?.isInvalidated).toBe(true)
+  expect(queryClient.getQueryState(recipeDetail)?.isInvalidated).toBe(true)
 })
 
 it('rejects a mismatched edit confirmation without a success claim', async () => {
+  const accountList = recipeKeys.lists('cook-a')
+  const recipeDetail = recipeKeys.detail('cook-a', 'recipe-a')
+  queryClient.setQueryData(accountList, [])
+  queryClient.setQueryData(recipeDetail, {})
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), save: vi.fn().mockResolvedValue({ id: 'wrong' }) }))
   click('Save changes')
   await screen.findByRole('alert')
   expect(screen.queryByText('Recipe saved.')).toBeNull()
+  expect(queryClient.getQueryState(accountList)?.isInvalidated).toBe(false)
+  expect(queryClient.getQueryState(recipeDetail)?.isInvalidated).toBe(false)
 })
 
 it('does not attempt saving with an expired context session and preserves the draft', async () => {

@@ -2,16 +2,17 @@
 
 ## Status and branch foundation
 
-FE-05 implements and tests the reusable create/edit form and protected page
-boundaries. **Recipe mutation wiring, edit/rating support, query mutation
-wiring, and production acceptance remain pending.** No backend persistence is
-simulated in the application.
+FE-05 implements the reusable create/edit form and protected page boundaries.
+The default pages use FS-02's authenticated REST client for recipe GET, POST,
+and PATCH operations. Confirmed saves invalidate the signed-in account's recipe
+list and, for edits, the edited recipe detail. Production acceptance remains
+pending. No backend persistence is simulated in the application.
 
 FE-05's editor is composed with FE-04's protected dashboard and query provider.
-The default create and edit routes still have no save adapter or edit-record
-loader, so they cannot persist or load saved recipes. The form keeps its injected
-callback and record-loading interfaces; it adds no competing query provider,
-key factory, fetch client or domain loader.
+The default create and edit routes persist through the authenticated REST
+adapter; edit loads a matching account-scoped record before showing the form.
+The form keeps its injectable callback and record-loading interfaces; it adds
+no competing query provider, key factory, fetch client or domain loader.
 
 ## Components and routes
 
@@ -21,10 +22,10 @@ key factory, fetch client or domain loader.
 | `recipe-form/draft.ts` | Zod frontend draft schema, editor normalization, ordered step serialization; not a REST request schema |
 | `recipe-form/RecipeFormField.tsx` | Accessible labels, hints and field errors |
 | `recipe-form/submission.ts` | Host callback/record types, safe error mapping and confirmation checks |
-| `recipe-form/useRecipeSave.ts` | Current-context session preflight and expected account/signal propagation; no token attachment or HTTP |
+| `recipe-form/useRecipeSave.ts` | Current-context session preflight, REST save, expected account/signal propagation and confirmed-save cache invalidation |
 | `recipe-form/RecipeEditorFrame.tsx`, `recipe-form.css` | Scoped responsive journal styling and account-keyed form lifetime |
 | `pages/CreateRecipePage.tsx` | Create mode; injected confirmed-save callback; existing journal navigation |
-| `pages/EditRecipePage.tsx` | Host-supplied loading/error/record state; refuses absent, mismatched-route or old-account records; edit/rating callback |
+| `pages/EditRecipePage.tsx` | Authenticated detail loading and host-supplied loading/error/record states; refuses mismatched-route or old-account records; edit/rating callback |
 | `recipe-form/testing/fixtures.ts` | Test-only draft data; never imported by application code |
 
 Protected routes reuse FE-03's existing AuthProvider, AuthReady and
@@ -32,12 +33,11 @@ ProtectedRoute:
 
 - `/app` and `/app/recipes`: FE-04's protected recipe dashboard and collection.
 - `/app/recipes/:recipeId`: FE-04's protected recipe detail page.
-- `/app/recipes/new`: editable local form with an upfront unavailable notice.
-  Save reports that nothing was saved when no integration is supplied.
-- `/app/recipes/:recipeId/edit`: unavailable until a matching account-scoped
-  record is supplied by an edit loader. It never creates a blank edit
-  form for missing data. Host-provided loading, retry and access-error states
-  are supported.
+- `/app/recipes/new`: editable form that creates recipes through authenticated
+  `POST /functions/v1/recipes`.
+- `/app/recipes/:recipeId/edit`: loads the matching account-scoped record over
+  authenticated GET and saves edits and ratings through PATCH. Loading, retry,
+  and access-error states are supported.
 - Unknown `/app/*` routes show the protected not-found page.
 
 The form supports both modes and optional initial values suitable for a future
@@ -62,27 +62,22 @@ BE-05 transport schema. Backend validation remains authoritative.
 | Ingredients | Add/edit/remove/reorder; stable keys; name, optional numeric amount/unit/amount description; inferred flag preserved | Shared ingredient fields; no required units, enum or item minimum |
 | Quantity | Blank becomes null; finite decimal number; zero and negative values allowed because no shared lower bound exists | Shared nullable number; fractional text such as `1/2` belongs in amount description rather than a numeric guess |
 | Steps | Add/edit/delete/reorder; multiline text; serialize contiguous positions 1..n | Shared `{ step, text }` objects; no published text/item minimum |
-| Rating | Unrated/null or integer 1–5; existing values retained | Shared/demo schema and BE-05 create contract use this scale; BE-06 update/rating semantics remain pending |
+| Rating | Unrated/null or integer 1–5; existing values retained | BE-05 create and BE-06 update contracts use this scale |
 | Cooked date | Optional/null or real `YYYY-MM-DD` calendar date; no timezone conversion | Shared date-only shape; no invented future/past restriction |
-| Notes | Optional multiline local draft, default empty, rendered as plain text | No notes field/column or maximum has been published; not a final API field |
+| Notes | Optional multiline value, default empty, rendered as plain text and persisted | BE-06 accepts nullable notes; no maximum length is published |
 
 The published shared schemas allow empty arrays and empty nested ingredient/step
 text. The editor shows empty-state guidance and validates types but does not
 invent nonempty-list/text requirements. It also imposes no arbitrary character
-caps. Tests record these boundaries explicitly. BE-05/BE-06 must confirm minimum
-items, required nested text and maximum lengths before the live adapter ships.
+caps. Tests record these boundaries explicitly; no minimum item counts,
+required nested text, or maximum lengths are published for those fields.
 Normalized server validation codes support `required`, `invalid` and `too-long`
 feedback without rendering raw backend messages.
 
-The current editor accepts the BE-05 create contract's rating range, but an
-adapter still needs to map the draft to that request schema. BE-06 update/rating
-semantics remain pending.
-
-Notes are clearly labeled as local-only by default. If a connected callback is
-supplied while notes are nonempty and `notesSupported` is false, submission is
-blocked before invoking it. Text is retained. Do not enable `notesSupported`
-until the backend explicitly supports persisting notes; never silently omit
-them and claim success. No mock storage or localStorage draft persistence exists.
+The REST adapter maps the editor's rating and notes to the published create and
+update contracts. If a host callback is supplied while notes are nonempty and
+`notesSupported` is false, submission is blocked before invoking it. Text is
+retained. No mock storage or localStorage draft persistence exists.
 
 ## Save and loading interfaces
 
@@ -141,7 +136,7 @@ process crashes; drafts are memory-only.
 | Severity | Location | Finding and evidence | Impact | Disposition |
 | --- | --- | --- | --- | --- |
 | Medium | `frontend/src/recipe-form/RecipeForm.tsx:62` | The first fresh test run showed the `beforeunload` listener could remain active immediately after a confirmed save because a passive effect had not removed it yet. | A clean form could still show a browser leave warning just after save. | Fixed by attaching/removing the listener in a layout effect; the existing regression now passes. |
-| Medium (contract dependency) | `frontend/src/recipe-form/draft.ts:30` | Notes have no maximum-length rule because the backend has not published notes support or a limit. The default page blocks sending nonempty notes. | Notes cannot be persisted safely until the backend contract and maximum are known. | Keep notes local-only; add the confirmed limit to the shared browser schema and field feedback when BE-05/BE-06 publish it. |
+| Medium (contract dependency) | `frontend/src/recipe-form/draft.ts:30` | The published BE-06 notes field has no maximum-length rule. | The UI accepts the API's current contract without inventing a client-only limit. | Add a shared limit and field feedback if the backend publishes one. |
 | Low | `frontend/src/App.tsx:8` | The form pages are statically imported into the shared application entry. The fresh Vite build reports a 643.42 kB minified entry chunk (185.71 kB gzip), above the 500 kB warning threshold. | Larger initial download on routes that do not use the form. | Follow up with route-level code splitting if the bundle budget requires it; no unrelated bundler change was made in FE-05. |
 
 Review also confirmed stable ingredient and step row keys, contiguous step
@@ -153,61 +148,41 @@ production mock persistence were found. The `useBlocker` route guard now covers
 links, programmatic navigation, Back/Forward, another recipe ID and the editor
 Back action; FE-03 auth redirects bypass it to avoid trapping authentication.
 
-BE-05's authenticated create contract is published in
-[the recipe API handoff](../api/recipes.md), and FS-02 provides the shared
-authenticated request client. FE-05 has not wired that contract to its save
-callback. BE-06's update/rating contract and an edit-record loader are still
-pending; the default routes cannot report a fake persistent success.
+BE-05's authenticated create contract and BE-06's update/rating contract are
+published in [the recipe API handoff](../api/recipes.md). FE-05 wires the
+default pages to FS-02's authenticated request client and validates the
+returned recipe envelope and owner before reporting success.
 
-## Belen: FE-04 / FS-02 integration
+## FE-04 / FS-02 integration status
 
-1. Reuse FE-04's account-scoped QueryClientProvider and `recipeKeys`; do not add
-   a second provider or key factory. FE-04 reference:
+1. Reuses FE-04's account-scoped QueryClientProvider and `recipeKeys`; no second
+   provider or key factory is added. FE-04 reference:
    [recipe-dashboard handoff](https://github.com/2ton-exe/moris-mix-ai/blob/feat/FE-04-recipe-dashboard/docs/frontend/recipe-dashboard.md).
-2. Wire create to BE-05's authenticated `POST /functions/v1/recipes` contract
-   through FS-02's client, mapping the form draft to the published request
-   schema. Update and rating mutations still need BE-06's contract.
-3. Map draft fields to approved write schemas; preserve untouched recipe fields
-   such as flavor/lineage data by using the actual PATCH semantics. Validate
-   confirmations with the real response schema before resolving `{ id }`.
-4. Use the caller's AbortSignal and verify current account/session after token
-   retrieval. Never retry writes blindly. Normalize safe status/field errors.
-5. After confirmed persistence, invalidate the existing account list key and
-   affected detail key, or use FE-04's `recipeKeys.all(userId)` when appropriate.
-   Bind cache operations to the originating client/account and ignore obsolete
-   results. Keep cache-refresh failures distinct from failed persistence.
-6. Map FE-04's account-scoped detail query to EditRecipePage's loading/record
-   props. These standalone pages own a `<main>`, so keep them outside the
-   journal's existing `<main>` shell.
-7. Add real adapter/mutation tests for token freshness, session races, write
-   validation, confirmed persistence and list/detail invalidation. **Actual
-   TanStack mutation execution and cache invalidation are deferred and not
-   claimed tested on this FE-03-based branch.**
+2. Wires create to BE-05's authenticated `POST /functions/v1/recipes` contract
+   and edits/rating to BE-06's PATCH contract through FS-02's client.
+3. Maps draft fields to the published write schemas and validates the real
+   response before resolving `{ id }`; omitted PATCH fields remain untouched.
+4. Uses the caller's AbortSignal and verifies the current account/session after
+   token retrieval. Writes are not blindly retried; errors are normalized.
+5. After confirmed persistence, invalidates the account list and, for edits,
+   the affected detail key. Cache operations are account-scoped; cache-refresh
+   failures do not turn confirmed persistence into a failed save.
+6. Loads the FE-04 account-scoped detail into the editor after validating the
+   route ID and owner. These standalone pages own a `<main>`, so they remain
+   outside the journal's existing `<main>` shell.
+7. Adapter and page tests cover authenticated requests, validation, confirmed
+   persistence, and list/detail invalidation.
 
-## Ramos: backend requirements
-
-- [BE-06 #48](https://github.com/2ton-exe/moris-mix-ai/issues/48): publish update/
-  rating PATCH semantics, supported fields, ownership and missing-recipe errors.
-- Confirm notes support and its storage, limits for every field/list, nested
-  required fields, date behavior, and preservation of fields absent from edits.
-- Provide shared browser-compatible schemas. Do not treat the extraction/demo
-  schema or database columns as a final create/update contract.
-- Coordinate with [FS-02 #53](https://github.com/2ton-exe/moris-mix-ai/issues/53)
-  on current Bearer tokens and consistent safe error handling. Inspection found
-  create uses the published BE-05 contract; update/rating still needs BE-06.
-
-FS-02's authenticated client is available, but FE-05 has not connected a recipe
-mutation adapter. Keep the save callback behind the existing page interface.
-At request time the adapter must retrieve or
-refresh the current session, compare the expected account, attach the current
-Bearer token, honor the passed `AbortSignal`, map safe status/field errors, and
-return only after validating the real persistence response. It must not trust
-the frontend `userId` for ownership. FE-05 does not create another Supabase
-client or attach tokens itself.
+The adapter retrieves the current session at request time, checks the expected
+account, attaches the current Bearer token, honors the passed `AbortSignal`,
+maps safe status/field errors, and validates the real persistence response. It
+does not trust the frontend `userId` for ownership or create another Supabase
+client.
 
 ## Validation and milestones
 
-Validated on October 19, 2026 with Node 24.22.0 and pnpm 10.34.7. The frozen
+Historical validation for the original FE-05 form work was run on October 19,
+2026 with Node 24.22.0 and pnpm 10.34.7, before the BE-06 integration. The frozen
 install was run with `CI=true` because pnpm needed permission to recreate the
 existing `node_modules` directory in the non-interactive shell. Tests use
 deterministic callbacks/fixtures with no live credentials. FE-04 tests are not
@@ -247,23 +222,20 @@ auth redirect bypass, account-switch reset, malformed initial data, expired
 sessions, account changes, abort/late completion, and recoverable background
 refresh failures. All fixtures stay test-only.
 
-Known limitations: live API and query mutation/cache validation are blocked;
-notes persistence and final field limits require backend decisions; notes have
-no length validation until the backend publishes a maximum; auth redirects
-intentionally discard an in-memory draft; permission/missing-record edit errors
-hide the form and discard its in-memory values; and the Vite entry chunk exceeds
-its 500 kB warning threshold. No production acceptance or complete Definition
-of Done is claimed.
+Known limitations: production acceptance has not been performed; notes have no
+published maximum length; auth redirects intentionally discard an in-memory
+draft; permission/missing-record edit errors hide the form and discard its
+in-memory values; and the Vite entry chunk exceeds its 500 kB warning threshold.
 
 | Milestone | Status |
 | --- | --- |
 | Reusable form and page boundaries | Implemented |
 | Deterministic draft/interaction/callback validation | Implemented; 214 frontend tests pass, including all FE-03 regressions |
 | FE-04 query provider and route composition | Integrated; one provider and route tree |
-| REST create integration | BE-05 contract and FS-02 client available; FE-05 adapter not connected |
-| REST edit/rating integration | Blocked on BE-06 update contract and edit-record loader |
-| TanStack mutations and real cache invalidation | Not implemented |
+| REST create integration | Implemented with authenticated POST and response validation |
+| REST edit/rating integration | Implemented with authenticated GET/PATCH and response validation |
+| Account-scoped query invalidation after confirmed saves | Implemented and covered by page tests |
 | Deployed production acceptance | Not performed |
 
-FE-05 is ready for contract and shared-query integration, not fully Done. No
-commit, push or PR should be made until the user approves the reviewed result.
+FE-05 is integrated with the published REST contracts. Deployed production
+acceptance remains open.
