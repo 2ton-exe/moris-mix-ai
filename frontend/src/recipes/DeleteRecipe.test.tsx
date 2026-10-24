@@ -195,6 +195,20 @@ it('reconciles an interrupted network outcome and allows a deliberate retry', as
   expect(deleteHandler).toHaveBeenCalledTimes(2)
 })
 
+it('allows retry when DELETE returns an unexpected successful HTTP status', async () => {
+  deleteHandler.mockRejectedValueOnce(new HttpError('http', 'unexpected success status', 200))
+    .mockResolvedValueOnce(undefined)
+  renderDetail()
+  await waitForDetail()
+  const dialog = openDialog()
+  fireEvent.click(confirmButton(dialog))
+
+  expect((await screen.findByRole('alert')).textContent).toMatch(/could not confirm whether this recipe was deleted/i)
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  await screen.findByText('Recipe deleted. Your collection has been updated.')
+  expect(deleteHandler).toHaveBeenCalledTimes(2)
+})
+
 it.each([
   ['a timeout', Object.assign(new Error('private timeout detail'), { name: 'AbortError' })],
   ['an unexpected adapter error', new Error('private adapter detail')],

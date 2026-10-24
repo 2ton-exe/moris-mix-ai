@@ -24,7 +24,8 @@ export function presentDeleteError(error: Error | null): DeleteErrorPresentation
     if (error.status === 404) {
       return { message: 'This recipe is no longer available. Return to your collection to refresh it.', canRetry: false }
     }
-    if (error.kind === 'network' || error.kind === 'invalid-json' || error.retryable) {
+    const unexpectedSuccess = error.status !== undefined && error.status >= 200 && error.status < 300
+    if (error.kind === 'network' || error.kind === 'invalid-json' || error.retryable || unexpectedSuccess) {
       return { message: 'We could not confirm whether this recipe was deleted. Check your collection, then try again.', canRetry: true }
     }
     if (error.kind === 'configuration') {
