@@ -2,6 +2,11 @@ name: Reusable Staging Deployment
 
 on:
   workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
 
 concurrency:
   group: moris-mix-staging
