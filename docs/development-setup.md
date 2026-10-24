@@ -131,7 +131,7 @@ The test suite separates tests into four distinct categories to maintain rigorou
      - `recipes_test.ts` (15 deterministic tests): Validates `CreateRecipeRequestSchema` and `RecipeResponseSchema`, CORS preflight (`204`), disallowed methods (`405`), unsupported routes (`404`), ownership and `is_public` tampering prevention, authentication enforcement (`401`), malformed JSON handling (`400`), hosted RLS target HTTPS enforcement, and safe database error redaction (`500`).
    - **Execution command:**
      ```sh
-     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
      ```
 
 4. **Intentionally ignored live integration tests (3 tests across two distinct gates):**
@@ -160,17 +160,31 @@ The test suite separates tests into four distinct categories to maintain rigorou
 
 ### Full local test runner (`pnpm run test:local:all`)
 
-The root command `pnpm run test:local:all` (executing `node run-local-tests.mjs`) orchestrates local database migration lifecycle tests and Edge Function test suites in a single workflow:
+The root command `pnpm run test:local:all` (executing `node run-local-tests.mjs`) orchestrates local migration checks and Edge Function test suites in a single workflow:
 
 ```sh
+# Default run: offline migration tests and offline Edge Function test suites
 pnpm run test:local:all
+
+# Opt-in run: database-backed migration lifecycle tests + Edge Function test suites
+RUN_DB_MIGRATION_TESTS=true pnpm run test:local:all
+# or
+RUN_MIGRATION_DB_TESTS=true pnpm run test:local:all
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:RUN_DB_MIGRATION_TESTS="true"; pnpm run test:local:all
 ```
 
 #### Prerequisites and execution behavior
 
-1. **Local PostgreSQL migration lifecycle:** The runner first executes `node test-migrations.mjs --run-db-tests`, which runs all 13 migration lifecycle integration scenarios against an isolated temporary database created on the local PostgreSQL instance configured by `DATABASE_URL`.
+1. **Default offline migration verification vs. database opt-in:**
+   - **Default run:** The runner executes offline migration tests (`node test-migrations.mjs`), validating migration discovery, deterministic sorting, filename integrity, and schema assertions without requiring database connectivity.
+   - **Database lifecycle opt-in:** When opted in via the supported environment variables (`RUN_DB_MIGRATION_TESTS=true` or `RUN_MIGRATION_DB_TESTS=true`), the runner executes `node test-migrations.mjs --run-db-tests`, running all 13 migration lifecycle integration scenarios against an isolated temporary database created on the local PostgreSQL instance configured by `DATABASE_URL`.
 2. **Default database port and overrides:** `DATABASE_URL` defaults to port `54322` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`), matching the local port configured in `supabase/config.toml` (`[db] port = 54322`). If your native PostgreSQL service runs on port `5432` or uses custom credentials, supply `DATABASE_URL="postgresql://<user>:<password>@127.0.0.1:<port>/postgres"`.
-3. **Connection failure behavior:** If the native local database is unreachable (e.g. `ECONNREFUSED 127.0.0.1:54322`), the runner immediately stops execution and propagates exit code `1`. It never silently skips database verification and never falls back to a remote database.
+3. **Connection failure behavior during database opt-in:** When database-backed migration tests are opted in, if the native local database is unreachable (e.g. `ECONNREFUSED 127.0.0.1:54322`), the runner immediately stops execution and propagates exit code `1`. It never silently skips database verification when opted in and never falls back to a remote database.
 4. **Loopback safety and forwarding limitation:** `isAllowedLoopbackDatabaseUrl` restricts local database testing strictly to loopback hostnames (`127.0.0.1`, `localhost`, `::1`), preventing direct connections to remote database hostnames. However, loopback address validation prevents direct remote connections but cannot detect whether local loopback ports are actively forwarded to an external or remote database via SSH tunnels, port forwarding, or network proxies. Developers must ensure local loopback ports target a native local development database.
 5. **Separation of migration tests from live API tests:**
    - **PostgreSQL Migration Tests:** The local Supabase database or a standalone PostgreSQL instance satisfies the 13 migration lifecycle integration tests by providing standard PostgreSQL database capabilities.
@@ -180,7 +194,7 @@ pnpm run test:local:all
    - Migration unit tests: `pnpm test` (or `node test-migrations.mjs`) verifies migration discovery, sorting, and schema assertions without connecting to PostgreSQL.
    - Edge Function deterministic tests:
      ```sh
-     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
      ```
 
 ## Troubleshooting

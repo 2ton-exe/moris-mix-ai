@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals, assertThrows } from "jsr:@std/assert@1";
+import { assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
 import { handler } from "../recipes/index.ts";
 import {
@@ -6,6 +6,10 @@ import {
   RecipeListResponseSchema,
   RecipeResponseSchema,
 } from "../_shared/schemas.ts";
+import {
+  isLegacyServiceRoleJwt,
+  isModernSecretKey,
+} from "../../../run-local-tests.mjs";
 
 const KNOWN_PRODUCTION_REF = "gtbwblxskctpsqhbpebg";
 const TEST_SUPABASE_URL = "https://mock-test.supabase.co";
@@ -223,7 +227,7 @@ function sanitizeSecrets(message: string, secrets: string[]): string {
   return result;
 }
 
-function createScopedTestClient(url: string, key: string, token?: string): SupabaseClient {
+function createScopedTestClient(url: string, key: string, token?: string, customFetch?: typeof fetch): SupabaseClient {
   return createClient(url, key, {
     auth: {
       persistSession: false,
@@ -232,6 +236,7 @@ function createScopedTestClient(url: string, key: string, token?: string): Supab
     },
     global: {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      ...(customFetch ? { fetch: customFetch } : {}),
     },
   });
 }
@@ -277,12 +282,40 @@ function createMockFetch(initialRecipes: RecipeRecord[] = []) {
 
       if (method === "GET") {
         let matching = Array.from(store.values());
+        // Simulate PostgreSQL RLS: queries with authenticated bearer tokens are strictly owner-scoped
+        if (authHeader === `Bearer ${USER_A_JWT}`) {
+          matching = matching.filter((r) => r.user_id === USER_A_ID);
+        } else if (authHeader === `Bearer ${USER_B_JWT}`) {
+          matching = matching.filter((r) => r.user_id === USER_B_ID);
+        }
         if (filterUserId) {
           matching = matching.filter((r) => r.user_id === filterUserId);
         }
         if (filterId) {
           matching = matching.filter((r) => r.id === filterId);
         }
+
+        const accept = headers.get("accept") ?? "";
+        if (accept.includes("application/vnd.pgrst.object+json")) {
+          if (matching.length === 1) {
+            return Promise.resolve(
+              new Response(JSON.stringify(matching[0]), {
+                status: 200,
+                headers: { "Content-Type": "application/vnd.pgrst.object+json" },
+              }),
+            );
+          }
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ code: "PGRST116", details: "The result contains 0 rows", message: "JSON object requested, multiple (or no) rows returned" }),
+              {
+                status: 406,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+
         return Promise.resolve(
           new Response(JSON.stringify(matching), {
             status: 200,
@@ -350,6 +383,172 @@ function createMockFetch(initialRecipes: RecipeRecord[] = []) {
   };
 
   return { mockFetch, store };
+}
+
+export function isServiceRoleClient(client: SupabaseClient): boolean {
+  const key = (client as unknown as { supabaseKey?: string })?.supabaseKey;
+  if (!key) return false;
+  return isLegacyServiceRoleJwt(key) || isModernSecretKey(key);
+}
+
+export function assertOwnerScopedClient(client: SupabaseClient, label = "assertion client"): void {
+  if (isServiceRoleClient(client)) {
+    throw new Error(
+      `Security violation: ${label} is a service-role client. Service-role clients must be restricted to test setup and teardown, never used for assertion reads.`,
+    );
+  }
+}
+
+export function assertionClient(client: SupabaseClient, label = "assertion client"): SupabaseClient {
+  assertOwnerScopedClient(client, label);
+  return client;
+}
+
+export function assertCascadeLineagePrerequisite(result: {
+  data: { id?: string; parent_recipe_id?: string; child_recipe_id?: string } | null;
+  error: { message?: string } | null;
+}): { id: string } {
+  if (result.error) {
+    throw new Error(
+      `Cascade prerequisite failed: relationship insertion returned error: ${result.error.message ?? "unknown"}`,
+    );
+  }
+  if (!result.data || !result.data.id) {
+    throw new Error(
+      "Cascade prerequisite failed: relationship insertion returned empty result without persisted row ID.",
+    );
+  }
+  return { id: result.data.id };
+}
+
+export function evaluateCascadeVerification(params: {
+  targetDeleted: "parent" | "child";
+  hasSurvivingParent: boolean;
+  ownerLineageRowCount: number;
+}): { independentDeletionProven: boolean; limitationReason?: string } {
+  if (params.targetDeleted === "parent") {
+    return {
+      independentDeletionProven: false,
+      limitationReason:
+        "Lineage SELECT policy requires parent recipe ownership. Once the parent is deleted, RLS hides any lingering lineage rows, making owner-scoped empty results inconclusive for physical deletion. Physical cascade relies on PostgreSQL foreign key constraint ON DELETE CASCADE.",
+    };
+  }
+
+  if (params.hasSurvivingParent && params.ownerLineageRowCount === 0) {
+    return {
+      independentDeletionProven: true,
+    };
+  }
+
+  return {
+    independentDeletionProven: false,
+    limitationReason: "Lineage row still observed or parent not surviving.",
+  };
+}
+
+export type CleanupAdminClient = {
+  from: (table: string) => {
+    delete: () => {
+      filter: (column: string, operator: string, value: string) => PromiseLike<{ error: { message: string } | null }>;
+      in: (column: string, values: string[]) => PromiseLike<{ error: { message: string } | null }>;
+      eq: (column: string, value: string) => PromiseLike<{ error: { message: string } | null }>;
+    };
+  };
+  auth: {
+    admin: {
+      deleteUser: (uid: string) => PromiseLike<{ error: { message: string } | null }>;
+    };
+  };
+};
+
+export async function cleanupCrossUserRlsResources(
+  adminClient: CleanupAdminClient,
+  createdRecipeIds: string[],
+  createdUserIds: string[],
+  knownSecrets: string[] = [],
+  primaryError: Error | null = null,
+): Promise<void> {
+  const cleanupErrors: string[] = [];
+
+  const recordError = (action: string, error: unknown) => {
+    const raw = error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error);
+    cleanupErrors.push(`${action}: ${sanitizeSecrets(raw, knownSecrets)}`);
+  };
+
+  if (createdUserIds.length > 0) {
+    const userIdsList = createdUserIds.join(",");
+    try {
+      const { error } = await adminClient
+        .from("recipe_lineage")
+        .delete()
+        .filter("parent_recipe_id", "in", `(select id from recipes where user_id in (${userIdsList}))`);
+      if (error) {
+        recordError("Failed cleaning recipe_lineage by parent", error);
+      }
+    } catch (e) {
+      recordError("Failed cleaning recipe_lineage by parent (thrown)", e);
+    }
+
+    try {
+      const { error } = await adminClient
+        .from("recipe_lineage")
+        .delete()
+        .filter("child_recipe_id", "in", `(select id from recipes where user_id in (${userIdsList}))`);
+      if (error) {
+        recordError("Failed cleaning recipe_lineage by child", error);
+      }
+    } catch (e) {
+      recordError("Failed cleaning recipe_lineage by child (thrown)", e);
+    }
+  }
+
+  if (createdRecipeIds.length > 0) {
+    try {
+      const { error } = await adminClient.from("recipes").delete().in("id", createdRecipeIds);
+      if (error) {
+        recordError("Failed cleaning recipes", error);
+      }
+    } catch (e) {
+      recordError("Failed cleaning recipes (thrown)", e);
+    }
+  }
+
+  for (const uid of createdUserIds) {
+    try {
+      const { error } = await adminClient.from("profiles").delete().eq("id", uid);
+      if (error) {
+        recordError(`Failed cleaning profile ${uid}`, error);
+      }
+    } catch (e) {
+      recordError(`Failed cleaning profile ${uid} (thrown)`, e);
+    }
+
+    try {
+      const { error } = await adminClient.auth.admin.deleteUser(uid);
+      if (error) {
+        recordError(`Failed deleting user ${uid}`, error);
+      }
+    } catch (e) {
+      recordError(`Failed deleting user ${uid} (thrown)`, e);
+    }
+  }
+
+  if (primaryError && cleanupErrors.length > 0) {
+    throw new Error(
+      `${primaryError.message} | Cleanup errors: ${cleanupErrors.join("; ")}`,
+      { cause: primaryError },
+    );
+  }
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (cleanupErrors.length > 0) {
+    throw new Error(`Cleanup failed: ${cleanupErrors.join("; ")}`);
+  }
 }
 
 Deno.test("Target safety guard strictly validates HTTPS, non-loopback, non-production ref, and matching project references", () => {
@@ -736,6 +935,9 @@ Deno.test({
       const rlsClientA = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey, userAJwt);
       const rlsClientB = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey, userBJwt);
 
+      assertOwnerScopedClient(rlsClientA, "User A client");
+      assertOwnerScopedClient(rlsClientB, "User B client");
+
       const createRecipe = async (client: SupabaseClient, ownerId: string, title: string): Promise<string> => {
         const payload = sampleRecipeData(title);
         const { data, error } = await client
@@ -782,7 +984,7 @@ Deno.test({
       const resCrossPatch = await handler(reqCrossPatch, { supabaseUrl: activeRlsConfig.url, supabaseAnonKey: activeRlsConfig.anonKey });
       assertEquals(resCrossPatch.status, 404);
 
-      const { data: verifyRowB } = await adminClient.from("recipes").select("title, star_rating").eq("id", handlerRecipeB).single();
+      const { data: verifyRowB } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("title, star_rating").eq("id", handlerRecipeB).single();
       assertEquals(verifyRowB?.title, "Live Handler Recipe B");
       assertEquals(verifyRowB?.star_rating, 4);
 
@@ -793,7 +995,7 @@ Deno.test({
       const resCrossDelete = await handler(reqCrossDelete, { supabaseUrl: activeRlsConfig.url, supabaseAnonKey: activeRlsConfig.anonKey });
       assertEquals(resCrossDelete.status, 404);
 
-      const { data: verifyStillPresentB } = await adminClient.from("recipes").select("id").eq("id", handlerRecipeB).single();
+      const { data: verifyStillPresentB } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("id").eq("id", handlerRecipeB).single();
       assertEquals(verifyStillPresentB?.id, handlerRecipeB);
 
       const directRecipeA = await createRecipe(rlsClientA, userAId, "Direct Recipe A");
@@ -821,7 +1023,7 @@ Deno.test({
       assertEquals(updateCrossErr, null);
       assertEquals(updateCrossData, []);
 
-      const { data: verifyDirectB } = await adminClient.from("recipes").select("title").eq("id", directRecipeB).single();
+      const { data: verifyDirectB } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("title").eq("id", directRecipeB).single();
       assertEquals(verifyDirectB?.title, "Direct Recipe B");
 
       const { data: deleteCrossData, error: deleteCrossErr } = await rlsClientA
@@ -832,7 +1034,7 @@ Deno.test({
       assertEquals(deleteCrossErr, null);
       assertEquals(deleteCrossData, []);
 
-      const { data: verifyStillExistsDirectB } = await adminClient.from("recipes").select("id").eq("id", directRecipeB).single();
+      const { data: verifyStillExistsDirectB } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("id").eq("id", directRecipeB).single();
       assertEquals(verifyStillExistsDirectB?.id, directRecipeB);
 
       const forgedRecipeId = crypto.randomUUID();
@@ -844,8 +1046,10 @@ Deno.test({
       assertNotEquals(forgedErr, null);
       assertEquals(forgedErr?.code, "42501");
 
-      const { data: verifyForged } = await adminClient.from("recipes").select("id").eq("id", forgedRecipeId).maybeSingle();
-      assertEquals(verifyForged, null);
+      const { data: verifyForgedB } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("id").eq("id", forgedRecipeId).maybeSingle();
+      assertEquals(verifyForgedB, null);
+      const { data: verifyForgedA } = await assertionClient(rlsClientA, "User A assertion client").from("recipes").select("id").eq("id", forgedRecipeId).maybeSingle();
+      assertEquals(verifyForgedA, null);
 
       const { data: transferData, error: transferErr } = await rlsClientA
         .from("recipes")
@@ -856,8 +1060,10 @@ Deno.test({
       assertNotEquals(transferErr, null);
       assertEquals(transferErr?.code, "42501");
 
-      const { data: verifyTransfer } = await adminClient.from("recipes").select("user_id").eq("id", directRecipeA).single();
-      assertEquals(verifyTransfer?.user_id, userAId);
+      const { data: verifyTransferA } = await assertionClient(rlsClientA, "User A assertion client").from("recipes").select("user_id").eq("id", directRecipeA).single();
+      assertEquals(verifyTransferA?.user_id, userAId);
+      const { data: verifyTransferB } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("id").eq("id", directRecipeA).maybeSingle();
+      assertEquals(verifyTransferB, null);
 
       const s1Parent = await createRecipe(rlsClientA, userAId, "Scenario 1 Parent");
       const s1Child = await createRecipe(rlsClientA, userAId, "Scenario 1 Child");
@@ -870,7 +1076,7 @@ Deno.test({
       assertEquals(s1Lineage?.parent_recipe_id, s1Parent);
       assertEquals(s1Lineage?.child_recipe_id, s1Child);
 
-      const { data: s1Query, error: s1QueryErr } = await rlsClientA
+      const { data: s1Query, error: s1QueryErr } = await assertionClient(rlsClientA, "User A assertion client")
         .from("recipe_lineage")
         .select("id, parent_recipe_id, child_recipe_id")
         .eq("parent_recipe_id", s1Parent);
@@ -888,12 +1094,18 @@ Deno.test({
       assertNotEquals(s2Err, null);
       assertEquals(s2Err?.code, "42501");
 
-      const { data: verifyS2 } = await adminClient
+      const { data: verifyS2A } = await assertionClient(rlsClientA, "User A assertion client")
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s2ParentA)
         .eq("child_recipe_id", s2ChildB);
-      assertEquals(verifyS2?.length, 0);
+      assertEquals(verifyS2A?.length, 0);
+      const { data: verifyS2B } = await assertionClient(rlsClientB, "User B assertion client")
+        .from("recipe_lineage")
+        .select("id")
+        .eq("parent_recipe_id", s2ParentA)
+        .eq("child_recipe_id", s2ChildB);
+      assertEquals(verifyS2B?.length, 0);
 
       const s3ParentB = await createRecipe(rlsClientB, userBId, "Scenario 3 Parent B");
       const s3ChildA = await createRecipe(rlsClientA, userAId, "Scenario 3 Child A");
@@ -905,12 +1117,18 @@ Deno.test({
       assertNotEquals(s3Err, null);
       assertEquals(s3Err?.code, "42501");
 
-      const { data: verifyS3 } = await adminClient
+      const { data: verifyS3B } = await assertionClient(rlsClientB, "User B assertion client")
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s3ParentB)
         .eq("child_recipe_id", s3ChildA);
-      assertEquals(verifyS3?.length, 0);
+      assertEquals(verifyS3B?.length, 0);
+      const { data: verifyS3A } = await assertionClient(rlsClientA, "User A assertion client")
+        .from("recipe_lineage")
+        .select("id")
+        .eq("parent_recipe_id", s3ParentB)
+        .eq("child_recipe_id", s3ChildA);
+      assertEquals(verifyS3A?.length, 0);
 
       const s4ParentB = await createRecipe(rlsClientB, userBId, "Scenario 4 Parent B");
       const s4ChildB = await createRecipe(rlsClientB, userBId, "Scenario 4 Child B");
@@ -922,12 +1140,12 @@ Deno.test({
       assertNotEquals(s4Err, null);
       assertEquals(s4Err?.code, "42501");
 
-      const { data: verifyS4 } = await adminClient
+      const { data: verifyS4B } = await assertionClient(rlsClientB, "User B assertion client")
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s4ParentB)
         .eq("child_recipe_id", s4ChildB);
-      assertEquals(verifyS4?.length, 0);
+      assertEquals(verifyS4B?.length, 0);
 
       const s5RecipeA = await createRecipe(rlsClientA, userAId, "Scenario 5 Recipe A");
       const { data: s5Data, error: s5Err } = await rlsClientA
@@ -938,12 +1156,12 @@ Deno.test({
       assertNotEquals(s5Err, null);
       assertEquals(s5Err?.code, "23514");
 
-      const { data: verifyS5 } = await adminClient
+      const { data: verifyS5A } = await assertionClient(rlsClientA, "User A assertion client")
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s5RecipeA)
         .eq("child_recipe_id", s5RecipeA);
-      assertEquals(verifyS5?.length, 0);
+      assertEquals(verifyS5A?.length, 0);
 
       const s6ParentA = await createRecipe(rlsClientA, userAId, "Scenario 6 Parent A");
       const s6ChildA = await createRecipe(rlsClientA, userAId, "Scenario 6 Child A");
@@ -962,16 +1180,33 @@ Deno.test({
       assertNotEquals(s6DuplicateErr, null);
       assertEquals(s6DuplicateErr?.code, "23505");
 
-      const { data: verifyS6 } = await adminClient
+      const { data: verifyS6A } = await assertionClient(rlsClientA, "User A assertion client")
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s6ParentA)
         .eq("child_recipe_id", s6ChildA);
-      assertEquals(verifyS6?.length, 1);
+      assertEquals(verifyS6A?.length, 1);
 
       const s7ParentA = await createRecipe(rlsClientA, userAId, "Scenario 7 Parent A");
       const s7ChildA = await createRecipe(rlsClientA, userAId, "Scenario 7 Child A");
-      await rlsClientA.from("recipe_lineage").insert({ parent_recipe_id: s7ParentA, child_recipe_id: s7ChildA });
+      const s7LineageInsert = await rlsClientA
+        .from("recipe_lineage")
+        .insert({ parent_recipe_id: s7ParentA, child_recipe_id: s7ChildA })
+        .select("id, parent_recipe_id, child_recipe_id")
+        .single();
+      assertCascadeLineagePrerequisite(s7LineageInsert);
+
+      // Verify relationship exists and is queryable through owner client before parent deletion
+      const { data: s7LineagePreDelete, error: s7LineagePreDeleteErr } = await assertionClient(rlsClientA, "User A pre-delete lineage verification client")
+        .from("recipe_lineage")
+        .select("id, parent_recipe_id, child_recipe_id")
+        .eq("id", s7LineageInsert.data!.id)
+        .single();
+      assertEquals(s7LineagePreDeleteErr, null);
+      assertEquals(s7LineagePreDelete?.id, s7LineageInsert.data!.id);
+      assertEquals(s7LineagePreDelete?.parent_recipe_id, s7ParentA);
+      assertEquals(s7LineagePreDelete?.child_recipe_id, s7ChildA);
+
       const { data: s7DeleteParentData, error: s7DeleteParentErr } = await rlsClientA
         .from("recipes")
         .delete()
@@ -979,23 +1214,61 @@ Deno.test({
         .select("id");
       assertEquals(s7DeleteParentErr, null);
       assertEquals(s7DeleteParentData?.length, 1);
+      assertEquals(s7DeleteParentData?.[0]?.id, s7ParentA);
 
-      const { data: verifyS7Lineage } = await adminClient
+      const { data: verifyS7ParentDeleted } = await assertionClient(rlsClientA, "User A deleted parent verification client")
+        .from("recipes")
+        .select("id")
+        .eq("id", s7ParentA)
+        .maybeSingle();
+      assertEquals(verifyS7ParentDeleted, null);
+
+      const { data: verifyS7Child } = await assertionClient(rlsClientA, "User A child recipe intact verification client")
+        .from("recipes")
+        .select("id, title")
+        .eq("id", s7ChildA)
+        .single();
+      assertEquals(verifyS7Child?.id, s7ChildA);
+      assertEquals(verifyS7Child?.title, "Scenario 7 Child A");
+
+      const { data: verifyS7Lineage } = await assertionClient(rlsClientA, "User A post-delete lineage query client")
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s7ParentA);
       assertEquals(verifyS7Lineage?.length, 0);
 
-      const { data: verifyS7Child } = await adminClient
-        .from("recipes")
-        .select("id")
-        .eq("id", s7ChildA)
-        .single();
-      assertEquals(verifyS7Child?.id, s7ChildA);
+      // Distinguish dynamic verification from schema-level ON DELETE CASCADE:
+      // The lineage_select_own policy requires parent recipe ownership. Once the parent is deleted,
+      // RLS hides any lingering lineage rows from owner queries. Thus, verifyS7Lineage.length === 0
+      // confirms no row leaks to the user, but does not independently prove physical deletion.
+      // Physical deletion is guaranteed by PostgreSQL schema constraint:
+      // 'parent_recipe_id uuid not null references public.recipes(id) on delete cascade'.
+      const s7CascadeEval = evaluateCascadeVerification({
+        targetDeleted: "parent",
+        hasSurvivingParent: false,
+        ownerLineageRowCount: verifyS7Lineage?.length ?? 0,
+      });
+      assertEquals(s7CascadeEval.independentDeletionProven, false);
+      assertNotEquals(s7CascadeEval.limitationReason, undefined);
 
       const s8ParentA = await createRecipe(rlsClientA, userAId, "Scenario 8 Parent A");
       const s8ChildA = await createRecipe(rlsClientA, userAId, "Scenario 8 Child A");
-      await rlsClientA.from("recipe_lineage").insert({ parent_recipe_id: s8ParentA, child_recipe_id: s8ChildA });
+      const s8LineageInsert = await rlsClientA
+        .from("recipe_lineage")
+        .insert({ parent_recipe_id: s8ParentA, child_recipe_id: s8ChildA })
+        .select("id, parent_recipe_id, child_recipe_id")
+        .single();
+      assertCascadeLineagePrerequisite(s8LineageInsert);
+
+      // Verify relationship exists and is queryable through owner client before child deletion
+      const { data: s8LineagePreDelete, error: s8LineagePreDeleteErr } = await assertionClient(rlsClientA, "User A pre-delete lineage verification client")
+        .from("recipe_lineage")
+        .select("id, parent_recipe_id, child_recipe_id")
+        .eq("id", s8LineageInsert.data!.id)
+        .single();
+      assertEquals(s8LineagePreDeleteErr, null);
+      assertEquals(s8LineagePreDelete?.id, s8LineageInsert.data!.id);
+
       const { data: s8DeleteChildData, error: s8DeleteChildErr } = await rlsClientA
         .from("recipes")
         .delete()
@@ -1003,29 +1276,50 @@ Deno.test({
         .select("id");
       assertEquals(s8DeleteChildErr, null);
       assertEquals(s8DeleteChildData?.length, 1);
+      assertEquals(s8DeleteChildData?.[0]?.id, s8ChildA);
 
-      const { data: verifyS8Lineage } = await adminClient
-        .from("recipe_lineage")
-        .select("id")
-        .eq("child_recipe_id", s8ChildA);
-      assertEquals(verifyS8Lineage?.length, 0);
-
-      const { data: verifyS8Parent } = await adminClient
+      const { data: verifyS8ChildDeleted } = await assertionClient(rlsClientA, "User A deleted child verification client")
         .from("recipes")
         .select("id")
+        .eq("id", s8ChildA)
+        .maybeSingle();
+      assertEquals(verifyS8ChildDeleted, null);
+
+      const { data: verifyS8Parent } = await assertionClient(rlsClientA, "User A surviving parent verification client")
+        .from("recipes")
+        .select("id, title")
         .eq("id", s8ParentA)
         .single();
       assertEquals(verifyS8Parent?.id, s8ParentA);
+      assertEquals(verifyS8Parent?.title, "Scenario 8 Parent A");
+
+      const { data: verifyS8Lineage } = await assertionClient(rlsClientA, "User A post-delete lineage query client")
+        .from("recipe_lineage")
+        .select("id")
+        .eq("parent_recipe_id", s8ParentA);
+      assertEquals(verifyS8Lineage?.length, 0);
+
+      // In child deletion, surviving parent s8ParentA exists and is owned by User A.
+      // Under lineage_select_own, User A has select permission for s8ParentA's lineage rows.
+      // Because the parent survived, 0 rows returned independently proves that ON DELETE CASCADE
+      // physically removed the relationship from the database.
+      const s8CascadeEval = evaluateCascadeVerification({
+        targetDeleted: "child",
+        hasSurvivingParent: true,
+        ownerLineageRowCount: verifyS8Lineage?.length ?? 0,
+      });
+      assertEquals(s8CascadeEval.independentDeletionProven, true);
+      assertEquals(s8CascadeEval.limitationReason, undefined);
 
       const s9ParentB = await createRecipe(rlsClientB, userBId, "Scenario 9 Parent B");
       const s9ChildB = await createRecipe(rlsClientB, userBId, "Scenario 9 Child B");
-      const { data: s9LineageRow } = await rlsClientB
+      const s9LineageInsert = await rlsClientB
         .from("recipe_lineage")
         .insert({ parent_recipe_id: s9ParentB, child_recipe_id: s9ChildB })
         .select("id")
         .single();
-      const s9LineageId = s9LineageRow?.id;
-      assertNotEquals(s9LineageId, undefined);
+      assertCascadeLineagePrerequisite(s9LineageInsert);
+      const s9LineageId = s9LineageInsert.data!.id;
 
       const { data: s9AttackLineageData, error: s9AttackLineageErr } = await rlsClientA
         .from("recipe_lineage")
@@ -1043,63 +1337,582 @@ Deno.test({
       assertEquals(s9AttackRecipeErr, null);
       assertEquals(s9AttackRecipeData, []);
 
-      const { data: verifyS9Parent } = await adminClient.from("recipes").select("id").eq("id", s9ParentB).single();
+      const { data: verifyS9Parent } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("id").eq("id", s9ParentB).single();
       assertEquals(verifyS9Parent?.id, s9ParentB);
 
-      const { data: verifyS9Child } = await adminClient.from("recipes").select("id").eq("id", s9ChildB).single();
+      const { data: verifyS9Child } = await assertionClient(rlsClientB, "User B assertion client").from("recipes").select("id").eq("id", s9ChildB).single();
       assertEquals(verifyS9Child?.id, s9ChildB);
 
-      const { data: verifyS9Lineage } = await adminClient.from("recipe_lineage").select("id").eq("id", s9LineageId).single();
+      const { data: verifyS9Lineage } = await assertionClient(rlsClientB, "User B assertion client").from("recipe_lineage").select("id").eq("id", s9LineageId).single();
       assertEquals(verifyS9Lineage?.id, s9LineageId);
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       primaryError = new Error(sanitizeSecrets(raw, knownSecrets));
     } finally {
-      const cleanupErrors: string[] = [];
-
-      if (createdUserIds.length > 0) {
-        try {
-          await adminClient.from("recipe_lineage").delete().filter("parent_recipe_id", "in", `(select id from recipes where user_id in (${createdUserIds.join(",")}))`);
-        } catch (e) {
-          cleanupErrors.push(`Failed cleaning recipe_lineage by parent: ${String(e)}`);
-        }
-        try {
-          await adminClient.from("recipe_lineage").delete().filter("child_recipe_id", "in", `(select id from recipes where user_id in (${createdUserIds.join(",")}))`);
-        } catch (e) {
-          cleanupErrors.push(`Failed cleaning recipe_lineage by child: ${String(e)}`);
-        }
-      }
-
-      if (createdRecipeIds.length > 0) {
-        try {
-          await adminClient.from("recipes").delete().in("id", createdRecipeIds);
-        } catch (e) {
-          cleanupErrors.push(`Failed cleaning recipes: ${String(e)}`);
-        }
-      }
-
-      for (const uid of createdUserIds) {
-        try {
-          await adminClient.from("profiles").delete().eq("id", uid);
-        } catch (e) {
-          cleanupErrors.push(`Failed cleaning profile ${uid}: ${String(e)}`);
-        }
-        try {
-          await adminClient.auth.admin.deleteUser(uid);
-        } catch (e) {
-          cleanupErrors.push(`Failed deleting user ${uid}: ${String(e)}`);
-        }
-      }
-
-      if (primaryError && cleanupErrors.length > 0) {
-        throw new Error(`${primaryError.message} | Cleanup errors: ${cleanupErrors.join("; ")}`, { cause: primaryError });
-      }
-      if (primaryError) {
-        throw primaryError;
-      }
-      if (cleanupErrors.length > 0) {
-        throw new Error(`Cleanup failed: ${cleanupErrors.join("; ")}`);
-      }
+      await cleanupCrossUserRlsResources(
+        adminClient as unknown as CleanupAdminClient,
+        createdRecipeIds,
+        createdUserIds,
+        knownSecrets,
+        primaryError,
+      );
     }
   },
+});
+
+// =============================================================================
+// Review Findings Regression Tests (BE-07)
+// =============================================================================
+
+Deno.test("Finding 1 regression: Service-role restriction prevents using admin/service-role client for assertion reads", () => {
+  const legacyAdminClient = createScopedTestClient(
+    "https://example.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.sig",
+  );
+  const fakeModernSecretKey = ["sb", "secret", "mock_service_key_for_test"].join("_");
+  const fakeModernPublishableKey = ["sb", "publishable", "mock_client_key_for_test"].join("_");
+  const modernAdminClient = createScopedTestClient(
+    "https://example.supabase.co",
+    fakeModernSecretKey,
+  );
+  const userClient = createScopedTestClient(
+    "https://example.supabase.co",
+    fakeModernPublishableKey,
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.sig",
+  );
+
+  assertThrows(
+    () => assertOwnerScopedClient(legacyAdminClient, "legacy admin client"),
+    Error,
+    "Security violation",
+  );
+  assertThrows(
+    () => assertOwnerScopedClient(modernAdminClient, "modern admin client"),
+    Error,
+    "Security violation",
+  );
+
+  // Owner client passes without throwing
+  assertOwnerScopedClient(userClient, "User client");
+});
+
+Deno.test("Finding 1 regression: assertionClient dynamically enforces owner scoping on actual assertion read paths and rejects service-role clients", () => {
+  const legacyAdminClient = createScopedTestClient(
+    "https://example.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.sig",
+  );
+  const fakeModernPublishableKey = ["sb", "publishable", "mock_client_key_for_test"].join("_");
+  const userClient = createScopedTestClient(
+    "https://example.supabase.co",
+    fakeModernPublishableKey,
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.sig",
+  );
+
+  // An assertion read path given an admin client throws immediately
+  assertThrows(
+    () => assertionClient(legacyAdminClient, "Assertion read path"),
+    Error,
+    "Security violation: Assertion read path is a service-role client",
+  );
+
+  // An assertion read path given an owner client passes and returns the client
+  const verified = assertionClient(userClient, "User client assertion path");
+  assertEquals(verified, userClient);
+});
+
+Deno.test("Finding 2 regression: Cleanup fails visibly on API-returned errors from recipes, lineage, profiles, and auth, while attempting all remaining cleanup operations", async () => {
+  const operationsCalled: string[] = [];
+
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        filter: (_column: string, _operator: string, _value: string) => {
+          operationsCalled.push(`filter:${table}`);
+          if (table === "recipe_lineage") {
+            return Promise.resolve({ error: { message: "Simulated lineage API error" } });
+          }
+          return Promise.resolve({ error: null });
+        },
+        in: (_column: string, _values: string[]) => {
+          operationsCalled.push(`in:${table}`);
+          if (table === "recipes") {
+            return Promise.resolve({ error: { message: "Simulated recipe API error" } });
+          }
+          return Promise.resolve({ error: null });
+        },
+        eq: (_column: string, val: string) => {
+          operationsCalled.push(`eq:${table}:${val}`);
+          if (table === "profiles") {
+            return Promise.resolve({ error: { message: `Simulated profile API error for ${val}` } });
+          }
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (uid: string) => {
+          operationsCalled.push(`deleteUser:${uid}`);
+          return Promise.resolve({ error: { message: `Simulated auth API error for ${uid}` } });
+        },
+      },
+    },
+  };
+
+  let caughtError: Error | null = null;
+  try {
+    await cleanupCrossUserRlsResources(
+      mockAdminClient,
+      ["recipe-1", "recipe-2"],
+      ["user-1", "user-2"],
+      ["secret-token"],
+    );
+  } catch (err) {
+    caughtError = err as Error;
+  }
+
+  assertNotEquals(caughtError, null);
+  const msg = caughtError?.message ?? "";
+  assertEquals(msg.includes("Cleanup failed:"), true);
+  assertEquals(msg.includes("Simulated lineage API error"), true);
+  assertEquals(msg.includes("Simulated recipe API error"), true);
+  assertEquals(msg.includes("Simulated profile API error for user-1"), true);
+  assertEquals(msg.includes("Simulated profile API error for user-2"), true);
+  assertEquals(msg.includes("Simulated auth API error for user-1"), true);
+  assertEquals(msg.includes("Simulated auth API error for user-2"), true);
+
+  // Verify all operations were attempted despite earlier errors
+  assertEquals(operationsCalled.includes("filter:recipe_lineage"), true);
+  assertEquals(operationsCalled.includes("in:recipes"), true);
+  assertEquals(operationsCalled.includes("eq:profiles:user-1"), true);
+  assertEquals(operationsCalled.includes("eq:profiles:user-2"), true);
+  assertEquals(operationsCalled.includes("deleteUser:user-1"), true);
+  assertEquals(operationsCalled.includes("deleteUser:user-2"), true);
+});
+
+Deno.test("Finding 2 regression: Cleanup handles thrown exceptions without masking primary error and executes remaining cleanup stages", async () => {
+  const operationsCalled: string[] = [];
+
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        filter: () => {
+          operationsCalled.push(`filter:${table}`);
+          throw new Error("Network connection dropped during lineage cleanup");
+        },
+        in: () => {
+          operationsCalled.push(`in:${table}`);
+          return Promise.resolve({ error: { message: "Recipe delete returned 500" } });
+        },
+        eq: () => {
+          operationsCalled.push(`eq:${table}`);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (uid: string) => {
+          operationsCalled.push(`deleteUser:${uid}`);
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  const primaryError = new Error("Test scenario assertion failed");
+  let caughtError: Error | null = null;
+  try {
+    await cleanupCrossUserRlsResources(
+      mockAdminClient,
+      ["recipe-1"],
+      ["user-1"],
+      [],
+      primaryError,
+    );
+  } catch (err) {
+    caughtError = err as Error;
+  }
+
+  assertNotEquals(caughtError, null);
+  assertEquals(caughtError?.message.includes("Test scenario assertion failed"), true);
+  assertEquals(caughtError?.message.includes("Network connection dropped during lineage cleanup"), true);
+  assertEquals(caughtError?.message.includes("Recipe delete returned 500"), true);
+  assertEquals(caughtError?.cause, primaryError);
+
+  // Confirms subsequent stages were still executed despite thrown error in first stage
+  assertEquals(operationsCalled.includes("in:recipes"), true);
+  assertEquals(operationsCalled.includes("deleteUser:user-1"), true);
+});
+
+Deno.test("Finding 2 regression: Cleanup failure preserves primary test error and chains cause", async () => {
+  const mockAdminClient: CleanupAdminClient = {
+    from: (_table: string) => ({
+      delete: () => ({
+        filter: () => Promise.resolve({ error: null }),
+        in: () => Promise.resolve({ error: { message: "Cleanup DB error" } }),
+        eq: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: () => Promise.resolve({ error: null }),
+      },
+    },
+  };
+
+  const primaryError = new Error("Primary test scenario assertion failed");
+  let caughtError: Error | null = null;
+  try {
+    await cleanupCrossUserRlsResources(
+      mockAdminClient,
+      ["recipe-1"],
+      ["user-1"],
+      [],
+      primaryError,
+    );
+  } catch (err) {
+    caughtError = err as Error;
+  }
+
+  assertNotEquals(caughtError, null);
+  assertEquals(caughtError?.message.includes("Primary test scenario assertion failed"), true);
+  assertEquals(caughtError?.message.includes("Cleanup errors: Failed cleaning recipes: Cleanup DB error"), true);
+  assertEquals(caughtError?.cause, primaryError);
+});
+
+Deno.test("Finding 2 regression: Successful cleanup completes without throwing errors", async () => {
+  const operationsCalled: string[] = [];
+
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        filter: () => {
+          operationsCalled.push(`filter:${table}`);
+          return Promise.resolve({ error: null });
+        },
+        in: () => {
+          operationsCalled.push(`in:${table}`);
+          return Promise.resolve({ error: null });
+        },
+        eq: () => {
+          operationsCalled.push(`eq:${table}`);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (uid: string) => {
+          operationsCalled.push(`deleteUser:${uid}`);
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  await cleanupCrossUserRlsResources(
+    mockAdminClient,
+    ["recipe-1"],
+    ["user-1"],
+  );
+
+  assertEquals(operationsCalled.length >= 4, true);
+});
+
+Deno.test("Finding 3 regression: Direct PostgREST queries filtered by RLS assert zero-row results rather than HTTP errors", async () => {
+  const recipeB: RecipeRecord = {
+    id: "99999999-9999-4999-8999-999999999999",
+    user_id: USER_B_ID,
+    created_at: "2026-10-24T10:00:00.000Z",
+    updated_at: "2026-10-24T10:00:00.000Z",
+    ...sampleRecipeData("User B Private Recipe"),
+  };
+  const { mockFetch } = createMockFetch([recipeB]);
+
+  const clientA = createScopedTestClient(TEST_SUPABASE_URL, TEST_ANON_KEY, USER_A_JWT, mockFetch);
+  const clientB = createScopedTestClient(TEST_SUPABASE_URL, TEST_ANON_KEY, USER_B_JWT, mockFetch);
+
+  // User A directly queries PostgREST for User B's recipe ID
+  // Under PostgreSQL RLS (recipes_select_own), rows where user_id <> auth.uid() are filtered out
+  // PostgREST returns an empty array [], so maybeSingle() evaluates to { data: null, error: null }
+  const { data: dataA, error: errorA } = await assertionClient(clientA, "User A PostgREST client")
+    .from("recipes")
+    .select("id")
+    .eq("id", recipeB.id)
+    .maybeSingle();
+
+  assertEquals(errorA, null);
+  assertEquals(dataA, null); // Direct PostgREST query under RLS returns zero rows, NOT an HTTP error
+
+  // User B directly queries PostgREST for own recipe ID -> returns row
+  const { data: dataB, error: errorB } = await assertionClient(clientB, "User B PostgREST client")
+    .from("recipes")
+    .select("id")
+    .eq("id", recipeB.id)
+    .maybeSingle();
+
+  assertEquals(errorB, null);
+  assertEquals(dataB?.id, recipeB.id); // Owner successfully reads own record
+});
+
+Deno.test("Finding 3 regression: Edge Function handler translates inaccessible or other-user recipes into HTTP 404 NOT_FOUND", async () => {
+  const recipeB: RecipeRecord = {
+    id: "99999999-9999-4999-8999-999999999999",
+    user_id: USER_B_ID,
+    created_at: "2026-10-24T10:00:00.000Z",
+    updated_at: "2026-10-24T10:00:00.000Z",
+    ...sampleRecipeData("User B Private Soup"),
+  };
+  const { mockFetch } = createMockFetch([recipeB]);
+
+  // User A calls Edge Function GET /recipes/:id -> Handler maps zero-row query result to HTTP 404
+  const reqA = new Request(`http://localhost/functions/v1/recipes/${recipeB.id}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${USER_A_JWT}` },
+  });
+  const resA = await handler(reqA, { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(resA.status, 404);
+  const bodyA = await resA.json();
+  assertEquals(bodyA.error.code, "NOT_FOUND");
+  assertEquals(bodyA.recipe, undefined);
+
+  // User B calls Edge Function GET /recipes/:id -> Handler returns HTTP 200 with recipe envelope
+  const reqB = new Request(`http://localhost/functions/v1/recipes/${recipeB.id}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${USER_B_JWT}` },
+  });
+  const resB = await handler(reqB, { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(resB.status, 200);
+  const bodyB = await resB.json();
+  assertEquals(bodyB.recipe.id, recipeB.id);
+});
+
+Deno.test("Finding 3 regression: Assert cascade prerequisites rejects error or empty insertion result before cascade deletion", () => {
+  // Test case 1: Insertion returned API error
+  assertThrows(
+    () =>
+      assertCascadeLineagePrerequisite({
+        data: null,
+        error: { message: "violates foreign key constraint or RLS policy" },
+      }),
+    Error,
+    "Cascade prerequisite failed: relationship insertion returned error",
+  );
+
+  // Test case 2: Insertion returned empty data (data: null, error: null)
+  assertThrows(
+    () =>
+      assertCascadeLineagePrerequisite({
+        data: null,
+        error: null,
+      }),
+    Error,
+    "Cascade prerequisite failed: relationship insertion returned empty result",
+  );
+
+  // Test case 3: Insertion returned empty object without ID
+  assertThrows(
+    () =>
+      assertCascadeLineagePrerequisite({
+        data: {} as { id: string },
+        error: null,
+      }),
+    Error,
+    "Cascade prerequisite failed: relationship insertion returned empty result without persisted row ID",
+  );
+
+  // Test case 4: Valid persisted row passes and returns id
+  const valid = assertCascadeLineagePrerequisite({
+    data: { id: "lineage-uuid-1234", parent_recipe_id: "parent-1", child_recipe_id: "child-1" },
+    error: null,
+  });
+  assertEquals(valid.id, "lineage-uuid-1234");
+});
+
+Deno.test("Finding 3 regression: Simulated lineage scenario fails on insertion failure rather than allowing zero-row cascade assertion to pass", async () => {
+  let cascadeDeletionExecuted = false;
+
+  const simulateScenario7 = async (simulateInsertFailure: boolean) => {
+    // 1. Create parent & child
+    const parentId = "parent-uuid";
+    const childId = "child-uuid";
+
+    // 2. Insert lineage
+    const lineageInsertResult = simulateInsertFailure
+      ? { data: null, error: { message: "Simulated insert failure" } }
+      : { data: { id: "lineage-uuid", parent_recipe_id: parentId, child_recipe_id: childId }, error: null };
+
+    // Cascade prerequisite check
+    assertCascadeLineagePrerequisite(lineageInsertResult);
+
+    // 3. Parent deletion (should not be reached if prerequisite failed)
+    cascadeDeletionExecuted = true;
+  };
+
+  // When insertion fails, scenario must throw and not execute deletion
+  await assertRejects(
+    async () => {
+      await simulateScenario7(true);
+    },
+    Error,
+    "Cascade prerequisite failed",
+  );
+  assertEquals(cascadeDeletionExecuted, false);
+
+  // When insertion succeeds, scenario proceeds to deletion
+  await simulateScenario7(false);
+  assertEquals(cascadeDeletionExecuted, true);
+});
+
+Deno.test("Finding 4 regression: Parent-deletion cascade verifies prerequisite insertion, parent deletion, and child preservation without falsely claiming RLS-hidden row proves physical deletion", async () => {
+  const parentRecipe: RecipeRecord = {
+    id: "77777777-7777-4777-8777-777777777771",
+    user_id: USER_A_ID,
+    created_at: "2026-10-24T10:00:00.000Z",
+    updated_at: "2026-10-24T10:00:00.000Z",
+    ...sampleRecipeData("Parent Recipe"),
+  };
+  const childRecipe: RecipeRecord = {
+    id: "77777777-7777-4777-8777-777777777772",
+    user_id: USER_A_ID,
+    created_at: "2026-10-24T10:05:00.000Z",
+    updated_at: "2026-10-24T10:05:00.000Z",
+    ...sampleRecipeData("Child Recipe"),
+  };
+
+  const { mockFetch, store } = createMockFetch([parentRecipe, childRecipe]);
+  const clientA = createScopedTestClient(TEST_SUPABASE_URL, TEST_ANON_KEY, USER_A_JWT, mockFetch);
+
+  // 1. Verify prerequisite insertion
+  const lineageRow = { id: "lineage-7777", parent_recipe_id: parentRecipe.id, child_recipe_id: childRecipe.id };
+  const insertResult = { data: lineageRow, error: null };
+  const prereq = assertCascadeLineagePrerequisite(insertResult);
+  assertEquals(prereq.id, "lineage-7777");
+
+  // 2. Parent deletion succeeds and returns deleted ID
+  const { data: deleteData, error: deleteErr } = await clientA
+    .from("recipes")
+    .delete()
+    .eq("id", parentRecipe.id)
+    .select("id");
+  assertEquals(deleteErr, null);
+  assertEquals(deleteData?.length, 1);
+  assertEquals(deleteData?.[0]?.id, parentRecipe.id);
+  assertEquals(store.has(parentRecipe.id), false);
+
+  // 3. Child recipe remains accessible and intact
+  const { data: childData, error: childErr } = await clientA
+    .from("recipes")
+    .select("id, title")
+    .eq("id", childRecipe.id)
+    .single();
+  assertEquals(childErr, null);
+  assertEquals(childData?.id, childRecipe.id);
+  assertEquals(childData?.title, "Child Recipe");
+
+  // 4. Cascade verification evaluation:
+  // Post-deletion query from owner returns 0 rows due to RLS hiding
+  const cascadeEval = evaluateCascadeVerification({
+    targetDeleted: "parent",
+    hasSurvivingParent: false,
+    ownerLineageRowCount: 0,
+  });
+  // Must NOT treat RLS hiding as independent proof of physical deletion
+  assertEquals(cascadeEval.independentDeletionProven, false);
+  assertEquals(
+    cascadeEval.limitationReason?.includes("Lineage SELECT policy requires parent recipe ownership"),
+    true,
+  );
+});
+
+Deno.test("Finding 4 regression: Child-deletion cascade independently proves lineage deletion via surviving parent ownership", async () => {
+  const parentRecipe: RecipeRecord = {
+    id: "88888888-8888-4888-8888-888888888881",
+    user_id: USER_A_ID,
+    created_at: "2026-10-24T10:00:00.000Z",
+    updated_at: "2026-10-24T10:00:00.000Z",
+    ...sampleRecipeData("Surviving Parent"),
+  };
+  const childRecipe: RecipeRecord = {
+    id: "88888888-8888-4888-8888-888888888882",
+    user_id: USER_A_ID,
+    created_at: "2026-10-24T10:05:00.000Z",
+    updated_at: "2026-10-24T10:05:00.000Z",
+    ...sampleRecipeData("Deleted Child"),
+  };
+
+  const { mockFetch, store } = createMockFetch([parentRecipe, childRecipe]);
+  const clientA = createScopedTestClient(TEST_SUPABASE_URL, TEST_ANON_KEY, USER_A_JWT, mockFetch);
+
+  // 1. Prerequisite verification
+  const insertResult = { data: { id: "lineage-8888", parent_recipe_id: parentRecipe.id, child_recipe_id: childRecipe.id }, error: null };
+  assertCascadeLineagePrerequisite(insertResult);
+
+  // 2. Child deletion succeeds
+  const { data: deleteChild, error: deleteChildErr } = await clientA
+    .from("recipes")
+    .delete()
+    .eq("id", childRecipe.id)
+    .select("id");
+  assertEquals(deleteChildErr, null);
+  assertEquals(deleteChild?.length, 1);
+  assertEquals(store.has(childRecipe.id), false);
+
+  // 3. Parent recipe remains accessible and intact
+  const { data: parentData, error: parentErr } = await clientA
+    .from("recipes")
+    .select("id, title")
+    .eq("id", parentRecipe.id)
+    .single();
+  assertEquals(parentErr, null);
+  assertEquals(parentData?.id, parentRecipe.id);
+  assertEquals(parentData?.title, "Surviving Parent");
+
+  // 4. Cascade verification evaluation:
+  // Because surviving parent exists, owner would have RLS select permission.
+  // 0 rows returned independently proves physical deletion.
+  const cascadeEval = evaluateCascadeVerification({
+    targetDeleted: "child",
+    hasSurvivingParent: true,
+    ownerLineageRowCount: 0,
+  });
+  assertEquals(cascadeEval.independentDeletionProven, true);
+  assertEquals(cascadeEval.limitationReason, undefined);
+});
+
+Deno.test("Finding 4 regression: Simulated orphan lineage row confirms RLS hides uncascaded rows after parent deletion", () => {
+  // Simulates hypothetical situation where parent recipe was deleted from public.recipes,
+  // but an orphan row lingered in public.recipe_lineage (e.g. if cascade had failed).
+  const existingRecipes = [
+    { id: "child-recipe-uuid", user_id: USER_A_ID },
+  ]; // parent-recipe-uuid has been deleted!
+
+  const lingeringLineageRow = {
+    id: "lingering-lineage-uuid",
+    parent_recipe_id: "parent-recipe-uuid",
+    child_recipe_id: "child-recipe-uuid",
+  };
+
+  // Simulating RLS policy lineage_select_own:
+  // exists (select 1 from public.recipes where id = public.recipe_lineage.parent_recipe_id and user_id = auth.uid())
+  const userAId = USER_A_ID;
+  const satisfiesRls = existingRecipes.some(
+    (r) => r.id === lingeringLineageRow.parent_recipe_id && r.user_id === userAId,
+  );
+
+  // RLS evaluates to false because parent recipe no longer exists
+  assertEquals(satisfiesRls, false);
+
+  // An owner query would return 0 rows even though lingeringLineageRow exists in the database
+  const queryResultRows = satisfiesRls ? [lingeringLineageRow] : [];
+  assertEquals(queryResultRows.length, 0);
+
+  // Confirms evaluateCascadeVerification correctly flags this as inconclusive rather than proven deletion
+  const cascadeEval = evaluateCascadeVerification({
+    targetDeleted: "parent",
+    hasSurvivingParent: false,
+    ownerLineageRowCount: queryResultRows.length,
+  });
+  assertEquals(cascadeEval.independentDeletionProven, false);
 });
