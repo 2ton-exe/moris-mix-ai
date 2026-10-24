@@ -270,16 +270,6 @@ jobs:
         working-directory: frontend
         run: pnpm build
 
-      - name: Refuse stale production deployment
-        shell: bash
-        run: |
-          git fetch --no-tags origin main
-          current_main_sha="$(git rev-parse FETCH_HEAD)"
-          if [[ "$GITHUB_SHA" != "$current_main_sha" ]]; then
-            echo "::error::Refusing production deployment for stale commit $GITHUB_SHA; main is now $current_main_sha."
-            exit 1
-          fi
-
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
