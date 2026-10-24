@@ -132,10 +132,10 @@ function resolveCredentialStateMachine(getEnv: (k: string) => string | undefined
   const be07Flag = (getEnv("RUN_BE07_RLS_INTEGRATION") ?? "").trim().toLowerCase();
   const be07Enabled = be07Flag === "true" || be07Flag === "1";
   if (be07Enabled) {
-    const url = (getEnv("BE07_RLS_TEST_SUPABASE_URL") ?? "").trim();
-    const anon = (getEnv("BE07_RLS_TEST_SUPABASE_ANON_KEY") ?? getEnv("BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ?? "").trim();
-    const service = (getEnv("BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ?? getEnv("BE07_RLS_TEST_SUPABASE_SECRET_KEY") ?? "").trim();
-    const expected = (getEnv("BE07_RLS_TEST_EXPECTED_PROJECT_REF") ?? getEnv("BE07_RLS_TEST_PROJECT_REF") ?? "").trim();
+    const url = (getEnv("BE07_RLS_TEST_SUPABASE_URL")?.trim() || "");
+    const anon = (getEnv("BE07_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
+    const service = (getEnv("BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE07_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
+    const expected = (getEnv("BE07_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE07_RLS_TEST_PROJECT_REF")?.trim() || "");
     const missing: string[] = [];
     if (!url) missing.push("BE07_RLS_TEST_SUPABASE_URL");
     if (!anon) missing.push("BE07_RLS_TEST_SUPABASE_ANON_KEY");
@@ -159,10 +159,10 @@ function resolveCredentialStateMachine(getEnv: (k: string) => string | undefined
   const be06Flag = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim().toLowerCase();
   const be06Enabled = be06Flag === "true" || be06Flag === "1";
   if (be06Enabled) {
-    const url = (getEnv("BE06_RLS_TEST_SUPABASE_URL") ?? "").trim();
-    const anon = (getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY") ?? getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ?? "").trim();
-    const service = (getEnv("BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ?? getEnv("BE06_RLS_TEST_SUPABASE_SECRET_KEY") ?? "").trim();
-    const expected = (getEnv("BE06_RLS_TEST_EXPECTED_PROJECT_REF") ?? getEnv("BE06_RLS_TEST_PROJECT_REF") ?? "").trim();
+    const url = (getEnv("BE06_RLS_TEST_SUPABASE_URL")?.trim() || "");
+    const anon = (getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
+    const service = (getEnv("BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE06_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
+    const expected = (getEnv("BE06_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE06_RLS_TEST_PROJECT_REF")?.trim() || "");
     const missing: string[] = [];
     if (!url) missing.push("BE06_RLS_TEST_SUPABASE_URL");
     if (!anon) missing.push("BE06_RLS_TEST_SUPABASE_ANON_KEY");
@@ -186,10 +186,10 @@ function resolveCredentialStateMachine(getEnv: (k: string) => string | undefined
   const be04Flag = (getEnv("RUN_BE04_RLS_INTEGRATION") ?? "").trim().toLowerCase();
   const be04Enabled = be04Flag === "true" || be04Flag === "1";
   if (be04Enabled) {
-    const url = (getEnv("BE04_RLS_TEST_SUPABASE_URL") ?? "").trim();
-    const anon = (getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY") ?? getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ?? "").trim();
-    const service = (getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ?? getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY") ?? "").trim();
-    const expected = (getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF") ?? getEnv("BE04_RLS_TEST_PROJECT_REF") ?? "").trim();
+    const url = (getEnv("BE04_RLS_TEST_SUPABASE_URL")?.trim() || "");
+    const anon = (getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
+    const service = (getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
+    const expected = (getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE04_RLS_TEST_PROJECT_REF")?.trim() || "");
     const missing: string[] = [];
     if (!url) missing.push("BE04_RLS_TEST_SUPABASE_URL");
     if (!anon) missing.push("BE04_RLS_TEST_SUPABASE_ANON_KEY");
