@@ -1,0 +1,27 @@
+project_id = "moris-mix-fs03-e2e"
+
+[experimental]
+stack = true
+
+[api]
+enabled = true
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:4173"
+additional_redirect_urls = ["http://localhost:4173", "http://127.0.0.1:4173"]
+jwt_expiry = 3600
+enable_signup = true
+
+[functions.recipes]
+verify_jwt = false

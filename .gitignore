@@ -12,6 +12,9 @@ node_modules/
 # Build output and local tooling
 dist/
 coverage/
+frontend/test-results/
+frontend/playwright-report/
+**/.e2e-supabase/
 .wrangler/
 .DS_Store
 .supabase/
