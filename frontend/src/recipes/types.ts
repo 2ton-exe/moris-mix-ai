@@ -13,6 +13,7 @@ export interface RecipeDetail extends RecipeSummary {
   ingredients: Ingredient[]
   instructions: Instruction[]
   flavor_scores?: FlavorScores | null
+  notes?: string | null
 }
 
 export interface RecipeRequest {
@@ -25,4 +26,6 @@ export interface RecipeSource {
   mode: 'live' | 'preview' | 'unavailable'
   list: (request: RecipeRequest) => Promise<RecipeSummary[]>
   detail: (id: string, request: RecipeRequest) => Promise<RecipeDetail>
+  // Must resolve only after the authenticated backend confirms deletion.
+  deleteRecipe?: (id: string, request: RecipeRequest) => Promise<void>
 }

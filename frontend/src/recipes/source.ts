@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import { createRecipeSource } from './apiSource'
 import type { RecipeSource } from './types'
 
 export class RecipeIntegrationUnavailable extends Error {
@@ -8,16 +9,18 @@ export class RecipeIntegrationUnavailable extends Error {
   }
 }
 
+const liveRecipeSource = createRecipeSource()
 const unavailable = async (): Promise<never> => { throw new RecipeIntegrationUnavailable() }
+const unavailableRecipeSource: RecipeSource = { mode: 'unavailable', list: unavailable, detail: unavailable }
+const hasApiConfig = !!import.meta.env.VITE_SUPABASE_URL?.trim() &&
+  !!(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || import.meta.env.VITE_SUPABASE_ANON_KEY?.trim())
 
-// No guessed endpoint or anonymous demo fallback. Replace this source only
-// after BE-06 and FS-02 supply their validated, authenticated REST integration.
 export const defaultRecipeSource: RecipeSource = import.meta.env.DEV && import.meta.env.VITE_RECIPE_PREVIEW === 'true'
   ? {
     mode: 'preview',
     list: async (request) => (await import('./testing/previewAdapter')).previewRecipeSource.list(request),
     detail: async (id, request) => (await import('./testing/previewAdapter')).previewRecipeSource.detail(id, request),
   }
-  : { mode: 'unavailable', list: unavailable, detail: unavailable }
+  : hasApiConfig ? liveRecipeSource : unavailableRecipeSource
 
 export const RecipeSourceContext = createContext(defaultRecipeSource)

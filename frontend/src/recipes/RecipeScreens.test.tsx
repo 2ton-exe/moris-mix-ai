@@ -234,14 +234,22 @@ it('removes a cached detail after the server reports that it is no longer availa
   expect(screen.queryByRole('heading', { name: 'Ingredients' })).toBeNull()
 })
 
-it('shows the production integration blocker with no mock fallback or network request', async () => {
+it('uses the authenticated production source when configured and never falls back to preview data', async () => {
   source = defaultRecipeSource
   const fetchSpy = vi.spyOn(globalThis, 'fetch')
   render(tree('/app'))
-  expect((await screen.findByText(/Your recipe journal is not connected yet/)).textContent).toBeTruthy()
   expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  const configured = !!import.meta.env.VITE_SUPABASE_URL?.trim() &&
+    !!(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || import.meta.env.VITE_SUPABASE_ANON_KEY?.trim())
+  expect(defaultRecipeSource.mode).toBe(configured ? 'live' : 'unavailable')
+  if (configured) {
+    expect((await screen.findByRole('alert')).textContent).toMatch(/session/i)
+  } else {
+    expect((await screen.findByText(/Your recipe journal is not connected yet/)).textContent).toBeTruthy()
+    await expect(defaultRecipeSource.list({ userId: 'cook-a', signal: new AbortController().signal }))
+      .rejects.toBeInstanceOf(RecipeIntegrationUnavailable)
+  }
   expect(fetchSpy).not.toHaveBeenCalled()
-  await expect(defaultRecipeSource.list({ userId: 'cook-a', signal: new AbortController().signal })).rejects.toBeInstanceOf(RecipeIntegrationUnavailable)
   fetchSpy.mockRestore()
 })
 

@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router'
 import type { Ingredient } from '../api/demoRecipe'
 import { RecipeMetadata } from '../recipes/RecipeCard'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
+import { RecipeDeletionControl } from '../recipes/RecipeDeletionControl'
 import { isRecipeAccessError } from '../recipes/errors'
 import { useRecipe } from '../recipes/queries'
 
@@ -22,7 +23,7 @@ export default function RecipeDetailPage() {
       {query.isPaused && <p role="status">You appear to be offline. This recipe will load when you reconnect.</p>}
       {query.isError && <>{!recipe && <h1>Recipe unavailable</h1>}<RecipeError detail error={query.error} onRetry={() => { void query.refetch() }} /></>}
       {recipe && <article className="journal-recipe">
-        <header className="recipe-detail-header"><span className="recipe-card-label">Made to be remembered</span><h1>{recipe.title}</h1><RecipeMetadata recipe={recipe} /></header>
+        <header className="recipe-detail-header"><span className="recipe-card-label">Made to be remembered</span><h1>{recipe.title}</h1><RecipeMetadata recipe={recipe} /><RecipeDeletionControl recipeId={recipe.id} recipeTitle={recipe.title} /></header>
         {query.isFetching && <p role="status">Updating recipe…</p>}
         {query.isError && <p className="recipe-update">Showing the last loaded recipe.</p>}
         <div className="recipe-detail-columns">
