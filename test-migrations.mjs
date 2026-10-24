@@ -434,6 +434,38 @@ async function runSchemaVerificationUnitTests() {
     /Cannot reconcile unknown migration version: 99999999999999/
   );
 
+  const notesMigration = { version: '20261023000002', file: '20261023000002_add_notes_to_recipes.sql' };
+  const notesReconcileClient = (rows) => ({
+    query: async () => ({ rows })
+  });
+  const appliedBaseVersions = new Set(['20261013000000', '20261017000001']);
+  for (const [rows, expectedError] of [
+    [[], /column public\.recipes\.notes does not exist; expected nullable text/],
+    [[{ udt_name: 'int4', is_nullable: 'YES' }], /type int4, nullable=true; expected nullable text/],
+    [[{ udt_name: 'text', is_nullable: 'NO' }], /type text, nullable=false; expected nullable text/]
+  ]) {
+    await assert.rejects(
+      () => reconcileMigrationState({
+        client: notesReconcileClient(rows),
+        appliedVersions: new Set(appliedBaseVersions),
+        migrations: [notesMigration],
+        explicitReconcile: [notesMigration.version],
+        logger: silentLogger
+      }),
+      expectedError
+    );
+  }
+
+  const reconciledVersions = new Set(appliedBaseVersions);
+  await reconcileMigrationState({
+    client: notesReconcileClient([{ udt_name: 'text', is_nullable: 'YES' }]),
+    appliedVersions: reconciledVersions,
+    migrations: [notesMigration],
+    explicitReconcile: [notesMigration.version],
+    logger: silentLogger
+  });
+  assert.equal(reconciledVersions.has(notesMigration.version), true);
+
   console.log('PASS: Schema completeness verification and unit assertions verified.');
 }
 

@@ -1100,7 +1100,10 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  for (const endpointPath of ["/functions/v1/recipes", "/recipes"]) {
+  for (const { endpointPath, expectedLimit, expectedOffset } of [
+    { endpointPath: "/functions/v1/recipes", expectedLimit: "1000", expectedOffset: "0" },
+    { endpointPath: "/recipes?limit=25&offset=50", expectedLimit: "25", expectedOffset: "50" },
+  ]) {
     const req = new Request(`http://localhost${endpointPath}`, {
       method: "GET",
       headers: {
@@ -1128,12 +1131,14 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
       "id,user_id,title,raw_input,notes,ingredients,instructions,flavor_scores,star_rating,cooked_at,image_url,created_at,updated_at",
     );
     assertEquals(capturedPostgrestUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
-    assertEquals(capturedPostgrestUrl!.searchParams.get("order"), "created_at.desc");
+    assertEquals(capturedPostgrestUrl!.searchParams.get("order"), "created_at.desc,id.asc");
     assertEquals(capturedPostgrestMethod, "GET");
 
     assertNotEquals(capturedPostgrestHeaders, null);
     assertEquals(capturedPostgrestHeaders!.get("authorization"), `Bearer ${VALID_TEST_JWT}`);
     assertEquals(capturedPostgrestHeaders!.get("apikey"), TEST_ANON_KEY);
+    assertEquals(capturedPostgrestUrl!.searchParams.get("limit"), expectedLimit);
+    assertEquals(capturedPostgrestUrl!.searchParams.get("offset"), expectedOffset);
 
     const body = await res.json();
     const parsed = RecipeListResponseSchema.safeParse(body);
@@ -1145,6 +1150,60 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
     assertEquals(body.recipes[0].is_public, undefined);
     assertEquals(body.recipes[0].image_path, undefined);
   }
+});
+
+Deno.test("Authenticated GET /recipes rejects invalid pagination before querying recipes", async () => {
+  let recipeQueryCount = 0;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+    );
+
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }
+
+    if (url.pathname === "/rest/v1/recipes") recipeQueryCount += 1;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  for (const query of [
+    "?limit=0",
+    "?limit=1001",
+    "?offset=-1",
+    "?offset=1.5",
+    "?limit=1000&offset=9007199254740991",
+    "?limit=10&limit=20",
+  ]) {
+    const res = await handler(
+      new Request(`http://localhost/functions/v1/recipes${query}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
+
+    assertEquals(res.status, 400);
+    const body = await res.json();
+    assertEquals(body.error?.code, "VALIDATION_ERROR");
+    assertEquals(body.error?.message, "Invalid pagination parameters.");
+  }
+
+  assertEquals(recipeQueryCount, 0);
 });
 
 Deno.test("Authenticated GET /recipes returns empty list when user has no recipes", async () => {

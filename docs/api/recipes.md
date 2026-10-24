@@ -6,7 +6,7 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 
 | Method | Path pattern | Operation | Success status | Success response envelope |
 | --- | --- | --- | --- | --- |
-| `GET` | `/functions/v1/recipes` or `/recipes` | List authenticated user recipes | `200 OK` | `{ "recipes": Recipe[] }` |
+| `GET` | `/functions/v1/recipes` or `/recipes` | List authenticated user recipes with `limit`/`offset` pagination | `200 OK` | `{ "recipes": Recipe[] }` |
 | `POST` | `/functions/v1/recipes` or `/recipes` | Create an owned recipe | `201 Created` | `{ "recipe": Recipe }` |
 | `GET` | `/functions/v1/recipes/:id` or `/recipes/:id` | Retrieve an owned recipe | `200 OK` | `{ "recipe": Recipe }` |
 | `PATCH` | `/functions/v1/recipes/:id` or `/recipes/:id` | Update allowed fields and rating | `200 OK` | `{ "recipe": Recipe }` |
@@ -18,17 +18,20 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 - **Authentication:** `Authorization: Bearer <supabase-access-token>` is required and verified by the handler.
 - **API key:** `apikey` is optional for this handler and is not used to authenticate the caller. Supabase clients may send the project key alongside the user token.
 - **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended but the handler does not enforce the header.
-- **Query parameters:** none (any caller-supplied query parameters are ignored).
+- **Query parameters:** collection `GET` accepts `limit` and `offset`; other query parameters are ignored.
 - **Access control:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`).
 - **Preflight exception:** `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with CORS headers.
 
 ## 1. GET /recipes — List user recipes
 
-Retrieves recipes belonging to the authenticated user, ordered by `created_at` descending.
+Retrieves recipes belonging to the authenticated user, ordered by `created_at` descending and then `id` ascending.
+
+Pagination defaults to `limit=1000` and `offset=0`. `limit` must be an integer from `1` to `1000`; `offset` must be a non-negative safe integer. Request the next page by increasing `offset` by the requested `limit`. A page shorter than `limit` is the last page.
 
 ### Request
 
 - **Method and path:** `GET /functions/v1/recipes` (or `GET /recipes`)
+- **Query parameters:** `limit` (optional, default `1000`, range `1..1000`) and `offset` (optional, default `0`, non-negative integer).
 - **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
 - **Body:** none
 
@@ -268,6 +271,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe payload.` | Request body fails Zod validation. Includes `error.details` array of `{ path, code, message }`. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe ID.` | Route parameter `:id` is not a valid UUID string. Includes `error.details` array with `path: "id"`. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination parameters.` | Collection `GET` has an invalid, duplicate, or out-of-range `limit` or `offset`. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid Authorization header.` | `Authorization` header is missing, empty, not `Bearer`, or not a compact 3-part JWS. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Invalid or expired authentication credentials.` | Supabase Auth rejects the Bearer JWT as invalid, expired, revoked, or unauthenticated. |
 | `404 Not Found` | `NOT_FOUND` | `Recipe not found.` | Target recipe does not exist or belongs to another user. |

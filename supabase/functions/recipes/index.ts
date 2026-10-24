@@ -11,6 +11,8 @@ import {
 export type RecipesHandlerDeps = AuthDeps;
 
 const ALLOWED_METHODS = "GET, POST, PATCH, DELETE, OPTIONS";
+const DEFAULT_RECIPE_PAGE_LIMIT = 1000;
+const MAX_RECIPE_PAGE_LIMIT = 1000;
 
 type RouteMatch =
   | { kind: "COLLECTION" }
@@ -35,6 +37,21 @@ function parseRoute(pathname: string): RouteMatch {
     return { kind: "MEMBER", id: parts[0] };
   }
   return { kind: "NOT_FOUND" };
+}
+
+function parseRecipePagination(url: URL): { limit: number; offset: number } | null {
+  const parseInteger = (name: string, fallback: number, min: number, max: number): number | null => {
+    const values = url.searchParams.getAll(name);
+    if (values.length === 0) return fallback;
+    if (values.length !== 1 || !/^(0|[1-9]\d*)$/.test(values[0])) return null;
+    const value = Number(values[0]);
+    return Number.isSafeInteger(value) && value >= min && value <= max ? value : null;
+  };
+
+  const limit = parseInteger("limit", DEFAULT_RECIPE_PAGE_LIMIT, 1, MAX_RECIPE_PAGE_LIMIT);
+  const offset = parseInteger("offset", 0, 0, Number.MAX_SAFE_INTEGER);
+  if (limit === null || offset === null || offset > Number.MAX_SAFE_INTEGER - limit + 1) return null;
+  return { limit, offset };
 }
 
 function recipesJsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -140,13 +157,33 @@ export async function handler(
 
     if (route.kind === "COLLECTION") {
       if (req.method === "GET") {
+        const pagination = parseRecipePagination(url);
+        if (!pagination) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid pagination parameters.",
+                details: [{
+                  path: "query",
+                  code: "invalid_value",
+                  message: "Use limit 1–1000 and a non-negative safe-integer offset.",
+                }],
+              },
+            },
+            { status: 400 },
+          );
+        }
+
         const { data, error } = await supabase
           .from("recipes")
           .select(
             "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
           )
           .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(pagination.offset, pagination.offset + pagination.limit - 1);
 
         if (error || !data || !Array.isArray(data)) {
           console.error("Database list query failed", error?.code ? `code: ${error.code}` : "");

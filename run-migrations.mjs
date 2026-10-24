@@ -15,6 +15,7 @@ const __dirname = path.dirname(__filename);
 const MIGRATION_LOCK_ID = 847291847;
 const INITIAL_SCHEMA_VERSION = '20261013000000';
 const IS_PUBLIC_MIGRATION_VERSION = '20261017000001';
+const NOTES_MIGRATION_VERSION = '20261023000002';
 
 const EXPECTED_INITIAL_TABLES = [
   'profiles',
@@ -775,6 +776,14 @@ export async function reconcileMigrationState({
         if (colRes.rows[0].udt_name !== 'bool') {
           throw new Error(
             `Cannot explicitly reconcile migration ${IS_PUBLIC_MIGRATION_VERSION}: column public.recipes.is_public has invalid type ${colRes.rows[0].udt_name} (expected bool).`
+          );
+        }
+      } else if (version === NOTES_MIGRATION_VERSION) {
+        const notes = await verifyColumnMetadata(client, 'recipes', 'notes');
+        if (!notes.exists || notes.udtName !== 'text' || notes.isNullable !== true) {
+          const actual = notes.exists ? `type ${notes.udtName}, nullable=${notes.isNullable}` : 'does not exist';
+          throw new Error(
+            `Cannot explicitly reconcile migration ${NOTES_MIGRATION_VERSION}: column public.recipes.notes ${actual}; expected nullable text.`
           );
         }
       }
