@@ -1,7 +1,7 @@
 import type { FlavorScores, Ingredient, Instruction } from '../api/demoRecipe'
 
-// Frontend view models, NOT a BE-06 wire contract. The eventual REST adapter
-// must validate the agreed response and map it here. Nested shapes reuse FS-01.
+// Frontend view models, not the BE-06 wire contract. The REST adapter validates
+// API responses against these shapes. Nested shapes reuse FS-01.
 export interface RecipeSummary {
   id: string
   title: string
@@ -13,6 +13,7 @@ export interface RecipeDetail extends RecipeSummary {
   ingredients: Ingredient[]
   instructions: Instruction[]
   flavor_scores?: FlavorScores | null
+  notes?: string | null
 }
 
 export interface RecipeRequest {
@@ -25,4 +26,6 @@ export interface RecipeSource {
   mode: 'live' | 'preview' | 'unavailable'
   list: (request: RecipeRequest) => Promise<RecipeSummary[]>
   detail: (id: string, request: RecipeRequest) => Promise<RecipeDetail>
+  // Must resolve only after the authenticated backend confirms deletion.
+  deleteRecipe?: (id: string, request: RecipeRequest) => Promise<void>
 }

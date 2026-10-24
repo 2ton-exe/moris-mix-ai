@@ -77,8 +77,7 @@ it('shows an empty journal with creation guidance and a working demo link', asyn
   vi.mocked(source.list).mockResolvedValue([])
   render(tree('/app/recipes'))
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
-  fireEvent.click(screen.getByText('Plan your first recipe'))
-  expect(screen.getByText(/Recipe creation is coming soon/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Start a recipe' }).getAttribute('href')).toBe('/app/recipes/new')
   fireEvent.click(screen.getByRole('link', { name: 'Explore a demonstration recipe' }))
   await screen.findByRole('heading', { name: 'Public demo' })
 })
@@ -178,6 +177,14 @@ it('loads a detail by route ID, orders steps without mutating data, and navigate
   await screen.findByRole('heading', { name: 'Your cooking journal' })
 })
 
+it('offers editing from a live recipe detail', async () => {
+  const recipe = previewRecipes[0]
+  render(tree(`/app/recipes/${recipe.id}`))
+  await screen.findByRole('heading', { name: recipe.title, level: 1 })
+  expect(screen.getByRole('link', { name: 'Edit recipe' }).getAttribute('href'))
+    .toBe(`/app/recipes/${recipe.id}/edit`)
+})
+
 it('shows a detail loading state and handles missing metadata and empty content', async () => {
   const request = deferred<RecipeDetail>()
   vi.mocked(source.detail).mockReturnValue(request.promise)
@@ -234,14 +241,22 @@ it('removes a cached detail after the server reports that it is no longer availa
   expect(screen.queryByRole('heading', { name: 'Ingredients' })).toBeNull()
 })
 
-it('shows the production integration blocker with no mock fallback or network request', async () => {
+it('uses the authenticated production source when configured and never falls back to preview data', async () => {
   source = defaultRecipeSource
   const fetchSpy = vi.spyOn(globalThis, 'fetch')
   render(tree('/app'))
-  expect((await screen.findByText(/Your recipe journal is not connected yet/)).textContent).toBeTruthy()
   expect(screen.queryByRole('heading', { name: previewRecipes[0].title })).toBeNull()
+  const configured = !!import.meta.env.VITE_SUPABASE_URL?.trim() &&
+    !!(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || import.meta.env.VITE_SUPABASE_ANON_KEY?.trim())
+  expect(defaultRecipeSource.mode).toBe(configured ? 'live' : 'unavailable')
+  if (configured) {
+    expect((await screen.findByRole('alert')).textContent).toMatch(/session/i)
+  } else {
+    expect((await screen.findByText(/Your recipe journal is not connected yet/)).textContent).toBeTruthy()
+    await expect(defaultRecipeSource.list({ userId: 'cook-a', signal: new AbortController().signal }))
+      .rejects.toBeInstanceOf(RecipeIntegrationUnavailable)
+  }
   expect(fetchSpy).not.toHaveBeenCalled()
-  await expect(defaultRecipeSource.list({ userId: 'cook-a', signal: new AbortController().signal })).rejects.toBeInstanceOf(RecipeIntegrationUnavailable)
   fetchSpy.mockRestore()
 })
 

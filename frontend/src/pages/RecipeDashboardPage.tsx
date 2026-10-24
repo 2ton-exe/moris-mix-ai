@@ -1,5 +1,6 @@
 import { useContext } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
+import { useAuth } from '../auth/context'
 import { RecipeCard } from '../recipes/RecipeCard'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
 import { isRecipeAccessError } from '../recipes/errors'
@@ -8,16 +9,23 @@ import { RecipeSourceContext } from '../recipes/source'
 
 export default function RecipeDashboardPage() {
   const query = useRecipes()
+  const location = useLocation()
+  const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
+  const recipeDeleted = typeof location.state === 'object' && location.state !== null &&
+    'recipeDeleted' in location.state && location.state.recipeDeleted === true &&
+    'accountId' in location.state && location.state.accountId === user?.id
   const recipes = isRecipeAccessError(query.error) ? undefined : query.data
   return (
     <>
       <div className="journal-heading">
         <div><h1>Your cooking journal</h1><p className="intro">A little inspiration, a few ingredients, and the meals you make your own.</p></div>
+        <Link className="button button-primary" to="/app/recipes/new">Start a recipe</Link>
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary" type="button" disabled={query.isFetching} onClick={() => { void query.refetch() }}>
           {query.isFetching ? 'Refreshing…' : 'Refresh recipes'}
         </button>}
       </div>
+      {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted. Your collection has been updated.</p>}
       {query.isPending && <RecipeSkeleton />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
       {query.isError && <RecipeError error={query.error} onRetry={() => { void query.refetch() }} />}
@@ -34,7 +42,6 @@ export default function RecipeDashboardPage() {
             <span className="empty-mark" aria-hidden="true">✧</span>
             <h2 id="empty-heading">A fresh page for your next favorite.</h2>
             <p>You haven’t saved any recipes yet. Start with a dish you love and make a little room for discovery.</p>
-            <details className="recipe-start"><summary>Plan your first recipe</summary><p>Gather your ingredients and jot down the steps you want to remember. Recipe creation is coming soon; you’ll be able to save them here.</p></details>
             <Link className="button button-primary" to="/demo-recipe">Explore a demonstration recipe</Link>
           </section>
         )}

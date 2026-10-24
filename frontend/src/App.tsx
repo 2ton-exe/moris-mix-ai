@@ -5,6 +5,8 @@ import AuthPage from './pages/AuthPage'
 import EmailVerificationPage from './pages/EmailVerificationPage'
 import JournalPage from './pages/JournalPage'
 import DemoRecipePage from './pages/DemoRecipePage'
+import CreateRecipePage from './pages/CreateRecipePage'
+import EditRecipePage from './pages/EditRecipePage'
 import RecipeDashboardPage from './pages/RecipeDashboardPage'
 import RecipeDetailPage from './pages/RecipeDetailPage'
 import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
@@ -61,9 +63,10 @@ function NotFoundPage() {
   )
 }
 
-export default function App() {
-  return (
-    <Routes>
+// Keep BrowserRouter tests and the production data-router entry on one route tree.
+// eslint-disable-next-line react-refresh/only-export-components -- route config is shared with main.tsx
+export const createAppRouteElements = () => (
+  <>
       <Route path="/" element={<Navigate to="/demo-recipe" replace />} />
       <Route path="/home" element={<HomePage />} />
       <Route path="/about" element={<AboutPage />} />
@@ -77,16 +80,23 @@ export default function App() {
           </Route>
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route element={<ProtectedRoute />}>
-            <Route path="/app" element={<RecipeQueryProvider><JournalPage /></RecipeQueryProvider>}>
-              <Route index element={<RecipeDashboardPage />} />
-              <Route path="recipes" element={<RecipeDashboardPage />} />
-              <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+            <Route element={<RecipeQueryProvider><Outlet /></RecipeQueryProvider>}>
+              <Route path="/app/recipes/new" element={<CreateRecipePage />} />
+              <Route path="/app/recipes/:recipeId/edit" element={<EditRecipePage />} />
+              <Route path="/app" element={<JournalPage />}>
+                <Route index element={<RecipeDashboardPage />} />
+                <Route path="recipes" element={<RecipeDashboardPage />} />
+                <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+              </Route>
             </Route>
             <Route path="/app/*" element={<NotFoundPage />} />
           </Route>
         </Route>
       </Route>
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
-  )
+  </>
+)
+
+export default function App() {
+  return <Routes>{createAppRouteElements()}</Routes>
 }
