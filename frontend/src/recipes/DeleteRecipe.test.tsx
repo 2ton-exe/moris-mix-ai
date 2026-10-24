@@ -1,10 +1,11 @@
 import { StrictMode } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { onlineManager } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
@@ -76,6 +77,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  onlineManager.setOnline(true)
   deleteHandler = vi.fn().mockResolvedValue(undefined)
   serverRecipes = previewRecipes.map(({ id, title, star_rating, cooked_at }) => ({ id, title, star_rating, cooked_at }))
   source = {
@@ -88,6 +90,7 @@ beforeEach(() => {
     },
   }
 })
+afterEach(() => onlineManager.setOnline(true))
 
 it('opens a labeled warning with the recipe name and makes no request before confirmation', async () => {
   renderDetail()
@@ -391,4 +394,26 @@ it('passes the current account identity and abort signal to the injected adapter
 
   await screen.findByText('Recipe deleted. Your collection has been updated.')
   expect(deleteHandler).toHaveBeenCalledWith(recipe.id, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
+})
+
+it('aborts a delete started offline on unmount instead of leaving it queued for reconnect', async () => {
+  let requestSignal: AbortSignal | undefined
+  deleteHandler.mockImplementation((_id: string, request: RecipeRequest) => {
+    requestSignal = request.signal
+    return new Promise<void>((_resolve, reject) => {
+      request.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    })
+  })
+  const view = renderDetail()
+  await waitForDetail()
+  onlineManager.setOnline(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Delete recipe' }))
+  fireEvent.click(confirmButton(screen.getByRole('alertdialog')))
+  await waitFor(() => expect(requestSignal).toBeDefined())
+
+  view.unmount()
+  expect(requestSignal?.aborted).toBe(true)
+  onlineManager.setOnline(true)
+  expect(deleteHandler).toHaveBeenCalledOnce()
+  expect(serverRecipes.some(({ id }) => id === recipe.id)).toBe(true)
 })

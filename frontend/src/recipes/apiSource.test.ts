@@ -40,7 +40,7 @@ it('reads owned recipes and waits for the authenticated 204 delete response', as
   await expect(source.deleteRecipe?.(recipeId, request)).resolves.toBeUndefined()
 
   expect(fetchImpl.mock.calls.map(([url, options]) => [url, options?.method])).toEqual([
-    ['https://recipes.example.test/functions/v1/recipes', 'GET'],
+    ['https://recipes.example.test/functions/v1/recipes?limit=1000&offset=0', 'GET'],
     [`https://recipes.example.test/functions/v1/recipes/${recipeId}`, 'GET'],
     [`https://recipes.example.test/functions/v1/recipes/${recipeId}`, 'DELETE'],
   ])
@@ -49,6 +49,21 @@ it('reads owned recipes and waits for the authenticated 204 delete response', as
     expect(new Headers(options?.headers).get('apikey')).toBe('public-key')
     expect(options?.credentials).toBe('omit')
   }
+})
+
+it('fetches every page when the account has more than 1000 recipes', async () => {
+  const firstPage = Array.from({ length: 1000 }, (_, index) => ({ ...recipe, id: `recipe-${index}` }))
+  const lastRecipe = { ...recipe, id: 'recipe-after-first-page' }
+  const fetchImpl = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ recipes: firstPage }))
+    .mockResolvedValueOnce(Response.json({ recipes: [lastRecipe] }))
+  const source = createRecipeSource(client(fetchImpl))
+
+  await expect(source.list({ userId: 'cook-a', signal: new AbortController().signal })).resolves.toHaveLength(1001)
+  expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).search)).toEqual([
+    '?limit=1000&offset=0',
+    '?limit=1000&offset=1000',
+  ])
 })
 
 it('rejects recipes returned for another account and rejects non-204 delete success', async () => {
@@ -60,8 +75,14 @@ it('rejects recipes returned for another account and rejects non-204 delete succ
     .rejects.toBeInstanceOf(InvalidRecipeData)
 
   const badDeleteSource = createRecipeSource(client(
-    vi.fn<typeof fetch>().mockResolvedValue(Response.json({ deleted: true })),
+    vi.fn<typeof fetch>().mockResolvedValue(Response.json(null)),
   ))
   await expect(badDeleteSource.deleteRecipe?.(recipeId, { userId: 'cook-a', signal: new AbortController().signal }))
-    .rejects.toBeInstanceOf(InvalidRecipeData)
+    .rejects.toMatchObject({ kind: 'http', status: 200 })
+
+  const acceptedDeleteSource = createRecipeSource(client(
+    vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 202 })),
+  ))
+  await expect(acceptedDeleteSource.deleteRecipe?.(recipeId, { userId: 'cook-a', signal: new AbortController().signal }))
+    .rejects.toMatchObject({ kind: 'http', status: 202 })
 })

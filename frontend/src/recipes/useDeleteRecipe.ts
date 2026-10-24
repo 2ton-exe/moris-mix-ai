@@ -54,6 +54,8 @@ export function useDeleteRecipe() {
       void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(failedUserId), exact: true })
     },
     retry: false,
+    // Start immediately so unmount can abort an offline request instead of leaving DELETE queued.
+    networkMode: 'always',
   })
 
   const isAvailable = !!userId && isAuthenticated && !isLoading && !!source.deleteRecipe
