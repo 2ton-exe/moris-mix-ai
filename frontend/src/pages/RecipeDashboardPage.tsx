@@ -1,5 +1,6 @@
 import { useContext } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
+import { useAuth } from '../auth/context'
 import { RecipeCard } from '../recipes/RecipeCard'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
 import { isRecipeAccessError } from '../recipes/errors'
@@ -8,7 +9,12 @@ import { RecipeSourceContext } from '../recipes/source'
 
 export default function RecipeDashboardPage() {
   const query = useRecipes()
+  const location = useLocation()
+  const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
+  const recipeDeleted = typeof location.state === 'object' && location.state !== null &&
+    'recipeDeleted' in location.state && location.state.recipeDeleted === true &&
+    'accountId' in location.state && location.state.accountId === user?.id
   const recipes = isRecipeAccessError(query.error) ? undefined : query.data
   return (
     <>
@@ -19,6 +25,7 @@ export default function RecipeDashboardPage() {
           {query.isFetching ? 'Refreshing…' : 'Refresh recipes'}
         </button>}
       </div>
+      {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted. Your collection has been updated.</p>}
       {query.isPending && <RecipeSkeleton />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
       {query.isError && <RecipeError error={query.error} onRetry={() => { void query.refetch() }} />}

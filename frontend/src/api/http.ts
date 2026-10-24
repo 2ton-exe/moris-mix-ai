@@ -33,6 +33,7 @@ interface JsonRequestOptions {
   accessToken?: string
   method?: RequestInit['method']
   body?: unknown
+  expectedStatus?: number
 }
 
 interface AuthenticatedRequestOptions {
@@ -41,7 +42,7 @@ interface AuthenticatedRequestOptions {
 }
 
 export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSession }: HttpClientOptions = {}) {
-  async function requestJson(path: string, { signal, accessToken, method = 'GET', body: jsonBody }: JsonRequestOptions): Promise<unknown> {
+  async function requestJson(path: string, { signal, accessToken, method = 'GET', body: jsonBody, expectedStatus }: JsonRequestOptions): Promise<unknown> {
     let url: URL
     try {
       if (!baseUrl?.trim() || (apiKey !== undefined && !apiKey.trim()) ||
@@ -103,6 +104,9 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     if (!response.ok) {
       throw new HttpError('http', 'The server could not complete the request.', response.status, payload)
     }
+    if (expectedStatus !== undefined && response.status !== expectedStatus) {
+      throw new HttpError('http', 'The server could not confirm the operation.', response.status, payload)
+    }
     if (response.status === 204) return null
     if (!validJson) {
       throw new HttpError('invalid-json', 'The server returned an unreadable response.', response.status)
@@ -114,7 +118,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
 
   async function authenticatedJson(
     path: string,
-    { userId, signal, method, body }: AuthenticatedRequestOptions & { method: RequestInit['method']; body?: unknown },
+    { userId, signal, method, body, expectedStatus }: AuthenticatedRequestOptions & { method: RequestInit['method']; body?: unknown; expectedStatus?: number },
   ): Promise<unknown> {
     let session: Session | null | undefined
     let abortListener: (() => void) | undefined
@@ -144,7 +148,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
       !Number.isFinite(session.expires_at) || session.expires_at * 1000 <= Date.now() || session.user.id !== userId) {
       throw authenticationRequired()
     }
-    return requestJson(path, { signal, accessToken: session.access_token, method, body })
+    return requestJson(path, { signal, accessToken: session.access_token, method, body, expectedStatus })
   }
 
   return {
@@ -160,6 +164,9 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     },
     patchAuthenticatedJson(path: string, body: unknown, options: AuthenticatedRequestOptions): Promise<unknown> {
       return authenticatedJson(path, { ...options, method: 'PATCH', body })
+    },
+    deleteAuthenticatedJson(path: string, options: AuthenticatedRequestOptions): Promise<unknown> {
+      return authenticatedJson(path, { ...options, method: 'DELETE', expectedStatus: 204 })
     },
   }
 }
