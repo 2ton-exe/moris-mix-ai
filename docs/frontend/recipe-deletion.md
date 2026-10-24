@@ -2,9 +2,16 @@
 
 ## Implementation overview
 
-The recipe detail screen uses a reusable `DeleteRecipeDialog` and `RecipeDeletionControl`. The control opens only from an authenticated recipe detail view. It asks the existing `RecipeSource` for an optional `deleteRecipe(id, request)` handler; the handler receives the recipe ID plus the account-scoped request (`userId` and `AbortSignal`). No route, HTTP method response envelope, or success status is assumed here.
+The recipe detail screen uses a reusable `DeleteRecipeDialog` and
+`RecipeDeletionControl`. The control opens only from an authenticated recipe
+detail view and calls the live `RecipeSource` DELETE adapter with the recipe ID
+and account-scoped request (`userId` and `AbortSignal`). The adapter uses the
+published `DELETE /functions/v1/recipes/:id` contract and accepts only the
+expected empty `204 No Content` response.
 
-The FE-04 base has no configured production delete adapter. If a recipe is loaded through a source that does not provide deletion, its detail screen shows a disabled **Delete unavailable** action and an explanatory status. The default production source is currently unavailable for both listing and detail, so the recipe cannot load and FE-04's recipe-unavailable state is shown instead. Neither case sends a delete request or changes recipe data. Preview fixtures also have no delete adapter.
+The default application source uses the authenticated REST adapter. If an
+injected source does not provide deletion, the detail screen shows a disabled
+**Delete unavailable** action. Preview fixtures also omit the delete adapter.
 
 ## Confirmation and mutation states
 
@@ -24,24 +31,28 @@ The user ID is used only to select the account-scoped cache and is passed as ada
 
 ## API integration boundaries
 
-BE-06's exact route, success status, and response envelope are not available in the FE-04 base. The optional handler is the seam for that future adapter. It must reject on every unconfirmed outcome and resolve `void` only after validating whatever success contract BE-06 approves. The UI does not call `supabase.from()` and does not implement backend behavior.
+The adapter calls BE-06's authenticated DELETE route through FS-02's REST
+client. It rejects network failures, unsafe status codes, malformed success
+responses, and other unconfirmed outcomes; it resolves only after the client
+confirms the empty 204 response. The UI does not call `supabase.from()`.
 
-The inspected FS-02 authenticated JSON client is on a separate branch from this FE-04 base and currently exposes authenticated GET and POST helpers, but no DELETE helper. The FE-06 change does not copy or invent that transport. Belen and Ramos need to provide or integrate an authenticated DELETE-capable REST adapter and its agreed contract before production deletion can be enabled.
+The adapter encodes the recipe ID, uses the current authenticated session, and
+passes the caller's `AbortSignal`. The user ID is request/cache context only;
+the backend derives ownership from the bearer token and enforces RLS.
 
-### Required BE-06 contract
+### Contract used
 
-- Final authenticated DELETE route and recipe ID encoding rules.
-- Exact success status and whether success has an empty body or a response envelope.
-- Safe, stable status behavior for 401, 403, 404, validation/conflict responses, and server failures.
-- Ownership enforcement in the backend and PostgreSQL RLS; a client-supplied `userId` must never grant access.
-- Bearer JWT validation and safe errors that do not disclose another user's recipe or raw database details.
+- `DELETE /functions/v1/recipes/:id` with an RFC 4122 UUID path parameter.
+- `204 No Content` with an empty response body on success.
+- Safe authenticated errors for access, validation, missing recipes, and server failures.
+- Backend ownership enforcement and PostgreSQL RLS independent of client cache identity.
 
-### Required FS-02 integration
+### Authenticated request behavior
 
-- Reuse its session-aware authenticated REST client and reject expired, missing, or mismatched sessions before sending the request.
-- Add DELETE support only after the API contract is agreed; preserve `AbortSignal` handling and keep transport payloads opaque to the UI.
-- Map a confirmed backend success to handler resolution. Map network interruption, malformed success responses, and 5xx errors to rejection so the UI can reconcile instead of claiming success.
-- Do not add direct Supabase table access or a mock persistence fallback.
+- Reuses FS-02's session-aware REST client and rejects expired, missing, or mismatched sessions before sending the request.
+- Preserves abort handling and keeps transport payloads opaque to the UI.
+- Maps confirmed 204 success to handler resolution. Network interruption, unexpected success bodies, and retryable server errors reject so the UI can reconcile instead of claiming success.
+- Uses no direct Supabase table access or mock persistence fallback.
 
 ## Security considerations
 
@@ -51,16 +62,19 @@ The delete control exists only in the authenticated detail route and only when t
 
 `frontend/src/recipes/DeleteRecipe.test.tsx` covers opening and canceling confirmation, keyboard focus and Escape, pending feedback and same-tick duplicate-submit prevention, confirmed navigation, detail-cache removal and list refresh, retry after network failure, safe timeout/unexpected-error/500/401/403/404 handling, account-cache isolation, account-switch/logout/unmount during a pending request, account-scoped success feedback, unavailable integration behavior, and request context passed to the injected adapter. The existing FE-04 screen/query tests remain in place and are run alongside the new tests.
 
-All deletion tests use deterministic injected handlers. They do not require Supabase credentials and do not exercise a live BE-06 endpoint.
+Deletion UI tests use deterministic injected handlers and do not require
+Supabase credentials. Adapter tests validate the request contract without
+exercising a deployed BE-06 environment.
 
-Validation on the FE-06 worktree: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm type-check`, `pnpm test`, `pnpm build`, and `git diff --check` pass. The suite reports 194 passing tests across 12 files. The production bundle is 343.27 kB JavaScript (107.01 kB gzip) and 11.34 kB CSS (3.22 kB gzip), with no build warnings.
+Historical validation on the original FE-06 worktree passed `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm type-check`, `pnpm test`, `pnpm build`, and `git diff --check`. That snapshot reported 194 passing tests across 12 files, before the BE-06 REST integration.
 
 ## Known limitations and Definition of Done
 
-- **Frontend implementation:** complete on the FE-04 base. ESLint, TypeScript, all frontend tests, and the production build pass.
-- **Mock testing:** complete. The full frontend suite passes 194 tests across 12 files, including the FE-03 auth tests and FE-04 dashboard/detail regression tests.
-- **Live API integration:** not complete; BE-06's contract and a DELETE-capable FS-02 adapter are blockers.
-- **Production acceptance:** not complete until live authenticated ownership/RLS behavior, response interruption handling, and desktop/mobile browser accessibility are verified against the agreed backend. The frontend package has no browser test runner configured, so browser-width checks were not run.
-- **Live backend tested:** no. No production DELETE handler is configured by this change.
+- **Frontend implementation:** complete, including the authenticated BE-06 DELETE adapter.
+- **Mock testing:** covers confirmation, pending/success/error states, cache reconciliation, account isolation, and the REST response contract.
+- **Production acceptance:** not performed. Deployed ownership/RLS behavior and desktop/mobile browser accessibility still need verification. The frontend package has no browser test runner configured, so browser-width checks were not run.
+- **Live backend tested:** no. This change does not call a deployed BE-06 environment.
 
-The confirmation, mutation controller, cache policy, unavailable state, and integration seam are ready for the backend adapter. The feature must remain unavailable in production until that adapter is configured and its resolution semantics have been reviewed.
+The confirmation flow, mutation controller, cache policy, and authenticated
+REST adapter are implemented. Production acceptance remains open until the
+deployed endpoint and browser behavior are verified.
