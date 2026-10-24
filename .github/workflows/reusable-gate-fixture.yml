@@ -1,0 +1,53 @@
+name: Reusable Gate Fixture
+
+on:
+  workflow_call:
+    inputs:
+      fail:
+        description: Intentionally fail this dependency
+        type: boolean
+        default: false
+      frontend-exists:
+        description: Simulated frontend existence
+        type: boolean
+        default: true
+      cancellation-window:
+        description: Wait five minutes so an operator can cancel a real running job
+        type: boolean
+        default: false
+    outputs:
+      exists:
+        description: Simulated frontend existence as a true/false string
+        value: ${{ jobs.fixture.outputs.exists }}
+
+permissions: {}
+
+jobs:
+  fixture:
+    name: Secret-free Validation Fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      exists: ${{ steps.existence.outputs.exists }}
+    steps:
+      - name: Export simulated frontend existence
+        id: existence
+        env:
+          FRONTEND_EXISTS: ${{ inputs.frontend-exists && 'true' || 'false' }}
+        run: echo "exists=$FRONTEND_EXISTS" >> "$GITHUB_OUTPUT"
+
+      - name: Allow real manual cancellation
+        if: inputs.cancellation-window
+        run: |
+          echo "Cancel this experiment run now to collect real cancellation evidence."
+          echo "If not cancelled within five minutes, this fixture will succeed."
+          sleep 300
+
+      - name: Intentionally fail validation
+        if: inputs.fail
+        run: |
+          echo "::error::Intentional fixture failure; no production action occurred."
+          exit 1
+
+      - name: Record successful fixture
+        run: echo "Fixture succeeded; no network, provider, or deployment action performed."
