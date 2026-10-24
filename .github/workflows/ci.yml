@@ -65,24 +65,11 @@ jobs:
         working-directory: frontend
         run: pnpm build
 
-      - name: Install Chromium
-        if: steps.frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run authenticated CRUD journey against local Supabase
-        if: steps.frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: pnpm run test:e2e:local
-
-      - name: Upload Playwright failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fs-03-playwright-failure-artifacts
-          path: frontend/test-results/
-          if-no-files-found: ignore
-          retention-days: 7
+  test-e2e:
+    name: Playwright E2E (Non-gating)
+    needs: frontend
+    if: needs.frontend.outputs.exists == 'true'
+    uses: ./.github/workflows/reusable-e2e.yml
 
   test-db:
     name: Database Tests

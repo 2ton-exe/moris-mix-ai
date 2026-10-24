@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import process from 'node:process'
 import { createClient } from '@supabase/supabase-js'
-import { localE2eUser } from './local-user.mjs'
+import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
 import { installSignalCleanup, stopFunctionServer, withCleanup } from './runner-lifecycle.mjs'
 import {
   assertLocalSupabaseUrl,
@@ -94,9 +94,12 @@ async function prepareIsolatedProjectFiles() {
   await copyFile(path.join(projectRoot, 'supabase', 'seed.sql'), path.join(e2eSupabaseDir, 'seed.sql'))
 }
 
-async function prepareAccount(apiUrl, serviceRoleKey) {
+async function prepareAccounts(apiUrl, serviceRoleKey) {
   const admin = createClient(apiUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
-  await prepareLocalE2eAccount(admin, localE2eUser, path.join(e2eWorkdir, 'auth-user.json'))
+  await Promise.all([
+    prepareLocalE2eAccount(admin, localE2eUser, path.join(e2eWorkdir, 'auth-user.json')),
+    prepareLocalE2eAccount(admin, localE2eOtherUser, path.join(e2eWorkdir, 'other-auth-user.json')),
+  ])
 }
 
 async function main() {
@@ -116,8 +119,8 @@ async function main() {
     const serviceRoleKey = status.SERVICE_ROLE_KEY || status.SECRET_KEY
     if (!publicKey || !serviceRoleKey) throw new Error('Supabase CLI did not return local Auth keys.')
 
-    await prepareAccount(apiUrl, serviceRoleKey)
-    process.stdout.write('Prepared the local-only E2E account. Starting the recipes function server.\n')
+    await prepareAccounts(apiUrl, serviceRoleKey)
+    process.stdout.write('Prepared the local-only E2E accounts. Starting the recipes function server.\n')
 
     const playwrightEnv = createPlaywrightEnvironment(apiUrl, publicKey)
     functionServer = startFunctionServer(frontendDir, e2eWorkdir, cliEnv)

@@ -10,13 +10,14 @@ main pushes and manual dispatches. Pull requests skip deployment.
 | File in `.github/workflows/` | Responsibility through Stage 2A |
 | --- | --- |
 | `ci.yml` | Authoritative PR/main validation and gated Cloudflare deployment |
-| `modular-pr-validation.yml` | PRs targeting main only; comparison runs of the reusable validations |
+| `modular-pr-validation.yml` | PRs targeting main only; shadow runs of the reusable validations |
 | `modular-main.yml` | Shadow main validation and an inert downstream evidence gate |
 | `modular-gate-experiment.yml` | Manual, secret-free dependency-gate experiments |
 | `reusable-gate-fixture.yml` | Deterministic, secret-free simulated validation dependencies |
 | `reusable-frontend.yml` | Existing frontend steps and exported `exists` output |
 | `reusable-database.yml` | Existing PostgreSQL service, environment, migration and RLS tests |
 | `reusable-edge-api.yml` | Deno checks, deterministic tests, and optional hosted database migration and integration tests |
+| `reusable-e2e.yml` | Playwright browser journeys against an isolated local Supabase stack; no secrets or hosted data |
 | `reusable-cloudflare.yml` | Dormant deployment implementation; `workflow_call` only, no caller |
 
 The reusable jobs retain their internal names. Edge/API validation includes
@@ -32,11 +33,15 @@ fallback. Neither caller forwards Cloudflare secrets to any reusable workflow.
 Public Supabase build variables remain read through `vars` inside the reusable
 deployment job.
 
-Duplicate validation work on PRs is intentional during migration. The comparison
-caller uses distinct `Modular ...` job names because GitHub can compose reusable
-check names from caller and callee names. Do not assume that retaining the callee
-name preserves the exact required-check context. The existing required checks
-continue to come from `ci.yml`; do not change rulesets during this stage.
+Duplicate frontend, database, Edge/API, and E2E validation work on PRs is
+intentional during migration. `ci.yml` and both modular callers use the reusable
+E2E workflow. In `ci.yml`, E2E is a separate non-gating job: it is not part of
+the required `Frontend Checks` status or the Cloudflare deployment dependencies.
+The modular caller uses distinct `Modular ...` job names because GitHub can
+compose reusable check names from caller and callee names. Do not assume that
+retaining the callee name preserves the exact required-check context. The
+existing required checks continue to come from `ci.yml`; do not change rulesets
+during this stage.
 
 The reusable Cloudflare job preserves the main push/manual-dispatch guard,
 `contents: read` permission, public build-variable checks, and job concurrency
@@ -60,29 +65,31 @@ and [workflow reuse guide](https://docs.github.com/en/actions/how-tos/reuse-auto
 
 `modular-main.yml` runs on pushes to main and supports manual dispatch; it has
 no PR trigger. Its caller names are `Modular Main Frontend`, `Modular Main
-Database`, and `Modular Main Edge/API`. Actual composed main check names still
-need to be observed in GitHub. The caller forwards all six optional BE04
+Database`, `Modular Main Edge/API`, and `Modular Main E2E`. Actual composed main
+check names still need to be observed in GitHub. The caller forwards all six optional BE04
 non-production test secrets: Supabase URL, anon key, service-role key, secret
 key, expected project reference, and dedicated database URL. Like the PR caller,
 it forwards the expected-reference secret with a legacy `BE04_RLS_TEST_PROJECT_REF`
 secret fallback; the reusable workflow also reads repository-variable fallbacks.
-It never calls `reusable-cloudflare.yml`, receives no Cloudflare production
+The E2E caller forwards no secrets and uses only its local Supabase stack. The
+workflow never calls `reusable-cloudflare.yml`, receives no Cloudflare production
 secrets, and contains no deployment commands.
 
 The final `gate-evidence` job declares
-`needs: [frontend, test-db, test-edge-api]`, requires
+`needs: [frontend, test-db, test-edge-api, test-e2e]`, requires
 `needs.frontend.outputs.exists == 'true'`, and restricts itself to main
 push/manual-dispatch events. It uses normal implicit success semantics, with no
 `always()` or `continue-on-error`. It has no token permissions, credentials,
-checkout, or production actions; it only logs inert evidence. Existing `ci.yml`
-continues independently as the sole production deployment path.
+checkout, or production actions; it only logs inert evidence. Failed, cancelled,
+or skipped E2E therefore cannot produce successful gate evidence. Existing
+`ci.yml` continues independently as the sole production deployment path.
 
 `modular-gate-experiment.yml` is manual-dispatch only. It and its reusable fixture
 declare `permissions: {}`, accept no secrets, and perform no checkout, network,
 provider, or deployment actions. The fixture has boolean inputs for intentional
 failure, simulated frontend existence, and a five-minute cancellation window.
 Its `exists` output traverses step, job, and reusable workflow outputs. The
-experiment's `would-deploy` job mirrors the three validation dependencies and
+experiment's `would-deploy` job mirrors all four validation dependencies and the
 frontend existence condition with normal success semantics. Its logs explicitly
 state that no production deployment occurred. This synthetic gate can run on a
 selected ref; main event/ref restrictions are enforced separately by the shadow
@@ -94,30 +101,33 @@ main gate, and must remain part of any future production caller.
 | `fail-frontend` | Frontend fixture fails; gate is skipped |
 | `fail-database` | Database fixture fails; gate is skipped |
 | `fail-edge-api` | Edge/API fixture fails; gate is skipped |
+| `fail-e2e` | E2E fixture fails; gate is skipped |
 | `missing-frontend` | Dependencies succeed but `exists` is `false`; gate is skipped |
 | `skip-database` | Database caller is skipped by a job condition; gate is skipped |
+| `skip-e2e` | E2E caller is skipped by a job condition; gate is skipped |
 | `cancel-window` | Database fixture waits five minutes for real manual cancellation |
+| `cancel-e2e` | E2E fixture waits five minutes for real manual cancellation |
 
-For cancellation evidence, cancel a running `cancel-window` experiment while
-the database fixture is waiting and record the actual job/run conclusions and
-gate result. Cancellation is never simulated by an exit code. If not cancelled,
-the fixture succeeds after the wait and the gate can run. Manual dispatch from
-the GitHub UI normally requires the workflow to be present on the default branch.
+For cancellation evidence, cancel a running `cancel-window` or `cancel-e2e`
+experiment while its fixture is waiting and record the actual job/run conclusions
+and gate result. Cancellation is never simulated by an exit code. If not
+cancelled, the fixture succeeds after the wait and the gate can run. Manual
+dispatch from the GitHub UI normally requires the workflow to be present on the
+default branch.
 
-These Stage 2A workflows are introduced as infrastructure only. No Stage 2A
+These Stage 2A workflows are introduced as infrastructure only. No modular main
 runtime result, main output propagation, failure/skip/cancellation blocking, or
 composed main check identity is proven until real GitHub Actions runs occur.
 Record run URLs, commit SHAs, selected scenarios, dependency conclusions, exported
 frontend existence, and gate conclusions before treating them as evidence.
 
-This branch reconciles static Edge/API command parity with authoritative
-`ci.yml`: both type-check the recipe and AI contract/evaluation files and run
-the same deterministic test files. BE-06's guarded hosted non-production
-migration and auth/RLS/recipe integration coverage remains intact, and both
-modular callers forward the same optional hosted-test secrets. This static
-reconciliation does not establish runtime parity: Stage 2A shadow main and
-gate-experiment execution evidence is still pending. No successful modular
-main execution is claimed.
+The reusable E2E workflow runs the authenticated CRUD and cross-user ownership
+journeys against its isolated local Supabase stack. Its result is visible from
+`ci.yml` and the modular callers, but it is not a required check or a Cloudflare
+deployment dependency. Static workflow validation does not establish runtime
+parity: modular main and gate-experiment execution evidence remains pending
+until real GitHub Actions runs occur. No successful modular main execution is
+claimed.
 
 ## Evidence needed before retiring ci.yml
 
@@ -164,25 +174,26 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
    by the modular PR caller and no workflow calls `reusable-cloudflare.yml`
    through Stage 2A.
 3. Execute the Stage 2A shadow main workflow and controlled gate experiments
-   to prove frontend output propagation and dependency gating using the inert
-   downstream jobs with no production credentials or deployment commands.
-   The main gate declares
-   `needs: [frontend, test-db, test-edge-api]`, uses normal success semantics
+   to prove frontend output propagation and dependency gating for all four
+   validations using the inert downstream job with no production credentials or
+   deployment commands. The main gate declares
+   `needs: [frontend, test-db, test-edge-api, test-e2e]`, uses normal success semantics
    (no `always()` or `continue-on-error` bypass), and requires
    `needs.frontend.outputs.exists == 'true'`. Runtime evidence must demonstrate
    success and blocking
    for failed, cancelled and skipped dependencies, missing frontend, PR events
    and non-main refs. Preserve the push/manual-dispatch restriction.
 4. Only after that evidence, prepare the production handoff as a separate change:
-   wire a main caller to all three reusable validations and then deployment with
+   wire a main caller to all four reusable validations and then deployment with
    those same dependencies/conditions, explicitly pass Cloudflare secrets, and
    convert the string frontend output to a boolean input. Do not use a separate
    `workflow_run` deployment or trust a boolean input as proof of validation.
    The reusable deployment cannot express `needs` on the caller's validation
    jobs; the caller must enforce that gate.
 5. Resolve required-check naming using actual GitHub results before retiring the
-   old check producers. Any ruleset/check-context change requires a separately
-   authorized handoff. Switch off the old deploy caller when enabling the new
+   old check producers. Keep E2E non-authoritative until its reliability is
+   established and separately approved. Any ruleset/check-context change requires
+   a separately authorized handoff. Switch off the old deploy caller when enabling the new
    one in the same reviewed cutover; never leave two active production paths.
    A shared concurrency group serializes jobs but does not prevent duplicate
    deployments. Keep the group only on the deployment job, with cancellation
