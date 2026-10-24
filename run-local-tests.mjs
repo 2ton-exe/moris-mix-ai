@@ -389,9 +389,6 @@ async function runMain() {
   const rawRlsServiceRoleKey =
     process.env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY;
   const rawRlsSecretKey = process.env.BE04_RLS_TEST_SUPABASE_SECRET_KEY;
-  const rawDbMigrationOptIn =
-    process.env.RUN_DB_MIGRATION_TESTS === "true" ||
-    process.env.RUN_MIGRATION_DB_TESTS === "true";
 
   const env = { ...process.env };
 
@@ -514,10 +511,7 @@ async function runMain() {
     }
   }
 
-  const migrationArgs = rawDbMigrationOptIn
-    ? ["test-migrations.mjs", "--run-db-tests"]
-    : ["test-migrations.mjs"];
-  runCommand(process.execPath, migrationArgs, false);
+  runCommand(process.execPath, getMigrationTestArgs(), false);
 
   const denoArgs = [
     "test",
@@ -534,6 +528,10 @@ async function runMain() {
   ];
 
   runCommand("deno", denoArgs, process.platform === "win32");
+}
+
+function getMigrationTestArgs() {
+  return ["test-migrations.mjs", "--run-db-tests"];
 }
 
 const isDirectRun =
@@ -569,4 +567,5 @@ export {
   passesRlsTargetSafetyPrecheck,
   evaluateHostedRlsPrerequisites,
   runMain,
+  getMigrationTestArgs,
 };

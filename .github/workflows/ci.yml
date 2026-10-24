@@ -209,11 +209,40 @@ jobs:
         run: |
           if [[ -n "${BE04_RLS_TEST_DATABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE04_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && -n "${BE04_RLS_TEST_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
             RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
-            RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts
           else
             echo "SKIPPED: Hosted BE-04 RLS integration test not executed because dedicated non-production test project configuration is not completely configured."
             deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           fi
+
+  test-hosted-rls:
+    name: BE-07 Hosted RLS Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.7"
+
+      - name: Run BE-07 hosted RLS integration tests
+        env:
+          REQUIRE_HOSTED_RLS_INTEGRATION: "true"
+          RUN_BE07_RLS_INTEGRATION: ${{ secrets.RUN_BE07_RLS_INTEGRATION || 'true' }}
+          BE07_RLS_TEST_SUPABASE_URL: ${{ secrets.BE07_RLS_TEST_SUPABASE_URL }}
+          BE07_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE07_RLS_TEST_SUPABASE_ANON_KEY }}
+          BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          BE07_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE07_RLS_TEST_SUPABASE_SECRET_KEY }}
+          BE07_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE07_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE07_RLS_TEST_EXPECTED_PROJECT_REF }}
+          BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
+          BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
+          BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
+          BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE04_RLS_TEST_PROJECT_REF || secrets.BE04_RLS_TEST_PROJECT_REF }}
+        shell: bash
+        run: |
+          deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts
 
   deploy:
     name: Deploy to Cloudflare
@@ -221,6 +250,7 @@ jobs:
       - frontend
       - test-db
       - test-edge-api
+      - test-hosted-rls
     if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 

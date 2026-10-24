@@ -5,6 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { getMigrationTestArgs } from './run-local-tests.mjs';
 import {
   discoverMigrations,
   initializeMigrationHistory,
@@ -469,20 +470,70 @@ async function runSchemaVerificationUnitTests() {
   console.log('PASS: Schema completeness verification and unit assertions verified.');
 }
 
-async function runDatabaseLifecycleIntegrationTests() {
-  const hasOptIn = process.argv.includes('--run-db-tests') || process.env.RUN_MIGRATION_DB_TESTS === 'true';
-  const isCI = process.env.CI === 'true';
+export function evaluateMigrationLifecycleOptIn(argv = process.argv, env = process.env) {
+  const hasOptIn = argv.includes('--run-db-tests') || env.RUN_MIGRATION_DB_TESTS === 'true';
+  const isCI = env.CI === 'true';
+  return {
+    hasOptIn,
+    isCI,
+    shouldRun: hasOptIn,
+    error: isCI && !hasOptIn
+      ? 'CI failure: Database lifecycle integration tests must not be skipped in CI. Ensure --run-db-tests or RUN_MIGRATION_DB_TESTS=true is enabled.'
+      : null
+  };
+}
 
-  if (isCI && !hasOptIn) {
-    throw new Error('CI failure: Database lifecycle integration tests must not be skipped in CI. Ensure --run-db-tests or RUN_MIGRATION_DB_TESTS=true is enabled.');
+function runMigrationOptInUnitTests() {
+  // 1. Default behavior (no --run-db-tests, no RUN_MIGRATION_DB_TESTS):
+  const defaultEval = evaluateMigrationLifecycleOptIn(['node', 'test-migrations.mjs'], {});
+  assert.equal(defaultEval.hasOptIn, false);
+  assert.equal(defaultEval.shouldRun, false);
+  assert.equal(defaultEval.error, null);
+
+  // 2. Explicit opt-in via CLI argument --run-db-tests:
+  const cliOptIn = evaluateMigrationLifecycleOptIn(['node', 'test-migrations.mjs', '--run-db-tests'], {});
+  assert.equal(cliOptIn.hasOptIn, true);
+  assert.equal(cliOptIn.shouldRun, true);
+  assert.equal(cliOptIn.error, null);
+
+  // 3. Explicit opt-in via environment variable RUN_MIGRATION_DB_TESTS=true:
+  const envOptIn = evaluateMigrationLifecycleOptIn(['node', 'test-migrations.mjs'], { RUN_MIGRATION_DB_TESTS: 'true' });
+  assert.equal(envOptIn.hasOptIn, true);
+  assert.equal(envOptIn.shouldRun, true);
+  assert.equal(envOptIn.error, null);
+
+  // 4. CI failure when opt-in is missing in CI environment:
+  const ciMissingOptIn = evaluateMigrationLifecycleOptIn(['node', 'test-migrations.mjs'], { CI: 'true' });
+  assert.equal(ciMissingOptIn.hasOptIn, false);
+  assert.equal(ciMissingOptIn.shouldRun, false);
+  assert.notEqual(ciMissingOptIn.error, null);
+  assert.match(ciMissingOptIn.error, /CI failure: Database lifecycle integration tests must not be skipped in CI/);
+
+  // 5. CI success when opted in via --run-db-tests:
+  const ciWithOptIn = evaluateMigrationLifecycleOptIn(['node', 'test-migrations.mjs', '--run-db-tests'], { CI: 'true' });
+  assert.equal(ciWithOptIn.hasOptIn, true);
+  assert.equal(ciWithOptIn.shouldRun, true);
+  assert.equal(ciWithOptIn.error, null);
+
+  // 6. Verify run-local-tests.mjs runner default:
+  assert.deepEqual(getMigrationTestArgs(), ['test-migrations.mjs', '--run-db-tests']);
+
+  console.log('PASS: Migration lifecycle default and explicit opt-in behavior verified.');
+}
+
+async function runDatabaseLifecycleIntegrationTests() {
+  const optInResult = evaluateMigrationLifecycleOptIn();
+  const { hasOptIn, isCI } = optInResult;
+  if (optInResult.error) {
+    throw new Error(optInResult.error);
   }
 
-  if (!hasOptIn) {
+  if (!optInResult.shouldRun) {
     console.log('INFO: Database lifecycle integration tests skipped. Use --run-db-tests or RUN_MIGRATION_DB_TESTS=true to enable.');
     return;
   }
 
-  if (isCI && !process.env.DATABASE_URL) {
+  if (optInResult.isCI && !process.env.DATABASE_URL) {
     throw new Error('CI failure: DATABASE_URL must be configured in CI.');
   }
 
@@ -1258,6 +1309,7 @@ async function main() {
   runDiscoveryAndIntegrityUnitTests();
   await runSchemaVerificationUnitTests();
   await runTestTargetMigrationUnitTests();
+  runMigrationOptInUnitTests();
   await runDatabaseLifecycleIntegrationTests();
   console.log('ALL MIGRATION RUNNER TESTS COMPLETED SUCCESSFULLY.');
 }

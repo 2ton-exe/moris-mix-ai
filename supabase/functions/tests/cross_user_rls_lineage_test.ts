@@ -84,7 +84,7 @@ function isLoopbackHost(hostname: string): boolean {
   return norm === "localhost" || norm === "127.0.0.1" || norm === "::1" || norm === "[::1]";
 }
 
-function validateDedicatedTestTarget(
+export function validateDedicatedTestTarget(
   targetUrl: string,
   anonKey: string,
   serviceRoleKey: string,
@@ -128,11 +128,18 @@ function validateDedicatedTestTarget(
   }
 }
 
-type RlsConfigResult =
+export type RlsConfigResult =
   | { shouldRun: false; isOptedIn: false; error?: undefined }
   | { shouldRun: true; isOptedIn: true; error?: string; url: string; anonKey: string; serviceRoleKey: string; expectedProjectRef: string; prefix: "BE07" | "BE06" | "BE04" };
 
-function resolveCredentialStateMachine(getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k)): RlsConfigResult {
+export function resolveCredentialStateMachine(
+  getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
+  options: { required?: boolean } = {},
+): RlsConfigResult {
+  const isRequired =
+    options.required === true ||
+    (getEnv("REQUIRE_HOSTED_RLS_INTEGRATION") ?? "").trim().toLowerCase() === "true" ||
+    (getEnv("HOSTED_RLS_REQUIRED") ?? "").trim().toLowerCase() === "true";
   const be07Flag = (getEnv("RUN_BE07_RLS_INTEGRATION") ?? "").trim().toLowerCase();
   const be07Enabled = be07Flag === "true" || be07Flag === "1";
   if (be07Enabled) {
@@ -212,6 +219,78 @@ function resolveCredentialStateMachine(getEnv: (k: string) => string | undefined
       };
     }
     return { shouldRun: true, isOptedIn: true, prefix: "BE04", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
+  }
+
+  if (isRequired) {
+    const hasBe07 = Boolean(
+      getEnv("BE07_RLS_TEST_SUPABASE_URL") ||
+      getEnv("BE07_RLS_TEST_SUPABASE_ANON_KEY") ||
+      getEnv("BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ||
+      getEnv("BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ||
+      getEnv("BE07_RLS_TEST_SUPABASE_SECRET_KEY") ||
+      getEnv("BE07_RLS_TEST_EXPECTED_PROJECT_REF") ||
+      getEnv("BE07_RLS_TEST_PROJECT_REF")
+    );
+    const hasBe06 = Boolean(
+      getEnv("BE06_RLS_TEST_SUPABASE_URL") ||
+      getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY") ||
+      getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ||
+      getEnv("BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ||
+      getEnv("BE06_RLS_TEST_SUPABASE_SECRET_KEY") ||
+      getEnv("BE06_RLS_TEST_EXPECTED_PROJECT_REF") ||
+      getEnv("BE06_RLS_TEST_PROJECT_REF")
+    );
+    const hasBe04 = Boolean(
+      getEnv("BE04_RLS_TEST_SUPABASE_URL") ||
+      getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY") ||
+      getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ||
+      getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ||
+      getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY") ||
+      getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF") ||
+      getEnv("BE04_RLS_TEST_PROJECT_REF")
+    );
+
+    const prefix: "BE07" | "BE06" | "BE04" = hasBe07
+      ? "BE07"
+      : hasBe06
+      ? "BE06"
+      : hasBe04
+      ? "BE04"
+      : "BE07";
+
+    const url = (getEnv(`${prefix}_RLS_TEST_SUPABASE_URL`)?.trim() || "");
+    const anon = (getEnv(`${prefix}_RLS_TEST_SUPABASE_ANON_KEY`)?.trim() || getEnv(`${prefix}_RLS_TEST_SUPABASE_PUBLISHABLE_KEY`)?.trim() || "");
+    const service = (getEnv(`${prefix}_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`)?.trim() || getEnv(`${prefix}_RLS_TEST_SUPABASE_SECRET_KEY`)?.trim() || "");
+    const expected = (getEnv(`${prefix}_RLS_TEST_EXPECTED_PROJECT_REF`)?.trim() || getEnv(`${prefix}_RLS_TEST_PROJECT_REF`)?.trim() || "");
+
+    const missing: string[] = [];
+    if (!url) missing.push(`${prefix}_RLS_TEST_SUPABASE_URL`);
+    if (!anon) missing.push(`${prefix}_RLS_TEST_SUPABASE_ANON_KEY`);
+    if (!service) missing.push(`${prefix}_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`);
+    if (!expected) missing.push(`${prefix}_RLS_TEST_EXPECTED_PROJECT_REF`);
+
+    if (missing.length > 0) {
+      return {
+        shouldRun: true,
+        isOptedIn: true,
+        prefix,
+        error: `Hosted RLS integration is required (prefix ${prefix}), but dedicated non-production test credentials are incomplete or unavailable: missing ${missing.join(", ")}.`,
+        url,
+        anonKey: anon,
+        serviceRoleKey: service,
+        expectedProjectRef: expected,
+      };
+    }
+
+    return {
+      shouldRun: true,
+      isOptedIn: true,
+      prefix,
+      url,
+      anonKey: anon,
+      serviceRoleKey: service,
+      expectedProjectRef: expected,
+    };
   }
 
   return { shouldRun: false, isOptedIn: false };
@@ -449,7 +528,7 @@ export function evaluateCascadeVerification(params: {
 export type CleanupAdminClient = {
   from: (table: string) => {
     delete: () => {
-      filter: (column: string, operator: string, value: string) => PromiseLike<{ error: { message: string } | null }>;
+      filter?: (column: string, operator: string, value: string) => PromiseLike<{ error: { message: string } | null }>;
       in: (column: string, values: string[]) => PromiseLike<{ error: { message: string } | null }>;
       eq: (column: string, value: string) => PromiseLike<{ error: { message: string } | null }>;
     };
@@ -479,13 +558,12 @@ export async function cleanupCrossUserRlsResources(
     cleanupErrors.push(`${action}: ${sanitizeSecrets(raw, knownSecrets)}`);
   };
 
-  if (createdUserIds.length > 0) {
-    const userIdsList = createdUserIds.join(",");
+  if (createdRecipeIds.length > 0) {
     try {
       const { error } = await adminClient
         .from("recipe_lineage")
         .delete()
-        .filter("parent_recipe_id", "in", `(select id from recipes where user_id in (${userIdsList}))`);
+        .in("parent_recipe_id", createdRecipeIds);
       if (error) {
         recordError("Failed cleaning recipe_lineage by parent", error);
       }
@@ -497,16 +575,14 @@ export async function cleanupCrossUserRlsResources(
       const { error } = await adminClient
         .from("recipe_lineage")
         .delete()
-        .filter("child_recipe_id", "in", `(select id from recipes where user_id in (${userIdsList}))`);
+        .in("child_recipe_id", createdRecipeIds);
       if (error) {
         recordError("Failed cleaning recipe_lineage by child", error);
       }
     } catch (e) {
       recordError("Failed cleaning recipe_lineage by child (thrown)", e);
     }
-  }
 
-  if (createdRecipeIds.length > 0) {
     try {
       const { error } = await adminClient.from("recipes").delete().in("id", createdRecipeIds);
       if (error) {
@@ -1426,15 +1502,11 @@ Deno.test("Finding 2 regression: Cleanup fails visibly on API-returned errors fr
   const mockAdminClient: CleanupAdminClient = {
     from: (table: string) => ({
       delete: () => ({
-        filter: (_column: string, _operator: string, _value: string) => {
-          operationsCalled.push(`filter:${table}`);
+        in: (column: string, _values: string[]) => {
+          operationsCalled.push(`in:${table}:${column}`);
           if (table === "recipe_lineage") {
-            return Promise.resolve({ error: { message: "Simulated lineage API error" } });
+            return Promise.resolve({ error: { message: `Simulated lineage API error for ${column}` } });
           }
-          return Promise.resolve({ error: null });
-        },
-        in: (_column: string, _values: string[]) => {
-          operationsCalled.push(`in:${table}`);
           if (table === "recipes") {
             return Promise.resolve({ error: { message: "Simulated recipe API error" } });
           }
@@ -1474,7 +1546,8 @@ Deno.test("Finding 2 regression: Cleanup fails visibly on API-returned errors fr
   assertNotEquals(caughtError, null);
   const msg = caughtError?.message ?? "";
   assertEquals(msg.includes("Cleanup failed:"), true);
-  assertEquals(msg.includes("Simulated lineage API error"), true);
+  assertEquals(msg.includes("Simulated lineage API error for parent_recipe_id"), true);
+  assertEquals(msg.includes("Simulated lineage API error for child_recipe_id"), true);
   assertEquals(msg.includes("Simulated recipe API error"), true);
   assertEquals(msg.includes("Simulated profile API error for user-1"), true);
   assertEquals(msg.includes("Simulated profile API error for user-2"), true);
@@ -1482,8 +1555,9 @@ Deno.test("Finding 2 regression: Cleanup fails visibly on API-returned errors fr
   assertEquals(msg.includes("Simulated auth API error for user-2"), true);
 
   // Verify all operations were attempted despite earlier errors
-  assertEquals(operationsCalled.includes("filter:recipe_lineage"), true);
-  assertEquals(operationsCalled.includes("in:recipes"), true);
+  assertEquals(operationsCalled.includes("in:recipe_lineage:parent_recipe_id"), true);
+  assertEquals(operationsCalled.includes("in:recipe_lineage:child_recipe_id"), true);
+  assertEquals(operationsCalled.includes("in:recipes:id"), true);
   assertEquals(operationsCalled.includes("eq:profiles:user-1"), true);
   assertEquals(operationsCalled.includes("eq:profiles:user-2"), true);
   assertEquals(operationsCalled.includes("deleteUser:user-1"), true);
@@ -1496,13 +1570,15 @@ Deno.test("Finding 2 regression: Cleanup handles thrown exceptions without maski
   const mockAdminClient: CleanupAdminClient = {
     from: (table: string) => ({
       delete: () => ({
-        filter: () => {
-          operationsCalled.push(`filter:${table}`);
-          throw new Error("Network connection dropped during lineage cleanup");
-        },
-        in: () => {
-          operationsCalled.push(`in:${table}`);
-          return Promise.resolve({ error: { message: "Recipe delete returned 500" } });
+        in: (column: string) => {
+          operationsCalled.push(`in:${table}:${column}`);
+          if (table === "recipe_lineage" && column === "parent_recipe_id") {
+            throw new Error("Network connection dropped during lineage cleanup");
+          }
+          if (table === "recipes") {
+            return Promise.resolve({ error: { message: "Recipe delete returned 500" } });
+          }
+          return Promise.resolve({ error: null });
         },
         eq: () => {
           operationsCalled.push(`eq:${table}`);
@@ -1541,16 +1617,22 @@ Deno.test("Finding 2 regression: Cleanup handles thrown exceptions without maski
   assertEquals(caughtError?.cause, primaryError);
 
   // Confirms subsequent stages were still executed despite thrown error in first stage
-  assertEquals(operationsCalled.includes("in:recipes"), true);
+  assertEquals(operationsCalled.includes("in:recipe_lineage:child_recipe_id"), true);
+  assertEquals(operationsCalled.includes("in:recipes:id"), true);
   assertEquals(operationsCalled.includes("deleteUser:user-1"), true);
 });
 
 Deno.test("Finding 2 regression: Cleanup failure preserves primary test error and chains cause", async () => {
   const mockAdminClient: CleanupAdminClient = {
-    from: (_table: string) => ({
+    from: (table: string) => ({
       delete: () => ({
         filter: () => Promise.resolve({ error: null }),
-        in: () => Promise.resolve({ error: { message: "Cleanup DB error" } }),
+        in: () => {
+          if (table === "recipes") {
+            return Promise.resolve({ error: { message: "Cleanup DB error" } });
+          }
+          return Promise.resolve({ error: null });
+        },
         eq: () => Promise.resolve({ error: null }),
       }),
     }),
@@ -1915,4 +1997,348 @@ Deno.test("Finding 4 regression: Simulated orphan lineage row confirms RLS hides
     ownerLineageRowCount: queryResultRows.length,
   });
   assertEquals(cascadeEval.independentDeletionProven, false);
+});
+
+// ============================================================================
+// Review Findings Regression Tests: BE-07 Verification and Cleanup
+// ============================================================================
+
+Deno.test("Finding 1 review regression: Missing credentials in required mode fails with explicit configuration error", () => {
+  // Test case 1: Required mode without any credentials or flags
+  const envEmpty: Record<string, string> = {};
+  const resRequiredEmpty = resolveCredentialStateMachine((k) => envEmpty[k], { required: true });
+  assertEquals(resRequiredEmpty.shouldRun, true);
+  if (resRequiredEmpty.shouldRun) {
+    assertEquals(resRequiredEmpty.isOptedIn, true);
+    assertEquals(resRequiredEmpty.prefix, "BE07");
+    assertNotEquals(resRequiredEmpty.error, undefined);
+    assertEquals(
+      resRequiredEmpty.error?.includes("Hosted RLS integration is required (prefix BE07), but dedicated non-production test credentials are incomplete or unavailable"),
+      true,
+    );
+  }
+
+  // Test case 2: Required mode via environment variable REQUIRE_HOSTED_RLS_INTEGRATION=true
+  const envVarRequired: Record<string, string> = {
+    REQUIRE_HOSTED_RLS_INTEGRATION: "true",
+  };
+  const resEnvRequired = resolveCredentialStateMachine((k) => envVarRequired[k]);
+  assertEquals(resEnvRequired.shouldRun, true);
+  if (resEnvRequired.shouldRun) {
+    assertNotEquals(resEnvRequired.error, undefined);
+    assertEquals(resEnvRequired.error?.includes("missing BE07_RLS_TEST_SUPABASE_URL"), true);
+  }
+
+  // Test case 3: Required mode via HOSTED_RLS_REQUIRED=true
+  const envHostedRequired: Record<string, string> = {
+    HOSTED_RLS_REQUIRED: "true",
+  };
+  const resHostedRequired = resolveCredentialStateMachine((k) => envHostedRequired[k]);
+  assertEquals(resHostedRequired.shouldRun, true);
+  if (resHostedRequired.shouldRun) {
+    assertNotEquals(resHostedRequired.error, undefined);
+  }
+
+  // Test case 4: Explicit RUN_BE07_RLS_INTEGRATION=true with missing credentials
+  const envBe07Missing: Record<string, string> = {
+    RUN_BE07_RLS_INTEGRATION: "true",
+    BE07_RLS_TEST_SUPABASE_URL: "https://be07-test.supabase.co",
+    // Missing anon key, service key, expected ref
+  };
+  const resBe07Missing = resolveCredentialStateMachine((k) => envBe07Missing[k], { required: true });
+  assertEquals(resBe07Missing.shouldRun, true);
+  if (resBe07Missing.shouldRun) {
+    assertEquals(resBe07Missing.prefix, "BE07");
+    assertNotEquals(resBe07Missing.error, undefined);
+    assertEquals(
+      resBe07Missing.error?.includes("RUN_BE07_RLS_INTEGRATION locked prefix BE07 but credentials are incomplete: missing BE07_RLS_TEST_SUPABASE_ANON_KEY"),
+      true,
+    );
+  }
+});
+
+Deno.test("Finding 1 review regression: Valid non-production credentials resolve successfully in required and optional mode", () => {
+  const envValid: Record<string, string> = {
+    RUN_BE07_RLS_INTEGRATION: "true",
+    BE07_RLS_TEST_SUPABASE_URL: "https://dedicated-valid-ref.supabase.co",
+    BE07_RLS_TEST_SUPABASE_ANON_KEY: "dedicated-anon-key-12345",
+    BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "dedicated-service-role-key-67890",
+    BE07_RLS_TEST_EXPECTED_PROJECT_REF: "dedicated-valid-ref",
+  };
+
+  const resOptional = resolveCredentialStateMachine((k) => envValid[k]);
+  assertEquals(resOptional.shouldRun, true);
+  if (resOptional.shouldRun) {
+    assertEquals(resOptional.isOptedIn, true);
+    assertEquals(resOptional.prefix, "BE07");
+    assertEquals(resOptional.error, undefined);
+    assertEquals(resOptional.url, "https://dedicated-valid-ref.supabase.co");
+    assertEquals(resOptional.anonKey, "dedicated-anon-key-12345");
+    assertEquals(resOptional.serviceRoleKey, "dedicated-service-role-key-67890");
+    assertEquals(resOptional.expectedProjectRef, "dedicated-valid-ref");
+  }
+
+  const resRequired = resolveCredentialStateMachine((k) => envValid[k], { required: true });
+  assertEquals(resRequired.shouldRun, true);
+  if (resRequired.shouldRun) {
+    assertEquals(resRequired.error, undefined);
+    validateDedicatedTestTarget(
+      resRequired.url,
+      resRequired.anonKey,
+      resRequired.serviceRoleKey,
+      resRequired.expectedProjectRef,
+    );
+  }
+});
+
+Deno.test("Finding 1 review regression: Unsafe production targets and non-HTTPS/loopback targets are strictly rejected", () => {
+  // 1. Primary production project ref rejection
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        `https://${KNOWN_PRODUCTION_REF}.supabase.co`,
+        "anon-key",
+        "service-key",
+        KNOWN_PRODUCTION_REF,
+      ),
+    Error,
+    "primary production project",
+  );
+
+  // 2. Production project ref in expectedProjectRef even if URL differs
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "https://some-other-ref.supabase.co",
+        "anon-key",
+        "service-key",
+        KNOWN_PRODUCTION_REF,
+      ),
+    Error,
+    "does not match expected reference",
+  );
+
+  // 3. HTTP target rejection (HTTPS required)
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "http://test-project.supabase.co",
+        "anon-key",
+        "service-key",
+        "test-project",
+      ),
+    Error,
+    "HTTPS",
+  );
+
+  // 4. Loopback / localhost rejection
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "https://127.0.0.1:54321",
+        "anon-key",
+        "service-key",
+        "test-project",
+      ),
+    Error,
+    "localhost/loopback",
+  );
+
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "https://localhost:54321",
+        "anon-key",
+        "service-key",
+        "test-project",
+      ),
+    Error,
+    "localhost/loopback",
+  );
+
+  // 5. Symmetric keys rejection
+  assertThrows(
+    () =>
+      validateDedicatedTestTarget(
+        "https://test-project.supabase.co",
+        "same-key-value",
+        "same-key-value",
+        "test-project",
+      ),
+    Error,
+    "must not match",
+  );
+});
+
+Deno.test("Finding 3 review regression: Both lineage filters receive explicit arrays of tracked recipe IDs", async () => {
+  const trackedRecipeIds = [
+    "aaaaaaaa-1111-4111-8111-111111111111",
+    "bbbbbbbb-2222-4222-8222-222222222222",
+  ];
+  const capturedCalls: Array<{ table: string; column: string; values: string[] }> = [];
+
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        in: (column: string, values: string[]) => {
+          capturedCalls.push({ table, column, values });
+          return Promise.resolve({ error: null });
+        },
+        eq: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: () => Promise.resolve({ error: null }),
+      },
+    },
+  };
+
+  await cleanupCrossUserRlsResources(
+    mockAdminClient,
+    trackedRecipeIds,
+    ["user-uuid-1"],
+  );
+
+  // Lineage parent query verified
+  const parentCall = capturedCalls.find((c) => c.table === "recipe_lineage" && c.column === "parent_recipe_id");
+  assertNotEquals(parentCall, undefined);
+  assertEquals(parentCall?.values, trackedRecipeIds);
+
+  // Lineage child query verified
+  const childCall = capturedCalls.find((c) => c.table === "recipe_lineage" && c.column === "child_recipe_id");
+  assertNotEquals(childCall, undefined);
+  assertEquals(childCall?.values, trackedRecipeIds);
+
+  // Recipes query verified
+  const recipesCall = capturedCalls.find((c) => c.table === "recipes" && c.column === "id");
+  assertNotEquals(recipesCall, undefined);
+  assertEquals(recipesCall?.values, trackedRecipeIds);
+});
+
+Deno.test("Finding 3 review regression: Empty recipe ID arrays cause lineage and recipe deletion queries to be skipped", async () => {
+  const capturedTables: string[] = [];
+
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => {
+      capturedTables.push(table);
+      return {
+        delete: () => ({
+          in: () => Promise.resolve({ error: null }),
+          eq: () => Promise.resolve({ error: null }),
+        }),
+      };
+    },
+    auth: {
+      admin: {
+        deleteUser: () => Promise.resolve({ error: null }),
+      },
+    },
+  };
+
+  await cleanupCrossUserRlsResources(
+    mockAdminClient,
+    [], // Empty recipe array!
+    ["user-uuid-1"],
+  );
+
+  // When createdRecipeIds is empty, neither recipe_lineage nor recipes should be touched
+  assertEquals(capturedTables.includes("recipe_lineage"), false);
+  assertEquals(capturedTables.includes("recipes"), false);
+  // User profiles are still cleaned up
+  assertEquals(capturedTables.includes("profiles"), true);
+});
+
+Deno.test("Finding 3 review regression: PostgREST API-returned errors remain visible", async () => {
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        in: (column: string) => {
+          if (table === "recipe_lineage" && column === "parent_recipe_id") {
+            return Promise.resolve({ error: { message: "PGRST_LINEAGE_PARENT_ERR: foreign key violation" } });
+          }
+          if (table === "recipe_lineage" && column === "child_recipe_id") {
+            return Promise.resolve({ error: { message: "PGRST_LINEAGE_CHILD_ERR: connection timeout" } });
+          }
+          return Promise.resolve({ error: null });
+        },
+        eq: () => Promise.resolve({ error: null }),
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: () => Promise.resolve({ error: null }),
+      },
+    },
+  };
+
+  let caught: Error | null = null;
+  try {
+    await cleanupCrossUserRlsResources(
+      mockAdminClient,
+      ["recipe-123"],
+      ["user-456"],
+    );
+  } catch (err) {
+    caught = err as Error;
+  }
+
+  assertNotEquals(caught, null);
+  assertEquals(caught?.message.includes("Failed cleaning recipe_lineage by parent: PGRST_LINEAGE_PARENT_ERR: foreign key violation"), true);
+  assertEquals(caught?.message.includes("Failed cleaning recipe_lineage by child: PGRST_LINEAGE_CHILD_ERR: connection timeout"), true);
+});
+
+Deno.test("Finding 3 review regression: Remaining cleanup stages still execute after lineage deletion failure", async () => {
+  const operationsCalled: string[] = [];
+
+  const mockAdminClient: CleanupAdminClient = {
+    from: (table: string) => ({
+      delete: () => ({
+        in: (column: string) => {
+          operationsCalled.push(`in:${table}:${column}`);
+          if (table === "recipe_lineage" && column === "parent_recipe_id") {
+            return Promise.resolve({ error: { message: "Parent lineage deletion failed" } });
+          }
+          return Promise.resolve({ error: null });
+        },
+        eq: (_column: string, val: string) => {
+          operationsCalled.push(`eq:${table}:${val}`);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
+    auth: {
+      admin: {
+        deleteUser: (uid: string) => {
+          operationsCalled.push(`deleteUser:${uid}`);
+          return Promise.resolve({ error: null });
+        },
+      },
+    },
+  };
+
+  const primaryError = new Error("Primary scenario failure");
+  let caught: Error | null = null;
+  try {
+    await cleanupCrossUserRlsResources(
+      mockAdminClient,
+      ["recipe-1"],
+      ["user-1"],
+      [],
+      primaryError,
+    );
+  } catch (err) {
+    caught = err as Error;
+  }
+
+  assertNotEquals(caught, null);
+  assertEquals(caught?.message.includes("Primary scenario failure"), true);
+  assertEquals(caught?.message.includes("Failed cleaning recipe_lineage by parent"), true);
+  assertEquals(caught?.cause, primaryError);
+
+  // All remaining cleanup stages executed despite parent lineage failure:
+  assertEquals(operationsCalled.includes("in:recipe_lineage:child_recipe_id"), true);
+  assertEquals(operationsCalled.includes("in:recipes:id"), true);
+  assertEquals(operationsCalled.includes("eq:profiles:user-1"), true);
+  assertEquals(operationsCalled.includes("deleteUser:user-1"), true);
 });
