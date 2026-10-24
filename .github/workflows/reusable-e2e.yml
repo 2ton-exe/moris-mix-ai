@@ -1,0 +1,63 @@
+name: Reusable Playwright E2E Validation
+
+on:
+  workflow_call:
+
+jobs:
+  e2e:
+    name: Playwright E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for frontend project
+        id: frontend
+        shell: bash
+        run: |
+          if [ -f frontend/package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Frontend project not added yet."
+          fi
+
+      - name: Set up pnpm
+        if: steps.frontend.outputs.exists == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        if: steps.frontend.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install frontend dependencies
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E against local Supabase
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm run test:e2e:local
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-03-playwright-failure-artifacts
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

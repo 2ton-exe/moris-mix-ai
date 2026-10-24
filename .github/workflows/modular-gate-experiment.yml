@@ -13,9 +13,12 @@ on:
           - fail-frontend
           - fail-database
           - fail-edge-api
+          - fail-e2e
           - missing-frontend
           - skip-database
+          - skip-e2e
           - cancel-window
+          - cancel-e2e
 
 permissions: {}
 
@@ -41,14 +44,22 @@ jobs:
     with:
       fail: ${{ inputs.scenario == 'fail-edge-api' }}
 
+  test-e2e:
+    name: Experiment E2E
+    if: inputs.scenario != 'skip-e2e'
+    uses: ./.github/workflows/reusable-gate-fixture.yml
+    with:
+      fail: ${{ inputs.scenario == 'fail-e2e' }}
+      cancellation-window: ${{ inputs.scenario == 'cancel-e2e' }}
+
   would-deploy:
     name: Would Deploy (Inert Experiment Only)
-    needs: [frontend, test-db, test-edge-api]
+    needs: [frontend, test-db, test-edge-api, test-e2e]
     if: needs.frontend.outputs.exists == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Record allowed inert gate
         run: |
-          echo "All three fixture dependencies succeeded and simulated frontend exists."
+          echo "All four fixture dependencies succeeded and simulated frontend exists."
           echo "INERT EXPERIMENT ONLY: NO PRODUCTION DEPLOYMENT OCCURRED."
           echo "This job has no production credentials or deployment commands."

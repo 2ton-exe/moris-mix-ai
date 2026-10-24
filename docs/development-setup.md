@@ -5,7 +5,7 @@ This guide uses the local Supabase stack for app development and documents stand
 ## Prerequisites
 
 - [Node.js 24](https://nodejs.org/en/download) and pnpm 10 (`npm install --global pnpm@10`; see the [pnpm 10 installation guide](https://pnpm.io/10.x/installation))
-- Supabase CLI 2.x and Docker Desktop or another Docker-compatible runtime (for the local Supabase stack)
+- Supabase CLI 2.x: the standard local development stack uses Docker Desktop or another Docker-compatible runtime. Local authenticated E2E pins CLI 2.122.0 and uses its native experimental runtime on Linux `amd64`/`arm64` or macOS 14+ on Apple silicon; it needs `tar` and network access to download service artifacts, but not Docker. Windows and Intel Mac contributors should use the existing Ubuntu E2E job in GitHub Actions. See the [Supabase native runtime guide](https://supabase.com/docs/guides/local-development/docker-and-native-runtimes).
 - [Deno](https://deno.land/) (for running Edge Function deterministic and integration test suites)
 - Standalone PostgreSQL 15+ on loopback (`127.0.0.1` or `localhost`) only if you choose not to use the local Supabase database for migration lifecycle tests
 
@@ -72,6 +72,33 @@ The local Supabase database is available on loopback port `54322` by default and
    pnpm dev
    ```
    Open the printed URL (normally `http://localhost:5173`).
+
+## Authenticated recipe and ownership browser journeys
+
+The Playwright journeys sign in through the UI with dedicated synthetic local accounts. They exercise recipe create, read, update, rating, persistence, delete, and ownership isolation through the application and authenticated Edge Function. The frontend package pins Supabase CLI 2.122.0 and Playwright 1.64.1. The runner explicitly uses Supabase's native experimental stack runtime, so these journeys do not need Docker on supported Linux or Apple silicon macOS hosts.
+
+From the repository root, install the pinned tools and Chromium, then run:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend exec playwright install chromium
+pnpm --dir frontend run test:e2e:local
+```
+
+The command prepares a dedicated Supabase project in the ignored `.e2e-supabase/` workdir, starts it with `--runtime native`, applies the repository migrations, prepares or reuses `fs03-playwright@example.test` and `fs03-playwright-other@example.test` through the local Auth admin API, starts `supabase functions serve recipes` against that workdir, waits for the handler's unauthenticated response, and starts Vite on `127.0.0.1:4173`. The readiness check expects the recipe handler's 401 response, so it does not mistake the gateway's pre-existing function route for a ready handler. On success, setup/test failure, or SIGINT/SIGTERM, the runner stops the function server's process group and runs `supabase stack stop` for this E2E workdir only. Stopping the stack preserves its local data; the runner never stops all Supabase stacks, resets the database, or destroys the E2E stack. This project has its own stable local project ID and Supabase CLI assigns it separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack. The generated local service key stays in the setup process and the runner refuses a non-loopback Supabase URL. Playwright and Vite receive only an allowlisted process environment, the local Supabase URL and its public key; Vite reads from a separate empty env directory and does not load the developer's `.env.local`. The journeys do not use hosted credentials or invoke Gemini. Playwright retains a trace, screenshot, and video on failure; CI uploads those files as an artifact.
+
+The synthetic accounts remain in the dedicated E2E Auth database for reuse. The runner stores their returned Auth user IDs in the ignored E2E workdir and updates only those accounts on later runs. Each recipe title starts with `FS-03 Playwright` or `FS-03 Ownership` and includes a fresh UUID; successful journeys delete their recipes, while a failed run may leave uniquely named data in the isolated E2E collection.
+
+If forced termination or a machine shutdown prevents cleanup from completing, stop only the E2E stack from the frontend directory:
+
+```sh
+cd frontend
+export SUPABASE_EXPERIMENTAL_STACK=1
+pnpm exec supabase --workdir ../.e2e-supabase stack stop
+```
+
+To inspect leftover recipes, start the E2E stack with `stack start --runtime native`, point the local app at its URL and public key from `stack status`, then sign in with the synthetic account that owns the recipe and delete recipes named `FS-03 Playwright <UUID>` or `FS-03 Ownership <UUID>`. To intentionally remove all E2E Auth and recipe data, run `pnpm exec supabase --workdir ../.e2e-supabase stack destroy --yes`; this is destructive and is never run automatically. Do not use `--all` or run the destroy command outside the dedicated E2E workdir.
 
 ## Migrations and schema management
 

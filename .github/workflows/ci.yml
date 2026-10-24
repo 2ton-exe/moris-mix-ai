@@ -13,6 +13,7 @@ jobs:
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     outputs:
       exists: ${{ steps.frontend.outputs.exists }}
@@ -63,6 +64,12 @@ jobs:
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm build
+
+  test-e2e:
+    name: Playwright E2E (Non-gating)
+    needs: frontend
+    if: needs.frontend.outputs.exists == 'true'
+    uses: ./.github/workflows/reusable-e2e.yml
 
   test-db:
     name: Database Tests
