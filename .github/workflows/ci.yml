@@ -13,6 +13,7 @@ jobs:
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     outputs:
       exists: ${{ steps.frontend.outputs.exists }}
@@ -63,6 +64,25 @@ jobs:
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm build
+
+      - name: Install Chromium
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run authenticated CRUD journey against local Supabase
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm run test:e2e:local
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-03-playwright-failure-artifacts
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   test-db:
     name: Database Tests
@@ -214,58 +234,12 @@ jobs:
             deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           fi
 
-  test-e2e:
-    name: Authenticated Recipe E2E
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "pnpm"
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            frontend/pnpm-lock.yaml
-
-      - name: Install repository tools
-        run: pnpm install --frozen-lockfile
-
-      - name: Install frontend tools
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Chromium
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run authenticated CRUD journey against local Supabase
-        run: pnpm --dir frontend run test:e2e:local
-
-      - name: Upload Playwright failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fs-03-playwright-failure-artifacts
-          path: frontend/test-results/
-          if-no-files-found: ignore
-          retention-days: 7
-
   deploy:
     name: Deploy to Cloudflare
     needs:
       - frontend
       - test-db
       - test-edge-api
-      - test-e2e
     if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
