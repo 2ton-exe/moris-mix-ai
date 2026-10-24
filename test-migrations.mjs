@@ -11,7 +11,17 @@ import {
   verifyInitialSchemaCompleteness,
   verifyOwnerEqualityPredicate,
   reconcileMigrationState,
-  runMigrations
+  runMigrations,
+  extractProjectRefFromDatabaseUrl,
+  extractProjectRefFromSupabaseUrl,
+  sanitizeDatabaseUrl,
+  validateDatabaseTarget,
+  validateTestDatabaseTarget,
+  verifyColumnMetadata,
+  probePostgrestNotesColumn,
+  resolveTestDatabaseConfiguration,
+  reloadPostgrestSchemaCache,
+  runTestDatabaseMigrations
 } from './run-migrations.mjs';
 
 dotenv.config();
@@ -424,6 +434,38 @@ async function runSchemaVerificationUnitTests() {
     /Cannot reconcile unknown migration version: 99999999999999/
   );
 
+  const notesMigration = { version: '20261023000002', file: '20261023000002_add_notes_to_recipes.sql' };
+  const notesReconcileClient = (rows) => ({
+    query: async () => ({ rows })
+  });
+  const appliedBaseVersions = new Set(['20261013000000', '20261017000001']);
+  for (const [rows, expectedError] of [
+    [[], /column public\.recipes\.notes does not exist; expected nullable text/],
+    [[{ udt_name: 'int4', is_nullable: 'YES' }], /type int4, nullable=true; expected nullable text/],
+    [[{ udt_name: 'text', is_nullable: 'NO' }], /type text, nullable=false; expected nullable text/]
+  ]) {
+    await assert.rejects(
+      () => reconcileMigrationState({
+        client: notesReconcileClient(rows),
+        appliedVersions: new Set(appliedBaseVersions),
+        migrations: [notesMigration],
+        explicitReconcile: [notesMigration.version],
+        logger: silentLogger
+      }),
+      expectedError
+    );
+  }
+
+  const reconciledVersions = new Set(appliedBaseVersions);
+  await reconcileMigrationState({
+    client: notesReconcileClient([{ udt_name: 'text', is_nullable: 'YES' }]),
+    appliedVersions: reconciledVersions,
+    migrations: [notesMigration],
+    explicitReconcile: [notesMigration.version],
+    logger: silentLogger
+  });
+  assert.equal(reconciledVersions.has(notesMigration.version), true);
+
   console.log('PASS: Schema completeness verification and unit assertions verified.');
 }
 
@@ -523,6 +565,9 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const migrationsDir = path.resolve(__dirname, 'supabase/migrations');
     const seedDir = path.resolve(__dirname, 'supabase');
+    const discoveredMigrations = discoverMigrations(migrationsDir);
+    const expectedMigrationVersions = discoveredMigrations.map((m) => m.version);
+    const expectedMigrationFiles = discoveredMigrations.map((m) => m.file);
 
     const mockAuthPath = path.resolve(seedDir, 'mock-auth.sql');
     if (fs.existsSync(mockAuthPath)) {
@@ -539,11 +584,17 @@ async function runDatabaseLifecycleIntegrationTests() {
       logger: silentLogger
     });
 
-    assert.equal(freshResult.appliedMigrations.length, 2);
-    assert.deepEqual(freshResult.appliedVersions.sort(), ['20261013000000', '20261017000001']);
+    assert.equal(freshResult.appliedMigrations.length, expectedMigrationVersions.length);
+    assert.deepEqual(freshResult.appliedMigrations, expectedMigrationFiles);
+    assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());
 
     const historyRows = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(historyRows.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    assert.deepEqual(historyRows.rows.map((r) => r.version), expectedMigrationVersions);
+
+    const notesCol = await testClient.query("SELECT column_name, udt_name, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'recipes' AND column_name = 'notes';");
+    assert.equal(notesCol.rows.length, 1);
+    assert.equal(notesCol.rows[0].udt_name, 'text');
+    assert.equal(notesCol.rows[0].is_nullable, 'YES');
 
     const demoRow1 = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRow1.rows[0].is_public, true);
@@ -608,7 +659,7 @@ async function runDatabaseLifecycleIntegrationTests() {
     assert.equal(reconcileResult.appliedMigrations.length, 0);
 
     const historyAfterExplicit = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(historyAfterExplicit.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    assert.deepEqual(historyAfterExplicit.rows.map((r) => r.version), expectedMigrationVersions);
 
     const demoRowReconciled = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowReconciled.rows[0].is_public, false);
@@ -768,7 +819,7 @@ async function runDatabaseLifecycleIntegrationTests() {
     assert.equal(recoveredReconciliation.appliedMigrations.length, 0);
 
     const historyRecovered = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
-    assert.deepEqual(historyRecovered.rows.map((r) => r.version), ['20261013000000', '20261017000001']);
+    assert.deepEqual(historyRecovered.rows.map((r) => r.version), expectedMigrationVersions);
     const demoRowRecovered = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRowRecovered.rows[0].is_public, false);
     scenariosExecuted++;
@@ -777,14 +828,9 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const failureTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-failure-'));
     try {
-      fs.copyFileSync(
-        path.join(migrationsDir, '20261013000000_initial_schema.sql'),
-        path.join(failureTempDir, '20261013000000_initial_schema.sql')
-      );
-      fs.copyFileSync(
-        path.join(migrationsDir, '20261017000001_add_is_public_to_recipes.sql'),
-        path.join(failureTempDir, '20261017000001_add_is_public_to_recipes.sql')
-      );
+      for (const m of discoveredMigrations) {
+        fs.copyFileSync(m.filePath, path.join(failureTempDir, m.file));
+      }
       fs.writeFileSync(
         path.join(failureTempDir, '20261099999999_failing_migration.sql'),
         'CREATE TABLE public.should_not_exist (id int); INVALID SYNTAX ERROR;'
@@ -902,10 +948,316 @@ async function runDatabaseLifecycleIntegrationTests() {
   }
 }
 
+async function runTestTargetMigrationUnitTests() {
+  const originalFetch = globalThis.fetch;
+  const probeHeaders = [];
+  try {
+    globalThis.fetch = async (_url, options) => {
+      probeHeaders.push(options.headers);
+      return { status: 200 };
+    };
+
+    for (const key of ['sb_secret_test', 'sb_publishable_test']) {
+      await probePostgrestNotesColumn('https://test-project.supabase.co', key);
+      assert.deepEqual(probeHeaders.at(-1), { apikey: key });
+    }
+
+    const legacyJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJl';
+    await probePostgrestNotesColumn('https://test-project.supabase.co', legacyJwt);
+    assert.deepEqual(probeHeaders.at(-1), {
+      apikey: legacyJwt,
+      Authorization: `Bearer ${legacyJwt}`
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  console.log('PASS: PostgREST probe uses compatible auth headers for modern and legacy API keys.');
+
+  assert.equal(
+    sanitizeDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres"'),
+    'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'
+  );
+  assert.equal(
+    sanitizeDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'"),
+    'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'
+  );
+  assert.equal(
+    sanitizeDatabaseUrl('   "postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres"  '),
+    'postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres'
+  );
+  assert.equal(sanitizeDatabaseUrl(''), '');
+  assert.equal(sanitizeDatabaseUrl(null), '');
+
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'),
+    'my-test-proj'
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"'),
+    'my-test-proj'
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'"),
+    'my-test-proj'
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres'),
+    'my-test-proj'
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('postgresql://postgres.expected-ref:secret@unrelated-db.example.com:5432/postgres'),
+    null
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('postgresql://postgres:secret@my-test-proj.pooler.supabase.com:5432/postgres'),
+    null
+  );
+  assert.equal(
+    extractProjectRefFromDatabaseUrl('postgresql://postgres:secret@127.0.0.1:5432/postgres'),
+    null
+  );
+  assert.equal(extractProjectRefFromDatabaseUrl('not a url'), null);
+  assert.equal(extractProjectRefFromDatabaseUrl(''), null);
+  assert.equal(extractProjectRefFromDatabaseUrl(null), null);
+
+  assert.throws(
+    () => validateTestDatabaseTarget('', 'my-test-proj'),
+    /Test database connection string is missing/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('invalid url', 'my-test-proj'),
+    /Test database connection string is invalid/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('http://localhost:5432/postgres', 'my-test-proj'),
+    /must use postgresql: protocol/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('postgresql://postgres:pass@127.0.0.1:5432/postgres', 'my-test-proj'),
+    /hosted test database must not target localhost/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('postgresql://postgres.my-test-proj:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres', ''),
+    /expected test-project reference must be explicitly configured/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('postgresql://postgres:pass@some-other-host.com:5432/postgres', 'my-test-proj'),
+    /unable to extract Supabase project reference/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('postgresql://postgres.other-proj:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres', 'my-test-proj'),
+    /expected project reference 'my-test-proj' does not match database URL project reference 'other-proj'/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres', 'gtbwblxskctpsqhbpebg'),
+    /refuses to target the primary linked production project/
+  );
+  assert.throws(
+    () => validateTestDatabaseTarget('postgresql://postgres:pass@db.gtbwblxskctpsqhbpebg.supabase.co:5432/postgres', 'gtbwblxskctpsqhbpebg'),
+    /refuses to target the primary linked production project/
+  );
+
+  assert.doesNotThrow(() => {
+    validateTestDatabaseTarget(
+      'postgresql://postgres.my-test-proj:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres',
+      'my-test-proj'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateTestDatabaseTarget(
+      'postgresql://postgres:pass@db.my-test-proj.supabase.co:5432/postgres',
+      'my-test-proj'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateTestDatabaseTarget(
+      '"postgresql://postgres.my-test-proj:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres"',
+      'my-test-proj'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateTestDatabaseTarget(
+      "'postgresql://postgres:pass@db.my-test-proj.supabase.co:5432/postgres'",
+      'my-test-proj'
+    );
+  });
+
+  assert.equal(
+    extractProjectRefFromSupabaseUrl('https://gtbwblxskctpsqhbpebg.supabase.co'),
+    'gtbwblxskctpsqhbpebg'
+  );
+  assert.equal(
+    extractProjectRefFromSupabaseUrl('https://expected-ref.supabase.attacker.example'),
+    null
+  );
+  assert.equal(extractProjectRefFromSupabaseUrl('not-a-url'), null);
+  assert.equal(extractProjectRefFromSupabaseUrl(''), null);
+  assert.equal(extractProjectRefFromSupabaseUrl(null), null);
+
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget(
+      'postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres',
+      'gtbwblxskctpsqhbpebg',
+      'https://gtbwblxskctpsqhbpebg.supabase.co'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget(
+      '"postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres"',
+      'gtbwblxskctpsqhbpebg',
+      'https://gtbwblxskctpsqhbpebg.supabase.co'
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget(
+      "'postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres'",
+      'gtbwblxskctpsqhbpebg',
+      null
+    );
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget('postgresql://postgres:pass@localhost:5432/postgres', null, null);
+  });
+  assert.doesNotThrow(() => {
+    validateDatabaseTarget('postgresql://postgres:pass@127.0.0.1:5432/postgres', '', '');
+  });
+  assert.throws(
+    () => validateDatabaseTarget('postgresql://postgres:pass@remote.example.com:5432/postgres', null, null),
+    /remote database requires RLS_EXPECTED_PROJECT_REF or a Supabase project URL/
+  );
+
+  assert.throws(
+    () => validateDatabaseTarget('', 'gtbwblxskctpsqhbpebg', null),
+    /Database connection string is missing/
+  );
+  assert.throws(
+    () => validateDatabaseTarget('http://localhost:5432/postgres', null, null),
+    /must use postgresql: protocol/
+  );
+  assert.throws(
+    () => validateDatabaseTarget(
+      'postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0.pooler.supabase.com:5432/postgres',
+      'other-ref',
+      'https://gtbwblxskctpsqhbpebg.supabase.co'
+    ),
+    /RLS_EXPECTED_PROJECT_REF 'other-ref' does not match SUPABASE_URL project reference 'gtbwblxskctpsqhbpebg'/
+  );
+  assert.throws(
+    () => validateDatabaseTarget(
+      'postgresql://postgres.other-ref:pass@aws-0.pooler.supabase.com:5432/postgres',
+      'gtbwblxskctpsqhbpebg',
+      null
+    ),
+    /expected project reference 'gtbwblxskctpsqhbpebg' does not match database URL project reference 'other-ref'/
+  );
+  assert.throws(
+    () => validateDatabaseTarget(
+      'postgresql://postgres:pass@127.0.0.1:5432/postgres',
+      'gtbwblxskctpsqhbpebg',
+      null
+    ),
+    /cannot target localhost when expected project reference 'gtbwblxskctpsqhbpebg' is configured/
+  );
+
+  const envNotOptedIn = () => undefined;
+  const cfgNotOptedIn = resolveTestDatabaseConfiguration(envNotOptedIn);
+  assert.equal(cfgNotOptedIn.shouldRun, false);
+
+  const envBe06Incomplete = (k) => {
+    const map = {
+      RUN_BE06_RLS_INTEGRATION: 'true',
+      BE06_RLS_TEST_SUPABASE_URL: 'https://be06-test.supabase.co'
+    };
+    return map[k];
+  };
+  const cfgBe06Incomplete = resolveTestDatabaseConfiguration(envBe06Incomplete);
+  assert.equal(cfgBe06Incomplete.shouldRun, true);
+  assert.equal(cfgBe06Incomplete.source, 'BE-06');
+  assert.ok(cfgBe06Incomplete.error.includes('BE06_RLS_TEST_EXPECTED_PROJECT_REF'));
+
+  const envBe06Complete = (k) => {
+    const map = {
+      RUN_BE06_RLS_INTEGRATION: 'true',
+      BE06_RLS_TEST_SUPABASE_URL: 'https://be06-test.supabase.co',
+      BE06_RLS_TEST_EXPECTED_PROJECT_REF: 'be06-test',
+      BE06_RLS_TEST_DATABASE_URL: 'postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres'
+    };
+    return map[k];
+  };
+  const cfgBe06Complete = resolveTestDatabaseConfiguration(envBe06Complete);
+  assert.equal(cfgBe06Complete.shouldRun, true);
+  assert.equal(cfgBe06Complete.source, 'BE-06');
+  assert.equal(cfgBe06Complete.error, undefined);
+  assert.equal(cfgBe06Complete.expectedProjectRef, 'be06-test');
+
+  const envBe04Incomplete = (k) => {
+    const map = {
+      RUN_BE04_RLS_INTEGRATION: 'true',
+      BE04_RLS_TEST_SUPABASE_URL: 'https://be04-test.supabase.co'
+    };
+    return map[k];
+  };
+  const cfgBe04Incomplete = resolveTestDatabaseConfiguration(envBe04Incomplete);
+  assert.equal(cfgBe04Incomplete.shouldRun, true);
+  assert.equal(cfgBe04Incomplete.source, 'BE-04');
+  assert.ok(cfgBe04Incomplete.error.includes('BE04_RLS_TEST_EXPECTED_PROJECT_REF'));
+
+  const envBe04Complete = (k) => {
+    const map = {
+      RUN_BE04_RLS_INTEGRATION: 'true',
+      BE04_RLS_TEST_SUPABASE_URL: 'https://be04-test.supabase.co',
+      BE04_RLS_TEST_EXPECTED_PROJECT_REF: 'be04-test',
+      BE04_RLS_TEST_DATABASE_URL: 'postgresql://postgres.be04-test:pass@aws-0.pooler.supabase.com:5432/postgres'
+    };
+    return map[k];
+  };
+  const cfgBe04Complete = resolveTestDatabaseConfiguration(envBe04Complete);
+  assert.equal(cfgBe04Complete.shouldRun, true);
+  assert.equal(cfgBe04Complete.source, 'BE-04');
+  assert.equal(cfgBe04Complete.error, undefined);
+  assert.equal(cfgBe04Complete.expectedProjectRef, 'be04-test');
+
+  const mockMetaClient = {
+    query: async (_sql, params) => {
+      if (params && params[1] === 'notes') {
+        return { rows: [{ column_name: 'notes', udt_name: 'text', is_nullable: 'YES' }] };
+      }
+      return { rows: [] };
+    }
+  };
+  const metaFound = await verifyColumnMetadata(mockMetaClient, 'recipes', 'notes');
+  assert.equal(metaFound.exists, true);
+  assert.equal(metaFound.udtName, 'text');
+  assert.equal(metaFound.isNullable, true);
+
+  const metaMissing = await verifyColumnMetadata(mockMetaClient, 'recipes', 'missing_col');
+  assert.equal(metaMissing.exists, false);
+  assert.equal(metaMissing.udtName, null);
+  assert.equal(metaMissing.isNullable, null);
+
+  let notifiedSql = null;
+  const mockNotifyClient = {
+    query: async (sql) => {
+      notifiedSql = sql;
+      return { rows: [] };
+    }
+  };
+  await reloadPostgrestSchemaCache(mockNotifyClient);
+  assert.equal(notifiedSql, "NOTIFY pgrst, 'reload schema';");
+
+  const skipResult = await runTestDatabaseMigrations({
+    getEnv: () => undefined
+  });
+  assert.equal(skipResult.skipped, true);
+
+  console.log('PASS: Test database target extraction, validation, and preflight configuration verified.');
+}
+
 async function main() {
   console.log('Starting migration runner test suite...');
   runDiscoveryAndIntegrityUnitTests();
   await runSchemaVerificationUnitTests();
+  await runTestTargetMigrationUnitTests();
   await runDatabaseLifecycleIntegrationTests();
   console.log('ALL MIGRATION RUNNER TESTS COMPLETED SUCCESSFULLY.');
 }

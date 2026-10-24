@@ -33,33 +33,33 @@ The unified frontend CI/deployment workflow does not deploy Supabase Edge Functi
 ### Pull Request Validation
 
 Developer feature branch  
-↓  
+↓\
 Pull request targeting `main`  
-↓  
+↓\
 GitHub Actions — `ci.yml`\
-↓  
+↓\
 Three parallel jobs: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`\
-↓  
+↓\
 Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; deployment skipped on PR runs\
-↓  
+↓\
 At least one teammate approval and resolved review conversations\
-↓  
+↓\
 Merge into `main`
 
 ### Production Deployment
 
 Approved merge into `main` produces a push event; permitted `workflow_dispatch` on `main` is an alternative\
-↓  
+↓\
 GitHub Actions — `ci.yml`\
-↓  
+↓\
 `Frontend Checks`, `Database Tests`, and `Edge/API Tests` run in parallel\
-↓  
+↓\
 All three jobs succeed and `needs.frontend.outputs.exists == 'true'`\
-↓  
+↓\
 `Deploy to Cloudflare` (`deploy`, `needs: [frontend, test-db, test-edge-api]`): checkout, pnpm/Node setup, dependency installation and frontend build\
-↓  
-Wrangler uploads static assets to Cloudflare Workers  
-↓  
+↓\
+Wrangler uploads static assets to Cloudflare Workers\
+↓\
 Manual production verification
 
 The temporary frontend-existence mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
@@ -93,7 +93,7 @@ Its frontend validation stages are:
 6. Run `pnpm test`.
 7. Run `pnpm build`.
 
-In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks the demo Edge Function and tests, then runs deterministic tests. These jobs validate backend code without deploying Supabase Edge Functions or the database.
+In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks and tests recipe CRUD, demo, and AI schemas and handlers; when configured, it also applies pending migrations to and runs RLS integration tests against a dedicated hosted non-production database. These jobs do not deploy Supabase Edge Functions or the production database.
 
 **Required PR status checks:** `Frontend Checks`, `Database Tests`, and `Edge/API Tests`, as confirmed by the verified current GitHub ruleset evidence.
 
