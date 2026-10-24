@@ -1,66 +1,95 @@
-# Authenticated recipe creation API contract (`POST /recipes`)
+# Authenticated recipe REST API contract (`GET`, `POST`, `PATCH`, `DELETE /recipes`)
 
-This contract defines the authenticated recipe creation endpoint (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47).
+This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47) and completed for BE-06 (#48).
 
-## Request
+## Endpoints overview
 
-- **Method and path:** `POST /functions/v1/recipes` (also accepts `POST /recipes` when invoked directly)
-- **Headers:**
-  - `Authorization: Bearer <supabase-access-token>` (required)
-  - `apikey: <supabase-anon-or-publishable-key>`
-  - `Content-Type: application/json`
-- **Query parameters:** none (any caller-supplied query parameters are ignored)
-- **Access:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`).
+| Method | Path pattern | Operation | Success status | Success response envelope |
+| --- | --- | --- | --- | --- |
+| `GET` | `/functions/v1/recipes` or `/recipes` | List authenticated user recipes with `limit`/`offset` pagination | `200 OK` | `{ "recipes": Recipe[] }` |
+| `POST` | `/functions/v1/recipes` or `/recipes` | Create an owned recipe | `201 Created` | `{ "recipe": Recipe }` |
+| `GET` | `/functions/v1/recipes/:id` or `/recipes/:id` | Retrieve an owned recipe | `200 OK` | `{ "recipe": Recipe }` |
+| `PATCH` | `/functions/v1/recipes/:id` or `/recipes/:id` | Update allowed fields and rating | `200 OK` | `{ "recipe": Recipe }` |
+| `DELETE` | `/functions/v1/recipes/:id` or `/recipes/:id` | Delete an owned recipe | `204 No Content` | (empty body) |
+| `OPTIONS` | Any supported recipe path | CORS preflight check | `204 No Content` | (empty body) |
 
-### Request body (`CreateRecipeRequestSchema`)
+## Headers and Authentication
+
+- **Authentication:** `Authorization: Bearer <supabase-access-token>` is required and verified by the handler.
+- **API key:** `apikey` is optional for this handler and is not used to authenticate the caller. Supabase clients may send the project key alongside the user token.
+- **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended but the handler does not enforce the header.
+- **Query parameters:** collection `GET` accepts `limit` and `offset`; other query parameters are ignored.
+- **Access control:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`).
+- **Preflight exception:** `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with CORS headers.
+
+## 1. GET /recipes — List user recipes
+
+Retrieves recipes belonging to the authenticated user, ordered by `created_at` descending and then `id` ascending.
+
+Pagination defaults to `limit=1000` and `offset=0`. `limit` must be an integer from `1` to `1000`; `offset` must be a non-negative safe integer. Request the next page by increasing `offset` by the requested `limit`. A page shorter than `limit` is the last page.
+
+### Request
+
+- **Method and path:** `GET /functions/v1/recipes` (or `GET /recipes`)
+- **Query parameters:** `limit` (optional, default `1000`, range `1..1000`) and `offset` (optional, default `0`, non-negative integer).
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
+- **Body:** none
+
+### Response (`200 OK`)
+
+Returns a JSON object matching `RecipeListResponseSchema`:
 
 ```json
 {
-  "title": "Crispy Garlic Shallot Rice",
-  "raw_input": "Leftover jasmine rice, shallots, garlic, soy sauce.",
-  "ingredients": [
-    { "name": "jasmine rice", "quantity": 2, "unit": "cups", "inferred": false },
-    { "name": "shallots", "quantity": null, "unit": null, "quantityText": "2 small", "inferred": true }
-  ],
-  "instructions": [
-    { "step": 1, "text": "Slice shallots and garlic thinly." },
-    { "step": 2, "text": "Crisp in oil and toss with rice." }
-  ],
-  "flavor_scores": {
-    "sweet": 1,
-    "salty": 4,
-    "sour": 0,
-    "bitter": 1,
-    "umami": 5,
-    "spicy": 2
-  },
-  "star_rating": 5,
-  "cooked_at": "2026-10-19"
+  "recipes": [
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "user_id": "99999999-9999-9999-9999-999999999999",
+      "title": "Crispy Garlic Shallot Rice",
+      "raw_input": "Leftover jasmine rice, shallots, garlic, soy sauce.",
+      "notes": null,
+      "ingredients": [
+        { "name": "jasmine rice", "quantity": 2, "unit": "cups", "inferred": false },
+        { "name": "shallots", "quantity": null, "unit": null, "quantityText": "2 small", "inferred": true }
+      ],
+      "instructions": [
+        { "step": 1, "text": "Slice shallots and garlic thinly." },
+        { "step": 2, "text": "Crisp in oil and toss with rice." }
+      ],
+      "flavor_scores": {
+        "sweet": 1,
+        "salty": 4,
+        "sour": 0,
+        "bitter": 1,
+        "umami": 5,
+        "spicy": 2
+      },
+      "star_rating": 5,
+      "cooked_at": "2026-10-19",
+      "image_url": null,
+      "created_at": "2026-10-20T06:00:00.000Z",
+      "updated_at": "2026-10-20T06:00:00.000Z"
+    }
+  ]
 }
 ```
 
-#### Field rules
+When the user has no saved recipes, returns `200 OK` with `{ "recipes": [] }`. Internal columns (`image_path` and `is_public`) are excluded from serialization.
 
-| Field | Required | Type / Constraints | Default / Normalization |
-| --- | --- | --- | --- |
-| `title` | Required | `string`, trimmed, minimum 1 non-whitespace character | Trimmed via `.trim()` |
-| `raw_input` | Optional | `string | null` | `null` when omitted |
-| `ingredients` | Required | `Ingredient[]` (`IngredientSchema`: `name: string`, `quantity: number | null`, `unit: string | null`, `quantityText?: string`, `inferred?: boolean`) | `inferred` defaults to `false` |
-| `instructions` | Required | `Instruction[]` (`InstructionSchema`: `step: number`, `text: string`) | Preserved as validated array |
-| `flavor_scores` | Optional | `FlavorScores | null` (`FlavorScoreSchema`: `sweet`, `salty`, `sour`, `bitter`, `umami`, `spicy`, each `number` in `0..5`) | `null` when omitted |
-| `star_rating` | Optional | `number` (integer `1..5`) or `null` | `null` when omitted |
-| `cooked_at` | Optional | `string` (valid calendar date `YYYY-MM-DD`) or `null` | `null` when omitted |
+## 2. GET /recipes/:id — Read one recipe
 
-### Ownership and server-controlled fields
+Retrieves a single recipe owned by the authenticated caller.
 
-- Recipe ownership (`user_id`) is derived exclusively from `auth.context.user.id` after `authenticateRequest(req, deps)` verifies the Bearer token against Supabase Auth.
-- Any client-supplied ownership or server-managed fields (`id`, `user_id`, `userId`, `owner_id`, `ownerId`, `is_public`, `image_url`, `image_path`, `created_at`, `updated_at`) in the request body, query parameters, or headers are stripped/ignored.
-- User-created recipes are always inserted with `user_id = auth.context.user.id` and `is_public = false`.
-- The database insert runs through the request-scoped RLS-aware Supabase client (`auth.context.supabase`), so PostgreSQL Row-Level Security (`recipes_insert_own` with `WITH CHECK (auth.uid() = user_id)` and `recipes_select_own` with `USING (auth.uid() = user_id)`) remains active.
+### Request
 
-## Successful response
+- **Method and path:** `GET /functions/v1/recipes/:id` (or `GET /recipes/:id`)
+- **Parameters:** `:id` must be a valid RFC 4122 UUID.
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
+- **Body:** none
 
-Returns `201 Created` with `Content-Type: application/json`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and `Access-Control-Allow-Methods: POST, OPTIONS`:
+### Response (`200 OK`)
+
+Returns a JSON object matching `RecipeResponseSchema`:
 
 ```json
 {
@@ -69,6 +98,7 @@ Returns `201 Created` with `Content-Type: application/json`, `Cache-Control: no-
     "user_id": "99999999-9999-9999-9999-999999999999",
     "title": "Crispy Garlic Shallot Rice",
     "raw_input": "Leftover jasmine rice, shallots, garlic, soy sauce.",
+    "notes": null,
     "ingredients": [
       { "name": "jasmine rice", "quantity": 2, "unit": "cups", "inferred": false },
       { "name": "shallots", "quantity": null, "unit": null, "quantityText": "2 small", "inferred": true }
@@ -94,89 +124,191 @@ Returns `201 Created` with `Content-Type: application/json`, `Cache-Control: no-
 }
 ```
 
-Internal columns (`image_path` and `is_public`) are excluded from the public response envelope.
+### Not found and access rejection
+
+If `:id` does not exist or belongs to another user, returns `404 Not Found` with `{ "error": { "code": "NOT_FOUND", "message": "Recipe not found." } }`. The endpoint never reveals whether an inaccessible recipe exists.
+
+If `:id` is malformed (not a valid UUID), returns `400 Bad Request` with `{ "error": { "code": "VALIDATION_ERROR", "message": "Invalid recipe ID.", "details": [...] } }`.
+
+## 3. POST /recipes — Create recipe
+
+Creates a new recipe owned by the authenticated caller.
+
+### Request body (`CreateRecipeRequestSchema`)
+
+```json
+{
+  "title": "Crispy Garlic Shallot Rice",
+  "raw_input": "Leftover jasmine rice, shallots, garlic, soy sauce.",
+  "notes": "Chef note: crisp shallots on medium-low heat to avoid bitterness.",
+  "ingredients": [
+    { "name": "jasmine rice", "quantity": 2, "unit": "cups", "inferred": false },
+    { "name": "shallots", "quantity": null, "unit": null, "quantityText": "2 small", "inferred": true }
+  ],
+  "instructions": [
+    { "step": 1, "text": "Slice shallots and garlic thinly." },
+    { "step": 2, "text": "Crisp in oil and toss with rice." }
+  ],
+  "flavor_scores": {
+    "sweet": 1,
+    "salty": 4,
+    "sour": 0,
+    "bitter": 1,
+    "umami": 5,
+    "spicy": 2
+  },
+  "star_rating": 5,
+  "cooked_at": "2026-10-19"
+}
+```
+
+### Field rules for creation
+
+| Field | Required | Type / Constraints | Default / Normalization |
+| --- | --- | --- | --- |
+| `title` | Required | `string`, trimmed, minimum 1 non-whitespace character | Trimmed via `.trim()` |
+| `raw_input` | Optional | `string | null` | `null` when omitted |
+| `notes` | Optional | `string | null` | `null` when omitted |
+| `ingredients` | Required | `Ingredient[]` (`name: string`, `quantity: number | null`, `unit: string | null`, `quantityText?: string`, `inferred?: boolean`) | `inferred` defaults to `false` |
+| `instructions` | Required | `Instruction[]` (`step: number`, `text: string`) | Preserved as validated array |
+| `flavor_scores` | Optional | `FlavorScores | null` (`sweet`, `salty`, `sour`, `bitter`, `umami`, `spicy`, each `0..5`) | `null` when omitted |
+| `star_rating` | Optional | integer `1..5` or `null` | `null` when omitted |
+| `cooked_at` | Optional | calendar date `YYYY-MM-DD` or `null` | `null` when omitted |
+
+### Response (`201 Created`)
+
+Returns `201 Created` with `{ "recipe": Recipe }` envelope matching `RecipeResponseSchema`.
+
+## 4. PATCH /recipes/:id — Update recipe and rating
+
+Applies partial updates to an owned recipe.
+
+### Request
+
+- **Method and path:** `PATCH /functions/v1/recipes/:id` (or `PATCH /recipes/:id`)
+- **Parameters:** `:id` must be a valid RFC 4122 UUID.
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional. `Content-Type: application/json` is recommended.
+
+### Request body (`UpdateRecipeRequestSchema`)
+
+All fields are optional, but at least one valid field must be provided. An empty JSON object `{}` is rejected with `400 VALIDATION_ERROR`. Omitted fields remain untouched in the database. Unsupported or protected fields (`user_id`, `id`, `is_public`, `image_url`, `created_at`, `updated_at`, etc.) are rejected by `.strict()` validation:
+
+```json
+{
+  "title": "Crispy Garlic Shallot Rice - Extra Crispy",
+  "notes": "Add extra toasted sesame oil and crispy shallots",
+  "star_rating": 4,
+  "cooked_at": "2026-10-21"
+}
+```
+
+### Supported update fields
+
+| Field | Type / Constraints | Behavior |
+| --- | --- | --- |
+| `title` | `string`, trimmed, min 1 char | If provided, cannot be empty or null |
+| `raw_input` | `string | null` | Sets `raw_input` column; explicit `null` clears column |
+| `notes` | `string | null` | Sets `notes` column; explicit `null` clears column |
+| `ingredients` | `Ingredient[]` | Replaces ingredients array; cannot be null |
+| `instructions` | `Instruction[]` | Replaces instructions array; cannot be null |
+| `flavor_scores` | `FlavorScores | null` | Updates flavor scores; explicit `null` clears column |
+| `star_rating` | integer `1..5` or `null` | Updates rating; explicit `null` unrates recipe |
+| `cooked_at` | calendar date `YYYY-MM-DD` or `null` | Updates cooked date; explicit `null` clears column |
+
+Personal recipe notes (`notes`) are stored in dedicated nullable column `public.recipes.notes` introduced in migration `20261023000002_add_notes_to_recipes.sql`. `notes` is completely independent of `raw_input` (which stores the original AI prompt or generation input). Modifying or nullifying `notes` never alters `raw_input`, and modifying or nullifying `raw_input` never alters `notes`.
+
+### Empty PATCH semantics
+
+An empty JSON object body `{}` is rejected with `400 Bad Request` and error code `VALIDATION_ERROR` (`At least one field must be provided for update.`). It never executes database operations.
+
+### Explicit null versus omitted fields
+
+- **Omitted fields:** Any field omitted from the PATCH body remains untouched in the database.
+- **Explicit `null` for nullable fields:** Explicitly providing `null` for `raw_input`, `notes`, `flavor_scores`, `star_rating`, or `cooked_at` persists as SQL `NULL`, clearing the corresponding column.
+- **Explicit `null` for non-nullable fields:** Providing `null` for non-nullable fields (`title`, `ingredients`, `instructions`) is rejected during schema validation with `400 VALIDATION_ERROR` before database access.
+
+### Response (`200 OK`)
+
+Returns `200 OK` with updated `{ "recipe": Recipe }` matching `RecipeResponseSchema`. The `updated_at` timestamp is updated automatically by PostgreSQL trigger `tr_recipes_updated_at`.
+
+## 5. DELETE /recipes/:id — Delete recipe
+
+Deletes an owned recipe according to the database model.
+
+### Request
+
+- **Method and path:** `DELETE /functions/v1/recipes/:id` (or `DELETE /recipes/:id`)
+- **Parameters:** `:id` must be a valid RFC 4122 UUID.
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
+- **Body:** none
+
+### Deletion and lineage behavior
+
+- Physical deletion is performed via PostgREST through the caller-scoped client enforcing RLS `recipes_delete_own`.
+- Foreign keys on `public.recipe_lineage` (`parent_recipe_id` and `child_recipe_id`) specify `ON DELETE CASCADE`. PostgreSQL automatically cascades deletion to related lineage entries.
+- If the recipe does not exist or is not owned by the authenticated caller, returns `404 Not Found` with `{ "error": { "code": "NOT_FOUND", "message": "Recipe not found." } }`.
+
+### Response (`204 No Content`)
+
+Returns `204 No Content` with an empty response body, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and CORS headers.
+
+## Ownership and server-controlled fields
+
+- Recipe ownership (`user_id`) is derived exclusively from `auth.context.user.id` after verifying the Bearer token.
+- Any client attempts to supply or modify `user_id`, `userId`, `owner_id`, `is_public`, `id`, `created_at`, or `updated_at` are rejected during validation or ignored.
+- Database operations run through the request-scoped RLS-aware Supabase client (`auth.context.supabase`), enforcing PostgreSQL Row-Level Security:
+  - `recipes_select_own`: `USING (auth.uid() = user_id)`
+  - `recipes_insert_own`: `WITH CHECK (auth.uid() = user_id)`
+  - `recipes_update_own`: `USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id)`
+  - `recipes_delete_own`: `USING (auth.uid() = user_id)`
 
 ## Errors
 
-All error responses use `Content-Type: application/json`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and `Access-Control-Allow-Methods: POST, OPTIONS`.
+All error responses use `Content-Type: application/json`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`.
 
 | HTTP status | Code | Message | When |
 | --- | --- | --- | --- |
-| `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object (e.g., array or primitive). |
-| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe payload.` | Request body fails `CreateRecipeRequestSchema` validation. Includes `error.details` array of `{ path, code, message }`. |
+| `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe payload.` | Request body fails Zod validation. Includes `error.details` array of `{ path, code, message }`. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe ID.` | Route parameter `:id` is not a valid UUID string. Includes `error.details` array with `path: "id"`. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination parameters.` | Collection `GET` has an invalid, duplicate, or out-of-range `limit` or `offset`. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid Authorization header.` | `Authorization` header is missing, empty, not `Bearer`, or not a compact 3-part JWS. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Invalid or expired authentication credentials.` | Supabase Auth rejects the Bearer JWT as invalid, expired, revoked, or unauthenticated. |
+| `404 Not Found` | `NOT_FOUND` | `Recipe not found.` | Target recipe does not exist or belongs to another user. |
 | `404 Not Found` | `NOT_FOUND` | `Route not found.` | Request targets an unsupported sub-path under `/recipes`. |
-| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only POST and OPTIONS methods are supported.` | Request uses an HTTP method other than `POST` or `OPTIONS`. Includes `Allow: POST, OPTIONS`. |
-| `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Upstream Supabase Auth returns `429 Too Many Requests` during token verification. Propagates a validated `Retry-After` header when present. |
-| `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Missing/invalid server configuration, upstream Auth failure, database persistence error, RLS denial, or response schema validation failure. Never exposes secrets, tokens, SQL details, or stack traces. |
+| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, POST, and OPTIONS methods are supported.` | Unsupported method on collection route (`/recipes`). Includes `Allow: GET, POST, OPTIONS`. |
+| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, PATCH, DELETE, and OPTIONS methods are supported.` | Unsupported method on member route (`/recipes/:id`). Includes `Allow: GET, PATCH, DELETE, OPTIONS`. |
+| `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Upstream Supabase Auth returns `429 Too Many Requests`. Propagates `Retry-After` header when present. |
+| `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Server configuration error, database query failure, RLS denial, or schema mismatch. Never leaks secrets or SQL details. |
 
 ## CORS behavior
 
-- `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with `Access-Control-Allow-Methods: POST, OPTIONS`, `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`, and `X-Content-Type-Options: nosniff`.
-- In `supabase/config.toml`, `[functions.recipes]` sets `verify_jwt = false` at the gateway so unauthenticated browser `OPTIONS` preflight requests reach the handler while `POST` strictly enforces `authenticateRequest(req, deps)`.
+- `OPTIONS` preflight requests return `204 No Content` with `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`, and `X-Content-Type-Options: nosniff`.
+- In `supabase/config.toml`, `[functions.recipes]` sets `verify_jwt = false` at the gateway so unauthenticated browser `OPTIONS` preflight requests reach the handler while all data operations strictly enforce `authenticateRequest(req, deps)`.
 
 ## Frontend behavior
 
-- Keep the recipe submission in a pending state while the authenticated request is in flight.
-- On `201 Created`, treat the returned `recipe` as the saved recipe.
-- For non-2xx responses, network failures, or invalid JSON, show a retryable, user-safe error. Do not display raw backend details.
+- Show a pending state while each authenticated recipe request is in flight.
+- On success, use the returned `recipes` or `recipe` envelope; after `204 No Content` from delete, remove the recipe without trying to parse a response body.
+- For non-2xx responses, network failures, or invalid JSON, show a retryable, user-safe error and do not display raw backend details.
 
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
 
-Verification for `POST /recipes` is organized into distinct offline deterministic tests and optional live hosted RLS integration testing, fitting within the broader test suite hierarchy:
-- **Deterministic offline tests (48 tests in Deno):** Run completely offline without database or Auth dependencies, including the 15 unit and contract tests in `recipes_test.ts`.
-- **Database-backed migration lifecycle tests (13 scenarios):** Run against native local PostgreSQL via `node test-migrations.mjs --run-db-tests`.
-- **Migration unit tests:** Run offline via `node test-migrations.mjs`.
-- **Intentionally ignored live tests (3 tests across two distinct gates):**
-  1. *Gate A (Local Demo Live Integration Test):* In `demo_recipe_test.ts`, requires a compatible local API endpoint running on loopback port `54321`. Hosted project secrets cannot enable it.
-  2. *Gate B (Hosted Non-Production RLS Integration Tests):* In `recipes_test.ts` (POST `/recipes`) and `auth_rls_integration_test.ts` (profiles), which require a dedicated non-production Supabase project and dedicated secrets.
-
-### 1. Deterministic unit and schema tests (`supabase/functions/tests/recipes_test.ts`)
-
-- **Scope:** 15 offline tests executed via Deno without network or database dependencies.
-- **Verification areas:**
-  - `CreateRecipeRequestSchema` and `RecipeResponseSchema` payload validation, including optional field defaulting and nullable columns.
-  - Empty or malformed JSON rejection (`400 INVALID_JSON`).
-  - Zod validation failure reporting with field-level details (`400 VALIDATION_ERROR`).
-  - Bearer token authentication enforcement (`401 UNAUTHORIZED`) before any database operation.
-  - Ownership (`user_id`) and `is_public` tampering prevention in body, query parameters, or headers.
-  - CORS preflight handling (`204 No Content`) with `POST, OPTIONS` allowed.
-  - Unsupported HTTP method rejection (`405 METHOD_NOT_ALLOWED`).
-  - Unsupported sub-path rejection (`404 NOT_FOUND`).
-  - Safe internal error handling and sensitive information redaction (`500 INTERNAL_ERROR`).
-  - HTTPS-only hosted RLS target validation.
-  - RLS test resource cleanup and exception handling.
+Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
+- **Deterministic offline tests (35 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies. The two hosted integration tests are conditionally ignored unless their dedicated test project is configured.
+- **Database migration tests:** Run offline via `node test-migrations.mjs`.
+- **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.
 - **Command:**
   ```sh
   deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/recipes_test.ts
   ```
 
-### 2. Hosted POST `/recipes` live integration test (`supabase/functions/tests/recipes_test.ts`)
+### Test database isolation
 
-- **Purpose:** Verifies live PostgreSQL persistence, recipe owner enforcement, `is_public: false` invariant, and cross-user RLS read isolation on a dedicated hosted, non-production Supabase test project without using Docker or local containers.
-- **Prerequisites and supported GitHub Actions secrets:**
-  - `BE04_RLS_TEST_SUPABASE_URL` (`${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}`) — project URL of the dedicated non-production Supabase test project (with repository schema and RLS policies applied).
-  - `BE04_RLS_TEST_SUPABASE_ANON_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}`) — public key for the dedicated test project. In CI (`.github/workflows/ci.yml`), this is the single mapped public key secret, accepting either a legacy `anon` JWT or a modern `sb_publishable_*` key. (Local runs also accept `BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY` as an optional local environment variable override).
-  - `BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}`) or `BE04_RLS_TEST_SUPABASE_SECRET_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}`) — administrative credentials (legacy `service_role` JWT or modern `sb_secret_*` key) used strictly for test user setup and teardown cleanup (never passed to user requests).
-  - `RUN_BE04_RLS_INTEGRATION=true` — explicit opt-in flag required to execute the live test (set automatically in CI when prerequisite secrets are present).
-- **Supported key formats and Supabase client behavior:**
-  - *Public / Anon key:* Accepts either a legacy `anon` JWT (`header.payload.signature` signed with HMAC/SHA-256 with `role: "anon"`) or a modern publishable key (`sb_publishable_[A-Za-z0-9_-]{10,}`). Test clients normalize headers by ensuring `apikey: <key>` is passed while stripping any synthetic `Authorization: Bearer <publishable_key>` header so authenticated user session tokens remain intact.
-  - *Service-role / Secret key:* Accepts either a legacy `service_role` JWT (`role: "service_role"`) or a modern secret key (`sb_secret_[A-Za-z0-9_-]{10,}`). Admin test clients normalize headers by setting `apikey: <key>` and omitting the synthetic `Authorization: Bearer <secret_key>` header so PostgREST and GoTrue accept the opaque key.
-- **Gate isolation from local demo test:**
-  - These hosted project secrets are shared with the profile RLS integration test (`auth_rls_integration_test.ts`), but **cannot** enable the local demo live integration test in `demo_recipe_test.ts` (which strictly requires a compatible API endpoint at the expected local loopback address and port `54321`).
-- **Explicit opt-in and safety guards:**
-  - The test never loads `.env` files automatically and never falls back to `SUPABASE_URL`, `VITE_SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, or `DATABASE_URL`.
-  - Safety checks reject execution if `BE04_RLS_TEST_SUPABASE_URL` points to the primary linked project (`gtbwblxskctpsqhbpebg`), matches `SUPABASE_URL` / `VITE_SUPABASE_URL`, uses local loopback port `54321`, or if the anon key equals the service-role key.
-- **Skip behavior:**
-  - When `RUN_BE04_RLS_INTEGRATION=true` or any `BE04_RLS_TEST_*` secret is missing, or if target safety prechecks fail, the test logs an explicit skip explanation and registers with `ignore: true` so Deno reports `0 passed | 1 ignored`. Unexecuted integration tests are never reported as passed, and production credentials are never used.
-- **Execution command:**
-  ```sh
-  RUN_BE04_RLS_INTEGRATION=true \
-  BE04_RLS_TEST_SUPABASE_URL="https://<dedicated-test-project-ref>.supabase.co" \
-  BE04_RLS_TEST_SUPABASE_ANON_KEY="<dedicated-test-anon-key>" \
-  BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY="<dedicated-test-service-role-key>" \
-  deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/recipes_test.ts
-  ```
-- **Cleanup approach:**
-  - Setup creates two unique test users (`User A` and `User B`). User A creates a recipe via `POST /recipes`. The test asserts positive retrieval by User A, negative retrieval (`[]` / `null`) by User B, and that the created recipe has `is_public: false`. A `finally` block deletes the created recipes, profiles, and auth users through the admin client, then verifies no recipe rows remain for the test users. Delete, verification, and auth-user cleanup errors fail the test with secrets redacted.
+Hosted integration tests use dedicated non-production projects. The guarded test migration runner requires the expected test-project reference and rejects loopback and the primary production project as targets.
+
+### Schema and migration history
+
+- **Initial schema:** `20261013000000_initial_schema.sql` creates base tables, RLS policies, indexes, and triggers.
+- **Recipe visibility:** `20261017000001_add_is_public_to_recipes.sql` adds `is_public boolean not null default false` to `public.recipes`.
+- **Dedicated recipe notes:** `20261023000002_add_notes_to_recipes.sql` adds nullable `notes text` column to `public.recipes`, enabling personal chef/cooking notes without modifying or colliding with `raw_input`. All CRUD routes (`GET`, `POST`, `PATCH`) support `notes` independently of `raw_input`.

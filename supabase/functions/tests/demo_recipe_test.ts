@@ -336,7 +336,10 @@ Deno.test("Database query error returns 500 with internal error envelope and no-
   assertEquals(body.recipe, undefined);
 });
 
-const hasDbEnv = Boolean(Deno.env.get("SUPABASE_URL") && Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+const hasDbEnv = Boolean(
+  Deno.env.get("SUPABASE_URL")?.trim() &&
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim(),
+);
 
 Deno.test({
   name: "GET returns 200 from live PostgreSQL with approved columns and headers (live integration)",
