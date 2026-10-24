@@ -4,54 +4,94 @@ import { EventEmitter } from 'node:events'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import test from 'node:test'
-import { installSignalCleanup, stopFunctionServer, withCleanup } from './runner-lifecycle.mjs'
+import { stopFunctionServer, withStackCleanup } from './runner-lifecycle.mjs'
 
-test('runs cleanup after a successful E2E task', async () => {
-  let cleaned = false
-
-  await withCleanup(async () => {}, async () => { cleaned = true })
-
-  assert.equal(cleaned, true)
-})
-
-test('runs cleanup after setup or Playwright failure and preserves the original error', async () => {
-  const taskError = new Error('account setup failed')
-  let cleaned = false
+test('does not stop an unstarted stack after preparation fails and installs signal cleanup first', async () => {
+  const preparationError = new Error('file preparation failed')
+  const emitter = new EventEmitter()
+  let stops = 0
 
   await assert.rejects(
-    withCleanup(async () => { throw taskError }, async () => { cleaned = true }),
-    (error) => error === taskError,
+    withStackCleanup(async () => {
+      assert.equal(emitter.listenerCount('SIGINT'), 1)
+      assert.equal(emitter.listenerCount('SIGTERM'), 1)
+      throw preparationError
+    }, async () => { stops += 1 }, () => {}, emitter),
+    (error) => error === preparationError,
   )
-  assert.equal(cleaned, true)
+
+  assert.equal(stops, 0)
+  assert.equal(emitter.listenerCount('SIGINT'), 0)
+  assert.equal(emitter.listenerCount('SIGTERM'), 0)
 })
 
-test('reports cleanup failure without hiding the E2E failure', async () => {
+test('stops once after a partial stack-start failure and preserves the startup error', async () => {
+  const startupError = new Error('stack start failed after starting services')
+  let stops = 0
+
   await assert.rejects(
-    withCleanup(
-      async () => { throw new Error('Playwright failed') },
-      async () => { throw new Error('stack stop failed') },
-    ),
+    withStackCleanup(async (markStackMayHaveStarted) => {
+      markStackMayHaveStarted()
+      throw startupError
+    }, async () => { stops += 1 }),
+    (error) => error === startupError,
+  )
+
+  assert.equal(stops, 1)
+})
+
+test('cleans up after success and reports startup plus cleanup failures', async () => {
+  let successfulStops = 0
+  await withStackCleanup(async (markStackMayHaveStarted) => {
+    markStackMayHaveStarted()
+  }, async () => { successfulStops += 1 })
+  assert.equal(successfulStops, 1)
+
+  const startupError = new Error('stack start failed')
+  const cleanupError = new Error('stack stop failed')
+  let failedStops = 0
+  await assert.rejects(
+    withStackCleanup(async (markStackMayHaveStarted) => {
+      markStackMayHaveStarted()
+      throw startupError
+    }, async () => {
+      failedStops += 1
+      throw cleanupError
+    }),
     (error) => error instanceof AggregateError
-      && error.errors[0].message === 'Playwright failed'
-      && error.errors[1].message === 'stack stop failed',
+      && error.errors[0] === startupError
+      && error.errors[1] === cleanupError,
   )
+  assert.equal(failedStops, 1)
 })
 
-test('runs cleanup once and exits with the signal code on SIGINT or SIGTERM', async (t) => {
+test('runs stack cleanup once and exits with the signal code on SIGINT or SIGTERM', async () => {
   for (const [signal, expectedCode] of [['SIGINT', 130], ['SIGTERM', 143]]) {
     let cleanups = 0
     const exitCodes = []
     const emitter = new EventEmitter()
-    const uninstall = installSignalCleanup(async () => { cleanups += 1 }, (code) => exitCodes.push(code), emitter)
-    t.after(uninstall)
+    let finishTask
+    let signalHandled
+    const handledSignal = new Promise((resolve) => { signalHandled = resolve })
+    const lifecycle = withStackCleanup(async (markStackMayHaveStarted) => {
+      markStackMayHaveStarted()
+      await new Promise((resolve) => { finishTask = resolve })
+    }, async () => { cleanups += 1 }, (code) => {
+      exitCodes.push(code)
+      signalHandled()
+    }, emitter)
+    await new Promise((resolve) => setImmediate(resolve))
 
     emitter.emit(signal)
     emitter.emit(signal === 'SIGINT' ? 'SIGTERM' : 'SIGINT')
-    await new Promise((resolve) => setImmediate(resolve))
+    await handledSignal
+    finishTask()
+    await lifecycle
 
     assert.equal(cleanups, 1)
     assert.deepEqual(exitCodes, [expectedCode])
-    uninstall()
+    assert.equal(emitter.listenerCount('SIGINT'), 0)
+    assert.equal(emitter.listenerCount('SIGTERM'), 0)
   }
 })
 

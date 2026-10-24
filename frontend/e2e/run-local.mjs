@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createClient } from '@supabase/supabase-js'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { installSignalCleanup, stopFunctionServer, withCleanup } from './runner-lifecycle.mjs'
+import { stopFunctionServer, withStackCleanup } from './runner-lifecycle.mjs'
 import {
   assertLocalSupabaseUrl,
   createPlaywrightEnvironment,
@@ -104,13 +104,14 @@ async function prepareAccounts(apiUrl, serviceRoleKey) {
 
 async function main() {
   run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs', 'e2e/runner-lifecycle.test.mjs'], frontendDir)
-  await prepareIsolatedProjectFiles()
 
   const cliEnv = createSupabaseCliEnvironment()
   const supabaseArgs = ['exec', 'supabase', '--workdir', e2eWorkdir]
   let functionServer
-  const task = async () => {
+  const task = async (markStackMayHaveStarted) => {
+    await prepareIsolatedProjectFiles()
     process.stdout.write('Starting the isolated local E2E Supabase project with the native runtime.\n')
+    markStackMayHaveStarted()
     run('pnpm', [...supabaseArgs, 'stack', 'start', '--runtime', 'native'], frontendDir, cliEnv)
 
     const status = parseSupabaseStatus(run('pnpm', [...supabaseArgs, 'status', '--env', '--output-format', 'text'], frontendDir, cliEnv))
@@ -152,14 +153,7 @@ async function main() {
     if (errors.length === 1) throw errors[0]
     if (errors.length > 1) throw new AggregateError(errors, 'Could not fully clean up the isolated E2E Supabase project.')
   }
-  let cleanupPromise
-  const cleanup = () => cleanupPromise ??= stopStackAndFunctionServer()
-  const uninstallSignalCleanup = installSignalCleanup(cleanup)
-  try {
-    await withCleanup(task, cleanup)
-  } finally {
-    uninstallSignalCleanup()
-  }
+  await withStackCleanup(task, stopStackAndFunctionServer)
 }
 
 main().catch((error) => {

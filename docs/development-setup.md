@@ -5,8 +5,7 @@ This guide uses the local Supabase stack for app development and documents stand
 ## Prerequisites
 
 - [Node.js 24](https://nodejs.org/en/download) and pnpm 10 (`npm install --global pnpm@10`; see the [pnpm 10 installation guide](https://pnpm.io/10.x/installation))
-- Supabase CLI 2.x; the standard local development stack uses Docker Desktop or another Docker-compatible runtime
-- For the authenticated E2E journey, Supabase CLI 2.122.0 uses its native experimental stack runtime, which needs Linux on `amd64`/`arm64` or macOS 14+ on Apple silicon, `tar`, and network access to download service artifacts. This E2E path does not require Docker, but native stacks are not supported on Windows or Intel Macs. See the [Supabase native runtime guide](https://supabase.com/docs/guides/local-development/docker-and-native-runtimes).
+- Supabase CLI 2.x: the standard local development stack uses Docker Desktop or another Docker-compatible runtime. Local authenticated E2E pins CLI 2.122.0 and uses its native experimental runtime on Linux `amd64`/`arm64` or macOS 14+ on Apple silicon; it needs `tar` and network access to download service artifacts, but not Docker. Windows and Intel Mac contributors should use the existing Ubuntu E2E job in GitHub Actions. See the [Supabase native runtime guide](https://supabase.com/docs/guides/local-development/docker-and-native-runtimes).
 - [Deno](https://deno.land/) (for running Edge Function deterministic and integration test suites)
 - Standalone PostgreSQL 15+ on loopback (`127.0.0.1` or `localhost`) only if you choose not to use the local Supabase database for migration lifecycle tests
 

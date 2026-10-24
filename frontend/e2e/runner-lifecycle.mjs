@@ -106,6 +106,23 @@ export async function withCleanup(task, cleanup) {
   if (cleanupFailed) throw cleanupError
 }
 
+export async function withStackCleanup(task, cleanup, exit, emitter) {
+  let stackMayHaveStarted = false
+  let cleanupPromise
+  const cleanupOnce = () => {
+    if (!stackMayHaveStarted) return Promise.resolve()
+    cleanupPromise ??= Promise.resolve().then(cleanup)
+    return cleanupPromise
+  }
+  const uninstallSignalCleanup = installSignalCleanup(cleanupOnce, exit, emitter)
+
+  try {
+    await withCleanup(() => task(() => { stackMayHaveStarted = true }), cleanupOnce)
+  } finally {
+    uninstallSignalCleanup()
+  }
+}
+
 export function installSignalCleanup(cleanup, exit = (code) => process.exit(code), emitter = process) {
   let signalReceived = false
   const handlers = new Map()
