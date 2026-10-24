@@ -1,7 +1,7 @@
 import type { FlavorScores, Ingredient, Instruction } from '../api/demoRecipe'
 
-// Frontend view models, NOT a BE-06 wire contract. The eventual REST adapter
-// must validate the agreed response and map it here. Nested shapes reuse FS-01.
+// Frontend view models, not the BE-06 wire contract. The REST adapter validates
+// API responses against these shapes. Nested shapes reuse FS-01.
 export interface RecipeSummary {
   id: string
   title: string

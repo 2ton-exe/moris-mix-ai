@@ -77,8 +77,7 @@ it('shows an empty journal with creation guidance and a working demo link', asyn
   vi.mocked(source.list).mockResolvedValue([])
   render(tree('/app/recipes'))
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
-  fireEvent.click(screen.getByText('Plan your first recipe'))
-  expect(screen.getByText(/Recipe creation is coming soon/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Start a recipe' }).getAttribute('href')).toBe('/app/recipes/new')
   fireEvent.click(screen.getByRole('link', { name: 'Explore a demonstration recipe' }))
   await screen.findByRole('heading', { name: 'Public demo' })
 })
@@ -176,6 +175,14 @@ it('loads a detail by route ID, orders steps without mutating data, and navigate
   expect(screen.getByRole('heading', { name: 'Flavor notes' })).toBeTruthy()
   fireEvent.click(screen.getByRole('link', { name: /Back to recipes/ }))
   await screen.findByRole('heading', { name: 'Your cooking journal' })
+})
+
+it('offers editing from a live recipe detail', async () => {
+  const recipe = previewRecipes[0]
+  render(tree(`/app/recipes/${recipe.id}`))
+  await screen.findByRole('heading', { name: recipe.title, level: 1 })
+  expect(screen.getByRole('link', { name: 'Edit recipe' }).getAttribute('href'))
+    .toBe(`/app/recipes/${recipe.id}/edit`)
 })
 
 it('shows a detail loading state and handles missing metadata and empty content', async () => {

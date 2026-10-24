@@ -1,18 +1,22 @@
 # Mori's Mix frontend
 
 FE-04 adds the protected recipe dashboard at `/app` and `/app/recipes`, plus
-details at `/app/recipes/:recipeId`, using TanStack Query. The shared REST client
-now supports authenticated GET and POST requests using a freshly checked SDK
-session on each request. BE-06's recipe endpoint contract is still unavailable,
-so the production recipe source remains unavailable and normal mode shows an
-explicit unavailable state. For a labeled local sample preview, set
-`VITE_RECIPE_PREVIEW=true` and restart Vite; existing authentication is still
-required. Production builds ignore this flag. See the [FE-04 implementation and
-integration handoff](../docs/frontend/recipe-dashboard.md) for the remaining
-REST work.
+details at `/app/recipes/:recipeId`, using TanStack Query and BE-06's authenticated
+recipe REST API. The shared REST client checks the current SDK session for each
+request. Without API configuration, normal mode reports an unavailable service
+rather than showing sample recipes.
 
-FE-03 adds login, signup, email verification, session handling, and a protected
-`/app` journal entry. Open `/home` and select **Your cooking journal**, or go to
+FE-05 adds a reusable recipe editor and protected `/app/recipes/new` and
+`/app/recipes/:recipeId/edit` page boundaries. Edit loads through the shared,
+account-scoped recipe query; create and edit save through authenticated POST and
+PATCH requests. Notes persist through the REST API. Unsaved drafts stay in memory
+and are guarded on in-app navigation and browser history; auth redirects remain
+available. See the [recipe form handoff](../docs/frontend/recipe-form.md) for
+schema limits and integration status. For a labeled local sample preview, set
+`VITE_RECIPE_PREVIEW=true` and restart Vite; production builds ignore it.
+
+FE-03 adds login, signup, email verification, and session handling for the
+protected recipe dashboard. Open `/home` and select **Your cooking journal**, or go to
 `/login` directly. See the [authentication setup and FS-02 handoff](../docs/frontend/authentication.md)
 for callback allowlist requirements, session interfaces, route ownership, and
 the remaining live verification steps. The public FE-02 demo stays available

@@ -22,13 +22,13 @@ export function useRecipes() {
   })
 }
 
-export function useRecipe(id: string) {
+export function useRecipe(id: string, enabled = true) {
   const { user, isAuthenticated, isLoading } = useAuth()
   const source = useContext(RecipeSourceContext)
   const userId = user?.id ?? null
   return useQuery({
     queryKey: recipeKeys.detail(userId, id),
-    enabled: !!userId && !!id && isAuthenticated && !isLoading,
+    enabled: enabled && !!userId && !!id && isAuthenticated && !isLoading,
     queryFn: async ({ signal }) => {
       if (!userId) throw new HttpError('http', 'Authentication required.', 401)
       const recipe = await source.detail(id, { userId, signal })

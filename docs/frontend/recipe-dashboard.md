@@ -1,5 +1,9 @@
 # FE-04 recipe dashboard and detail
 
+> Historical handoff from October 19, 2026, before BE-06, FE-05, and FE-06
+> merged. For current integration status, see the [recipe form](recipe-form.md)
+> and [recipe deletion](recipe-deletion.md) handoffs.
+
 ## Delivery status and branch dependency
 
 FE-04 provides the protected dashboard, detail screen, reusable cards, TanStack
@@ -136,10 +140,12 @@ once BE-06 publishes its contract.
 
 The shared journal shell keeps logout available on detail and error screens.
 Dates remain date-only strings to avoid timezone shifts. Missing optional
-metadata is omitted. Empty ingredients/steps have explanatory text. There is no
-creation form, edit/delete flow, fabricated notes, or lineage interface. Empty
+metadata is omitted. Empty ingredients/steps have explanatory text. The
+dashboard has no delete flow, fabricated notes, or lineage interface. Empty
 journals offer expandable first-recipe planning guidance and a link to the
-existing public demo, without creating a nonfunctional FE-05 route.
+existing public demo. The `/app/recipes/new` route opens the FE-05 form, which
+creates recipes through the authenticated REST API. The edit route loads the
+matching recipe and saves edits and ratings through that API.
 
 401 asks the user to log out and sign in again; 403 explains access denial; a
 detail 404 explains that the recipe is unavailable or removed. These statuses
