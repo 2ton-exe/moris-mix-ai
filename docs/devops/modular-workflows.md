@@ -145,6 +145,19 @@ successfully on PR #74. The observed GitHub checks were:
 PR validation without production deployment and establishes the actual composed
 modular check names. The existing `ci.yml` remains authoritative.
 
+PR #79 at `be283a5` verified the separate E2E calls on a current PR run ([CI]
+and [Modular PR Validation]). The existing required checks (`Frontend Checks`,
+`Database Tests`, and `Edge/API Tests`) all succeeded. `Playwright E2E
+(Non-gating) / Playwright E2E Tests` and `Modular E2E / Playwright E2E Tests`
+both completed Chromium installation and the local Supabase Playwright runner
+successfully. The modular Frontend, Database, and Edge/API jobs also succeeded;
+`Deploy to Cloudflare` was skipped for the PR. The required check names and
+deployment dependencies are unchanged. This PR run does not verify modular main
+gate evidence or the manual fail/skip/cancellation scenarios.
+
+[CI]: https://github.com/2ton-exe/moris-mix-ai/actions/runs/40108914974
+[Modular PR Validation]: https://github.com/2ton-exe/moris-mix-ai/actions/runs/40108914913
+
 Stage 1 merged to main. The post-merge authoritative main run passed frontend,
 database, and Edge/API validations, and its existing Cloudflare production
 deployment succeeded. This is evidence for the authoritative path only.
