@@ -56,7 +56,9 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(page.getByText('4 / 5', { exact: true })).toBeVisible()
   })
 
-  await test.step('confirm deletion and verify it is absent from the journal', async () => {
+  await test.step('confirm deletion, verify the journal, and revisit the deleted detail', async () => {
+    const deletedRecipeUrl = page.url()
+
     await page.getByRole('button', { name: 'Delete recipe' }).click()
     const dialog = page.getByRole('alertdialog')
     await expect(dialog.getByRole('heading', { name: `Delete “${updatedTitle}”?` })).toBeVisible()
@@ -64,5 +66,11 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(page).toHaveURL(/\/app\/recipes$/)
     await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
+
+    await page.reload()
+    await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
+
+    await page.goto(deletedRecipeUrl)
+    await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible()
   })
 })
