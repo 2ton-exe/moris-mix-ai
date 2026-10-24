@@ -53,3 +53,73 @@ export const DemoRecipeResponseSchema = z.object({
 
 export type DemoRecipe = z.infer<typeof DemoRecipeSchema>;
 export type DemoRecipeResponse = z.infer<typeof DemoRecipeResponseSchema>;
+
+function isValidCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+}
+
+export const CreateRecipeRequestSchema = z.object({
+  title: z.string().trim().min(1),
+  raw_input: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(IngredientSchema),
+  instructions: z.array(InstructionSchema),
+  flavor_scores: FlavorScoreSchema.nullable().optional(),
+  star_rating: z.number().int().min(1).max(5).nullable().optional(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable().optional(),
+});
+
+export const RecipeSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  title: z.string().min(1),
+  raw_input: z.string().nullable(),
+  notes: z.string().nullable(),
+  ingredients: z.array(IngredientSchema),
+  instructions: z.array(InstructionSchema),
+  flavor_scores: FlavorScoreSchema.nullable(),
+  star_rating: z.number().int().min(1).max(5).nullable(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable(),
+  image_url: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const RecipeResponseSchema = z.object({
+  recipe: RecipeSchema,
+});
+
+export const RecipeIdParamSchema = z.string().uuid();
+
+export const RecipeParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const RecipeListResponseSchema = z.object({
+  recipes: z.array(RecipeSchema),
+});
+
+export const UpdateRecipeRequestSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  raw_input: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(IngredientSchema).optional(),
+  instructions: z.array(InstructionSchema).optional(),
+  flavor_scores: FlavorScoreSchema.nullable().optional(),
+  star_rating: z.number().int().min(1).max(5).nullable().optional(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable().optional(),
+}).strict().refine(
+  (data) => Object.keys(data).length > 0,
+  { message: "At least one field must be provided for update." },
+);
+
+export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;
+export type Recipe = z.infer<typeof RecipeSchema>;
+export type RecipeResponse = z.infer<typeof RecipeResponseSchema>;
+export type RecipeParams = z.infer<typeof RecipeParamsSchema>;
+export type RecipeListResponse = z.infer<typeof RecipeListResponseSchema>;
+export type UpdateRecipeRequest = z.infer<typeof UpdateRecipeRequestSchema>;

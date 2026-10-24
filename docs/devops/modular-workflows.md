@@ -2,11 +2,10 @@
 
 ## Authority through Stage 2A
 
-`.github/workflows/ci.yml` is unchanged. It remains the source of the required
-`Frontend Checks`, `Database Tests`, and `Edge/API Tests` checks and the only
-active production deployment path. Its deployment still depends on all three
-successful validation jobs, frontend existence, and a push or manual dispatch
-on `refs/heads/main`.
+`.github/workflows/ci.yml` remains the source of the required `Frontend Checks`,
+`Database Tests`, and `Edge/API Tests` checks and the active production path.
+Cloudflare deployment follows successful validation and frontend existence on
+main pushes and manual dispatches. Pull requests skip deployment.
 
 | File in `.github/workflows/` | Responsibility through Stage 2A |
 | --- | --- |
@@ -17,14 +16,21 @@ on `refs/heads/main`.
 | `reusable-gate-fixture.yml` | Deterministic, secret-free simulated validation dependencies |
 | `reusable-frontend.yml` | Existing frontend steps and exported `exists` output |
 | `reusable-database.yml` | Existing PostgreSQL service, environment, migration and RLS tests |
-| `reusable-edge-api.yml` | Existing Deno checks, deterministic tests and optional hosted integration tests |
+| `reusable-edge-api.yml` | Deno checks, deterministic tests, and optional hosted database migration and integration tests |
 | `reusable-cloudflare.yml` | Dormant deployment implementation; `workflow_call` only, no caller |
 
-Stage 2A leaves the existing validation workflows unchanged. Edge/API secrets are
-declared optional and passed explicitly by both modular validation callers,
-preserving the existing missing-secret fallback. Neither caller forwards
-Cloudflare secrets to any reusable workflow. Public Supabase
-build variables remain read through `vars` inside the reusable deployment job.
+The reusable jobs retain their internal names. Edge/API validation includes
+BE-06 recipe CRUD coverage and the AI contract/evaluation checks from `ci.yml`.
+Edge/API credentials, the expected test project reference, and dedicated
+database URL are optional; both modular callers forward configured secrets, and
+repository variables remain available through `vars`. When the hosted
+credentials, expected reference, and database URL are configured, the reusable
+Edge/API workflow applies pending migrations to the dedicated non-production
+test database before the hosted auth/RLS and recipe CRUD integration suite.
+Incomplete configuration retains the explicit hosted-test skip and offline
+fallback. Neither caller forwards Cloudflare secrets to any reusable workflow.
+Public Supabase build variables remain read through `vars` inside the reusable
+deployment job.
 
 Duplicate validation work on PRs is intentional during migration. The comparison
 caller uses distinct `Modular ...` job names because GitHub can compose reusable
@@ -55,10 +61,13 @@ and [workflow reuse guide](https://docs.github.com/en/actions/how-tos/reuse-auto
 `modular-main.yml` runs on pushes to main and supports manual dispatch; it has
 no PR trigger. Its caller names are `Modular Main Frontend`, `Modular Main
 Database`, and `Modular Main Edge/API`. Actual composed main check names still
-need to be observed in GitHub. The caller forwards only the four existing
-optional BE04 non-production test secrets to Edge/API validation. It never calls
-`reusable-cloudflare.yml`, receives no Cloudflare production secrets, and contains
-no deployment commands.
+need to be observed in GitHub. The caller forwards all six optional BE04
+non-production test secrets: Supabase URL, anon key, service-role key, secret
+key, expected project reference, and dedicated database URL. Like the PR caller,
+it forwards the expected-reference secret with a legacy `BE04_RLS_TEST_PROJECT_REF`
+secret fallback; the reusable workflow also reads repository-variable fallbacks.
+It never calls `reusable-cloudflare.yml`, receives no Cloudflare production
+secrets, and contains no deployment commands.
 
 The final `gate-evidence` job declares
 `needs: [frontend, test-db, test-edge-api]`, requires
@@ -101,11 +110,14 @@ composed main check identity is proven until real GitHub Actions runs occur.
 Record run URLs, commit SHAs, selected scenarios, dependency conclusions, exported
 frontend existence, and gate conclusions before treating them as evidence.
 
-The merged reusable Edge/API workflow currently checks `recipes` files while
-authoritative `ci.yml` checks AI contract/evaluation files. Stage 2A preserves
-both workflows as required by its scope; successful shadow runs alone will not
-establish validation parity. Resolve this difference in a separate reviewed
-change before any production handoff.
+This branch reconciles static Edge/API command parity with authoritative
+`ci.yml`: both type-check the recipe and AI contract/evaluation files and run
+the same deterministic test files. BE-06's guarded hosted non-production
+migration and auth/RLS/recipe integration coverage remains intact, and both
+modular callers forward the same optional hosted-test secrets. This static
+reconciliation does not establish runtime parity: Stage 2A shadow main and
+gate-experiment execution evidence is still pending. No successful modular
+main execution is claimed.
 
 ## Evidence needed before retiring ci.yml
 
@@ -179,8 +191,12 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
 
 Stage 2A does not complete modular required-check/ruleset migration, production
 deployment ownership transfer, use of `reusable-cloudflare.yml` by the modular
-main caller, or retirement of `ci.yml`. Supabase deployment automation and
-post-deployment smoke verification also remain unimplemented. This stage adds
-no path filters, pipeline optimizations, or production configuration changes.
+main caller, or retirement of `ci.yml`. BE-06 adds recipe/API validation and
+guarded migrations for optional hosted non-production test-database integration.
+Stage 2A performs no production deployment or production database migration;
+production database migration automation remains a separate follow-up. Supabase
+function deployment automation and post-deployment smoke verification also
+remain unimplemented. This stage adds no path filters, pipeline optimizations,
+or production configuration changes.
 Keep the original workflow until the replacement behavior has execution evidence
 and the required-check and deployment handoff is ready.
