@@ -95,7 +95,7 @@ editor paths and safe error codes.
 ```ts
 type SaveRecipeDraft = (
   draft: RecipeDraft,
-  context: { userId: string; signal: AbortSignal },
+  context: { userId: string; signal: AbortSignal; recipeId?: string },
 ) => Promise<{ id: string }>
 ```
 
@@ -104,6 +104,8 @@ captured or attached. `userId` is expected-account context, not a backend
 authorization claim. FS-02 must still obtain/refresh the current session at
 request time and verify that expected account after asynchronous work. The
 backend derives ownership from the JWT, never from this frontend identity.
+After create succeeds, the page retains the confirmed ID; later edits on that
+page use PATCH for the same recipe rather than creating duplicates.
 
 Edit props are `record?: { id, userId, values }`, `isLoading`, `loadError`,
 `onRetry`, `save`, and `notesSupported`. The host maps its validated detail DTO

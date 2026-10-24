@@ -162,7 +162,8 @@ function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDirtyChan
     onCancel?.()
   }
 
-  return <form className="recipe-form" ref={formRef} noValidate aria-label={mode === 'create' ? 'Create recipe' : 'Edit recipe'} aria-busy={pending} onSubmit={(event) => { void submit(event) }}>
+  const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
+  return <form className="recipe-form" ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending} onSubmit={(event) => { void submit(event) }}>
     <fieldset className="recipe-form-controls" disabled={pending}>
       <legend className="visually-hidden">Recipe details</legend>
       <section className="recipe-form-section" aria-labelledby={`${prefix}-details`}>
@@ -238,7 +239,7 @@ function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDirtyChan
       {saved && <p className="recipe-save-success" role="status">Recipe saved.</p>}
       {pending && <p role="status">Saving your recipe…</p>}
       <div className="actions recipe-form-actions">
-        <button className="button button-primary" type="submit" disabled={pending || saved}>{pending ? 'Saving…' : mode === 'create' ? 'Save recipe' : 'Save changes'}</button>
+        <button className="button button-primary" type="submit" disabled={pending || saved}>{pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? 'Save recipe' : 'Save changes'}</button>
         {onCancel && <button className="button button-secondary" type="button" onClick={cancel}>Back to journal</button>}
       </div>
       <p className="field-hint">{dirty ? 'You have unsaved changes.' : 'Changes are saved only after the recipe service confirms them.'}</p>

@@ -4,7 +4,7 @@ import type { RecipeDraft, RecipeDraftInput } from './draft'
 // Host UI interfaces, not a backend request/response envelope. A future
 // useMutation().mutateAsync adapter must confirm persistence before resolving.
 export interface RecipeSaveConfirmation { id: string }
-export interface RecipeSaveContext { userId: string; signal: AbortSignal }
+export interface RecipeSaveContext { userId: string; signal: AbortSignal; recipeId?: string }
 export type SaveRecipeDraft = (draft: RecipeDraft, context: RecipeSaveContext) => Promise<RecipeSaveConfirmation>
 export interface RecipeEditorRecord { id: string; userId: string; values: RecipeDraftInput }
 

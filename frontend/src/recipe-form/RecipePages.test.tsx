@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, isValidElement } from 'react'
 import { createContext, useContext, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -13,6 +13,7 @@ import { HttpError } from '../api/http'
 import { recipeKeys } from '../recipes/queryOptions'
 import CreateRecipePage from '../pages/CreateRecipePage'
 import EditRecipePage from '../pages/EditRecipePage'
+import { RecipeQueryProvider } from '../recipes/RecipeQueryProvider'
 import { recipeFormApi } from './api'
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
@@ -109,6 +110,13 @@ it.each([
   expect(matches?.at(-1)?.route.path).toBe(expectedRoute)
 })
 
+it.each(['/app/recipes/new', '/app/recipes/recipe-a/edit', '/app/recipes/recipe-a'])(
+  'places %s under the shared recipe query provider', (path) => {
+    const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), path)
+    expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
+  },
+)
+
 it('gates the create page using FE-03 protected routes without invoking the save adapter', () => {
   const save = vi.fn()
   render(tree({ state: authState(null), save }))
@@ -139,6 +147,22 @@ it('sends a normalized create draft with account identity and cancellation to th
   click('Back to journal')
   expect(confirm).not.toHaveBeenCalled()
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
+})
+
+it('updates the just-created recipe on subsequent saves instead of creating a duplicate', async () => {
+  const save = vi.fn().mockResolvedValue({ id: 'created-recipe' })
+  render(tree({ save }))
+  title('Original title')
+  click('Save recipe')
+  await screen.findByText('Recipe saved.')
+
+  title('Corrected title')
+  click('Save changes')
+  await screen.findByText('Recipe saved.')
+
+  expect(save).toHaveBeenCalledTimes(2)
+  expect(save.mock.calls[0][1]).not.toHaveProperty('recipeId')
+  expect(save.mock.calls[1][1]).toMatchObject({ recipeId: 'created-recipe' })
 })
 
 it('blocks internal links and programmatic navigation once per attempt while preserving the draft', () => {

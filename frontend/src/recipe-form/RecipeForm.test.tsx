@@ -193,7 +193,7 @@ it.each(['create', 'edit'] as const)('prevents repeating a confirmed %s save unt
   click(mode === 'create' ? 'Save recipe' : 'Save changes')
   await screen.findByText('Recipe saved.')
 
-  const buttonName = mode === 'create' ? 'Save recipe' : 'Save changes'
+  const buttonName = 'Save changes'
   expect(screen.getByRole('button', { name: buttonName }).matches(':disabled')).toBe(true)
   click(buttonName)
   expect(submit).toHaveBeenCalledOnce()

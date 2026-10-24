@@ -80,12 +80,14 @@ export const createAppRouteElements = () => (
           </Route>
           <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route element={<ProtectedRoute />}>
-            <Route path="/app/recipes/new" element={<CreateRecipePage />} />
-            <Route path="/app/recipes/:recipeId/edit" element={<EditRecipePage />} />
-            <Route path="/app" element={<RecipeQueryProvider><JournalPage /></RecipeQueryProvider>}>
-              <Route index element={<RecipeDashboardPage />} />
-              <Route path="recipes" element={<RecipeDashboardPage />} />
-              <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+            <Route element={<RecipeQueryProvider><Outlet /></RecipeQueryProvider>}>
+              <Route path="/app/recipes/new" element={<CreateRecipePage />} />
+              <Route path="/app/recipes/:recipeId/edit" element={<EditRecipePage />} />
+              <Route path="/app" element={<JournalPage />}>
+                <Route index element={<RecipeDashboardPage />} />
+                <Route path="recipes" element={<RecipeDashboardPage />} />
+                <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+              </Route>
             </Route>
             <Route path="/app/*" element={<NotFoundPage />} />
           </Route>
