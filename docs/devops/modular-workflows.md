@@ -60,8 +60,10 @@ and [workflow reuse guide](https://docs.github.com/en/actions/how-tos/reuse-auto
 
 `modular-main.yml` runs on pushes to main and supports manual dispatch; it has
 no PR trigger. Its caller names are `Modular Main Frontend`, `Modular Main
-Database`, and `Modular Main Edge/API`. Actual composed main check names still
-need to be observed in GitHub. The caller forwards all six optional BE04
+Database`, and `Modular Main Edge/API`. The observed composed main check names are
+`Modular Main Frontend / Frontend Checks`,
+`Modular Main Database / Database Tests`, and
+`Modular Main Edge/API / Edge/API Tests`. The caller forwards all six optional BE04
 non-production test secrets: Supabase URL, anon key, service-role key, secret
 key, expected project reference, and dedicated database URL. Like the PR caller,
 it forwards the expected-reference secret with a legacy `BE04_RLS_TEST_PROJECT_REF`
@@ -88,36 +90,53 @@ state that no production deployment occurred. This synthetic gate can run on a
 selected ref; main event/ref restrictions are enforced separately by the shadow
 main gate, and must remain part of any future production caller.
 
-| Dispatch scenario | Intended result (not yet observed in GitHub) |
-| --- | --- |
-| `all-success` | All dependencies succeed; inert gate runs |
-| `fail-frontend` | Frontend fixture fails; gate is skipped |
-| `fail-database` | Database fixture fails; gate is skipped |
-| `fail-edge-api` | Edge/API fixture fails; gate is skipped |
-| `missing-frontend` | Dependencies succeed but `exists` is `false`; gate is skipped |
-| `skip-database` | Database caller is skipped by a job condition; gate is skipped |
-| `cancel-window` | Database fixture waits five minutes for real manual cancellation |
+### Observed Stage 2A runtime evidence
 
-For cancellation evidence, cancel a running `cancel-window` experiment while
-the database fixture is waiting and record the actual job/run conclusions and
-gate result. Cancellation is never simulated by an exit code. If not cancelled,
-the fixture succeeds after the wait and the gate can run. Manual dispatch from
-the GitHub UI normally requires the workflow to be present on the default branch.
+All runs below used merge commit
+`3486ac5226e3fe0f917b147af4fa9703029c9d79`. Dependency and gate results are
+observed GitHub Actions conclusions, distinct from the configured conditions
+described above. The gate experiments are secret-free, synthetic, and inert;
+they are not production deployment tests.
 
-These Stage 2A workflows are introduced as infrastructure only. No Stage 2A
-runtime result, main output propagation, failure/skip/cancellation blocking, or
-composed main check identity is proven until real GitHub Actions runs occur.
-Record run URLs, commit SHAs, selected scenarios, dependency conclusions, exported
-frontend existence, and gate conclusions before treating them as evidence.
+| Scenario / workflow | Run ID | Relevant dependency result | Inert gate result | What the run proves |
+| --- | --- | --- | --- | --- |
+| Main push / Modular Main Validation (overall success) | [40095375790](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40095375790) | All three composed modular validation jobs succeeded | `Modular Main Inert Gate`: success | Shadow main orchestration executes; frontend output propagated into the gate condition and the gate ran after successful dependencies on main |
+| Main push / CI (overall success) | [40095375829](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40095375829) | `Frontend Checks`, `Database Tests`, and `Edge/API Tests`: success; `Deploy to Cloudflare`: success | Not applicable: authoritative production CI | `ci.yml` remained the authoritative production deployment path on the same commit; this deployment was not performed by Modular Main |
+| `all-success` / Modular Gate Experiment (overall success) | [40096171117](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096171117) | Frontend, database, and Edge/API fixtures: success | `Would Deploy (Inert Experiment Only)`: success | Successful dependencies allow the inert downstream gate to run |
+| `fail-frontend` / Modular Gate Experiment (overall failure) | [40096296474](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096296474) | Frontend fixture: failure; database and Edge/API fixtures: success | Skipped | Frontend failure blocks the downstream gate as intended |
+| `fail-database` / Modular Gate Experiment (overall failure) | [40096414728](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096414728) | Database fixture: failure; frontend and Edge/API fixtures: success | Skipped | Database failure blocks the downstream gate as intended |
+| `fail-edge-api` / Modular Gate Experiment (overall failure) | [40096544882](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096544882) | Edge/API fixture: failure; frontend and database fixtures: success | Skipped | Edge/API failure blocks the downstream gate as intended |
+| `missing-frontend` / Modular Gate Experiment (overall success) | [40096561056](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096561056) | All three fixtures: success; frontend exported `exists=false` | Skipped | Successful validations alone do not allow the gate when frontend existence is false |
+| `skip-database` / Modular Gate Experiment (overall success) | [40096572007](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096572007) | Frontend and Edge/API fixtures: success; database caller: skipped | Skipped | A skipped required dependency blocks the downstream gate |
+| `cancel-window` / Modular Gate Experiment (overall cancelled) | [40097028260](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40097028260) | Frontend and Edge/API fixtures: success; database fixture and `Allow real manual cancellation` step: cancelled | Cancelled without executing steps | A real cancelled dependency prevents the inert downstream action from executing |
+| Non-main manual dispatch / Modular Main Validation (overall success) | [40097690202](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40097690202) | All three composed modular validation jobs succeeded on `docs/73-stage2a-runtime-evidence` | `Modular Main Inert Gate`: skipped | Validation can run on a non-main ref, but the downstream gate requires `refs/heads/main` |
 
-This branch reconciles static Edge/API command parity with authoritative
+The experiment gate is named `Would Deploy (Inert Experiment Only)` (shortened
+to `Would Deploy` in the blocking observations). The failure and cancellation
+runs provide expected blocking evidence; their overall conclusions remain
+failure or cancelled. Run
+[40096581724](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40096581724)
+is not primary cancellation evidence: it was cancelled too late, after the
+database cancellation window had completed successfully. Cancellation in the
+valid run was real, not simulated by an exit code.
+
+Stage 2A is now runtime-verified for successful main orchestration, frontend
+output propagation, dependency failure blocking, missing frontend blocking,
+skipped dependency blocking, real cancellation blocking, and non-main ref
+blocking. This does not prove a production handoff or production concurrency
+behavior. The PR restriction remains architectural: `modular-main.yml` has no
+`pull_request` trigger, and Modular PR Validation handles PR validation.
+PR #75 had successful CI and Modular PR Validation evidence before merge; no
+additional modular-main PR runtime event is claimed.
+
+The Stage 2A implementation reconciles static Edge/API command parity with authoritative
 `ci.yml`: both type-check the recipe and AI contract/evaluation files and run
 the same deterministic test files. BE-06's guarded hosted non-production
 migration and auth/RLS/recipe integration coverage remains intact, and both
 modular callers forward the same optional hosted-test secrets. This static
-reconciliation does not establish runtime parity: Stage 2A shadow main and
-gate-experiment execution evidence is still pending. No successful modular
-main execution is claimed.
+reconciliation alone does not establish runtime parity. The runs above now
+establish successful Stage 2A shadow main execution and inert dependency-gate
+behavior; they do not establish production deployment parity.
 
 ## Evidence needed before retiring ci.yml
 
@@ -139,9 +158,9 @@ Stage 1 merged to main. The post-merge authoritative main run passed frontend,
 database, and Edge/API validations, and its existing Cloudflare production
 deployment succeeded. This is evidence for the authoritative path only.
 
-The modular checks are not yet required by the active ruleset. No modular main
-orchestration has executed, frontend-output propagation into a modular main
-deployment gate remains unproven, and `reusable-cloudflare.yml` has not been used
+The modular checks are not yet required by the active ruleset. Modular main
+orchestration and frontend-output propagation into its inert gate are now
+observed, but `reusable-cloudflare.yml` remains dormant and has not been used
 for production deployment. No production/main cutover has occurred; `ci.yml`
 must not yet be retired.
 
@@ -163,17 +182,21 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
    deployment job skipped. Continue to ensure no Cloudflare secrets are passed
    by the modular PR caller and no workflow calls `reusable-cloudflare.yml`
    through Stage 2A.
-3. Execute the Stage 2A shadow main workflow and controlled gate experiments
-   to prove frontend output propagation and dependency gating using the inert
-   downstream jobs with no production credentials or deployment commands.
+3. Stage 2A shadow main and controlled gate experiments now provide the runtime
+   evidence recorded above for frontend output propagation and dependency
+   gating using inert downstream jobs with no production credentials or
+   deployment commands.
    The main gate declares
    `needs: [frontend, test-db, test-edge-api]`, uses normal success semantics
    (no `always()` or `continue-on-error` bypass), and requires
-   `needs.frontend.outputs.exists == 'true'`. Runtime evidence must demonstrate
-   success and blocking
-   for failed, cancelled and skipped dependencies, missing frontend, PR events
-   and non-main refs. Preserve the push/manual-dispatch restriction.
-4. Only after that evidence, prepare the production handoff as a separate change:
+   `needs.frontend.outputs.exists == 'true'`. Observed runs demonstrate success
+   and blocking for failed, cancelled and skipped dependencies, missing frontend,
+   and non-main refs. PR exclusion follows the absence of a PR trigger; PR #75
+   provides separate CI and Modular PR Validation evidence. Preserve the
+   push/manual-dispatch restriction.
+4. Final production cutover still depends on staging/preview delivery in
+   [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains pending.
+   Prepare the production handoff as a separate change after that prerequisite:
    wire a main caller to all three reusable validations and then deployment with
    those same dependencies/conditions, explicitly pass Cloudflare secrets, and
    convert the string frontend output to a boolean input. Do not use a separate
@@ -189,10 +212,14 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
    disabled. Verify main ordering and concurrency in GitHub during the eventual
    authorized cutover before declaring the migration complete.
 
-Stage 2A does not complete modular required-check/ruleset migration, production
-deployment ownership transfer, use of `reusable-cloudflare.yml` by the modular
-main caller, or retirement of `ci.yml`. BE-06 adds recipe/API validation and
-guarded migrations for optional hosted non-production test-database integration.
+[Issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73) remains open.
+Stage 2A runtime validation does not complete modular required-check migration,
+the ruleset/check-context handoff, production deployment ownership transfer,
+use of `reusable-cloudflare.yml` by the modular main caller, or retirement/removal
+of `ci.yml`; all remain pending, along with staging/preview delivery from #76.
+Stage 2A does not implement staging; staging/preview delivery remains tracked in #76.
+BE-06 adds recipe/API validation and guarded migrations
+for optional hosted non-production test-database integration.
 Stage 2A performs no production deployment or production database migration;
 production database migration automation remains a separate follow-up. Supabase
 function deployment automation and post-deployment smoke verification also
