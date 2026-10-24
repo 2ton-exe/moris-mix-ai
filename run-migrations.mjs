@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import tls from 'node:tls';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
@@ -14,6 +15,7 @@ const __dirname = path.dirname(__filename);
 const MIGRATION_LOCK_ID = 847291847;
 const INITIAL_SCHEMA_VERSION = '20261013000000';
 const IS_PUBLIC_MIGRATION_VERSION = '20261017000001';
+const NOTES_MIGRATION_VERSION = '20261023000002';
 
 const EXPECTED_INITIAL_TABLES = [
   'profiles',
@@ -776,6 +778,14 @@ export async function reconcileMigrationState({
             `Cannot explicitly reconcile migration ${IS_PUBLIC_MIGRATION_VERSION}: column public.recipes.is_public has invalid type ${colRes.rows[0].udt_name} (expected bool).`
           );
         }
+      } else if (version === NOTES_MIGRATION_VERSION) {
+        const notes = await verifyColumnMetadata(client, 'recipes', 'notes');
+        if (!notes.exists || notes.udtName !== 'text' || notes.isNullable !== true) {
+          const actual = notes.exists ? `type ${notes.udtName}, nullable=${notes.isNullable}` : 'does not exist';
+          throw new Error(
+            `Cannot explicitly reconcile migration ${NOTES_MIGRATION_VERSION}: column public.recipes.notes ${actual}; expected nullable text.`
+          );
+        }
       }
 
       if (!appliedVersions.has(version)) {
@@ -890,6 +900,7 @@ export async function runMigrations({
     }
 
     logger.log('SUCCESS: Migrations applied successfully.');
+    await reloadPostgrestSchemaCache(client);
 
     if (shouldSeed) {
       if (!isLocalhost && process.env.FORCE_REMOTE_SEED !== 'true') {
@@ -922,9 +933,467 @@ export async function runMigrations({
   }
 }
 
+export async function reloadPostgrestSchemaCache(client) {
+  try {
+    await client.query("NOTIFY pgrst, 'reload schema';");
+  } catch (_e) {}
+}
+
+export function sanitizeDatabaseUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  let str = url.trim();
+  while (
+    (str.startsWith('"') && str.endsWith('"')) ||
+    (str.startsWith("'") && str.endsWith("'")) ||
+    (str.startsWith('`') && str.endsWith('`'))
+  ) {
+    str = str.slice(1, -1).trim();
+  }
+  return str;
+}
+
+export function extractProjectRefFromDatabaseUrl(connectionString) {
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) return null;
+  try {
+    const parsed = new URL(sanitized);
+    const host = parsed.hostname.toLowerCase();
+    const hostMatch = host.match(/^db\.([a-z0-9-]+)\.supabase\.co$/);
+    if (hostMatch && hostMatch[1]) {
+      return hostMatch[1];
+    }
+    if (/^[a-z0-9-]+\.pooler\.supabase\.com$/.test(host)) {
+      const poolerUsername = parsed.username.match(/^[^.]+\.([a-z0-9-]+)$/);
+      return poolerUsername?.[1] ?? null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function extractProjectRefFromSupabaseUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const parsed = new URL(url.trim());
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) return null;
+    const host = parsed.hostname.toLowerCase();
+    return host.match(/^([a-z0-9-]+)\.supabase\.co$/)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isLocalSupabaseApiUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' &&
+      ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) &&
+      parsed.port === '54321' &&
+      !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
+export function validateDatabaseTarget(connectionString, expectedProjectRef, supabaseUrl) {
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) {
+    throw new Error('Database connection string is missing.');
+  }
+  let parsed;
+  try {
+    parsed = new URL(sanitized);
+  } catch {
+    throw new Error('Database connection string is invalid.');
+  }
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error('Database connection string must use postgresql: protocol.');
+  }
+  const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1' || parsed.hostname === '[::1]';
+
+  const expectedRef = (expectedProjectRef ?? '').trim();
+  const expectedFromUrl = supabaseUrl ? extractProjectRefFromSupabaseUrl(supabaseUrl) : null;
+  const isLocalApi = Boolean(supabaseUrl && isLocalSupabaseApiUrl(supabaseUrl));
+  if (supabaseUrl && !expectedFromUrl && !isLocalApi) {
+    throw new Error('Safety guard rejected Supabase URL: expected an HTTPS project URL on <project-ref>.supabase.co.');
+  }
+  if (isLocalApi && (!isLocal || expectedRef)) {
+    throw new Error('Safety guard rejected Supabase URL: local Supabase API URLs are only allowed with an unpinned local database target.');
+  }
+
+  if (expectedRef && expectedFromUrl && expectedRef.toLowerCase() !== expectedFromUrl.toLowerCase()) {
+    throw new Error(`Safety guard rejected database target: RLS_EXPECTED_PROJECT_REF '${expectedRef}' does not match SUPABASE_URL project reference '${expectedFromUrl}'.`);
+  }
+
+  const targetExpectedRef = expectedRef || expectedFromUrl;
+
+  if (!targetExpectedRef && !isLocal) {
+    throw new Error('Safety guard rejected database target: remote database requires RLS_EXPECTED_PROJECT_REF or a Supabase project URL.');
+  }
+
+  if (targetExpectedRef) {
+    if (isLocal) {
+      throw new Error(`Safety guard rejected database target: cannot target localhost when expected project reference '${targetExpectedRef}' is configured.`);
+    }
+    const extractedRef = extractProjectRefFromDatabaseUrl(sanitized);
+    if (!extractedRef) {
+      throw new Error('Safety guard rejected database target: unable to extract Supabase project reference from connection string.');
+    }
+    if (extractedRef.toLowerCase() !== targetExpectedRef.toLowerCase()) {
+      throw new Error(`Safety guard rejected database target: expected project reference '${targetExpectedRef}' does not match database URL project reference '${extractedRef}'.`);
+    }
+  }
+}
+
+export function validateTestDatabaseTarget(connectionString, expectedProjectRef) {
+  const sanitized = sanitizeDatabaseUrl(connectionString);
+  if (!sanitized) {
+    throw new Error('Test database connection string is missing.');
+  }
+  let parsed;
+  try {
+    parsed = new URL(sanitized);
+  } catch {
+    throw new Error('Test database connection string is invalid.');
+  }
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error('Test database connection string must use postgresql: protocol.');
+  }
+  const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1' || parsed.hostname === '[::1]';
+  if (isLocal) {
+    throw new Error('Safety guard rejected test database target: hosted test database must not target localhost/loopback.');
+  }
+  if (!expectedProjectRef || typeof expectedProjectRef !== 'string' || !expectedProjectRef.trim()) {
+    throw new Error('Safety guard rejected test database target: expected test-project reference must be explicitly configured.');
+  }
+  const extractedRef = extractProjectRefFromDatabaseUrl(sanitized);
+  if (!extractedRef) {
+    throw new Error('Safety guard rejected test database target: unable to extract Supabase project reference from connection string.');
+  }
+  if (extractedRef.toLowerCase() !== expectedProjectRef.trim().toLowerCase()) {
+    throw new Error(`Safety guard rejected test database target: expected project reference '${expectedProjectRef.trim()}' does not match database URL project reference '${extractedRef}'.`);
+  }
+  const configuredMainRef = (process.env.RLS_EXPECTED_PROJECT_REF || '').trim().toLowerCase();
+  const knownProductionRef = 'gtbwblxskctpsqhbpebg';
+  if (
+    extractedRef.toLowerCase() === knownProductionRef ||
+    (configuredMainRef && extractedRef.toLowerCase() === configuredMainRef) ||
+    parsed.hostname.toLowerCase().includes(knownProductionRef) ||
+    parsed.username.toLowerCase().includes(knownProductionRef) ||
+    (configuredMainRef && (parsed.hostname.toLowerCase().includes(configuredMainRef) || parsed.username.toLowerCase().includes(configuredMainRef)))
+  ) {
+    throw new Error('Safety guard rejected test database target: refuses to target the primary linked production project (gtbwblxskctpsqhbpebg).');
+  }
+}
+
+export async function verifyColumnMetadata(client, tableName, columnName) {
+  const { rows } = await client.query(
+    `SELECT column_name, udt_name, is_nullable
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2;`,
+    [tableName, columnName]
+  );
+  if (rows.length === 0) {
+    return { exists: false, udtName: null, isNullable: null };
+  }
+  return {
+    exists: true,
+    udtName: rows[0].udt_name,
+    isNullable: rows[0].is_nullable === 'YES'
+  };
+}
+
+export async function probePostgrestNotesColumn(url, key) {
+  if (!url || !key) return { ok: false, error: 'missing url or key' };
+  if (!extractProjectRefFromSupabaseUrl(url) && !isLocalSupabaseApiUrl(url)) {
+    return { ok: false, error: 'untrusted Supabase URL' };
+  }
+  try {
+    const probeUrl = new URL('/rest/v1/recipes?select=notes&limit=0', url);
+    const headers = { apikey: key };
+    if (/^[^.]+\.[^.]+\.[^.]+$/.test(key)) {
+      headers.Authorization = `Bearer ${key}`;
+    }
+    const res = await fetch(probeUrl.toString(), {
+      headers
+    });
+    if (res.status === 200) {
+      return { ok: true, status: 200 };
+    }
+    const body = await res.json().catch(() => ({}));
+    return {
+      ok: false,
+      status: res.status,
+      code: body?.code,
+      message: body?.message
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k]) {
+  const be06OptIn = (getEnv('RUN_BE06_RLS_INTEGRATION') ?? '').trim();
+  const be06Url = (getEnv('BE06_RLS_TEST_SUPABASE_URL') ?? '').trim();
+  const be06DbUrl = sanitizeDatabaseUrl(getEnv('BE06_RLS_TEST_DATABASE_URL'));
+  const be06ExpectedRef = (
+    getEnv('BE06_RLS_TEST_EXPECTED_PROJECT_REF') ??
+    getEnv('BE06_RLS_TEST_PROJECT_REF') ??
+    ''
+  ).trim();
+  const be06ServiceKey =
+    getEnv('BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY')?.trim() ||
+    getEnv('BE06_RLS_TEST_SUPABASE_SECRET_KEY')?.trim() ||
+    '';
+  const be06AnonKey = (
+    getEnv('BE06_RLS_TEST_SUPABASE_ANON_KEY') ??
+    getEnv('BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??
+    ''
+  ).trim();
+
+  const be04OptIn = (getEnv('RUN_BE04_RLS_INTEGRATION') ?? '').trim();
+  const be04Url = (getEnv('BE04_RLS_TEST_SUPABASE_URL') ?? '').trim();
+  const be04DbUrl = sanitizeDatabaseUrl(getEnv('BE04_RLS_TEST_DATABASE_URL'));
+  const be04ExpectedRef = (
+    getEnv('BE04_RLS_TEST_EXPECTED_PROJECT_REF') ??
+    getEnv('BE04_RLS_TEST_PROJECT_REF') ??
+    ''
+  ).trim();
+  const be04ServiceKey =
+    getEnv('BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY')?.trim() ||
+    getEnv('BE04_RLS_TEST_SUPABASE_SECRET_KEY')?.trim() ||
+    '';
+  const be04AnonKey = (
+    getEnv('BE04_RLS_TEST_SUPABASE_ANON_KEY') ??
+    getEnv('BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??
+    ''
+  ).trim();
+
+  const isBe04OptedIn = be04OptIn.toLowerCase() === 'true' || be04OptIn === '1';
+  const isBe06OptedIn = be06OptIn.toLowerCase() === 'true' || be06OptIn === '1';
+
+  const hasAnyBe06 = Boolean(
+    be06OptIn || be06Url || be06DbUrl || be06ExpectedRef || be06ServiceKey || be06AnonKey
+  );
+
+  if (hasAnyBe06) {
+    if (!isBe06OptedIn) {
+      if (isBe04OptedIn) {
+        return {
+          shouldRun: true,
+          source: 'BE-06',
+          isOptedIn: true,
+          error: 'Inconsistent test database configuration: RUN_BE04_RLS_INTEGRATION is enabled but BE-06 variables are present without RUN_BE06_RLS_INTEGRATION=true. BE-06 credentials cannot be mixed with BE-04.',
+          url: be06Url,
+          databaseUrl: be06DbUrl,
+          expectedProjectRef: be06ExpectedRef,
+          serviceKey: be06ServiceKey,
+          anonKey: be06AnonKey
+        };
+      }
+      return { shouldRun: false, source: 'BE-06', isOptedIn: false };
+    }
+    const missing = [];
+    if (!be06Url) missing.push('BE06_RLS_TEST_SUPABASE_URL');
+    if (!be06ExpectedRef) missing.push('BE06_RLS_TEST_EXPECTED_PROJECT_REF');
+    if (missing.length > 0) {
+      return {
+        shouldRun: true,
+        source: 'BE-06',
+        isOptedIn: true,
+        error: `BE-06 test database migration preflight enabled but configuration is incomplete: missing ${missing.join(', ')}.`,
+        url: be06Url,
+        databaseUrl: be06DbUrl,
+        expectedProjectRef: be06ExpectedRef,
+        serviceKey: be06ServiceKey,
+        anonKey: be06AnonKey
+      };
+    }
+    return {
+      shouldRun: true,
+      source: 'BE-06',
+      isOptedIn: true,
+      url: be06Url,
+      databaseUrl: be06DbUrl,
+      expectedProjectRef: be06ExpectedRef,
+      serviceKey: be06ServiceKey,
+      anonKey: be06AnonKey
+    };
+  }
+
+  if (!isBe04OptedIn) {
+    return { shouldRun: false, source: 'BE-04', isOptedIn: false };
+  }
+
+  const missingLegacy = [];
+  if (!be04Url) missingLegacy.push('BE04_RLS_TEST_SUPABASE_URL');
+  if (!be04ExpectedRef) missingLegacy.push('BE04_RLS_TEST_EXPECTED_PROJECT_REF');
+  if (missingLegacy.length > 0) {
+    return {
+      shouldRun: true,
+      source: 'BE-04',
+      isOptedIn: true,
+      error: `Legacy BE-04 test database migration preflight enabled but configuration is incomplete: missing ${missingLegacy.join(', ')}.`,
+      url: be04Url,
+      databaseUrl: be04DbUrl,
+      expectedProjectRef: be04ExpectedRef,
+      serviceKey: be04ServiceKey,
+      anonKey: be04AnonKey
+    };
+  }
+
+  return {
+    shouldRun: true,
+    source: 'BE-04',
+    isOptedIn: true,
+    url: be04Url,
+    databaseUrl: be04DbUrl,
+    expectedProjectRef: be04ExpectedRef,
+    serviceKey: be04ServiceKey,
+    anonKey: be04AnonKey
+  };
+}
+
+export async function runTestDatabaseMigrations(options = {}) {
+  const getEnv = options.getEnv || ((k) => process.env[k]);
+  const config = options.config || resolveTestDatabaseConfiguration(getEnv);
+  if (!config.shouldRun) {
+    console.log('INFO: Skipping test database migration preflight (opt-in flag not set).');
+    return { skipped: true };
+  }
+  if (config.error) {
+    throw new Error(config.error);
+  }
+
+  const probeApiKey = config.serviceKey || config.anonKey;
+  const cleanDbUrl = sanitizeDatabaseUrl(config.databaseUrl);
+  const apiProjectRef = extractProjectRefFromSupabaseUrl(config.url);
+  if (!apiProjectRef || apiProjectRef.toLowerCase() !== config.expectedProjectRef.toLowerCase()) {
+    throw new Error('Safety guard rejected test target: Supabase URL project reference does not match the expected test project.');
+  }
+  if (!cleanDbUrl) {
+    if (config.url && probeApiKey) {
+      const probe = await probePostgrestNotesColumn(config.url, probeApiKey);
+      if (probe.ok) {
+        console.log("INFO: PostgREST schema cache already exposes 'notes' column.");
+        return { success: true, appliedMigrations: [] };
+      }
+      if (probe.code === 'PGRST204') {
+        throw new Error(
+          `Preflight verification failed: PostgREST returned PGRST204 for column 'notes'. Migration '20261023000002_add_notes_to_recipes.sql' has not been applied or schema cache is stale. Missing required secret ${config.source === 'BE-06' ? 'BE06_RLS_TEST_DATABASE_URL' : 'BE04_RLS_TEST_DATABASE_URL'} to apply migrations and reload schema cache.`
+        );
+      }
+    }
+    throw new Error(
+      `Preflight verification failed: missing dedicated test database connection string (${config.source === 'BE-06' ? 'BE06_RLS_TEST_DATABASE_URL' : 'BE04_RLS_TEST_DATABASE_URL'}).`
+    );
+  }
+
+  validateTestDatabaseTarget(cleanDbUrl, config.expectedProjectRef);
+
+  let caCert;
+  const caPath = path.resolve(__dirname, 'supabase/prod-ca-2021.crt');
+  if (fs.existsSync(caPath)) {
+    caCert = fs.readFileSync(caPath, 'utf8');
+  }
+
+  let sanitizedConnectionString;
+  const parsedUrl = new URL(cleanDbUrl);
+  const sslParams = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey'];
+  for (const param of sslParams) {
+    parsedUrl.searchParams.delete(param);
+  }
+  sanitizedConnectionString = parsedUrl.toString();
+
+  const client = new Client({
+    connectionString: sanitizedConnectionString,
+    ssl: {
+      rejectUnauthorized: true,
+      ca: caCert ? [caCert, ...tls.rootCertificates] : tls.rootCertificates
+    }
+  });
+
+  await client.connect();
+  try {
+    const preMeta = await verifyColumnMetadata(client, 'recipes', 'notes');
+    if (!preMeta.exists) {
+      console.log("INFO: Column 'notes' does not exist in 'public.recipes'. Applying pending migrations...");
+    } else {
+      console.log("INFO: Column 'notes' exists in 'public.recipes'.");
+    }
+
+    const migrationResult = await runMigrations({
+      client,
+      isLocalhost: false,
+      shouldSeed: false,
+      logger: console
+    });
+
+    await reloadPostgrestSchemaCache(client);
+
+    const postMeta = await verifyColumnMetadata(client, 'recipes', 'notes');
+    if (!postMeta.exists) {
+      throw new Error("Verification failed: column 'notes' does not exist in 'public.recipes' after running migrations.");
+    }
+    if (postMeta.udtName !== 'text') {
+      throw new Error(`Verification failed: column 'notes' in 'public.recipes' has type '${postMeta.udtName}', expected 'text'.`);
+    }
+    if (!postMeta.isNullable) {
+      throw new Error("Verification failed: column 'notes' in 'public.recipes' must be nullable.");
+    }
+
+    if (config.url && probeApiKey) {
+      let postgrestReady = false;
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        const probe = await probePostgrestNotesColumn(config.url, probeApiKey);
+        if (probe.ok) {
+          postgrestReady = true;
+          break;
+        }
+        if (probe.code === 'PGRST204') {
+          await reloadPostgrestSchemaCache(client);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!postgrestReady) {
+        throw new Error("Verification failed: PostgREST schema cache did not expose 'notes' column after reloading.");
+      }
+    }
+
+    console.log("SUCCESS: Test database migrations and PostgREST schema cache verification completed.");
+    return {
+      success: true,
+      appliedMigrations: migrationResult.appliedMigrations
+    };
+  } finally {
+    await client.end();
+  }
+}
+
 export async function main() {
+  if (process.argv.includes('--test-target')) {
+    try {
+      await runTestDatabaseMigrations();
+    } catch (err) {
+      console.error('ERROR:', err.message);
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (!process.env.DATABASE_URL) {
     console.error('DATABASE_URL is missing in .env');
+    process.exit(1);
+  }
+
+  const rawDbUrl = process.env.DATABASE_URL;
+  const expectedProjectRef = process.env.RLS_EXPECTED_PROJECT_REF;
+  const supabaseUrl = process.env.SUPABASE_URL;
+
+  try {
+    validateDatabaseTarget(rawDbUrl, expectedProjectRef, supabaseUrl);
+  } catch (err) {
+    console.error(`Target validation failed: ${err.message}`);
     process.exit(1);
   }
 
@@ -945,13 +1414,13 @@ export async function main() {
 
   const sslConfig = {
     rejectUnauthorized: true,
-    ca: caCert
+    ca: [caCert, ...tls.rootCertificates]
   };
 
   let sanitizedConnectionString;
   let parsedUrl;
   try {
-    parsedUrl = new URL(process.env.DATABASE_URL);
+    parsedUrl = new URL(sanitizeDatabaseUrl(process.env.DATABASE_URL));
     const sslParams = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey'];
     for (const param of sslParams) {
       parsedUrl.searchParams.delete(param);
@@ -986,12 +1455,33 @@ export async function main() {
   try {
     await client.connect();
     const shouldSeed = process.env.SEED_DEMO === 'true' || process.argv.includes('--seed');
-    await runMigrations({
+    const result = await runMigrations({
       client,
       isLocalhost,
       shouldSeed,
       explicitReconcile
     });
+
+    await reloadPostgrestSchemaCache(client);
+
+    const secretKey = (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    if (supabaseUrl && secretKey) {
+      let postgrestReady = false;
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        const probe = await probePostgrestNotesColumn(supabaseUrl, secretKey);
+        if (probe.ok) {
+          postgrestReady = true;
+          break;
+        }
+        await reloadPostgrestSchemaCache(client);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!postgrestReady) {
+        throw new Error("Verification failed: PostgREST schema cache did not expose 'notes' after five attempts.");
+      }
+    }
+
+    return result;
   } catch (err) {
     console.error('ERROR:', err.message);
     process.exitCode = 1;

@@ -21,7 +21,7 @@ The unified [CI workflow](../../.github/workflows/ci.yml) runs three parallel va
 | :--- | :--- |
 | Frontend Checks (`frontend`) | Install dependencies, lint, frontend tests, and build |
 | Database Tests (`test-db`) | PostgreSQL 16 service, dependency installation, database migrations, migration lifecycle tests, and RLS tests |
-| Edge/API Tests (`test-edge-api`) | Type-checking and deterministic demo-recipe tests |
+| Edge/API Tests (`test-edge-api`) | Type-checking and deterministic recipe CRUD, demo, and AI tests; optional hosted RLS tests with guarded test-database migrations |
 
 PR runs execute all three validation jobs and skip deployment. Verified current GitHub ruleset evidence requires **Frontend Checks**, **Database Tests**, and **Edge/API Tests**, one approving teammate review, and resolved review conversations before merge.
 

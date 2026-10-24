@@ -73,8 +73,8 @@ The frontend and repository tooling are separate pnpm projects. Run frontend ins
 
 ## Cloudflare Workers deployment
 
-Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The [production workflow](../../.github/workflows/deploy.yml) builds the frontend and deploys it with Wrangler after pushes to `main` that touch `frontend/**`, `wrangler.jsonc`, or the workflow file; manual dispatch is also restricted to `main`.
+Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The unified [CI workflow](../../.github/workflows/ci.yml) builds and deploys the frontend with Wrangler on `main` after its required checks succeed.
 
-The [CI workflow](../../.github/workflows/ci.yml) and deployment workflow use Node.js 24 and pnpm 10 for frontend installs. The deployment workflow reads `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from GitHub Actions secrets. Do not commit or print their values. This workflow deploys the frontend only; Supabase Edge Functions and database migrations use their own deployment process.
+The [CI workflow](../../.github/workflows/ci.yml) uses Node.js 24 and pnpm 10 for repository tooling and frontend installs. The `deploy` job builds and deploys the frontend to Cloudflare using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from GitHub Actions secrets. Do not commit or print their values. Supabase Edge Function and database migration deployment remain separate processes.
 
 **Current status:** The production workflow skips the build and deploy when `frontend/package.json` is absent. A green workflow before the frontend exists does not confirm a production deployment; verify the first real deployment at the production URL.
