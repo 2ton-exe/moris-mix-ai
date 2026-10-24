@@ -299,23 +299,9 @@ Verification is organized into deterministic offline tests and optional live hos
   deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/recipes_test.ts
   ```
 
-### Main Database Configuration and Migration Lifecycle
+### Test database isolation
 
-- **Environment Variables:**
-  - `DATABASE_URL`: Main PostgreSQL connection string for database migrations.
-  - `RLS_EXPECTED_PROJECT_REF`: Expected main Supabase project reference (`gtbwblxskctpsqhbpebg`).
-  - `SUPABASE_URL`: Main Supabase project URL (`https://<ref>.supabase.co`).
-  - `SUPABASE_ANON_KEY`: Main project's anon/publishable key.
-  - `SUPABASE_SECRET_KEY`: Main project's secret key for authorized administrative operations only.
-- **Migration Target Validation:**
-  - `node run-migrations.mjs` targets `DATABASE_URL` and validates its project reference against `RLS_EXPECTED_PROJECT_REF` and `SUPABASE_URL` before connecting or executing migrations.
-  - Automatically reloads the PostgREST schema cache (`NOTIFY pgrst, 'reload schema'`) upon applying pending migrations.
-- **Application CRUD & Request-Scoped Isolation:**
-  - Edge Functions authenticate caller JWT tokens via `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
-  - Ordinary recipe CRUD operations execute through request-scoped clients carrying the caller's bearer token. `SUPABASE_SECRET_KEY` is strictly reserved for authorized administrative operations and is never used to bypass RLS for user CRUD.
-- **Test Isolation from Main Database:**
-  - Destructive integration test fixtures and automated user/recipe cleanup run exclusively against dedicated non-production test projects (`BE04_RLS_TEST_*`).
-  - Safety guards refuse to run destructive test fixtures against the main production database (`gtbwblxskctpsqhbpebg`).
+Hosted integration tests use dedicated non-production projects. The guarded test migration runner requires the expected test-project reference and rejects loopback and the primary production project as targets.
 
 ### Schema and migration history
 

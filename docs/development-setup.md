@@ -75,7 +75,7 @@ The local Supabase database is available on loopback port `54322` by default and
 
 ## Migrations and schema management
 
-The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For local database migrations, use `pnpm db:setup` (`node run-migrations.mjs`). Production migrations run after the change is merged to `main`, all required CI jobs pass, and a reviewer approves the `production-db` GitHub Environment deployment. The job requires environment-scoped `PRODUCTION_DATABASE_URL` and `PRODUCTION_SUPABASE_SECRET_KEY` (or `PRODUCTION_SUPABASE_SERVICE_ROLE_KEY`) secrets plus `RLS_EXPECTED_PROJECT_REF` and `SUPABASE_URL` variables; the guarded runner maps the credentials to its expected variable names and verifies that the values target the same Supabase project. See the [deployment runbook](devops/deployment-runbook.md#production-database-environment) for the environment setup. Never run destructive reset commands against remote or production projects.
+The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. For approved remote schema updates, preview and apply migrations with `supabase db push --dry-run --linked` and `supabase db push --linked`.
 
 ## Demo API
 

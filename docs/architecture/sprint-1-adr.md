@@ -73,8 +73,8 @@ The frontend and repository tooling are separate pnpm projects. Run frontend ins
 
 ## Cloudflare Workers deployment
 
-Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The unified [CI workflow](../../.github/workflows/ci.yml) builds and deploys the frontend with Wrangler on `main` after its required checks and production database migration succeed.
+Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The unified [CI workflow](../../.github/workflows/ci.yml) builds and deploys the frontend with Wrangler on `main` after its required checks succeed.
 
-The [CI workflow](../../.github/workflows/ci.yml) uses Node.js 24 and pnpm 10 for repository tooling and frontend installs. Its `migrate-production` job runs the guarded database migration runner after the required CI jobs pass and a reviewer approves the `production-db` GitHub Environment. The `deploy` job then builds and deploys the frontend to Cloudflare using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from GitHub Actions secrets. Keep production database credentials in environment-scoped secrets; do not commit or print their values. Supabase Edge Function deployment remains a separate process.
+The [CI workflow](../../.github/workflows/ci.yml) uses Node.js 24 and pnpm 10 for repository tooling and frontend installs. The `deploy` job builds and deploys the frontend to Cloudflare using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from GitHub Actions secrets. Do not commit or print their values. Supabase Edge Function and database migration deployment remain separate processes.
 
 **Current status:** The production workflow skips the build and deploy when `frontend/package.json` is absent. A green workflow before the frontend exists does not confirm a production deployment; verify the first real deployment at the production URL.
