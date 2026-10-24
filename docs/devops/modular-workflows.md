@@ -217,7 +217,6 @@ Stage 2A runtime validation does not complete modular required-check migration,
 the ruleset/check-context handoff, production deployment ownership transfer,
 use of `reusable-cloudflare.yml` by the modular main caller, or retirement/removal
 of `ci.yml`; all remain pending, along with staging/preview delivery from #76.
-Stage 2A does not implement staging; staging/preview delivery remains tracked in #76.
 BE-06 adds recipe/API validation and guarded migrations
 for optional hosted non-production test-database integration.
 Stage 2A performs no production deployment or production database migration;
