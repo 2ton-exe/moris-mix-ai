@@ -1,17 +1,18 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { cp, copyFile, mkdir, rm } from 'node:fs/promises'
-import { clearTimeout, setTimeout } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import process from 'node:process'
 import { createClient } from '@supabase/supabase-js'
 import { localE2eUser } from './local-user.mjs'
+import { installSignalCleanup, stopFunctionServer, withCleanup } from './runner-lifecycle.mjs'
 import {
   assertLocalSupabaseUrl,
   createPlaywrightEnvironment,
   createSupabaseCliEnvironment,
   parseSupabaseStatus,
   prepareLocalE2eAccount,
+  waitForRecipesHandler,
 } from './local-supabase.mjs'
 
 const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -35,39 +36,6 @@ function redactFunctionServerLog(line) {
     .replace(/((?:api|anon|publishable|secret|service[_-]?role|password|token)[a-z0-9_-]*["']?\s*[:=]\s*["']?)[^,\s"'}]+/gi, '$1[REDACTED]')
 }
 
-async function stopFunctionServer(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return
-
-  let timeout
-  const exited = new Promise((resolve) => {
-    const onExit = () => {
-      clearTimeout(timeout)
-      resolve(true)
-    }
-    child.once('exit', onExit)
-    timeout = setTimeout(() => {
-      child.off('exit', onExit)
-      resolve(false)
-    }, 5_000)
-  })
-
-  try {
-    child.kill('SIGTERM')
-  } catch (error) {
-    if (error?.code !== 'ESRCH') throw error
-  }
-
-  await exited
-
-  if (child.exitCode === null && child.signalCode === null) {
-    try {
-      child.kill('SIGKILL')
-    } catch (error) {
-      if (error?.code !== 'ESRCH') throw error
-    }
-  }
-}
-
 function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
   const child = spawn('pnpm', [
     'exec',
@@ -81,6 +49,7 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
     cwd: frontendDir,
     env: cliEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   })
   const logTail = []
   let spawnError = ''
@@ -104,44 +73,6 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
       return lines.map(redactFunctionServerLog).join(' | ')
     },
   }
-}
-
-async function waitForRecipesHandler(apiUrl, publicKey, functionServer) {
-  const { child } = functionServer
-  const url = `${apiUrl}/functions/v1/recipes`
-  const deadline = Date.now() + 60_000
-  let lastStatus = 'no response'
-
-  while (Date.now() < deadline) {
-    if (child.pid === undefined) {
-      const detail = functionServer.failureDetail()
-      throw new Error(`Could not start the local recipes function server${detail ? `: ${detail}` : '.'}`)
-    }
-    if (child.exitCode !== null || child.signalCode !== null) {
-      const detail = functionServer.failureDetail()
-      throw new Error(`The local recipes function server exited before its handler became ready.${detail ? ` ${detail}` : ''}`)
-    }
-
-    try {
-      const response = await globalThis.fetch(url, {
-        headers: { apikey: publicKey },
-        signal: globalThis.AbortSignal.timeout(30_000),
-      })
-      const body = await response.json().catch(() => null)
-      if (response.status === 401 && body?.error?.code === 'UNAUTHORIZED') return
-      lastStatus = `HTTP ${response.status}`
-    } catch (error) {
-      if (error instanceof Error && error.name === 'TimeoutError') {
-        throw new Error('The local recipes handler did not answer its readiness request within 30 seconds.')
-      }
-      lastStatus = error instanceof Error ? error.name : 'request failed'
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
-  }
-
-  const detail = functionServer.failureDetail()
-  throw new Error(`The local recipes handler did not become ready (${lastStatus}).${detail ? ` ${detail}` : ''}`)
 }
 
 async function prepareIsolatedProjectFiles() {
@@ -169,26 +100,27 @@ async function prepareAccount(apiUrl, serviceRoleKey) {
 }
 
 async function main() {
-  run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs'], frontendDir)
+  run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs', 'e2e/runner-lifecycle.test.mjs'], frontendDir)
   await prepareIsolatedProjectFiles()
 
   const cliEnv = createSupabaseCliEnvironment()
   const supabaseArgs = ['exec', 'supabase', '--workdir', e2eWorkdir]
-  process.stdout.write('Starting the isolated local E2E Supabase project (CLI output is captured to keep local keys out of logs).\n')
-  run('pnpm', [...supabaseArgs, 'start'], frontendDir, cliEnv)
+  let functionServer
+  const task = async () => {
+    process.stdout.write('Starting the isolated local E2E Supabase project with the native runtime.\n')
+    run('pnpm', [...supabaseArgs, 'stack', 'start', '--runtime', 'native'], frontendDir, cliEnv)
 
-  const status = parseSupabaseStatus(run('pnpm', [...supabaseArgs, 'status', '--env', '--output-format', 'text'], frontendDir, cliEnv))
-  const apiUrl = assertLocalSupabaseUrl(status.API_URL)
-  const publicKey = status.PUBLISHABLE_KEY || status.ANON_KEY
-  const serviceRoleKey = status.SERVICE_ROLE_KEY || status.SECRET_KEY
-  if (!publicKey || !serviceRoleKey) throw new Error('Supabase CLI did not return local Auth keys.')
+    const status = parseSupabaseStatus(run('pnpm', [...supabaseArgs, 'status', '--env', '--output-format', 'text'], frontendDir, cliEnv))
+    const apiUrl = assertLocalSupabaseUrl(status.API_URL)
+    const publicKey = status.PUBLISHABLE_KEY || status.ANON_KEY
+    const serviceRoleKey = status.SERVICE_ROLE_KEY || status.SECRET_KEY
+    if (!publicKey || !serviceRoleKey) throw new Error('Supabase CLI did not return local Auth keys.')
 
-  await prepareAccount(apiUrl, serviceRoleKey)
-  process.stdout.write('Prepared the local-only E2E account. Starting the recipes function server.\n')
+    await prepareAccount(apiUrl, serviceRoleKey)
+    process.stdout.write('Prepared the local-only E2E account. Starting the recipes function server.\n')
 
-  const playwrightEnv = createPlaywrightEnvironment(apiUrl, publicKey)
-  const functionServer = startFunctionServer(frontendDir, e2eWorkdir, cliEnv)
-  try {
+    const playwrightEnv = createPlaywrightEnvironment(apiUrl, publicKey)
+    functionServer = startFunctionServer(frontendDir, e2eWorkdir, cliEnv)
     await waitForRecipesHandler(apiUrl, publicKey, functionServer)
     process.stdout.write('Recipes handler is responding. Starting Playwright.\n')
 
@@ -198,9 +130,32 @@ async function main() {
       stdio: 'inherit',
     })
     if (result.error) throw result.error
-    process.exitCode = result.status ?? 1
+    if (result.status !== 0) throw new Error(`Playwright failed with exit code ${result.status ?? 1}.`)
+  }
+  const stopStackAndFunctionServer = async () => {
+    const errors = []
+    if (functionServer) {
+      try {
+        await stopFunctionServer(functionServer.child)
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    try {
+      run('pnpm', [...supabaseArgs, 'stack', 'stop'], frontendDir, cliEnv)
+    } catch (error) {
+      errors.push(error)
+    }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, 'Could not fully clean up the isolated E2E Supabase project.')
+  }
+  let cleanupPromise
+  const cleanup = () => cleanupPromise ??= stopStackAndFunctionServer()
+  const uninstallSignalCleanup = installSignalCleanup(cleanup)
+  try {
+    await withCleanup(task, cleanup)
   } finally {
-    await stopFunctionServer(functionServer.child)
+    uninstallSignalCleanup()
   }
 }
 

@@ -1,6 +1,7 @@
 import process from 'node:process'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { setTimeout } from 'node:timers'
 import { URL } from 'node:url'
 
 export function assertLocalSupabaseUrl(value) {
@@ -69,16 +70,47 @@ export function createSupabaseCliEnvironment(source = process.env) {
     'TEMP',
     'CI',
     'TERM',
-    'DOCKER_HOST',
-    'DOCKER_CONTEXT',
-    'DOCKER_CERT_PATH',
-    'DOCKER_TLS_VERIFY',
   ]
   const environment = Object.fromEntries(
     allowedKeys.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]),
   )
   environment.SUPABASE_EXPERIMENTAL_STACK = '1'
   return environment
+}
+
+export async function waitForRecipesHandler(apiUrl, publicKey, functionServer) {
+  const { child } = functionServer
+  const url = `${apiUrl}/functions/v1/recipes`
+  const deadline = Date.now() + 60_000
+  let lastStatus = 'no response'
+
+  while (Date.now() < deadline) {
+    if (child.pid === undefined) {
+      const detail = functionServer.failureDetail()
+      throw new Error(`Could not start the local recipes function server${detail ? `: ${detail}` : '.'}`)
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const detail = functionServer.failureDetail()
+      throw new Error(`The local recipes function server exited before its handler became ready.${detail ? ` ${detail}` : ''}`)
+    }
+
+    try {
+      const response = await globalThis.fetch(url, {
+        headers: { apikey: publicKey },
+        signal: globalThis.AbortSignal.timeout(5_000),
+      })
+      const body = await response.json().catch(() => null)
+      if (response.status === 401 && body?.error?.code === 'UNAUTHORIZED') return
+      lastStatus = `HTTP ${response.status}`
+    } catch (error) {
+      lastStatus = error instanceof Error ? error.name : 'request failed'
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+
+  const detail = functionServer.failureDetail()
+  throw new Error(`The local recipes handler did not become ready (${lastStatus}).${detail ? ` ${detail}` : ''}`)
 }
 
 async function readLocalE2eUserId(filePath) {

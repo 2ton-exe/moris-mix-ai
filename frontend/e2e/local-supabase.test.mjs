@@ -10,6 +10,7 @@ import {
   createSupabaseCliEnvironment,
   parseSupabaseStatus,
   prepareLocalE2eAccount,
+  waitForRecipesHandler,
 } from './local-supabase.mjs'
 
 test('local E2E target accepts only HTTP loopback Supabase URLs', () => {
@@ -57,11 +58,17 @@ test('passes only the minimal local browser environment', () => {
   })
 })
 
-test('local Supabase CLI environment enables isolated stacks without hosted targets', () => {
+test('local Supabase CLI environment excludes hosted and Docker targets', () => {
   assert.deepEqual(createSupabaseCliEnvironment({
     PATH: '/usr/bin',
     HOME: '/tmp/test-home',
+    TMPDIR: '/tmp',
+    TERM: 'xterm',
+    CI: 'true',
+    DOCKER_HOST: 'unix:///var/run/docker.sock',
     DOCKER_CONTEXT: 'desktop-linux',
+    DOCKER_CERT_PATH: '/tmp/docker-certs',
+    DOCKER_TLS_VERIFY: '1',
     SUPABASE_URL: 'https://hosted.example.test',
     SUPABASE_ACCESS_TOKEN: 'hosted-secret',
     DATABASE_URL: 'postgresql://remote',
@@ -70,9 +77,27 @@ test('local Supabase CLI environment enables isolated stacks without hosted targ
   }), {
     PATH: '/usr/bin',
     HOME: '/tmp/test-home',
-    DOCKER_CONTEXT: 'desktop-linux',
+    TMPDIR: '/tmp',
+    TERM: 'xterm',
+    CI: 'true',
     SUPABASE_EXPERIMENTAL_STACK: '1',
   })
+})
+
+test('retries readiness timeouts while the native function server starts', async (t) => {
+  let calls = 0
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls += 1
+    if (calls === 1) throw Object.assign(new Error('startup timeout'), { name: 'TimeoutError' })
+    return { status: 401, json: async () => ({ error: { code: 'UNAUTHORIZED' } }) }
+  })
+
+  await waitForRecipesHandler('http://127.0.0.1:23123', 'local-key', {
+    child: { pid: 1, exitCode: null, signalCode: null },
+    failureDetail: () => '',
+  })
+
+  assert.equal(calls, 2)
 })
 
 test('E2E Supabase configuration uses an isolated project and dynamically assigned ports', async () => {
