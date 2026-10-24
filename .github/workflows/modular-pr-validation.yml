@@ -25,3 +25,21 @@ jobs:
       BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
       BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_PROJECT_REF }}
       BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
+
+  staging:
+    name: Modular Staging
+    needs:
+      - frontend
+      - test-db
+      - test-edge-api
+
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        github.event.pull_request.author_association == 'OWNER' ||
+        github.event.pull_request.author_association == 'MEMBER' ||
+        github.event.pull_request.author_association == 'COLLABORATOR'
+      )
+
+    uses: ./.github/workflows/reusable-staging.yml
