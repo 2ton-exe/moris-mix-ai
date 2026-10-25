@@ -1104,6 +1104,253 @@ export async function verifyColumnMetadata(client, tableName, columnName) {
   };
 }
 
+export const RECIPE_LINEAGE_CASCADE_CATALOG_QUERY = `
+  SELECT
+    c.conname,
+    c.contype,
+    c.confdeltype,
+    c.convalidated,
+    cardinality(c.conkey) AS conkey_len,
+    cardinality(c.confkey) AS confkey_len,
+    src_ns.nspname AS src_schema,
+    src_tbl.relname AS src_table,
+    src_att.attname AS src_column,
+    ref_ns.nspname AS ref_schema,
+    ref_tbl.relname AS ref_table,
+    ref_att.attname AS ref_column
+  FROM pg_constraint c
+  JOIN pg_class src_tbl ON src_tbl.oid = c.conrelid
+  JOIN pg_namespace src_ns ON src_ns.oid = src_tbl.relnamespace
+  JOIN pg_class ref_tbl ON ref_tbl.oid = c.confrelid
+  JOIN pg_namespace ref_ns ON ref_ns.oid = ref_tbl.relnamespace
+  JOIN pg_attribute src_att ON src_att.attrelid = c.conrelid AND src_att.attnum = c.conkey[1]
+  JOIN pg_attribute ref_att ON ref_att.attrelid = c.confrelid AND ref_att.attnum = c.confkey[1]
+  WHERE src_ns.nspname = $1
+    AND src_tbl.relname = $2
+    AND c.contype = 'f';
+`;
+
+export function evaluateForeignKeyCascade(rows, options = {}) {
+  const {
+    sourceSchema = 'public',
+    sourceTable = 'recipe_lineage',
+    sourceColumn = 'parent_recipe_id',
+    targetSchema = 'public',
+    targetTable = 'recipes',
+    targetColumn = 'id'
+  } = options;
+
+  const actionDescriptions = {
+    c: 'CASCADE',
+    a: 'NO ACTION',
+    r: 'RESTRICT',
+    n: 'SET NULL',
+    d: 'SET DEFAULT'
+  };
+
+  if (!rows || rows.length === 0) {
+    throw new Error(
+      `Catalog verification failed: Foreign key constraint on ${sourceSchema}.${sourceTable}(${sourceColumn}) referencing ${targetSchema}.${targetTable}(${targetColumn}) is missing from pg_constraint.`
+    );
+  }
+
+  const matchingSource = rows.filter(
+    (r) =>
+      r.src_schema === sourceSchema &&
+      r.src_table === sourceTable &&
+      r.src_column === sourceColumn
+  );
+
+  if (matchingSource.length === 0) {
+    throw new Error(
+      `Catalog verification failed: Foreign key constraint on ${sourceSchema}.${sourceTable}(${sourceColumn}) referencing ${targetSchema}.${targetTable}(${targetColumn}) is missing from pg_constraint.`
+    );
+  }
+
+  const matchingTarget = matchingSource.find(
+    (r) =>
+      r.ref_schema === targetSchema &&
+      r.ref_table === targetTable &&
+      r.ref_column === targetColumn &&
+      Number(r.conkey_len) === 1 &&
+      Number(r.confkey_len) === 1
+  );
+
+  if (!matchingTarget) {
+    const actual = matchingSource[0];
+    throw new Error(
+      `Catalog verification failed: Foreign key on ${sourceSchema}.${sourceTable}(${sourceColumn}) references unexpected target: expected ${targetSchema}.${targetTable}(${targetColumn}), found ${actual.ref_schema}.${actual.ref_table}(${actual.ref_column}).`
+    );
+  }
+
+  if (matchingTarget.confdeltype !== 'c') {
+    const actionDesc = actionDescriptions[matchingTarget.confdeltype] || 'UNKNOWN';
+    throw new Error(
+      `Catalog verification failed: Foreign key constraint '${matchingTarget.conname}' on ${sourceSchema}.${sourceTable}(${sourceColumn}) does not specify ON DELETE CASCADE: delete action is '${matchingTarget.confdeltype}' (${actionDesc}).`
+    );
+  }
+
+  if (!matchingTarget.convalidated) {
+    throw new Error(
+      `Catalog verification failed: Foreign key constraint '${matchingTarget.conname}' on ${sourceSchema}.${sourceTable}(${sourceColumn}) is not validated (convalidated is false).`
+    );
+  }
+
+  return {
+    valid: true,
+    constraintName: matchingTarget.conname,
+    deleteAction: 'CASCADE',
+    validated: true,
+    source: `${sourceSchema}.${sourceTable}(${sourceColumn})`,
+    target: `${targetSchema}.${targetTable}(${targetColumn})`
+  };
+}
+
+export async function verifyForeignKeyCascadeConstraint(client, options = {}) {
+  const sourceSchema = options.sourceSchema || 'public';
+  const sourceTable = options.sourceTable || 'recipe_lineage';
+  const { rows } = await client.query(RECIPE_LINEAGE_CASCADE_CATALOG_QUERY, [sourceSchema, sourceTable]);
+  return evaluateForeignKeyCascade(rows, options);
+}
+
+export async function verifyParentRecipeCascadeBehavior(client) {
+  const testUserId = 'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f';
+  const parentId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c81';
+  const childId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c82';
+  const lineageId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c83';
+
+  await client.query('BEGIN;');
+  try {
+    // 1. Insert uniquely identifiable test recipes
+    await client.query(
+      `INSERT INTO public.recipes (id, user_id, title) VALUES ($1, $2, 'Cascade Parent Test'), ($3, $2, 'Cascade Child Test');`,
+      [parentId, testUserId, childId]
+    );
+
+    // 2. Insert parent-child lineage relationship
+    await client.query(
+      `INSERT INTO public.recipe_lineage (id, parent_recipe_id, child_recipe_id) VALUES ($1, $2, $3);`,
+      [lineageId, parentId, childId]
+    );
+
+    // 3. Confirm lineage exists before deletion via direct database query
+    const preCheck = await client.query(
+      `SELECT id FROM public.recipe_lineage WHERE id = $1;`,
+      [lineageId]
+    );
+    if (preCheck.rows.length !== 1) {
+      throw new Error('Prerequisite failed: test lineage relationship was not persisted prior to parent deletion.');
+    }
+
+    // 4. Delete the parent recipe directly at database level (independent of PostgREST RLS)
+    const deleteResult = await client.query(
+      `DELETE FROM public.recipes WHERE id = $1 RETURNING id;`,
+      [parentId]
+    );
+    if (deleteResult.rows.length !== 1) {
+      throw new Error('Prerequisite failed: test parent recipe deletion did not delete 1 row.');
+    }
+
+    // 5. Query lineage table directly through approved test database connection
+    const postCheck = await client.query(
+      `SELECT id FROM public.recipe_lineage WHERE id = $1;`,
+      [lineageId]
+    );
+
+    // 6. Assert lineage record no longer exists
+    if (postCheck.rows.length !== 0) {
+      throw new Error(
+        'Physical cascade verification failed: lineage record still exists after parent recipe deletion. PostgreSQL foreign key ON DELETE CASCADE was not enforced.'
+      );
+    }
+
+    // 7. Child recipe must remain intact
+    const childCheck = await client.query(
+      `SELECT id FROM public.recipes WHERE id = $1;`,
+      [childId]
+    );
+    if (childCheck.rows.length !== 1) {
+      throw new Error('Verification failed: child recipe was unexpectedly removed during parent recipe deletion.');
+    }
+  } finally {
+    try {
+      await client.query('ROLLBACK;');
+    } catch (_e) {
+      // do not hide primary error
+    }
+  }
+}
+
+export async function verifyChildRecipeCascadeBehavior(client) {
+  const testUserId = 'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f';
+  const parentId = 'b1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c91';
+  const childId = 'b1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c92';
+  const lineageId = 'b1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c93';
+
+  await client.query('BEGIN;');
+  try {
+    // 1. Insert uniquely identifiable test recipes
+    await client.query(
+      `INSERT INTO public.recipes (id, user_id, title) VALUES ($1, $2, 'Cascade Parent Survives Child Deletion Test'), ($3, $2, 'Cascade Child Deletion Test');`,
+      [parentId, testUserId, childId]
+    );
+
+    // 2. Insert parent-child lineage relationship
+    await client.query(
+      `INSERT INTO public.recipe_lineage (id, parent_recipe_id, child_recipe_id) VALUES ($1, $2, $3);`,
+      [lineageId, parentId, childId]
+    );
+
+    // 3. Confirm lineage exists before deletion via direct database query
+    const preCheck = await client.query(
+      `SELECT id FROM public.recipe_lineage WHERE id = $1;`,
+      [lineageId]
+    );
+    if (preCheck.rows.length !== 1) {
+      throw new Error('Prerequisite failed: test lineage relationship was not persisted prior to child deletion.');
+    }
+
+    // 4. Delete the child recipe directly at database level (independent of PostgREST RLS)
+    const deleteResult = await client.query(
+      `DELETE FROM public.recipes WHERE id = $1 RETURNING id;`,
+      [childId]
+    );
+    if (deleteResult.rows.length !== 1) {
+      throw new Error('Prerequisite failed: test child recipe deletion did not delete 1 row.');
+    }
+
+    // 5. Query lineage table directly through approved test database connection
+    const postCheck = await client.query(
+      `SELECT id FROM public.recipe_lineage WHERE id = $1;`,
+      [lineageId]
+    );
+
+    // 6. Assert lineage record no longer exists
+    if (postCheck.rows.length !== 0) {
+      throw new Error(
+        'Physical cascade verification failed: lineage record still exists after child recipe deletion. PostgreSQL foreign key ON DELETE CASCADE was not enforced on child_recipe_id.'
+      );
+    }
+
+    // 7. Parent recipe must remain intact
+    const parentCheck = await client.query(
+      `SELECT id FROM public.recipes WHERE id = $1;`,
+      [parentId]
+    );
+    if (parentCheck.rows.length !== 1) {
+      throw new Error('Verification failed: parent recipe was unexpectedly removed during child recipe deletion.');
+    }
+  } finally {
+    try {
+      await client.query('ROLLBACK;');
+    } catch (_e) {
+      // do not hide primary error
+    }
+  }
+}
+
+
+
 export async function probePostgrestNotesColumn(url, key) {
   if (!url || !key) return { ok: false, error: 'missing url or key' };
   if (!extractProjectRefFromSupabaseUrl(url) && !isLocalSupabaseApiUrl(url)) {

@@ -122,31 +122,34 @@ The test suite separates tests into four distinct categories to maintain rigorou
    - **Verification:** Dynamically provisions an isolated temporary database (`test_mig_suite_<timestamp>_<random>`), verifies initial schema creation, column data types, nullability, constraints, indexes, triggers, functions, RLS policies, advisory locks, idempotency across repeated runs, and rollback state reconciliation. Automatically drops the temporary database upon completion.
    - **Prerequisites:** Requires a local PostgreSQL instance reachable via loopback `DATABASE_URL` (defaults to port `54322`, or a loopback override like port `5432`). Does **not** require Supabase Auth or PostgREST HTTP APIs.
 
-3. **Deterministic Edge Function and contract tests (48 tests in Deno):**
+3. **Deterministic Edge Function and contract tests (Edge/API CI baseline: 94 passed, 4 ignored):**
    - **Offline execution:** Fully offline in CI and local environments without database, Auth, or external network dependencies.
-   - **Test distribution (48 tests total):**
-     - `demo_recipe_test.ts` (11 deterministic tests): Validates Zod schema against `fixtures/demo-recipe.json`, tests CORS preflight (`204 No Content`), disallowed HTTP methods (`405 METHOD_NOT_ALLOWED`), unapproved recipe rejection (`404`), and safe internal error envelopes (`500`).
-     - `auth_test.ts` (15 deterministic tests): Validates `extractBearerToken()`, `authenticateRequest()`, `GET /auth-session` contract, error classifications (`401 UNAUTHORIZED`, `405 METHOD_NOT_ALLOWED`, `503 AUTH_SERVICE_RATE_LIMITED` with `Retry-After`), caller ID tampering guards, and client PostgREST JWT forwarding.
-     - `auth_rls_integration_test.ts` (7 deterministic tests): Validates hosted RLS credential and HTTPS target safety, production and URL-collision rejection, explicit skip reporting, client authentication header normalization, and cleanup error handling.
-     - `recipes_test.ts` (15 deterministic tests): Validates `CreateRecipeRequestSchema` and `RecipeResponseSchema`, CORS preflight (`204`), disallowed methods (`405`), unsupported routes (`404`), ownership and `is_public` tampering prevention, authentication enforcement (`401`), malformed JSON handling (`400`), hosted RLS target HTTPS enforcement, and safe database error redaction (`500`).
+   - **Observed test results:** Latest observed Edge/API CI and local runs report **94 passed and 4 ignored** across the six test files. Note that test counts reflect the latest observed runs and are not static permanent thresholds; they must be updated when test suites or CI execution changes.
+   - **Test distribution across suite files:**
+     - `demo_recipe_test.ts` (11 passed, 1 ignored): Validates Zod schema against `fixtures/demo-recipe.json`, tests CORS preflight (`204 No Content`), disallowed HTTP methods (`405 METHOD_NOT_ALLOWED`), unapproved recipe rejection (`404`), and safe internal error envelopes (`500`). The live PostgreSQL query test is intentionally ignored by default when local loopback port `54321` is not running.
+     - `auth_test.ts` (15 passed): Validates `extractBearerToken()`, `authenticateRequest()`, `GET /auth-session` contract, error classifications (`401 UNAUTHORIZED`, `405 METHOD_NOT_ALLOWED`, `503 AUTH_SERVICE_RATE_LIMITED` with `Retry-After`), caller ID tampering guards, and client PostgREST JWT forwarding.
+     - `recipes_test.ts` (36 passed, 2 ignored): Validates `CreateRecipeRequestSchema`, `RecipeResponseSchema`, `UpdateRecipeRequestSchema`, and param schemas, CORS preflight (`204`), disallowed methods (`405`), unsupported routes (`404`), ownership and `is_public` tampering prevention, authentication enforcement (`401`), malformed JSON handling (`400`), hosted RLS target HTTPS enforcement, and safe database error redaction (`500`). Two live hosted CRUD and schema preflight tests are intentionally ignored when dedicated cloud test credentials are not provided.
+     - `ai_contracts_test.ts` (4 passed): Validates Zod schema contracts for extracted and generated recipe structures against conforming and malformed mock payloads.
+     - `eval_dataset_test.ts` (1 passed): Validates AI recipe generation evaluation dataset properties and schema integrity.
+     - `cross_user_rls_lineage_test.ts` (27 passed, 1 ignored): Validates HTTPS target safety, credential state machine prefix locking and fail-closed validation, Layer 1 caller-scoped recipe CRUD mocks and 401/404 boundaries, admin client exclusion from assertions, cleanup error chaining, user deletion resilience, PostgREST empty-row RLS semantics, and parent/child cascade evaluation. The live hosted PostgreSQL cross-user RLS and lineage enforcement test is intentionally ignored during offline runs.
    - **Execution command:**
      ```sh
-     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
      ```
 
-4. **Intentionally ignored live integration tests (3 tests across two distinct gates):**
-   Live integration tests verify real PostgREST queries and PostgreSQL RLS enforcement. They are split into two completely separate gates with distinct prerequisites:
+4. **Live integration test gates (Gates A, B, and C):**
+   Live integration tests verify real PostgREST queries and PostgreSQL RLS enforcement. They are split into three completely separate gates with distinct prerequisites and failure semantics:
 
    - **Gate A: Local Demo Live Integration Test (`supabase/functions/tests/demo_recipe_test.ts`)**
      - **Test:** `GET returns 200 from live PostgreSQL with approved columns and headers (live integration)`.
      - **Prerequisites:** Requires a compatible API endpoint running at the expected local loopback address and port `54321` (e.g. `http://127.0.0.1:54321`) with the seeded public recipe available, plus `SUPABASE_URL` and a valid legacy `service_role` JWT in `SUPABASE_SERVICE_ROLE_KEY`.
      - **Gate isolation:** Hosted project secrets (`BE04_RLS_TEST_*`) **cannot** enable the demo live test. The test runner strictly scrubs and isolates hosted project credentials from the local demo probe, and rejects hosted URLs that attempt to target loopback port `54321`. When a local loopback API on port `54321` is not running, this test is safely ignored by default (`ignore: !hasDbEnv`).
 
-   - **Gate B: Hosted Non-Production RLS Integration Tests (`auth_rls_integration_test.ts` and `recipes_test.ts`)**
+   - **Gate B: Optional Hosted Non-Production BE-04 RLS Integration Tests (`auth_rls_integration_test.ts` and `recipes_test.ts`)**
      - **Tests:**
        1. Hosted profile RLS test in `supabase/functions/tests/auth_rls_integration_test.ts` (`Live PostgreSQL RLS enforcement on public.profiles allows own-profile reads and blocks cross-user reads (hosted integration)`)
-       2. Hosted POST `/recipes` RLS test in `supabase/functions/tests/recipes_test.ts` (`Live PostgreSQL persistence and RLS enforcement for POST /recipes (hosted integration)`)
-     - **Prerequisites and supported GitHub Actions secrets:** These tests require a **dedicated non-production Supabase cloud project** with the repository schema and RLS migrations applied; CI applies pending migrations when the database URL is configured. Configure the following in `.github/workflows/ci.yml` or the modular PR caller/reusable Edge/API workflow:
+       2. Hosted POST `/recipes` RLS test in `supabase/functions/tests/recipes_test.ts` (`Live PostgreSQL persistence and RLS enforcement for recipe CRUD (hosted integration)`)
+     - **Prerequisites and supported GitHub Actions secrets:** These tests run optionally within the `test-edge-api` job and require a **dedicated non-production Supabase cloud project** with the repository schema and RLS migrations applied; CI applies pending migrations when `BE04_RLS_TEST_DATABASE_URL` is configured:
        - `BE04_RLS_TEST_SUPABASE_URL` (`${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}`): Project URL of the dedicated non-production test project (rejected if it matches production ref `gtbwblxskctpsqhbpebg` or loopback port `54321`).
        - `BE04_RLS_TEST_SUPABASE_ANON_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}`): Public key for the dedicated test project. In CI, this is the single mapped public key secret, accepting either a legacy `anon` JWT or a modern `sb_publishable_*` key. (Local runs also accept `BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY` as an optional local environment variable override).
        - `BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}`) or `BE04_RLS_TEST_SUPABASE_SECRET_KEY` (`${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}`): Administrative credentials (legacy `service_role` JWT or modern `sb_secret_*` key) used strictly for test user setup and teardown cleanup.
@@ -157,6 +160,29 @@ The test suite separates tests into four distinct categories to maintain rigorou
        - *Public / Anon key:* Accepts either a legacy `anon` JWT (`role: "anon"`) or a modern `sb_publishable_*` key. Test clients set `apikey: <key>` and strip any synthetic `Authorization: Bearer <key>` header to preserve user bearer tokens.
        - *Service-role / Secret key:* Accepts either a legacy `service_role` JWT (`role: "service_role"`) or a modern `sb_secret_*` key. Admin test clients set `apikey: <key>` and omit the synthetic bearer header so the opaque secret key is accepted directly by PostgREST and Auth.
      - **Skip behavior:** In GitHub Actions CI and local runs, if these dedicated non-production secrets are missing or target safety prechecks fail, the runner outputs an explicit skip reason and registers the tests as ignored (`0 failed | 2 ignored`). Unexecuted tests are never reported as passed, and production credentials are never used.
+
+   - **Gate C: BE-07 Hosted RLS Integration Gate (`supabase/functions/tests/cross_user_rls_lineage_test.ts`)**
+     - **Job:** `test-hosted-rls` (named **"Hosted RLS Integration"**) in `.github/workflows/ci.yml`.
+     - **Shared test project:** Gate C uses the same dedicated non-production project and `BE04_RLS_TEST_*` credentials as Gate B. The job waits for `test-edge-api` to finish so its optional migration step completes before the lineage scenario runs. No separate BE-07 credential secrets are needed.
+     - **Required deployment gate:** Unlike the optional BE-04 checks in `test-edge-api`, the production deployment job `deploy` explicitly requires `test-hosted-rls` (`needs: [frontend, test-db, test-edge-api, test-hosted-rls]`). Deployment to Cloudflare cannot proceed without this gate passing.
+     - **Execution command & test filter:**
+       ```sh
+       deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts
+       ```
+     - **Observed test results and count semantics:**
+       - In CI with complete test credentials configured: **1 passed, 27 filtered out**.
+       - In local or unconfigured environments: **0 passed, 1 ignored, 27 filtered out**.
+       - *Distinction between passed, ignored, and filtered out:*
+         - **1 passed:** The single live scenario (`Live PostgreSQL cross-user authorization, PostgREST RLS, and recipe lineage enforcement (hosted integration)`) executed and passed against the dedicated hosted project.
+         - **27 filtered out:** The 27 other tests in `cross_user_rls_lineage_test.ts` are deterministic unit and mock tests that do not match the `hosted integration` filter. They are filtered out by Deno so the hosted job focuses solely on live integration. These 27 tests did not run or pass in this job; their deterministic verification runs separately in the Edge/API CI suite (accounting for 27 of the 94 passed tests there). Do not mislabel filtered-out tests as ignored or passed.
+     - **Fail-closed gate behavior:**
+       The workflow exports `REQUIRE_HOSTED_RLS_INTEGRATION="true"`. Required mode selects the shared `BE04_RLS_TEST_*` credentials and fails closed with an explicit error if any required value is missing. It does **not** silently skip or report ignored/passed. For local opt-in runs, `RUN_BE07_RLS_INTEGRATION=true` runs the lineage scenario against that same BE04 credential set.
+     - **Required credentials and configuration:**
+       Configure the `BE04_RLS_TEST_*` secrets and expected project reference listed under Gate B. The lineage test uses the same target safety checks and does not accept a separate BE-07 key namespace.
+     - **Security and target safety rules:**
+       - Credentials must never be committed to source control or printed in CI logs.
+       - A dedicated non-production Supabase project must always be used.
+       - Target safety guards verify HTTPS, reject loopback/localhost targets, and reject known production project references.
 
 ### Full local test runner (`pnpm run test:local:all`)
 
@@ -175,12 +201,12 @@ pnpm run test:local:all
 5. **Separation of migration tests from live API tests:**
    - **PostgreSQL Migration Tests:** The local Supabase database or a standalone PostgreSQL instance satisfies the 13 migration lifecycle integration tests by providing standard PostgreSQL database capabilities.
    - **Supabase Live API Integration Tests:** A standalone PostgreSQL database alone **does not** provide the Supabase Auth (GoTrue) or PostgREST HTTP APIs required by live API tests.
-   - The runner evaluates the local demo API probe on loopback port `54321` and evaluates hosted RLS test prerequisites independently. In the absence of dedicated non-production cloud credentials or local loopback API services, the runner safely skips the live tests, logs explicit skip explanations, and executes all 48 deterministic offline tests without error.
+   - The runner evaluates the local demo API probe on loopback port `54321` and evaluates hosted RLS test prerequisites independently. In the absence of dedicated non-production cloud credentials or local loopback API services, the runner safely skips the live tests, logs explicit skip explanations, and executes all 94 deterministic offline tests without error.
 6. **Standalone unit testing without database connectivity:** When a local PostgreSQL service is not available, developers can execute offline unit and schema checks without database connectivity:
    - Migration unit tests: `pnpm test` (or `node test-migrations.mjs`) verifies migration discovery, sorting, and schema assertions without connecting to PostgreSQL.
    - Edge Function deterministic tests:
      ```sh
-     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
      ```
 
 ## Troubleshooting

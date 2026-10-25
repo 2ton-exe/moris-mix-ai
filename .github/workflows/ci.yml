@@ -147,10 +147,10 @@ jobs:
           deno-version: "2.9.7"
 
       - name: Type-check Edge Function and tests
-        run: deno check --frozen-lockfile --node-modules-dir=auto supabase/functions/_shared/auth.ts supabase/functions/demo-recipe/index.ts supabase/functions/auth-session/index.ts supabase/functions/recipes/index.ts supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts
+        run: deno check --frozen-lockfile --node-modules-dir=auto supabase/functions/_shared/auth.ts supabase/functions/demo-recipe/index.ts supabase/functions/auth-session/index.ts supabase/functions/recipes/index.ts supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
 
       - name: Run deterministic Edge/API tests
-        run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts
+        run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
 
       - name: Check hosted migration configuration
         id: hosted-migration
@@ -214,12 +214,38 @@ jobs:
             deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           fi
 
+  test-hosted-rls:
+    name: Hosted RLS Integration
+    needs: test-edge-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.7"
+
+      - name: Run BE-07 hosted RLS integration tests
+        env:
+          REQUIRE_HOSTED_RLS_INTEGRATION: "true"
+          BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
+          BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
+          BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
+          BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE04_RLS_TEST_PROJECT_REF || secrets.BE04_RLS_TEST_PROJECT_REF }}
+        shell: bash
+        run: |
+          deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts
+
   deploy:
     name: Deploy to Cloudflare
     needs:
       - frontend
       - test-db
       - test-edge-api
+      - test-hosted-rls
     if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
