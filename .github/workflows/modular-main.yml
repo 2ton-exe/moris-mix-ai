@@ -1,0 +1,43 @@
+name: Modular Main Validation
+
+# Shadow validation only. ci.yml retains required checks and production deployment.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Modular Main Frontend
+    uses: ./.github/workflows/reusable-frontend.yml
+
+  test-db:
+    name: Modular Main Database
+    uses: ./.github/workflows/reusable-database.yml
+
+  test-edge-api:
+    name: Modular Main Edge/API
+    uses: ./.github/workflows/reusable-edge-api.yml
+    secrets:
+      BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
+      BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
+      BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
+      BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_PROJECT_REF }}
+      BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
+
+  gate-evidence:
+    name: Modular Main Inert Gate
+    needs: [frontend, test-db, test-edge-api]
+    if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Record successful shadow gate
+        run: |
+          echo "All three modular validations succeeded and frontend exists on main."
+          echo "INERT EVIDENCE ONLY: no production deployment occurred in this job."
+          echo "ci.yml retains production deployment ownership."

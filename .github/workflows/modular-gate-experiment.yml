@@ -1,0 +1,54 @@
+name: Modular Gate Experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Secret-free dependency-gate scenario
+        required: true
+        type: choice
+        default: all-success
+        options:
+          - all-success
+          - fail-frontend
+          - fail-database
+          - fail-edge-api
+          - missing-frontend
+          - skip-database
+          - cancel-window
+
+permissions: {}
+
+jobs:
+  frontend:
+    name: Experiment Frontend
+    uses: ./.github/workflows/reusable-gate-fixture.yml
+    with:
+      fail: ${{ inputs.scenario == 'fail-frontend' }}
+      frontend-exists: ${{ inputs.scenario != 'missing-frontend' }}
+
+  test-db:
+    name: Experiment Database
+    if: inputs.scenario != 'skip-database'
+    uses: ./.github/workflows/reusable-gate-fixture.yml
+    with:
+      fail: ${{ inputs.scenario == 'fail-database' }}
+      cancellation-window: ${{ inputs.scenario == 'cancel-window' }}
+
+  test-edge-api:
+    name: Experiment Edge/API
+    uses: ./.github/workflows/reusable-gate-fixture.yml
+    with:
+      fail: ${{ inputs.scenario == 'fail-edge-api' }}
+
+  would-deploy:
+    name: Would Deploy (Inert Experiment Only)
+    needs: [frontend, test-db, test-edge-api]
+    if: needs.frontend.outputs.exists == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record allowed inert gate
+        run: |
+          echo "All three fixture dependencies succeeded and simulated frontend exists."
+          echo "INERT EXPERIMENT ONLY: NO PRODUCTION DEPLOYMENT OCCURRED."
+          echo "This job has no production credentials or deployment commands."
