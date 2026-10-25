@@ -1,11 +1,13 @@
+import type { Ref } from 'react'
 import { HttpError } from '../api/http'
 import { ErrorState } from '../components/ErrorState'
 import { RecipeIntegrationUnavailable } from './source'
 
-export function RecipeError({ error, onRetry, detail = false }: {
+export function RecipeError({ error, onRetry, detail = false, retryButtonRef }: {
   error: Error
   onRetry: () => void
   detail?: boolean
+  retryButtonRef?: Ref<HTMLButtonElement>
 }) {
   let message = detail ? 'Could not load this recipe. Please try again.' : 'Could not load your recipes. Please try again.'
   let canRetry = true
@@ -27,7 +29,7 @@ export function RecipeError({ error, onRetry, detail = false }: {
       canRetry = false
     }
   }
-  return <ErrorState message={message} onRetry={canRetry ? onRetry : undefined} />
+  return <ErrorState message={message} onRetry={canRetry ? onRetry : undefined} retryButtonRef={retryButtonRef} />
 }
 
 export function RecipeSkeleton({ detail = false }: { detail?: boolean }) {

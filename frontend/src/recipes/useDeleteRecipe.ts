@@ -45,13 +45,13 @@ export function useDeleteRecipe() {
     },
     onSuccess: ({ recipeId, userId: deletedUserId }) => {
       queryClient.removeQueries({ queryKey: recipeKeys.detail(deletedUserId, recipeId), exact: true })
-      void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(deletedUserId), exact: true })
+      void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(deletedUserId) })
     },
     onError: (_error, { recipeId, userId: failedUserId }) => {
       // Reconcile failures, including interrupted responses, without claiming
       // success or dropping the last confirmed recipe data optimistically.
       void queryClient.invalidateQueries({ queryKey: recipeKeys.detail(failedUserId, recipeId), exact: true })
-      void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(failedUserId), exact: true })
+      void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(failedUserId) })
     },
     retry: false,
     // Start immediately so unmount can abort an offline request instead of leaving DELETE queued.
