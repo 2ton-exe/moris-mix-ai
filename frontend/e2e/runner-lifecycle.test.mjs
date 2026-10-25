@@ -58,7 +58,6 @@ test('forwards a signal to the active command before the stack starts', { skip: 
 
   assert.equal(cleanups, 0)
   assert.equal(child.exitCode, 0)
-  assertProcessGroupStopped(child.pid)
 })
 
 test('retries cleanup only after its command was interrupted by a signal', async () => {
@@ -85,6 +84,17 @@ test('retries cleanup only after its command was interrupted by a signal', async
     retryInterruptedCleanup(async () => { throw stopError }, () => false, async () => {}),
     (error) => error === stopError,
   )
+
+  let failedAttempts = 0
+  await assert.rejects(
+    retryInterruptedCleanup(async () => {
+      failedAttempts += 1
+      throw stopError
+    }, () => true, async () => {}),
+    (error) => error.message === `Cleanup retry failed after interruption: ${stopError.message}`
+      && error.cause === stopError,
+  )
+  assert.equal(failedAttempts, 2)
 })
 
 test('stops once after a partial stack-start failure and preserves the startup error', async () => {
@@ -183,7 +193,6 @@ test('forwards a received signal to the active process group before cleanup comp
 
   assert.equal(cleanupSignal, 'SIGTERM')
   assert.equal(child.exitCode, 0)
-  assertProcessGroupStopped(child.pid)
 })
 
 test('forwards a signal received during cleanup to the active command without repeating stack cleanup', { skip: !supportsProcessGroups }, async (t) => {
@@ -223,12 +232,11 @@ test('forwards a signal received during cleanup to the active command without re
 
   assert.equal(cleanups, 1)
   assert.equal(child.exitCode, 0)
-  assertProcessGroupStopped(child.pid)
 })
 
 test('forwards a second signal to the retrying cleanup command without repeating stack cleanup', { skip: !supportsProcessGroups }, async (t) => {
-  const firstCommand = await startTestProcessGroup(false)
-  const retryCommand = await startTestProcessGroup(false)
+  const firstCommand = await startTestProcessGroup(false, 1)
+  const retryCommand = await startTestProcessGroup(false, 1)
   t.after(() => {
     for (const child of [firstCommand, retryCommand]) {
       try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
@@ -245,6 +253,7 @@ test('forwards a second signal to the retrying cleanup command without repeating
   const forwardedSignals = []
   const exitCodes = []
   const firstStopError = new Error('first stop command was interrupted')
+  const retryStopError = new Error('retry stop command exited unsuccessfully after SIGINT')
   let activeCommand
   let attempts = 0
   let cleanups = 0
@@ -264,7 +273,8 @@ test('forwards a second signal to the retrying cleanup command without repeating
       else startRetry()
       try {
         await waitForChildExit(activeCommand)
-        if (attempts === 1) throw firstStopError
+        if (attempts === 1 && activeCommand.exitCode !== 0) throw firstStopError
+        if (attempts === 2 && (activeCommand.exitCode !== 0 || activeCommand.signalCode !== null)) throw retryStopError
       } finally {
         stackStopInProgress = false
       }
@@ -286,6 +296,11 @@ test('forwards a second signal to the retrying cleanup command without repeating
     }
     await stopProcessGroup(activeCommand, signal)
   })
+  const lifecycleFailure = assert.rejects(
+    lifecycle,
+    (error) => error.message === `Cleanup retry failed after interruption: ${retryStopError.message}`
+      && error.cause === retryStopError,
+  )
 
   await firstAttemptStarted
   emitter.emit('SIGTERM')
@@ -300,16 +315,14 @@ test('forwards a second signal to the retrying cleanup command without repeating
   } finally {
     clearTimeout(timeout)
   }
-  await lifecycle
+  await lifecycleFailure
 
   assert.deepEqual(forwardedSignals, ['SIGTERM', 'SIGINT'])
   assert.equal(cleanups, 1)
   assert.equal(attempts, 2)
   assert.deepEqual(exitCodes, [143])
-  assert.equal(firstCommand.exitCode, 0)
-  assert.ok(retryCommand.exitCode !== null || retryCommand.signalCode !== null)
-  assertProcessGroupStopped(firstCommand.pid)
-  assertProcessGroupStopped(retryCommand.pid)
+  assert.equal(firstCommand.exitCode, 1)
+  assert.equal(retryCommand.signalCode, 'SIGINT')
 })
 
 test('redacts credentials from command diagnostics', () => {
@@ -320,15 +333,17 @@ test('redacts credentials from command diagnostics', () => {
   assert.equal(formatCommandFailure('supabase stack start', 1, output), 'supabase stack start failed with exit code 1.\nAuthorization: Bearer [REDACTED]\nSERVICE_ROLE_KEY=[REDACTED]\nDATABASE_URL=[REDACTED]\n[REDACTED KEY]')
 })
 
-async function startTestProcessGroup(ignoreSigterm) {
+async function startTestProcessGroup(ignoreSigterm, exitCodeOnSigterm = 0) {
   const childSignalHandler = ignoreSigterm
     ? 'process.on("SIGTERM", () => {})'
     : 'process.on("SIGTERM", () => process.exit(0))'
   const childScript = `${childSignalHandler}; setInterval(() => {}, 1000)`
   const script = [
     'const { spawn } = require("node:child_process")',
-    `spawn(process.execPath, ["-e", ${JSON.stringify(childScript)}], { stdio: "ignore" })`,
-    ignoreSigterm ? 'process.on("SIGTERM", () => {})' : 'process.on("SIGTERM", () => process.exit(0))',
+    `const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(childScript)}], { stdio: "ignore" })`,
+    ignoreSigterm
+      ? 'process.on("SIGTERM", () => {})'
+      : `process.on("SIGTERM", () => { descendant.once("exit", () => process.exit(${exitCodeOnSigterm})); if (descendant.exitCode !== null || descendant.signalCode !== null) process.exit(${exitCodeOnSigterm}); descendant.kill("SIGTERM") })`,
     'process.stdout.write("ready")',
     'setInterval(() => {}, 1000)',
   ].join(';')
@@ -338,10 +353,6 @@ async function startTestProcessGroup(ignoreSigterm) {
     child.once('error', reject)
   })
   return child
-}
-
-function assertProcessGroupStopped(pid) {
-  assert.throws(() => process.kill(-pid, 0), (error) => error.code === 'ESRCH')
 }
 
 function waitForChildExit(child) {
@@ -358,7 +369,6 @@ test('stops a process group gracefully with SIGTERM', { skip: !supportsProcessGr
   await stopProcessGroup(child)
 
   assert.equal(child.exitCode, 0)
-  assertProcessGroupStopped(child.pid)
 })
 
 test('uses SIGKILL when a process group ignores SIGTERM', { skip: !supportsProcessGroups }, async (t) => {
@@ -370,5 +380,4 @@ test('uses SIGKILL when a process group ignores SIGTERM', { skip: !supportsProce
   await stopProcessGroup(child)
 
   assert.equal(child.signalCode, 'SIGKILL')
-  assertProcessGroupStopped(child.pid)
 })

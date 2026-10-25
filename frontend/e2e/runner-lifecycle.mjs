@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { readFile, readdir } from 'node:fs/promises'
 import { clearTimeout, setTimeout } from 'node:timers'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -20,16 +21,41 @@ function signalChild(child, signal) {
   }
 }
 
-function isProcessGroupRunning(child) {
+async function isProcessGroupRunning(child) {
   if (child.pid === undefined) return false
   if (process.platform === 'win32') return !hasExited(child)
 
   try {
     process.kill(-child.pid, 0)
-    return true
   } catch (error) {
     if (error?.code === 'ESRCH') return false
-    if (error?.code === 'EPERM') return true
+    if (error?.code !== 'EPERM') throw error
+    return true
+  }
+
+  if (process.platform !== 'linux') return true
+
+  try {
+    const processIds = await readdir('/proc')
+    for (const processId of processIds) {
+      if (!/^\d+$/.test(processId)) continue
+
+      let stat
+      try {
+        stat = await readFile(`/proc/${processId}/stat`, 'utf8')
+      } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'EACCES' || error?.code === 'EPERM') continue
+        throw error
+      }
+
+      const commandEnd = stat.lastIndexOf(')')
+      if (commandEnd === -1) continue
+      const fields = stat.slice(commandEnd + 2).trim().split(/\s+/)
+      if (Number(fields[2]) === child.pid && fields[0] !== 'Z' && fields[0] !== 'X') return true
+    }
+    return false
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR' || error?.code === 'EACCES' || error?.code === 'EPERM') return true
     throw error
   }
 }
@@ -55,7 +81,7 @@ async function waitForProcessGroupExit(child) {
   if (process.platform === 'win32') return
 
   const deadline = Date.now() + processExitTimeoutMs
-  while (isProcessGroupRunning(child)) {
+  while (await isProcessGroupRunning(child)) {
     if (Date.now() >= deadline) throw new Error('The child process group did not exit after SIGKILL.')
     await delay(25)
   }
@@ -66,7 +92,7 @@ export async function stopProcessGroup(child, signal = 'SIGTERM') {
 
   signalChild(child, signal)
   const exited = await waitForChildExit(child)
-  if (!exited || isProcessGroupRunning(child)) signalChild(child, 'SIGKILL')
+  if (!exited || await isProcessGroupRunning(child)) signalChild(child, 'SIGKILL')
   if (!await waitForChildExit(child)) throw new Error('The child process did not exit after SIGKILL.')
   await waitForProcessGroupExit(child)
 }
@@ -112,7 +138,11 @@ export async function retryInterruptedCleanup(cleanup, wasInterrupted, waitForSi
   } catch (error) {
     if (!wasInterrupted()) throw error
     await waitForSignal()
-    await cleanup()
+    try {
+      await cleanup()
+    } catch (retryError) {
+      throw new Error(`Cleanup retry failed after interruption: ${describe(retryError)}`, { cause: retryError })
+    }
   }
 }
 
