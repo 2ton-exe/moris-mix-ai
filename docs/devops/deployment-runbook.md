@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1  
-**Status:** Frontend CI, gated automated production deployment, production UI/API/PostgreSQL smoke check, and production migration-ledger entry verified; Gemini generation remains pending
+**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its production execution and CRUD smoke check remain pending; the latest recipe migration ledger also needs verification. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -24,9 +24,9 @@ It serves as a reference for team members maintaining the application and as sup
 | Backend                | Supabase Edge Functions               |
 | Database               | Supabase PostgreSQL                   |
 | Frontend hosting       | Cloudflare Workers with Static Assets |
-| Deployment CLI         | Wrangler                              |
+| Deployment CLI         | Supabase CLI and Wrangler             |
 
-The unified frontend CI/deployment workflow does not deploy Supabase Edge Functions or the database. Supabase production deployment automation remains DEVOPS-07 work and is not implemented by the current Cloudflare workflow.
+The validated-main deployment job sends the `recipes` Edge Function to the configured Supabase project, then deploys the frontend to Cloudflare. Production database migrations remain a separate process and are not applied by CI.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -38,9 +38,9 @@ Pull request targeting `main`
 ↓\
 GitHub Actions — `ci.yml`\
 ↓\
-Three parallel jobs: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`\
+`Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` run before deployment; Playwright E2E is non-gating\
 ↓\
-Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; deployment skipped on PR runs\
+Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; all deploy dependencies must succeed and PR runs skip deployment\
 ↓\
 At least one teammate approval and resolved review conversations\
 ↓\
@@ -52,11 +52,11 @@ Approved merge into `main` produces a push event; permitted `workflow_dispatch` 
 ↓\
 GitHub Actions — `ci.yml`\
 ↓\
-`Frontend Checks`, `Database Tests`, and `Edge/API Tests` run in parallel\
+`Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` complete\
 ↓\
-All three jobs succeed and `needs.frontend.outputs.exists == 'true'`\
+All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Deploy to Cloudflare` (`deploy`, `needs: [frontend, test-db, test-edge-api]`): checkout, pnpm/Node setup, dependency installation and frontend build\
+`Deploy to Supabase and Cloudflare` (`deploy`): validate target, build frontend, deploy only `recipes`, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
@@ -70,7 +70,7 @@ A green workflow alone is not considered sufficient deployment evidence. The rel
 
 The relevant DevOps files are organized as follows:
 
-- `.github/workflows/ci.yml` — Frontend, database, and Edge/API validation plus gated Cloudflare production deployment
+- `.github/workflows/ci.yml` — Frontend, database, and Edge/API validation plus gated `recipes` and Cloudflare production deployment
 - `wrangler.jsonc` — Cloudflare Worker configuration
 - `docs/devops/pipeline-metrics.md` — Pipeline measurements and results
 - `docs/devops/deployment-runbook.md` — Deployment and recovery documentation
@@ -81,7 +81,7 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs execute all three validation jobs and skip `Deploy to Cloudflare`. Main pushes and permitted manual main runs deploy only after all three jobs succeed and the frontend-existence output is true.
+The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs skip `Deploy to Supabase and Cloudflare`. Main pushes and permitted manual main runs deploy only after every `deploy.needs` job succeeds and the frontend-existence output is true. Playwright E2E remains non-gating.
 
 Its frontend validation stages are:
 
@@ -93,7 +93,7 @@ Its frontend validation stages are:
 6. Run `pnpm test`.
 7. Run `pnpm build`.
 
-In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks and tests recipe CRUD, demo, and AI schemas and handlers; when configured, it also applies pending migrations to and runs RLS integration tests against a dedicated hosted non-production database. These jobs do not deploy Supabase Edge Functions or the production database.
+In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks and tests recipe CRUD, demo, and AI schemas and handlers; when configured, it also applies pending migrations to and runs RLS integration tests against a dedicated hosted non-production database. These validation jobs do not deploy production functions or change the production database.
 
 **Required PR status checks:** `Frontend Checks`, `Database Tests`, and `Edge/API Tests`, as confirmed by the verified current GitHub ruleset evidence.
 
@@ -166,6 +166,9 @@ GitHub Actions uses the following repository secrets:
 | :---------------------- | :--------------------------------------- |
 | `CLOUDFLARE_API_TOKEN`  | Authorizes Cloudflare Worker deployment  |
 | `CLOUDFLARE_ACCOUNT_ID` | Identifies the target Cloudflare account |
+| `SUPABASE_ACCESS_TOKEN` | Authorizes Supabase CLI deployment        |
+
+The `SUPABASE_PROJECT_REF` repository variable identifies the Supabase target and must match `project_id` in `supabase/config.toml`. CI checks this before deploying.
 
 Secrets are managed in:
 
@@ -177,9 +180,9 @@ The Cloudflare API token is restricted to the intended Cloudflare account.
 
 ## 9. Automated Deployment Procedure
 
-Production deployment is a `deploy` job inside `.github/workflows/ci.yml`. In the reviewed delivery path, an approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, and `Edge/API Tests` in that same run. Permitted `workflow_dispatch` runs on `main` may also deploy after all three succeed. PR runs skip deployment.
+Production deployment is the `deploy` job inside `.github/workflows/ci.yml`. An approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` jobs in the same run. Permitted `workflow_dispatch` runs on `main` use the same gate. PR runs skip deployment.
 
-The job declares `needs: [frontend, test-db, test-edge-api]` and uses this condition:
+The job declares `needs: [frontend, test-db, test-edge-api, test-hosted-rls]` and uses this condition:
 
 ```text
 needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
@@ -192,12 +195,14 @@ The workflow currently has no push path filter: docs-only main pushes can also p
 ### Deployment Steps
 
 1. Changes are reviewed and merged into `main`; the resulting push event triggers the unified CI workflow. Alternatively, use a permitted `workflow_dispatch` run on `main`.
-2. The three validation jobs run in parallel: frontend detection, install, lint, tests and build; database migrations/lifecycle/RLS tests; and Edge/API type-checking and deterministic tests.
-3. Confirm all three jobs succeeded and the frontend-existence job output is true; only then can `Deploy to Cloudflare` start.
-4. The deployment job checks out source and configures pnpm and Node.js.
-5. Frontend dependencies are installed and the React/Vite production build is generated.
-6. Wrangler uploads the generated static assets to Cloudflare Workers.
-7. Confirm the deployment steps actually executed, then check the application at the production URL.
+2. Frontend, database, Edge/API, and hosted RLS validation run; Playwright E2E runs separately and is non-gating.
+3. Confirm every `deploy.needs` job succeeded and the frontend-existence output is true.
+4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
+5. Supabase CLI deploys only `recipes`, using the function configuration in `supabase/config.toml`.
+6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
+7. Confirm both deployment steps executed, then verify the production API and frontend.
+
+The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 
 ### Historical FE-01 Deployment
 
@@ -394,7 +399,8 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- Supabase Edge Functions and database deployment are not handled by the current Cloudflare workflow; Supabase production deployment automation remains DEVOPS-07 work.
+- The `recipes` deployment is configured in CI but still needs a successful main-branch execution and a production CRUD smoke check.
+- The historical migration-ledger check only verified through `20261017000001`; verify whether `20261023000002_add_notes_to_recipes.sql` is applied before declaring recipe CRUD ready. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
