@@ -101,10 +101,13 @@ jobs:
 
       - name: Record deployment evidence
         shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           {
             echo "### Staging deployment"
-            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- PR head: \`${PR_HEAD_SHA}\`"
+            echo "- Tested merge revision: \`${GITHUB_SHA}\`"
             echo "- Worker: \`${STAGING_WORKER_NAME}\`"
             echo "- URL: ${STAGING_FRONTEND_URL}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -131,16 +134,15 @@ jobs:
           success=false
 
           for attempt in 1 2 3 4 5; do
-            if status="$(
+            if response="$(
               curl \
                 --silent \
                 --show-error \
                 --location \
                 --output "$temp_dir/home.html" \
-                --dump-header "$temp_dir/home.headers" \
-                --write-out "%{http_code}" \
+                --write-out "%{http_code} %{content_type}" \
                 "${base}/home?revision=${GITHUB_SHA}"
-            )" && [[ "$status" == "200" ]]; then
+            )" && [[ "${response,,}" == "200 text/html" || "${response,,}" == "200 text/html;"* ]]; then
               success=true
               break
             fi
@@ -151,19 +153,15 @@ jobs:
           done
 
           if [[ "$success" != "true" ]]; then
-            echo "::error::Staging /home did not return HTTP 200."
-            exit 1
-          fi
-
-          if ! grep -qi '^content-type:.*text/html' "$temp_dir/home.headers"; then
-            echo "::error::Staging /home did not return HTML."
+            echo "::error::Staging /home did not return HTTP 200 with HTML content type."
             exit 1
           fi
 
           asset="$(
-            grep -oE 'src="[^"]*assets/[^"]+\.js"' "$temp_dir/home.html" \
-              | head -n 1 \
-              | cut -d'"' -f2
+            awk 'match($0, /src="[^"]*assets\/[^"]+\.js"/) {
+              print substr($0, RSTART + 5, RLENGTH - 6)
+              exit
+            }' "$temp_dir/home.html"
           )"
 
           if [[ -z "$asset" ]]; then
@@ -180,18 +178,25 @@ jobs:
           success=false
 
           for attempt in 1 2 3 4 5; do
-            if asset_status="$(
+            if asset_response="$(
               curl \
                 --silent \
                 --show-error \
                 --location \
                 --output "$temp_dir/asset.js" \
-                --dump-header "$temp_dir/asset.headers" \
-                --write-out "%{http_code}" \
+                --write-out "%{http_code} %{content_type}" \
                 "$asset_url"
-            )" && [[ "$asset_status" == "200" ]]; then
-              success=true
-              break
+            )"; then
+              asset_status="${asset_response%% *}"
+              asset_content_type="${asset_response#* }"
+              asset_content_type="${asset_content_type%%;*}"
+              asset_content_type="${asset_content_type,,}"
+
+              if [[ "$asset_status" == "200" && "$asset_content_type" != *html* &&
+                    ( "$asset_content_type" == *javascript* || "$asset_content_type" == *ecmascript* ) ]]; then
+                success=true
+                break
+              fi
             fi
 
             if [[ "$attempt" -lt 5 ]]; then
@@ -200,7 +205,7 @@ jobs:
           done
 
           if [[ "$success" != "true" ]]; then
-            echo "::error::Staging JavaScript asset did not return HTTP 200."
+            echo "::error::Staging JavaScript asset did not return HTTP 200 with JavaScript content type (HTML fallback is rejected)."
             exit 1
           fi
 
@@ -208,10 +213,13 @@ jobs:
 
       - name: Record smoke evidence
         shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           {
             echo "### Staging smoke"
-            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- PR head: \`${PR_HEAD_SHA}\`"
+            echo "- Tested merge revision: \`${GITHUB_SHA}\`"
             echo "- URL: ${STAGING_FRONTEND_URL}"
             echo "- Frontend HTML: passed"
             echo "- JavaScript asset: passed"
