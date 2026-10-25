@@ -143,7 +143,7 @@ The test suite separates tests into four distinct categories to maintain rigorou
    - **Gate A: Local Demo Live Integration Test (`supabase/functions/tests/demo_recipe_test.ts`)**
      - **Test:** `GET returns 200 from live PostgreSQL with approved columns and headers (live integration)`.
      - **Prerequisites:** Requires a compatible API endpoint running at the expected local loopback address and port `54321` (e.g. `http://127.0.0.1:54321`) with the seeded public recipe available, plus `SUPABASE_URL` and a valid legacy `service_role` JWT in `SUPABASE_SERVICE_ROLE_KEY`.
-     - **Gate isolation:** Hosted project secrets (`BE04_RLS_TEST_*` or `BE07_RLS_TEST_*`) **cannot** enable the demo live test. The test runner strictly scrubs and isolates hosted project credentials from the local demo probe, and rejects hosted URLs that attempt to target loopback port `54321`. When a local loopback API on port `54321` is not running, this test is safely ignored by default (`ignore: !hasDbEnv`).
+     - **Gate isolation:** Hosted project secrets (`BE04_RLS_TEST_*`) **cannot** enable the demo live test. The test runner strictly scrubs and isolates hosted project credentials from the local demo probe, and rejects hosted URLs that attempt to target loopback port `54321`. When a local loopback API on port `54321` is not running, this test is safely ignored by default (`ignore: !hasDbEnv`).
 
    - **Gate B: Optional Hosted Non-Production BE-04 RLS Integration Tests (`auth_rls_integration_test.ts` and `recipes_test.ts`)**
      - **Tests:**
@@ -161,8 +161,9 @@ The test suite separates tests into four distinct categories to maintain rigorou
        - *Service-role / Secret key:* Accepts either a legacy `service_role` JWT (`role: "service_role"`) or a modern `sb_secret_*` key. Admin test clients set `apikey: <key>` and omit the synthetic bearer header so the opaque secret key is accepted directly by PostgREST and Auth.
      - **Skip behavior:** In GitHub Actions CI and local runs, if these dedicated non-production secrets are missing or target safety prechecks fail, the runner outputs an explicit skip reason and registers the tests as ignored (`0 failed | 2 ignored`). Unexecuted tests are never reported as passed, and production credentials are never used.
 
-   - **Gate C: Dedicated BE-07 Hosted RLS Integration Gate (`supabase/functions/tests/cross_user_rls_lineage_test.ts`)**
+   - **Gate C: BE-07 Hosted RLS Integration Gate (`supabase/functions/tests/cross_user_rls_lineage_test.ts`)**
      - **Job:** `test-hosted-rls` (named **"BE-07 Hosted RLS Integration"**) in `.github/workflows/ci.yml`.
+     - **Shared test project:** Gate C uses the same dedicated non-production project and `BE04_RLS_TEST_*` credentials as Gate B. The job waits for `test-edge-api` to finish so its optional migration step completes before the lineage scenario runs. No separate BE-07 credential secrets are needed.
      - **Required deployment gate:** Unlike the optional BE-04 checks in `test-edge-api`, the production deployment job `deploy` explicitly requires `test-hosted-rls` (`needs: [frontend, test-db, test-edge-api, test-hosted-rls]`). Deployment to Cloudflare cannot proceed without this gate passing.
      - **Execution command & test filter:**
        ```sh
@@ -175,16 +176,9 @@ The test suite separates tests into four distinct categories to maintain rigorou
          - **1 passed:** The single live scenario (`Live PostgreSQL cross-user authorization, PostgREST RLS, and recipe lineage enforcement (hosted integration)`) executed and passed against the dedicated hosted project.
          - **27 filtered out:** The 27 other tests in `cross_user_rls_lineage_test.ts` are deterministic unit and mock tests that do not match the `hosted integration` filter. They are filtered out by Deno so the hosted job focuses solely on live integration. These 27 tests did not run or pass in this job; their deterministic verification runs separately in the Edge/API CI suite (accounting for 27 of the 94 passed tests there). Do not mislabel filtered-out tests as ignored or passed.
      - **Fail-closed gate behavior:**
-       The workflow exports `REQUIRE_HOSTED_RLS_INTEGRATION="true"` and `RUN_BE07_RLS_INTEGRATION: ${{ secrets.RUN_BE07_RLS_INTEGRATION || 'true' }}`.
-       When `REQUIRE_HOSTED_RLS_INTEGRATION` is `"true"`, the credential state machine locks to prefix `BE07` and requires complete dedicated test credentials. If any required credential is missing or invalid, the test fails closed with an explicit error listing the missing variables. It does **not** silently skip or report ignored/passed.
+       The workflow exports `REQUIRE_HOSTED_RLS_INTEGRATION="true"`. Required mode selects the shared `BE04_RLS_TEST_*` credentials and fails closed with an explicit error if any required value is missing. It does **not** silently skip or report ignored/passed. For local opt-in runs, `RUN_BE07_RLS_INTEGRATION=true` runs the lineage scenario against that same BE04 credential set.
      - **Required credentials and configuration:**
-       Configure the following in GitHub Actions repository settings:
-       - `BE07_RLS_TEST_SUPABASE_URL` (GitHub Actions secret): HTTPS URL of the dedicated non-production Supabase project. Must use HTTPS and cannot target localhost, loopback addresses, or the primary linked production project (`gtbwblxskctpsqhbpebg`).
-       - `BE07_RLS_TEST_SUPABASE_ANON_KEY` (GitHub Actions secret): Public key for the dedicated test project. Accepts either a legacy `anon` JWT or modern `sb_publishable_*` key. (Locally, `BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY` is also supported as an environment override).
-       - `BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY` or `BE07_RLS_TEST_SUPABASE_SECRET_KEY` (GitHub Actions secret): Privileged administrative key (legacy `service_role` JWT or modern `sb_secret_*` key) used strictly by the test harness for isolated test user provisioning and teardown cleanup.
-       - `BE07_RLS_TEST_EXPECTED_PROJECT_REF` (GitHub Actions repository variable or secret): Expected project reference to guard against target drift. Validated against the project reference parsed from `BE07_RLS_TEST_SUPABASE_URL`. (`BE07_RLS_TEST_PROJECT_REF` is also accepted as fallback variable name).
-     - **Strict prefix locking:**
-       When `RUN_BE07_RLS_INTEGRATION` is active or prefix `BE07` is locked, the credential state machine enforces strict prefix isolation: `BE04_*` credentials will **never** silently substitute for `BE07_*` credentials. Missing BE-07 credentials immediately trigger a configuration failure.
+       Configure the `BE04_RLS_TEST_*` secrets and expected project reference listed under Gate B. The lineage test uses the same target safety checks and does not accept a separate BE-07 key namespace.
      - **Security and target safety rules:**
        - Credentials must never be committed to source control or printed in CI logs.
        - A dedicated non-production Supabase project must always be used.

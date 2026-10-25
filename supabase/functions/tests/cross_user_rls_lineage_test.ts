@@ -130,7 +130,7 @@ export function validateDedicatedTestTarget(
 
 export type RlsConfigResult =
   | { shouldRun: false; isOptedIn: false; error?: undefined }
-  | { shouldRun: true; isOptedIn: true; error?: string; url: string; anonKey: string; serviceRoleKey: string; expectedProjectRef: string; prefix: "BE07" | "BE06" | "BE04" };
+  | { shouldRun: true; isOptedIn: true; error?: string; url: string; anonKey: string; serviceRoleKey: string; expectedProjectRef: string; prefix: "BE06" | "BE04" };
 
 export function resolveCredentialStateMachine(
   getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
@@ -142,33 +142,39 @@ export function resolveCredentialStateMachine(
     (getEnv("HOSTED_RLS_REQUIRED") ?? "").trim().toLowerCase() === "true";
   const be07Flag = (getEnv("RUN_BE07_RLS_INTEGRATION") ?? "").trim().toLowerCase();
   const be07Enabled = be07Flag === "true" || be07Flag === "1";
-  if (be07Enabled) {
-    const url = (getEnv("BE07_RLS_TEST_SUPABASE_URL")?.trim() || "");
-    const anon = (getEnv("BE07_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
-    const service = (getEnv("BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE07_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
-    const expected = (getEnv("BE07_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE07_RLS_TEST_PROJECT_REF")?.trim() || "");
+  const be06Flag = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim().toLowerCase();
+  const be06Enabled = be06Flag === "true" || be06Flag === "1";
+  const be04Flag = (getEnv("RUN_BE04_RLS_INTEGRATION") ?? "").trim().toLowerCase();
+  const be04Enabled = be04Flag === "true" || be04Flag === "1";
+  if (be07Enabled || isRequired || (!be06Enabled && be04Enabled)) {
+    const url = (getEnv("BE04_RLS_TEST_SUPABASE_URL")?.trim() || "");
+    const anon = (getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
+    const service = (getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
+    const expected = (getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE04_RLS_TEST_PROJECT_REF")?.trim() || "");
     const missing: string[] = [];
-    if (!url) missing.push("BE07_RLS_TEST_SUPABASE_URL");
-    if (!anon) missing.push("BE07_RLS_TEST_SUPABASE_ANON_KEY");
-    if (!service) missing.push("BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY");
-    if (!expected) missing.push("BE07_RLS_TEST_EXPECTED_PROJECT_REF");
+    if (!url) missing.push("BE04_RLS_TEST_SUPABASE_URL");
+    if (!anon) missing.push("BE04_RLS_TEST_SUPABASE_ANON_KEY");
+    if (!service) missing.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY");
+    if (!expected) missing.push("BE04_RLS_TEST_EXPECTED_PROJECT_REF");
     if (missing.length > 0) {
       return {
         shouldRun: true,
         isOptedIn: true,
-        prefix: "BE07",
-        error: `RUN_BE07_RLS_INTEGRATION locked prefix BE07 but credentials are incomplete: missing ${missing.join(", ")}.`,
+        prefix: "BE04",
+        error: be07Enabled
+          ? `RUN_BE07_RLS_INTEGRATION requires the shared BE04 credential set, but credentials are incomplete: missing ${missing.join(", ")}.`
+          : isRequired
+          ? `Hosted RLS integration is required (shared BE04 credentials), but dedicated non-production test credentials are incomplete or unavailable: missing ${missing.join(", ")}.`
+          : `RUN_BE04_RLS_INTEGRATION locked prefix BE04 but credentials are incomplete: missing ${missing.join(", ")}.`,
         url,
         anonKey: anon,
         serviceRoleKey: service,
         expectedProjectRef: expected,
       };
     }
-    return { shouldRun: true, isOptedIn: true, prefix: "BE07", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
+    return { shouldRun: true, isOptedIn: true, prefix: "BE04", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
   }
 
-  const be06Flag = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim().toLowerCase();
-  const be06Enabled = be06Flag === "true" || be06Flag === "1";
   if (be06Enabled) {
     const url = (getEnv("BE06_RLS_TEST_SUPABASE_URL")?.trim() || "");
     const anon = (getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
@@ -192,105 +198,6 @@ export function resolveCredentialStateMachine(
       };
     }
     return { shouldRun: true, isOptedIn: true, prefix: "BE06", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
-  }
-
-  const be04Flag = (getEnv("RUN_BE04_RLS_INTEGRATION") ?? "").trim().toLowerCase();
-  const be04Enabled = be04Flag === "true" || be04Flag === "1";
-  if (be04Enabled) {
-    const url = (getEnv("BE04_RLS_TEST_SUPABASE_URL")?.trim() || "");
-    const anon = (getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
-    const service = (getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
-    const expected = (getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE04_RLS_TEST_PROJECT_REF")?.trim() || "");
-    const missing: string[] = [];
-    if (!url) missing.push("BE04_RLS_TEST_SUPABASE_URL");
-    if (!anon) missing.push("BE04_RLS_TEST_SUPABASE_ANON_KEY");
-    if (!service) missing.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY");
-    if (!expected) missing.push("BE04_RLS_TEST_EXPECTED_PROJECT_REF");
-    if (missing.length > 0) {
-      return {
-        shouldRun: true,
-        isOptedIn: true,
-        prefix: "BE04",
-        error: `RUN_BE04_RLS_INTEGRATION locked prefix BE04 but credentials are incomplete: missing ${missing.join(", ")}.`,
-        url,
-        anonKey: anon,
-        serviceRoleKey: service,
-        expectedProjectRef: expected,
-      };
-    }
-    return { shouldRun: true, isOptedIn: true, prefix: "BE04", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
-  }
-
-  if (isRequired) {
-    const hasBe07 = Boolean(
-      getEnv("BE07_RLS_TEST_SUPABASE_URL") ||
-      getEnv("BE07_RLS_TEST_SUPABASE_ANON_KEY") ||
-      getEnv("BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ||
-      getEnv("BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ||
-      getEnv("BE07_RLS_TEST_SUPABASE_SECRET_KEY") ||
-      getEnv("BE07_RLS_TEST_EXPECTED_PROJECT_REF") ||
-      getEnv("BE07_RLS_TEST_PROJECT_REF")
-    );
-    const hasBe06 = Boolean(
-      getEnv("BE06_RLS_TEST_SUPABASE_URL") ||
-      getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY") ||
-      getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ||
-      getEnv("BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ||
-      getEnv("BE06_RLS_TEST_SUPABASE_SECRET_KEY") ||
-      getEnv("BE06_RLS_TEST_EXPECTED_PROJECT_REF") ||
-      getEnv("BE06_RLS_TEST_PROJECT_REF")
-    );
-    const hasBe04 = Boolean(
-      getEnv("BE04_RLS_TEST_SUPABASE_URL") ||
-      getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY") ||
-      getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY") ||
-      getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY") ||
-      getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY") ||
-      getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF") ||
-      getEnv("BE04_RLS_TEST_PROJECT_REF")
-    );
-
-    const prefix: "BE07" | "BE06" | "BE04" = hasBe07
-      ? "BE07"
-      : hasBe06
-      ? "BE06"
-      : hasBe04
-      ? "BE04"
-      : "BE07";
-
-    const url = (getEnv(`${prefix}_RLS_TEST_SUPABASE_URL`)?.trim() || "");
-    const anon = (getEnv(`${prefix}_RLS_TEST_SUPABASE_ANON_KEY`)?.trim() || getEnv(`${prefix}_RLS_TEST_SUPABASE_PUBLISHABLE_KEY`)?.trim() || "");
-    const service = (getEnv(`${prefix}_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`)?.trim() || getEnv(`${prefix}_RLS_TEST_SUPABASE_SECRET_KEY`)?.trim() || "");
-    const expected = (getEnv(`${prefix}_RLS_TEST_EXPECTED_PROJECT_REF`)?.trim() || getEnv(`${prefix}_RLS_TEST_PROJECT_REF`)?.trim() || "");
-
-    const missing: string[] = [];
-    if (!url) missing.push(`${prefix}_RLS_TEST_SUPABASE_URL`);
-    if (!anon) missing.push(`${prefix}_RLS_TEST_SUPABASE_ANON_KEY`);
-    if (!service) missing.push(`${prefix}_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY`);
-    if (!expected) missing.push(`${prefix}_RLS_TEST_EXPECTED_PROJECT_REF`);
-
-    if (missing.length > 0) {
-      return {
-        shouldRun: true,
-        isOptedIn: true,
-        prefix,
-        error: `Hosted RLS integration is required (prefix ${prefix}), but dedicated non-production test credentials are incomplete or unavailable: missing ${missing.join(", ")}.`,
-        url,
-        anonKey: anon,
-        serviceRoleKey: service,
-        expectedProjectRef: expected,
-      };
-    }
-
-    return {
-      shouldRun: true,
-      isOptedIn: true,
-      prefix,
-      url,
-      anonKey: anon,
-      serviceRoleKey: service,
-      expectedProjectRef: expected,
-    };
   }
 
   return { shouldRun: false, isOptedIn: false };
@@ -696,39 +603,39 @@ Deno.test("Target safety guard strictly validates HTTPS, non-loopback, non-produ
   );
 });
 
-Deno.test("Credential state machine enforces strict prefix locking without cross-prefix fallback and fails closed on incomplete sets", () => {
+Deno.test("Credential state machine shares BE04 credentials with the BE07 lineage integration and fails closed on incomplete sets", () => {
   const envEmpty: Record<string, string> = {};
   assertEquals(resolveCredentialStateMachine((k) => envEmpty[k]).shouldRun, false);
 
   const envBe07Incomplete: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE07_RLS_TEST_SUPABASE_URL: "https://be07-test.supabase.co",
-    BE04_RLS_TEST_SUPABASE_ANON_KEY: "be04-anon",
-    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be04-service",
-    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "be07-test",
+    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    BE06_RLS_TEST_SUPABASE_ANON_KEY: "be06-anon",
+    BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be06-service",
+    BE06_RLS_TEST_EXPECTED_PROJECT_REF: "be06-test",
   };
   const be07IncompleteResult = resolveCredentialStateMachine((k) => envBe07Incomplete[k]);
   assertEquals(be07IncompleteResult.shouldRun, true);
   if (be07IncompleteResult.shouldRun) {
-    assertEquals(be07IncompleteResult.prefix, "BE07");
+    assertEquals(be07IncompleteResult.prefix, "BE04");
     assertNotEquals(be07IncompleteResult.error, undefined);
+    assertEquals(be07IncompleteResult.error?.includes("missing BE04_RLS_TEST_SUPABASE_ANON_KEY"), true);
   }
 
   const envBe07Complete: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE07_RLS_TEST_SUPABASE_URL: "https://be07-test.supabase.co",
-    BE07_RLS_TEST_SUPABASE_ANON_KEY: "be07-anon",
-    BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be07-service",
-    BE07_RLS_TEST_EXPECTED_PROJECT_REF: "be07-test",
-    RUN_BE04_RLS_INTEGRATION: "true",
     BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    BE04_RLS_TEST_SUPABASE_ANON_KEY: "be04-anon",
+    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be04-service",
+    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "be04-test",
+    RUN_BE04_RLS_INTEGRATION: "true",
   };
   const be07CompleteResult = resolveCredentialStateMachine((k) => envBe07Complete[k]);
   assertEquals(be07CompleteResult.shouldRun, true);
   if (be07CompleteResult.shouldRun) {
-    assertEquals(be07CompleteResult.prefix, "BE07");
+    assertEquals(be07CompleteResult.prefix, "BE04");
     assertEquals(be07CompleteResult.error, undefined);
-    assertEquals(be07CompleteResult.url, "https://be07-test.supabase.co");
+    assertEquals(be07CompleteResult.url, "https://be04-test.supabase.co");
   }
 
   const envBe04Fallback: Record<string, string> = {
@@ -2026,10 +1933,10 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
   assertEquals(resRequiredEmpty.shouldRun, true);
   if (resRequiredEmpty.shouldRun) {
     assertEquals(resRequiredEmpty.isOptedIn, true);
-    assertEquals(resRequiredEmpty.prefix, "BE07");
+    assertEquals(resRequiredEmpty.prefix, "BE04");
     assertNotEquals(resRequiredEmpty.error, undefined);
     assertEquals(
-      resRequiredEmpty.error?.includes("Hosted RLS integration is required (prefix BE07), but dedicated non-production test credentials are incomplete or unavailable"),
+      resRequiredEmpty.error?.includes("Hosted RLS integration is required (shared BE04 credentials), but dedicated non-production test credentials are incomplete or unavailable"),
       true,
     );
   }
@@ -2042,7 +1949,23 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
   assertEquals(resEnvRequired.shouldRun, true);
   if (resEnvRequired.shouldRun) {
     assertNotEquals(resEnvRequired.error, undefined);
-    assertEquals(resEnvRequired.error?.includes("missing BE07_RLS_TEST_SUPABASE_URL"), true);
+    assertEquals(resEnvRequired.error?.includes("missing BE04_RLS_TEST_SUPABASE_URL"), true);
+  }
+
+  const envBe04Only: Record<string, string> = {
+    REQUIRE_HOSTED_RLS_INTEGRATION: "true",
+    RUN_BE07_RLS_INTEGRATION: "false",
+    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    BE04_RLS_TEST_SUPABASE_ANON_KEY: "be04-anon",
+    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be04-service",
+    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "be04-test",
+  };
+  const resBe04Only = resolveCredentialStateMachine((k) => envBe04Only[k]);
+  assertEquals(resBe04Only.shouldRun, true);
+  if (resBe04Only.shouldRun) {
+    assertEquals(resBe04Only.prefix, "BE04");
+    assertEquals(resBe04Only.url, "https://be04-test.supabase.co");
+    assertEquals(resBe04Only.error, undefined);
   }
 
   // Test case 3: Required mode via HOSTED_RLS_REQUIRED=true
@@ -2058,16 +1981,16 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
   // Test case 4: Explicit RUN_BE07_RLS_INTEGRATION=true with missing credentials
   const envBe07Missing: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE07_RLS_TEST_SUPABASE_URL: "https://be07-test.supabase.co",
+    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
     // Missing anon key, service key, expected ref
   };
   const resBe07Missing = resolveCredentialStateMachine((k) => envBe07Missing[k], { required: true });
   assertEquals(resBe07Missing.shouldRun, true);
   if (resBe07Missing.shouldRun) {
-    assertEquals(resBe07Missing.prefix, "BE07");
+    assertEquals(resBe07Missing.prefix, "BE04");
     assertNotEquals(resBe07Missing.error, undefined);
     assertEquals(
-      resBe07Missing.error?.includes("RUN_BE07_RLS_INTEGRATION locked prefix BE07 but credentials are incomplete: missing BE07_RLS_TEST_SUPABASE_ANON_KEY"),
+      resBe07Missing.error?.includes("RUN_BE07_RLS_INTEGRATION requires the shared BE04 credential set, but credentials are incomplete: missing BE04_RLS_TEST_SUPABASE_ANON_KEY"),
       true,
     );
   }
@@ -2076,17 +1999,17 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
 Deno.test("Finding 1 review regression: Valid non-production credentials resolve successfully in required and optional mode", () => {
   const envValid: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE07_RLS_TEST_SUPABASE_URL: "https://dedicated-valid-ref.supabase.co",
-    BE07_RLS_TEST_SUPABASE_ANON_KEY: "dedicated-anon-key-12345",
-    BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "dedicated-service-role-key-67890",
-    BE07_RLS_TEST_EXPECTED_PROJECT_REF: "dedicated-valid-ref",
+    BE04_RLS_TEST_SUPABASE_URL: "https://dedicated-valid-ref.supabase.co",
+    BE04_RLS_TEST_SUPABASE_ANON_KEY: "dedicated-anon-key-12345",
+    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "dedicated-service-role-key-67890",
+    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "dedicated-valid-ref",
   };
 
   const resOptional = resolveCredentialStateMachine((k) => envValid[k]);
   assertEquals(resOptional.shouldRun, true);
   if (resOptional.shouldRun) {
     assertEquals(resOptional.isOptedIn, true);
-    assertEquals(resOptional.prefix, "BE07");
+    assertEquals(resOptional.prefix, "BE04");
     assertEquals(resOptional.error, undefined);
     assertEquals(resOptional.url, "https://dedicated-valid-ref.supabase.co");
     assertEquals(resOptional.anonKey, "dedicated-anon-key-12345");
