@@ -96,7 +96,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
   })
 })
 
-test('a signed-in cook cannot view another cook’s recipe', async ({ page }) => {
+test('a signed-in cook cannot view, update, or delete another cook’s recipe', async ({ page }) => {
   test.setTimeout(90_000)
 
   const recipeTitle = `FS-03 Ownership ${crypto.randomUUID()}`
@@ -117,14 +117,36 @@ test('a signed-in cook cannot view another cook’s recipe', async ({ page }) =>
   await waitForCollection(page)
   await expect(page.getByRole('link', { name: recipeTitle })).toHaveCount(0)
 
+  const recipeId = new URL(recipeUrl).pathname.split('/').pop()!
+  const appRequestPromise = page.waitForRequest((request) => {
+    const url = new URL(request.url())
+    return request.method() === 'GET' && url.pathname.endsWith(`/functions/v1/recipes/${recipeId}`)
+  })
   await page.goto(recipeUrl)
   await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible({ timeout: 30_000 })
+  const appRequest = await appRequestPromise
+  const apiUrl = appRequest.url()
+  const appHeaders = await appRequest.allHeaders()
+  const authHeaders = { authorization: appHeaders.authorization, apikey: appHeaders.apikey }
+
+  const updateResponse = await page.request.patch(apiUrl, {
+    headers: authHeaders,
+    data: { title: `${recipeTitle} changed by another cook` },
+  })
+  expect(updateResponse.status()).toBe(404)
+  await expect(updateResponse.json()).resolves.toMatchObject({ error: { code: 'NOT_FOUND' } })
+
+  const deleteResponse = await page.request.delete(apiUrl, { headers: authHeaders })
+  expect(deleteResponse.status()).toBe(404)
+  await expect(deleteResponse.json()).resolves.toMatchObject({ error: { code: 'NOT_FOUND' } })
 
   await page.getByRole('button', { name: 'Log out' }).click()
   await expect(page).toHaveURL(/\/login$/)
   await signIn(page, localE2eOtherUser)
   await page.goto(recipeUrl)
   await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+  await expect(page.getByText(/olive oil/)).toBeVisible()
+  await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
   await page.getByRole('button', { name: 'Delete recipe' }).click()
   const dialog = page.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Delete recipe' }).click()
