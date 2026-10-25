@@ -215,7 +215,7 @@ jobs:
           fi
 
   test-hosted-rls:
-    name: BE-07 Hosted RLS Integration
+    name: Hosted RLS Integration
     needs: test-edge-api
     runs-on: ubuntu-latest
     steps:

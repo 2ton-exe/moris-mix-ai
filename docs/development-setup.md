@@ -162,7 +162,7 @@ The test suite separates tests into four distinct categories to maintain rigorou
      - **Skip behavior:** In GitHub Actions CI and local runs, if these dedicated non-production secrets are missing or target safety prechecks fail, the runner outputs an explicit skip reason and registers the tests as ignored (`0 failed | 2 ignored`). Unexecuted tests are never reported as passed, and production credentials are never used.
 
    - **Gate C: BE-07 Hosted RLS Integration Gate (`supabase/functions/tests/cross_user_rls_lineage_test.ts`)**
-     - **Job:** `test-hosted-rls` (named **"BE-07 Hosted RLS Integration"**) in `.github/workflows/ci.yml`.
+     - **Job:** `test-hosted-rls` (named **"Hosted RLS Integration"**) in `.github/workflows/ci.yml`.
      - **Shared test project:** Gate C uses the same dedicated non-production project and `BE04_RLS_TEST_*` credentials as Gate B. The job waits for `test-edge-api` to finish so its optional migration step completes before the lineage scenario runs. No separate BE-07 credential secrets are needed.
      - **Required deployment gate:** Unlike the optional BE-04 checks in `test-edge-api`, the production deployment job `deploy` explicitly requires `test-hosted-rls` (`needs: [frontend, test-db, test-edge-api, test-hosted-rls]`). Deployment to Cloudflare cannot proceed without this gate passing.
      - **Execution command & test filter:**
