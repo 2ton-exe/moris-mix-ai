@@ -148,24 +148,29 @@ export async function withStackCleanup(task, cleanup, exit, emitter, forwardSign
 }
 
 export function installSignalCleanup(cleanup, exit = (code) => process.exit(code), emitter = process) {
-  let signalReceived = false
-  const pendingSignals = []
+  let firstSignal
+  const pendingSignals = new Set()
   const handlers = new Map()
 
   for (const signal of ['SIGINT', 'SIGTERM']) {
-    const handler = async () => {
-      const firstSignal = !signalReceived
-      signalReceived = true
-      const pending = Promise.resolve()
+    const handler = () => {
+      const shouldExit = firstSignal === undefined
+      firstSignal ??= signal
+
+      let pending
+      pending = Promise.resolve()
         .then(() => cleanup(signal))
         .catch((error) => {
           process.stderr.write(`Cleanup failed after ${signal}: ${describe(error)}\n`)
         })
-      pendingSignals.push(pending)
-      if (!firstSignal) return pending
+        .finally(() => pendingSignals.delete(pending))
+      pendingSignals.add(pending)
+      if (!shouldExit) return
 
-      for (let index = 0; index < pendingSignals.length; index += 1) await pendingSignals[index]
-      exit(signal === 'SIGINT' ? 130 : 143)
+      void (async () => {
+        while (pendingSignals.size > 0) await Promise.all(pendingSignals)
+        exit(firstSignal === 'SIGINT' ? 130 : 143)
+      })()
     }
     handlers.set(signal, handler)
     emitter.on(signal, handler)
