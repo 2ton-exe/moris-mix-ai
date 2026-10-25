@@ -142,22 +142,35 @@ export async function prepareLocalE2eAccount(admin, user, fixturePath) {
         throw new Error('The local E2E account fixture does not match the expected test user.')
       }
 
-      const update = await admin.auth.admin.updateUserById(storedUserId, {
-        password: user.password,
-        email_confirm: true,
-      })
-      if (update.error || update.data?.user?.id !== storedUserId) {
-        throw new Error('Could not prepare the local E2E account.')
-      }
+      await updateLocalE2eAccount(admin, user, storedUserId)
       return
     }
     if (existing.error.status !== 404) throw new Error('Could not inspect the local E2E account.')
   }
 
   const create = await admin.auth.admin.createUser({ ...user, email_confirm: true })
+  if (create.error?.code === 'email_exists') {
+    const listed = await admin.auth.admin.listUsers()
+    const existing = listed.data?.users?.find((candidate) => candidate.email?.toLowerCase() === user.email)
+    if (listed.error || !existing?.id) throw new Error('Could not recover the local E2E account.')
+
+    await updateLocalE2eAccount(admin, user, existing.id)
+    await writeLocalE2eUserId(fixturePath, existing.id)
+    return
+  }
   const createdUserId = create.data?.user?.id
   if (create.error || typeof createdUserId !== 'string' || create.data.user.email?.toLowerCase() !== user.email) {
     throw new Error('Could not prepare the local E2E account.')
   }
   await writeLocalE2eUserId(fixturePath, createdUserId)
+}
+
+async function updateLocalE2eAccount(admin, user, userId) {
+  const update = await admin.auth.admin.updateUserById(userId, {
+    password: user.password,
+    email_confirm: true,
+  })
+  if (update.error || update.data?.user?.id !== userId) {
+    throw new Error('Could not prepare the local E2E account.')
+  }
 }

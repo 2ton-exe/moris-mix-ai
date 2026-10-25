@@ -1,11 +1,11 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { cp, copyFile, mkdir, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import process from 'node:process'
 import { createClient } from '@supabase/supabase-js'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { stopFunctionServer, withStackCleanup } from './runner-lifecycle.mjs'
+import { stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
 import {
   assertLocalSupabaseUrl,
   createPlaywrightEnvironment,
@@ -20,13 +20,32 @@ const projectRoot = path.resolve(frontendDir, '..')
 const e2eWorkdir = path.join(projectRoot, '.e2e-supabase')
 const e2eSupabaseDir = path.join(e2eWorkdir, 'supabase')
 
-function run(command, args, cwd, env) {
-  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', maxBuffer: 20_000_000 })
-  if (result.error) throw result.error
-  if (result.status !== 0) {
-    throw new Error(`${path.basename(command)} ${args.join(' ')} failed with exit code ${result.status ?? 1}.`)
-  }
-  return result.stdout
+let activeCommand
+
+function run(commandName, args, cwd, env, inheritOutput = false) {
+  const child = spawn(commandName, args, {
+    cwd,
+    env,
+    stdio: inheritOutput ? 'inherit' : ['ignore', 'pipe', 'ignore'],
+    detached: process.platform !== 'win32',
+  })
+  let stdout = ''
+  const command = { child }
+  activeCommand = command
+
+  command.done = new Promise((resolve, reject) => {
+    let spawnError
+    child.stdout?.on('data', (chunk) => { stdout += chunk })
+    child.once('error', (error) => { spawnError = error })
+    child.once('close', (code) => {
+      if (activeCommand === command) activeCommand = undefined
+      if (spawnError) reject(spawnError)
+      else if (code === 0) resolve(stdout)
+      else reject(new Error(`${path.basename(commandName)} ${args.join(' ')} failed with exit code ${code ?? 1}.`))
+    })
+  })
+
+  return command.done
 }
 
 function redactFunctionServerLog(line) {
@@ -103,7 +122,7 @@ async function prepareAccounts(apiUrl, serviceRoleKey) {
 }
 
 async function main() {
-  run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs', 'e2e/runner-lifecycle.test.mjs'], frontendDir)
+  await run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs', 'e2e/runner-lifecycle.test.mjs'], frontendDir)
 
   const cliEnv = createSupabaseCliEnvironment()
   const supabaseArgs = ['exec', 'supabase', '--workdir', e2eWorkdir]
@@ -112,9 +131,9 @@ async function main() {
     await prepareIsolatedProjectFiles()
     process.stdout.write('Starting the isolated local E2E Supabase project with the native runtime.\n')
     markStackMayHaveStarted()
-    run('pnpm', [...supabaseArgs, 'stack', 'start', '--runtime', 'native'], frontendDir, cliEnv)
+    await run('pnpm', [...supabaseArgs, 'stack', 'start', '--runtime', 'native'], frontendDir, cliEnv)
 
-    const status = parseSupabaseStatus(run('pnpm', [...supabaseArgs, 'status', '--env', '--output-format', 'text'], frontendDir, cliEnv))
+    const status = parseSupabaseStatus(await run('pnpm', [...supabaseArgs, 'status', '--env', '--output-format', 'text'], frontendDir, cliEnv))
     const apiUrl = assertLocalSupabaseUrl(status.API_URL)
     const publicKey = status.PUBLISHABLE_KEY || status.ANON_KEY
     const serviceRoleKey = status.SERVICE_ROLE_KEY || status.SECRET_KEY
@@ -128,25 +147,26 @@ async function main() {
     await waitForRecipesHandler(apiUrl, publicKey, functionServer)
     process.stdout.write('Recipes handler is responding. Starting Playwright.\n')
 
-    const result = spawnSync('pnpm', ['exec', 'playwright', 'test'], {
-      cwd: frontendDir,
-      env: playwrightEnv,
-      stdio: 'inherit',
-    })
-    if (result.error) throw result.error
-    if (result.status !== 0) throw new Error(`Playwright failed with exit code ${result.status ?? 1}.`)
+    await run('pnpm', ['exec', 'playwright', 'test'], frontendDir, playwrightEnv, true)
   }
-  const stopStackAndFunctionServer = async () => {
+  const stopStackAndFunctionServer = async (signal) => {
     const errors = []
+    if (signal && activeCommand) {
+      try {
+        await stopProcessGroup(activeCommand.child, signal)
+      } catch (error) {
+        errors.push(error)
+      }
+    }
     if (functionServer) {
       try {
-        await stopFunctionServer(functionServer.child)
+        await stopProcessGroup(functionServer.child)
       } catch (error) {
         errors.push(error)
       }
     }
     try {
-      run('pnpm', [...supabaseArgs, 'stack', 'stop'], frontendDir, cliEnv)
+      await run('pnpm', [...supabaseArgs, 'stack', 'stop'], frontendDir, cliEnv)
     } catch (error) {
       errors.push(error)
     }

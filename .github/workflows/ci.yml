@@ -67,8 +67,6 @@ jobs:
 
   test-e2e:
     name: Playwright E2E (Non-gating)
-    needs: frontend
-    if: needs.frontend.outputs.exists == 'true'
     uses: ./.github/workflows/reusable-e2e.yml
 
   test-db:

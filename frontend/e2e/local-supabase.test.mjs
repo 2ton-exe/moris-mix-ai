@@ -134,6 +134,42 @@ test('creates the E2E Auth user with a documented payload and persists its retur
   assert.deepEqual(JSON.parse(await readFile(fixturePath, 'utf8')), { userId })
 })
 
+test('recovers an existing E2E Auth user when its fixture file is missing', async (t) => {
+  const fixtureDirectory = await mkdtemp(path.join(os.tmpdir(), 'fs03-e2e-'))
+  t.after(() => rm(fixtureDirectory, { recursive: true, force: true }))
+  const fixturePath = path.join(fixtureDirectory, 'auth-user.json')
+  const user = { email: 'fs03-playwright@example.test', password: 'local-only' }
+  const userId = '3ce7f76a-efad-4f18-9d2f-25fc9bb2e1fc'
+  const calls = []
+  const admin = {
+    auth: {
+      admin: {
+        createUser: async (...args) => {
+          calls.push(['create', ...args])
+          return { data: { user: null }, error: { code: 'email_exists' } }
+        },
+        listUsers: async (...args) => {
+          calls.push(['list', ...args])
+          return { data: { users: [{ id: userId, email: user.email }] }, error: null }
+        },
+        updateUserById: async (...args) => {
+          calls.push(['update', ...args])
+          return { data: { user: { id: userId, email: user.email } }, error: null }
+        },
+      },
+    },
+  }
+
+  await prepareLocalE2eAccount(admin, user, fixturePath)
+
+  assert.deepEqual(calls, [
+    ['create', { ...user, email_confirm: true }],
+    ['list'],
+    ['update', userId, { password: user.password, email_confirm: true }],
+  ])
+  assert.deepEqual(JSON.parse(await readFile(fixturePath, 'utf8')), { userId })
+})
+
 test('reuses only the persisted E2E Auth user without listing other seeded users', async (t) => {
   const fixtureDirectory = await mkdtemp(path.join(os.tmpdir(), 'fs03-e2e-'))
   t.after(() => rm(fixtureDirectory, { recursive: true, force: true }))

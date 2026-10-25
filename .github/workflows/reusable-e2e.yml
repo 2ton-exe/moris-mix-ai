@@ -37,6 +37,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install frontend dependencies
         if: steps.frontend.outputs.exists == 'true'

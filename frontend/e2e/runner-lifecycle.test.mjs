@@ -4,7 +4,9 @@ import { EventEmitter } from 'node:events'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import test from 'node:test'
-import { stopFunctionServer, withStackCleanup } from './runner-lifecycle.mjs'
+import { stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
+
+const supportsProcessGroups = process.platform !== 'win32'
 
 test('does not stop an unstarted stack after preparation fails and installs signal cleanup first', async () => {
   const preparationError = new Error('file preparation failed')
@@ -95,7 +97,34 @@ test('runs stack cleanup once and exits with the signal code on SIGINT or SIGTER
   }
 })
 
-const supportsProcessGroups = process.platform !== 'win32'
+test('forwards a received signal to the active process group before cleanup completes', { skip: !supportsProcessGroups }, async (t) => {
+  const child = await startTestProcessGroup(false)
+  t.after(() => {
+    try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+  })
+  const emitter = new EventEmitter()
+  let cleanupSignal
+  let finishTask
+  let signalHandled
+  const handledSignal = new Promise((resolve) => { signalHandled = resolve })
+  const lifecycle = withStackCleanup(async (markStackMayHaveStarted) => {
+    markStackMayHaveStarted()
+    await new Promise((resolve) => { finishTask = resolve })
+  }, async (signal) => {
+    cleanupSignal = signal
+    await stopProcessGroup(child, signal)
+  }, () => signalHandled(), emitter)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  emitter.emit('SIGTERM')
+  await handledSignal
+  finishTask()
+  await lifecycle
+
+  assert.equal(cleanupSignal, 'SIGTERM')
+  assert.equal(child.exitCode, 0)
+  assertProcessGroupStopped(child.pid)
+})
 
 async function startTestProcessGroup(ignoreSigterm) {
   const childSignalHandler = ignoreSigterm
@@ -121,25 +150,25 @@ function assertProcessGroupStopped(pid) {
   assert.throws(() => process.kill(-pid, 0), (error) => error.code === 'ESRCH')
 }
 
-test('stops the recipes process group gracefully with SIGTERM', { skip: !supportsProcessGroups }, async (t) => {
+test('stops a process group gracefully with SIGTERM', { skip: !supportsProcessGroups }, async (t) => {
   const child = await startTestProcessGroup(false)
   t.after(() => {
     try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
   })
 
-  await stopFunctionServer(child)
+  await stopProcessGroup(child)
 
   assert.equal(child.exitCode, 0)
   assertProcessGroupStopped(child.pid)
 })
 
-test('uses SIGKILL when the recipes process group ignores SIGTERM', { skip: !supportsProcessGroups }, async (t) => {
+test('uses SIGKILL when a process group ignores SIGTERM', { skip: !supportsProcessGroups }, async (t) => {
   const child = await startTestProcessGroup(true)
   t.after(() => {
     try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
   })
 
-  await stopFunctionServer(child)
+  await stopProcessGroup(child)
 
   assert.equal(child.signalCode, 'SIGKILL')
   assertProcessGroupStopped(child.pid)

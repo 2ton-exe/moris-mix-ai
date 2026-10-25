@@ -56,18 +56,18 @@ async function waitForProcessGroupExit(child) {
 
   const deadline = Date.now() + processExitTimeoutMs
   while (isProcessGroupRunning(child)) {
-    if (Date.now() >= deadline) throw new Error('The recipes function server process group did not exit after SIGKILL.')
+    if (Date.now() >= deadline) throw new Error('The child process group did not exit after SIGKILL.')
     await delay(25)
   }
 }
 
-export async function stopFunctionServer(child) {
+export async function stopProcessGroup(child, signal = 'SIGTERM') {
   if (child.pid === undefined) return
 
-  signalChild(child, 'SIGTERM')
+  signalChild(child, signal)
   const exited = await waitForChildExit(child)
   if (!exited || isProcessGroupRunning(child)) signalChild(child, 'SIGKILL')
-  if (!await waitForChildExit(child)) throw new Error('The recipes function server did not exit after SIGKILL.')
+  if (!await waitForChildExit(child)) throw new Error('The child process did not exit after SIGKILL.')
   await waitForProcessGroupExit(child)
 }
 
@@ -109,9 +109,9 @@ export async function withCleanup(task, cleanup) {
 export async function withStackCleanup(task, cleanup, exit, emitter) {
   let stackMayHaveStarted = false
   let cleanupPromise
-  const cleanupOnce = () => {
+  const cleanupOnce = (signal) => {
     if (!stackMayHaveStarted) return Promise.resolve()
-    cleanupPromise ??= Promise.resolve().then(cleanup)
+    cleanupPromise ??= Promise.resolve().then(() => cleanup(signal))
     return cleanupPromise
   }
   const uninstallSignalCleanup = installSignalCleanup(cleanupOnce, exit, emitter)
@@ -132,7 +132,7 @@ export function installSignalCleanup(cleanup, exit = (code) => process.exit(code
       if (signalReceived) return
       signalReceived = true
       try {
-        await cleanup()
+        await cleanup(signal)
       } catch (error) {
         process.stderr.write(`Cleanup failed after ${signal}: ${describe(error)}\n`)
       }
