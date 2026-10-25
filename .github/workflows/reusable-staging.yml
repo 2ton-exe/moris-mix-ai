@@ -131,7 +131,7 @@ jobs:
           success=false
 
           for attempt in 1 2 3 4 5; do
-            status="$(
+            if status="$(
               curl \
                 --silent \
                 --show-error \
@@ -140,14 +140,14 @@ jobs:
                 --dump-header "$temp_dir/home.headers" \
                 --write-out "%{http_code}" \
                 "${base}/home?revision=${GITHUB_SHA}"
-            )"
-
-            if [[ "$status" == "200" ]]; then
+            )" && [[ "$status" == "200" ]]; then
               success=true
               break
             fi
 
-            sleep 5
+            if [[ "$attempt" -lt 5 ]]; then
+              sleep 5
+            fi
           done
 
           if [[ "$success" != "true" ]]; then
@@ -177,18 +177,29 @@ jobs:
             asset_url="${base}/${asset}"
           fi
 
-          asset_status="$(
-            curl \
-              --silent \
-              --show-error \
-              --location \
-              --output "$temp_dir/asset.js" \
-              --dump-header "$temp_dir/asset.headers" \
-              --write-out "%{http_code}" \
-              "$asset_url"
-          )"
+          success=false
 
-          if [[ "$asset_status" != "200" ]]; then
+          for attempt in 1 2 3 4 5; do
+            if asset_status="$(
+              curl \
+                --silent \
+                --show-error \
+                --location \
+                --output "$temp_dir/asset.js" \
+                --dump-header "$temp_dir/asset.headers" \
+                --write-out "%{http_code}" \
+                "$asset_url"
+            )" && [[ "$asset_status" == "200" ]]; then
+              success=true
+              break
+            fi
+
+            if [[ "$attempt" -lt 5 ]]; then
+              sleep 5
+            fi
+          done
+
+          if [[ "$success" != "true" ]]; then
             echo "::error::Staging JavaScript asset did not return HTTP 200."
             exit 1
           fi
