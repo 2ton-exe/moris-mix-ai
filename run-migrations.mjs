@@ -1281,6 +1281,75 @@ export async function verifyParentRecipeCascadeBehavior(client) {
   }
 }
 
+export async function verifyChildRecipeCascadeBehavior(client) {
+  const testUserId = 'd0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f';
+  const parentId = 'b1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c91';
+  const childId = 'b1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c92';
+  const lineageId = 'b1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c93';
+
+  await client.query('BEGIN;');
+  try {
+    // 1. Insert uniquely identifiable test recipes
+    await client.query(
+      `INSERT INTO public.recipes (id, user_id, title) VALUES ($1, $2, 'Cascade Parent Survives Child Deletion Test'), ($3, $2, 'Cascade Child Deletion Test');`,
+      [parentId, testUserId, childId]
+    );
+
+    // 2. Insert parent-child lineage relationship
+    await client.query(
+      `INSERT INTO public.recipe_lineage (id, parent_recipe_id, child_recipe_id) VALUES ($1, $2, $3);`,
+      [lineageId, parentId, childId]
+    );
+
+    // 3. Confirm lineage exists before deletion via direct database query
+    const preCheck = await client.query(
+      `SELECT id FROM public.recipe_lineage WHERE id = $1;`,
+      [lineageId]
+    );
+    if (preCheck.rows.length !== 1) {
+      throw new Error('Prerequisite failed: test lineage relationship was not persisted prior to child deletion.');
+    }
+
+    // 4. Delete the child recipe directly at database level (independent of PostgREST RLS)
+    const deleteResult = await client.query(
+      `DELETE FROM public.recipes WHERE id = $1 RETURNING id;`,
+      [childId]
+    );
+    if (deleteResult.rows.length !== 1) {
+      throw new Error('Prerequisite failed: test child recipe deletion did not delete 1 row.');
+    }
+
+    // 5. Query lineage table directly through approved test database connection
+    const postCheck = await client.query(
+      `SELECT id FROM public.recipe_lineage WHERE id = $1;`,
+      [lineageId]
+    );
+
+    // 6. Assert lineage record no longer exists
+    if (postCheck.rows.length !== 0) {
+      throw new Error(
+        'Physical cascade verification failed: lineage record still exists after child recipe deletion. PostgreSQL foreign key ON DELETE CASCADE was not enforced on child_recipe_id.'
+      );
+    }
+
+    // 7. Parent recipe must remain intact
+    const parentCheck = await client.query(
+      `SELECT id FROM public.recipes WHERE id = $1;`,
+      [parentId]
+    );
+    if (parentCheck.rows.length !== 1) {
+      throw new Error('Verification failed: parent recipe was unexpectedly removed during child recipe deletion.');
+    }
+  } finally {
+    try {
+      await client.query('ROLLBACK;');
+    } catch (_e) {
+      // do not hide primary error
+    }
+  }
+}
+
+
 
 export async function probePostgrestNotesColumn(url, key) {
   if (!url || !key) return { ok: false, error: 'missing url or key' };

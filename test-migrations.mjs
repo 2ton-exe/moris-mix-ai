@@ -25,7 +25,8 @@ import {
   runTestDatabaseMigrations,
   evaluateForeignKeyCascade,
   verifyForeignKeyCascadeConstraint,
-  verifyParentRecipeCascadeBehavior
+  verifyParentRecipeCascadeBehavior,
+  verifyChildRecipeCascadeBehavior
 } from './run-migrations.mjs';
 
 dotenv.config();
@@ -669,9 +670,25 @@ async function runDatabaseLifecycleIntegrationTests() {
     // Verify physical ON DELETE CASCADE behavior directly at database level:
     await verifyParentRecipeCascadeBehavior(testClient);
 
+    // Verify child-deletion cascade foreign key constraint from PostgreSQL system catalog:
+    const childCatalogFkResult = await verifyForeignKeyCascadeConstraint(testClient, {
+      sourceSchema: 'public',
+      sourceTable: 'recipe_lineage',
+      sourceColumn: 'child_recipe_id',
+      targetSchema: 'public',
+      targetTable: 'recipes',
+      targetColumn: 'id'
+    });
+    assert.equal(childCatalogFkResult.valid, true, 'Child foreign key cascade constraint is invalid.');
+    assert.equal(childCatalogFkResult.deleteAction, 'CASCADE', 'Child foreign key delete action is not CASCADE.');
+    assert.equal(childCatalogFkResult.validated, true, 'Child foreign key constraint is not validated.');
+
+    // Verify physical ON DELETE CASCADE behavior on child deletion directly at database level:
+    await verifyChildRecipeCascadeBehavior(testClient);
+
     scenariosExecuted++;
     scenariosPassed++;
-    console.log('PASS: Fresh database initialization applied all migrations once, verified catalog cascade foreign key, and proved physical ON DELETE CASCADE.');
+    console.log('PASS: Fresh database initialization applied all migrations once, verified catalog cascade foreign keys (parent and child), and proved physical ON DELETE CASCADE for both parent and child deletions.');
 
     await testClient.query('UPDATE public.recipes SET is_public = false WHERE id = \'11111111-1111-1111-1111-111111111111\';');
 
@@ -1433,6 +1450,121 @@ async function runForeignKeyCascadeUnitTests() {
       await verifyForeignKeyCascadeConstraint(mockClientMissing);
     },
     /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(parent_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
+  );
+
+  
+  // Child-recipe foreign key unit regression tests:
+  const validChildCascadeRows = [
+    {
+      conname: 'recipe_lineage_child_recipe_id_fkey',
+      contype: 'f',
+      confdeltype: 'c',
+      convalidated: true,
+      conkey_len: 1,
+      confkey_len: 1,
+      src_schema: 'public',
+      src_table: 'recipe_lineage',
+      src_column: 'child_recipe_id',
+      ref_schema: 'public',
+      ref_table: 'recipes',
+      ref_column: 'id'
+    }
+  ];
+
+  // 9. Success on valid child foreign key with ON DELETE CASCADE
+  const validChildResult = evaluateForeignKeyCascade(validChildCascadeRows, {
+    sourceColumn: 'child_recipe_id'
+  });
+  assert.equal(validChildResult.valid, true);
+  assert.equal(validChildResult.deleteAction, 'CASCADE');
+  assert.equal(validChildResult.validated, true);
+  assert.equal(validChildResult.constraintName, 'recipe_lineage_child_recipe_id_fkey');
+  assert.equal(validChildResult.source, 'public.recipe_lineage(child_recipe_id)');
+  assert.equal(validChildResult.target, 'public.recipes(id)');
+
+  // 10. Success on child foreign key with non-standard constraint name
+  const customChildNameRows = [
+    {
+      ...validChildCascadeRows[0],
+      conname: 'custom_lineage_child_fk'
+    }
+  ];
+  const customChildResult = evaluateForeignKeyCascade(customChildNameRows, {
+    sourceColumn: 'child_recipe_id'
+  });
+  assert.equal(customChildResult.valid, true);
+  assert.equal(customChildResult.constraintName, 'custom_lineage_child_fk');
+
+  // 11. Child foreign key evaluation fails when constraint is absent
+  assert.throws(
+    () => evaluateForeignKeyCascade([], { sourceColumn: 'child_recipe_id' }),
+    /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(child_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
+  );
+  assert.throws(
+    () => evaluateForeignKeyCascade(validCascadeRows, { sourceColumn: 'child_recipe_id' }),
+    /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(child_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
+  );
+
+  // 12. Child foreign key evaluation fails when referenced target table or column is wrong
+  const wrongChildTargetRows = [
+    {
+      ...validChildCascadeRows[0],
+      ref_table: 'profiles',
+      ref_column: 'id'
+    }
+  ];
+  assert.throws(
+    () => evaluateForeignKeyCascade(wrongChildTargetRows, { sourceColumn: 'child_recipe_id' }),
+    /Foreign key on public\.recipe_lineage\(child_recipe_id\) references unexpected target: expected public\.recipes\(id\), found public\.profiles\(id\)\./
+  );
+
+  // 13. Child foreign key evaluation fails when delete action is not CASCADE
+  for (const [actionCode, actionName] of [['a', 'NO ACTION'], ['r', 'RESTRICT'], ['n', 'SET NULL'], ['d', 'SET DEFAULT']]) {
+    const wrongChildActionRows = [
+      {
+        ...validChildCascadeRows[0],
+        confdeltype: actionCode
+      }
+    ];
+    assert.throws(
+      () => evaluateForeignKeyCascade(wrongChildActionRows, { sourceColumn: 'child_recipe_id' }),
+      new RegExp(`does not specify ON DELETE CASCADE: delete action is '${actionCode}' \\(${actionName}\\)`)
+    );
+  }
+
+  // 14. Child foreign key evaluation fails when constraint is not validated
+  const unvalidatedChildRows = [
+    {
+      ...validChildCascadeRows[0],
+      convalidated: false
+    }
+  ];
+  assert.throws(
+    () => evaluateForeignKeyCascade(unvalidatedChildRows, { sourceColumn: 'child_recipe_id' }),
+    /Foreign key constraint 'recipe_lineage_child_recipe_id_fkey' on public\.recipe_lineage\(child_recipe_id\) is not validated \(convalidated is false\)\./
+  );
+
+  // 15. verifyForeignKeyCascadeConstraint propagates sourceColumn: 'child_recipe_id'
+  const mockClientBoth = {
+    query: async () => ({ rows: [...validCascadeRows, ...validChildCascadeRows] })
+  };
+  const childHelperResult = await verifyForeignKeyCascadeConstraint(mockClientBoth, {
+    sourceColumn: 'child_recipe_id'
+  });
+  assert.equal(childHelperResult.valid, true);
+  assert.equal(childHelperResult.source, 'public.recipe_lineage(child_recipe_id)');
+  assert.equal(childHelperResult.deleteAction, 'CASCADE');
+
+  const mockClientMissingChild = {
+    query: async () => ({ rows: validCascadeRows })
+  };
+  await assert.rejects(
+    async () => {
+      await verifyForeignKeyCascadeConstraint(mockClientMissingChild, {
+        sourceColumn: 'child_recipe_id'
+      });
+    },
+    /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(child_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
   );
 
   console.log('PASS: Database catalog foreign key cascade verification unit tests passed.');
