@@ -10,13 +10,14 @@ main pushes and manual dispatches. Pull requests skip deployment.
 | File in `.github/workflows/` | Responsibility through Stage 2A |
 | --- | --- |
 | `ci.yml` | Authoritative PR/main validation and gated Cloudflare deployment |
-| `modular-pr-validation.yml` | PRs targeting main only; comparison runs of the reusable validations |
+| `modular-pr-validation.yml` | PRs targeting main only; shadow runs of the reusable validations |
 | `modular-main.yml` | Shadow main validation and an inert downstream evidence gate |
 | `modular-gate-experiment.yml` | Manual, secret-free dependency-gate experiments |
 | `reusable-gate-fixture.yml` | Deterministic, secret-free simulated validation dependencies |
 | `reusable-frontend.yml` | Existing frontend steps and exported `exists` output |
 | `reusable-database.yml` | Existing PostgreSQL service, environment, migration and RLS tests |
 | `reusable-edge-api.yml` | Deno checks, deterministic tests, and optional hosted database migration and integration tests |
+| `reusable-e2e.yml` | Playwright browser journeys against an isolated local Supabase stack; no secrets or hosted data |
 | `reusable-cloudflare.yml` | Dormant deployment implementation; `workflow_call` only, no caller |
 
 The reusable jobs retain their internal names. Edge/API validation includes
@@ -32,11 +33,15 @@ fallback. Neither caller forwards Cloudflare secrets to any reusable workflow.
 Public Supabase build variables remain read through `vars` inside the reusable
 deployment job.
 
-Duplicate validation work on PRs is intentional during migration. The comparison
-caller uses distinct `Modular ...` job names because GitHub can compose reusable
-check names from caller and callee names. Do not assume that retaining the callee
-name preserves the exact required-check context. The existing required checks
-continue to come from `ci.yml`; do not change rulesets during this stage.
+Duplicate frontend, database, Edge/API, and E2E validation work on PRs is
+intentional during migration. `ci.yml` and both modular callers use the reusable
+E2E workflow. In `ci.yml`, E2E is a separate non-gating job: it is not part of
+the required `Frontend Checks` status or the Cloudflare deployment dependencies.
+The modular caller uses distinct `Modular ...` job names because GitHub can
+compose reusable check names from caller and callee names. Do not assume that
+retaining the callee name preserves the exact required-check context. The
+existing required checks continue to come from `ci.yml`; do not change rulesets
+during this stage.
 
 The reusable Cloudflare job preserves the main push/manual-dispatch guard,
 `contents: read` permission, public build-variable checks, and job concurrency
@@ -60,31 +65,35 @@ and [workflow reuse guide](https://docs.github.com/en/actions/how-tos/reuse-auto
 
 `modular-main.yml` runs on pushes to main and supports manual dispatch; it has
 no PR trigger. Its caller names are `Modular Main Frontend`, `Modular Main
-Database`, and `Modular Main Edge/API`. The observed composed main check names are
+Database`, `Modular Main Edge/API`, and `Modular Main E2E`. The recorded main
+runs below used the pre-E2E configuration and observed the composed names
 `Modular Main Frontend / Frontend Checks`,
 `Modular Main Database / Database Tests`, and
-`Modular Main Edge/API / Edge/API Tests`. The caller forwards all six optional BE04
+`Modular Main Edge/API / Edge/API Tests`; the new E2E check and four-dependency
+gate have not yet run on main. The caller forwards all six optional BE04
 non-production test secrets: Supabase URL, anon key, service-role key, secret
 key, expected project reference, and dedicated database URL. Like the PR caller,
 it forwards the expected-reference secret with a legacy `BE04_RLS_TEST_PROJECT_REF`
 secret fallback; the reusable workflow also reads repository-variable fallbacks.
-It never calls `reusable-cloudflare.yml`, receives no Cloudflare production
+The E2E caller forwards no secrets and uses only its local Supabase stack. The
+workflow never calls `reusable-cloudflare.yml`, receives no Cloudflare production
 secrets, and contains no deployment commands.
 
 The final `gate-evidence` job declares
-`needs: [frontend, test-db, test-edge-api]`, requires
+`needs: [frontend, test-db, test-edge-api, test-e2e]`, requires
 `needs.frontend.outputs.exists == 'true'`, and restricts itself to main
 push/manual-dispatch events. It uses normal implicit success semantics, with no
 `always()` or `continue-on-error`. It has no token permissions, credentials,
-checkout, or production actions; it only logs inert evidence. Existing `ci.yml`
-continues independently as the sole production deployment path.
+checkout, or production actions; it only logs inert evidence. Failed, cancelled,
+or skipped E2E therefore cannot produce successful gate evidence. Existing
+`ci.yml` continues independently as the sole production deployment path.
 
 `modular-gate-experiment.yml` is manual-dispatch only. It and its reusable fixture
 declare `permissions: {}`, accept no secrets, and perform no checkout, network,
 provider, or deployment actions. The fixture has boolean inputs for intentional
 failure, simulated frontend existence, and a five-minute cancellation window.
 Its `exists` output traverses step, job, and reusable workflow outputs. The
-experiment's `would-deploy` job mirrors the three validation dependencies and
+experiment's `would-deploy` job mirrors all four validation dependencies and the
 frontend existence condition with normal success semantics. Its logs explicitly
 state that no production deployment occurred. This synthetic gate can run on a
 selected ref; main event/ref restrictions are enforced separately by the shadow
@@ -120,23 +129,31 @@ is not primary cancellation evidence: it was cancelled too late, after the
 database cancellation window had completed successfully. Cancellation in the
 valid run was real, not simulated by an exit code.
 
-Stage 2A is now runtime-verified for successful main orchestration, frontend
-output propagation, dependency failure blocking, missing frontend blocking,
-skipped dependency blocking, real cancellation blocking, and non-main ref
-blocking. This does not prove a production handoff or production concurrency
-behavior. The PR restriction remains architectural: `modular-main.yml` has no
+Recorded Stage 2A runs are runtime-verified for successful main orchestration,
+frontend output propagation, dependency failure blocking, missing frontend
+blocking, skipped dependency blocking, real cancellation blocking, and non-main
+ref blocking for the three core validations. This does not prove a production
+handoff or production concurrency behavior. The PR restriction remains
+architectural: `modular-main.yml` has no
 `pull_request` trigger, and Modular PR Validation handles PR validation.
 PR #75 had successful CI and Modular PR Validation evidence before merge; no
 additional modular-main PR runtime event is claimed.
 
-The Stage 2A implementation reconciles static Edge/API command parity with authoritative
-`ci.yml`: both type-check the recipe and AI contract/evaluation files and run
-the same deterministic test files. BE-06's guarded hosted non-production
-migration and auth/RLS/recipe integration coverage remains intact, and both
+The Stage 2A implementation reconciles static Edge/API command parity with
+authoritative `ci.yml`: both type-check the recipe and AI contract/evaluation
+files and run the same deterministic test files. BE-06's guarded hosted
+non-production migration and auth/RLS/recipe integration coverage remains intact, and both
 modular callers forward the same optional hosted-test secrets. This static
-reconciliation alone does not establish runtime parity. The runs above now
-establish successful Stage 2A shadow main execution and inert dependency-gate
-behavior; they do not establish production deployment parity.
+reconciliation alone does not establish runtime parity. The runs above establish
+successful Stage 2A shadow main execution and inert dependency-gate behavior
+for the three core validations; they do not establish
+the updated four-dependency gate or production deployment parity.
+
+PR #79 adds E2E to the shadow main gate and adds fail-e2e, skip-e2e, and
+cancel-e2e experiment scenarios. The recorded runs predate those additions, so
+their runtime results and the updated four-dependency main gate remain pending.
+The authenticated CRUD and cross-user ownership journeys have separate
+successful PR workflow evidence recorded below.
 
 ## Evidence needed before retiring ci.yml
 
@@ -154,6 +171,19 @@ successfully on PR #74. The observed GitHub checks were:
 PR validation without production deployment and establishes the actual composed
 modular check names. The existing `ci.yml` remains authoritative.
 
+PR #79 at `be283a5` verified the separate E2E calls on a current PR run ([CI]
+and [Modular PR Validation]). The existing required checks (`Frontend Checks`,
+`Database Tests`, and `Edge/API Tests`) all succeeded. `Playwright E2E
+(Non-gating) / Playwright E2E Tests` and `Modular E2E / Playwright E2E Tests`
+both completed Chromium installation and the local Supabase Playwright runner
+successfully. The modular Frontend, Database, and Edge/API jobs also succeeded;
+`Deploy to Cloudflare` was skipped for the PR. The required check names and
+deployment dependencies are unchanged. This PR run does not verify modular main
+gate evidence or the manual fail/skip/cancellation scenarios.
+
+[CI]: https://github.com/2ton-exe/moris-mix-ai/actions/runs/40108914974
+[Modular PR Validation]: https://github.com/2ton-exe/moris-mix-ai/actions/runs/40108914913
+
 Stage 1 merged to main. The post-merge authoritative main run passed frontend,
 database, and Edge/API validations, and its existing Cloudflare production
 deployment succeeded. This is evidence for the authoritative path only.
@@ -165,9 +195,11 @@ for production deployment. No production/main cutover has occurred; `ci.yml`
 must not yet be retired.
 
 Local YAML/static validation alone cannot establish runtime behavior. PR #74
-provides GitHub PR execution and check-name evidence; it does not establish
-modular main output propagation or production concurrency behavior. Retain real
-PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
+provides GitHub PR execution and check-name evidence, and the Stage 2A runs
+above establish runtime behavior for the three core validations. PR #79's E2E
+addition to the shadow main gate remains unobserved on main; production
+concurrency behavior is also unverified. Retain real PR run URLs, commit SHAs,
+jobs and conclusions with the migration evidence.
 
 1. PR #74 confirms both CI and Modular PR Validation ran and all three modular
    validation jobs passed under the composed names recorded above. For the
@@ -182,30 +214,29 @@ PR run URLs, commit SHAs, jobs and conclusions with the migration evidence.
    deployment job skipped. Continue to ensure no Cloudflare secrets are passed
    by the modular PR caller and no workflow calls `reusable-cloudflare.yml`
    through Stage 2A.
-3. Stage 2A shadow main and controlled gate experiments now provide the runtime
-   evidence recorded above for frontend output propagation and dependency
-   gating using inert downstream jobs with no production credentials or
-   deployment commands.
-   The main gate declares
-   `needs: [frontend, test-db, test-edge-api]`, uses normal success semantics
-   (no `always()` or `continue-on-error` bypass), and requires
-   `needs.frontend.outputs.exists == 'true'`. Observed runs demonstrate success
-   and blocking for failed, cancelled and skipped dependencies, missing frontend,
-   and non-main refs. PR exclusion follows the absence of a PR trigger; PR #75
-   provides separate CI and Modular PR Validation evidence. Preserve the
-   push/manual-dispatch restriction.
+3. The recorded Stage 2A shadow main and controlled gate experiments
+   provide runtime evidence for the three core validations. PR #79 adds
+   E2E as a fourth dependency to the shadow main gate; observe a main run
+   of that updated gate before claiming four-dependency runtime evidence.
+   The gate uses normal success semantics (no `always()` or
+   `continue-on-error` bypass), requires
+   `needs.frontend.outputs.exists == 'true'`, and runs only on main pushes
+   or manual dispatches. The reusable E2E workflow has separate successful
+   PR evidence, but the updated combined main gate remains unverified.
 4. Final production cutover still depends on staging/preview delivery in
-   [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains pending.
-   Prepare the production handoff as a separate change after that prerequisite:
-   wire a main caller to all three reusable validations and then deployment with
-   those same dependencies/conditions, explicitly pass Cloudflare secrets, and
-   convert the string frontend output to a boolean input. Do not use a separate
-   `workflow_run` deployment or trust a boolean input as proof of validation.
+   [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains
+   pending. Prepare the production handoff as a separate change after that
+   prerequisite: wire a main caller to all three reusable validations and then
+   deployment with those same dependencies/conditions. Pass Cloudflare secrets
+   explicitly and convert the string frontend output to a boolean input. Do not
+   use a separate `workflow_run` deployment or trust a boolean input as proof
+   of validation.
    The reusable deployment cannot express `needs` on the caller's validation
    jobs; the caller must enforce that gate.
 5. Resolve required-check naming using actual GitHub results before retiring the
-   old check producers. Any ruleset/check-context change requires a separately
-   authorized handoff. Switch off the old deploy caller when enabling the new
+   old check producers. Keep E2E non-authoritative until its reliability is
+   established and separately approved. Any ruleset/check-context change requires
+   a separately authorized handoff. Switch off the old deploy caller when enabling the new
    one in the same reviewed cutover; never leave two active production paths.
    A shared concurrency group serializes jobs but does not prevent duplicate
    deployments. Keep the group only on the deployment job, with cancellation

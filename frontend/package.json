@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "type-check": "tsc -p tsconfig.app.json --noEmit",
-    "test": "vitest run --configLoader runner"
+    "test": "vitest run --configLoader runner",
+    "test:e2e:local": "node e2e/run-local.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
@@ -20,7 +21,9 @@
     "zod": "3.22.4"
   },
   "devDependencies": {
+    "supabase": "2.122.0",
     "@eslint/js": "^9.0.0",
+    "@playwright/test": "1.64.1",
     "@testing-library/dom": "~10.4.2",
     "@testing-library/react": "16.3.3",
     "@types/react": "^19.0.0",
