@@ -401,13 +401,28 @@ async function runMain() {
     "VITE_SUPABASE_URL",
     "VITE_SUPABASE_ANON_KEY",
     "VITE_SUPABASE_PUBLISHABLE_KEY",
+    "RUN_BE07_RLS_INTEGRATION",
+    "RUN_BE06_RLS_INTEGRATION",
     "RUN_BE04_RLS_INTEGRATION",
+    "BE07_RLS_TEST_SUPABASE_URL",
+    "BE07_RLS_TEST_SUPABASE_ANON_KEY",
+    "BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
+    "BE07_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
+    "BE07_RLS_TEST_SUPABASE_SECRET_KEY",
+    "BE07_RLS_TEST_EXPECTED_PROJECT_REF",
+    "BE06_RLS_TEST_SUPABASE_URL",
+    "BE06_RLS_TEST_SUPABASE_ANON_KEY",
+    "BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
+    "BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
+    "BE06_RLS_TEST_SUPABASE_SECRET_KEY",
+    "BE06_RLS_TEST_EXPECTED_PROJECT_REF",
     "BE04_RLS_TEST_SUPABASE_URL",
     "BE04_RLS_TEST_SUPABASE_ANON_KEY",
     "BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
     "BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
     "BE04_RLS_TEST_SUPABASE_SECRET_KEY",
     "RUN_MIGRATION_DB_TESTS",
+    "RUN_DB_MIGRATION_TESTS",
   ]) {
     delete env[key];
   }
@@ -496,22 +511,27 @@ async function runMain() {
     }
   }
 
-  runCommand(process.execPath, ["test-migrations.mjs", "--run-db-tests"], false);
+  runCommand(process.execPath, getMigrationTestArgs(), false);
 
   const denoArgs = [
     "test",
     "--frozen-lockfile",
     "--node-modules-dir=auto",
     "--allow-env",
-    "--allow-net",
+    ...(rlsEvaluation.canRun ? ["--allow-net"] : []),
     "--allow-read=fixtures/demo-recipe.json",
     "supabase/functions/tests/demo_recipe_test.ts",
     "supabase/functions/tests/auth_test.ts",
     "supabase/functions/tests/auth_rls_integration_test.ts",
     "supabase/functions/tests/recipes_test.ts",
+    "supabase/functions/tests/cross_user_rls_lineage_test.ts",
   ];
 
   runCommand("deno", denoArgs, process.platform === "win32");
+}
+
+function getMigrationTestArgs() {
+  return ["test-migrations.mjs", "--run-db-tests"];
 }
 
 const isDirectRun =
@@ -547,4 +567,5 @@ export {
   passesRlsTargetSafetyPrecheck,
   evaluateHostedRlsPrerequisites,
   runMain,
+  getMigrationTestArgs,
 };

@@ -29,15 +29,19 @@ jobs:
       BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF || secrets.BE04_RLS_TEST_PROJECT_REF }}
       BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
 
+  test-e2e:
+    name: Modular Main E2E
+    uses: ./.github/workflows/reusable-e2e.yml
+
   gate-evidence:
     name: Modular Main Inert Gate
-    needs: [frontend, test-db, test-edge-api]
+    needs: [frontend, test-db, test-edge-api, test-e2e]
     if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
       - name: Record successful shadow gate
         run: |
-          echo "All three modular validations succeeded and frontend exists on main."
+          echo "All four modular validations succeeded and frontend exists on main."
           echo "INERT EVIDENCE ONLY: no production deployment occurred in this job."
           echo "ci.yml retains production deployment ownership."
