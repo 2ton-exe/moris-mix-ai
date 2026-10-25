@@ -226,6 +226,92 @@ test('forwards a signal received during cleanup to the active command without re
   assertProcessGroupStopped(child.pid)
 })
 
+test('forwards a second signal to the retrying cleanup command without repeating stack cleanup', { skip: !supportsProcessGroups }, async (t) => {
+  const firstCommand = await startTestProcessGroup(false)
+  const retryCommand = await startTestProcessGroup(false)
+  t.after(() => {
+    for (const child of [firstCommand, retryCommand]) {
+      try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+    }
+  })
+
+  const emitter = new EventEmitter()
+  let startFirstAttempt
+  let startRetry
+  let finishSignal
+  const firstAttemptStarted = new Promise((resolve) => { startFirstAttempt = resolve })
+  const retryStarted = new Promise((resolve) => { startRetry = resolve })
+  const signalHandled = new Promise((resolve) => { finishSignal = resolve })
+  const forwardedSignals = []
+  const exitCodes = []
+  const firstStopError = new Error('first stop command was interrupted')
+  let activeCommand
+  let attempts = 0
+  let cleanups = 0
+  let stackStopInProgress = false
+  let stackStopInterrupted = false
+  let stackStopSignalForwarding = Promise.resolve()
+
+  const lifecycle = withStackCleanup(async (markStackMayHaveStarted) => {
+    markStackMayHaveStarted()
+  }, async () => {
+    cleanups += 1
+    await retryInterruptedCleanup(async () => {
+      attempts += 1
+      activeCommand = attempts === 1 ? firstCommand : retryCommand
+      stackStopInProgress = true
+      if (attempts === 1) startFirstAttempt()
+      else startRetry()
+      try {
+        await waitForChildExit(activeCommand)
+        if (attempts === 1) throw firstStopError
+      } finally {
+        stackStopInProgress = false
+      }
+    }, () => {
+      if (!stackStopInterrupted) return false
+      stackStopInterrupted = false
+      return true
+    }, () => stackStopSignalForwarding)
+  }, (code) => {
+    exitCodes.push(code)
+    finishSignal()
+  }, emitter, async (signal) => {
+    forwardedSignals.push(signal)
+    if (stackStopInProgress) {
+      stackStopInterrupted = true
+      stackStopSignalForwarding = stopProcessGroup(activeCommand, signal)
+      await stackStopSignalForwarding
+      return
+    }
+    await stopProcessGroup(activeCommand, signal)
+  })
+
+  await firstAttemptStarted
+  emitter.emit('SIGTERM')
+  await retryStarted
+  emitter.emit('SIGINT')
+  let timeout
+  try {
+    await Promise.race([
+      signalHandled,
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('The second signal was not forwarded to the retry command.')), 1_000) }),
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+  await lifecycle
+
+  assert.deepEqual(forwardedSignals, ['SIGTERM', 'SIGINT'])
+  assert.equal(cleanups, 1)
+  assert.equal(attempts, 2)
+  assert.deepEqual(exitCodes, [143])
+  assert.equal(firstCommand.exitCode, 0)
+  assert.ok(retryCommand.exitCode !== null || retryCommand.signalCode !== null)
+  assertProcessGroupStopped(firstCommand.pid)
+  assertProcessGroupStopped(retryCommand.pid)
+})
+
 test('redacts credentials from command diagnostics', () => {
   const output = 'Authorization: Bearer local-token\nSERVICE_ROLE_KEY=server-secret\nDATABASE_URL=postgresql://postgres:secret@127.0.0.1\nsb_secret_local-key'
   const detail = redactSensitiveOutput(output)
@@ -256,6 +342,11 @@ async function startTestProcessGroup(ignoreSigterm) {
 
 function assertProcessGroupStopped(pid) {
   assert.throws(() => process.kill(-pid, 0), (error) => error.code === 'ESRCH')
+}
+
+function waitForChildExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise((resolve) => child.once('exit', resolve))
 }
 
 test('stops a process group gracefully with SIGTERM', { skip: !supportsProcessGroups }, async (t) => {
