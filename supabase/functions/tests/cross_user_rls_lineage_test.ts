@@ -1311,7 +1311,11 @@ Deno.test({
         .from("recipe_lineage")
         .select("id")
         .eq("parent_recipe_id", s7ParentA);
-      assertEquals(verifyS7Lineage?.length, 0);
+      assertEquals(
+        verifyS7Lineage?.length,
+        0,
+        "PostgREST query returning zero rows confirms no lineage record is visible under RLS, but does not independently prove physical cascade deletion because lineage_select_own requires an existing parent recipe owned by the caller.",
+      );
 
       // Distinguish dynamic verification from schema-level ON DELETE CASCADE:
       // The lineage_select_own policy requires parent recipe ownership. Once the parent is deleted,
@@ -1324,7 +1328,11 @@ Deno.test({
         hasSurvivingParent: false,
         ownerLineageRowCount: verifyS7Lineage?.length ?? 0,
       });
-      assertEquals(s7CascadeEval.independentDeletionProven, false);
+      assertEquals(
+        s7CascadeEval.independentDeletionProven,
+        false,
+        "Post-parent-deletion query returning zero rows must evaluate as unproven for physical deletion because RLS hides orphaned lineage rows from the caller once the parent recipe no longer exists.",
+      );
       assertNotEquals(s7CascadeEval.limitationReason, undefined);
 
       const s8ParentA = await createRecipe(rlsClientA, userAId, "Scenario 8 Parent A");
@@ -1901,7 +1909,11 @@ Deno.test("Finding 4 regression: Parent-deletion cascade verifies prerequisite i
     ownerLineageRowCount: 0,
   });
   // Must NOT treat RLS hiding as independent proof of physical deletion
-  assertEquals(cascadeEval.independentDeletionProven, false);
+  assertEquals(
+    cascadeEval.independentDeletionProven,
+    false,
+    "PostgREST query returning zero rows after parent deletion cannot independently prove physical cascade deletion because lineage_select_own hides orphaned lineage rows when the parent recipe is missing.",
+  );
   assertEquals(
     cascadeEval.limitationReason?.includes("Lineage SELECT policy requires parent recipe ownership"),
     true,
@@ -1996,7 +2008,11 @@ Deno.test("Finding 4 regression: Simulated orphan lineage row confirms RLS hides
     hasSurvivingParent: false,
     ownerLineageRowCount: queryResultRows.length,
   });
-  assertEquals(cascadeEval.independentDeletionProven, false);
+  assertEquals(
+    cascadeEval.independentDeletionProven,
+    false,
+    "Simulated orphan row confirms empty PostgREST query results cannot prove physical cascade deletion.",
+  );
 });
 
 // ============================================================================

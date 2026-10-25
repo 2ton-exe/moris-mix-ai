@@ -22,7 +22,10 @@ import {
   probePostgrestNotesColumn,
   resolveTestDatabaseConfiguration,
   reloadPostgrestSchemaCache,
-  runTestDatabaseMigrations
+  runTestDatabaseMigrations,
+  evaluateForeignKeyCascade,
+  verifyForeignKeyCascadeConstraint,
+  verifyParentRecipeCascadeBehavior
 } from './run-migrations.mjs';
 
 dotenv.config();
@@ -649,9 +652,26 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     const demoRow1 = await testClient.query('SELECT is_public FROM public.recipes WHERE id = \'11111111-1111-1111-1111-111111111111\';');
     assert.equal(demoRow1.rows[0].is_public, true);
+
+    // Verify parent-deletion cascade foreign key constraint from PostgreSQL system catalog:
+    const catalogFkResult = await verifyForeignKeyCascadeConstraint(testClient, {
+      sourceSchema: 'public',
+      sourceTable: 'recipe_lineage',
+      sourceColumn: 'parent_recipe_id',
+      targetSchema: 'public',
+      targetTable: 'recipes',
+      targetColumn: 'id'
+    });
+    assert.equal(catalogFkResult.valid, true);
+    assert.equal(catalogFkResult.deleteAction, 'CASCADE');
+    assert.equal(catalogFkResult.validated, true);
+
+    // Verify physical ON DELETE CASCADE behavior directly at database level:
+    await verifyParentRecipeCascadeBehavior(testClient);
+
     scenariosExecuted++;
     scenariosPassed++;
-    console.log('PASS: Fresh database initialization applied all migrations once and recorded history.');
+    console.log('PASS: Fresh database initialization applied all migrations once, verified catalog cascade foreign key, and proved physical ON DELETE CASCADE.');
 
     await testClient.query('UPDATE public.recipes SET is_public = false WHERE id = \'11111111-1111-1111-1111-111111111111\';');
 
@@ -1304,10 +1324,125 @@ async function runTestTargetMigrationUnitTests() {
   console.log('PASS: Test database target extraction, validation, and preflight configuration verified.');
 }
 
+
+async function runForeignKeyCascadeUnitTests() {
+  const validCascadeRows = [
+    {
+      conname: 'recipe_lineage_parent_recipe_id_fkey',
+      contype: 'f',
+      confdeltype: 'c',
+      convalidated: true,
+      conkey_len: 1,
+      confkey_len: 1,
+      src_schema: 'public',
+      src_table: 'recipe_lineage',
+      src_column: 'parent_recipe_id',
+      ref_schema: 'public',
+      ref_table: 'recipes',
+      ref_column: 'id'
+    }
+  ];
+
+  // 1. Success on valid ON DELETE CASCADE foreign key
+  const validResult = evaluateForeignKeyCascade(validCascadeRows);
+  assert.equal(validResult.valid, true);
+  assert.equal(validResult.deleteAction, 'CASCADE');
+  assert.equal(validResult.validated, true);
+  assert.equal(validResult.constraintName, 'recipe_lineage_parent_recipe_id_fkey');
+
+  // 2. Success with non-standard constraint name (proves relationship is identified by tables and columns, not hardcoded name)
+  const customNameRows = [
+    {
+      ...validCascadeRows[0],
+      conname: 'custom_lineage_parent_fk'
+    }
+  ];
+  const customResult = evaluateForeignKeyCascade(customNameRows);
+  assert.equal(customResult.valid, true);
+  assert.equal(customResult.constraintName, 'custom_lineage_parent_fk');
+
+  // 3. Fails when constraint is absent
+  assert.throws(
+    () => evaluateForeignKeyCascade([]),
+    /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(parent_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
+  );
+
+  // 4. Fails when referencing column is wrong
+  const wrongSourceColRows = [
+    {
+      ...validCascadeRows[0],
+      src_column: 'child_recipe_id'
+    }
+  ];
+  assert.throws(
+    () => evaluateForeignKeyCascade(wrongSourceColRows),
+    /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(parent_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
+  );
+
+  // 5. Fails when referenced table or column is wrong
+  const wrongTargetRows = [
+    {
+      ...validCascadeRows[0],
+      ref_table: 'profiles',
+      ref_column: 'id'
+    }
+  ];
+  assert.throws(
+    () => evaluateForeignKeyCascade(wrongTargetRows),
+    /Foreign key on public\.recipe_lineage\(parent_recipe_id\) references unexpected target: expected public\.recipes\(id\), found public\.profiles\(id\)\./
+  );
+
+  // 6. Fails when delete action is not CASCADE ('a' NO ACTION, 'r' RESTRICT, 'n' SET NULL, 'd' SET DEFAULT)
+  for (const [actionCode, actionName] of [['a', 'NO ACTION'], ['r', 'RESTRICT'], ['n', 'SET NULL'], ['d', 'SET DEFAULT']]) {
+    const wrongActionRows = [
+      {
+        ...validCascadeRows[0],
+        confdeltype: actionCode
+      }
+    ];
+    assert.throws(
+      () => evaluateForeignKeyCascade(wrongActionRows),
+      new RegExp(`does not specify ON DELETE CASCADE: delete action is '${actionCode}' \\(${actionName}\\)`)
+    );
+  }
+
+  // 7. Fails when constraint is not validated (convalidated is false)
+  const unvalidatedRows = [
+    {
+      ...validCascadeRows[0],
+      convalidated: false
+    }
+  ];
+  assert.throws(
+    () => evaluateForeignKeyCascade(unvalidatedRows),
+    /Foreign key constraint 'recipe_lineage_parent_recipe_id_fkey' on public\.recipe_lineage\(parent_recipe_id\) is not validated \(convalidated is false\)\./
+  );
+
+  // 8. verifyForeignKeyCascadeConstraint helper delegates to query and evaluates
+  const mockClientSuccess = {
+    query: async () => ({ rows: validCascadeRows })
+  };
+  const helperResult = await verifyForeignKeyCascadeConstraint(mockClientSuccess);
+  assert.equal(helperResult.valid, true);
+
+  const mockClientMissing = {
+    query: async () => ({ rows: [] })
+  };
+  await assert.rejects(
+    async () => {
+      await verifyForeignKeyCascadeConstraint(mockClientMissing);
+    },
+    /Catalog verification failed: Foreign key constraint on public\.recipe_lineage\(parent_recipe_id\) referencing public\.recipes\(id\) is missing from pg_constraint\./
+  );
+
+  console.log('PASS: Database catalog foreign key cascade verification unit tests passed.');
+}
+
 async function main() {
   console.log('Starting migration runner test suite...');
   runDiscoveryAndIntegrityUnitTests();
   await runSchemaVerificationUnitTests();
+  await runForeignKeyCascadeUnitTests();
   await runTestTargetMigrationUnitTests();
   runMigrationOptInUnitTests();
   await runDatabaseLifecycleIntegrationTests();
