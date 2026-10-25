@@ -4,7 +4,13 @@ import { EventEmitter } from 'node:events'
 import process from 'node:process'
 import { clearTimeout, setImmediate, setTimeout } from 'node:timers'
 import test from 'node:test'
-import { formatCommandFailure, redactSensitiveOutput, stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
+import {
+  formatCommandFailure,
+  redactSensitiveOutput,
+  retryInterruptedCleanup,
+  stopProcessGroup,
+  withStackCleanup,
+} from './runner-lifecycle.mjs'
 
 const supportsProcessGroups = process.platform !== 'win32'
 
@@ -25,6 +31,60 @@ test('does not stop an unstarted stack after preparation fails and installs sign
   assert.equal(stops, 0)
   assert.equal(emitter.listenerCount('SIGINT'), 0)
   assert.equal(emitter.listenerCount('SIGTERM'), 0)
+})
+
+test('forwards a signal to the active command before the stack starts', { skip: !supportsProcessGroups }, async (t) => {
+  const child = await startTestProcessGroup(false)
+  t.after(() => {
+    try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+  })
+  const emitter = new EventEmitter()
+  let finishTask
+  let finishSignal
+  let cleanups = 0
+  const taskFinished = new Promise((resolve) => { finishTask = resolve })
+  const signalHandled = new Promise((resolve) => { finishSignal = resolve })
+  const lifecycle = withStackCleanup(async () => {
+    await taskFinished
+  }, async () => { cleanups += 1 }, () => finishSignal(), emitter, async (signal) => {
+    await stopProcessGroup(child, signal)
+  })
+
+  await new Promise((resolve) => setImmediate(resolve))
+  emitter.emit('SIGTERM')
+  await signalHandled
+  finishTask()
+  await lifecycle
+
+  assert.equal(cleanups, 0)
+  assert.equal(child.exitCode, 0)
+  assertProcessGroupStopped(child.pid)
+})
+
+test('retries cleanup only after its command was interrupted by a signal', async () => {
+  const stopError = new Error('stop command interrupted')
+  let attempts = 0
+  let interrupted = true
+  let signalFinished = false
+
+  await retryInterruptedCleanup(async () => {
+    attempts += 1
+    if (attempts === 1) throw stopError
+  }, () => {
+    const wasInterrupted = interrupted
+    interrupted = false
+    return wasInterrupted
+  }, async () => {
+    signalFinished = true
+  })
+
+  assert.equal(attempts, 2)
+  assert.equal(signalFinished, true)
+
+  await assert.rejects(
+    retryInterruptedCleanup(async () => { throw stopError }, () => false, async () => {}),
+    (error) => error === stopError,
+  )
 })
 
 test('stops once after a partial stack-start failure and preserves the startup error', async () => {

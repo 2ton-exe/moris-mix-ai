@@ -5,7 +5,13 @@ import path from 'node:path'
 import process from 'node:process'
 import { createClient } from '@supabase/supabase-js'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { formatCommandFailure, redactSensitiveOutput, stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
+import {
+  formatCommandFailure,
+  redactSensitiveOutput,
+  retryInterruptedCleanup,
+  stopProcessGroup,
+  withStackCleanup,
+} from './runner-lifecycle.mjs'
 import {
   assertLocalSupabaseUrl,
   createPlaywrightEnvironment,
@@ -117,12 +123,14 @@ async function prepareAccounts(apiUrl, serviceRoleKey) {
 }
 
 async function main() {
-  await run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs', 'e2e/runner-lifecycle.test.mjs'], frontendDir)
-
   const cliEnv = createSupabaseCliEnvironment()
   const supabaseArgs = ['exec', 'supabase', '--workdir', e2eWorkdir]
   let functionServer
+  let stackStopInProgress = false
+  let stackStopInterrupted = false
+  let stackStopSignalForwarding = Promise.resolve()
   const task = async (markStackMayHaveStarted) => {
+    await run(process.execPath, ['--test', 'e2e/local-supabase.test.mjs', 'e2e/runner-lifecycle.test.mjs'], frontendDir)
     await prepareIsolatedProjectFiles()
     process.stdout.write('Starting the isolated local E2E Supabase project with the native runtime.\n')
     markStackMayHaveStarted()
@@ -161,7 +169,22 @@ async function main() {
       }
     }
     try {
-      await run('pnpm', [...supabaseArgs, 'stack', 'stop'], frontendDir, cliEnv)
+      await retryInterruptedCleanup(
+        async () => {
+          stackStopInProgress = true
+          try {
+            await run('pnpm', [...supabaseArgs, 'stack', 'stop'], frontendDir, cliEnv)
+          } finally {
+            stackStopInProgress = false
+          }
+        },
+        () => {
+          if (!stackStopInterrupted) return false
+          stackStopInterrupted = false
+          return true
+        },
+        () => stackStopSignalForwarding,
+      )
     } catch (error) {
       errors.push(error)
     }
@@ -169,7 +192,15 @@ async function main() {
     if (errors.length > 1) throw new AggregateError(errors, 'Could not fully clean up the isolated E2E Supabase project.')
   }
   await withStackCleanup(task, stopStackAndFunctionServer, undefined, process, async (signal) => {
-    if (activeCommand) await stopProcessGroup(activeCommand.child, signal)
+    const command = activeCommand
+    if (!command) return
+    if (stackStopInProgress) {
+      stackStopInterrupted = true
+      stackStopSignalForwarding = stopProcessGroup(command.child, signal)
+      await stackStopSignalForwarding
+      return
+    }
+    await stopProcessGroup(command.child, signal)
   })
 }
 

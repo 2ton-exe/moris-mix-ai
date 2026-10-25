@@ -106,15 +106,32 @@ export async function withCleanup(task, cleanup) {
   if (cleanupFailed) throw cleanupError
 }
 
+export async function retryInterruptedCleanup(cleanup, wasInterrupted, waitForSignal) {
+  try {
+    await cleanup()
+  } catch (error) {
+    if (!wasInterrupted()) throw error
+    await waitForSignal()
+    await cleanup()
+  }
+}
+
 export async function withStackCleanup(task, cleanup, exit, emitter, forwardSignal) {
   let stackMayHaveStarted = false
   let cleanupPromise
   const cleanupOnce = (signal) => {
-    if (!stackMayHaveStarted) return Promise.resolve()
+    if (!stackMayHaveStarted) {
+      if (signal) return Promise.resolve().then(() => forwardSignal?.(signal))
+      return Promise.resolve()
+    }
     if (cleanupPromise) {
       if (signal) {
         const signalForwarding = Promise.resolve().then(() => forwardSignal?.(signal))
-        return Promise.all([cleanupPromise, signalForwarding])
+        return Promise.allSettled([cleanupPromise, signalForwarding]).then((results) => {
+          const errors = results.filter((result) => result.status === 'rejected').map((result) => result.reason)
+          if (errors.length === 1) throw errors[0]
+          if (errors.length > 1) throw new AggregateError(errors, 'Cleanup and signal forwarding both failed.')
+        })
       }
       return cleanupPromise
     }
