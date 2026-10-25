@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import process from 'node:process'
-import { setImmediate } from 'node:timers'
+import { clearTimeout, setImmediate, setTimeout } from 'node:timers'
 import test from 'node:test'
-import { stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
+import { formatCommandFailure, redactSensitiveOutput, stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
 
 const supportsProcessGroups = process.platform !== 'win32'
 
@@ -124,6 +124,54 @@ test('forwards a received signal to the active process group before cleanup comp
   assert.equal(cleanupSignal, 'SIGTERM')
   assert.equal(child.exitCode, 0)
   assertProcessGroupStopped(child.pid)
+})
+
+test('forwards a signal received during cleanup to the active command without repeating stack cleanup', { skip: !supportsProcessGroups }, async (t) => {
+  const child = await startTestProcessGroup(false)
+  t.after(() => {
+    try { process.kill(-child.pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+  })
+  const emitter = new EventEmitter()
+  let cleanups = 0
+  let startCleanup
+  let finishSignal
+  const cleanupStarted = new Promise((resolve) => { startCleanup = resolve })
+  const signalHandled = new Promise((resolve) => { finishSignal = resolve })
+  const childExited = new Promise((resolve) => child.once('exit', resolve))
+  const lifecycle = withStackCleanup(async (markStackMayHaveStarted) => {
+    markStackMayHaveStarted()
+  }, async () => {
+    cleanups += 1
+    startCleanup()
+    await childExited
+  }, () => finishSignal(), emitter, async (signal) => {
+    await stopProcessGroup(child, signal)
+  })
+
+  await cleanupStarted
+  emitter.emit('SIGTERM')
+  let timeout
+  try {
+    await Promise.race([
+      signalHandled,
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('The signal was not forwarded to the active command.')), 1_000) }),
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+  await lifecycle
+
+  assert.equal(cleanups, 1)
+  assert.equal(child.exitCode, 0)
+  assertProcessGroupStopped(child.pid)
+})
+
+test('redacts credentials from command diagnostics', () => {
+  const output = 'Authorization: Bearer local-token\nSERVICE_ROLE_KEY=server-secret\nDATABASE_URL=postgresql://postgres:secret@127.0.0.1\nsb_secret_local-key'
+  const detail = redactSensitiveOutput(output)
+
+  assert.equal(detail, 'Authorization: Bearer [REDACTED]\nSERVICE_ROLE_KEY=[REDACTED]\nDATABASE_URL=[REDACTED]\n[REDACTED KEY]')
+  assert.equal(formatCommandFailure('supabase stack start', 1, output), 'supabase stack start failed with exit code 1.\nAuthorization: Bearer [REDACTED]\nSERVICE_ROLE_KEY=[REDACTED]\nDATABASE_URL=[REDACTED]\n[REDACTED KEY]')
 })
 
 async function startTestProcessGroup(ignoreSigterm) {

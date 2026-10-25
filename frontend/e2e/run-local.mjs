@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { createClient } from '@supabase/supabase-js'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
+import { formatCommandFailure, redactSensitiveOutput, stopProcessGroup, withStackCleanup } from './runner-lifecycle.mjs'
 import {
   assertLocalSupabaseUrl,
   createPlaywrightEnvironment,
@@ -26,33 +26,28 @@ function run(commandName, args, cwd, env, inheritOutput = false) {
   const child = spawn(commandName, args, {
     cwd,
     env,
-    stdio: inheritOutput ? 'inherit' : ['ignore', 'pipe', 'ignore'],
+    stdio: inheritOutput ? 'inherit' : ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })
   let stdout = ''
+  let stderr = ''
   const command = { child }
   activeCommand = command
 
   command.done = new Promise((resolve, reject) => {
     let spawnError
     child.stdout?.on('data', (chunk) => { stdout += chunk })
+    child.stderr?.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-8_000) })
     child.once('error', (error) => { spawnError = error })
     child.once('close', (code) => {
       if (activeCommand === command) activeCommand = undefined
       if (spawnError) reject(spawnError)
       else if (code === 0) resolve(stdout)
-      else reject(new Error(`${path.basename(commandName)} ${args.join(' ')} failed with exit code ${code ?? 1}.`))
+      else reject(new Error(formatCommandFailure(`${path.basename(commandName)} ${args.join(' ')}`, code, stderr)))
     })
   })
 
   return command.done
-}
-
-function redactFunctionServerLog(line) {
-  return line
-    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED JWT]')
-    .replace(/sb_(?:publishable|secret)_[A-Za-z0-9_-]+/g, '[REDACTED KEY]')
-    .replace(/((?:api|anon|publishable|secret|service[_-]?role|password|token)[a-z0-9_-]*["']?\s*[:=]\s*["']?)[^,\s"'}]+/gi, '$1[REDACTED]')
 }
 
 function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
@@ -89,7 +84,7 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
     child,
     failureDetail() {
       const lines = [spawnError, ...logTail.slice(-5)].filter(Boolean)
-      return lines.map(redactFunctionServerLog).join(' | ')
+      return lines.map(redactSensitiveOutput).join(' | ')
     },
   }
 }
@@ -173,7 +168,9 @@ async function main() {
     if (errors.length === 1) throw errors[0]
     if (errors.length > 1) throw new AggregateError(errors, 'Could not fully clean up the isolated E2E Supabase project.')
   }
-  await withStackCleanup(task, stopStackAndFunctionServer)
+  await withStackCleanup(task, stopStackAndFunctionServer, undefined, process, async (signal) => {
+    if (activeCommand) await stopProcessGroup(activeCommand.child, signal)
+  })
 }
 
 main().catch((error) => {

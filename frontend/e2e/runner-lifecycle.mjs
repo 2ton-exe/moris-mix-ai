@@ -106,12 +106,19 @@ export async function withCleanup(task, cleanup) {
   if (cleanupFailed) throw cleanupError
 }
 
-export async function withStackCleanup(task, cleanup, exit, emitter) {
+export async function withStackCleanup(task, cleanup, exit, emitter, forwardSignal) {
   let stackMayHaveStarted = false
   let cleanupPromise
   const cleanupOnce = (signal) => {
     if (!stackMayHaveStarted) return Promise.resolve()
-    cleanupPromise ??= Promise.resolve().then(() => cleanup(signal))
+    if (cleanupPromise) {
+      if (signal) {
+        const signalForwarding = Promise.resolve().then(() => forwardSignal?.(signal))
+        return Promise.all([cleanupPromise, signalForwarding])
+      }
+      return cleanupPromise
+    }
+    cleanupPromise = Promise.resolve().then(() => cleanup(signal))
     return cleanupPromise
   }
   const uninstallSignalCleanup = installSignalCleanup(cleanupOnce, exit, emitter)
@@ -145,4 +152,17 @@ export function installSignalCleanup(cleanup, exit = (code) => process.exit(code
   return () => {
     for (const [signal, handler] of handlers) emitter.off(signal, handler)
   }
+}
+
+export function redactSensitiveOutput(output) {
+  return output
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED JWT]')
+    .replace(/sb_(?:publishable|secret)_[A-Za-z0-9_-]+/g, '[REDACTED KEY]')
+    .replace(/((?:api|anon|publishable|secret|service[_-]?role|password|token|database[_-]?url|connection[_-]?string|dsn)[a-z0-9_-]*["']?\s*[:=]\s*["']?)[^,\s"'}]+/gi, '$1[REDACTED]')
+}
+
+export function formatCommandFailure(command, code, stderr) {
+  const detail = redactSensitiveOutput(stderr.trim())
+  return `${command} failed with exit code ${code ?? 1}.${detail ? `\n${detail}` : ''}`
 }
