@@ -3,7 +3,7 @@
 **Project:** Mori's Scraps  
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
-**Sprint:** 1  
+**Sprint:** 1–2\
 **Status:** Frontend CI, gated automated production deployment, production UI/API/PostgreSQL smoke check, and production migration-ledger entry verified; Gemini generation remains pending
 
 ## 1. Purpose
@@ -72,7 +72,7 @@ PR #81 introduces frontend staging delivery through `.github/workflows/modular-p
 
 PRs targeting `main` run the normal Frontend / Database / Edge API validations. After all three modular validation jobs succeed, trusted, non-draft PRs can deploy to staging. The staging gate requires a source branch in this repository and an author association of `OWNER`, `MEMBER`, or `COLLABORATOR`. Draft and fork PRs do not deploy staging. The modular PR workflow handles `opened`, `synchronize`, `reopened`, and `ready_for_review` events.
 
-The reusable workflow builds the frontend in the isolated GitHub `staging` environment and deploys to the Cloudflare Worker `moris-mix-ai-staging` with `wrangler deploy --config wrangler.jsonc --env staging`. The workflow concurrency group `moris-mix-staging` serializes staging deployment and its dependent smoke job, with `cancel-in-progress: false`, so another run cannot replace the staging deployment while its smoke check is running.
+The reusable workflow builds the frontend in the isolated GitHub `staging` environment and deploys to the Cloudflare Worker `moris-mix-ai-staging` with `wrangler deploy --config wrangler.jsonc --env staging`. The target is explicitly named in `wrangler.jsonc` under `env.staging.name`; the workflow also guards `STAGING_WORKER_NAME`. The workflow concurrency group `moris-mix-staging` serializes staging deployment and its dependent smoke job, with `cancel-in-progress: false`, so another run cannot replace the staging deployment while its smoke check is running.
 
 Configure these Actions variables under **Settings → Environments → staging**:
 
@@ -84,7 +84,11 @@ Configure these Actions variables under **Settings → Environments → staging*
 | `VITE_SUPABASE_URL` | `https://<STAGING_SUPABASE_PROJECT_REF>.supabase.co` |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | The staging project's public publishable key |
 
-These staging environment values provide the public Supabase build configuration instead of production configuration. The workflow validates that the URL matches the staging project reference before building. Cloudflare deployment uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, passed by the caller; manage their values through GitHub Actions secrets as described in section 8. Do not put privileged Supabase keys into frontend build variables.
+These staging environment values provide the public Supabase build configuration instead of production configuration. The workflow validates that the URL matches the staging project reference before building. Do not put privileged Supabase keys into frontend build variables.
+
+**Before pushing the staging workflow changes**, configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller explicitly passes these staging-specific names, and the reusable workflow declares both required and validates both are non-empty before building/deploying. Missing staging credentials fail closed: there is no fallback to the production-named `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. Keep the production secrets unchanged; do not populate repository-level staging-specific names with production credentials.
+
+After deployment, the workflow requires the official `cloudflare/wrangler-action@v4` `deployment-url` output to be non-empty and equal to `STAGING_FRONTEND_URL`, normalizing only one optional trailing slash on each. Missing or mismatched output fails the deployment job before smoke can run. The verified Wrangler URL is exposed as the deploy job's `deployment-url` output and passed directly to the smoke job; smoke does not independently read the configured URL. Both deployment and smoke evidence record this verified URL.
 
 The current frontend smoke requests `/home?revision=${GITHUB_SHA}` and the first referenced built JavaScript asset. Each request allows up to five attempts with five-second sleeps between failures and no sleep after the last attempt. Both require curl success and final HTTP 200. `/home` must have final `text/html` content type; the asset must have a final JavaScript MIME type containing `javascript` or `ecmascript` (optional charset parameters are accepted). HTML asset responses are rejected even with HTTP 200 because Cloudflare SPA fallback can serve `index.html` for a missing bundle. Missing asset references and exhausted retries fail the smoke job.
 
@@ -331,7 +335,8 @@ Checks must only be marked complete after actual execution and verification.
 - For `Missing staging configuration`, check the named variable under **Settings → Environments → staging** or the named Cloudflare Actions secret. Confirm both jobs reference the `staging` environment; do not print secret values.
 - For an unexpected Worker or frontend URL, check `STAGING_WORKER_NAME` and `STAGING_FRONTEND_URL` against the isolated staging Worker rather than the production Worker.
 - For a Supabase project-reference mismatch, make `VITE_SUPABASE_URL` match `https://<STAGING_SUPABASE_PROJECT_REF>.supabase.co` and confirm the public publishable key belongs to that staging project. Do not substitute production configuration to bypass the guard.
-- For Cloudflare authentication or deployment failure, inspect `Deploy staging Worker`, verify the caller passes `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and check the token's permissions for the intended account. Confirm `frontend/dist/` exists and Wrangler uses `--env staging`.
+- For Cloudflare authentication or deployment failure, inspect `Deploy staging Worker`, verify the caller passes `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID`, and check both staging environment secrets and the token's permissions for the intended account. Missing values must fail; do not restore access by falling back to production secrets. Confirm `frontend/dist/` exists and Wrangler uses `--env staging` with explicit `env.staging.name: moris-mix-ai-staging`.
+- For a missing or mismatched deployment URL, inspect `Verify staging deployment URL` and Wrangler's output. Confirm `env.staging.name`, the account's `workers.dev` subdomain, and `STAGING_FRONTEND_URL` describe the same staging Worker. Only a trailing-slash difference is accepted. Correct the configuration or deployment-output issue; do not bypass the verification or smoke an older configured URL.
 
 ### Staging Frontend Smoke Failure
 

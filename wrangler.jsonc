@@ -9,6 +9,7 @@
   },
   "env": {
     "staging": {
+      "name": "moris-mix-ai-staging",
       "workers_dev": true
     }
   }

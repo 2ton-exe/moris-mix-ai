@@ -3,9 +3,9 @@ name: Reusable Staging Deployment
 on:
   workflow_call:
     secrets:
-      CLOUDFLARE_API_TOKEN:
+      STAGING_CLOUDFLARE_API_TOKEN:
         required: true
-      CLOUDFLARE_ACCOUNT_ID:
+      STAGING_CLOUDFLARE_ACCOUNT_ID:
         required: true
 
 concurrency:
@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
 
+    outputs:
+      deployment-url: ${{ steps.verify-deployment.outputs.deployment-url }}
+
     permissions:
       contents: read
 
@@ -27,8 +30,8 @@ jobs:
       STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      STAGING_CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+      STAGING_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.STAGING_CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
       - name: Checkout repository
@@ -45,8 +48,8 @@ jobs:
             STAGING_SUPABASE_PROJECT_REF
             VITE_SUPABASE_URL
             VITE_SUPABASE_PUBLISHABLE_KEY
-            CLOUDFLARE_API_TOKEN
-            CLOUDFLARE_ACCOUNT_ID
+            STAGING_CLOUDFLARE_API_TOKEN
+            STAGING_CLOUDFLARE_ACCOUNT_ID
           )
 
           for name in "${required[@]}"; do
@@ -68,7 +71,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "$STAGING_FRONTEND_URL" != https://${STAGING_WORKER_NAME}.*.workers.dev ]]; then
+          if [[ "${STAGING_FRONTEND_URL%/}" != https://${STAGING_WORKER_NAME}.*.workers.dev ]]; then
             echo "::error::Staging frontend URL does not match the staging Worker."
             exit 1
           fi
@@ -92,24 +95,49 @@ jobs:
         run: pnpm build
 
       - name: Deploy staging Worker
+        id: deploy-staging
         uses: cloudflare/wrangler-action@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.STAGING_CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
           command: deploy --config wrangler.jsonc --env staging
+
+      - name: Verify staging deployment URL
+        id: verify-deployment
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy-staging.outputs.deployment-url }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$DEPLOYMENT_URL" ]]; then
+            echo "::error::Wrangler did not report a staging deployment URL."
+            exit 1
+          fi
+
+          deployment_url="${DEPLOYMENT_URL%/}"
+          expected_url="${STAGING_FRONTEND_URL%/}"
+
+          if [[ "$deployment_url" != "$expected_url" ]]; then
+            echo "::error::Wrangler deployment URL does not match STAGING_FRONTEND_URL."
+            exit 1
+          fi
+
+          echo "deployment-url=$deployment_url" >> "$GITHUB_OUTPUT"
 
       - name: Record deployment evidence
         shell: bash
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          VERIFIED_DEPLOYMENT_URL: ${{ steps.verify-deployment.outputs.deployment-url }}
         run: |
           {
             echo "### Staging deployment"
             echo "- PR head: \`${PR_HEAD_SHA}\`"
             echo "- Tested merge revision: \`${GITHUB_SHA}\`"
             echo "- Worker: \`${STAGING_WORKER_NAME}\`"
-            echo "- URL: ${STAGING_FRONTEND_URL}"
+            echo "- URL: ${VERIFIED_DEPLOYMENT_URL}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   smoke:
@@ -119,7 +147,7 @@ jobs:
     environment: staging
 
     env:
-      STAGING_FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL }}
+      STAGING_FRONTEND_URL: ${{ needs.deploy.outputs.deployment-url }}
 
     steps:
       - name: Verify deployed frontend
