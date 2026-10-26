@@ -1101,8 +1101,8 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
   };
 
   for (const { endpointPath, expectedLimit, expectedOffset } of [
-    { endpointPath: "/functions/v1/recipes?limit=1000&offset=0", expectedLimit: "1000", expectedOffset: "0" },
-    { endpointPath: "/recipes?limit=25&offset=50", expectedLimit: "25", expectedOffset: "50" },
+    { endpointPath: "/functions/v1/recipes?limit=1000&offset=0", expectedLimit: "1001", expectedOffset: "0" },
+    { endpointPath: "/recipes?limit=25&offset=50", expectedLimit: "26", expectedOffset: "50" },
   ]) {
     const req = new Request(`http://localhost${endpointPath}`, {
       method: "GET",
@@ -3948,20 +3948,20 @@ Deno.test("Authenticated GET /recipes search filters match title, ingredient, tr
     { query: "?title=Garlic", check: () => assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%Garlic%") },
     { query: "?title=garlic+rice", check: () => assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%garlic rice%") },
     { query: "?title=%20%20crispy%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%crispy%") },
-    { query: "?ingredient=shallots", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients::text"), "ilike.%shallots%") },
-    { query: "?ingredient=%20%20jasmine%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients::text"), "ilike.%jasmine%") },
+    { query: "?ingredient=shallots", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%shallots%") },
+    { query: "?ingredient=%20%20jasmine%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%jasmine%") },
     {
       query: "?title=rice&ingredient=shallots",
       check: () => {
         assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%rice%");
-        assertEquals(capturedUrl!.searchParams.get("ingredients::text"), "ilike.%shallots%");
+        assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%shallots%");
       },
     },
     {
       query: "?title=%20%20&ingredient=",
       check: () => {
         assertEquals(capturedUrl!.searchParams.has("title"), false);
-        assertEquals(capturedUrl!.searchParams.has("ingredients::text"), false);
+        assertEquals(capturedUrl!.searchParams.has("ingredients_text"), false);
       },
     },
   ];
@@ -4022,7 +4022,12 @@ Deno.test("Authenticated GET /recipes rejects duplicate and invalid search and s
     "?cursor=a&cursor=b",
     "?offset=0&offset=10",
     "?cursor=xyz&offset=0",
-    "?limit=101",
+    "?pagination=cursor&offset=0",
+    "?pagination=offset&cursor=xyz",
+    "?pagination=invalid",
+    "?pagination=cursor&pagination=offset",
+    "?pagination=cursor&limit=101",
+    "?limit=1001",
     "?limit=0",
     "?limit=-1",
     "?limit=abc",
@@ -4104,7 +4109,7 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes", {
+  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor", {
     method: "GET",
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
@@ -4129,7 +4134,7 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
     `(created_at.lt.${lastPage1Row.created_at},and(created_at.eq.${lastPage1Row.created_at},id.gt.${lastPage1Row.id}))`,
   );
 
-  const customLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
+  const customLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=5", {
     method: "GET",
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
@@ -4150,7 +4155,7 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=20", {
+  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=20", {
     method: "GET",
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: finalPageFetch });
@@ -4179,7 +4184,7 @@ Deno.test("Authenticated GET /recipes pagination supports rating sort keyset con
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?sort=rating&limit=2", {
+  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&sort=rating&limit=2", {
     method: "GET",
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
@@ -4348,4 +4353,319 @@ Deno.test("Authenticated GET /recipes owner isolation is enforced across search,
   assertEquals(leakedRes.status, 500);
   const leakedBody = await leakedRes.json();
   assertEquals(leakedBody.error?.code, "INTERNAL_ERROR");
+});
+Deno.test("Regression BE-08 Task 1: Authenticated GET /recipes ingredient search uses ingredients_text and handles Unicode and isolation", async () => {
+  let capturedUrl: URL | null = null;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      capturedUrl = url;
+      const ingFilter = url.searchParams.get("ingredients_text");
+      if (ingFilter && ingFilter.includes("nonexistent")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const matchingRes = await handler(new Request("http://localhost/functions/v1/recipes?ingredient=ginger", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(matchingRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%ginger%");
+  assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  const matchingBody = await matchingRes.json();
+  assertEquals(matchingBody.recipes.length, 1);
+
+  const nonMatchingRes = await handler(new Request("http://localhost/functions/v1/recipes?ingredient=nonexistent", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(nonMatchingRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%nonexistent%");
+  const nonMatchingBody = await nonMatchingRes.json();
+  assertEquals(nonMatchingBody.recipes.length, 0);
+  assertEquals(nonMatchingBody.has_more, false);
+
+  for (const unicodeTerm of ["🍵", "生姜", "чеснок"]) {
+    const unicodeRes = await handler(new Request(`http://localhost/functions/v1/recipes?ingredient=${encodeURIComponent(unicodeTerm)}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(unicodeRes.status, 200);
+    assertEquals(capturedUrl!.searchParams.get("ingredients_text"), `ilike.%${unicodeTerm}%`);
+    assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  }
+
+  const combinedRes = await handler(new Request("http://localhost/functions/v1/recipes?title=Matcha&ingredient=%F0%9F%8D%B5", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(combinedRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%Matcha%");
+  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%🍵%");
+});
+
+Deno.test("Regression BE-08 Task 2: Authenticated GET /recipes preserves BE-06 list contract and opt-in cursor mode", async () => {
+  let capturedUrl: URL | null = null;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      capturedUrl = url;
+      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const noParamsRes = await handler(new Request("http://localhost/functions/v1/recipes", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(noParamsRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "1001");
+  assertEquals(capturedUrl!.searchParams.get("offset"), "0");
+  const noParamsBody = await noParamsRes.json();
+  assertEquals(noParamsBody.next_cursor, null);
+
+  const limit200Res = await handler(new Request("http://localhost/functions/v1/recipes?limit=200", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(limit200Res.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "201");
+  assertEquals(capturedUrl!.searchParams.get("offset"), "0");
+  const limit200Body = await limit200Res.json();
+  assertEquals(limit200Body.next_cursor, null);
+
+  const offsetOnlyRes = await handler(new Request("http://localhost/functions/v1/recipes?offset=50", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(offsetOnlyRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "1001");
+  assertEquals(capturedUrl!.searchParams.get("offset"), "50");
+
+  const limitAndOffsetRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=100&offset=50", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(limitAndOffsetRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "101");
+  assertEquals(capturedUrl!.searchParams.get("offset"), "50");
+
+  const maxLegacyLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(maxLegacyLimitRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "1001");
+
+  const exceedingLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1001", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(exceedingLimitRes.status, 400);
+
+  const optInCursorRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(optInCursorRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "21");
+  assertEquals(capturedUrl!.searchParams.has("offset"), false);
+
+  const optInCursorLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=50", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(optInCursorLimitRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "51");
+
+  const optInCursorMaxLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=100", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(optInCursorMaxLimitRes.status, 200);
+  assertEquals(capturedUrl!.searchParams.get("limit"), "101");
+
+  const optInCursorExceedingRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=101", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(optInCursorExceedingRes.status, 400);
+
+  const conflictCursorOffsetRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&offset=10", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(conflictCursorOffsetRes.status, 400);
+
+  const conflictOffsetCursorRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=offset&cursor=somecursor", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(conflictOffsetCursorRes.status, 400);
+
+  const invalidPaginationRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=unknown", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(invalidPaginationRes.status, 400);
+});
+
+Deno.test("Regression BE-08 Task 3: Authenticated GET /recipes cursor encoding is Unicode-safe, URL-safe, and validated", async () => {
+  let capturedUrl: URL | null = null;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      capturedUrl = url;
+      const rows = [
+        persistedRecipeRow({ id: "11111111-1111-4111-8111-111111111111", title: "Matcha 🍵", created_at: "2026-10-20T12:00:00.000Z" }),
+        persistedRecipeRow({ id: "22222222-2222-4222-8222-222222222222", title: "Matcha 🍵 II", created_at: "2026-10-20T11:00:00.000Z" }),
+      ];
+      return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const unicodePage1Res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&limit=1", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(unicodePage1Res.status, 200);
+  const page1Body = await unicodePage1Res.json();
+  assertEquals(page1Body.has_more, true);
+  assertNotEquals(page1Body.next_cursor, null);
+  const generatedCursor = page1Body.next_cursor as string;
+  assertEquals(generatedCursor.includes("+"), false);
+  assertEquals(generatedCursor.includes("/"), false);
+  assertEquals(generatedCursor.includes("="), false);
+
+  const continuationRes = await handler(new Request(`http://localhost/functions/v1/recipes?title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&limit=1&cursor=${generatedCursor}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(continuationRes.status, 200);
+  assertNotEquals(capturedUrl!.searchParams.get("or"), null);
+
+  for (const badCursor of ["not-valid-base64!!!", "", "e30=", "abc", "eyJzb3J0Ijoibm90X3ZhbGlkIn0="]) {
+    const badRes = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${encodeURIComponent(badCursor)}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(badRes.status, 400);
+    const badBody = await badRes.json();
+    assertEquals(badBody.error?.code, "VALIDATION_ERROR");
+  }
+
+  const incompatibleFilterRes = await handler(new Request(`http://localhost/functions/v1/recipes?title=DifferentTitle&ingredient=%E7%94%9F%E5%A7%9C&cursor=${generatedCursor}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(incompatibleFilterRes.status, 400);
+  const incompatibleFilterBody = await incompatibleFilterRes.json();
+  assertEquals(incompatibleFilterBody.error?.code, "VALIDATION_ERROR");
+
+  const incompatibleSortRes = await handler(new Request(`http://localhost/functions/v1/recipes?sort=rating&title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&cursor=${generatedCursor}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(incompatibleSortRes.status, 400);
+  const incompatibleSortBody = await incompatibleSortRes.json();
+  assertEquals(incompatibleSortBody.error?.code, "VALIDATION_ERROR");
+});
+
+Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination correctly evaluates has_more across boundaries", async () => {
+  let capturedOffset = "";
+  let capturedLimit = "";
+
+  function makeMockFetch(rowCount: number): typeof fetch {
+    return (input) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      if (url.pathname === "/auth/v1/user") {
+        return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (url.pathname === "/rest/v1/recipes") {
+        capturedOffset = url.searchParams.get("offset") ?? "";
+        capturedLimit = url.searchParams.get("limit") ?? "";
+        const rows = [];
+        for (let i = 0; i < rowCount; i++) {
+          rows.push(persistedRecipeRow({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}` }));
+        }
+        return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    };
+  }
+
+  const zeroRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(0) });
+  assertEquals(zeroRes.status, 200);
+  assertEquals(capturedOffset, "0");
+  assertEquals(capturedLimit, "6");
+  const zeroBody = await zeroRes.json();
+  assertEquals(zeroBody.recipes.length, 0);
+  assertEquals(zeroBody.has_more, false);
+
+  const fewerRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(3) });
+  assertEquals(fewerRes.status, 200);
+  const fewerBody = await fewerRes.json();
+  assertEquals(fewerBody.recipes.length, 3);
+  assertEquals(fewerBody.has_more, false);
+
+  const exactLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(5) });
+  assertEquals(exactLimitRes.status, 200);
+  const exactLimitBody = await exactLimitRes.json();
+  assertEquals(exactLimitBody.recipes.length, 5);
+  assertEquals(exactLimitBody.has_more, false);
+
+  const exactLimitPlusOneRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(6) });
+  assertEquals(exactLimitPlusOneRes.status, 200);
+  const exactLimitPlusOneBody = await exactLimitPlusOneRes.json();
+  assertEquals(exactLimitPlusOneBody.recipes.length, 5);
+  assertEquals(exactLimitPlusOneBody.has_more, true);
+
+  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?limit=5&offset=0", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(6) });
+  assertEquals(page1Res.status, 200);
+  assertEquals(capturedOffset, "0");
+  assertEquals(capturedLimit, "6");
+  const page1ResBody = await page1Res.json();
+  assertEquals(page1ResBody.recipes.length, 5);
+  assertEquals(page1ResBody.has_more, true);
+
+  const page2Res = await handler(new Request("http://localhost/functions/v1/recipes?limit=5&offset=5", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(2) });
+  assertEquals(page2Res.status, 200);
+  assertEquals(capturedOffset, "5");
+  assertEquals(capturedLimit, "6");
+  const page2ResBody = await page2Res.json();
+  assertEquals(page2ResBody.recipes.length, 2);
+  assertEquals(page2ResBody.has_more, false);
 });

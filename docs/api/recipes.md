@@ -31,16 +31,17 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 | Parameter | Type / Constraints | Default | Behavior |
 | --- | --- | --- | --- |
 | `title` | `string` | optional | Case-insensitive partial substring match against recipe `title`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored without filtering out recipes. |
-| `ingredient` | `string` | optional | Case-insensitive partial substring match against canonical persisted recipe `ingredients` JSONB representation. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored. |
+| `ingredient` | `string` | optional | Case-insensitive partial substring match against canonical persisted recipe `ingredients` JSONB representation via generated column `ingredients_text`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored. |
 | `sort` | `string` (`newest` \| `rating`) | `newest` | Controls result ordering. Unsupported sort values return `400 VALIDATION_ERROR`. |
-| `limit` | integer `1..100` (cursor mode) or `1..1000` (legacy offset mode) | `20` (cursor mode), `1000` (offset mode) | Number of recipes to return per page. Exceeding the maximum limit returns `400 VALIDATION_ERROR`. |
-| `cursor` | opaque base64 string | optional | Opaque keyset continuation token returned in `next_cursor` from a preceding response. Cannot be combined with `offset`. |
-| `offset` | non-negative safe integer | optional (`0`) | Backward-compatible offset pagination parameter from BE-06. Cannot be combined with `cursor`. |
+| `pagination` | `string` (`cursor` \| `offset`) | optional (`offset`) | Explicit pagination mode selector. When set to `cursor`, enables cursor keyset pagination (default limit 20, max limit 100). When omitted or set to `offset`, requests use legacy offset pagination (default limit 1000, max limit 1000). |
+| `limit` | integer `1..100` (cursor mode) or `1..1000` (legacy offset mode) | `20` (cursor mode), `1000` (offset mode) | Number of recipes to return per page. In legacy offset mode, requests such as `?limit=200` are valid without an explicit `offset`. Exceeding the mode's maximum limit returns `400 VALIDATION_ERROR`. |
+| `cursor` | opaque base64 string | optional | Opaque URL-safe Unicode-safe keyset continuation token returned in `next_cursor` from a preceding cursor response. Opts the request into cursor mode. Cannot be combined with `offset` or `pagination=offset`. |
+| `offset` | non-negative safe integer | optional (`0`) | Backward-compatible offset pagination parameter from BE-06. Cannot be combined with `cursor` or `pagination=cursor`. |
 
 ### Search rules
 
 - **Title search:** `title` performs case-insensitive substring matching (`ILIKE '%title%'`).
-- **Ingredient search:** `ingredient` performs case-insensitive substring matching against persisted `ingredients` (`ingredients::text ILIKE '%ingredient%'`).
+- **Ingredient search:** `ingredient` performs case-insensitive substring matching against persisted `ingredients` via generated column `ingredients_text` (`ingredients_text ILIKE '%ingredient%'`).
 - **Whitespace handling:** Leading and trailing whitespace in `title` and `ingredient` is trimmed. Empty or whitespace-only search terms do not filter out recipes.
 - **Filter combination:** When both `title` and `ingredient` are supplied, both filters must be satisfied (logical AND).
 - **No matches:** If no recipes match the filters, returns `200 OK` with `{ "recipes": [], "next_cursor": null, "has_more": false }`, not an error.
@@ -57,10 +58,10 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 
 ### Cursor pagination rules
 
-- First-page requests omit `cursor` and `offset` (e.g., `GET /recipes` or `GET /recipes?limit=20&sort=rating`).
+- First-page cursor requests pass `pagination=cursor` (e.g., `GET /recipes?pagination=cursor` or `GET /recipes?pagination=cursor&limit=20&sort=rating`). Requests omitting pagination parameters default to legacy offset pagination (limit 1000, offset 0).
 - When more results are available, the response includes `has_more: true` and an opaque `next_cursor` string.
 - Continuation requests pass `cursor=<next_cursor>` along with identical `sort`, `title`, and `ingredient` query parameters.
-- Cursors encode sort keys and tie-breakers from the last row of the previous page. Keyset filtering ensures no skipped rows and no duplicate rows across ordinary page boundaries.
+- Cursors are serialized using URL-safe, UTF-8-safe Base64 without padding, supporting arbitrary Unicode search terms and emojis. Cursors encode sort keys and tie-breakers from the last row of the previous page. Keyset filtering ensures no skipped rows and no duplicate rows across ordinary page boundaries.
 - When no more results exist, the response includes `has_more: false` and `next_cursor: null`.
 - Malformed, corrupt, or non-base64 cursors are rejected with `400 VALIDATION_ERROR`.
 - Cursors that do not match the active `sort`, `title`, or `ingredient` parameters are rejected with `400 VALIDATION_ERROR`.
@@ -77,21 +78,21 @@ All search, sorting, and pagination queries strictly enforce caller ownership:
 
 **First page request (default sorting):**
 ```http
-GET /functions/v1/recipes?limit=20 HTTP/1.1
+GET /functions/v1/recipes?pagination=cursor&limit=20 HTTP/1.1
 Host: your-project.supabase.co
 Authorization: Bearer <user-jwt>
 ```
 
 **Search and sort request:**
 ```http
-GET /functions/v1/recipes?title=rice&ingredient=garlic&sort=rating&limit=20 HTTP/1.1
+GET /functions/v1/recipes?pagination=cursor&title=rice&ingredient=garlic&sort=rating&limit=20 HTTP/1.1
 Host: your-project.supabase.co
 Authorization: Bearer <user-jwt>
 ```
 
 **Continuation request:**
 ```http
-GET /functions/v1/recipes?title=rice&ingredient=garlic&sort=rating&limit=20&cursor=eyJzb3J0IjoicmF0aW5nIiwidGl0bGUiOiJyaWNlIiwiaW5ncmVkaWVudCI6ImdhcmxpYyIsImlkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwiY3JlYXRlZEF0IjoiMjAyNi0xMC0yMFQwNjowMDowMC4wMDBaIiwic3RhclJhdGluZyI6NX0= HTTP/1.1
+GET /functions/v1/recipes?title=rice&ingredient=garlic&sort=rating&limit=20&cursor=eyJzb3J0IjoicmF0aW5nIiwidGl0bGUiOiJyaWNlIiwiaW5ncmVkaWVudCI6ImdhcmxpYyIsImlkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwiY3JlYXRlZEF0IjoiMjAyNi0xMC0yMFQwNjowMDowMC4wMDBaIiwic3RhclJhdGluZyI6NX0 HTTP/1.1
 Host: your-project.supabase.co
 Authorization: Bearer <user-jwt>
 ```
@@ -370,7 +371,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
 
 Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
-- **Deterministic offline tests (44 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
+- **Deterministic offline tests (48 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
 - **Database migration tests:** Run offline via `node test-migrations.mjs`.
 - **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.
 - **Command:**
@@ -388,11 +389,12 @@ Hosted integration tests use dedicated non-production projects configured throug
 - **Recipe visibility:** `20261017000001_add_is_public_to_recipes.sql` adds `is_public boolean not null default false` to `public.recipes`.
 - **Dedicated recipe notes:** `20261023000002_add_notes_to_recipes.sql` adds nullable `notes text` column to `public.recipes`, enabling personal chef/cooking notes without modifying or colliding with `raw_input`. All CRUD routes (`GET`, `POST`, `PATCH`) support `notes` independently of `raw_input`.
 - **Search and keyset pagination indexes:** `20261026000003_add_recipe_search_indexes.sql` creates composite indexes `idx_recipes_user_created_id` (`user_id, created_at desc, id asc`) and `idx_recipes_user_rating_created_id` (`user_id, star_rating desc nulls last, created_at desc, id asc`) supporting owner-scoped newest listing and rating keyset pagination.
+- **Ingredient search column and index:** `20261026000004_add_recipe_ingredient_search.sql` adds stored generated column `ingredients_text text generated always as (ingredients::text) stored` and index `idx_recipes_user_ingredients_text` on `public.recipes(user_id, ingredients_text)`, enabling supported PostgREST `ilike` filtering over `ingredients` without unsupported casts.
 
 ### Search indexing and performance evaluation
 
-The authenticated search operation evaluates substring filters against `title` (`title ILIKE '%term%'`) and `ingredients` (`ingredients::text ILIKE '%term%'`).
+The authenticated search operation evaluates substring filters against `title` (`title ILIKE '%term%'`) and `ingredients` (`ingredients_text ILIKE '%term%'`).
 
 - **Index evaluation:** In PostgreSQL, arbitrary case-insensitive substring searches with leading and trailing wildcards require GIN trigram indexing using the `pg_trgm` extension. The project database currently enables only the `pgcrypto` extension (`20261013000000_initial_schema.sql`). In accordance with repository constraints prohibiting the introduction of unapproved PostgreSQL extensions, `pg_trgm` has not been added.
-- **Intended index support:** The composite B-tree indexes `idx_recipes_user_created_id` (`user_id, created_at desc, id asc`) and `idx_recipes_user_rating_created_id` (`user_id, star_rating desc nulls last, created_at desc, id asc`) are intended to support caller isolation and deterministic ordering and pagination bounds. When search filters (`title ILIKE '%term%'` or `ingredients::text ILIKE '%term%'`) are supplied alongside owner and sort clauses, PostgreSQL can filter by `user_id` and order by `created_at` or `star_rating`, evaluating substring predicates as filter rechecks. However, actual planner selection depends on table statistics, data volume, and planner heuristics; without an inspected query execution plan against a live populated database, index selection by the planner is not claimed.
+- **Intended index support:** The composite B-tree indexes `idx_recipes_user_created_id` (`user_id, created_at desc, id asc`) and `idx_recipes_user_rating_created_id` (`user_id, star_rating desc nulls last, created_at desc, id asc`) are intended to support caller isolation and deterministic ordering and pagination bounds. When search filters (`title ILIKE '%term%'` or `ingredients_text ILIKE '%term%'`) are supplied alongside owner and sort clauses, PostgreSQL can filter by `user_id` and order by `created_at` or `star_rating`, evaluating substring predicates as filter rechecks. However, actual planner selection depends on table statistics, data volume, and planner heuristics; without an inspected query execution plan against a live populated database, index selection by the planner is not claimed.
 - **Performance limitation:** Because arbitrary substring matching with wildcards cannot use B-tree index lookups directly, tables with exceptionally large numbers of recipes per user may experience linear scan costs during substring filtering until a dedicated trigram extension (`pg_trgm`) is enabled and indexed in an approved future migration.

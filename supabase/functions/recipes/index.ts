@@ -43,10 +43,43 @@ function parseRoute(pathname: string): RouteMatch {
   return { kind: "NOT_FOUND" };
 }
 
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToBytes(base64Url: string): Uint8Array | null {
+  try {
+    let base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4 !== 0) {
+      base64 += "=";
+    }
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
 function decodeCursor(encoded: string): { ok: true; cursor: RecipeCursor } | { ok: false } {
   try {
-    const raw = atob(encoded);
-    const parsed = JSON.parse(raw);
+    if (typeof encoded !== "string" || encoded.length === 0) {
+      return { ok: false };
+    }
+    const bytes = base64UrlToBytes(encoded);
+    if (!bytes) {
+      return { ok: false };
+    }
+    const text = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(text);
     const validated = RecipeCursorSchema.safeParse(parsed);
     if (!validated.success) {
       return { ok: false };
@@ -58,7 +91,9 @@ function decodeCursor(encoded: string): { ok: true; cursor: RecipeCursor } | { o
 }
 
 function encodeCursor(cursor: RecipeCursor): string {
-  return btoa(JSON.stringify(cursor));
+  const json = JSON.stringify(cursor);
+  const bytes = new TextEncoder().encode(json);
+  return bytesToBase64Url(bytes);
 }
 
 type RecipeListParams =
@@ -179,6 +214,48 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
     }
   }
 
+  const paginationValues = url.searchParams.getAll("pagination");
+  if (paginationValues.length > 1) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid pagination parameters.",
+          details: [{
+            path: "pagination",
+            code: "invalid_value",
+            message: "Duplicate pagination parameter.",
+          }],
+        },
+      },
+    };
+  }
+
+  let paginationMode: "cursor" | "offset" | null = null;
+  if (paginationValues.length === 1) {
+    const modeVal = paginationValues[0];
+    if (modeVal !== "cursor" && modeVal !== "offset") {
+      return {
+        ok: false,
+        errorStatus: 400,
+        errorResponse: {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid pagination parameters.",
+            details: [{
+              path: "pagination",
+              code: "invalid_value",
+              message: "Supported pagination values are 'cursor' and 'offset'.",
+            }],
+          },
+        },
+      };
+    }
+    paginationMode = modeVal;
+  }
+
   const cursorValues = url.searchParams.getAll("cursor");
   if (cursorValues.length > 1) {
     return {
@@ -217,7 +294,11 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
     };
   }
 
-  if (cursorValues.length === 1 && offsetValues.length === 1) {
+  if (
+    (cursorValues.length === 1 && offsetValues.length === 1) ||
+    (paginationMode === "offset" && cursorValues.length === 1) ||
+    (paginationMode === "cursor" && offsetValues.length === 1)
+  ) {
     return {
       ok: false,
       errorStatus: 400,
@@ -254,6 +335,109 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
     };
   }
 
+  const isCursorMode = paginationMode === "cursor" || cursorValues.length === 1;
+
+  if (isCursorMode) {
+    let cursor: RecipeCursor | null = null;
+    if (cursorValues.length === 1) {
+      const decoded = decodeCursor(cursorValues[0]);
+      if (!decoded.ok) {
+        return {
+          ok: false,
+          errorStatus: 400,
+          errorResponse: {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid pagination cursor.",
+              details: [{
+                path: "cursor",
+                code: "invalid_value",
+                message: "The provided pagination cursor is invalid or malformed.",
+              }],
+            },
+          },
+        };
+      }
+
+      if (
+        decoded.cursor.sort !== sort ||
+        (decoded.cursor.title ?? null) !== title ||
+        (decoded.cursor.ingredient ?? null) !== ingredient
+      ) {
+        return {
+          ok: false,
+          errorStatus: 400,
+          errorResponse: {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid pagination cursor.",
+              details: [{
+                path: "cursor",
+                code: "custom",
+                message: "Pagination cursor is incompatible with active search filters or sort mode.",
+              }],
+            },
+          },
+        };
+      }
+
+      cursor = decoded.cursor;
+    }
+
+    let limit = DEFAULT_CURSOR_PAGE_LIMIT;
+    if (limitValues.length === 1) {
+      if (!/^(0|[1-9]\d*)$/.test(limitValues[0])) {
+        return {
+          ok: false,
+          errorStatus: 400,
+          errorResponse: {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid pagination parameters.",
+              details: [{
+                path: "query",
+                code: "invalid_value",
+                message: "Use limit 1–100.",
+              }],
+            },
+          },
+        };
+      }
+      const limitNum = Number(limitValues[0]);
+      if (!Number.isSafeInteger(limitNum) || limitNum < 1 || limitNum > MAX_CURSOR_PAGE_LIMIT) {
+        return {
+          ok: false,
+          errorStatus: 400,
+          errorResponse: {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid pagination parameters.",
+              details: [{
+                path: "query",
+                code: "invalid_value",
+                message: "Use limit 1–100.",
+              }],
+            },
+          },
+        };
+      }
+      limit = limitNum;
+    }
+
+    return {
+      ok: true,
+      params: {
+        mode: "cursor",
+        title,
+        ingredient,
+        sort,
+        limit,
+        cursor,
+      },
+    };
+  }
+
+  let offset = 0;
   if (offsetValues.length === 1) {
     if (!/^(0|[1-9]\d*)$/.test(offsetValues[0])) {
       return {
@@ -272,8 +456,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
         },
       };
     }
-    const offset = Number(offsetValues[0]);
-    if (!Number.isSafeInteger(offset) || offset < 0) {
+    const offsetNum = Number(offsetValues[0]);
+    if (!Number.isSafeInteger(offsetNum) || offsetNum < 0) {
       return {
         ok: false,
         errorStatus: 400,
@@ -290,125 +474,10 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
         },
       };
     }
-
-    let limit = DEFAULT_OFFSET_PAGE_LIMIT;
-    if (limitValues.length === 1) {
-      if (!/^(0|[1-9]\d*)$/.test(limitValues[0])) {
-        return {
-          ok: false,
-          errorStatus: 400,
-          errorResponse: {
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Invalid pagination parameters.",
-              details: [{
-                path: "query",
-                code: "invalid_value",
-                message: "Use limit 1–1000 and a non-negative safe-integer offset.",
-              }],
-            },
-          },
-        };
-      }
-      const limitNum = Number(limitValues[0]);
-      if (!Number.isSafeInteger(limitNum) || limitNum < 1 || limitNum > MAX_OFFSET_PAGE_LIMIT) {
-        return {
-          ok: false,
-          errorStatus: 400,
-          errorResponse: {
-            error: {
-              code: "VALIDATION_ERROR",
-              message: "Invalid pagination parameters.",
-              details: [{
-                path: "query",
-                code: "invalid_value",
-                message: "Use limit 1–1000 and a non-negative safe-integer offset.",
-              }],
-            },
-          },
-        };
-      }
-      limit = limitNum;
-    }
-
-    if (offset > Number.MAX_SAFE_INTEGER - limit + 1) {
-      return {
-        ok: false,
-        errorStatus: 400,
-        errorResponse: {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Invalid pagination parameters.",
-            details: [{
-              path: "query",
-              code: "invalid_value",
-              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
-            }],
-          },
-        },
-      };
-    }
-
-    return {
-      ok: true,
-      params: {
-        mode: "offset",
-        title,
-        ingredient,
-        sort,
-        limit,
-        offset,
-      },
-    };
+    offset = offsetNum;
   }
 
-  let cursor: RecipeCursor | null = null;
-  if (cursorValues.length === 1) {
-    const decoded = decodeCursor(cursorValues[0]);
-    if (!decoded.ok) {
-      return {
-        ok: false,
-        errorStatus: 400,
-        errorResponse: {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Invalid pagination cursor.",
-            details: [{
-              path: "cursor",
-              code: "invalid_value",
-              message: "The provided pagination cursor is invalid or malformed.",
-            }],
-          },
-        },
-      };
-    }
-
-    if (
-      decoded.cursor.sort !== sort ||
-      (decoded.cursor.title ?? null) !== title ||
-      (decoded.cursor.ingredient ?? null) !== ingredient
-    ) {
-      return {
-        ok: false,
-        errorStatus: 400,
-        errorResponse: {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Invalid pagination cursor.",
-            details: [{
-              path: "cursor",
-              code: "custom",
-              message: "Pagination cursor is incompatible with active search filters or sort mode.",
-            }],
-          },
-        },
-      };
-    }
-
-    cursor = decoded.cursor;
-  }
-
-  let limit = DEFAULT_CURSOR_PAGE_LIMIT;
+  let limit = DEFAULT_OFFSET_PAGE_LIMIT;
   if (limitValues.length === 1) {
     if (!/^(0|[1-9]\d*)$/.test(limitValues[0])) {
       return {
@@ -421,14 +490,14 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
             details: [{
               path: "query",
               code: "invalid_value",
-              message: "Use limit 1–100.",
+              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
             }],
           },
         },
       };
     }
     const limitNum = Number(limitValues[0]);
-    if (!Number.isSafeInteger(limitNum) || limitNum < 1 || limitNum > MAX_CURSOR_PAGE_LIMIT) {
+    if (!Number.isSafeInteger(limitNum) || limitNum < 1 || limitNum > MAX_OFFSET_PAGE_LIMIT) {
       return {
         ok: false,
         errorStatus: 400,
@@ -439,7 +508,7 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
             details: [{
               path: "query",
               code: "invalid_value",
-              message: "Use limit 1–100.",
+              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
             }],
           },
         },
@@ -448,15 +517,33 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
     limit = limitNum;
   }
 
+  if (offset > Number.MAX_SAFE_INTEGER - limit + 1) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid pagination parameters.",
+          details: [{
+            path: "query",
+            code: "invalid_value",
+            message: "Use limit 1–1000 and a non-negative safe-integer offset.",
+          }],
+        },
+      },
+    };
+  }
+
   return {
     ok: true,
     params: {
-      mode: "cursor",
+      mode: "offset",
       title,
       ingredient,
       sort,
       limit,
-      cursor,
+      offset,
     },
   };
 }
@@ -582,7 +669,7 @@ export async function handler(
         }
 
         if (params.ingredient) {
-          listQuery = listQuery.filter("ingredients::text", "ilike", `%${params.ingredient}%`);
+          listQuery = listQuery.ilike("ingredients_text", `%${params.ingredient}%`);
         }
 
         if (params.mode === "cursor") {
@@ -630,7 +717,7 @@ export async function handler(
               .order("id", { ascending: true });
           }
 
-          listQuery = listQuery.range(offset, offset + limit - 1);
+          listQuery = listQuery.range(offset, offset + limit);
         }
 
         const { data, error } = await listQuery;
@@ -680,8 +767,8 @@ export async function handler(
             });
           }
         } else {
-          recipesData = data;
-          hasMore = recipesData.length === params.limit;
+          hasMore = data.length > params.limit;
+          recipesData = hasMore ? data.slice(0, params.limit) : data;
         }
 
         const listValidation = RecipeListResponseSchema.safeParse({
