@@ -68,7 +68,14 @@ function runDiscoveryAndIntegrityUnitTests() {
     );
     fs.unlinkSync(path.join(tempDir, '20261010000000_duplicate.sql'));
 
-    console.log('PASS: Discovery, deterministic sorting, and filename integrity validation verified.');
+    const recipeSearchMigration = fs.readFileSync(
+      path.join(__dirname, 'supabase/migrations/20261026000004_add_recipe_ingredient_search.sql'),
+      'utf8'
+    );
+    assert.match(recipeSearchMigration, /jsonb_path_query_array\(ingredients, '\$\[\*\]\.name'\)/);
+    assert.doesNotMatch(recipeSearchMigration, /create\s+(?:unique\s+)?index|idx_recipes_user_ingredients_text/i);
+
+    console.log('PASS: Migration discovery, integrity, and ingredient-search migration safety verified.');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

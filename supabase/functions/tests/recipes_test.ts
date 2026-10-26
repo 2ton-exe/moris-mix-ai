@@ -4669,6 +4669,59 @@ Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination
   assertEquals(page2ResBody.recipes.length, 2);
   assertEquals(page2ResBody.has_more, false);
 });
+
+Deno.test("Regression BE-08: Offset pagination probes beyond Supabase's 1000-row cap", async () => {
+  const requestedUrls: URL[] = [];
+  let hasContinuation = true;
+  const cappedRows = Array.from({ length: 1000 }, (_, i) =>
+    persistedRecipeRow({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}` })
+  );
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      requestedUrls.push(url);
+      let rows: unknown[] = cappedRows;
+      if (url.searchParams.get("select") === "id") {
+        rows = hasContinuation ? [{ id: "44444444-4444-4444-8444-444444444444" }] : [];
+      }
+      return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const res = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&sort=rating", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.recipes.length, 1000);
+  assertEquals(body.has_more, true);
+  assertEquals(requestedUrls.length, 2);
+  assertEquals(requestedUrls[0].searchParams.get("limit"), "1001");
+  assertEquals(requestedUrls[1].searchParams.get("select"), "id");
+  assertEquals(requestedUrls[1].searchParams.get("offset"), "1000");
+  assertEquals(requestedUrls[1].searchParams.get("limit"), "1");
+  assertEquals(requestedUrls[1].searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  assertEquals(requestedUrls[1].searchParams.get("title"), 'ilike."%Rice%"');
+  assertEquals(requestedUrls[1].searchParams.get("order"), "star_rating.desc.nullslast,created_at.desc,id.asc");
+
+  hasContinuation = false;
+  requestedUrls.length = 0;
+  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&sort=rating", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(finalPageRes.status, 200);
+  const finalPageBody = await finalPageRes.json();
+  assertEquals(finalPageBody.recipes.length, 1000);
+  assertEquals(finalPageBody.has_more, false);
+  assertEquals(requestedUrls.length, 2);
+});
 Deno.test("Regression BE-08 Follow-Up: Search safely handles reserved characters and escapes SQL wildcards", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {

@@ -774,6 +774,48 @@ export async function handler(
           }
         } else {
           hasMore = data.length > params.limit;
+          if (!hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT && data.length === params.limit) {
+            let continuationQuery = supabase
+              .from("recipes")
+              .select("id")
+              .eq("user_id", user.id);
+
+            if (params.title) {
+              continuationQuery = continuationQuery.ilike("title", formatIlikePattern(params.title));
+            }
+            if (params.ingredient) {
+              continuationQuery = continuationQuery.ilike("ingredients_text", formatIlikePattern(params.ingredient));
+            }
+            if (params.sort === "rating") {
+              continuationQuery = continuationQuery
+                .order("star_rating", { ascending: false, nullsFirst: false })
+                .order("created_at", { ascending: false })
+                .order("id", { ascending: true });
+            } else {
+              continuationQuery = continuationQuery
+                .order("created_at", { ascending: false })
+                .order("id", { ascending: true });
+            }
+
+            const continuationOffset = params.offset + params.limit;
+            const { data: continuationData, error: continuationError } = await continuationQuery.range(
+              continuationOffset,
+              continuationOffset,
+            );
+            if (continuationError || !Array.isArray(continuationData)) {
+              console.error("Database continuation probe failed", continuationError?.code ? `code: ${continuationError.code}` : "");
+              return recipesJsonResponse(
+                {
+                  error: {
+                    code: "INTERNAL_ERROR",
+                    message: "Internal server error.",
+                  },
+                },
+                { status: 500 },
+              );
+            }
+            hasMore = continuationData.length > 0;
+          }
           recipesData = hasMore ? data.slice(0, params.limit) : data;
         }
 

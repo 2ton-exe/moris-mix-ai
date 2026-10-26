@@ -389,8 +389,7 @@ Hosted integration tests use dedicated non-production projects configured throug
 - **Recipe visibility:** `20261017000001_add_is_public_to_recipes.sql` adds `is_public boolean not null default false` to `public.recipes`.
 - **Dedicated recipe notes:** `20261023000002_add_notes_to_recipes.sql` adds nullable `notes text` column to `public.recipes`, enabling personal chef/cooking notes without modifying or colliding with `raw_input`. All CRUD routes (`GET`, `POST`, `PATCH`) support `notes` independently of `raw_input`.
 - **Search and keyset pagination indexes:** `20261026000003_add_recipe_search_indexes.sql` creates composite indexes `idx_recipes_user_created_id` (`user_id, created_at desc, id asc`) and `idx_recipes_user_rating_created_id` (`user_id, star_rating desc nulls last, created_at desc, id asc`) supporting owner-scoped newest listing and rating keyset pagination.
-- **Ingredient search column:** `20261026000004_add_recipe_ingredient_search.sql` adds initial generated column and B-tree index for ingredient searching.
-- **Ingredient search refinement and index removal:** `20261026000005_update_recipe_ingredient_search.sql` drops the unsafe B-tree index `idx_recipes_user_ingredients_text` to eliminate row size limits (2,704 bytes) on recipes with large ingredient lists, and updates `ingredients_text` to extract ingredient names via `jsonb_path_query_array(ingredients, '$[*].name')::text`, eliminating false-positive matches on metadata keys (`unit`, `quantity`, `inferred`).
+- **Ingredient search column:** `20261026000004_add_recipe_ingredient_search.sql` adds a stored generated column containing ingredient names via `jsonb_path_query_array(ingredients, '$[*].name')::text`. It does not add a B-tree index: leading-wildcard substring searches cannot use one, and indexing this unbounded text can fail on large recipes.
 
 ### Search indexing and performance evaluation
 
