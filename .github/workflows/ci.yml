@@ -303,6 +303,11 @@ jobs:
             echo "::error::Configure the SUPABASE_PROJECT_REF repository variable."
             exit 1
           fi
+          vite_supabase_url="${VITE_SUPABASE_URL%/}"
+          if [[ "$vite_supabase_url" != "https://${SUPABASE_PROJECT_REF}.supabase.co" ]]; then
+            echo "::error::VITE_SUPABASE_URL must target the SUPABASE_PROJECT_REF project."
+            exit 1
+          fi
           config_project_ref="$(sed -n 's/^project_id = "\(.*\)"/\1/p' supabase/config.toml)"
           if [[ "$SUPABASE_PROJECT_REF" != "$config_project_ref" ]]; then
             echo "::error::SUPABASE_PROJECT_REF must match project_id in supabase/config.toml."

@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1  
-**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its production execution and CRUD smoke check remain pending; the latest recipe migration ledger also needs verification. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its production execution and CRUD smoke check remain pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -168,7 +168,7 @@ GitHub Actions uses the following repository secrets:
 | `CLOUDFLARE_ACCOUNT_ID` | Identifies the target Cloudflare account |
 | `SUPABASE_ACCESS_TOKEN` | Authorizes Supabase CLI deployment        |
 
-The `SUPABASE_PROJECT_REF` repository variable identifies the Supabase target and must match `project_id` in `supabase/config.toml`. CI checks this before deploying.
+The `SUPABASE_PROJECT_REF` repository variable identifies the Supabase target and must match `project_id` in `supabase/config.toml`. CI also checks that `VITE_SUPABASE_URL` targets the same project before deploying.
 
 Secrets are managed in:
 
@@ -400,7 +400,7 @@ The following limitations or pending items remain:
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
 - The `recipes` deployment is configured in CI but still needs a successful main-branch execution. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
-- The historical migration-ledger check only verified through `20261017000001`; verify whether `20261023000002_add_notes_to_recipes.sql` is applied before declaring recipe CRUD ready. CI does not apply production migrations.
+- A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
