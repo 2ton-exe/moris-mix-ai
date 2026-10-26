@@ -53,9 +53,9 @@ Returns `Cache-Control: no-store` and a JSON `upload` object:
 }
 ```
 
-The backend generates a fresh object key and binds the upload UUID to the verified owner, recipe UUID, content type, declared size, and expiry. The signed URL authorizes a `PUT` to that one object for 10 minutes and requires the returned method and headers exactly. It uses the R2 S3 API endpoint.
+The backend generates a fresh staging key and a distinct server-only final key, and binds both keys to the upload UUID, verified owner, recipe UUID, content type, declared size, and expiry. The signed URL authorizes a `PUT` only to the staging key for 10 minutes and requires the returned method and headers exactly. It uses the R2 S3 API endpoint. The final key is never returned or signed for client writes.
 
-The browser uploads the raw file bytes directly to `upload.url`; it does not send JSON or multipart form data to R2. A presigned URL is a temporary bearer capability: anyone who obtains it can use it, including repeating the `PUT`, until it expires. It is not revoked by attachment, so the object may still be overwritten during that window. Generate a fresh object key for each upload. Do not log the URL, show it in UI errors, or treat it as a permanent image URL. The R2 access key ID and secret access key remain server-side.
+The browser uploads the raw file bytes directly to `upload.url`; it does not send JSON or multipart form data to R2. A presigned URL is a temporary bearer capability: anyone who obtains it can reuse it until it expires. Attachment therefore never points `recipes.image_path` at the client-writable staging key. Do not log the URL, show it in UI errors, or treat it as a permanent image URL. The R2 access key ID and secret access key remain server-side.
 
 ## Verify and attach an upload
 
@@ -70,9 +70,11 @@ The browser uploads the raw file bytes directly to `upload.url`; it does not sen
 }
 ```
 
-The backend resolves the generated object key from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe and must not be expired.
+The backend resolves the staging and final keys from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe and must not be expired; only the backend uses the final key during attachment.
 
-Before associating the image, the backend verifies that the object exists and that its stored content type and actual byte size match the upload intent and allowed limits. A content-type metadata value alone does not prove that the bytes decode as an image; a later read or processing boundary must validate or normalize the bytes before rendering them.
+Before associating the image, the backend verifies that the staging object exists and that its stored content type and actual byte size match the upload intent and allowed limits. A content-type metadata value alone does not prove that the bytes decode as an image; a later read or processing boundary must validate or normalize the bytes before rendering them.
+
+On first attachment, the backend captures the staging object's ETag while verifying its type and size, then copies it to the intent's distinct final key with a source-match condition on that ETag. If the staging object changed, the conditional copy fails; do not attach it unless the current staging object is revalidated. Verify the finalized object's stored content type and byte size, then commit the recipe pointer and attached intent state together. Serialize finalization per upload intent so concurrent attach requests cannot overwrite the final key; concurrent requests may receive `409 UPLOAD_NOT_READY` and retry. The client has no signed write capability for the final key, so reuse of the staging URL cannot change an attached image. If finalization or the database transaction fails, the current recipe image remains unchanged; retrying the same pending intent uses its same final key. Clean up staging objects after the URL expires; deleting one earlier does not revoke the signed URL, which can recreate it until expiry.
 
 ### Success (`200 OK`)
 
@@ -89,9 +91,9 @@ Returns a JSON `image` object. Its `byte_size` is the verified stored size and `
 }
 ```
 
-The response contains no standalone object key or URL. A future image-read contract defines image delivery separately. The temporary `PUT` URL is never stored in `recipes.image_url`; the verified object key is stored in the internal `recipes.image_path` field after verification.
+The response contains no standalone object key or URL. A future image-read contract defines image delivery separately. The temporary `PUT` URL is never stored in `recipes.image_url`; the finalized server-only object key is stored in the internal `recipes.image_path` field after verification and copy.
 
-The attach operation is idempotent for the same completed upload and recipe. It updates the recipe image path and upload-intent state together. A failed or incomplete upload leaves the current image unchanged. If a new image replaces the current one, the database pointer changes only after verification; deleting the previous object happens after commit and cannot undo the new association.
+The attach operation is idempotent for the same completed upload and recipe. Replaying an already attached intent returns its stored result without copying the staging object again, so a later staging `PUT` cannot replace the finalized image. It updates the recipe image path and upload-intent state together. A failed or incomplete upload leaves the current image unchanged. If a new image replaces the current one, the database pointer changes only after verification and finalization; deleting the previous final object happens after commit and cannot undo the new association.
 
 ## Shared validation
 
@@ -109,7 +111,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid authentication credentials.` | Missing, invalid, or expired Bearer token. |
 | `404 Not Found` | `RECIPE_NOT_FOUND` | `Recipe not found.` | Recipe is missing or belongs to another user. |
 | `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown, expired, or belongs to another owner or recipe. |
-| `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not available yet.` | The upload object is not present in R2 yet; attachment may be retried. |
+| `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed during finalization; revalidate before retrying attachment. |
 | `422 Unprocessable Content` | `INVALID_IMAGE` | `Uploaded image metadata is invalid.` | Actual object type or size does not match the intent and contract. |
 | `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | `Image storage is temporarily unavailable.` | R2 is temporarily unreachable. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Other unexpected configuration, database, or storage failure. |
@@ -122,13 +124,13 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 
 ## Storage and recipe association
 
-- One primary image is supported per recipe, matching the current recipe model. The stable recipe UUID, verified owner ID, and random upload UUID scope each generated key; titles and filenames do not define storage identity.
-- The future implementation stores the generated key internally in `recipes.image_path`. It never stores the temporary `PUT` URL in `recipes.image_url` or returns a storage path as image metadata.
-- The future implementation binds each upload UUID server-side to its owner, recipe, object key, content type, declared size, expiry, and pending/attached state. It uses the request-scoped RLS-aware Supabase client, not a service-role client, for user-owned recipe operations.
-- Expired pending uploads and replaced objects need cleanup in the future upload implementation. Cleanup failures must not roll back or break a successful recipe association. Confirm with DevOps and full-stack integration owners whether the browser/R2 signing combination enforces the 10 MiB limit before transfer; otherwise enforce actual size at attachment and clean up rejected uploads.
+- One primary image is supported per recipe, matching the current recipe model. The stable recipe UUID, verified owner ID, and random upload UUID scope distinct staging and final keys; titles and filenames do not define storage identity.
+- The future implementation stores only the finalized key internally in `recipes.image_path`. It never stores the temporary `PUT` URL in `recipes.image_url` or returns a storage path as image metadata.
+- The future implementation binds each upload UUID server-side to its owner, recipe, staging key, final key, content type, declared size, expiry, and pending/attached state. It uses the request-scoped RLS-aware Supabase client, not a service-role client, for user-owned recipe operations.
+- Expired pending uploads, staging objects after their URL expiry, and replaced final objects need cleanup in the future upload implementation. Deleting a staging object before URL expiry does not revoke the signed URL, which can recreate the object. Cleanup failures must not roll back or break a successful recipe association. Confirm with DevOps and full-stack integration owners whether the browser/R2 signing combination enforces the 10 MiB limit before transfer; otherwise enforce actual size at attachment and clean up rejected uploads.
 
 ## References
 
 - The authenticated recipe REST contract defines recipe UUIDs, owner checks, safe error handling, and the internal/private distinction for `image_path` and `image_url`.
 - The authenticated session contract defines Bearer verification and the RLS-aware request-scoped client.
-- Cloudflare R2 documentation: [presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), [bucket CORS](https://developers.cloudflare.com/r2/buckets/cors/), and [AWS SDK v3 `Content-Type` signing](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/).
+- Cloudflare R2 documentation: [presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/), [bucket CORS](https://developers.cloudflare.com/r2/buckets/cors/), [S3 `CopyObject` support and conditions](https://developers.cloudflare.com/r2/api/s3/extensions/), and [AWS SDK v3 `Content-Type` signing](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/).
