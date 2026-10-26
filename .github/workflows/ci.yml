@@ -325,6 +325,7 @@ jobs:
         run: |
           pnpm exec supabase functions deploy recipes \
             --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
             --use-api \
             --yes
 

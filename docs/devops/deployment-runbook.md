@@ -198,9 +198,9 @@ The workflow currently has no push path filter: docs-only main pushes can also p
 2. Frontend, database, Edge/API, and hosted RLS validation run; Playwright E2E runs separately and is non-gating.
 3. Confirm every `deploy.needs` job succeeded and the frontend-existence output is true.
 4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
-5. Supabase CLI deploys only `recipes`, using the function configuration in `supabase/config.toml`.
+5. Supabase CLI deploys only `recipes` with gateway JWT verification disabled, matching `supabase/config.toml` so the handler enforces authentication.
 6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
-7. Confirm both deployment steps executed, then verify the production API and frontend.
+7. Confirm both deployment steps executed. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 
@@ -399,7 +399,7 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- The `recipes` deployment is configured in CI but still needs a successful main-branch execution and a production CRUD smoke check.
+- The `recipes` deployment is configured in CI but still needs a successful main-branch execution. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
 - The historical migration-ledger check only verified through `20261017000001`; verify whether `20261023000002_add_notes_to_recipes.sql` is applied before declaring recipe CRUD ready. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
