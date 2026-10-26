@@ -130,7 +130,7 @@ export function validateDedicatedTestTarget(
 
 export type RlsConfigResult =
   | { shouldRun: false; isOptedIn: false; error?: undefined }
-  | { shouldRun: true; isOptedIn: true; error?: string; url: string; anonKey: string; serviceRoleKey: string; expectedProjectRef: string; prefix: "BE06" | "BE04" };
+  | { shouldRun: true; isOptedIn: true; error?: string; url: string; anonKey: string; serviceRoleKey: string; expectedProjectRef: string; prefix: "BE06" | "NON_PRODUCTION_TEST_DATABASE" };
 
 export function resolveCredentialStateMachine(
   getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
@@ -144,35 +144,35 @@ export function resolveCredentialStateMachine(
   const be07Enabled = be07Flag === "true" || be07Flag === "1";
   const be06Flag = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim().toLowerCase();
   const be06Enabled = be06Flag === "true" || be06Flag === "1";
-  const be04Flag = (getEnv("RUN_BE04_RLS_INTEGRATION") ?? "").trim().toLowerCase();
-  const be04Enabled = be04Flag === "true" || be04Flag === "1";
-  if (be07Enabled || isRequired || (!be06Enabled && be04Enabled)) {
-    const url = (getEnv("BE04_RLS_TEST_SUPABASE_URL")?.trim() || "");
-    const anon = (getEnv("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
-    const service = (getEnv("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() || "");
-    const expected = (getEnv("BE04_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() || getEnv("BE04_RLS_TEST_PROJECT_REF")?.trim() || "");
+  const nonProdFlag = (getEnv("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION") ?? "").trim().toLowerCase();
+  const nonProdEnabled = nonProdFlag === "true" || nonProdFlag === "1";
+  if (be07Enabled || isRequired || (!be06Enabled && nonProdEnabled)) {
+    const url = (getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL")?.trim() || "");
+    const anon = (getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY")?.trim() || getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY")?.trim() || "");
+    const service = (getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY")?.trim() || getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY")?.trim() || "");
+    const expected = (getEnv("NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF")?.trim() || getEnv("NON_PRODUCTION_TEST_DATABASE_PROJECT_REF")?.trim() || "");
     const missing: string[] = [];
-    if (!url) missing.push("BE04_RLS_TEST_SUPABASE_URL");
-    if (!anon) missing.push("BE04_RLS_TEST_SUPABASE_ANON_KEY");
-    if (!service) missing.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY");
-    if (!expected) missing.push("BE04_RLS_TEST_EXPECTED_PROJECT_REF");
+    if (!url) missing.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL");
+    if (!anon) missing.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY");
+    if (!service) missing.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY");
+    if (!expected) missing.push("NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF");
     if (missing.length > 0) {
       return {
         shouldRun: true,
         isOptedIn: true,
-        prefix: "BE04",
+        prefix: "NON_PRODUCTION_TEST_DATABASE",
         error: be07Enabled
-          ? `RUN_BE07_RLS_INTEGRATION requires the shared BE04 credential set, but credentials are incomplete: missing ${missing.join(", ")}.`
+          ? `RUN_BE07_RLS_INTEGRATION requires the shared NON_PRODUCTION_TEST_DATABASE credential set, but credentials are incomplete: missing ${missing.join(", ")}.`
           : isRequired
-          ? `Hosted RLS integration is required (shared BE04 credentials), but dedicated non-production test credentials are incomplete or unavailable: missing ${missing.join(", ")}.`
-          : `RUN_BE04_RLS_INTEGRATION locked prefix BE04 but credentials are incomplete: missing ${missing.join(", ")}.`,
+          ? `Hosted RLS integration is required (shared NON_PRODUCTION_TEST_DATABASE credentials), but dedicated non-production test credentials are incomplete or unavailable: missing ${missing.join(", ")}.`
+          : `RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION locked prefix NON_PRODUCTION_TEST_DATABASE but credentials are incomplete: missing ${missing.join(", ")}.`,
         url,
         anonKey: anon,
         serviceRoleKey: service,
         expectedProjectRef: expected,
       };
     }
-    return { shouldRun: true, isOptedIn: true, prefix: "BE04", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
+    return { shouldRun: true, isOptedIn: true, prefix: "NON_PRODUCTION_TEST_DATABASE", url, anonKey: anon, serviceRoleKey: service, expectedProjectRef: expected };
   }
 
   if (be06Enabled) {
@@ -603,13 +603,13 @@ Deno.test("Target safety guard strictly validates HTTPS, non-loopback, non-produ
   );
 });
 
-Deno.test("Credential state machine shares BE04 credentials with the BE07 lineage integration and fails closed on incomplete sets", () => {
+Deno.test("Credential state machine shares NON_PRODUCTION_TEST_DATABASE credentials with the BE07 lineage integration and fails closed on incomplete sets", () => {
   const envEmpty: Record<string, string> = {};
   assertEquals(resolveCredentialStateMachine((k) => envEmpty[k]).shouldRun, false);
 
   const envBe07Incomplete: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
     BE06_RLS_TEST_SUPABASE_ANON_KEY: "be06-anon",
     BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be06-service",
     BE06_RLS_TEST_EXPECTED_PROJECT_REF: "be06-test",
@@ -617,39 +617,39 @@ Deno.test("Credential state machine shares BE04 credentials with the BE07 lineag
   const be07IncompleteResult = resolveCredentialStateMachine((k) => envBe07Incomplete[k]);
   assertEquals(be07IncompleteResult.shouldRun, true);
   if (be07IncompleteResult.shouldRun) {
-    assertEquals(be07IncompleteResult.prefix, "BE04");
+    assertEquals(be07IncompleteResult.prefix, "NON_PRODUCTION_TEST_DATABASE");
     assertNotEquals(be07IncompleteResult.error, undefined);
-    assertEquals(be07IncompleteResult.error?.includes("missing BE04_RLS_TEST_SUPABASE_ANON_KEY"), true);
+    assertEquals(be07IncompleteResult.error?.includes("missing NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY"), true);
   }
 
   const envBe07Complete: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
-    BE04_RLS_TEST_SUPABASE_ANON_KEY: "be04-anon",
-    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be04-service",
-    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "be04-test",
-    RUN_BE04_RLS_INTEGRATION: "true",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: "non-prod-anon",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: "non-prod-service",
+    NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: "non-prod-test",
+    RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
   };
   const be07CompleteResult = resolveCredentialStateMachine((k) => envBe07Complete[k]);
   assertEquals(be07CompleteResult.shouldRun, true);
   if (be07CompleteResult.shouldRun) {
-    assertEquals(be07CompleteResult.prefix, "BE04");
+    assertEquals(be07CompleteResult.prefix, "NON_PRODUCTION_TEST_DATABASE");
     assertEquals(be07CompleteResult.error, undefined);
-    assertEquals(be07CompleteResult.url, "https://be04-test.supabase.co");
+    assertEquals(be07CompleteResult.url, "https://non-prod-test.supabase.co");
   }
 
-  const envBe04Fallback: Record<string, string> = {
-    RUN_BE04_RLS_INTEGRATION: "true",
-    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
-    BE04_RLS_TEST_SUPABASE_ANON_KEY: "be04-anon",
-    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be04-service",
-    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "be04-test",
+  const envNonProdFallback: Record<string, string> = {
+    RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: "non-prod-anon",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: "non-prod-service",
+    NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: "non-prod-test",
   };
-  const be04FallbackResult = resolveCredentialStateMachine((k) => envBe04Fallback[k]);
-  assertEquals(be04FallbackResult.shouldRun, true);
-  if (be04FallbackResult.shouldRun) {
-    assertEquals(be04FallbackResult.prefix, "BE04");
-    assertEquals(be04FallbackResult.error, undefined);
+  const nonProdFallbackResult = resolveCredentialStateMachine((k) => envNonProdFallback[k]);
+  assertEquals(nonProdFallbackResult.shouldRun, true);
+  if (nonProdFallbackResult.shouldRun) {
+    assertEquals(nonProdFallbackResult.prefix, "NON_PRODUCTION_TEST_DATABASE");
+    assertEquals(nonProdFallbackResult.error, undefined);
   }
 });
 
@@ -1933,10 +1933,10 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
   assertEquals(resRequiredEmpty.shouldRun, true);
   if (resRequiredEmpty.shouldRun) {
     assertEquals(resRequiredEmpty.isOptedIn, true);
-    assertEquals(resRequiredEmpty.prefix, "BE04");
+    assertEquals(resRequiredEmpty.prefix, "NON_PRODUCTION_TEST_DATABASE");
     assertNotEquals(resRequiredEmpty.error, undefined);
     assertEquals(
-      resRequiredEmpty.error?.includes("Hosted RLS integration is required (shared BE04 credentials), but dedicated non-production test credentials are incomplete or unavailable"),
+      resRequiredEmpty.error?.includes("Hosted RLS integration is required (shared NON_PRODUCTION_TEST_DATABASE credentials), but dedicated non-production test credentials are incomplete or unavailable"),
       true,
     );
   }
@@ -1949,23 +1949,23 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
   assertEquals(resEnvRequired.shouldRun, true);
   if (resEnvRequired.shouldRun) {
     assertNotEquals(resEnvRequired.error, undefined);
-    assertEquals(resEnvRequired.error?.includes("missing BE04_RLS_TEST_SUPABASE_URL"), true);
+    assertEquals(resEnvRequired.error?.includes("missing NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL"), true);
   }
 
-  const envBe04Only: Record<string, string> = {
+  const envNonProdOnly: Record<string, string> = {
     REQUIRE_HOSTED_RLS_INTEGRATION: "true",
     RUN_BE07_RLS_INTEGRATION: "false",
-    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
-    BE04_RLS_TEST_SUPABASE_ANON_KEY: "be04-anon",
-    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "be04-service",
-    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "be04-test",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: "non-prod-anon",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: "non-prod-service",
+    NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: "non-prod-test",
   };
-  const resBe04Only = resolveCredentialStateMachine((k) => envBe04Only[k]);
-  assertEquals(resBe04Only.shouldRun, true);
-  if (resBe04Only.shouldRun) {
-    assertEquals(resBe04Only.prefix, "BE04");
-    assertEquals(resBe04Only.url, "https://be04-test.supabase.co");
-    assertEquals(resBe04Only.error, undefined);
+  const resNonProdOnly = resolveCredentialStateMachine((k) => envNonProdOnly[k]);
+  assertEquals(resNonProdOnly.shouldRun, true);
+  if (resNonProdOnly.shouldRun) {
+    assertEquals(resNonProdOnly.prefix, "NON_PRODUCTION_TEST_DATABASE");
+    assertEquals(resNonProdOnly.url, "https://non-prod-test.supabase.co");
+    assertEquals(resNonProdOnly.error, undefined);
   }
 
   // Test case 3: Required mode via HOSTED_RLS_REQUIRED=true
@@ -1981,16 +1981,16 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
   // Test case 4: Explicit RUN_BE07_RLS_INTEGRATION=true with missing credentials
   const envBe07Missing: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE04_RLS_TEST_SUPABASE_URL: "https://be04-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
     // Missing anon key, service key, expected ref
   };
   const resBe07Missing = resolveCredentialStateMachine((k) => envBe07Missing[k], { required: true });
   assertEquals(resBe07Missing.shouldRun, true);
   if (resBe07Missing.shouldRun) {
-    assertEquals(resBe07Missing.prefix, "BE04");
+    assertEquals(resBe07Missing.prefix, "NON_PRODUCTION_TEST_DATABASE");
     assertNotEquals(resBe07Missing.error, undefined);
     assertEquals(
-      resBe07Missing.error?.includes("RUN_BE07_RLS_INTEGRATION requires the shared BE04 credential set, but credentials are incomplete: missing BE04_RLS_TEST_SUPABASE_ANON_KEY"),
+      resBe07Missing.error?.includes("RUN_BE07_RLS_INTEGRATION requires the shared NON_PRODUCTION_TEST_DATABASE credential set, but credentials are incomplete: missing NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY"),
       true,
     );
   }
@@ -1999,17 +1999,17 @@ Deno.test("Finding 1 review regression: Missing credentials in required mode fai
 Deno.test("Finding 1 review regression: Valid non-production credentials resolve successfully in required and optional mode", () => {
   const envValid: Record<string, string> = {
     RUN_BE07_RLS_INTEGRATION: "true",
-    BE04_RLS_TEST_SUPABASE_URL: "https://dedicated-valid-ref.supabase.co",
-    BE04_RLS_TEST_SUPABASE_ANON_KEY: "dedicated-anon-key-12345",
-    BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: "dedicated-service-role-key-67890",
-    BE04_RLS_TEST_EXPECTED_PROJECT_REF: "dedicated-valid-ref",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://dedicated-valid-ref.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: "dedicated-anon-key-12345",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: "dedicated-service-role-key-67890",
+    NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: "dedicated-valid-ref",
   };
 
   const resOptional = resolveCredentialStateMachine((k) => envValid[k]);
   assertEquals(resOptional.shouldRun, true);
   if (resOptional.shouldRun) {
     assertEquals(resOptional.isOptedIn, true);
-    assertEquals(resOptional.prefix, "BE04");
+    assertEquals(resOptional.prefix, "NON_PRODUCTION_TEST_DATABASE");
     assertEquals(resOptional.error, undefined);
     assertEquals(resOptional.url, "https://dedicated-valid-ref.supabase.co");
     assertEquals(resOptional.anonKey, "dedicated-anon-key-12345");
