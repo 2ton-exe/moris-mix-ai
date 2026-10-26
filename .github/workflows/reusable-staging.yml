@@ -167,6 +167,8 @@ jobs:
                 --silent \
                 --show-error \
                 --location \
+                --connect-timeout 5 \
+                --max-time 15 \
                 --output "$temp_dir/home.html" \
                 --write-out "%{http_code} %{content_type}" \
                 "${base}/home?revision=${GITHUB_SHA}"
@@ -211,6 +213,8 @@ jobs:
                 --silent \
                 --show-error \
                 --location \
+                --connect-timeout 5 \
+                --max-time 15 \
                 --output "$temp_dir/asset.js" \
                 --write-out "%{http_code} %{content_type}" \
                 "$asset_url"
