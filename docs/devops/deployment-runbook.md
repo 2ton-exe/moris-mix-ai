@@ -340,6 +340,7 @@ Checks must only be marked complete after actual execution and verification.
 
 ### Staging Frontend Smoke Failure
 
+- For a final effective URL origin failure on `/home` or the JavaScript asset, inspect the redirect configuration. Redirects are followed, but each final URL must have the same origin (scheme, hostname, and effective port) as the verified `STAGING_FRONTEND_URL`. Cross-origin redirects, including redirects to production, fail smoke immediately even when the final status and content type would otherwise pass.
 - For `/home` failure, check the staging URL, Worker deployment, routing, and final HTTP status/content type after redirects. HTTP 200 with final `text/html` is required; an intermediate redirect's HTML header is insufficient.
 - For `Could not find the built JavaScript asset.`, inspect the deployed HTML and build output for the expected `src="...assets/...js"` reference. Missing references fail explicitly.
 - For JavaScript asset failure, inspect the referenced URL and ensure that bundle was uploaded. HTTP 200 with `text/html` can be Cloudflare SPA fallback for a missing asset and is intentionally rejected. Check final JavaScript content type as well as HTTP status; do not disable this assertion.

@@ -150,6 +150,11 @@ jobs:
       STAGING_FRONTEND_URL: ${{ needs.deploy.outputs.deployment-url }}
 
     steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Verify deployed frontend
         shell: bash
         run: |
@@ -158,6 +163,19 @@ jobs:
           base="${STAGING_FRONTEND_URL%/}"
           temp_dir="$(mktemp -d)"
           trap 'rm -rf "$temp_dir"' EXIT
+
+          verify_origin() {
+            if ! node -e '
+              try {
+                process.exit(new URL(process.argv[1]).origin === new URL(process.argv[2]).origin ? 0 : 1);
+              } catch {
+                process.exit(1);
+              }
+            ' "$base" "$1"; then
+              echo "::error::Staging $2 final effective URL is invalid or outside the verified STAGING_FRONTEND_URL origin."
+              exit 1
+            fi
+          }
 
           success=false
 
@@ -170,11 +188,16 @@ jobs:
                 --connect-timeout 5 \
                 --max-time 15 \
                 --output "$temp_dir/home.html" \
-                --write-out "%{http_code} %{content_type}" \
+                --write-out "%{http_code} %{content_type}\n%{url_effective}" \
                 "${base}/home?revision=${GITHUB_SHA}"
-            )" && [[ "${response,,}" == "200 text/html" || "${response,,}" == "200 text/html;"* ]]; then
-              success=true
-              break
+            )"; then
+              verify_origin "${response##*$'\n'}" "/home"
+              response="${response%$'\n'*}"
+
+              if [[ "${response,,}" == "200 text/html" || "${response,,}" == "200 text/html;"* ]]; then
+                success=true
+                break
+              fi
             fi
 
             if [[ "$attempt" -lt 5 ]]; then
@@ -216,9 +239,11 @@ jobs:
                 --connect-timeout 5 \
                 --max-time 15 \
                 --output "$temp_dir/asset.js" \
-                --write-out "%{http_code} %{content_type}" \
+                --write-out "%{http_code} %{content_type}\n%{url_effective}" \
                 "$asset_url"
             )"; then
+              verify_origin "${asset_response##*$'\n'}" "JavaScript asset"
+              asset_response="${asset_response%$'\n'*}"
               asset_status="${asset_response%% *}"
               asset_content_type="${asset_response#* }"
               asset_content_type="${asset_content_type%%;*}"
