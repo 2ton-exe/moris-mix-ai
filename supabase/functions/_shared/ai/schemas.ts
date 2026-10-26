@@ -107,7 +107,7 @@ export const RecipeCursorSchema = z.object({
   title: z.string().optional(),
   ingredient: z.string().optional(),
   id: z.string().uuid(),
-  createdAt: z.string().min(1),
+  createdAt: z.string().datetime({ offset: true }),
   starRating: z.number().int().min(1).max(5).nullable().optional(),
 });
 export type RecipeCursor = z.infer<typeof RecipeCursorSchema>;

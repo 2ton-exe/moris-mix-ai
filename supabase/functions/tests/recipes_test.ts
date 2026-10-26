@@ -3945,16 +3945,16 @@ Deno.test("Authenticated GET /recipes search filters match title, ingredient, tr
   };
 
   const cases = [
-    { query: "?title=Garlic", check: () => assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%Garlic%") },
-    { query: "?title=garlic+rice", check: () => assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%garlic rice%") },
-    { query: "?title=%20%20crispy%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%crispy%") },
-    { query: "?ingredient=shallots", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%shallots%") },
-    { query: "?ingredient=%20%20jasmine%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%jasmine%") },
+    { query: "?title=Garlic", check: () => assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%Garlic%"') },
+    { query: "?title=garlic+rice", check: () => assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%garlic rice%"') },
+    { query: "?title=%20%20crispy%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%crispy%"') },
+    { query: "?ingredient=shallots", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%shallots%"') },
+    { query: "?ingredient=%20%20jasmine%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%jasmine%"') },
     {
       query: "?title=rice&ingredient=shallots",
       check: () => {
-        assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%rice%");
-        assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%shallots%");
+        assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%rice%"');
+        assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%shallots%"');
       },
     },
     {
@@ -4377,7 +4377,7 @@ Deno.test("Regression BE-08 Task 1: Authenticated GET /recipes ingredient search
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
   assertEquals(matchingRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%ginger%");
+  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%ginger%"');
   assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
   const matchingBody = await matchingRes.json();
   assertEquals(matchingBody.recipes.length, 1);
@@ -4387,7 +4387,7 @@ Deno.test("Regression BE-08 Task 1: Authenticated GET /recipes ingredient search
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
   assertEquals(nonMatchingRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%nonexistent%");
+  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%nonexistent%"');
   const nonMatchingBody = await nonMatchingRes.json();
   assertEquals(nonMatchingBody.recipes.length, 0);
   assertEquals(nonMatchingBody.has_more, false);
@@ -4398,7 +4398,7 @@ Deno.test("Regression BE-08 Task 1: Authenticated GET /recipes ingredient search
       headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
     }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
     assertEquals(unicodeRes.status, 200);
-    assertEquals(capturedUrl!.searchParams.get("ingredients_text"), `ilike.%${unicodeTerm}%`);
+    assertEquals(capturedUrl!.searchParams.get("ingredients_text"), `ilike."%${unicodeTerm}%"`);
     assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
   }
 
@@ -4407,8 +4407,8 @@ Deno.test("Regression BE-08 Task 1: Authenticated GET /recipes ingredient search
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
   assertEquals(combinedRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("title"), "ilike.%Matcha%");
-  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), "ilike.%🍵%");
+  assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%Matcha%"');
+  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%🍵%"');
 });
 
 Deno.test("Regression BE-08 Task 2: Authenticated GET /recipes preserves BE-06 list contract and opt-in cursor mode", async () => {
@@ -4668,4 +4668,188 @@ Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination
   const page2ResBody = await page2Res.json();
   assertEquals(page2ResBody.recipes.length, 2);
   assertEquals(page2ResBody.has_more, false);
+});
+Deno.test("Regression BE-08 Follow-Up: Search safely handles reserved characters and escapes SQL wildcards", async () => {
+  let capturedUrl: URL | null = null;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      capturedUrl = url;
+      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const testCases = [
+    { param: "title", value: "garlic, shallots", expected: 'ilike."%garlic, shallots%"' },
+    { param: "title", value: "soup (hot)", expected: 'ilike."%soup (hot)%"' },
+    { param: "title", value: 'sauce "special"', expected: 'ilike."%sauce \\\"special\\\"%"' },
+    { param: "title", value: "oil\\vinegar", expected: 'ilike."%oil\\\\vinegar%"' },
+    { param: "title", value: "100%", expected: 'ilike."%100\\%%"' },
+    { param: "title", value: "salt_pepper", expected: 'ilike."%salt\\_pepper%"' },
+    { param: "ingredient", value: "garlic, shallots", expected: 'ilike."%garlic, shallots%"' },
+    { param: "ingredient", value: "soup (hot)", expected: 'ilike."%soup (hot)%"' },
+    { param: "ingredient", value: "100%", expected: 'ilike."%100\\%%"' },
+    { param: "ingredient", value: "salt_pepper", expected: 'ilike."%salt\\_pepper%"' },
+  ];
+
+  for (const tc of testCases) {
+    const res = await handler(new Request(`http://localhost/functions/v1/recipes?${tc.param}=${encodeURIComponent(tc.value)}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(res.status, 200);
+    const key = tc.param === "ingredient" ? "ingredients_text" : "title";
+    assertEquals(capturedUrl!.searchParams.get(key), tc.expected);
+  }
+});
+
+Deno.test("Regression BE-08 Follow-Up: Ingredient search matches names only and does not match JSON metadata", async () => {
+  const recipeWithMetadata = persistedRecipeRow({
+    title: "Garlic Bread",
+    ingredients: [{ name: "Garlic", unit: "cloves", quantity: 2, inferred: false }],
+  });
+
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      const ingFilter = url.searchParams.get("ingredients_text") ?? "";
+      const namesArray = JSON.stringify(recipeWithMetadata.ingredients.map((i: { name: string }) => i.name));
+      const termMatch = ingFilter.match(/ilike\."%(.*)%"/);
+      const term = termMatch ? termMatch[1].toLowerCase() : "";
+      const matches = namesArray.toLowerCase().includes(term);
+      return Promise.resolve(new Response(JSON.stringify(matches ? [recipeWithMetadata] : []), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const nameRes = await handler(new Request("http://localhost/functions/v1/recipes?ingredient=Garlic", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  assertEquals(nameRes.status, 200);
+  const nameBody = await nameRes.json();
+  assertEquals(nameBody.recipes.length, 1);
+
+  for (const metadataKey of ["unit", "quantity", "inferred", "cloves", "false"]) {
+    const metaRes = await handler(new Request(`http://localhost/functions/v1/recipes?ingredient=${metadataKey}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(metaRes.status, 200);
+    const metaBody = await metaRes.json();
+    assertEquals(metaBody.recipes.length, 0);
+  }
+});
+
+Deno.test("Regression BE-08 Follow-Up: Validates cursor timestamps and rejects injection or non-ISO dates", async () => {
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  function makeCursor(createdAt: string): string {
+    const obj = {
+      sort: "newest",
+      id: "11111111-1111-4111-8111-111111111111",
+      createdAt,
+    };
+    return btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  const badTimestamps = [
+    "not-a-date",
+    "2026-10-20 00:00:00",
+    "2026-10-20T00:00:00Z),and(id.gt.00000000-0000-0000-0000-000000000000",
+    "2026/10/20",
+    "9999999999",
+    "",
+  ];
+
+  for (const badTs of badTimestamps) {
+    const cursor = makeCursor(badTs);
+    const res = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${cursor}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(res.status, 400);
+    const body = await res.json();
+    assertEquals(body.error?.code, "VALIDATION_ERROR");
+  }
+
+  const validTimestamps = [
+    "2026-10-20T00:00:00.000Z",
+    "2026-10-20T12:30:00Z",
+    "2026-10-20T15:00:00+08:00",
+  ];
+
+  for (const validTs of validTimestamps) {
+    const cursor = makeCursor(validTs);
+    const res = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${cursor}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(res.status, 200);
+  }
+});
+
+Deno.test("Regression BE-08 Follow-Up: Supports large recipe persistence without index row size failure", async () => {
+  let capturedInsertBody: Record<string, unknown> | null = null;
+  const mockFetch: typeof fetch = (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    if (url.pathname === "/rest/v1/recipes" && init?.method === "POST") {
+      capturedInsertBody = JSON.parse(init.body as string);
+      return Promise.resolve(new Response(JSON.stringify({
+        ...persistedRecipeRow(),
+        ingredients: (capturedInsertBody as any).ingredients,
+      }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const largeIngredients = [];
+  for (let i = 0; i < 40; i++) {
+    largeIngredients.push({
+      name: `Special Organic Locally Sourced Herb or Spice Item Number ${i + 1}`,
+      quantity: i + 1,
+      unit: "tablespoons",
+      quantityText: `${i + 1} fresh tablespoons finely ground`,
+      inferred: false,
+    });
+  }
+
+  const payload = {
+    title: "Massive Degustation Recipe",
+    ingredients: largeIngredients,
+    instructions: [{ step: 1, text: "Mix everything together." }],
+  };
+
+  const res = await handler(new Request("http://localhost/functions/v1/recipes", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+
+  assertEquals(res.status, 201);
+  assertEquals((capturedInsertBody!.ingredients as any[]).length, 40);
+  const jsonSize = JSON.stringify(capturedInsertBody!.ingredients).length;
+  assertEquals(jsonSize > 3000, true);
 });

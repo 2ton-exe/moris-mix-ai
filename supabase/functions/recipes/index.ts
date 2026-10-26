@@ -96,6 +96,12 @@ function encodeCursor(cursor: RecipeCursor): string {
   return bytesToBase64Url(bytes);
 }
 
+function formatIlikePattern(term: string): string {
+  const sqlEscaped = term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+  const postgrestEscaped = sqlEscaped.replace(/"/g, '\\"');
+  return `"%${postgrestEscaped}%"`;
+}
+
 type RecipeListParams =
   | {
       mode: "cursor";
@@ -665,11 +671,11 @@ export async function handler(
           .eq("user_id", user.id);
 
         if (params.title) {
-          listQuery = listQuery.ilike("title", `%${params.title}%`);
+          listQuery = listQuery.ilike("title", formatIlikePattern(params.title));
         }
 
         if (params.ingredient) {
-          listQuery = listQuery.ilike("ingredients_text", `%${params.ingredient}%`);
+          listQuery = listQuery.ilike("ingredients_text", formatIlikePattern(params.ingredient));
         }
 
         if (params.mode === "cursor") {

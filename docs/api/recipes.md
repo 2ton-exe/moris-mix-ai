@@ -31,7 +31,7 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 | Parameter | Type / Constraints | Default | Behavior |
 | --- | --- | --- | --- |
 | `title` | `string` | optional | Case-insensitive partial substring match against recipe `title`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored without filtering out recipes. |
-| `ingredient` | `string` | optional | Case-insensitive partial substring match against canonical persisted recipe `ingredients` JSONB representation via generated column `ingredients_text`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored. |
+| `ingredient` | `string` | optional | Case-insensitive partial substring match against canonical persisted recipe ingredient names via generated column `ingredients_text`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored. |
 | `sort` | `string` (`newest` \| `rating`) | `newest` | Controls result ordering. Unsupported sort values return `400 VALIDATION_ERROR`. |
 | `pagination` | `string` (`cursor` \| `offset`) | optional (`offset`) | Explicit pagination mode selector. When set to `cursor`, enables cursor keyset pagination (default limit 20, max limit 100). When omitted or set to `offset`, requests use legacy offset pagination (default limit 1000, max limit 1000). |
 | `limit` | integer `1..100` (cursor mode) or `1..1000` (legacy offset mode) | `20` (cursor mode), `1000` (offset mode) | Number of recipes to return per page. In legacy offset mode, requests such as `?limit=200` are valid without an explicit `offset`. Exceeding the mode's maximum limit returns `400 VALIDATION_ERROR`. |
@@ -61,7 +61,7 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 - First-page cursor requests pass `pagination=cursor` (e.g., `GET /recipes?pagination=cursor` or `GET /recipes?pagination=cursor&limit=20&sort=rating`). Requests omitting pagination parameters default to legacy offset pagination (limit 1000, offset 0).
 - When more results are available, the response includes `has_more: true` and an opaque `next_cursor` string.
 - Continuation requests pass `cursor=<next_cursor>` along with identical `sort`, `title`, and `ingredient` query parameters.
-- Cursors are serialized using URL-safe, UTF-8-safe Base64 without padding, supporting arbitrary Unicode search terms and emojis. Cursors encode sort keys and tie-breakers from the last row of the previous page. Keyset filtering ensures no skipped rows and no duplicate rows across ordinary page boundaries.
+- Cursors are serialized using URL-safe, UTF-8-safe Base64 without padding, supporting arbitrary Unicode search terms and emojis. The `createdAt` property is strictly validated as an ISO 8601 datetime with timezone. Cursors encode sort keys and tie-breakers from the last row of the previous page. Keyset filtering ensures no skipped rows and no duplicate rows across ordinary page boundaries.
 - When no more results exist, the response includes `has_more: false` and `next_cursor: null`.
 - Malformed, corrupt, or non-base64 cursors are rejected with `400 VALIDATION_ERROR`.
 - Cursors that do not match the active `sort`, `title`, or `ingredient` parameters are rejected with `400 VALIDATION_ERROR`.
@@ -371,7 +371,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
 
 Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
-- **Deterministic offline tests (48 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
+- **Deterministic offline tests (52 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
 - **Database migration tests:** Run offline via `node test-migrations.mjs`.
 - **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.
 - **Command:**
@@ -389,7 +389,8 @@ Hosted integration tests use dedicated non-production projects configured throug
 - **Recipe visibility:** `20261017000001_add_is_public_to_recipes.sql` adds `is_public boolean not null default false` to `public.recipes`.
 - **Dedicated recipe notes:** `20261023000002_add_notes_to_recipes.sql` adds nullable `notes text` column to `public.recipes`, enabling personal chef/cooking notes without modifying or colliding with `raw_input`. All CRUD routes (`GET`, `POST`, `PATCH`) support `notes` independently of `raw_input`.
 - **Search and keyset pagination indexes:** `20261026000003_add_recipe_search_indexes.sql` creates composite indexes `idx_recipes_user_created_id` (`user_id, created_at desc, id asc`) and `idx_recipes_user_rating_created_id` (`user_id, star_rating desc nulls last, created_at desc, id asc`) supporting owner-scoped newest listing and rating keyset pagination.
-- **Ingredient search column and index:** `20261026000004_add_recipe_ingredient_search.sql` adds stored generated column `ingredients_text text generated always as (ingredients::text) stored` and index `idx_recipes_user_ingredients_text` on `public.recipes(user_id, ingredients_text)`, enabling supported PostgREST `ilike` filtering over `ingredients` without unsupported casts.
+- **Ingredient search column:** `20261026000004_add_recipe_ingredient_search.sql` adds initial generated column and B-tree index for ingredient searching.
+- **Ingredient search refinement and index removal:** `20261026000005_update_recipe_ingredient_search.sql` drops the unsafe B-tree index `idx_recipes_user_ingredients_text` to eliminate row size limits (2,704 bytes) on recipes with large ingredient lists, and updates `ingredients_text` to extract ingredient names via `jsonb_path_query_array(ingredients, '$[*].name')::text`, eliminating false-positive matches on metadata keys (`unit`, `quantity`, `inferred`).
 
 ### Search indexing and performance evaluation
 
@@ -398,3 +399,9 @@ The authenticated search operation evaluates substring filters against `title` (
 - **Index evaluation:** In PostgreSQL, arbitrary case-insensitive substring searches with leading and trailing wildcards require GIN trigram indexing using the `pg_trgm` extension. The project database currently enables only the `pgcrypto` extension (`20261013000000_initial_schema.sql`). In accordance with repository constraints prohibiting the introduction of unapproved PostgreSQL extensions, `pg_trgm` has not been added.
 - **Intended index support:** The composite B-tree indexes `idx_recipes_user_created_id` (`user_id, created_at desc, id asc`) and `idx_recipes_user_rating_created_id` (`user_id, star_rating desc nulls last, created_at desc, id asc`) are intended to support caller isolation and deterministic ordering and pagination bounds. When search filters (`title ILIKE '%term%'` or `ingredients_text ILIKE '%term%'`) are supplied alongside owner and sort clauses, PostgreSQL can filter by `user_id` and order by `created_at` or `star_rating`, evaluating substring predicates as filter rechecks. However, actual planner selection depends on table statistics, data volume, and planner heuristics; without an inspected query execution plan against a live populated database, index selection by the planner is not claimed.
 - **Performance limitation:** Because arbitrary substring matching with wildcards cannot use B-tree index lookups directly, tables with exceptionally large numbers of recipes per user may experience linear scan costs during substring filtering until a dedicated trigram extension (`pg_trgm`) is enabled and indexed in an approved future migration.
+
+### Sorting index audit and semantics
+
+An audit of sorting indexes confirmed the following operational and semantic distinctions:
+- **Created timestamp ordering:** `idx_recipes_user_created (user_id, created_at desc)` (`20261013000000_initial_schema.sql`) stores narrower index rows (24 bytes payload) than `idx_recipes_user_created_id (user_id, created_at desc, id asc)` (`20261026000003_add_recipe_search_indexes.sql`), accelerating simple `ORDER BY created_at DESC` scans that do not require tie-breaker evaluation.
+- **Rating null ordering semantics:** `idx_recipes_user_rating (user_id, star_rating desc)` (`20261013000000_initial_schema.sql`) operates under PostgreSQL default `NULLS FIRST` semantics for `DESC` indexes. In contrast, `idx_recipes_user_rating_created_id` (`20261026000003_add_recipe_search_indexes.sql`) explicitly specifies `NULLS LAST`. In PostgreSQL, a B-tree index created with `NULLS LAST` cannot satisfy queries expecting default `NULLS FIRST` ordering. Dropping `idx_recipes_user_rating` would cause queries using default `ORDER BY star_rating DESC` to incur in-memory Sort operations. Both indexes are intentionally retained to preserve distinct ordering semantics.
