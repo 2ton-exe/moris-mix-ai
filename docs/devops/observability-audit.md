@@ -23,7 +23,7 @@ Production Worker `moris-mix-ai` serves the frontend through Cloudflare Workers 
 
 ## Supabase Visibility
 
-Production application project: `moris-scraps`. A separate hosted RLS/integration-test project, `moris-mix-be04-rls-test`, exists. No dedicated staging Supabase project was visible in the current provider inventory; the test project is not evidence of staging.
+Production application project: `moris-scraps`. A separate hosted non-production test database project for RLS and integration testing, `moris-mix-be04-rls-test`, exists. No dedicated staging Supabase project was visible in the current provider inventory; the test project is not evidence of staging.
 
 | Capability | Current state | Evidence level | Limitation |
 | --- | --- | --- | --- |
