@@ -1399,25 +1399,25 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
     ''
   ).trim();
 
-  const be04OptIn = (getEnv('RUN_BE04_RLS_INTEGRATION') ?? '').trim();
-  const be04Url = (getEnv('BE04_RLS_TEST_SUPABASE_URL') ?? '').trim();
-  const be04DbUrl = sanitizeDatabaseUrl(getEnv('BE04_RLS_TEST_DATABASE_URL'));
-  const be04ExpectedRef = (
-    getEnv('BE04_RLS_TEST_EXPECTED_PROJECT_REF') ??
-    getEnv('BE04_RLS_TEST_PROJECT_REF') ??
+  const nonProdOptIn = (getEnv('RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION') ?? '').trim();
+  const nonProdUrl = (getEnv('NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL') ?? '').trim();
+  const nonProdDbUrl = sanitizeDatabaseUrl(getEnv('NON_PRODUCTION_TEST_DATABASE_URL'));
+  const nonProdExpectedRef = (
+    getEnv('NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF') ??
+    getEnv('NON_PRODUCTION_TEST_DATABASE_PROJECT_REF') ??
     ''
   ).trim();
-  const be04ServiceKey =
-    getEnv('BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY')?.trim() ||
-    getEnv('BE04_RLS_TEST_SUPABASE_SECRET_KEY')?.trim() ||
+  const nonProdServiceKey =
+    getEnv('NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY')?.trim() ||
+    getEnv('NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY')?.trim() ||
     '';
-  const be04AnonKey = (
-    getEnv('BE04_RLS_TEST_SUPABASE_ANON_KEY') ??
-    getEnv('BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY') ??
+  const nonProdAnonKey = (
+    getEnv('NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY') ??
+    getEnv('NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY') ??
     ''
   ).trim();
 
-  const isBe04OptedIn = be04OptIn.toLowerCase() === 'true' || be04OptIn === '1';
+  const isNonProdOptedIn = nonProdOptIn.toLowerCase() === 'true' || nonProdOptIn === '1';
   const isBe06OptedIn = be06OptIn.toLowerCase() === 'true' || be06OptIn === '1';
 
   const hasAnyBe06 = Boolean(
@@ -1426,12 +1426,12 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
 
   if (hasAnyBe06) {
     if (!isBe06OptedIn) {
-      if (isBe04OptedIn) {
+      if (isNonProdOptedIn) {
         return {
           shouldRun: true,
           source: 'BE-06',
           isOptedIn: true,
-          error: 'Inconsistent test database configuration: RUN_BE04_RLS_INTEGRATION is enabled but BE-06 variables are present without RUN_BE06_RLS_INTEGRATION=true. BE-06 credentials cannot be mixed with BE-04.',
+          error: 'Inconsistent test database configuration: RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION is enabled but BE-06 variables are present without RUN_BE06_RLS_INTEGRATION=true. BE-06 credentials cannot be mixed with NON_PRODUCTION_TEST_DATABASE.',
           url: be06Url,
           databaseUrl: be06DbUrl,
           expectedProjectRef: be06ExpectedRef,
@@ -1469,36 +1469,36 @@ export function resolveTestDatabaseConfiguration(getEnv = (k) => process.env[k])
     };
   }
 
-  if (!isBe04OptedIn) {
-    return { shouldRun: false, source: 'BE-04', isOptedIn: false };
+  if (!isNonProdOptedIn) {
+    return { shouldRun: false, source: 'NON_PRODUCTION_TEST_DATABASE', isOptedIn: false };
   }
 
   const missingLegacy = [];
-  if (!be04Url) missingLegacy.push('BE04_RLS_TEST_SUPABASE_URL');
-  if (!be04ExpectedRef) missingLegacy.push('BE04_RLS_TEST_EXPECTED_PROJECT_REF');
+  if (!nonProdUrl) missingLegacy.push('NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL');
+  if (!nonProdExpectedRef) missingLegacy.push('NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF');
   if (missingLegacy.length > 0) {
     return {
       shouldRun: true,
-      source: 'BE-04',
+      source: 'NON_PRODUCTION_TEST_DATABASE',
       isOptedIn: true,
-      error: `Legacy BE-04 test database migration preflight enabled but configuration is incomplete: missing ${missingLegacy.join(', ')}.`,
-      url: be04Url,
-      databaseUrl: be04DbUrl,
-      expectedProjectRef: be04ExpectedRef,
-      serviceKey: be04ServiceKey,
-      anonKey: be04AnonKey
+      error: `Non-production test database migration preflight enabled but configuration is incomplete: missing ${missingLegacy.join(', ')}.`,
+      url: nonProdUrl,
+      databaseUrl: nonProdDbUrl,
+      expectedProjectRef: nonProdExpectedRef,
+      serviceKey: nonProdServiceKey,
+      anonKey: nonProdAnonKey
     };
   }
 
   return {
     shouldRun: true,
-    source: 'BE-04',
+    source: 'NON_PRODUCTION_TEST_DATABASE',
     isOptedIn: true,
-    url: be04Url,
-    databaseUrl: be04DbUrl,
-    expectedProjectRef: be04ExpectedRef,
-    serviceKey: be04ServiceKey,
-    anonKey: be04AnonKey
+    url: nonProdUrl,
+    databaseUrl: nonProdDbUrl,
+    expectedProjectRef: nonProdExpectedRef,
+    serviceKey: nonProdServiceKey,
+    anonKey: nonProdAnonKey
   };
 }
 
@@ -1528,12 +1528,12 @@ export async function runTestDatabaseMigrations(options = {}) {
       }
       if (probe.code === 'PGRST204') {
         throw new Error(
-          `Preflight verification failed: PostgREST returned PGRST204 for column 'notes'. Migration '20261023000002_add_notes_to_recipes.sql' has not been applied or schema cache is stale. Missing required secret ${config.source === 'BE-06' ? 'BE06_RLS_TEST_DATABASE_URL' : 'BE04_RLS_TEST_DATABASE_URL'} to apply migrations and reload schema cache.`
+          `Preflight verification failed: PostgREST returned PGRST204 for column 'notes'. Migration '20261023000002_add_notes_to_recipes.sql' has not been applied or schema cache is stale. Missing required secret ${config.source === 'BE-06' ? 'BE06_RLS_TEST_DATABASE_URL' : 'NON_PRODUCTION_TEST_DATABASE_URL'} to apply migrations and reload schema cache.`
         );
       }
     }
     throw new Error(
-      `Preflight verification failed: missing dedicated test database connection string (${config.source === 'BE-06' ? 'BE06_RLS_TEST_DATABASE_URL' : 'BE04_RLS_TEST_DATABASE_URL'}).`
+      `Preflight verification failed: missing dedicated test database connection string (${config.source === 'BE-06' ? 'BE06_RLS_TEST_DATABASE_URL' : 'NON_PRODUCTION_TEST_DATABASE_URL'}).`
     );
   }
 

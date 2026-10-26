@@ -3,17 +3,21 @@ name: Reusable Edge/API Validation
 on:
   workflow_call:
     secrets:
-      BE04_RLS_TEST_SUPABASE_URL:
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL:
         required: false
-      BE04_RLS_TEST_SUPABASE_ANON_KEY:
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY:
         required: false
-      BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY:
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY:
         required: false
-      BE04_RLS_TEST_SUPABASE_SECRET_KEY:
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY:
         required: false
-      BE04_RLS_TEST_EXPECTED_PROJECT_REF:
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY:
         required: false
-      BE04_RLS_TEST_DATABASE_URL:
+      NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF:
+        required: false
+      NON_PRODUCTION_TEST_DATABASE_PROJECT_REF:
+        required: false
+      NON_PRODUCTION_TEST_DATABASE_URL:
         required: false
 
 jobs:
@@ -38,15 +42,17 @@ jobs:
       - name: Check hosted migration configuration
         id: hosted-migration
         env:
-          BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
-          BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
-          BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
-          BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE04_RLS_TEST_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF }}
-          BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_URL }}
         shell: bash
         run: |
-          if [[ -n "${BE04_RLS_TEST_DATABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE04_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && -n "${BE04_RLS_TEST_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
+          if [[ -n "${NON_PRODUCTION_TEST_DATABASE_URL//[[:space:]]/}" && -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL//[[:space:]]/}" && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_PROJECT_REF//[[:space:]]/}" ) ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -71,28 +77,38 @@ jobs:
       - name: Migrate dedicated hosted RLS test database
         if: steps.hosted-migration.outputs.run == 'true'
         env:
-          RUN_BE04_RLS_INTEGRATION: "true"
-          BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
-          BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
-          BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
-          BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE04_RLS_TEST_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF }}
-          BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
+          RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true"
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_URL }}
         run: node run-migrations.mjs --test-target
 
-      - name: Run hosted BE-04 RLS integration test (optional)
+      - name: Run non-production test database RLS integration test
         env:
-          BE04_RLS_TEST_SUPABASE_URL: ${{ secrets.BE04_RLS_TEST_SUPABASE_URL }}
-          BE04_RLS_TEST_SUPABASE_ANON_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_ANON_KEY }}
-          BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          BE04_RLS_TEST_SUPABASE_SECRET_KEY: ${{ secrets.BE04_RLS_TEST_SUPABASE_SECRET_KEY }}
-          BE04_RLS_TEST_EXPECTED_PROJECT_REF: ${{ vars.BE04_RLS_TEST_EXPECTED_PROJECT_REF || vars.BE04_RLS_TEST_PROJECT_REF || secrets.BE04_RLS_TEST_EXPECTED_PROJECT_REF }}
-          BE04_RLS_TEST_DATABASE_URL: ${{ secrets.BE04_RLS_TEST_DATABASE_URL }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_URL }}
         shell: bash
         run: |
-          if [[ -n "${BE04_RLS_TEST_DATABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_URL//[[:space:]]/}" && -n "${BE04_RLS_TEST_SUPABASE_ANON_KEY//[[:space:]]/}" && ( -n "${BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${BE04_RLS_TEST_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && -n "${BE04_RLS_TEST_EXPECTED_PROJECT_REF//[[:space:]]/}" ]]; then
-            RUN_BE04_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+          if [[ -n "${NON_PRODUCTION_TEST_DATABASE_URL//[[:space:]]/}" && -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL//[[:space:]]/}" && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_PROJECT_REF//[[:space:]]/}" ) ]]; then
+            RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+            echo "SKIPPED: Non-production test database RLS integration test safely skipped for untrusted fork pull request where repository secrets are withheld."
+            deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
+          elif [[ "${REQUIRE_HOSTED_RLS_INTEGRATION}" == "true" ]]; then
+            echo "ERROR: Hosted RLS integration test is required but non-production test database configuration is missing." >&2
+            exit 1
           else
-            echo "SKIPPED: Hosted BE-04 RLS integration test not executed because dedicated non-production test project configuration is incomplete."
+            echo "SKIPPED: Non-production test database RLS integration test not executed because dedicated non-production test project configuration is not completely configured."
             deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts
           fi
