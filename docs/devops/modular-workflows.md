@@ -70,10 +70,10 @@ runs below used the pre-E2E configuration and observed the composed names
 `Modular Main Frontend / Frontend Checks`,
 `Modular Main Database / Database Tests`, and
 `Modular Main Edge/API / Edge/API Tests`; the new E2E check and four-dependency
-gate have not yet run on main. The caller forwards all six optional BE04
-non-production test secrets: Supabase URL, anon key, service-role key, secret
-key, expected project reference, and dedicated database URL. Like the PR caller,
-it forwards the expected-reference secret with a legacy `BE04_RLS_TEST_PROJECT_REF`
+gate have not yet run on main. The caller forwards the optional NON_PRODUCTION_TEST_DATABASE
+non-production test secrets: Supabase URL, anon key, publishable key, service-role key, secret
+key, expected project reference, project reference fallback, and dedicated database URL. Like the PR caller,
+it forwards the expected-reference secret with a legacy `NON_PRODUCTION_TEST_DATABASE_PROJECT_REF`
 secret fallback; the reusable workflow also reads repository-variable fallbacks.
 The E2E caller forwards no secrets and uses only its local Supabase stack. The
 workflow never calls `reusable-cloudflare.yml`, receives no Cloudflare production

@@ -99,8 +99,23 @@ export const RecipeParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+export const RecipeSortModeSchema = z.enum(["newest", "rating"]);
+export type RecipeSortMode = z.infer<typeof RecipeSortModeSchema>;
+
+export const RecipeCursorSchema = z.object({
+  sort: RecipeSortModeSchema,
+  title: z.string().optional(),
+  ingredient: z.string().optional(),
+  id: z.string().uuid(),
+  createdAt: z.string().min(1),
+  starRating: z.number().int().min(1).max(5).nullable().optional(),
+});
+export type RecipeCursor = z.infer<typeof RecipeCursorSchema>;
+
 export const RecipeListResponseSchema = z.object({
   recipes: z.array(RecipeSchema),
+  next_cursor: z.string().nullable().optional(),
+  has_more: z.boolean().optional(),
 });
 
 export const UpdateRecipeRequestSchema = z.object({

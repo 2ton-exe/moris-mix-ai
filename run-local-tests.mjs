@@ -325,19 +325,19 @@ function evaluateHostedRlsPrerequisites(options = {}) {
 
   const missing = [];
   if (!isOptedIn) {
-    missing.push("RUN_BE04_RLS_INTEGRATION=true opt-in flag");
+    missing.push("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION=true opt-in flag");
   }
   if (!rlsUrl || !rlsUrl.trim()) {
-    missing.push("BE04_RLS_TEST_SUPABASE_URL");
+    missing.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL");
   }
   if (!effectivePublicKey) {
     missing.push(
-      "valid dedicated public key (BE04_RLS_TEST_SUPABASE_ANON_KEY or BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)"
+      "valid dedicated public key (NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY or NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY)"
     );
   }
   if (!effectiveServiceRoleKey) {
     missing.push(
-      "valid dedicated secret/service-role key (BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY or BE04_RLS_TEST_SUPABASE_SECRET_KEY: legacy service_role JWT or modern sb_secret_*)"
+      "valid dedicated secret/service-role key (NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY or NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY: legacy service_role JWT or modern sb_secret_*)"
     );
   }
 
@@ -382,13 +382,13 @@ async function runMain() {
   const rawAnonKey = process.env.SUPABASE_ANON_KEY;
   const rawPublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
   const rawViteSupabaseUrl = process.env.VITE_SUPABASE_URL;
-  const rawRlsOptIn = process.env.RUN_BE04_RLS_INTEGRATION;
-  const rawRlsUrl = process.env.BE04_RLS_TEST_SUPABASE_URL;
-  const rawRlsAnonKey = process.env.BE04_RLS_TEST_SUPABASE_ANON_KEY;
-  const rawRlsPublishableKey = process.env.BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY;
+  const rawRlsOptIn = process.env.RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION;
+  const rawRlsUrl = process.env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL;
+  const rawRlsAnonKey = process.env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY;
+  const rawRlsPublishableKey = process.env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY;
   const rawRlsServiceRoleKey =
-    process.env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY;
-  const rawRlsSecretKey = process.env.BE04_RLS_TEST_SUPABASE_SECRET_KEY;
+    process.env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY;
+  const rawRlsSecretKey = process.env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY;
 
   const env = { ...process.env };
 
@@ -403,7 +403,7 @@ async function runMain() {
     "VITE_SUPABASE_PUBLISHABLE_KEY",
     "RUN_BE07_RLS_INTEGRATION",
     "RUN_BE06_RLS_INTEGRATION",
-    "RUN_BE04_RLS_INTEGRATION",
+    "RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION",
     "BE07_RLS_TEST_SUPABASE_URL",
     "BE07_RLS_TEST_SUPABASE_ANON_KEY",
     "BE07_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
@@ -416,11 +416,11 @@ async function runMain() {
     "BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
     "BE06_RLS_TEST_SUPABASE_SECRET_KEY",
     "BE06_RLS_TEST_EXPECTED_PROJECT_REF",
-    "BE04_RLS_TEST_SUPABASE_URL",
-    "BE04_RLS_TEST_SUPABASE_ANON_KEY",
-    "BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY",
-    "BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY",
-    "BE04_RLS_TEST_SUPABASE_SECRET_KEY",
+    "NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL",
+    "NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY",
+    "NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY",
+    "NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY",
+    "NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY",
     "RUN_MIGRATION_DB_TESTS",
     "RUN_DB_MIGRATION_TESTS",
   ]) {
@@ -460,19 +460,19 @@ async function runMain() {
   });
 
   if (rlsEvaluation.canRun) {
-    env.RUN_BE04_RLS_INTEGRATION = "true";
-    env.BE04_RLS_TEST_SUPABASE_URL = rawRlsUrl.trim();
-    env.BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY =
+    env.RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION = "true";
+    env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL = rawRlsUrl.trim();
+    env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY =
       rlsEvaluation.effectiveSecretKey.trim();
     if (isModernSecretKey(rlsEvaluation.effectiveSecretKey)) {
-      env.BE04_RLS_TEST_SUPABASE_SECRET_KEY =
+      env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY =
         rlsEvaluation.effectiveSecretKey.trim();
     }
     if (isLegacyAnonJwt(rlsEvaluation.effectivePublicKey)) {
-      env.BE04_RLS_TEST_SUPABASE_ANON_KEY =
+      env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY =
         rlsEvaluation.effectivePublicKey.trim();
     } else {
-      env.BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY =
+      env.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY =
         rlsEvaluation.effectivePublicKey.trim();
     }
     if (!env.SUPABASE_URL && isValidUrlString(rawSupabaseUrl)) {
