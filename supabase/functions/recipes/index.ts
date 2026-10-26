@@ -663,6 +663,29 @@ export async function handler(
         }
 
         const params = parsed.params;
+        const searchFilters: Array<{
+          column: "title" | "ingredients_text";
+          pattern: string;
+        }> = [];
+        if (params.title) {
+          searchFilters.push({ column: "title", pattern: formatIlikePattern(params.title) });
+        }
+        if (params.ingredient) {
+          searchFilters.push({ column: "ingredients_text", pattern: formatIlikePattern(params.ingredient) });
+        }
+        const sortOrders: Array<{
+          column: "star_rating" | "created_at" | "id";
+          options: { ascending: boolean; nullsFirst?: boolean };
+        }> = params.sort === "rating"
+          ? [
+            { column: "star_rating", options: { ascending: false, nullsFirst: false } },
+            { column: "created_at", options: { ascending: false } },
+            { column: "id", options: { ascending: true } },
+          ]
+          : [
+            { column: "created_at", options: { ascending: false } },
+            { column: "id", options: { ascending: true } },
+          ];
         let listQuery = supabase
           .from("recipes")
           .select(
@@ -670,16 +693,12 @@ export async function handler(
           )
           .eq("user_id", user.id);
 
-        if (params.title) {
-          listQuery = listQuery.ilike("title", formatIlikePattern(params.title));
-        }
-
-        if (params.ingredient) {
-          listQuery = listQuery.ilike("ingredients_text", formatIlikePattern(params.ingredient));
+        for (const { column, pattern } of searchFilters) {
+          listQuery = listQuery.ilike(column, pattern);
         }
 
         if (params.mode === "cursor") {
-          const { sort, limit, cursor } = params;
+          const { sort, cursor } = params;
           if (cursor) {
             if (sort === "newest") {
               listQuery = listQuery.or(
@@ -697,32 +716,16 @@ export async function handler(
               }
             }
           }
+        }
 
-          if (sort === "rating") {
-            listQuery = listQuery
-              .order("star_rating", { ascending: false, nullsFirst: false })
-              .order("created_at", { ascending: false })
-              .order("id", { ascending: true });
-          } else {
-            listQuery = listQuery
-              .order("created_at", { ascending: false })
-              .order("id", { ascending: true });
-          }
+        for (const { column, options } of sortOrders) {
+          listQuery = listQuery.order(column, options);
+        }
 
-          listQuery = listQuery.limit(limit + 1);
+        if (params.mode === "cursor") {
+          listQuery = listQuery.limit(params.limit + 1);
         } else {
-          const { sort, limit, offset } = params;
-          if (sort === "rating") {
-            listQuery = listQuery
-              .order("star_rating", { ascending: false, nullsFirst: false })
-              .order("created_at", { ascending: false })
-              .order("id", { ascending: true });
-          } else {
-            listQuery = listQuery
-              .order("created_at", { ascending: false })
-              .order("id", { ascending: true });
-          }
-
+          const { limit, offset } = params;
           listQuery = listQuery.range(offset, offset + limit);
         }
 
@@ -780,21 +783,11 @@ export async function handler(
               .select("id")
               .eq("user_id", user.id);
 
-            if (params.title) {
-              continuationQuery = continuationQuery.ilike("title", formatIlikePattern(params.title));
+            for (const { column, pattern } of searchFilters) {
+              continuationQuery = continuationQuery.ilike(column, pattern);
             }
-            if (params.ingredient) {
-              continuationQuery = continuationQuery.ilike("ingredients_text", formatIlikePattern(params.ingredient));
-            }
-            if (params.sort === "rating") {
-              continuationQuery = continuationQuery
-                .order("star_rating", { ascending: false, nullsFirst: false })
-                .order("created_at", { ascending: false })
-                .order("id", { ascending: true });
-            } else {
-              continuationQuery = continuationQuery
-                .order("created_at", { ascending: false })
-                .order("id", { ascending: true });
+            for (const { column, options } of sortOrders) {
+              continuationQuery = continuationQuery.order(column, options);
             }
 
             const continuationOffset = params.offset + params.limit;

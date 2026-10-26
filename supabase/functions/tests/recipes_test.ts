@@ -4692,7 +4692,7 @@ Deno.test("Regression BE-08: Offset pagination probes beyond Supabase's 1000-row
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const res = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&sort=rating", {
+  const res = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&ingredient=Ginger&sort=rating", {
     method: "GET",
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
@@ -4708,11 +4708,12 @@ Deno.test("Regression BE-08: Offset pagination probes beyond Supabase's 1000-row
   assertEquals(requestedUrls[1].searchParams.get("limit"), "1");
   assertEquals(requestedUrls[1].searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
   assertEquals(requestedUrls[1].searchParams.get("title"), 'ilike."%Rice%"');
+  assertEquals(requestedUrls[1].searchParams.get("ingredients_text"), 'ilike."%Ginger%"');
   assertEquals(requestedUrls[1].searchParams.get("order"), "star_rating.desc.nullslast,created_at.desc,id.asc");
 
   hasContinuation = false;
   requestedUrls.length = 0;
-  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&sort=rating", {
+  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&ingredient=Ginger&sort=rating", {
     method: "GET",
     headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
   }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });

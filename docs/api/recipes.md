@@ -371,7 +371,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
 
 Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
-- **Deterministic offline tests (52 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
+- **Deterministic offline tests (53 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
 - **Database migration tests:** Run offline via `node test-migrations.mjs`.
 - **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.
 - **Command:**
