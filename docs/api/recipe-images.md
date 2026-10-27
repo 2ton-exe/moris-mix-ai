@@ -70,7 +70,7 @@ The browser uploads the raw file bytes directly to `upload.url`; it does not sen
 }
 ```
 
-The backend resolves the staging and final keys from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe and must not be expired; only the backend uses the final key during attachment.
+The backend resolves the staging and final keys from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe. A pending intent must not be expired; an already attached intent remains replayable after its upload URL expires and returns its stored result. Only the backend uses the final key during attachment.
 
 Before associating the image, the backend verifies that the staging object exists and that its stored content type and actual byte size match the upload intent and allowed limits. A content-type metadata value alone does not prove that the bytes decode as an image; a later read or processing boundary must validate or normalize the bytes before rendering them.
 
@@ -95,7 +95,7 @@ Returns a JSON `image` object. Its `byte_size` is the verified stored size and `
 
 The response contains no standalone object key or URL. A future image-read contract defines image delivery separately. The temporary `PUT` URL is never stored in `recipes.image_url`; the finalized server-only object key is stored in the internal `recipes.image_path` field after verification and copy.
 
-The attach operation is idempotent for the same completed upload and recipe. Replaying an already attached intent returns its stored result without copying the staging object again, so a later staging `PUT` cannot replace the finalized image. It updates the recipe image path and upload-intent state together. A failed or incomplete upload leaves the current image unchanged. If a new image replaces the current one, the database pointer changes only after verification and finalization; deleting the previous final object happens after commit and cannot undo the new association.
+The attach operation is idempotent for the same completed upload and recipe. After verifying that the caller owns the recipe and the intent belongs to that caller and recipe, replaying an already attached intent returns its stored result even after the upload URL expires; it does not copy the staging object again or change the recipe's current image path, so it cannot replace a newer image. First attachment updates the recipe image path and upload-intent state together. A failed or incomplete upload leaves the current image unchanged. If a new image replaces the current one, the database pointer changes only after verification and finalization; deleting the previous final object happens after commit and cannot undo the new association.
 
 ## Shared validation
 
@@ -112,7 +112,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe image request.` | Invalid JSON, UUID, image type, declared size, or unknown request fields. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid authentication credentials.` | Missing, invalid, or expired Bearer token. |
 | `404 Not Found` | `RECIPE_NOT_FOUND` | `Recipe not found.` | Recipe is missing or belongs to another user. |
-| `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown, expired, or belongs to another owner or recipe. |
+| `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown, expired while pending, or belongs to another owner or recipe. |
 | `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed during finalization; revalidate before retrying attachment. |
 | `422 Unprocessable Content` | `INVALID_IMAGE` | `Uploaded image metadata is invalid.` | Actual object type or size does not match the intent and contract. |
 | `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | `Image storage is temporarily unavailable.` | R2 is temporarily unreachable. |
