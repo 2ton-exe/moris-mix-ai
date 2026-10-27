@@ -41,7 +41,7 @@ test('passes only the minimal local browser environment', () => {
     SUPABASE_URL: 'https://hosted.example.test',
     DATABASE_URL: 'postgresql://remote',
     PGPASSWORD: 'remote-secret',
-    BE04_RLS_TEST_SUPABASE_URL: 'https://hosted.example.test',
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: 'https://hosted.example.test',
     BE06_TEST_SUPABASE_URL: 'https://hosted.example.test',
     SERVICE_ROLE_KEY: 'must-not-leak',
     VITE_SUPABASE_ANON_KEY: 'must-not-leak',

@@ -14,36 +14,36 @@ import {
 
 const LINKED_PRODUCTION_PROJECT_REF = "gtbwblxskctpsqhbpebg";
 
-const optInEnabled = (Deno.env.get("RUN_BE04_RLS_INTEGRATION") ?? "").trim() === "true";
-const testSupabaseUrl = (Deno.env.get("BE04_RLS_TEST_SUPABASE_URL") ?? "").trim();
+const optInEnabled = (Deno.env.get("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION") ?? "").trim() === "true";
+const testSupabaseUrl = (Deno.env.get("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL") ?? "").trim();
 const testAnonKey =
-  (Deno.env.get("BE04_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
-    Deno.env.get("BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
+  (Deno.env.get("NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY")?.trim() ||
+    Deno.env.get("NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
     "");
 const testServiceRoleKey =
-  (Deno.env.get("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() ||
-    Deno.env.get("BE04_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() ||
+  (Deno.env.get("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY")?.trim() ||
+    Deno.env.get("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY")?.trim() ||
     "");
 
 const missingPrerequisites: string[] = [];
 if (!optInEnabled) {
-  missingPrerequisites.push("RUN_BE04_RLS_INTEGRATION=true");
+  missingPrerequisites.push("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION=true");
 }
 if (!testSupabaseUrl) {
-  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_URL");
+  missingPrerequisites.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL");
 }
 if (!testAnonKey) {
-  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_ANON_KEY (or BE04_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)");
+  missingPrerequisites.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY (or NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY)");
 }
 if (!testServiceRoleKey) {
-  missingPrerequisites.push("BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY (or BE04_RLS_TEST_SUPABASE_SECRET_KEY)");
+  missingPrerequisites.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY (or NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY)");
 }
 
 const canRunLiveRlsIntegration = missingPrerequisites.length === 0;
 
 if (!canRunLiveRlsIntegration) {
   console.warn(
-    `[BE-04 RLS Integration] Skipping live hosted PostgreSQL RLS integration test. Missing prerequisites: ${missingPrerequisites.join(", ")}.`,
+    `[Non-Production Test Database RLS Integration] Skipping live hosted PostgreSQL RLS integration test. Missing prerequisites: ${missingPrerequisites.join(", ")}.`,
   );
 }
 
@@ -105,21 +105,21 @@ function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKe
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error("BE04_RLS_TEST_SUPABASE_URL is not a valid URL.");
+    throw new Error("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL is not a valid URL.");
   }
 
   if (parsed.protocol !== "https:") {
-    throw new Error("BE04_RLS_TEST_SUPABASE_URL must use HTTPS.");
+    throw new Error("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL must use HTTPS.");
   }
   if (isLoopbackHost(parsed.hostname) && (parsed.port || "443") === "54321") {
     throw new Error(
-      "Safety guard rejected BE04_RLS_TEST_SUPABASE_URL: hosted RLS tests must not target the local Supabase API.",
+      "Safety guard rejected NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: hosted RLS tests must not target the local Supabase API.",
     );
   }
 
   if (parsed.hostname.includes(LINKED_PRODUCTION_PROJECT_REF)) {
     throw new Error(
-      "Safety guard rejected BE04_RLS_TEST_SUPABASE_URL: refuses to run against the primary linked project.",
+      "Safety guard rejected NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: refuses to run against the primary linked project.",
     );
   }
 
@@ -129,7 +129,7 @@ function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKe
       const parsedRegular = new URL(regularAppUrl);
       if (parsedRegular.origin === parsed.origin) {
         throw new Error(
-          "Safety guard rejected BE04_RLS_TEST_SUPABASE_URL: must target a dedicated test project distinct from SUPABASE_URL/VITE_SUPABASE_URL.",
+          "Safety guard rejected NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: must target a dedicated test project distinct from SUPABASE_URL/VITE_SUPABASE_URL.",
         );
       }
     } catch (err) {
@@ -141,7 +141,7 @@ function validateDedicatedTestTarget(url: string, anonKey: string, serviceRoleKe
 
   if (anonKey === serviceRoleKey) {
     throw new Error(
-      "Safety guard rejected test keys: BE04_RLS_TEST_SUPABASE_ANON_KEY must not equal BE04_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY.",
+      "Safety guard rejected test keys: NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY must not equal NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY.",
     );
   }
 }
@@ -406,7 +406,7 @@ Deno.test("Missing opt-in flags or dedicated credentials produce explicit skip r
   });
   assertEquals(missingOptIn.canRun, false);
   assertEquals(typeof missingOptIn.skipReason, "string");
-  assertEquals(missingOptIn.skipReason!.includes("RUN_BE04_RLS_INTEGRATION=true opt-in flag"), true);
+  assertEquals(missingOptIn.skipReason!.includes("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION=true opt-in flag"), true);
   assertEquals(missingOptIn.skipReason!.includes(secretValue), false);
   assertEquals(missingOptIn.skipReason!.includes(publicValue), false);
 
@@ -417,7 +417,7 @@ Deno.test("Missing opt-in flags or dedicated credentials produce explicit skip r
     rlsServiceRoleKey: secretValue,
   });
   assertEquals(missingUrl.canRun, false);
-  assertEquals(missingUrl.skipReason!.includes("BE04_RLS_TEST_SUPABASE_URL"), true);
+  assertEquals(missingUrl.skipReason!.includes("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL"), true);
 
   const missingPublic = evaluateHostedRlsPrerequisites({
     optIn: "true",
@@ -555,12 +555,12 @@ Deno.test({
     const adminClient = createRlsTestClient(testSupabaseUrl, testServiceRoleKey);
 
     const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const userAEmail = `be04-rls-a-${runId}@morisscraps.test`;
-    const userBEmail = `be04-rls-b-${runId}@morisscraps.test`;
+    const userAEmail = `non-prod-rls-a-${runId}@morisscraps.test`;
+    const userBEmail = `non-prod-rls-b-${runId}@morisscraps.test`;
     const userAPassword = ` PassA!${crypto.randomUUID()}9 `;
     const userBPassword = ` PassB!${crypto.randomUUID()}9 `;
-    const userADisplayName = `BE04 RLS Chef A ${runId}`;
-    const userBDisplayName = `BE04 RLS Chef B ${runId}`;
+    const userADisplayName = `Non-Production RLS Chef A ${runId}`;
+    const userBDisplayName = `Non-Production RLS Chef B ${runId}`;
     const userAAvatarUrl = `https://example.com/avatars/a-${runId}.png`;
     const userBAvatarUrl = `https://example.com/avatars/b-${runId}.png`;
 
