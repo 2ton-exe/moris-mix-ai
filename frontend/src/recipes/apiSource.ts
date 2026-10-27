@@ -6,6 +6,11 @@ import { supportsDiscovery } from './discoveryTypes'
 const recipesPath = '/functions/v1/recipes'
 const pageSize = 1000
 const discoveryPageSize = 24
+const discoveryCapabilities = {
+  searchModes: ['title', 'ingredients', 'both'],
+  sorts: ['newest', 'rating'],
+  filters: [],
+} as const
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -13,27 +18,35 @@ export function createRecipeSource(client: typeof apiClient = apiClient): Recipe
   return {
     mode: 'live',
     discovery: {
-      searchModes: [],
-      sorts: ['newest'],
-      filters: [],
+      ...discoveryCapabilities,
       async page({ criteria, continuation, ...request }) {
-        if (!supportsDiscovery({ searchModes: [], sorts: ['newest'], filters: [] }, criteria)) {
+        if (!supportsDiscovery(discoveryCapabilities, criteria) ||
+          (continuation !== null && (typeof continuation !== 'string' || continuation.length === 0))) {
           throw new InvalidRecipeData()
         }
-        const offset = continuation ?? 0
-        if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > Number.MAX_SAFE_INTEGER - discoveryPageSize) {
-          throw new InvalidRecipeData()
+        const params = new URLSearchParams({ pagination: 'cursor', limit: String(discoveryPageSize), sort: criteria.sort })
+        if (criteria.search) {
+          if (criteria.searchMode !== 'ingredients') params.set('title', criteria.search)
+          if (criteria.searchMode !== 'title') params.set('ingredient', criteria.search)
         }
-        const payload = await client.getAuthenticatedJson(`${recipesPath}?limit=${discoveryPageSize}&offset=${offset}`, request)
+        if (continuation !== null) params.set('cursor', continuation)
+        const payload = await client.getAuthenticatedJson(`${recipesPath}?${params}`, request)
         request.signal.throwIfAborted()
         if (!isRecord(payload) || !Array.isArray(payload.recipes) || payload.recipes.length > discoveryPageSize ||
           !payload.recipes.every((recipe) => isRecord(recipe) && recipe.user_id === request.userId)) {
           throw new InvalidRecipeData()
         }
+        const hasMore = payload.has_more
+        const nextCursor = payload.next_cursor
+        const nextPage = hasMore === true && payload.recipes.length > 0 && typeof nextCursor === 'string' && nextCursor.length > 0
+          ? nextCursor
+          : hasMore === false && nextCursor === null
+            ? null
+            : undefined
+        if (nextPage === undefined) throw new InvalidRecipeData()
         return {
           recipes: validateRecipeList(payload.recipes),
-          // BE-06 explicitly defines a short page as the terminal indicator.
-          nextPage: payload.recipes.length === discoveryPageSize ? offset + discoveryPageSize : null,
+          nextPage,
         }
       },
     },

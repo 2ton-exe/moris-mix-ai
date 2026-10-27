@@ -67,20 +67,23 @@ it('fetches every page when the account has more than 1000 recipes', async () =>
   ])
 })
 
-it('loads one discovery page at a time using only confirmed BE-06 parameters', async () => {
+it('loads cursor pages through the BE-08 contract', async () => {
   const firstPage = Array.from({ length: 24 }, (_, index) => ({ ...recipe, id: `recipe-${index}` }))
   const fetchImpl = vi.fn<typeof fetch>()
-    .mockResolvedValueOnce(Response.json({ recipes: firstPage }))
-    .mockResolvedValueOnce(Response.json({ recipes: [recipe] }))
+    .mockResolvedValueOnce(Response.json({ recipes: firstPage, has_more: true, next_cursor: 'cursor-1' }))
+    .mockResolvedValueOnce(Response.json({ recipes: [recipe], has_more: false, next_cursor: null }))
   const discovery = createRecipeSource(client(fetchImpl)).discovery!
   const request = { userId: 'cook-a', signal: new AbortController().signal, criteria: initialDiscoveryCriteria }
   const first = await discovery.page({ ...request, continuation: null })
   expect(first.recipes).toHaveLength(24)
-  expect(first.nextPage).toBe(24)
+  expect(first.nextPage).toBe('cursor-1')
   expect(fetchImpl).toHaveBeenCalledTimes(1)
   const last = await discovery.page({ ...request, continuation: first.nextPage })
   expect(last.nextPage).toBeNull()
-  expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).search)).toEqual(['?limit=24&offset=0', '?limit=24&offset=24'])
+  expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).search)).toEqual([
+    '?pagination=cursor&limit=24&sort=newest',
+    '?pagination=cursor&limit=24&sort=newest&cursor=cursor-1',
+  ])
   for (const [, options] of fetchImpl.mock.calls) {
     expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer fresh-token')
     expect(options?.signal).toBe(request.signal)
@@ -88,8 +91,26 @@ it('loads one discovery page at a time using only confirmed BE-06 parameters', a
 })
 
 it.each([
-  { ...initialDiscoveryCriteria, search: 'rice' },
-  { ...initialDiscoveryCriteria, sort: 'rating' as const },
+  ['title', 'rice & beans', 'rice & beans', null],
+  ['ingredients', 'rice & beans', null, 'rice & beans'],
+  ['both', '🍚 rice', '🍚 rice', '🍚 rice'],
+] as const)('maps %s search and rating sort to the authenticated API contract', async (searchMode, search, title, ingredient) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ recipes: [], has_more: false, next_cursor: null }))
+  const discovery = createRecipeSource(client(fetchImpl)).discovery!
+  await discovery.page({
+    userId: 'cook-a', signal: new AbortController().signal,
+    criteria: { ...initialDiscoveryCriteria, search, searchMode, sort: 'rating' }, continuation: 'opaque cursor/1',
+  })
+  const url = new URL(String(fetchImpl.mock.calls[0][0]))
+  expect(url.searchParams.get('pagination')).toBe('cursor')
+  expect(url.searchParams.get('limit')).toBe('24')
+  expect(url.searchParams.get('sort')).toBe('rating')
+  expect(url.searchParams.get('title')).toBe(title)
+  expect(url.searchParams.get('ingredient')).toBe(ingredient)
+  expect(url.searchParams.get('cursor')).toBe('opaque cursor/1')
+})
+
+it.each([
   { ...initialDiscoveryCriteria, filters: { invented: 'filter' } },
 ])('rejects an unsupported discovery operation before making an HTTP request', async (criteria) => {
   const fetchImpl = vi.fn<typeof fetch>()
@@ -98,7 +119,7 @@ it.each([
   expect(fetchImpl).not.toHaveBeenCalled()
 })
 
-it.each(['unconfirmed-cursor', -1, 0.5, Number.MAX_SAFE_INTEGER])('rejects invalid BE-06 continuations (%s) without requesting', async (continuation) => {
+it.each(['', 24, -1, 0.5, Number.MAX_SAFE_INTEGER])('rejects invalid cursor continuations (%s) without requesting', async (continuation) => {
   const fetchImpl = vi.fn<typeof fetch>()
   const discovery = createRecipeSource(client(fetchImpl)).discovery!
   await expect(discovery.page({ userId: 'cook-a', signal: new AbortController().signal, criteria: initialDiscoveryCriteria, continuation })).rejects.toBeInstanceOf(InvalidRecipeData)
@@ -106,22 +127,25 @@ it.each(['unconfirmed-cursor', -1, 0.5, Number.MAX_SAFE_INTEGER])('rejects inval
 })
 
 it.each([
-  { recipes: [{ ...recipe, user_id: 'cook-b' }] },
-  { recipes: Array.from({ length: 25 }, () => recipe) },
-  { recipes: null },
+  { recipes: [{ ...recipe, user_id: 'cook-b' }], has_more: false, next_cursor: null },
+  { recipes: Array.from({ length: 25 }, () => recipe), has_more: true, next_cursor: 'cursor-1' },
+  { recipes: null, has_more: false, next_cursor: null },
+  { recipes: [recipe], has_more: true, next_cursor: null },
+  { recipes: [], has_more: true, next_cursor: 'cursor-1' },
 ])('rejects invalid or cross-account discovery responses', async (payload) => {
   const discovery = createRecipeSource(client(vi.fn<typeof fetch>().mockResolvedValue(Response.json(payload)))).discovery!
   await expect(discovery.page({ userId: 'cook-a', signal: new AbortController().signal, criteria: initialDiscoveryCriteria, continuation: null })).rejects.toBeInstanceOf(InvalidRecipeData)
 })
 
-it('uses an empty terminal probe for an exact page multiple', async () => {
+it('uses the server cursor as the terminal indicator', async () => {
   const fetchImpl = vi.fn<typeof fetch>()
-    .mockResolvedValueOnce(Response.json({ recipes: Array.from({ length: 24 }, (_, index) => ({ ...recipe, id: `recipe-${index}` })) }))
-    .mockResolvedValueOnce(Response.json({ recipes: [] }))
+    .mockResolvedValueOnce(Response.json({ recipes: Array.from({ length: 24 }, (_, index) => ({ ...recipe, id: `recipe-${index}` })), has_more: true, next_cursor: 'cursor-1' }))
+    .mockResolvedValueOnce(Response.json({ recipes: [{ ...recipe, id: 'recipe-24' }], has_more: false, next_cursor: null }))
   const discovery = createRecipeSource(client(fetchImpl)).discovery!
   const request = { userId: 'cook-a', signal: new AbortController().signal, criteria: initialDiscoveryCriteria }
   const first = await discovery.page({ ...request, continuation: null })
-  await expect(discovery.page({ ...request, continuation: first.nextPage })).resolves.toEqual({ recipes: [], nextPage: null })
+  await expect(discovery.page({ ...request, continuation: first.nextPage })).resolves.toMatchObject({ recipes: [{ id: 'recipe-24' }], nextPage: null })
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
 })
 
 it('rejects recipes returned for another account and rejects non-204 delete success', async () => {

@@ -56,15 +56,15 @@ try {
       assert.equal(url.pathname, '/functions/v1/recipes')
       assert.equal(route.request().method(), 'GET')
       assert.match(route.request().headers().authorization, /^Bearer /)
+      assert.equal(url.searchParams.get('pagination'), 'cursor')
       assert.equal(url.searchParams.get('limit'), '24')
-      assert.deepEqual([...url.searchParams.keys()].sort(), ['limit', 'offset'])
+      assert.equal(url.searchParams.get('sort'), 'newest')
       recipeRequests.push(url.search)
-      if (url.searchParams.get('offset') === '0') return route.fulfill({ json: { recipes: recipes.slice(0, 24) } })
-      assert.equal(url.searchParams.get('offset'), '24')
+      if (!url.searchParams.has('cursor')) return route.fulfill({ json: { recipes: recipes.slice(0, 24), has_more: true, next_cursor: 'cursor-1' } })
+      assert.equal(url.searchParams.get('cursor'), 'cursor-1')
       nextAttempts++
       if (nextAttempts === 1) return route.fulfill({ status: 422, json: { error: { code: 'TEST_FAILURE', message: 'Isolated page failure' } } })
-      // A shifted offset page overlaps an earlier card; the UI must deduplicate.
-      return route.fulfill({ json: { recipes: [recipes[23], recipes[24]] } })
+      return route.fulfill({ json: { recipes: [recipes[24]], has_more: false, next_cursor: null } })
     })
     await page.addInitScript(({ userId }) => {
       const expires_at = Math.floor(Date.now() / 1000) + 3600
@@ -74,8 +74,8 @@ try {
     }, { userId })
     await page.goto(`${origin}app`)
     await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
-    assert.equal(await page.getByRole('searchbox', { name: 'Search recipes' }).isDisabled(), true)
-    assert.equal(await page.getByRole('option', { name: 'Rating (unavailable)' }).evaluate((element) => element.disabled), true)
+    assert.equal(await page.getByRole('searchbox', { name: 'Search recipes' }).isDisabled(), false)
+    assert.equal(await page.getByRole('option', { name: 'Rating' }).evaluate((element) => element.disabled), false)
     await page.getByRole('combobox', { name: 'Sort recipes' }).focus()
     assert.equal(await page.getByRole('combobox', { name: 'Sort recipes' }).evaluate((element) => element === globalThis.document.activeElement), true)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Overflow at ${width}px`)
@@ -92,13 +92,17 @@ try {
     assert.equal(await page.locator('.recipe-grid > li').count(), 25)
     assert.equal(await page.getByRole('button', { name: 'Load more' }).count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
-    assert.deepEqual(recipeRequests, ['?limit=24&offset=0', '?limit=24&offset=24', '?limit=24&offset=24'])
+    assert.deepEqual(recipeRequests, [
+      '?pagination=cursor&limit=24&sort=newest',
+      '?pagination=cursor&limit=24&sort=newest&cursor=cursor-1',
+      '?pagination=cursor&limit=24&sort=newest&cursor=cursor-1',
+    ])
     await page.screenshot({ path: path.join(outputDir, `${width}-complete.png`), fullPage: true })
     await page.getByRole('button', { name: 'Log out' }).click()
     await page.waitForURL('**/login')
     assert.equal(await page.locator('.recipe-card').count(), 0)
     assert.deepEqual(pageErrors, [])
-    process.stdout.write(`${width}px: layout, unavailable controls, keyboard pagination, failure/retry, deduplication, end state and logout passed.\n`)
+    process.stdout.write(`${width}px: layout, enabled search/sort controls, keyboard cursor pagination, failure/retry, end state and logout passed.\n`)
     await context.close()
   }
   process.stdout.write(`Screenshots: ${outputDir}\n`)

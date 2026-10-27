@@ -331,16 +331,16 @@ it('returns keyboard focus to the next pagination action or end state after a pa
   expect(document.activeElement).toBe(end)
 })
 
-it('keeps unconfirmed live search, rating and filters disabled while showing newest-first pages', async () => {
+it('enables confirmed live search and sorting while keeping unsupported filters disabled', async () => {
   const live = createRecipeSource()
   source.discovery = { ...live.discovery!, page }
   render(tree())
   await ready()
-  expect((screen.getByRole('searchbox') as HTMLInputElement).disabled).toBe(true)
-  expect((screen.getByRole('combobox', { name: 'Search in' }) as HTMLSelectElement).disabled).toBe(true)
-  expect((screen.getByRole('option', { name: 'Rating (unavailable)' }) as HTMLOptionElement).disabled).toBe(true)
+  expect((screen.getByRole('searchbox') as HTMLInputElement).disabled).toBe(false)
+  expect((screen.getByRole('combobox', { name: 'Search in' }) as HTMLSelectElement).disabled).toBe(false)
+  expect((screen.getByRole('option', { name: 'Rating' }) as HTMLOptionElement).disabled).toBe(false)
   expect((screen.getByRole('combobox', { name: 'Filters' }) as HTMLSelectElement).disabled).toBe(true)
-  expect(screen.getByText(/Title and ingredient search are unavailable/)).toBeTruthy()
+  expect(screen.getByText(/No recipe filters are connected/)).toBeTruthy()
 })
 
 it.each([
