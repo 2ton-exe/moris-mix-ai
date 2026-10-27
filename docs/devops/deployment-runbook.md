@@ -3,8 +3,8 @@
 **Project:** Mori's Scraps  
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
-**Sprint:** 1  
-**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its production execution and CRUD smoke check remain pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Sprint:** 1–2\
+**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its first production execution and CRUD smoke check remain pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -40,7 +40,7 @@ GitHub Actions — `ci.yml`\
 ↓\
 `Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` run before deployment; Playwright E2E is non-gating\
 ↓\
-Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; all deploy dependencies must succeed and PR runs skip deployment\
+Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; production deployment is skipped on PR runs and main deployment requires all deploy dependencies to succeed\
 ↓\
 At least one teammate approval and resolved review conversations\
 ↓\
@@ -66,11 +66,45 @@ The temporary frontend-existence mechanism remains: `frontend` exposes the detec
 
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
 
+### PR Staging Delivery (PR #81 / #76)
+
+PR #81 introduces frontend staging delivery through `.github/workflows/modular-pr-validation.yml` and `.github/workflows/reusable-staging.yml`. This describes the configured PR path, not evidence that the remaining #76 verification work is complete.
+
+PRs targeting `main` run the normal Frontend / Database / Edge API validations. After all three modular validation jobs succeed, trusted, non-draft PRs can deploy to staging. The staging gate requires a source branch in this repository and an author association of `OWNER`, `MEMBER`, or `COLLABORATOR`. Draft and fork PRs do not deploy staging. The modular PR workflow handles `opened`, `synchronize`, `reopened`, and `ready_for_review` events.
+
+The reusable workflow builds the frontend in the isolated GitHub `staging` environment and deploys to the Cloudflare Worker `moris-mix-ai-staging` with `wrangler deploy --config wrangler.jsonc --env staging`. The target is explicitly named in `wrangler.jsonc` under `env.staging.name`; the workflow also guards `STAGING_WORKER_NAME`. The workflow concurrency group `moris-mix-staging` serializes staging deployment and its dependent smoke job, with `cancel-in-progress: false`, so another run cannot replace the staging deployment while its smoke check is running.
+
+Configure these Actions variables under **Settings → Environments → staging**:
+
+| Variable | Expected configuration |
+| :--- | :--- |
+| `STAGING_WORKER_NAME` | `moris-mix-ai-staging` |
+| `STAGING_FRONTEND_URL` | The staging Worker's HTTPS `workers.dev` URL |
+| `STAGING_SUPABASE_PROJECT_REF` | The isolated staging Supabase project reference |
+| `VITE_SUPABASE_URL` | `https://<STAGING_SUPABASE_PROJECT_REF>.supabase.co` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | The staging project's public publishable key |
+
+These staging environment values provide the public Supabase build configuration instead of production configuration. The workflow validates that the URL matches the staging project reference before building. Do not put privileged Supabase keys into frontend build variables.
+
+**Before pushing the staging workflow changes**, configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller explicitly passes these staging-specific names, and the reusable workflow declares both required and validates both are non-empty before building/deploying. Missing staging credentials fail closed: there is no fallback to the production-named `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. Keep the production secrets unchanged; do not populate repository-level staging-specific names with production credentials.
+
+Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The smoke timeout accommodates the existing request retry budget of about 190 seconds across both requests, leaving about 110 seconds for setup and other job overhead.
+
+After deployment, the workflow requires the official `cloudflare/wrangler-action@v4` `deployment-url` output to be non-empty and equal to `STAGING_FRONTEND_URL`, normalizing only one optional trailing slash on each. Missing or mismatched output fails the deployment job before smoke can run. The verified Wrangler URL is exposed as the deploy job's `deployment-url` output and passed directly to the smoke job; smoke does not independently read the configured URL. Both deployment and smoke evidence record this verified URL.
+
+The current frontend smoke requests `/home?revision=${GITHUB_SHA}` and the first referenced built JavaScript asset. Each request allows up to five attempts with five-second sleeps between failures and no sleep after the last attempt. Both require curl success and final HTTP 200. `/home` must have final `text/html` content type; the asset must have a final JavaScript MIME type containing `javascript` or `ecmascript` (optional charset parameters are accepted). HTML asset responses are rejected even with HTTP 200 because Cloudflare SPA fallback can serve `index.html` for a missing bundle. Missing asset references and exhausted retries fail the smoke job.
+
+Deployment and smoke summaries record **PR head** from `github.event.pull_request.head.sha` separately from **Tested merge revision** from `GITHUB_SHA`. On this PR path, checkout, build/deployment, and the smoke cache-busting revision use the tested merge revision; the source head is traceability evidence, not a claim that it was the exact deployed checkout.
+
+Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. API/database-backed staging smoke under #76, controlled staging smoke-failure evidence, and backend staging revision evidence are still pending. Frontend smoke success does not establish backend revision or API/database integration evidence.
+
 ## 4. Repository Structure
 
 The relevant DevOps files are organized as follows:
 
-- `.github/workflows/ci.yml` — Frontend, database, and Edge/API validation plus gated `recipes` and Cloudflare production deployment
+- `.github/workflows/ci.yml` — Frontend, database, Edge/API, and Hosted RLS validation plus gated `recipes` and Cloudflare production deployment
+- `.github/workflows/modular-pr-validation.yml` — Modular PR validation and trusted PR staging gate introduced by PR #81
+- `.github/workflows/reusable-staging.yml` — Serialized staging frontend deployment, smoke, and revision summaries
 - `wrangler.jsonc` — Cloudflare Worker configuration
 - `docs/devops/pipeline-metrics.md` — Pipeline measurements and results
 - `docs/devops/deployment-runbook.md` — Deployment and recovery documentation
@@ -81,7 +115,7 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs skip `Deploy to Supabase and Cloudflare`. Main pushes and permitted manual main runs deploy only after every `deploy.needs` job succeeds and the frontend-existence output is true. Playwright E2E remains non-gating.
+The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs execute the validation jobs and skip the production `Deploy to Supabase and Cloudflare` job; the separate modular PR staging path is described in section 3. Main pushes and permitted manual main runs deploy only after every `deploy.needs` job succeeds and the frontend-existence output is true. Playwright E2E remains non-gating.
 
 Its frontend validation stages are:
 
@@ -180,7 +214,7 @@ The Cloudflare API token is restricted to the intended Cloudflare account.
 
 ## 9. Automated Deployment Procedure
 
-Production deployment is the `deploy` job inside `.github/workflows/ci.yml`. An approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` jobs in the same run. Permitted `workflow_dispatch` runs on `main` use the same gate. PR runs skip deployment.
+Production deployment is the `deploy` job inside `.github/workflows/ci.yml`. An approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` jobs in the same run. Permitted `workflow_dispatch` runs on `main` use the same gate. PR runs skip production deployment.
 
 The job declares `needs: [frontend, test-db, test-edge-api, test-hosted-rls]` and uses this condition:
 
@@ -302,6 +336,23 @@ Historical FE-01 checks, run #48, the 2026-10-17 smoke check, main run #90, and 
 Checks must only be marked complete after actual execution and verification.
 
 ## 11. Troubleshooting
+
+### Staging Configuration or Deployment Failure
+
+- For `Missing staging configuration`, check the named variable under **Settings → Environments → staging** or the named Cloudflare Actions secret. Confirm both jobs reference the `staging` environment; do not print secret values.
+- For an unexpected Worker or frontend URL, check `STAGING_WORKER_NAME` and `STAGING_FRONTEND_URL` against the isolated staging Worker rather than the production Worker.
+- For a Supabase project-reference mismatch, make `VITE_SUPABASE_URL` match `https://<STAGING_SUPABASE_PROJECT_REF>.supabase.co` and confirm the public publishable key belongs to that staging project. Do not substitute production configuration to bypass the guard.
+- For Cloudflare authentication or deployment failure, inspect `Deploy staging Worker`, verify the caller passes `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID`, and check both staging environment secrets and the token's permissions for the intended account. Missing values must fail; do not restore access by falling back to production secrets. Confirm `frontend/dist/` exists and Wrangler uses `--env staging` with explicit `env.staging.name: moris-mix-ai-staging`.
+- For a missing or mismatched deployment URL, inspect `Verify staging deployment URL` and Wrangler's output. Confirm `env.staging.name`, the account's `workers.dev` subdomain, and `STAGING_FRONTEND_URL` describe the same staging Worker. Only a trailing-slash difference is accepted. Correct the configuration or deployment-output issue; do not bypass the verification or smoke an older configured URL.
+
+### Staging Frontend Smoke Failure
+
+- For a final effective URL origin failure on `/home` or the JavaScript asset, inspect the redirect configuration. Redirects are followed, but each final URL must have the same origin (scheme, hostname, and effective port) as the verified `STAGING_FRONTEND_URL`. Cross-origin redirects, including redirects to production, fail smoke immediately even when the final status and content type would otherwise pass.
+- For `/home` failure, check the staging URL, Worker deployment, routing, and final HTTP status/content type after redirects. HTTP 200 with final `text/html` is required; an intermediate redirect's HTML header is insufficient.
+- For `Could not find the built JavaScript asset.`, inspect the deployed HTML and build output for the expected `src="...assets/...js"` reference. Missing references fail explicitly.
+- For JavaScript asset failure, inspect the referenced URL and ensure that bundle was uploaded. HTTP 200 with `text/html` can be Cloudflare SPA fallback for a missing asset and is intentionally rejected. Check final JavaScript content type as well as HTTP status; do not disable this assertion.
+- For transient network errors, inspect curl diagnostics and Cloudflare availability. Both requests retry up to five times; repeated network, status, or content-type failures exhaust retries and fail smoke. Investigate the cause before rerunning; a green deployment job alone does not mean smoke passed.
+- Compare both **PR head** and **Tested merge revision** in the run summary when investigating stale content. The `/home` revision query uses the tested merge revision. A rerun must still be checked against the intended revision.
 
 ### CI Fails During Dependency Installation
 

@@ -68,7 +68,14 @@ function runDiscoveryAndIntegrityUnitTests() {
     );
     fs.unlinkSync(path.join(tempDir, '20261010000000_duplicate.sql'));
 
-    console.log('PASS: Discovery, deterministic sorting, and filename integrity validation verified.');
+    const recipeSearchMigration = fs.readFileSync(
+      path.join(__dirname, 'supabase/migrations/20261026000004_add_recipe_ingredient_search.sql'),
+      'utf8'
+    );
+    assert.match(recipeSearchMigration, /jsonb_path_query_array\(ingredients, '\$\[\*\]\.name'\)/);
+    assert.doesNotMatch(recipeSearchMigration, /create\s+(?:unique\s+)?index|idx_recipes_user_ingredients_text/i);
+
+    console.log('PASS: Migration discovery, integrity, and ingredient-search migration safety verified.');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -1278,32 +1285,32 @@ async function runTestTargetMigrationUnitTests() {
   assert.equal(cfgBe06Complete.error, undefined);
   assert.equal(cfgBe06Complete.expectedProjectRef, 'be06-test');
 
-  const envBe04Incomplete = (k) => {
+  const envNonProdIncomplete = (k) => {
     const map = {
-      RUN_BE04_RLS_INTEGRATION: 'true',
-      BE04_RLS_TEST_SUPABASE_URL: 'https://be04-test.supabase.co'
+      RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: 'true',
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: 'https://non-prod-test.supabase.co'
     };
     return map[k];
   };
-  const cfgBe04Incomplete = resolveTestDatabaseConfiguration(envBe04Incomplete);
-  assert.equal(cfgBe04Incomplete.shouldRun, true);
-  assert.equal(cfgBe04Incomplete.source, 'BE-04');
-  assert.ok(cfgBe04Incomplete.error.includes('BE04_RLS_TEST_EXPECTED_PROJECT_REF'));
+  const cfgNonProdIncomplete = resolveTestDatabaseConfiguration(envNonProdIncomplete);
+  assert.equal(cfgNonProdIncomplete.shouldRun, true);
+  assert.equal(cfgNonProdIncomplete.source, 'NON_PRODUCTION_TEST_DATABASE');
+  assert.ok(cfgNonProdIncomplete.error.includes('NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF'));
 
-  const envBe04Complete = (k) => {
+  const envNonProdComplete = (k) => {
     const map = {
-      RUN_BE04_RLS_INTEGRATION: 'true',
-      BE04_RLS_TEST_SUPABASE_URL: 'https://be04-test.supabase.co',
-      BE04_RLS_TEST_EXPECTED_PROJECT_REF: 'be04-test',
-      BE04_RLS_TEST_DATABASE_URL: 'postgresql://postgres.be04-test:pass@aws-0.pooler.supabase.com:5432/postgres'
+      RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: 'true',
+      NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: 'https://non-prod-test.supabase.co',
+      NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: 'non-prod-test',
+      NON_PRODUCTION_TEST_DATABASE_URL: 'postgresql://postgres.non-prod-test:pass@aws-0.pooler.supabase.com:5432/postgres'
     };
     return map[k];
   };
-  const cfgBe04Complete = resolveTestDatabaseConfiguration(envBe04Complete);
-  assert.equal(cfgBe04Complete.shouldRun, true);
-  assert.equal(cfgBe04Complete.source, 'BE-04');
-  assert.equal(cfgBe04Complete.error, undefined);
-  assert.equal(cfgBe04Complete.expectedProjectRef, 'be04-test');
+  const cfgNonProdComplete = resolveTestDatabaseConfiguration(envNonProdComplete);
+  assert.equal(cfgNonProdComplete.shouldRun, true);
+  assert.equal(cfgNonProdComplete.source, 'NON_PRODUCTION_TEST_DATABASE');
+  assert.equal(cfgNonProdComplete.error, undefined);
+  assert.equal(cfgNonProdComplete.expectedProjectRef, 'non-prod-test');
 
   const mockMetaClient = {
     query: async (_sql, params) => {
