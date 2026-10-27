@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { MARKER, TEAM, PROJECT_REQUIRED, GATES, classify, reviewer, normalize, normalizeRequired, stagingEligible,
   codeRabbit, humanReviews, summarize, render, createApi, resolvePRs, requiredPolicy, collectThreads,
-  collect, jobApp, ownedComment, publish } from './pr-secretary.mjs';
+  collect, workflowPathMatches, jobApp, ownedComment, publish } from './pr-secretary.mjs';
 
 const repository = '2ton-exe/moris-mix-ai';
 const user = login => ({ login, type: 'User' });
@@ -347,6 +347,49 @@ test('older run cannot overwrite newer generation; stale head cannot write', asy
   const api = mockApi(() => ({ ...d.pr, head: { ...d.pr.head, sha: 'new' } }));
   assert.equal(await publish(api, d, 30), 'stale'); assert.equal(api.calls.length, 1);
 });
+for (const expected of ['.github/workflows/ci.yml', '.github/workflows/modular-pr-validation.yml']) {
+  for (const [actual, matches] of [
+    [expected, true],
+    [`${expected}@main`, true],
+    [`${expected}@refs/pull/87/merge`, true],
+    [`${expected}@anything`, true],
+    ['.github/workflows/other.yml@main', false],
+    [`${expected}.bak@main`, false],
+    [undefined, false],
+    [null, false],
+  ]) {
+    test(`workflow path ${actual} matches ${expected}: ${matches}`, () => {
+      assert.equal(workflowPathMatches(actual, expected), matches);
+    });
+  }
+}
+
+test('workflow path rejects an unknown expected workflow', () => {
+  assert.equal(workflowPathMatches('undefined@main', undefined), false);
+  assert.equal(workflowPathMatches(undefined, undefined), false);
+});
+
+test('collection selects the newest relevant run with a ref-suffixed workflow path', async () => {
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return pr();
+    if (path.endsWith('/files')) return [{ filename: 'frontend/src/App.tsx' }];
+    if (path === '/graphql') throw new Error('optional API unavailable');
+    if (path.includes('/actions/runs?')) return [
+      { id: 1, path: '.github/workflows/ci.yml' },
+      { id: 2, path: '.github/workflows/ci.yml@refs/pull/87/merge' },
+      { id: 3, path: '.github/workflows/other.yml@main' },
+      { id: 4, path: '.github/workflows/ci.yml.bak@main' },
+    ].map(run => ({ ...run, name: 'CI', head_sha: sha, pull_requests: [{ number: 87 }] }));
+    if (path.includes('/actions/runs/2/jobs')) return [{ name: 'Frontend Checks', status: 'in_progress' }];
+    if (path.includes('/actions/runs/')) throw new Error('must only read newest relevant run');
+    return [];
+  });
+  const collected = await collect(api, 87, repository);
+  assert.equal(summarize(collected).rows[0][1], 'RUNNING');
+  assert.deepEqual(api.calls.filter(c => c.path.includes('/jobs')).map(c => c.path),
+    [`${api.root}/actions/runs/2/jobs?filter=latest`]);
+});
+
 test('collection tolerates optional CodeRabbit API failures and prefers newest workflow jobs', async () => {
   const d = data();
   const api = mockApi(path => {

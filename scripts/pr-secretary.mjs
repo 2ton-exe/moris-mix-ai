@@ -348,6 +348,11 @@ export async function jobApp(api, job, checkRuns) {
   return linked.app;
 }
 
+export function workflowPathMatches(actual, expected) {
+  return typeof actual === 'string' && typeof expected === 'string' &&
+    (actual === expected || actual.startsWith(`${expected}@`));
+}
+
 export async function collect(api, number, repository) {
   const pr = await api.request(`${api.root}/pulls/${number}`);
   if (pr.state !== 'open' || pr.base.repo.full_name !== repository || pr.base.ref !== 'main') return null;
@@ -369,7 +374,7 @@ export async function collect(api, number, repository) {
   if (files.length !== pr.changed_files) throw new Error('Changed-file listing is incomplete or PR changed during collection; retry');
   // Prefer jobs in the newest run, not old successful checks during a rerun.
   const workflowPaths = { CI: '.github/workflows/ci.yml', 'Modular PR Validation': '.github/workflows/modular-pr-validation.yml' };
-  const relevant = runs.filter(r => workflowPaths[r.name] === r.path && r.head_sha === pr.head.sha &&
+  const relevant = runs.filter(r => workflowPathMatches(r.path, workflowPaths[r.name]) && r.head_sha === pr.head.sha &&
     (r.pull_requests?.some(p => p.number === number) ||
      (r.head_repository?.full_name === pr.head.repo?.full_name && r.head_branch === pr.head.ref)));
   const newest = [];

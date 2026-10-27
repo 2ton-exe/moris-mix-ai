@@ -133,6 +133,8 @@ current-revision human approval gets an Attention item; drafts do not.
 Collection reads check runs and commit statuses for the current PR **head SHA**.
 It also reads jobs from the newest head-SHA PR run of the known CI workflow
 paths, so pending/rerunning jobs take precedence over older successful checks.
+Known workflow paths accept GitHub's optional `@ref` suffix while still requiring
+the exact workflow file path before the suffix.
 Nested reusable job names are matched explicitly, including
 `Playwright E2E (Non-gating) / Playwright E2E Tests`, modular validation jobs,
 `Modular E2E / Playwright E2E Tests`, and
