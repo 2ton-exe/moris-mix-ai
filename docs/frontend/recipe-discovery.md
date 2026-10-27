@@ -40,7 +40,7 @@ Read the actual PR-head workflow results through the connected GitHub API, rathe
 | FE-06 #69 | `0f75dbae` | [CI #168](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40073825632) and [Modular PR Validation #25](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40073825581): success |
 | FS-02 #65 | `c2c0402c` | [CI #105](https://github.com/2ton-exe/moris-mix-ai/actions/runs/39292756610): success |
 
-Workflow success is CI evidence, not proof of hosted acceptance. The original FE-07 head's checks predate the BE-08 adapter integration; the updated PR checks are pending.
+Workflow success is CI evidence, not proof of hosted acceptance. See the [current PR #83 checks](https://github.com/2ton-exe/moris-mix-ai/pull/83/checks) for the latest FE-07 head; the foundation results above are historical.
 
 ## Confirmed BE-08 recipe discovery contract
 
@@ -97,7 +97,7 @@ Create/edit/delete invalidate all discovery variants using the account's list pr
 
 Environment: Node `24.22.0`, pnpm `12.11.2`, Windows/PowerShell. Only frontend dependencies were needed. Frozen installation left the tracked lockfile unchanged.
 
-The results below are from the original FE-07 head, before the BE-08 adapter and fixture changes in this revision. The updated code has not been run locally; current checks are pending on PR #83.
+The results below are from the original FE-07 head, before the BE-08 adapter and fixture changes in this revision. The updated code was not run locally; see the current PR #83 checks for its CI results.
 
 | Command / check | Actual result |
 | --- | --- |
