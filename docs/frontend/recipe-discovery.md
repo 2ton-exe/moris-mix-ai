@@ -57,7 +57,7 @@ BE-08 #50 was completed by [PR #84](https://github.com/2ton-exe/moris-mix-ai/pul
 | Sorting | `sort=newest` orders by `created_at DESC, id ASC`; `sort=rating` orders by rating descending, nulls last, then creation date descending and ID ascending. |
 | Filters | No independent recipe filter parameters are defined. Search scope is the only supported discovery selector. |
 | Pagination | Cursor mode uses `pagination=cursor` and `limit` 1–100 (FE-07 requests 24). Legacy `offset` remains supported but FE-07 does not use it. |
-| Envelope | `{ recipes: Recipe[], next_cursor: string | null, has_more: boolean }`. Each recipe is checked against the expected account before it reaches the frontend cache. |
+| Envelope | `{ recipes: Recipe[], next_cursor: string \| null, has_more: boolean }`. Each recipe is checked against the expected account before it reaches the frontend cache. |
 | Continuation | When `has_more` is true, the next request sends the opaque `next_cursor` with the same sort and search parameters. When false, `next_cursor` is null. |
 | Stable pages | The backend uses keyset pagination with deterministic tie-breakers, preventing skipped or duplicate rows across ordinary page boundaries. |
 
