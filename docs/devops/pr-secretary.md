@@ -19,7 +19,7 @@ required checks, staging, production deployment, and branch rules are unchanged.
   accept ordinary objects; tests mock all API calls.
 
 The comment workflow uses only default-branch event definitions (`workflow_run`,
-`issue_comment`, schedule, dispatch). No Secretary workflow runs in PR-controlled
+`issue_comment`, schedule). No Secretary workflow runs in PR-controlled
 workflow definitions. Both jobs explicitly check out `github.repository` at
 `github.event.repository.default_branch`, sparse-checkout `scripts`, and disable
 persisted credentials. They never check out a PR head/merge ref, import a PR
@@ -48,7 +48,6 @@ returned URLs are never followed with the token.
 | `workflow_run` | In progress and completed for `CI` and `Modular PR Validation`. Only PR-origin runs from this repository are considered. These existing workflows provide the primary near-real-time signal for normal PR updates. |
 | `issue_comment` | Created/edited/deleted conversation comments only when the structured author is `coderabbitai[bot]` with type `Bot`, on a PR. Arbitrary human/Secretary comments skip the resolver job. |
 | Schedule | At minutes 17 and 47 each hour, re-read all open main-target PRs. Covers human review submit/edit/dismiss, reviewer request/remove, draft conversion, thread resolve/unresolve, missed CodeRabbit inline activity, missed events, and intermediate check progress. Scheduled execution can be delayed by GitHub. |
-| `workflow_dispatch` | Reconcile all eligible open PRs using the trusted default-branch code. No user-supplied executable input. |
 
 The v1 consistency model is explicit:
 
@@ -57,12 +56,12 @@ The v1 consistency model is explicit:
 | CI-related PR state | Near real time through `workflow_run`. |
 | CodeRabbit conversation | Near real time through filtered `issue_comment`. |
 | Review/thread-only state | Eventual through scheduled reconciliation. |
-| Manual recovery | `workflow_dispatch`. |
+| Missed-event recovery | Scheduled reconciliation. |
 
 Human review changes, reviewer request/removal, and draft conversion are not
 immediate if they do not start one of the existing CI workflows. Thread-only
 activity and resolution are also eventually consistent. The next qualifying
-workflow/comment event, schedule, or manual reconciliation re-reads all state.
+workflow/comment event or scheduled reconciliation re-reads all state.
 There is no additional PR-controlled workflow to make these updates immediate.
 
 Workflow events first use `workflow_run.pull_requests`. An empty association
@@ -71,7 +70,7 @@ Every candidate is fetched afresh and must be open, target `main` in this
 repository, and (for workflow events) match the run's head SHA and head repository.
 Stale runs, unrelated pushes, unsafe/missing associations, and closed PRs exit
 successfully without writing. No inference from branch names, prose, artifacts,
-or shell output is used. Schedule/dispatch paginate open PRs; more than 256
+or shell output is used. Scheduled reconciliation paginates open PRs; more than 256
 eligible PRs fails visibly instead of silently dropping matrix entries.
 
 The consumer never subscribes to its own workflow runs. Its comment author is
@@ -247,9 +246,11 @@ All writer events share job concurrency group
 `pr-secretary-<repository>-<PR number>`, cancelling superseded runs. Each run
 collects fresh state instead of replaying the triggering payload. Immediately
 before writing it checks that the PR is still open with the same head,
-updated timestamp, and base. A hidden `secretary-run:<run ID>` watermark prevents
-an older run from replacing a newer published run. These protections reduce
-stale overwrites; GitHub's comment API has no transactional compare-and-swap,
+updated timestamp, and base. A hidden `secretary-run:<run ID>` watermark is an
+additional, best-effort stale-write guard: it skips a write when the existing
+comment carries a higher run ID. Run IDs do not guarantee event freshness or
+write ordering. These protections reduce stale overwrites; GitHub's comment API
+has no transactional compare-and-swap,
 so cancellation/in-flight write races cannot be eliminated absolutely.
 Scheduled reconciliation repairs missed refreshes. The feature never deletes
 comments or removes historical duplicates left by manual intervention.
@@ -279,7 +280,7 @@ Known limits:
   associations with nonmatching/missing head metadata safely skip that event.
 - Human review submit/edit/dismiss, reviewer request/remove, draft conversion,
   thread resolve/unresolve, and missed CodeRabbit inline activity can remain
-  stale until scheduled/manual reconciliation when no qualifying event occurs.
+  stale until scheduled reconciliation when no qualifying event occurs.
   There is no immediate review-only event path. Fork metadata is still read
   without executing fork code.
 - GitHub API rate limits, permissions, scheduled delays, checks recorded only
@@ -309,10 +310,10 @@ URLs, revision SHAs, comment IDs, timestamps, and observed gate names for:
 
 1. Open/reopen and rapid synchronize through CI-related workflow activity.
    Confirm one comment, fresh revision, and per-PR cancellation. Test ready/draft
-   changes and reviewer addition/removal, allowing scheduled/manual refresh when
+   changes and reviewer addition/removal, allowing scheduled refresh when
    CI does not run; removed reviewers must lose their checklist after refresh.
 2. Human review submit/edit/dismiss and inline review-comment/thread activity.
-   Confirm effective human review and thread state after scheduled/manual
+   Confirm effective human review and thread state after scheduled
    reconciliation without requiring an immediate event-driven write.
 3. CI/modular start/completion and reruns, including failed/pending/missing
    required contexts, app identity bindings (including unknown/wrong app evidence),

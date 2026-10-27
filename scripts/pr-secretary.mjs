@@ -271,7 +271,7 @@ export async function resolvePRs(api, eventName, event, repository) {
     candidates = (run.pull_requests ?? []).map(p => p.number);
     if (!candidates.length && /^[a-f0-9]{40}$/i.test(run.head_sha ?? '')) candidates =
       (await api.list(`${api.root}/commits/${run.head_sha}/pulls`)).map(p => p.number);
-  } else if (['schedule', 'workflow_dispatch'].includes(eventName)) candidates =
+  } else if (eventName === 'schedule') candidates =
     (await api.list(`${api.root}/pulls?state=open&base=main`)).map(p => p.number);
   else return [];
   const result = [];

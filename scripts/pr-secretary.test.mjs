@@ -255,10 +255,12 @@ test('schedule enumerates and validates open PRs', async () => {
   const api = mockApi(path => path.includes('?state=open') ? [{ number: 87 }] : pr());
   assert.deepEqual(await resolvePRs(api, 'schedule', {}, repository), [87]);
 });
-test('manual reconciliation enumerates PRs and unsupported events never read or write', async () => {
-  const api = mockApi(path => path.includes('?state=open') ? [{ number: 87 }] : pr());
-  assert.deepEqual(await resolvePRs(api, 'workflow_dispatch', {}, repository), [87]);
-  assert.deepEqual(await resolvePRs(mockApi(() => { throw new Error('must not read'); }), 'unsupported', {}, repository), []);
+test('dispatch and unsupported events never read or write', async () => {
+  const api = mockApi(() => { throw new Error('must not read'); });
+  for (const eventName of ['workflow_dispatch', 'unsupported']) {
+    assert.deepEqual(await resolvePRs(api, eventName, {}, repository), []);
+  }
+  assert.equal(api.calls.length, 0);
 });
 test('required policy preserves integration IDs and distinct app-bound requirements', async () => {
   const api = mockApi(() => [{ type: 'required_status_checks', parameters: { required_status_checks: [
@@ -387,10 +389,10 @@ test('incomplete changed files fail closed', async () => {
     path === '/graphql' ? { errors: [{}] } : []);
   await assert.rejects(collect(api, 87, repository), /incomplete/);
 });
-test('workflow uses only the four trusted metadata/reconciliation events and default-branch code', async () => {
+test('workflow uses only the three trusted metadata/reconciliation events and default-branch code', async () => {
   const workflow = await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8');
   const events = workflow.split('on:\n')[1].split('\npermissions:')[0];
-  assert.deepEqual([...events.matchAll(/^  (\w+):/gm)].map(m => m[1]), ['issue_comment', 'workflow_run', 'schedule', 'workflow_dispatch']);
+  assert.deepEqual([...events.matchAll(/^  (\w+):/gm)].map(m => m[1]), ['issue_comment', 'workflow_run', 'schedule']);
   assert.match(events, /workflows: \[CI, Modular PR Validation\]/);
   assert.match(events, /types: \[in_progress, completed\]/);
   assert.equal((workflow.match(/ref: \$\{\{ github.event.repository.default_branch \}\}/g) ?? []).length, 2);
