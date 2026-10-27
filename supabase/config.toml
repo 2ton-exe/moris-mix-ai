@@ -33,3 +33,10 @@ verify_jwt = false
 [functions.recipes]
 verify_jwt = false
 
+# These future handlers must authenticate POST requests themselves and handle OPTIONS before authentication.
+[functions.recipe-image-upload-url]
+verify_jwt = false
+
+[functions.recipe-image-attach]
+verify_jwt = false
+
