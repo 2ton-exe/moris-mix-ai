@@ -16,7 +16,7 @@ This contract defines the authenticated request to authorize a direct Cloudflare
 - The future handler must use the shared `authenticateRequest()` boundary and derive ownership from its verified user context. Client-supplied `user_id` is never trusted.
 - The upload-signing request checks that `recipe_id` belongs to the authenticated user before authorizing a `PUT`. The attach request checks ownership again; signing does not authorize attachment by itself.
 - Missing and foreign recipes have the same `404 RECIPE_NOT_FOUND` result. Never reveal whether another user’s recipe exists.
-- `OPTIONS` is handled before authentication. The Edge Function CORS policy allows `POST, OPTIONS` and `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
+- `OPTIONS` is handled before authentication. The future function entries in `supabase/config.toml` must set `verify_jwt = false` so unauthenticated preflight requests reach the handlers. This only disables gateway JWT validation; each handler still calls `authenticateRequest()` for every `POST` before accessing user or storage data. The Edge Function CORS policy allows `POST, OPTIONS` and `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
 
 ## Request an upload URL
 
@@ -70,13 +70,17 @@ The browser uploads the raw file bytes directly to `upload.url`; it does not sen
 }
 ```
 
-The backend resolves the staging and final keys from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe. A pending intent must not be expired; an already attached intent remains replayable after its upload URL expires and returns its stored result. Only the backend uses the final key during attachment.
+The backend resolves the staging and final keys from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe. A pending intent may be attached only before expiry; an already attached intent remains replayable after its upload URL expires and returns its stored result. A `finalizing` intent is already being processed, so a concurrent attach returns `409 UPLOAD_NOT_READY`. Only the backend uses the final key during attachment.
 
 Before associating the image, the backend verifies that the staging object exists and that its stored content type and actual byte size match the upload intent and allowed limits. A content-type metadata value alone does not prove that the bytes decode as an image; a later read or processing boundary must validate or normalize the bytes before rendering them.
 
-On first attachment, the backend captures the staging object's ETag while verifying its type and size, then copies it to the intent's distinct final key with a source-match condition on that ETag. If the staging object changed, the conditional copy fails; do not attach it unless the current staging object is revalidated. Verify the finalized object's stored content type and byte size. Serialize finalization per upload intent so concurrent attach requests cannot overwrite the final key; concurrent requests may receive `409 UPLOAD_NOT_READY` and retry. The client has no signed write capability for the final key, so reuse of the staging URL cannot change an attached image.
+Before any R2 operation, a database transaction must claim only an unexpired `pending` intent by changing it to `finalizing` and assigning a unique attempt token and lease. If another request already owns a live `finalizing` lease, return `409 UPLOAD_NOT_READY`; if the intent is expired or terminal, return `404 UPLOAD_NOT_FOUND`. The implementation must enforce a maximum copy duration and set the lease longer than that duration. Recovery may reclaim a `finalizing` intent only after its lease expires, and must replace the attempt token so an earlier worker cannot commit.
 
-Different upload intents for the same recipe may finalize concurrently, but their pointer swaps must serialize on the recipe row. In one database transaction, re-read and update the recipe image path, mark the winning intent attached, and record the previous final key for retryable cleanup. The last successful transaction wins. Delete only that recorded key after commit; never derive it from an earlier unlocked read. If finalization or the database transaction fails, the current recipe image remains unchanged; retrying the same pending intent uses its same final key. Clean up staging objects after the URL expires; deleting one earlier does not revoke the signed URL, which can recreate it until expiry.
+After claiming the intent, capture the staging object's ETag while verifying its type and size, then copy it to the intent's distinct final key with a source-match condition on that ETag. If the staging object changed, the conditional copy fails; do not attach it unless the current object is revalidated. Verify the finalized object's stored content type and byte size. The client has no signed write capability for the final key, so reuse of the staging URL cannot change an attached image.
+
+Different upload intents for the same recipe may finalize concurrently, but their pointer swaps must serialize on the recipe row. In one database transaction, update the recipe image path only if the intent is still `finalizing` with the same attempt token, mark it `attached`, and record the previous final key for retryable cleanup. If that state fence fails, leave the recipe path unchanged. Delete only the recorded previous key after commit; never derive it from an earlier unlocked read. If finalization fails, return the intent to `pending` only while the same token owns it and it remains unexpired; otherwise leave it for lease recovery. Retrying uses the same final key. Clean up staging objects after the URL expires; deleting one earlier does not revoke the signed URL, which can recreate it until expiry.
+
+Expired-intent cleanup must transactionally change an expired `pending` intent to terminal `expired` before deleting its staging or orphan final keys. It must skip `finalizing` and `attached` intents. If a `finalizing` lease expires, recover it only after the enforced maximum copy duration, then re-evaluate whether it should return to `pending` or become `expired`. Retry object deletion from the terminal intent record if cleanup fails.
 
 ### Success (`200 OK`)
 
@@ -109,12 +113,15 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 
 | HTTP status | Code | Message | When |
 | --- | --- | --- | --- |
-| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe image request.` | Invalid JSON, UUID, image type, declared size, or unknown request fields. |
+| `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe image request.` | Invalid UUID, image type, declared size, or unknown request fields. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid authentication credentials.` | Missing, invalid, or expired Bearer token. |
 | `404 Not Found` | `RECIPE_NOT_FOUND` | `Recipe not found.` | Recipe is missing or belongs to another user. |
 | `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown, expired while pending, or belongs to another owner or recipe. |
-| `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed during finalization; revalidate before retrying attachment. |
+| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only POST and OPTIONS methods are supported.` | Unsupported method on either endpoint. Includes `Allow: POST, OPTIONS`. |
+| `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed, or another request currently owns the intent's finalizing lease; retry later. |
 | `422 Unprocessable Content` | `INVALID_IMAGE` | `Uploaded image metadata is invalid.` | Actual object type or size does not match the intent and contract. |
+| `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Supabase Auth returns `429 Too Many Requests` during token verification. A validated `Retry-After` header is propagated when supplied; invalid or absent values are omitted. |
 | `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | `Image storage is temporarily unavailable.` | R2 is temporarily unreachable. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Other unexpected configuration, database, or storage failure. |
 
@@ -128,8 +135,8 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 
 - One primary image is supported per recipe, matching the current recipe model. The stable recipe UUID, verified owner ID, and random upload UUID scope distinct staging and final keys; titles and filenames do not define storage identity.
 - The future implementation stores only the finalized key internally in `recipes.image_path`. It never stores the temporary `PUT` URL in `recipes.image_url` or returns a storage path as image metadata.
-- The future implementation binds each upload UUID server-side to its owner, recipe, staging key, final key, content type, declared size, expiry, and pending/attached state. It uses the request-scoped RLS-aware Supabase client, not a service-role client, for user-owned recipe operations.
-- Expired pending uploads, staging objects after their URL expiry, and replaced final objects need cleanup in the future upload implementation. Delete the prior final key captured by the serialized recipe update; do not infer it from an earlier, unlocked read. Deleting a staging object before URL expiry does not revoke the signed URL, which can recreate the object. Cleanup failures must not roll back or break a successful recipe association and must be retried. Before deployment, DevOps and full-stack owners must confirm ingress-size enforcement or approve and implement the agreed oversized-upload mitigation above.
+- The future implementation binds each upload UUID server-side to its owner, recipe, staging key, final key, content type, declared size, expiry, state (`pending`, `finalizing`, `attached`, or terminal `expired`), and, while finalizing, an attempt token and lease. It uses the request-scoped RLS-aware Supabase client, not a service-role client, for user-owned recipe operations.
+- Expired pending uploads, staging objects after their URL expiry, and replaced final objects need cleanup in the future upload implementation. Cleanup must claim only expired `pending` intents transactionally before deleting their staging or orphan final keys, skip `finalizing` and `attached` intents, and retry failed object deletions. Delete the prior attached final key captured by the serialized recipe update; do not infer it from an earlier, unlocked read. Deleting a staging object before URL expiry does not revoke the signed URL, which can recreate the object. Cleanup failures must not roll back or break a successful recipe association. Before deployment, DevOps and full-stack owners must confirm ingress-size enforcement or approve and implement the agreed oversized-upload mitigation above.
 
 ## References
 
