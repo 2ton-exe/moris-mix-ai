@@ -4,12 +4,13 @@
 
 `.github/workflows/ci.yml` remains the source of the required `Frontend Checks`,
 `Database Tests`, and `Edge/API Tests` checks and the active production path.
-Cloudflare deployment follows successful validation and frontend existence on
-main pushes and manual dispatches. Pull requests skip deployment.
+The `recipes` Edge Function deploys before Cloudflare after successful validation
+and frontend existence on main pushes and manual dispatches. Pull requests skip
+deployment.
 
 | File in `.github/workflows/` | Responsibility through Stage 2A |
 | --- | --- |
-| `ci.yml` | Authoritative PR/main validation and gated Cloudflare deployment |
+| `ci.yml` | Authoritative PR/main validation and gated `recipes`/Cloudflare deployment |
 | `modular-pr-validation.yml` | PRs targeting main only; shadow runs of the reusable validations |
 | `modular-main.yml` | Shadow main validation and an inert downstream evidence gate |
 | `modular-gate-experiment.yml` | Manual, secret-free dependency-gate experiments |
@@ -36,7 +37,7 @@ deployment job.
 Duplicate frontend, database, Edge/API, and E2E validation work on PRs is
 intentional during migration. `ci.yml` and both modular callers use the reusable
 E2E workflow. In `ci.yml`, E2E is a separate non-gating job: it is not part of
-the required `Frontend Checks` status or the Cloudflare deployment dependencies.
+the required `Frontend Checks` status or the production deployment dependencies.
 The modular caller uses distinct `Modular ...` job names because GitHub can
 compose reusable check names from caller and callee names. Do not assume that
 retaining the callee name preserves the exact required-check context. The
@@ -250,10 +251,11 @@ use of `reusable-cloudflare.yml` by the modular main caller, or retirement/remov
 of `ci.yml`; all remain pending, along with staging/preview delivery from #76.
 BE-06 adds recipe/API validation and guarded migrations
 for optional hosted non-production test-database integration.
-Stage 2A performs no production deployment or production database migration;
-production database migration automation remains a separate follow-up. Supabase
-function deployment automation and post-deployment smoke verification also
-remain unimplemented. This stage adds no path filters, pipeline optimizations,
-or production configuration changes.
+Stage 2A's modular workflows perform no production deployment or production
+database migration. DEVOPS-07 adds a targeted `recipes` deployment step to the
+authoritative `ci.yml` path, before Cloudflare; production execution evidence is
+pending. Production database migration automation remains separate, and
+post-deployment smoke verification belongs to DEVOPS-08. This stage adds no path
+filters, pipeline optimizations, or production configuration changes.
 Keep the original workflow until the replacement behavior has execution evidence
 and the required-check and deployment handoff is ready.
