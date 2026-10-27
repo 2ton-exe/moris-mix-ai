@@ -34,7 +34,7 @@ This contract defines the authenticated request to authorize a direct Cloudflare
 
 - `recipe_id` is the stable UUID primary key of the recipe.
 - `content_type` must be `image/jpeg`, `image/png`, or `image/webp`. SVG and other formats are not supported.
-- `byte_size` must be a positive integer no larger than 10 MiB. It is a client declaration, not proof of the uploaded bytes; attachment verifies the actual R2 size. Do not claim this limits R2 ingress before the `PUT` unless the signer and browser enforce the exact content length.
+- `byte_size` must be a positive integer no larger than 10 MiB. It is a client declaration, not proof of the uploaded bytes, and does not limit R2 ingress. The future implementation must enforce the 10 MiB cap before R2 accepts the `PUT` body or apply an agreed mitigation for oversized uploads, including upload quotas or rate limits and reliable cleanup of oversized or rejected staging objects. Attachment must always verify the actual R2 size and reject objects over the limit.
 - Unknown fields are rejected. The caller cannot provide an owner ID, object key, `image_path`, or `image_url`.
 
 ### Success (`200 OK`)
@@ -129,7 +129,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 - One primary image is supported per recipe, matching the current recipe model. The stable recipe UUID, verified owner ID, and random upload UUID scope distinct staging and final keys; titles and filenames do not define storage identity.
 - The future implementation stores only the finalized key internally in `recipes.image_path`. It never stores the temporary `PUT` URL in `recipes.image_url` or returns a storage path as image metadata.
 - The future implementation binds each upload UUID server-side to its owner, recipe, staging key, final key, content type, declared size, expiry, and pending/attached state. It uses the request-scoped RLS-aware Supabase client, not a service-role client, for user-owned recipe operations.
-- Expired pending uploads, staging objects after their URL expiry, and replaced final objects need cleanup in the future upload implementation. Delete the prior final key captured by the serialized recipe update; do not infer it from an earlier, unlocked read. Deleting a staging object before URL expiry does not revoke the signed URL, which can recreate the object. Cleanup failures must not roll back or break a successful recipe association and must be retried. Confirm with DevOps and full-stack integration owners whether the browser/R2 signing combination enforces the 10 MiB limit before transfer; otherwise enforce actual size at attachment and clean up rejected uploads.
+- Expired pending uploads, staging objects after their URL expiry, and replaced final objects need cleanup in the future upload implementation. Delete the prior final key captured by the serialized recipe update; do not infer it from an earlier, unlocked read. Deleting a staging object before URL expiry does not revoke the signed URL, which can recreate the object. Cleanup failures must not roll back or break a successful recipe association and must be retried. Before deployment, DevOps and full-stack owners must confirm ingress-size enforcement or approve and implement the agreed oversized-upload mitigation above.
 
 ## References
 
