@@ -26,7 +26,7 @@ export function useRecipeSave(save?: SaveRecipeDraft, expectedId?: string) {
     if (recipeId !== undefined && result.id !== recipeId) throw new Error('Unexpected recipe confirmation')
     if (expectedId === undefined) createdId.current = result.id
     // A confirmed write still needs cache reconciliation if navigation aborted the form.
-    void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(user.id), exact: true })
+    void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(user.id) })
     if (recipeId !== undefined) {
       void queryClient.invalidateQueries({ queryKey: recipeKeys.detail(user.id, recipeId), exact: true })
     }

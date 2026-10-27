@@ -14,6 +14,7 @@ import RecipeDashboardPage from '../pages/RecipeDashboardPage'
 import RecipeDetailPage from '../pages/RecipeDetailPage'
 import { RecipeQueryProvider } from './RecipeQueryProvider'
 import { recipeKeys } from './queryOptions'
+import { initialDiscoveryCriteria } from './discoveryTypes'
 import type { RecipeRequest, RecipeSource, RecipeSummary } from './types'
 import { previewRecipes } from './testing/previewAdapter'
 
@@ -153,6 +154,10 @@ it('removes the confirmed detail cache and refreshes the account-scoped collecti
   renderDetail()
   await waitForDetail()
   expect(currentClient.getQueryData(recipeKeys.detail('cook-a', recipe.id))).toBeTruthy()
+  const discovery = recipeKeys.discovery('cook-a', initialDiscoveryCriteria)
+  const otherDiscovery = recipeKeys.discovery('cook-b', initialDiscoveryCriteria)
+  currentClient.setQueryData(discovery, { pages: [], pageParams: [] })
+  currentClient.setQueryData(otherDiscovery, { pages: [], pageParams: [] })
   deleteHandler.mockImplementation(async () => { source.list = vi.fn().mockResolvedValue([]) })
 
   fireEvent.click(screen.getByRole('button', { name: 'Delete recipe' }))
@@ -163,6 +168,8 @@ it('removes the confirmed detail cache and refreshes the account-scoped collecti
   expect(currentClient.getQueryData(recipeKeys.detail('cook-a', recipe.id))).toBeUndefined()
   await waitFor(() => expect(source.list).toHaveBeenCalled())
   expect(currentClient.getQueryData(recipeKeys.detail('cook-b', recipe.id))).toBeUndefined()
+  expect(currentClient.getQueryState(discovery)?.isInvalidated).toBe(true)
+  expect(currentClient.getQueryState(otherDiscovery)?.isInvalidated).toBe(false)
 })
 
 it('does not carry a confirmed deletion notice into another account', async () => {

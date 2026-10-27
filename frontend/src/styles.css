@@ -120,6 +120,19 @@ a:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid 
 summary:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
 .recipe-preview-notice { width: 100%; padding: 16px; border-radius: 8px; background: #fff2d8; color: #6c4c16; font-size: 14px; line-height: 1.6; }
 .recipe-update { color: #626e7c; font-size: 14px; }
+.discovery-controls { width: 100%; margin-bottom: 32px; padding: 20px; border: 1px solid #dce3df; border-radius: 12px; background: #f0f4f1; }
+.discovery-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.discovery-fields label { display: grid; gap: 8px; flex: 1 1 160px; min-width: 0; font-size: 14px; font-weight: 600; }
+.discovery-fields .discovery-search { flex-basis: 240px; }
+.discovery-fields input, .discovery-fields select { width: 100%; min-width: 0; min-height: 48px; padding: 10px 12px; border: 1px solid #a1a8b0; border-radius: 8px; background: #fff; color: #202631; font: inherit; }
+.discovery-fields :disabled { cursor: not-allowed; color: #626e7c; background: #f7f9f8; opacity: 1; }
+.discovery-fields select:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
+.discovery-availability, .discovery-active p, .discovery-end { color: #626e7c; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.discovery-availability { margin: 16px 0 0; }
+.discovery-active { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+.discovery-active p { flex: 1 1 200px; margin: 0; }
+.discovery-pagination { display: flex; justify-content: center; width: 100%; margin-top: 28px; }
+.discovery-end { width: 100%; text-align: center; margin-top: 28px; }
 .recipe-loading { width: 100%; margin: 12px 0; }
 .recipe-skeleton { min-height: 240px; padding: 26px; border: 1px solid #e1e5e9; border-radius: 12px; background: #fff; }
 .recipe-skeleton span { display: block; height: 14px; width: 65%; margin-bottom: 24px; border-radius: 4px; background: #e8eeeb; }

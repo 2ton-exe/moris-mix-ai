@@ -1,4 +1,5 @@
 import type { FlavorScores, Ingredient, Instruction } from '../api/demoRecipe'
+import type { RecipeDiscoverySource } from './discoveryTypes'
 
 // Frontend view models, not the BE-06 wire contract. The REST adapter validates
 // API responses against these shapes. Nested shapes reuse FS-01.
@@ -24,6 +25,7 @@ export interface RecipeRequest {
 
 export interface RecipeSource {
   mode: 'live' | 'preview' | 'unavailable'
+  discovery?: RecipeDiscoverySource
   list: (request: RecipeRequest) => Promise<RecipeSummary[]>
   detail: (id: string, request: RecipeRequest) => Promise<RecipeDetail>
   // Must resolve only after the authenticated backend confirms deletion.

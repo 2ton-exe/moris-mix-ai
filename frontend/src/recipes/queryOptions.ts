@@ -1,9 +1,11 @@
 import { HttpError } from '../api/http'
+import type { RecipeDiscoveryCriteria } from './discoveryTypes'
 
 // Account prefix supports FE-05/06 invalidating all recipe data for a user.
 export const recipeKeys = {
   all: (userId: string | null) => ['recipes', userId] as const,
   lists: (userId: string | null) => [...recipeKeys.all(userId), 'list'] as const,
+  discovery: (userId: string | null, criteria: RecipeDiscoveryCriteria) => [...recipeKeys.lists(userId), 'discovery', criteria] as const,
   detail: (userId: string | null, id: string) => [...recipeKeys.all(userId), 'detail', id] as const,
 }
 

@@ -11,6 +11,7 @@ import { ProtectedRoute } from '../auth/AuthRoutes'
 import { createAppRouteElements } from '../App'
 import { HttpError } from '../api/http'
 import { recipeKeys } from '../recipes/queryOptions'
+import { initialDiscoveryCriteria } from '../recipes/discoveryTypes'
 import { RecipeSourceContext } from '../recipes/source'
 import type { RecipeSource } from '../recipes/types'
 import CreateRecipePage from '../pages/CreateRecipePage'
@@ -139,6 +140,10 @@ it('sends a normalized create draft with account identity and cancellation to th
   const save = vi.fn().mockResolvedValue({ id: 'created' })
   const accountList = recipeKeys.lists('cook-a')
   const otherAccountList = recipeKeys.lists('cook-b')
+  const discovery = recipeKeys.discovery('cook-a', initialDiscoveryCriteria)
+  const otherDiscovery = recipeKeys.discovery('cook-b', initialDiscoveryCriteria)
+  queryClient.setQueryData(discovery, { pages: [], pageParams: [] })
+  queryClient.setQueryData(otherDiscovery, { pages: [], pageParams: [] })
   queryClient.setQueryData(accountList, [])
   queryClient.setQueryData(otherAccountList, [])
   render(tree({ save }))
@@ -148,6 +153,8 @@ it('sends a normalized create draft with account identity and cancellation to th
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ title: 'A new recipe' }), expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
   expect(queryClient.getQueryState(accountList)?.isInvalidated).toBe(true)
   expect(queryClient.getQueryState(otherAccountList)?.isInvalidated).toBe(false)
+  expect(queryClient.getQueryState(discovery)?.isInvalidated).toBe(true)
+  expect(queryClient.getQueryState(otherDiscovery)?.isInvalidated).toBe(false)
   click('Back to journal')
   expect(confirm).not.toHaveBeenCalled()
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
@@ -292,6 +299,8 @@ it('submits edited values and a nullable rating only after the adapter confirms 
   const save = vi.fn().mockResolvedValue({ id: 'recipe-a' })
   const accountList = recipeKeys.lists('cook-a')
   const recipeDetail = recipeKeys.detail('cook-a', 'recipe-a')
+  const discovery = recipeKeys.discovery('cook-a', { ...initialDiscoveryCriteria, sort: 'rating' })
+  queryClient.setQueryData(discovery, { pages: [], pageParams: [] })
   queryClient.setQueryData(accountList, [])
   queryClient.setQueryData(recipeDetail, {})
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), save }))
@@ -302,6 +311,7 @@ it('submits edited values and a nullable rating only after the adapter confirms 
   expect(save.mock.calls[0][0]).toMatchObject({ title: 'Updated rice', star_rating: null })
   expect(queryClient.getQueryState(accountList)?.isInvalidated).toBe(true)
   expect(queryClient.getQueryState(recipeDetail)?.isInvalidated).toBe(true)
+  expect(queryClient.getQueryState(discovery)?.isInvalidated).toBe(true)
 })
 
 it('rejects a mismatched edit confirmation without a success claim', async () => {

@@ -6,13 +6,13 @@ import { recipeKeys } from './queryOptions'
 import { RecipeSourceContext } from './source'
 import { validateRecipeDetail, validateRecipeList } from './validation'
 
-export function useRecipes() {
+export function useRecipes(enabled = true) {
   const { user, isAuthenticated, isLoading } = useAuth()
   const source = useContext(RecipeSourceContext)
   const userId = user?.id ?? null
   return useQuery({
     queryKey: recipeKeys.lists(userId),
-    enabled: !!userId && isAuthenticated && !isLoading,
+    enabled: enabled && !!userId && isAuthenticated && !isLoading,
     queryFn: async ({ signal }) => {
       if (!userId) throw new HttpError('http', 'Authentication required.', 401)
       const recipes = await source.list({ userId, signal })
