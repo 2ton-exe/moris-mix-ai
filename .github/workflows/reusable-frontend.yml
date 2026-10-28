@@ -42,6 +42,7 @@ jobs:
           node-version: "24"
 
       - name: Run PR Secretary regression tests
+        if: hashFiles('scripts/pr-secretary.test.mjs') != ''
         working-directory: .
         run: node --test scripts/pr-secretary.test.mjs
 

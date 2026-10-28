@@ -588,7 +588,9 @@ for (const file of ['ci.yml', 'reusable-frontend.yml']) {
     assert.ok(setupIndex >= 0 && testIndex > setupIndex);
     assert.match(steps[setupIndex], /uses: actions\/setup-node@v4/);
     assert.doesNotMatch(steps[setupIndex], /^        if:/m);
-    assert.equal(steps[testIndex].trimEnd(), 'name: Run PR Secretary regression tests\n' +
+    const guard = file === 'reusable-frontend.yml'
+      ? "        if: hashFiles('scripts/pr-secretary.test.mjs') != ''\n" : '';
+    assert.equal(steps[testIndex].trimEnd(), 'name: Run PR Secretary regression tests\n' + guard +
       '        working-directory: .\n        run: node --test scripts/pr-secretary.test.mjs');
   });
 }
