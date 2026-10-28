@@ -237,13 +237,48 @@ export function render(data) {
 export function createApi(token, repository, fetcher = fetch) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository');
   const root = `/repos/${repository}`;
+  const diagnosticText = value => {
+    if (typeof value !== 'string') return '';
+    let text = token ? value.split(token).join('[REDACTED]') : value;
+    text = text.replace(/\bauthorization\s*:[^\r\n]*/gi, '[REDACTED authorization]')
+      .replace(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+      .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)/g, '[REDACTED]');
+    return text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ').slice(0, 400);
+  };
   async function request(path, method = 'GET', body) {
     // All endpoints are constructed locally. Never follow an API-provided URL with the token.
     const response = await fetcher(`https://api.github.com${path}`, { method, redirect: 'error',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) { const error = new Error(`GitHub ${method} ${path.split('?')[0]}: ${response.status}`); error.status = response.status; throw error; }
+    if (!response.ok) {
+      // Allowlist diagnostic fields only. Never log the request body/headers,
+      // arbitrary response fields, raw HTML, or JSON parse errors with excerpts.
+      let details;
+      try { details = await response.json(); } catch { /* Status is still useful. */ }
+      const message = diagnosticText(details?.message);
+      let documentation;
+      try {
+        const url = new URL(details?.documentation_url);
+        if (url.origin === 'https://docs.github.com' && !url.username && !url.password && !url.search) {
+          documentation = diagnosticText(url.href);
+        }
+      } catch { /* Ignore absent/untrusted documentation URLs. */ }
+      const fields = [];
+      if (message) fields.push(`message=${JSON.stringify(message)}`);
+      if (documentation) fields.push(`documentation_url=${JSON.stringify(documentation)}`);
+      const accepted = response.headers?.get('x-accepted-github-permissions');
+      if (accepted && accepted.length <= 400 && /^[a-z_]+=(?:read|write|admin)(?:[;,]\s*[a-z_]+=(?:read|write|admin))*$/.test(accepted)) {
+        fields.push(`accepted_permissions=${JSON.stringify(accepted)}`);
+      }
+      const requestId = response.headers?.get('x-github-request-id');
+      if (/^[A-Z0-9:]{1,100}$/.test(requestId ?? '')) fields.push(`request_id=${requestId}`);
+      const error = new Error(`GitHub ${method} ${path.split('?')[0]}: ${response.status}${fields.length ? `; ${fields.join('; ')}` : ''}`);
+      error.status = response.status;
+      if (message) error.githubMessage = message;
+      if (documentation) error.documentation_url = documentation;
+      throw error;
+    }
     return response.json();
   }
   async function list(path, key) {
@@ -400,8 +435,12 @@ export function ownedComment(comments) {
 
 export async function publish(api, data, generation) {
   const fresh = await api.request(`${api.root}/pulls/${data.pr.number}`);
-  if (fresh.state !== 'open' || fresh.head.sha !== data.pr.head.sha || fresh.updated_at !== data.pr.updated_at ||
-      fresh.base.ref !== data.pr.base.ref) return 'stale';
+  // updated_at also changes for unrelated comment/review/metadata activity.
+  // Guard the collected revision and target, not all activity on an active PR.
+  if (fresh.state !== 'open' || fresh.head.sha !== data.pr.head.sha ||
+      fresh.base.ref !== data.pr.base.ref || fresh.base.sha !== data.pr.base.sha ||
+      fresh.base.repo.full_name !== data.pr.base.repo.full_name ||
+      fresh.base.repo.full_name !== data.repository) return 'stale';
   const comments = await api.list(`${api.root}/issues/${data.pr.number}/comments`);
   const existing = ownedComment(comments);
   const previousGeneration = Number(existing?.body.match(/<!-- secretary-run:(\d+) -->/)?.[1] ?? 0);
