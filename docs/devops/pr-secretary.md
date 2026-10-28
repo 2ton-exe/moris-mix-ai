@@ -9,8 +9,12 @@ merge, deploy, or change delivery gates.
 
 ## Architecture and security
 
-The implementation is additive. Existing CI, modular/reusable workflows,
-required checks, staging, production deployment, and branch rules are unchanged.
+The comment workflow remains informational and non-gating. Its deterministic
+regression tests run inside the existing `Frontend Checks` job in authoritative
+`ci.yml` and reusable frontend validation, from the repository root, using Node's
+built-in test runner with no added dependencies. A regression fails that existing
+CI check. Required check names, staging and production deployment configuration,
+and branch rules are unchanged.
 
 - `.github/workflows/pr-secretary.yml` resolves event metadata in a read-only job,
   then renders and upserts a comment in a separate per-PR job.
@@ -29,11 +33,14 @@ Protecting the default branch remains part of the repository's trust model.
 
 Workflow-level permissions are empty. The resolver grants `contents: read` and
 `pull-requests: read`. The writer grants `contents: read`, `actions: read`,
-`checks: read`, `statuses: read`, `pull-requests: read`, and `issues: write`.
-`issues: write` is used only for the PR conversation comment; there is no
-`pull-requests: write`, contents write, administration, deployments, or OIDC
-permission. GitHub does not offer a token permission limited to one comment.
-The module's only mutation endpoints are creating/updating issue comments.
+`checks: read`, and `statuses: read`, with `pull-requests: write` as its only
+PR-comment write permission. It does not grant `issues: write`. The Actions
+installation token previously returned 403 with Issues write and PR read.
+There is no contents write, administration, deployments, or OIDC permission.
+GitHub does not offer a token
+permission limited to one comment. PR write technically permits other PR API
+mutations; the trusted module uses only issue-comment create/update mutations,
+and the resolver stays read-only. Default-branch-only execution is essential.
 
 Only `GITHUB_TOKEN` is supplied. No Cloudflare, Supabase, AI-provider,
 environment, or production secrets are read. Untrusted titles/logins/paths are
@@ -247,8 +254,13 @@ and are not durable manual task tracking.
 All writer events share job concurrency group
 `pr-secretary-<repository>-<PR number>`, cancelling superseded runs. Each run
 collects fresh state instead of replaying the triggering payload. Immediately
-before writing it checks that the PR is still open with the same head,
-updated timestamp, and base. A hidden `secretary-run:<run ID>` watermark is an
+before writing it checks that the PR is still open with the same head SHA,
+base branch, base SHA, and base repository. It deliberately does not compare
+`updated_at`: comments/reviews and unrelated metadata can advance that timestamp
+without invalidating the collected code revision. Such activity no longer
+suppresses a valid summary. Non-revision metadata remains a collected snapshot
+and is refreshed by the next qualifying event or scheduled reconciliation.
+A hidden `secretary-run:<run ID>` watermark is an
 additional, best-effort stale-write guard: it skips a write when the existing
 comment carries a higher run ID. Run IDs do not guarantee event freshness or
 write ordering. These protections reduce stale overwrites; GitHub's comment API
@@ -270,6 +282,53 @@ Tests use Node's built-in test runner and deterministic mocks, with no live
 GitHub access. They cover classification, review/check normalization, skips,
 attention/checklists, CodeRabbit boundaries, pagination, event resolution,
 fallback policy, comment ownership/idempotency, and stale-write protection.
+Regression tests also cover targeted writer permissions, safe non-2xx API
+diagnostics, timestamp-only activity, and rejection of changed/closed targets.
+
+## Runtime repair evidence for issue #86 (2026-10-28)
+
+Current main was inspected at `7af713040beb6dbaba271867f559149f9d21bce6`, the merge
+of PR #87. Real PR #88 exposed failures; #86 remains incomplete.
+
+- [PR Secretary run #35](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40676161057)
+  was an `issue_comment` run from trusted main. Resolve succeeded; summarize (88)
+  failed on `POST /repos/2ton-exe/moris-mix-ai/issues/88/comments` with HTTP 403.
+  Its token reported Issues write and PullRequests read alongside the expected
+  Actions/Checks/Contents/Statuses reads. A prior run also failed with a comment
+  403. The old client discarded GitHub's error JSON, so the original server
+  message and accepted-permissions header were not retained.
+- PR #88 was open, unlocked, and same-repository; the repository was not archived
+  or disabled and Issues were enabled. The failing consumer was not a
+  `pull_request` job downgraded to a read-only fork token. The script receives
+  `github.token` directly, with no alternate-token setup. Private Actions policy
+  settings were not accessible through the unauthenticated read-only settings
+  request, and have not been changed.
+- The `/issues/.../comments` endpoint is correct for PR conversation comments.
+  Its [reference](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment)
+  documents Issues write or Pull requests write as alternatives. A matching
+  [upstream API issue](https://github.com/github/rest-api-description/issues/6994)
+  reports an installation-token 403 with Issues write plus PR read, resolved by
+  adding PR write. This supports the narrowly targeted writer permission repair;
+  it is not proof that our repaired workflow has succeeded. No PAT, broader
+  workflow-wide permissions, alternate event, or repository-policy change is added.
+- A separate CodeRabbit-triggered run was reported to collect successfully but
+  return `stale` after `updated_at` changed. The old equality check explains
+  that false stale result independently of the comment authorization failure.
+
+The repair retains HTTP status on API errors and reports only bounded,
+single-line, credential-redacted `message`, a validated HTTPS `docs.github.com`
+`documentation_url`, and strictly validated permission/request-ID headers when
+present. Raw response bodies, request payloads, arbitrary headers, and JSON parse
+errors are not logged. Missing/malformed error JSON still produces the status.
+Future 403 evidence can therefore distinguish permission rejection from another
+GitHub policy, abuse/rate limit, or resource restriction without blindly adding
+more permissions. Write failures are not automatically retried, avoiding duplicate
+comments after uncertain outcomes.
+
+This repair is locally testable but needs a later authorized merge and real
+default-branch event to establish successful creation and subsequent update of
+the same bot-owned summary. No comments or workflow reruns were performed during
+the repair. Keep #86 open pending that lifecycle proof.
 
 Known limits:
 
