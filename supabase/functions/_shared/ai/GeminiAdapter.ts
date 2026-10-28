@@ -189,7 +189,7 @@ export class GeminiAdapter implements AIProvider {
 
   /** Not part of AI-04; reserved for AI-06. */
   generateRecipe(_input: GenerateRecipeInput): Promise<GeneratedRecipe> {
-    return Promise.reject(new Error("generateRecipe is implemented in AI-06."));
+    return Promise.reject(new Error("Method not implemented for Sprint 1."));
   }
 
   /** Live smoke check used by the optional connectivity script. */
