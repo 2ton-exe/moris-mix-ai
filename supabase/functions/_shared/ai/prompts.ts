@@ -65,14 +65,3 @@ NOTES:
 export function buildExtractionPrompt(rawText: string): string {
   return EXTRACTION_PROMPT.text.replace(NOTES_PLACEHOLDER, () => rawText);
 }
-
-/**
- * Placeholder for AI-06 (Chef generation). Kept here so prompt versions stay
- * in one module, but not used by extraction.
- */
-export const CHEF_GENERATION_PROMPT: PromptTemplate = {
-  id: "chef_generation",
-  version: "0.1.0-draft",
-  text: `You are an expert personal chef. You will receive a list of pantry ingredients and the user's past favorite recipes.
-  Generate a new recipe that utilizes their available ingredients while matching their historical taste profile.`,
-};

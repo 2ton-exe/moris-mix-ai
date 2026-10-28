@@ -29,6 +29,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /** One attempt plus one bounded retry (AI-18). */
 const MAX_ATTEMPTS = 2;
 
+/** Stable failure codes that the AI-05 endpoint maps to HTTP statuses. */
 export type AIErrorCode =
   | "invalid_output"
   | "provider_timeout"
@@ -77,6 +78,7 @@ export type AIOperationLog = {
 /** Test seam: replaces the real Gemini call. */
 export type GenerateText = (prompt: string) => Promise<string>;
 
+/** Adapter options. Production reads env vars; tests inject a generator. */
 export type GeminiAdapterConfig = {
   apiKey?: string;
   modelName?: string;
@@ -85,6 +87,13 @@ export type GeminiAdapterConfig = {
   log?: (entry: AIOperationLog) => void;
 };
 
+/**
+ * Gemini-backed `AIProvider`.
+ *
+ * Extraction is the only implemented operation; `generateRecipe` belongs to
+ * AI-06. Tests inject a generator so they never touch the network, and inject
+ * a log sink so they can assert the metadata that gets recorded.
+ */
 export class GeminiAdapter implements AIProvider {
   private readonly modelName: string;
   private readonly timeoutMs: number;
@@ -92,8 +101,15 @@ export class GeminiAdapter implements AIProvider {
   private readonly log: (entry: AIOperationLog) => void;
   private readonly client?: GoogleGenerativeAI;
 
+  /**
+   * Builds the adapter. An explicit `config.modelName` wins, then a non-blank
+   * `AI_MODEL`, then the pinned default. The `trim` matters: a dashboard that
+   * saves `AI_MODEL=""` or whitespace would otherwise build the invalid model
+   * path `models/`, which looks like a provider outage after the retry.
+   */
   constructor(config: GeminiAdapterConfig = {}) {
-    this.modelName = config.modelName ?? Deno.env.get("AI_MODEL") ?? DEFAULT_MODEL;
+    this.modelName = config.modelName ??
+      (Deno.env.get("AI_MODEL")?.trim() || DEFAULT_MODEL);
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.log = config.log ?? ((entry) => console.log(JSON.stringify(entry)));
 
@@ -110,6 +126,15 @@ export class GeminiAdapter implements AIProvider {
     this.generateText = (prompt) => this.callModel(client, prompt);
   }
 
+  /**
+   * Extracts a recipe from the user's own notes.
+   *
+   * Retries once for provider failures only. Invalid model output is not
+   * retried: the same prompt is unlikely to produce different JSON, and a
+   * retry would burn free-tier quota for no benefit. Nothing is persisted.
+   *
+   * @throws {AIError} with a stable `code` the endpoint can map to HTTP.
+   */
   async extractRecipe(input: ExtractRecipeInput): Promise<ExtractedRecipe> {
     const prompt = buildExtractionPrompt(input.rawText);
     let lastError: AIError | undefined;
@@ -144,10 +169,12 @@ export class GeminiAdapter implements AIProvider {
     throw lastError ?? new AIError("provider_unavailable", "extract", "Gemini extraction failed.");
   }
 
+  /** Not part of AI-04; reserved for AI-06. */
   generateRecipe(_input: GenerateRecipeInput): Promise<GeneratedRecipe> {
     return Promise.reject(new Error("generateRecipe is implemented in AI-06."));
   }
 
+  /** Live smoke check used by the optional connectivity script. */
   async testConnection(): Promise<string> {
     if (!this.client) {
       throw new Error(
@@ -165,6 +192,7 @@ export class GeminiAdapter implements AIProvider {
     return result.response.text();
   }
 
+  /** Metadata-only part of a log entry. Never includes prompt or recipe text. */
   private logMeta(attempt: number, startedAt: number): Omit<AIOperationLog, "outcome"> {
     return {
       op: "extract",
@@ -176,6 +204,7 @@ export class GeminiAdapter implements AIProvider {
     };
   }
 
+  /** One Gemini request in JSON mode. The response is validated by the caller. */
   private async callModel(client: GoogleGenerativeAI, prompt: string): Promise<string> {
     const model = client.getGenerativeModel(
       {
@@ -220,6 +249,7 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
   return parsed.data;
 }
 
+/** Removes a markdown code fence if the model added one. */
 function stripCodeFence(text: string): string {
   const trimmed = text.trim();
   if (!trimmed.startsWith("```")) return trimmed;
@@ -230,6 +260,7 @@ function stripCodeFence(text: string): string {
     .trim();
 }
 
+/** Maps any thrown value to a typed, user-safe `AIError`. */
 function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
   if (error instanceof AIError) return error;
 
@@ -251,11 +282,13 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
   return new AIError("provider_unavailable", operation, "Gemini is currently unavailable.");
 }
 
+/** True when the failure looks like a timeout or an abort. */
 function isTimeout(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return error.name === "AbortError" || /timed? ?out|aborted/i.test(error.message);
 }
 
+/** Reads an HTTP-style numeric `status` without trusting the error's shape. */
 function readStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const status = (error as { status?: unknown }).status;

@@ -204,6 +204,27 @@ Deno.test("buildExtractionPrompt inserts notes literally", () => {
   assertEquals(prompt.includes(notes), true);
 });
 
+Deno.test("a blank AI_MODEL falls back to the pinned default model", async () => {
+  const previous = Deno.env.get("AI_MODEL");
+  const entries: AIOperationLog[] = [];
+
+  Deno.env.set("AI_MODEL", "   ");
+  try {
+    // The constructor reads AI_MODEL, so build the adapter after setting it.
+    const adapter = new GeminiAdapter({
+      generateText: async () => JSON.stringify(VALID_RECIPE),
+      log: (entry) => entries.push(entry),
+    });
+
+    await adapter.extractRecipe({ rawText: NOTES });
+  } finally {
+    if (previous === undefined) Deno.env.delete("AI_MODEL");
+    else Deno.env.set("AI_MODEL", previous);
+  }
+
+  assertEquals(entries[0].model, "gemini-3.5-flash-lite");
+});
+
 Deno.test("an injected generator does not require an API key", () => {
   const adapter = new GeminiAdapter({ generateText: async () => "{}" });
 
