@@ -548,18 +548,47 @@ test('workflow uses only the three trusted metadata/reconciliation events and de
   assert.match(events, /workflows: \[CI, Modular PR Validation\]/);
   assert.match(events, /types: \[in_progress, completed\]/);
   assert.equal((workflow.match(/ref: \$\{\{ github.event.repository.default_branch \}\}/g) ?? []).length, 2);
+  assert.equal((workflow.match(/repository: \$\{\{ github.repository \}\}/g) ?? []).length, 2);
+  assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 2);
+  assert.equal((workflow.match(/sparse-checkout: scripts/g) ?? []).length, 2);
   assert.doesNotMatch(workflow, /secrets\.|contents: write|head\.ref|download-artifact|npm install|pnpm/);
-  assert.match(workflow, /issues: write/); assert.match(workflow, /cancel-in-progress: true/);
+  assert.match(workflow, /cancel-in-progress: true/);
   assert.equal(GATES.filter(g => g[0].startsWith('Staging')).length, 2);
 });
 
 test('only the trusted writer has the targeted PR-comment permissions', async () => {
   const workflow = (await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const jobs = [...workflow.split('\njobs:\n')[1].matchAll(/^  ([\w-]+):\n/gm)].map(match => match[1]);
   const permissions = job => Object.fromEntries([...workflow.split(`  ${job}:\n`)[1]
+    .split(/^  [\w-]+:\n/m)[0]
     .split('    permissions:\n')[1].split('    steps:')[0].matchAll(/^      ([\w-]+): (read|write)$/gm)]
     .map(match => [match[1], match[2]]));
   assert.deepEqual(permissions('resolve'), { contents: 'read', 'pull-requests': 'read' });
   assert.deepEqual(permissions('summarize'), { contents: 'read', actions: 'read', checks: 'read',
-    statuses: 'read', 'pull-requests': 'write', issues: 'write' });
+    statuses: 'read', 'pull-requests': 'write' });
+  assert.equal(permissions('summarize')['pull-requests'], 'write');
+  assert.equal(permissions('summarize').issues, undefined);
+  assert.deepEqual(jobs, ['resolve', 'summarize']);
+  for (const job of jobs.filter(job => job !== 'summarize')) {
+    assert.doesNotMatch(workflow.split(`  ${job}:\n`)[1].split(/^  [\w-]+:\n/m)[0], /:\s*write(?:\s|$)|write-all/);
+  }
+  assert.doesNotMatch(workflow, /^\s+issues:\s*write\s*$/m);
   assert.match(workflow, /^permissions: \{\}$/m);
 });
+
+for (const file of ['ci.yml', 'reusable-frontend.yml']) {
+  test(`${file} runs Secretary regressions from root in Frontend Checks`, async () => {
+    const workflow = (await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    const frontend = workflow.split('  frontend:\n')[1].split(/^  [\w-]+:\n/m)[0];
+    assert.match(frontend, /^    name: Frontend Checks$/m);
+    assert.doesNotMatch(frontend, /^    (?:if|continue-on-error):/m);
+    const steps = frontend.split(/^      - /m).slice(1);
+    const setupIndex = steps.findIndex(step => step.startsWith('name: Set up Node.js\n'));
+    const testIndex = steps.findIndex(step => step.startsWith('name: Run PR Secretary regression tests\n'));
+    assert.ok(setupIndex >= 0 && testIndex > setupIndex);
+    assert.match(steps[setupIndex], /uses: actions\/setup-node@v4/);
+    assert.doesNotMatch(steps[setupIndex], /^        if:/m);
+    assert.equal(steps[testIndex].trimEnd(), 'name: Run PR Secretary regression tests\n' +
+      '        working-directory: .\n        run: node --test scripts/pr-secretary.test.mjs');
+  });
+}

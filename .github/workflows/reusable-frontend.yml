@@ -37,10 +37,13 @@ jobs:
           version: 10
 
       - name: Set up Node.js
-        if: steps.frontend.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Run PR Secretary regression tests
+        working-directory: .
+        run: node --test scripts/pr-secretary.test.mjs
 
       - name: Install dependencies
         if: steps.frontend.outputs.exists == 'true'

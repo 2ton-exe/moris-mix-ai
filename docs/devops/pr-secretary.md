@@ -9,8 +9,12 @@ merge, deploy, or change delivery gates.
 
 ## Architecture and security
 
-The implementation is additive. Existing CI, modular/reusable workflows,
-required checks, staging, production deployment, and branch rules are unchanged.
+The comment workflow remains informational and non-gating. Its deterministic
+regression tests run inside the existing `Frontend Checks` job in authoritative
+`ci.yml` and reusable frontend validation, from the repository root, using Node's
+built-in test runner with no added dependencies. A regression fails that existing
+CI check. Required check names, staging and production deployment configuration,
+and branch rules are unchanged.
 
 - `.github/workflows/pr-secretary.yml` resolves event metadata in a read-only job,
   then renders and upserts a comment in a separate per-PR job.
@@ -29,12 +33,11 @@ Protecting the default branch remains part of the repository's trust model.
 
 Workflow-level permissions are empty. The resolver grants `contents: read` and
 `pull-requests: read`. The writer grants `contents: read`, `actions: read`,
-`checks: read`, `statuses: read`, `pull-requests: write`, and `issues: write`.
-The targeted PR write permission is for PR conversation-comment authorization:
-the Actions installation token returned 403 with Issues write and PR read.
-Issues write is retained for compatibility with the issue-comment endpoint's
-observed installation-token permission behavior. There is no contents write,
-administration, deployments, or OIDC permission. GitHub does not offer a token
+`checks: read`, and `statuses: read`, with `pull-requests: write` as its only
+PR-comment write permission. It does not grant `issues: write`. The Actions
+installation token previously returned 403 with Issues write and PR read.
+There is no contents write, administration, deployments, or OIDC permission.
+GitHub does not offer a token
 permission limited to one comment. PR write technically permits other PR API
 mutations; the trusted module uses only issue-comment create/update mutations,
 and the resolver stays read-only. Default-branch-only execution is essential.
