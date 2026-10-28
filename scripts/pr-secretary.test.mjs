@@ -12,7 +12,7 @@ const sha = 'a'.repeat(40);
 const pr = () => ({ number: 87, title: 'Delivery metadata', state: 'open', draft: false,
   updated_at: '2026-10-27T01:00:00Z', changed_files: 1, author_association: 'MEMBER',
   head: { sha, ref: 'feature', repo: { full_name: repository } },
-  base: { ref: 'main', repo: { full_name: repository } }, requested_reviewers: [user('DaeSaster')], requested_teams: [] });
+  base: { ref: 'main', sha: 'b'.repeat(40), repo: { full_name: repository } }, requested_reviewers: [user('DaeSaster')], requested_teams: [] });
 const data = () => ({ pr: pr(), repository, paths: ['docs/readme.md'], checks: [], comments: [], reviews: [],
   inlineComments: [], threads: [], required: [], requiredSource: 'test policy' });
 const check = (name, conclusion, extra = {}) => ({ name, status: 'completed', conclusion, ...extra });
@@ -324,6 +324,79 @@ test('REST pagination follows all pages and does not follow remote URLs', async 
   assert.equal((await api.list(`${api.root}/issues`)).length, 101);
   assert.equal(urls.length, 2);
 });
+
+test('PR comment 403 retains safe GitHub diagnostics and permission evidence', async () => {
+  const token = 'private-test-token';
+  const documentation = 'https://docs.github.com/rest/issues/comments#create-an-issue-comment';
+  const api = createApi(token, repository, async (_url, options) => {
+    assert.equal(options.headers.Authorization, `Bearer ${token}`);
+    assert.equal(options.redirect, 'error');
+    return new Response(JSON.stringify({ message: 'Resource not accessible by integration',
+      documentation_url: documentation, errors: [{ secret: token }], body: 'untrusted body' }), {
+      status: 403, headers: { 'x-accepted-github-permissions': 'issues=write; pull_requests=write',
+        'x-github-request-id': 'AB12:34:CD56' },
+    });
+  });
+  await assert.rejects(api.request(`${api.root}/issues/88/comments`, 'POST', { body: 'summary private contents' }), error => {
+    assert.equal(error.status, 403);
+    assert.equal(error.githubMessage, 'Resource not accessible by integration');
+    assert.equal(error.documentation_url, documentation);
+    assert.match(error.message, /GitHub POST .*\/issues\/88\/comments: 403/);
+    assert.match(error.message, /issues=write; pull_requests=write/);
+    assert.match(error.message, /request_id=AB12:34:CD56/);
+    assert.doesNotMatch(error.message, /private-test-token|secret|untrusted body|summary private contents|Authorization/);
+    return true;
+  });
+});
+
+test('API error diagnostics redact credentials, bound messages, and prevent log-line injection', async () => {
+  const token = 'private-test-token';
+  const api = createApi(token, repository, async () => new Response(JSON.stringify({
+    message: `Denied ${token}\n::error::injected\u001b[31m Bearer different-secret\nAuthorization: Basic another-secret\n${'x'.repeat(1000)}`,
+    documentation_url: `https://docs.github.com/rest/${token}`,
+  }), { status: 403 }));
+  await assert.rejects(api.request(`${api.root}/issues/88/comments`, 'POST'), error => {
+    assert.ok(error.githubMessage.length <= 400);
+    assert.doesNotMatch(error.message, /private-test-token|different-secret|another-secret|[\r\n\u001b]/);
+    assert.match(error.message, /REDACTED/);
+    return true;
+  });
+});
+
+for (const [name, body] of [['HTML error', '<html>secret raw body</html>'], ['invalid JSON', '{secret broken'],
+  ['non-object JSON', 'null'], ['array JSON', '["secret"]']]) {
+  test(`API ${name} preserves status without exposing response body`, async () => {
+    const api = createApi('fake-token', repository, async () => new Response(body, { status: 502 }));
+    await assert.rejects(api.request(`${api.root}/pulls/88?secret=query`), error => {
+      assert.equal(error.status, 502);
+      assert.equal(error.message, `GitHub GET ${api.root}/pulls/88: 502`);
+      return true;
+    });
+  });
+}
+
+for (const documentation of ['https://evil.example/docs', 'https://docs.github.com@evil.example/rest',
+  'https://user:password@docs.github.com/rest', 'http://docs.github.com/rest',
+  'https://docs.github.com/rest?secret=hidden', 'not a URL']) {
+  test(`API diagnostics reject untrusted documentation URL: ${documentation}`, async () => {
+    const api = createApi('fake-token', repository, async () => new Response(JSON.stringify({
+      message: 'Forbidden', documentation_url: documentation,
+    }), { status: 403 }));
+    await assert.rejects(api.request(`${api.root}/pulls/88`), error => {
+      assert.equal(error.documentation_url, undefined);
+      assert.equal(error.message, `GitHub GET ${api.root}/pulls/88: 403; message="Forbidden"`);
+      return true;
+    });
+  });
+}
+
+test('API diagnostics preserve status for permission fallback and ignore non-string messages', async () => {
+  const api = createApi('fake-token', repository, async () => new Response(JSON.stringify({
+    message: { secret: 'must not log' }, documentation_url: null,
+  }), { status: 403 }));
+  assert.equal((await requiredPolicy(api, 'main')).requiredSource,
+    'documented main policy fallback; live enforcement unconfirmed');
+});
 test('marker lookup ignores forged user comments', () => {
   assert.equal(ownedComment([{ id: 1, user: user('someone'), body: MARKER }]), undefined);
 });
@@ -346,6 +419,42 @@ test('older run cannot overwrite newer generation; stale head cannot write', asy
   assert.equal(await publish(mockApi(path => path.endsWith('/pulls/87') ? d.pr : [existing]), d, 10), 'superseded');
   const api = mockApi(() => ({ ...d.pr, head: { ...d.pr.head, sha: 'new' } }));
   assert.equal(await publish(api, d, 30), 'stale'); assert.equal(api.calls.length, 1);
+});
+
+test('comment activity changing updated_at alone does not suppress a valid same-revision summary', async () => {
+  const d = data();
+  const api = mockApi((path, method) => path.endsWith('/pulls/87') ?
+    { ...d.pr, updated_at: '2026-10-28T10:57:15Z' } : method === 'POST' ? {} : []);
+  assert.equal(await publish(api, d, 30), 'created');
+  assert.equal(api.calls.filter(c => c.method === 'POST').length, 1);
+});
+
+for (const [name, change] of [
+  ['closed PR', p => { p.state = 'closed'; }],
+  ['head SHA', p => { p.head.sha = 'c'.repeat(40); }],
+  ['base branch', p => { p.base.ref = 'release'; }],
+  ['base SHA', p => { p.base.sha = 'c'.repeat(40); }],
+  ['base repository', p => { p.base.repo.full_name = 'other/repo'; }],
+]) test(`publish rejects changed ${name} even if updated_at is unchanged`, async () => {
+  const d = data();
+  const fresh = structuredClone(d.pr); change(fresh);
+  const api = mockApi(() => fresh);
+  assert.equal(await publish(api, d, 30), 'stale');
+  assert.equal(api.calls.length, 1);
+});
+
+test('timestamp-only changes cannot bypass newer-generation or unchanged-comment guards', async () => {
+  const d = data();
+  const fresh = { ...d.pr, updated_at: '2026-10-28T10:57:15Z' };
+  for (const [body, expected] of [
+    [`${MARKER}\n<!-- secretary-run:31 -->`, 'superseded'],
+    [`${render(d)}\n<!-- secretary-run:29 -->`, 'unchanged'],
+  ]) {
+    const api = mockApi(path => path.endsWith('/pulls/87') ? fresh :
+      [{ id: 9, user: { login: 'github-actions[bot]', type: 'Bot' }, body }]);
+    assert.equal(await publish(api, d, 30), expected);
+    assert.ok(api.calls.every(c => c.method === 'GET'));
+  }
 });
 for (const expected of ['.github/workflows/ci.yml', '.github/workflows/modular-pr-validation.yml']) {
   for (const [actual, matches] of [
@@ -433,13 +542,55 @@ test('incomplete changed files fail closed', async () => {
   await assert.rejects(collect(api, 87, repository), /incomplete/);
 });
 test('workflow uses only the three trusted metadata/reconciliation events and default-branch code', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8');
+  const workflow = (await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const events = workflow.split('on:\n')[1].split('\npermissions:')[0];
   assert.deepEqual([...events.matchAll(/^  (\w+):/gm)].map(m => m[1]), ['issue_comment', 'workflow_run', 'schedule']);
   assert.match(events, /workflows: \[CI, Modular PR Validation\]/);
   assert.match(events, /types: \[in_progress, completed\]/);
   assert.equal((workflow.match(/ref: \$\{\{ github.event.repository.default_branch \}\}/g) ?? []).length, 2);
-  assert.doesNotMatch(workflow, /secrets\.|pull-requests: write|contents: write|head\.ref|download-artifact|npm install|pnpm/);
-  assert.match(workflow, /issues: write/); assert.match(workflow, /cancel-in-progress: true/);
+  assert.equal((workflow.match(/repository: \$\{\{ github.repository \}\}/g) ?? []).length, 2);
+  assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 2);
+  assert.equal((workflow.match(/sparse-checkout: scripts/g) ?? []).length, 2);
+  assert.doesNotMatch(workflow, /secrets\.|contents: write|head\.ref|download-artifact|npm install|pnpm/);
+  assert.match(workflow, /cancel-in-progress: true/);
   assert.equal(GATES.filter(g => g[0].startsWith('Staging')).length, 2);
 });
+
+test('only the trusted writer has the targeted PR-comment permissions', async () => {
+  const workflow = (await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const jobs = [...workflow.split('\njobs:\n')[1].matchAll(/^  ([\w-]+):\n/gm)].map(match => match[1]);
+  const permissions = job => Object.fromEntries([...workflow.split(`  ${job}:\n`)[1]
+    .split(/^  [\w-]+:\n/m)[0]
+    .split('    permissions:\n')[1].split('    steps:')[0].matchAll(/^      ([\w-]+): (read|write)$/gm)]
+    .map(match => [match[1], match[2]]));
+  assert.deepEqual(permissions('resolve'), { contents: 'read', 'pull-requests': 'read' });
+  assert.deepEqual(permissions('summarize'), { contents: 'read', actions: 'read', checks: 'read',
+    statuses: 'read', 'pull-requests': 'write' });
+  assert.equal(permissions('summarize')['pull-requests'], 'write');
+  assert.equal(permissions('summarize').issues, undefined);
+  assert.deepEqual(jobs, ['resolve', 'summarize']);
+  for (const job of jobs.filter(job => job !== 'summarize')) {
+    assert.doesNotMatch(workflow.split(`  ${job}:\n`)[1].split(/^  [\w-]+:\n/m)[0], /:\s*write(?:\s|$)|write-all/);
+  }
+  assert.doesNotMatch(workflow, /^\s+issues:\s*write\s*$/m);
+  assert.match(workflow, /^permissions: \{\}$/m);
+});
+
+for (const file of ['ci.yml', 'reusable-frontend.yml']) {
+  test(`${file} runs Secretary regressions from root in Frontend Checks`, async () => {
+    const workflow = (await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+    const frontend = workflow.split('  frontend:\n')[1].split(/^  [\w-]+:\n/m)[0];
+    assert.match(frontend, /^    name: Frontend Checks$/m);
+    assert.doesNotMatch(frontend, /^    (?:if|continue-on-error):/m);
+    const steps = frontend.split(/^      - /m).slice(1);
+    const setupIndex = steps.findIndex(step => step.startsWith('name: Set up Node.js\n'));
+    const testIndex = steps.findIndex(step => step.startsWith('name: Run PR Secretary regression tests\n'));
+    assert.ok(setupIndex >= 0 && testIndex > setupIndex);
+    assert.match(steps[setupIndex], /uses: actions\/setup-node@v4/);
+    assert.doesNotMatch(steps[setupIndex], /^        if:/m);
+    const guard = file === 'reusable-frontend.yml'
+      ? "        if: hashFiles('scripts/pr-secretary.test.mjs') != ''\n" : '';
+    assert.equal(steps[testIndex].trimEnd(), 'name: Run PR Secretary regression tests\n' + guard +
+      '        working-directory: .\n        run: node --test scripts/pr-secretary.test.mjs');
+  });
+}
