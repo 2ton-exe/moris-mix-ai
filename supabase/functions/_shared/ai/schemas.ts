@@ -23,6 +23,25 @@ export const InstructionSchema = z.object({
   text: z.string().min(1)
 });
 
+/**
+ * The prompt promises steps numbered 1..n in order, but InstructionSchema only
+ * checks a positive integer. Enforce the array-level rule here, where the whole
+ * list is available, so a sequence like 1, 3, 3 cannot pass as valid extraction.
+ */
+const SequentialInstructionsSchema = z
+  .array(InstructionSchema)
+  .superRefine((steps, ctx) => {
+    steps.forEach((step, index) => {
+      if (step.step !== index + 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, "step"],
+          message: `Expected step ${index + 1}.`,
+        });
+      }
+    });
+  });
+
 export const FlavorScoreSchema = z.object({
   sweet: z.number().min(0).max(5),
   salty: z.number().min(0).max(5),
@@ -36,7 +55,7 @@ export const FlavorScoreSchema = z.object({
 export const ExtractedRecipeSchema = z.object({
   title: z.string().min(1),
   ingredients: z.array(IngredientSchema),
-  instructions: z.array(InstructionSchema),
+  instructions: SequentialInstructionsSchema,
   // Models often send null for an optional field. Normalise that to absent
   // instead of failing an otherwise valid extraction.
   flavor_scores: nullToUndefined(FlavorScoreSchema.optional())

@@ -29,9 +29,15 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /** One attempt plus one bounded retry (AI-18). */
 const MAX_ATTEMPTS = 2;
 
+/** Small jittered backoff so a retry does not hit the provider at the same instant. */
+function retryDelayMs(): number {
+  return 250 + Math.floor(Math.random() * 250);
+}
+
 /** Stable failure codes that the AI-05 endpoint maps to HTTP statuses. */
 export type AIErrorCode =
   | "invalid_output"
+  | "provider_rejected"
   | "provider_timeout"
   | "provider_unavailable"
   | "rate_limited";
@@ -44,6 +50,7 @@ export type AIErrorCode =
 export class AIError extends Error {
   readonly code: AIErrorCode;
   readonly operation: "extract" | "generate";
+  /** True only for failures a second identical call could plausibly fix. */
   readonly retryable: boolean;
   /** Metadata only, for example the schema paths that failed. Never values. */
   readonly detail?: string;
@@ -58,7 +65,12 @@ export class AIError extends Error {
     this.name = "AIError";
     this.code = code;
     this.operation = operation;
-    this.retryable = code !== "invalid_output";
+    // Retry only what the spec allows: 429, 5xx, timeouts and network errors.
+    // A permanent 4xx (bad key, wrong model, malformed request) is classified
+    // as provider_rejected and must fail fast instead of burning a second call.
+    this.retryable = code === "provider_timeout" ||
+      code === "provider_unavailable" ||
+      code === "rate_limited";
     this.detail = detail;
   }
 }
@@ -85,6 +97,8 @@ export type GeminiAdapterConfig = {
   timeoutMs?: number;
   generateText?: GenerateText;
   log?: (entry: AIOperationLog) => void;
+  /** Test seam for the backoff, so retry tests do not sleep for real. */
+  sleep?: (ms: number) => Promise<void>;
 };
 
 /**
@@ -99,6 +113,7 @@ export class GeminiAdapter implements AIProvider {
   private readonly timeoutMs: number;
   private readonly generateText: GenerateText;
   private readonly log: (entry: AIOperationLog) => void;
+  private readonly sleep: (ms: number) => Promise<void>;
   private readonly client?: GoogleGenerativeAI;
 
   /**
@@ -112,6 +127,8 @@ export class GeminiAdapter implements AIProvider {
       (Deno.env.get("AI_MODEL")?.trim() || DEFAULT_MODEL);
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.log = config.log ?? ((entry) => console.log(JSON.stringify(entry)));
+    this.sleep = config.sleep ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 
     if (config.generateText) {
       this.generateText = config.generateText;
@@ -146,7 +163,7 @@ export class GeminiAdapter implements AIProvider {
         const raw = await this.generateText(prompt);
         const recipe = parseExtractionResponse(raw);
 
-        this.log({
+        this.safeLog({
           ...this.logMeta(attempt, startedAt),
           outcome: "success",
         });
@@ -155,7 +172,7 @@ export class GeminiAdapter implements AIProvider {
       } catch (error) {
         const aiError = toAIError(error, "extract");
 
-        this.log({
+        this.safeLog({
           ...this.logMeta(attempt, startedAt),
           outcome: aiError.code,
           detail: aiError.detail,
@@ -163,6 +180,7 @@ export class GeminiAdapter implements AIProvider {
 
         if (!aiError.retryable || attempt === MAX_ATTEMPTS) throw aiError;
         lastError = aiError;
+        await this.sleep(retryDelayMs());
       }
     }
 
@@ -190,6 +208,18 @@ export class GeminiAdapter implements AIProvider {
       "Respond with exactly: 'Gemini backend connectivity successful.'",
     );
     return result.response.text();
+  }
+
+  /**
+   * Logging is observability, not part of the operation. A broken sink must
+   * never fail a successful extraction, trigger a retry, or mask a typed error.
+   */
+  private safeLog(entry: AIOperationLog): void {
+    try {
+      this.log(entry);
+    } catch {
+      // Deliberately swallowed: the sink is not our failure domain.
+    }
   }
 
   /** Metadata-only part of a log entry. Never includes prompt or recipe text. */
@@ -267,7 +297,7 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
   const message = error instanceof Error ? error.message : String(error);
   const status = readStatus(error);
 
-  if (status === 429 || /quota|rate limit/i.test(message)) {
+  if (status === 429 || (status === undefined && /quota|rate limit/i.test(message))) {
     return new AIError(
       "rate_limited",
       operation,
@@ -275,8 +305,18 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
     );
   }
 
-  if (isTimeout(error)) {
+  if (status === 408 || (status === undefined && isTimeout(error))) {
     return new AIError("provider_timeout", operation, "Gemini did not respond in time.");
+  }
+
+  // Any other 4xx means the request, key, or model is wrong. A retry cannot
+  // fix that, so surface it as non-retryable instead of an apparent outage.
+  if (status !== undefined && status >= 400 && status < 500) {
+    return new AIError(
+      "provider_rejected",
+      operation,
+      "Gemini rejected the request. Check the API key and model configuration.",
+    );
   }
 
   return new AIError("provider_unavailable", operation, "Gemini is currently unavailable.");
