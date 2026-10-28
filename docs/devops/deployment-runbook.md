@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its first production execution and CRUD smoke check remain pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The production `recipes` deployment executed successfully through validated main; this does not establish production runtime smoke or full authenticated CRUD. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -97,7 +97,7 @@ The shared `scripts/runtime-smoke.mjs` verifier requests `/home?revision=${GITHU
 
 Deployment and smoke summaries record **PR head** from `github.event.pull_request.head.sha` separately from **Tested merge revision** from `GITHUB_SHA`. On this PR path, checkout, build/deployment, and the smoke cache-busting revision use the tested merge revision; the source head is traceability evidence, not a claim that it was the exact deployed checkout.
 
-Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. API/database-backed staging smoke and operator-attested backend source revision evidence are configured in this change, but successful execution and controlled staging smoke-failure evidence remain pending. Frontend smoke success alone does not establish API/database integration or the deployed backend revision.
+Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. PR #88 successfully executed automated staging deployment and combined smoke for frontend HTML, its referenced JavaScript asset, public `demo-recipe`, and the API/database path. The staging backend source revision remains **operator-attested; not observed from runtime**. Controlled automated staging smoke-failure evidence remains pending.
 
 ### Shared runtime smoke setup (#76 and #61)
 
@@ -243,8 +243,9 @@ Evidence status:
 - Database permission correction: manually applied to staging.
 - Approved demo user/recipe bootstrap: manually applied to staging.
 - API/database runtime path: manually verified.
-- New automated GitHub staging smoke: **not yet executed**.
+- Automated GitHub staging deployment and combined HTML/JavaScript/public demo API/database smoke: **executed and passed on PR #88**, separately from the manual checks above.
 - Production smoke: **not yet executed**.
+- Controlled automated staging smoke-failure evidence: **pending**.
 
 These manual corrections are not automated by this DevOps change. Durable table
 permission and approved seed/bootstrap ownership remains a backend/source-of-truth
@@ -281,8 +282,8 @@ existing separately authorized provider rollback/redeployment process; preserve
 the failed run and do not hide it with `continue-on-error`. Re-running the entire
 workflow can redeploy, so inspect the failing step before retrying.
 
-Before closing #76, collect an actual trusted-PR successful combined smoke run
-and a controlled staging smoke-failure run. For the latter, in a temporary
+PR #88 supplies successful automated staging deployment and combined smoke evidence.
+Before closing #76, collect a controlled staging smoke-failure run. In a temporary
 reviewed PR change only the smoke invocation's `SMOKE_SUPABASE_URL` to
 `https://example.invalid` (not the build/deploy configuration); the verifier must
 fail configuration without sending requests there. Confirm deployment success,
@@ -649,7 +650,7 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- The `recipes` deployment is configured in CI but still needs a successful main-branch execution. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
+- The production `recipes` deployment executed successfully through validated main. Production runtime smoke after merge and broader authenticated CRUD/runtime journeys remain pending under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61); deployment success alone does not verify them. Production `demo-recipe` source revision evidence/configuration remains pending.
 - A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).

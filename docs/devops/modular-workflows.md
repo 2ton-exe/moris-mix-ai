@@ -227,7 +227,9 @@ jobs and conclusions with the migration evidence.
    PR evidence, but the updated combined main gate remains unverified.
 4. Final production cutover still depends on staging/preview delivery in
    [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains
-   pending. Prepare the production handoff as a separate change after that
+   open for controlled automated staging smoke-failure evidence; successful
+   automated staging deployment and combined smoke have executed on PR #88.
+   Prepare the production handoff as a separate change after that
    prerequisite: wire a main caller to all three reusable validations and then
    deployment with those same dependencies/conditions. Pass Cloudflare secrets
    explicitly and convert the string frontend output to a boolean input. Do not
@@ -249,13 +251,16 @@ jobs and conclusions with the migration evidence.
 Stage 2A runtime validation does not complete modular required-check migration,
 the ruleset/check-context handoff, production deployment ownership transfer,
 use of `reusable-cloudflare.yml` by the modular main caller, or retirement/removal
-of `ci.yml`; all remain pending, along with staging/preview delivery from #76.
+of `ci.yml`; all remain pending. Staging/preview delivery from #76 has successful
+automated deployment and combined smoke evidence on PR #88; controlled automated
+staging smoke-failure evidence remains pending.
 BE-06 adds recipe/API validation and guarded migrations
 for optional hosted non-production test-database integration.
 Stage 2A's modular workflows perform no production deployment or production
 database migration. DEVOPS-07 adds a targeted `recipes` deployment step to the
-authoritative `ci.yml` path, before Cloudflare; production execution evidence is
-pending. Production database migration automation remains separate, and
+authoritative `ci.yml` path, before Cloudflare; production deployment executed
+successfully through validated main. This does not establish production runtime
+smoke or full authenticated CRUD. Production database migration automation remains separate, and
 post-deployment smoke verification is now configured for DEVOPS-08 in the active
 `ci.yml` deployment job, with separate command/runtime outcomes and the same
 production concurrency lock. The staging workflow reuses the shared verifier for
@@ -263,7 +268,12 @@ HTML, JavaScript, and the operator-managed public demo database path. The stagin
 backend path was manually verified after a staging-only `service_role` table
 SELECT grant and approved demo fixture bootstrap; these database corrections are
 not automated here and their durable source ownership remains a backend follow-up.
-Automated combined staging smoke and production smoke have not yet executed; see the
+Automated staging deployment and combined HTML, referenced JavaScript asset,
+public `demo-recipe`, and API/database smoke executed successfully on PR #88.
+The staging backend source revision remains **operator-attested; not observed from runtime**.
+Controlled automated staging smoke-failure evidence, production runtime smoke
+after merge, production `demo-recipe` revision evidence/configuration, and broader
+authenticated CRUD/runtime journeys remain pending; see the
 [deployment runbook](deployment-runbook.md#shared-runtime-smoke-setup-76-and-61)
 for prerequisite configuration, backend revision attestation limits, and recovery.
 This change adds no path filters, pipeline optimizations, provider-resource
