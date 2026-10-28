@@ -60,7 +60,7 @@ All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
-Manual production verification
+Automated runtime smoke verifies HTML, the referenced JavaScript asset, and the public demo database response; retain manual verification for broader journeys
 
 The temporary frontend-existence mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
 
@@ -80,7 +80,8 @@ Configure these Actions variables under **Settings → Environments → staging*
 | :--- | :--- |
 | `STAGING_WORKER_NAME` | `moris-mix-ai-staging` |
 | `STAGING_FRONTEND_URL` | The staging Worker's HTTPS `workers.dev` URL |
-| `STAGING_SUPABASE_PROJECT_REF` | The isolated staging Supabase project reference |
+| `STAGING_SUPABASE_PROJECT_REF` | `pjeykhjzqhryjwuoizgh` |
+| `STAGING_DEMO_RECIPE_REVISION` | Full 40-character lowercase source SHA of the operator-deployed `demo-recipe` bundle |
 | `VITE_SUPABASE_URL` | `https://<STAGING_SUPABASE_PROJECT_REF>.supabase.co` |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | The staging project's public publishable key |
 
@@ -88,15 +89,212 @@ These staging environment values provide the public Supabase build configuration
 
 **Before pushing the staging workflow changes**, configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller explicitly passes these staging-specific names, and the reusable workflow declares both required and validates both are non-empty before building/deploying. Missing staging credentials fail closed: there is no fallback to the production-named `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. Keep the production secrets unchanged; do not populate repository-level staging-specific names with production credentials.
 
-Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The smoke timeout accommodates the existing request retry budget of about 190 seconds across both requests, leaving about 110 seconds for setup and other job overhead.
+Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The shared smoke script has a maximum request/retry budget of about 114 seconds across three checks, leaving time for checkout, setup, and artifact upload.
 
 After deployment, the workflow requires the official `cloudflare/wrangler-action@v4` `deployment-url` output to be non-empty and equal to `STAGING_FRONTEND_URL`, normalizing only one optional trailing slash on each. Missing or mismatched output fails the deployment job before smoke can run. The verified Wrangler URL is exposed as the deploy job's `deployment-url` output and passed directly to the smoke job; smoke does not independently read the configured URL. Both deployment and smoke evidence record this verified URL.
 
-The current frontend smoke requests `/home?revision=${GITHUB_SHA}` and the first referenced built JavaScript asset. Each request allows up to five attempts with five-second sleeps between failures and no sleep after the last attempt. Both require curl success and final HTTP 200. `/home` must have final `text/html` content type; the asset must have a final JavaScript MIME type containing `javascript` or `ecmascript` (optional charset parameters are accepted). HTML asset responses are rejected even with HTTP 200 because Cloudflare SPA fallback can serve `index.html` for a missing bundle. Missing asset references and exhausted retries fail the smoke job.
+The shared `scripts/runtime-smoke.mjs` verifier requests `/home?revision=${GITHUB_SHA}`, resolves its built JavaScript asset against the document URL, and requests the isolated public `demo-recipe` endpoint. See the runtime smoke setup below for exact checks and backend prerequisites. All redirects are rejected before following them. Missing or invalid responses fail the smoke job.
 
 Deployment and smoke summaries record **PR head** from `github.event.pull_request.head.sha` separately from **Tested merge revision** from `GITHUB_SHA`. On this PR path, checkout, build/deployment, and the smoke cache-busting revision use the tested merge revision; the source head is traceability evidence, not a claim that it was the exact deployed checkout.
 
-Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. API/database-backed staging smoke under #76, controlled staging smoke-failure evidence, and backend staging revision evidence are still pending. Frontend smoke success does not establish backend revision or API/database integration evidence.
+Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. API/database-backed staging smoke and operator-attested backend source revision evidence are configured in this change, but successful execution and controlled staging smoke-failure evidence remain pending. Frontend smoke success alone does not establish API/database integration or the deployed backend revision.
+
+### Shared runtime smoke setup (#76 and #61)
+
+The workflow changes below describe configured automation. The manual staging
+bootstrap and verification record is separate, in the evidence section below.
+At source revision `7af713040beb6dbaba271867f559149f9d21bce6`, the staging workflow
+deployed only the frontend, and production CI deployed `recipes` plus Cloudflare.
+Neither workflow deployed `demo-recipe`. The initial staging gateway response
+`404 Requested function was not found` preceded the targeted operator deployment;
+it differs from the handler's `404 DEMO_RECIPE_NOT_FOUND` for absent/unapproved data.
+
+Reuse `supabase/functions/demo-recipe/index.ts`; no new endpoint, schema change,
+or backend deployment on every PR is needed. The handler uses its server-side
+service-role configuration to select only recipe
+`11111111-1111-1111-1111-111111111111`, owner
+`d0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f`, and `is_public = true`, returning only
+approved fields. Smoke callers use only the environment's public key. No service
+role key or Supabase management token is added to the smoke jobs.
+
+Before enabling the new checks, the DevOps owner and backend owner must:
+
+1. Select a reviewed, clean source revision for the function and its shared
+   dependencies. Record `git rev-parse HEAD` and ensure the function dependency
+   tree has no local edits. A backend source SHA can differ from the frontend SHA.
+2. Verify the staging schema, runtime-role privileges, approved demo user, and
+   fixed public demo row exist. The runtime `service_role` needs schema `USAGE`
+   on `public` and `SELECT` on `public.recipes`; RLS bypass does not supply a
+   missing table privilege. Verify both explicitly. The seed's first recipe is
+   public; its second recipe is private. Coordinate any missing permission/data
+   setup with the backend owner. Do not run `db reset`, blindly apply the entire
+   seed, or copy production user data. `ON CONFLICT DO NOTHING` in `seed.sql`
+   does not repair an existing incompatible demo row. The manual staging bootstrap
+   described below satisfies these prerequisites for the observed check, but the
+   workflows do not create or repair them.
+3. Using the repository-pinned Supabase CLI from `frontend`, inspect `supabase
+   --help`, `supabase functions --help`, and `supabase functions deploy --help`.
+   After explicit operator authorization, deploy only the demo function to staging
+   with an explicit project reference. From the repository root in Bash:
+
+   ```bash
+   repo_root="$PWD"
+   cd frontend
+   pnpm exec supabase --workdir "$repo_root" functions deploy demo-recipe \
+     --project-ref pjeykhjzqhryjwuoizgh --no-verify-jwt --use-api --yes
+   ```
+
+   Authenticate with an authorized operator token outside logs. `--project-ref`
+   is essential because `supabase/config.toml` identifies production. Disabling
+   gateway JWT verification matches the existing public function configuration.
+   Confirm the hosted runtime provides its own `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY`; do not override these with production values or
+   copy the service-role key into GitHub. See the official
+   [function deployment guide](https://supabase.com/docs/guides/functions/deploy)
+   and [CLI reference](https://supabase.com/docs/reference/cli/supabase-functions-deploy).
+4. Save the source SHA, provider function version/deployment ID, target project,
+   timestamp, and operator deployment result in the release record. Set staging
+   environment variable `STAGING_DEMO_RECIPE_REVISION` to that full source SHA
+   only after the targeted deployment succeeds. Update it on each backend release.
+   Keep operator backend changes serialized with staging verification, since
+   GitHub concurrency cannot lock external operator changes.
+5. For production, identify the existing deployed demo function's reviewed source
+   SHA and provider version in its release history. Configure repository variables
+   `PRODUCTION_DEMO_RECIPE_REVISION` and `PRODUCTION_FRONTEND_URL` (the exact
+   Wrangler-reported production origin, currently documented as
+   `https://moris-mix-ai.diofelgwenharesco.workers.dev`). If the source cannot be
+   established, arrange a separately authorized targeted demo function release;
+   do not invent an attestation or assume the frontend SHA is its backend SHA.
+
+The new variables are non-secret configuration. Existing staging variables and
+Cloudflare staging secrets above remain required and must be environment-scoped.
+Production continues using its existing repository `VITE_SUPABASE_URL`,
+`VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`),
+`SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, and
+`CLOUDFLARE_ACCOUNT_ID`. No new GitHub secrets are required. The verifier pins
+staging to `pjeykhjzqhryjwuoizgh` and production to `config.toml`'s project,
+`gtbwblxskctpsqhbpebg`. Missing revision/origin configuration fails preflight
+before deployment; there is no production fallback for staging.
+
+The verifier requires HTTP 200 and the expected MIME type for each check:
+
+- `/home` must contain HTML, the React root, and a built `assets/*.js` script.
+- That referenced script must stay on the frontend origin and return nonempty
+  JavaScript, rejecting HTML fallbacks even when labeled as JavaScript.
+- `GET /functions/v1/demo-recipe` must return the exact approved public fixture
+  envelope and content, including recipe identity, ingredients, instructions,
+  scores, and rating. Only `cooked_at` may differ, because the seed uses a relative
+  date; it must be null or a valid calendar date. Extra/private fields fail.
+
+Each request gets three attempts, a ten-second timeout covering fetch and body
+read, and four-second sleeps between attempts (about 38 seconds per check).
+Every redirect, including same-origin redirects, is rejected. Credentials are
+sent only to the configured Supabase origin. Requests use `Cache-Control:
+no-cache` and revision query parameters on HTML/API; the API also has a unique
+run timestamp to reduce cached-response reuse. The existing function's cache
+policy is unchanged, so this is an API/database-backed public read, not a direct
+uncached database query or a browser end-to-end journey.
+
+Smoke writes `runtime-smoke.json` and a step summary even when checks fail,
+including UTC times, environment, tested checkout SHA, PR head SHA (staging),
+verified origins, backend source attestation, per-check outcomes/attempts, and
+overall smoke outcome. Failure entries expose safe status/validation diagnostics,
+never response bodies or key values. Artifacts are uploaded with `if: always()`;
+checkout/setup failure or cancellation before the verifier executes may leave
+no JSON. Separate always-run workflow summaries record deployment-command and URL
+verification results. An upload or summary step does not mask a smoke failure.
+
+The backend SHA is explicitly **operator-attested, not observed from runtime**.
+Provider deployment/version evidence must remain in the release record. These
+checks do not establish that backend code matches the PR merge SHA, prove all
+backend functions, or cryptographically identify served frontend bytes. The
+frontend SHA records the checked-out build/deployment input; the smoke verifies
+the deployed origin and referenced bundle. Production smoke stays inside the
+`cloudflare-production` deployment lock, after both deployment commands and URL
+verification succeed. Staging keeps the existing workflow-wide lock and trust gate.
+
+### Manual staging backend evidence (2026-10-28)
+
+Target: `pjeykhjzqhryjwuoizgh`. Attested deployed function source:
+`7af713040beb6dbaba271867f559149f9d21bce6`. The targeted CLI deployment of only
+`demo-recipe` executed successfully. No backend deployment on every PR was added.
+
+The initial direct request around `2026-10-28T09:13:43Z` returned HTTP 500 with
+the safe `INTERNAL_ERROR` envelope. Subsequent log, privilege, corrective-action,
+and final-response evidence below was supplied by the staging operator; it was
+not produced by the new GitHub smoke job.
+
+| Stage | Observed evidence | Meaning |
+| --- | --- | --- |
+| Initial runtime failure | Function log: `Database query failed code: 42501`; `service_role` had schema `USAGE` but no `SELECT` on `public.recipes` | The HTTP 500 was caused by insufficient database table privileges |
+| Manual staging permission correction | Operator applied `grant select on table public.recipes to service_role;`; the endpoint then returned HTTP 404 | The permission failure was resolved; the approved fixture was still unavailable |
+| Manual staging fixture bootstrap | The approved demo user and fixed public recipe were absent; the operator added exactly those records from current `supabase/seed.sql` | Staging received the approved fixture only, through a separate manual operation |
+| Final direct runtime check | `GET https://pjeykhjzqhryjwuoizgh.supabase.co/functions/v1/demo-recipe` returned HTTP 200 with recipe ID `11111111-1111-1111-1111-111111111111` and title `Classic Tomato Scraps Pasta` | The staging Edge Function to PostgreSQL path was manually verified |
+
+The progression was **500 / 42501 -> 404 missing fixture -> 200 expected demo
+response**. Do not attribute the initial 500 solely to missing seed data: the
+missing table grant blocked the query before the handler could report the absent
+fixture. The function code/source attestation did not change during these manual
+database corrections.
+
+Evidence status:
+
+- Function deployment: executed successfully.
+- Database permission correction: manually applied to staging.
+- Approved demo user/recipe bootstrap: manually applied to staging.
+- API/database runtime path: manually verified.
+- New automated GitHub staging smoke: **not yet executed**.
+- Production smoke: **not yet executed**.
+
+These manual corrections are not automated by this DevOps change. Durable table
+permission and approved seed/bootstrap ownership remains a backend/source-of-truth
+follow-up: the backend owner must decide how reviewed database setup preserves the
+grant and fixture across new environments or rebuilds. DevOps coordinates that
+handoff and records environment evidence. No grant migration, data migration,
+automatic seed, broad privilege expansion, or production database change is added
+here. Any further staging correction requires separate operator authorization.
+Do not use the manual HTTP 200 as proof that the automated verifier's full fixture
+validation, frontend checks, GitHub failure behavior, or artifacts have executed.
+
+### Smoke failure handling and remaining runtime evidence
+
+Inspect deployment-command results first. If deployment failed, runtime smoke
+is skipped; do not describe the release as verified. If deployment succeeded and
+smoke failed, the release may already be live. Use the JSON check outcomes and
+provider logs to distinguish:
+
+- Gateway function-not-found: verify project/slug and the operator demo deployment.
+- Handler `DEMO_RECIPE_NOT_FOUND`: backend owner checks the fixed ID, owner, and
+  public flag. Never relax the filter to make smoke green.
+- API 500 with `Database query failed code: 42501`: inspect runtime-role schema
+  and table privileges. Coordinate a narrowly scoped correction with the backend
+  owner; do not automatically grant access or broaden public/client permissions.
+- Other API 500 or response validation failure: inspect server configuration,
+  schema, seed values, and function logs without publishing details or secrets.
+- HTML/asset MIME, origin, or redirect failure: inspect Wrangler's URL output,
+  deployed asset references, SPA routing, and unexpected redirects.
+- Missing backend revision/configuration: fix the appropriate environment or
+  repository variable from actual release evidence before retrying.
+
+No automated rollback is introduced. Recover through a reviewed fix or the
+existing separately authorized provider rollback/redeployment process; preserve
+the failed run and do not hide it with `continue-on-error`. Re-running the entire
+workflow can redeploy, so inspect the failing step before retrying.
+
+Before closing #76, collect an actual trusted-PR successful combined smoke run
+and a controlled staging smoke-failure run. For the latter, in a temporary
+reviewed PR change only the smoke invocation's `SMOKE_SUPABASE_URL` to
+`https://example.invalid` (not the build/deploy configuration); the verifier must
+fail configuration without sending requests there. Confirm deployment success,
+smoke/job failure, retained evidence, and overall failed staging result. Remove
+the temporary override and collect a successful rerun. This experiment requires
+normal review/authorization and is not part of this implementation. Record actual
+composed check names before considering any required-check change.
+
+Before closing #61, collect a real gated main deployment with separate successful
+Supabase/Cloudflare command results and successful production runtime smoke,
+including summary and artifact. Local tests do not supply that evidence. The
+#73 modular production ownership cutover remains separate; `ci.yml` stays active.
 
 ## 4. Repository Structure
 
@@ -234,7 +432,8 @@ The workflow currently has no push path filter: docs-only main pushes can also p
 4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
 5. Supabase CLI deploys only `recipes` with gateway JWT verification disabled, matching `supabase/config.toml` so the handler enforces authentication.
 6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
-7. Confirm both deployment steps executed. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
+7. Confirm both deployment steps executed. The workflow then checks the Wrangler deployment URL against `PRODUCTION_FRONTEND_URL` and runs the shared runtime verifier. Deployment-command outcomes and runtime smoke are separate summary entries; a smoke failure fails the delivery job after deployment and does not roll it back.
+8. Retain the runtime JSON artifact and summary for [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61). This public demo check does not verify authenticated recipe CRUD.
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 

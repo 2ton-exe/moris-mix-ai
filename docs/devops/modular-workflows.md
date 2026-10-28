@@ -30,7 +30,8 @@ credentials, expected reference, and database URL are configured, the reusable
 Edge/API workflow applies pending migrations to the dedicated non-production
 test database before the hosted auth/RLS and recipe CRUD integration suite.
 Incomplete configuration retains the explicit hosted-test skip and offline
-fallback. Neither caller forwards Cloudflare secrets to any reusable workflow.
+fallback. The modular PR caller forwards only staging-named Cloudflare secrets
+to `reusable-staging.yml`; the modular main caller forwards no Cloudflare secrets.
 Public Supabase build variables remain read through `vars` inside the reusable
 deployment job.
 
@@ -255,7 +256,17 @@ Stage 2A's modular workflows perform no production deployment or production
 database migration. DEVOPS-07 adds a targeted `recipes` deployment step to the
 authoritative `ci.yml` path, before Cloudflare; production execution evidence is
 pending. Production database migration automation remains separate, and
-post-deployment smoke verification belongs to DEVOPS-08. This stage adds no path
-filters, pipeline optimizations, or production configuration changes.
+post-deployment smoke verification is now configured for DEVOPS-08 in the active
+`ci.yml` deployment job, with separate command/runtime outcomes and the same
+production concurrency lock. The staging workflow reuses the shared verifier for
+HTML, JavaScript, and the operator-managed public demo database path. The staging
+backend path was manually verified after a staging-only `service_role` table
+SELECT grant and approved demo fixture bootstrap; these database corrections are
+not automated here and their durable source ownership remains a backend follow-up.
+Automated combined staging smoke and production smoke have not yet executed; see the
+[deployment runbook](deployment-runbook.md#shared-runtime-smoke-setup-76-and-61)
+for prerequisite configuration, backend revision attestation limits, and recovery.
+This change adds no path filters, pipeline optimizations, provider-resource
+changes, or production deployment ownership cutover.
 Keep the original workflow until the replacement behavior has execution evidence
 and the required-check and deployment handoff is ready.
