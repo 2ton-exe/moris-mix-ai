@@ -169,7 +169,7 @@ jobs:
       SMOKE_ENVIRONMENT: staging
       SMOKE_DEPLOYMENT_OUTCOME: ${{ needs.deploy.result }}
       SMOKE_FRONTEND_URL: ${{ needs.deploy.outputs.deployment-url }}
-      SMOKE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      SMOKE_SUPABASE_URL: https://example.invalid
       SMOKE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
       SMOKE_PUBLIC_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       SMOKE_BACKEND_REVISION: ${{ vars.STAGING_DEMO_RECIPE_REVISION }}
