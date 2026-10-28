@@ -1,17 +1,26 @@
 import { z } from "npm:zod@3.22.4";
 
 // --- BASE SCHEMAS ---
+
+/**
+ * Models routinely send null where the schema expects an absent optional field.
+ * Normalise null to undefined instead of rejecting an otherwise valid recipe.
+ */
+function nullToUndefined<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((value) => (value === null ? undefined : value), schema);
+}
+
 export const IngredientSchema = z.object({
-  name: z.string(),
-  quantity: z.number().nullable(),
-  unit: z.string().nullable(),
-  quantityText: z.string().optional(),
+  name: z.string().min(1),
+  quantity: z.number().nonnegative().nullable().default(null),
+  unit: z.string().nullable().default(null),
+  quantityText: nullToUndefined(z.string().optional()),
   inferred: z.boolean().default(false)
 });
 
 export const InstructionSchema = z.object({
-  step: z.number(),
-  text: z.string()
+  step: z.number().int().positive(),
+  text: z.string().min(1)
 });
 
 export const FlavorScoreSchema = z.object({
@@ -25,10 +34,12 @@ export const FlavorScoreSchema = z.object({
 
 // --- AI SCHEMAS (SPRINT 2) ---
 export const ExtractedRecipeSchema = z.object({
-  title: z.string(),
+  title: z.string().min(1),
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
-  flavor_scores: FlavorScoreSchema.optional()
+  // Models often send null for an optional field. Normalise that to absent
+  // instead of failing an otherwise valid extraction.
+  flavor_scores: nullToUndefined(FlavorScoreSchema.optional())
 });
 
 export const GeneratedRecipeSchema = z.object({
