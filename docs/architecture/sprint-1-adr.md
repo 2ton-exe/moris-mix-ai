@@ -41,7 +41,7 @@ The demo recipe's full response schema, error table, CORS details, and fixture a
 - If there is no usable session, protected navigation and requests stop in the shared auth flow. A rejected or expired token follows that flow; an authenticated permission denial remains an access error and does not by itself sign the user out.
 - Protected Edge Functions authenticate through the shared server helper, derive the owner from the verified user context, and use a user-scoped Supabase client so PostgreSQL RLS remains in force. Client-supplied owner IDs are never trusted, and user-owned operations do not use a service-role client.
 - Recipe CRUD stays behind the authenticated REST API. The public demo remains anonymous and does not receive an Authorization header.
-- The authenticated critical browser journey should use an isolated local Supabase stack with real local Auth, Edge Functions, and PostgreSQL/RLS. Test setup uses a dedicated local account and unique data, does not reset a developer's database, and does not depend on production credentials or Gemini.
+- The authenticated critical browser journey should use isolated Supabase test resources. Local Playwright E2E runs use the dedicated stack's native runtime on supported hosts, so they do not require Docker. Hosted Auth/RLS integration runs use the dedicated non-production project, dedicated synthetic accounts, unique test data, an explicitly configured and verified project reference, and cleanup safeguards. These checks do not use production credentials or data, reset a developer's database, or invoke Gemini.
 
 The reusable authentication contract and protected session endpoint are documented in [`docs/api/auth-session.md`](../api/auth-session.md).
 
@@ -55,7 +55,8 @@ The reusable authentication contract and protected session endpoint are document
 ## Private recipe images
 
 - Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived, object-specific presigned `PUT`; the browser uploads bytes directly to R2 without receiving storage credentials.
-- Follow the image contract's 10-minute URL lifetime, 10 MiB size limit, and JPEG/PNG/WebP allowlist. Before attaching an image, the backend verifies the stored object's actual type and size and checks recipe ownership again.
+- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. Because `byte_size` is a client declaration and does not cap R2 ingress, enforce the 10 MiB cap before R2 accepts the `PUT` body or apply the contract's agreed quota or rate-limit mitigation with reliable cleanup of oversized or rejected staging objects.
+- Before attachment, verify the R2 object's stored content-type metadata and actual byte size against the upload intent and allowed limits, then recheck recipe ownership. Metadata alone does not validate image bytes; a trusted processing or rendering boundary must decode or normalize them.
 - Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged. After replacement commits, delete only the previous final key recorded by that transaction; after recipe deletion commits, delete only the current final key captured by that transaction. Cleanup of expired staging objects and orphan final keys follows the [image contract](../api/recipe-images.md).
 
 ## Folder and package conventions
