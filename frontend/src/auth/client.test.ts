@@ -48,6 +48,16 @@ it('removes unbound URL credentials before SDK construction on any route', async
   expect(window.history.state).toEqual({ state: 'preserve' })
 })
 
+it('preserves unrelated callback fragments while removing callback parameters', async () => {
+  window.history.replaceState({ state: 'preserve' }, '', '/auth/callback?lang=en&code=unit-test-code#section')
+  const { clearAuthCallbackUrl } = await import('./client')
+
+  clearAuthCallbackUrl()
+
+  expect(window.location.pathname + window.location.search + window.location.hash).toBe('/auth/callback?lang=en#section')
+  expect(window.history.state).toEqual({ state: 'preserve' })
+})
+
 it('falls back to the supported legacy public anon key', async () => {
   vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', '')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'legacy-public-test-key')
@@ -85,6 +95,27 @@ it('bounds callback processing independently and never promotes its late success
   await Promise.resolve()
   expect(await getVerificationCallbackResult()).toBe(false)
   expect(sdk.createClient).toHaveBeenCalledOnce()
+})
+
+it('does not apply an expired callback deadline to later PKCE requests', async () => {
+  vi.useFakeTimers()
+  sdk.auth.initialize.mockResolvedValue({ error: null })
+  sdk.auth.exchangeCodeForSession.mockReturnValue(new Promise(() => {}))
+  window.history.replaceState(null, '', '/auth/callback?code=unit-test-code')
+  const { getVerificationCallbackResult } = await import('./client')
+  const result = getVerificationCallbackResult()
+
+  await vi.advanceTimersByTimeAsync(15_000)
+  expect(await result).toBe(false)
+
+  const clientOptions = sdk.createClient.mock.calls[0]?.[2] as { global?: { fetch?: typeof fetch } } | undefined
+  const fetchWithGuard = clientOptions?.global?.fetch
+  const response = Response.json({ ok: true })
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response)
+  vi.stubGlobal('fetch', fetchImpl)
+
+  await expect(fetchWithGuard?.('https://auth.example.test/auth/v1/token?grant_type=pkce')).resolves.toBe(response)
+  expect(fetchImpl).toHaveBeenCalledOnce()
 })
 
 it('does not start a callback exchange when initialization finishes after the deadline', async () => {

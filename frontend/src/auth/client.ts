@@ -17,8 +17,14 @@ const implicitSessionParams = ['access_token', 'refresh_token', 'provider_token'
 export function clearAuthCallbackUrl() {
   const url = new URL(window.location.href)
   if (url.pathname !== '/auth/callback') return
-  for (const key of callbackParams) url.searchParams.delete(key)
-  window.history.replaceState(window.history.state, '', url.pathname + url.search)
+  const hash = new URLSearchParams(url.hash.slice(1))
+  const hasHashCredentials = callbackParams.some((key) => hash.has(key))
+  for (const key of callbackParams) {
+    url.searchParams.delete(key)
+    hash.delete(key)
+  }
+  const fragment = hasHashCredentials ? (hash.size ? `#${hash}` : '') : url.hash
+  window.history.replaceState(window.history.state, '', url.pathname + url.search + fragment)
 }
 
 /** Strips implicit session credentials before the SDK can see them on any route. */
@@ -110,6 +116,7 @@ export function getVerificationCallbackResult() {
   verificationResult = Promise.race([initialization, deadline]).finally(() => {
     window.clearTimeout(timer)
     verificationFinished = true
+    if (verificationAttempt === attempt) verificationAttempt = undefined
     clearAuthCallbackUrl()
   })
   return verificationResult
