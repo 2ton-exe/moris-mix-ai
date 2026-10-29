@@ -410,8 +410,8 @@ observed gate names for:
    checks and delivery behavior remain unchanged.
 
 Record configured, locally tested, GitHub-executed, and real-PR-runtime-verified
-states separately. At that stage, #86 required collected and reviewed lifecycle
-evidence before closure; implementation alone was insufficient. That later
+states separately. At that stage, #86 required lifecycle evidence to be collected
+and reviewed before closure; implementation alone was insufficient. That later
 evidence is now recorded and the issue is completed/closed.
 
 GitHub references: [event semantics and privileged-event boundaries](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
