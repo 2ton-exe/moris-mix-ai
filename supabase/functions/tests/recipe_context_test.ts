@@ -687,6 +687,49 @@ Deno.test("retrieveCandidateRecipes rejects malformed/null responses, probe erro
   }
 });
 
+Deno.test("buildChefRecipeContext accepts input size limits and preserves preferences through ranking and prompt formatting", async () => {
+  const pantryItems = Array.from({ length: 100 }, (_, index) =>
+    ` Ingredient ${index} `.padEnd(100, " ")
+  );
+  const preferences = ` ${"p".repeat(998)} `;
+  const mock = createRecordingSupabaseMock({
+    primaryResponse: {
+      data: [createMockRecipe({ ingredients: [mockIng("ingredient 0")] })],
+      error: null,
+    },
+  });
+
+  const result = await buildChefRecipeContext(createMockAuth(mock.client), {
+    pantryItems,
+    preferences,
+  });
+
+  assertEquals(result.status, "MATCHED");
+  assertEquals(result.pantryItems, pantryItems.map((_, index) => `ingredient ${index}`));
+  assertEquals(result.preferences, preferences);
+  assertEquals(mock.calls.length, 1);
+  const prompt = formatChefRecipeContextForPrompt(result);
+  assertEquals(prompt.includes(`Available pantry ingredients: ${result.pantryItems.join(", ")}`), true);
+  assertEquals(prompt.includes(`User preferences: ${preferences.trim()}`), true);
+});
+
+Deno.test("buildChefRecipeContext rejects oversized or unknown input before recipe retrieval", async () => {
+  const mock = createRecordingSupabaseMock({ primaryResponse: { data: [], error: null } });
+  const auth = createMockAuth(mock.client);
+
+  for (const input of [
+    { pantryItems: Array.from({ length: 101 }, () => "garlic") },
+    { pantryItems: ["g".repeat(101)] },
+    { pantryItems: [" ".repeat(101)] },
+    { pantryItems: [], preferences: "p".repeat(1001) },
+    { pantryItems: [], unexpected: true },
+  ]) {
+    const error = await assertRejects(() => buildChefRecipeContext(auth, input), Error);
+    assertEquals(error.name, "ZodError");
+    assertEquals(mock.calls, []);
+  }
+});
+
 Deno.test("buildChefRecipeContext enforces strict cold-start precedence, preserves preferences, and rejects corrupt candidates in cold-start paths", async () => {
   const makeAuthWithRows = (rows: unknown[]) =>
     createMockAuth(

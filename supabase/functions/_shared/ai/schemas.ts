@@ -201,8 +201,8 @@ export const ChefMaxCandidatesSchema = z
   .refine(Number.isFinite, { message: "maxCandidates must be a finite integer between 1 and 1000." });
 
 export const ChefRecipeContextInputSchema = z.object({
-  pantryItems: z.array(z.string()),
-  preferences: z.string().optional(),
+  pantryItems: z.array(z.string().max(100)).max(100),
+  preferences: z.string().max(1000).optional(),
 }).strict();
 
 export const ChefRecipeContextOptionsSchema = z.object({
