@@ -56,7 +56,7 @@ The reusable authentication contract and protected session endpoint are document
 
 - Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived, object-specific presigned `PUT`; the browser uploads bytes directly to R2 without receiving storage credentials.
 - Follow the image contract's 10-minute URL lifetime, 10 MiB size limit, and JPEG/PNG/WebP allowlist. Before attaching an image, the backend verifies the stored object's actual type and size and checks recipe ownership again.
-- Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged; replace or delete stored objects only after the corresponding recipe operation succeeds.
+- Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged. After replacement commits, delete only the previous final key recorded by that transaction; after recipe deletion commits, delete only the current final key captured by that transaction. Cleanup of expired staging objects and orphan final keys follows the [image contract](../api/recipe-images.md).
 
 ## Folder and package conventions
 
