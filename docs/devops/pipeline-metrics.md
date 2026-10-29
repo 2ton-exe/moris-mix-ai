@@ -350,7 +350,7 @@ The [declared hypothesis](https://github.com/2ton-exe/moris-mix-ai/issues/62#iss
 | Chromium install | Approximately 19s in #263 only; no matched five-run baseline | 12s, 13s, 15s, 12s, 19s |
 | Reliability and scope | Small observed baseline | 5/5 E2E attempts passed; same experiment SHA; 2 tests, 1 worker; production deployment skipped |
 
-**Conclusion: Improved — modest measured reduction in the sampled Playwright E2E job duration.** The sampled mean is approximately 5.2s lower (86.8s minus approximately 92s). This does not establish that the entire pipeline or merge-to-live is 5.2s faster. Three approximate baseline observations, visible runner/network variance and an unmatched installation-step baseline limit attribution and generalization.
+**Conclusion: Improved — modest measured reduction in the sampled Playwright E2E job duration.** The sampled mean is approximately 5.2s lower (approximately 92s baseline minus 86.8s after). This does not establish that the entire pipeline or merge-to-live is 5.2s faster. Three approximate baseline observations, visible runner/network variance and an unmatched installation-step baseline limit attribution and generalization.
 
 Attempt 1 is canonically **90s**, confirmed by independently verified GitHub job timestamps: `2026-10-29T12:00:36Z` to `2026-10-29T12:02:06Z`. Its Chromium installation took exactly **12s**, from `2026-10-29T12:00:46Z` to `2026-10-29T12:00:58Z`. An earlier live-monitoring estimate was superseded by these exact timestamps; it is not a competing measurement. The [consolidated sample](https://github.com/2ton-exe/moris-mix-ai/issues/62#issuecomment-6496396449) remains unchanged.
 
