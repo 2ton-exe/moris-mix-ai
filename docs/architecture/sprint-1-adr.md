@@ -1,28 +1,29 @@
-# Sprint 1 Architecture Decision Record
+# Sprint 1 Architecture Decision Record — Sprints 1–3
 
 **Status:** Draft for team review
 
-**Scope:** Target architecture and development conventions for the Sprint 1 walking skeleton.
+**Scope:** Target application architecture and development conventions established in Sprint 1 and extended for Sprints 2 and 3. Sprint-by-sprint progress and acceptance evidence belong in the sprint logs.
 
-The Sprint 1 application path is a React frontend calling one public demo endpoint that reads non-sensitive seeded data from PostgreSQL.
+The target architecture uses a React frontend and Supabase Edge Functions as the boundary for application data. The public demo remains available without sign-in; recipe, AI, and image operations use authenticated server-side handlers.
 
 ## Target architecture
 
 ```text
 Browser (React/Vite/TypeScript app on Cloudflare Workers)
-└── GET /functions/v1/demo-recipe (public JSON endpoint)
-    └── Supabase Edge Function
-        ├── Validate the request and enforce the public-demo access policy
-        ├── Query only approved, non-sensitive seeded data in PostgreSQL
-        └── Return the response defined by the FS-01 contract
-
-Backend-only Gemini connectivity check
-└── Supabase Edge Function → AIProvider → Gemini
+├── GET /functions/v1/demo-recipe (public JSON endpoint)
+│   └── Supabase Edge Function → approved public recipe in PostgreSQL
+├── Authenticated REST requests (recipes, AI, and image metadata)
+│   └── Supabase Edge Function
+│       ├── Verify the Bearer token with Supabase Auth
+│       ├── Use a user-scoped Supabase client → PostgreSQL with RLS
+│       ├── Call Gemini for extraction and Chef generation
+│       └── Authorize and verify private R2 image operations
+└── Image bytes → private R2 through a short-lived, backend-signed PUT URL
 ```
 
-The browser may use Supabase Auth and public client configuration. The demo endpoint does not require a signed-in user. Browser code does not query application tables or call Gemini directly. Service-role credentials and Gemini keys stay on the server. The Gemini check is a controlled backend call and does not run in every CI build.
+The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 signing credentials stay on the server.
 
-Version-controlled Supabase migrations define the Sprint 1 recipe and lineage schema, indexes, and RLS. Keep the public demo seed separate and non-sensitive; the endpoint may return only records approved for public demonstration.
+Version-controlled Supabase migrations define the recipe, lineage, and AI quota schema, indexes, and RLS. Keep the public demo seed separate and non-sensitive; the endpoint may return only records approved for public demonstration.
 
 ## API contract and communication
 
@@ -33,6 +34,30 @@ Use JSON for request and response bodies. Return errors with a stable `error.cod
 The frontend handles pending requests, successful responses, non-2xx responses, network failures, and invalid JSON. It shows a user-safe, retryable error rather than raw backend details. Handle `OPTIONS` preflight for the configured frontend origin and allow only the methods and headers the endpoint needs.
 
 The demo recipe's full response schema, error table, CORS details, and fixture are maintained in the [FS-01 contract pull request](https://github.com/2ton-exe/moris-mix-ai/pull/30); this ADR does not duplicate that payload schema.
+
+## Authenticated application boundary
+
+- Supabase Auth owns session restoration, refresh, and sign-out. For each protected API request, the frontend reads the current session token and sends it as a Bearer token; it does not create a second auth state or its own refresh mechanism.
+- If there is no usable session, protected navigation and requests stop in the shared auth flow. A rejected or expired token follows that flow; an authenticated permission denial remains an access error and does not by itself sign the user out.
+- Protected Edge Functions authenticate through the shared server helper, derive the owner from the verified user context, and use a user-scoped Supabase client so PostgreSQL RLS remains in force. Client-supplied owner IDs are never trusted, and user-owned operations do not use a service-role client.
+- Recipe CRUD stays behind the authenticated REST API. The public demo remains anonymous and does not receive an Authorization header.
+- The authenticated critical browser journey should use isolated Supabase test resources. Local Playwright E2E runs use the dedicated stack's native runtime on supported hosts, so they do not require Docker. Hosted Auth/RLS integration runs use the dedicated non-production project, dedicated synthetic accounts, unique test data, an explicitly configured and verified project reference, and cleanup safeguards. These checks do not use production credentials or data, reset a developer's database, or invoke Gemini.
+
+The reusable authentication contract and protected session endpoint are documented in [`docs/api/auth-session.md`](../api/auth-session.md).
+
+## AI workflows and lineage
+
+- Quick AI Entry and Chef are authenticated Edge Function workflows. The backend bounds and validates input, calls Gemini through the server-side AI provider, validates model output against shared schemas, and returns safe errors. Prompts are versioned; automated checks use injected or mocked providers rather than paid live calls.
+- Extraction returns an editable preview only. Creating a recipe uses the existing authenticated recipe API after explicit user confirmation; generation and preview edits do not write recipe or lineage rows.
+- Chef retrieval is limited to the signed-in user's eligible saved recipes and ranks candidates deterministically by pantry overlap, rating, and recency. Gemini receives that candidate context. The backend rejects proposed parent IDs outside that context, and the lineage save boundary re-checks that the authenticated user owns the child and every parent.
+- AI usage quotas are per user and mutated only by backend operations against `ai_usage_daily`; browser clients have no quota-write access. Quota enforcement must remain safe under concurrent requests.
+
+## Private recipe images
+
+- Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived, object-specific presigned `PUT`; the browser uploads bytes directly to R2 without receiving storage credentials.
+- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. Because `byte_size` is a client declaration and does not cap R2 ingress, enforce the 10 MiB cap before R2 accepts the `PUT` body or apply the contract's agreed quota or rate-limit mitigation with reliable cleanup of oversized or rejected staging objects.
+- Before attachment, verify the R2 object's stored content-type metadata and actual byte size against the upload intent and allowed limits, then recheck recipe ownership. Metadata alone does not validate image bytes; a trusted processing or rendering boundary must decode or normalize them.
+- Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged. After replacement commits, delete only the previous final key recorded by that transaction; after recipe deletion commits, delete only the current final key captured by that transaction. Cleanup of expired staging objects and orphan final keys follows the [image contract](../api/recipe-images.md).
 
 ## Folder and package conventions
 

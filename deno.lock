@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:@google/generative-ai@0.21.0": "0.21.0",
     "npm:@supabase/supabase-js@2.39.8": "2.39.8",
     "npm:dotenv@^18.0.7": "18.0.8",
     "npm:pg@^8.23.1": "8.23.1",
@@ -20,6 +21,9 @@
     }
   },
   "npm": {
+    "@google/generative-ai@0.21.0": {
+      "integrity": "sha512-7XhUbtnlkSEZK15kN3t+tzIMxsbKm/dSkKBFalj+20NvPKe1kBY7mR2P7vuijEn+f06z5+A8bVGKO0v39cr6Wg=="
+    },
     "@supabase/functions-js@2.1.5": {
       "integrity": "sha512-BNzC5XhCzzCaggJ8s53DP+WeHHGT/NfTsx2wUSSGKR2/ikLFQTBCDzMvGz/PxYMqRko/LwncQtKXGOYp1PkPaw==",
       "dependencies": [
