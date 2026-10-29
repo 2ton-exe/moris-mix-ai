@@ -65,6 +65,17 @@ function readProviderRetryDelayMs(error: unknown): number | undefined {
   return delayMs;
 }
 
+/**
+ * Converts a provider cooldown to the whole seconds a client `Retry-After`
+ * needs. Clamped to [1, 3600] so an absent or overflowing delay can never emit
+ * a `Retry-After: 0`/`Infinity` header.
+ */
+function retryAfterSecondsFromMs(delayMs: number | undefined): number | undefined {
+  if (delayMs === undefined || Number.isNaN(delayMs)) return undefined;
+  if (!Number.isFinite(delayMs)) return 3600;
+  return Math.min(3600, Math.max(1, Math.ceil(delayMs / 1000)));
+}
+
 /** Stable failure codes that the AI-05 endpoint maps to HTTP statuses. */
 export type AIErrorCode =
   | "invalid_output"
@@ -86,12 +97,19 @@ export class AIError extends Error {
   readonly retryable: boolean;
   /** Metadata only, for example the schema paths that failed. Never values. */
   readonly detail?: string;
+  /**
+   * Provider-requested cooldown in whole seconds, when the provider told us one
+   * (a `429` with `google.rpc.RetryInfo`). The AI-05 endpoint forwards this as
+   * the client `Retry-After`. Undefined when the provider gave no usable delay.
+   */
+  readonly retryAfterSeconds?: number;
 
   constructor(
     code: AIErrorCode,
     operation: "extract" | "generate",
     message: string,
     detail?: string,
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "AIError";
@@ -104,6 +122,7 @@ export class AIError extends Error {
       code === "provider_unavailable" ||
       code === "rate_limited";
     this.detail = detail;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -335,6 +354,10 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
       "rate_limited",
       operation,
       "Gemini rate limit or free-tier quota reached.",
+      undefined,
+      // Forward the provider's own cooldown when it supplied one; the endpoint
+      // turns this into a client `Retry-After` so the UI waits the right amount.
+      retryAfterSecondsFromMs(readProviderRetryDelayMs(error)),
     );
   }
 

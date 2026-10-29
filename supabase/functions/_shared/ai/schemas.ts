@@ -66,6 +66,31 @@ export const GeneratedRecipeSchema = z.object({
   parentRecipeIds: z.array(z.string().uuid())
 });
 
+/**
+ * AI-06: the brain-dump input cap. Extraction rejects anything longer before
+ * the provider call, so a single request can never fan out into an unbounded
+ * (billable) prompt.
+ */
+export const MAX_EXTRACTION_INPUT_CHARS = 10_000;
+
+/**
+ * Request contract for AI-05 (`POST /extract-recipe`).
+ *
+ * The schema deliberately checks shape and emptiness but not size: an oversized
+ * but well-formed body must fail as `413 INPUT_TOO_LARGE`, not as a generic
+ * `400 VALIDATION_ERROR`. The endpoint owns that size check.
+ */
+export const ExtractRecipeRequestSchema = z.object({
+  notes: z.string().trim().min(1)
+});
+
+export const ExtractRecipeResponseSchema = z.object({
+  recipe: ExtractedRecipeSchema
+});
+
+export type ExtractRecipeRequest = z.infer<typeof ExtractRecipeRequestSchema>;
+export type ExtractRecipeResponse = z.infer<typeof ExtractRecipeResponseSchema>;
+
 // --- DEMO SCHEMAS (RESTORED FOR SPRINT 1 CI) ---
 export const DemoRecipeSchema = z.object({
   id: z.string().uuid(),
