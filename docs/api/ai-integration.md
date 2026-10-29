@@ -105,14 +105,14 @@ default with atomic accounting without changing the handler.
 read-only preview), so the default gate can only observe usage already recorded by a
 writer. It does not advance the counter or meter extraction requests on its own.
 
-The handler requires the operator-controlled `AI_EXTRACT_ENABLED` opt-in. Unset, blank,
-falsy and unrecognized values return `503 AI_DISABLED` after authentication and before
-reading the body, checking quota or calling the provider. This changes the previous
-default-enabled behavior. Keep production disabled until BE-12 supplies atomic quota
-checking and consumption; use the opt-in only for controlled testing in the meantime.
+Extraction is therefore **off by default**: the handler requires the operator-controlled
+`AI_EXTRACT_ENABLED` opt-in. Unset, blank, falsy and unrecognized values return
+`503 AI_DISABLED` after authentication and before reading the body, checking quota or
+calling the provider. Enable it per environment — for local development and controlled
+demo/testing environments only — until BE-12 supplies atomic quota checking and
+consumption. Production keeps the default until that lands.
 
-Set `AI_EXTRACT_ENABLED=true` in the function environment for a controlled test.
-`AI_EXTRACT_DISABLED` (truthy) overrides that opt-in and returns `503 AI_DISABLED`.
+`AI_EXTRACT_DISABLED` (truthy) overrides the opt-in and returns `503 AI_DISABLED`.
 Apply environment changes and restart/redeploy the function for them to take effect.
 Neither switch is read from the client request. A quota read failure still returns
 `503 QUOTA_UNAVAILABLE` when extraction is enabled.
@@ -138,6 +138,16 @@ extraction opt-in described above. Clients cannot select the environment or swit
 Truthy switch values are `1`, `true`, `yes`, `on` (case-insensitive).
 The operator kill switch `AI_EXTRACT_DISABLED` also overrides failure drills.
 
+A complete drill setup for a non-production environment (all four values together, or
+the drill silently does nothing):
+
+```sh
+AI_EXTRACT_ENABLED=true
+AI_ENVIRONMENT=development   # or test
+AI_ALLOW_FAILURE_DRILLS=1
+AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
+```
+
 ## Provider details
 
 - Adapter: `GeminiAdapter` (`supabase/functions/_shared/ai/GeminiAdapter.ts`).
@@ -155,3 +165,6 @@ The operator kill switch `AI_EXTRACT_DISABLED` also overrides failure drills.
 - Never call Gemini or application tables directly; go through this endpoint.
 - Map `401` → sign-in, `429` → "try again later" (honor `Retry-After`), `4xx` → fix the
   input, `5xx`/`502`/`503`/`504` → transient "try again" with the notes preserved.
+- `503 AI_DISABLED` is an operator setting, not a transient outage: show extraction as
+  temporarily unavailable rather than auto-retrying, and do not clear the notes. Local
+  development must set `AI_EXTRACT_ENABLED=true` (see `docs/development-setup.md`).
