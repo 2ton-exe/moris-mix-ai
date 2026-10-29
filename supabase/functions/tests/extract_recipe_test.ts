@@ -178,6 +178,7 @@ function providerThrowing(error: unknown, onCall?: () => void): AIProvider {
   };
 }
 
+/** Builds a JSON request with configurable routing and method, omitting auth when the token is null. */
 function extractRequest(
   body: string,
   path = ENDPOINT_PATHS[0],

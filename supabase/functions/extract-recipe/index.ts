@@ -136,6 +136,7 @@ function errorResponse(
   return extractJsonResponse({ error: { code, message } }, { status, headers: extraHeaders });
 }
 
+/** Accepts a parsed JSON object while rejecting null, arrays and scalar values. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -232,6 +233,7 @@ function resolveProvider(deps: ExtractRecipeDeps): AIProvider {
   return deps.provider ?? simulationProvider() ?? new GeminiAdapter();
 }
 
+/** Rounds valid cooldowns up to seconds, caps them at one hour and defaults invalid values to 30. */
 function normalizeRetryAfterSeconds(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
     return DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS;
@@ -239,6 +241,7 @@ function normalizeRetryAfterSeconds(value: number | undefined): number {
   return Math.min(3600, Math.ceil(value));
 }
 
+/** Maps a typed provider failure to a safe HTTP response, adding a cooldown for rate limits. */
 function mapAiError(error: AIError): Response {
   const mapped = AI_ERROR_RESPONSES[error.code];
   const headers = mapped.retryAfter
@@ -247,6 +250,12 @@ function mapAiError(error: AIError): Response {
   return errorResponse(mapped.code, mapped.message, mapped.status, headers);
 }
 
+/**
+ * Authenticates extraction requests, checks the operator opt-in, input limits
+ * and quota, then returns a validated recipe preview without database writes.
+ * Handles routing and preflight before authentication and maps failures to
+ * stable HTTP errors without exposing provider details or submitted notes.
+ */
 export async function handler(
   req: Request,
   deps: ExtractRecipeDeps = {},

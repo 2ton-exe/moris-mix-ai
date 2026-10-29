@@ -104,6 +104,7 @@ export class AIError extends Error {
    */
   readonly retryAfterSeconds?: number;
 
+  /** Records safe failure metadata and derives retryability from the stable error code. */
   constructor(
     code: AIErrorCode,
     operation: "extract" | "generate",
