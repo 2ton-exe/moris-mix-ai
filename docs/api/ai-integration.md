@@ -76,13 +76,17 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
+| 503  | `AI_DISABLED`          | Operator kill switch (`AI_EXTRACT_DISABLED`) is on | no |
+| 503  | `AUTH_SERVICE_RATE_LIMITED` | Supabase Auth rate-limited the token check | auth service cooldown, if it sent one |
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
 
-The endpoint does **not** retry a `429`. The adapter already performed the one bounded
-retry it allows (AI-18); a `rate_limited` surfaced here means the cooldown was longer
-than the adapter's 5-second budget, so the client should back off for the full
-`Retry-After`.
+The endpoint does **not** retry a `429` itself. The adapter already performed its one
+bounded retry (AI-18). A `rate_limited` surfaced here means that single retry was either
+**exhausted** (the provider kept returning `429`) or **skipped** because the provider's
+cooldown was longer than the adapter's 5-second budget. Either way the client should back
+off for the full `Retry-After`: the provider's own cooldown when it named one, otherwise
+`30` seconds.
 
 ### Quota (AI-17)
 
@@ -97,17 +101,36 @@ Counting/consumption is owned by **BE-12** (issue #100). AI-05 exposes the bound
 an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12 replaces the
 default with atomic accounting without changing the handler.
 
+**Known limitation until BE-12 lands.** AI-05 must never write (extraction is a read-only
+preview), so the default gate can only *observe* usage that a writer has already recorded.
+It cannot advance the counter itself, which means it does not yet meter a user on its own —
+it is the integration seam, not the enforcement point. Two things cover the gap meanwhile:
+
+- The endpoint **fails closed**: if the counter read errors, it returns
+  `503 QUOTA_UNAVAILABLE` rather than handing out an unmetered provider call.
+- The operator **kill switch** `AI_EXTRACT_DISABLED` (truthy) refuses all extraction with
+  `503 AI_DISABLED` before the quota read or any provider spend, so spend/abuse can be cut
+  without a deploy. Set it (and redeploy/restart the function) if provider usage must stop
+  before BE-12 is live.
+
 ## Failure drills (demo only)
 
 Non-production failure states are opt-in environment switches on the function. They are
-never reachable from the client and never enabled in production:
+never reachable from the client and never enabled in production. A drill needs **both** the
+master switch and the specific drill, so a single stray variable cannot turn a real
+deployment into an outage:
 
-| Env var                 | Effect |
-| ----------------------- | ------ |
-| `AI_SIMULATE_OUTAGE`    | Returns `503 AI_UNAVAILABLE` as if Gemini were down |
-| `AI_SIMULATE_BAD_OUTPUT`| Returns `502 AI_OUTPUT_INVALID` as if the model misbehaved |
+| Env var                  | Role |
+| ------------------------ | ---- |
+| `AI_ALLOW_FAILURE_DRILLS`| Master switch; without it no drill fires |
+| `AI_SIMULATE_OUTAGE`     | With the master switch on, returns `503 AI_UNAVAILABLE` as if Gemini were down |
+| `AI_SIMULATE_BAD_OUTPUT` | With the master switch on, returns `502 AI_OUTPUT_INVALID` as if the model misbehaved |
 
 Truthy values are `1`, `true`, `yes`, `on` (case-insensitive).
+
+A separate, production-safe operator switch is `AI_EXTRACT_DISABLED` (truthy): it refuses
+all extraction with `503 AI_DISABLED` and is safe to set in production as a stopgap
+kill switch (see [Quota](#quota-ai-17)).
 
 ## Provider details
 

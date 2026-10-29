@@ -1,5 +1,7 @@
-import { assertEquals, assertFalse } from "jsr:@std/assert@1";
+import { assertEquals } from "jsr:@std/assert@1";
 import {
+  ALLOW_FAILURE_DRILLS_ENV,
+  EXTRACT_DISABLED_ENV,
   handler,
   MAX_REQUEST_BYTES,
   SIMULATE_BAD_OUTPUT_ENV,
@@ -49,7 +51,12 @@ function jsonHeaders(): Record<string, string> {
  * allowed to touch, and records every call so tests can prove no write happens.
  */
 function createFetchMock(
-  options: { auth?: "ok" | "unauthorized"; usageCount?: number; usageError?: boolean } = {},
+  options: {
+    auth?: "ok" | "unauthorized" | "rate_limited";
+    authRetryAfter?: string;
+    usageCount?: number;
+    usageError?: boolean;
+  } = {},
 ): { fetchImpl: typeof fetch; requests: RecordedRequest[] } {
   const requests: RecordedRequest[] = [];
 
@@ -76,6 +83,22 @@ function createFetchMock(
               msg: "invalid JWT: signature is invalid or token is expired",
             }),
             { status: 401, headers: jsonHeaders() },
+          ),
+        );
+      }
+      if (options.auth === "rate_limited") {
+        const headers = jsonHeaders();
+        if (options.authRetryAfter) {
+          headers["Retry-After"] = options.authRetryAfter;
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              code: 429,
+              error_code: "over_request_rate_limit",
+              msg: "Too many requests. Please try again later.",
+            }),
+            { status: 429, headers },
           ),
         );
       }
@@ -150,6 +173,18 @@ function extractRequest(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
   return new Request(`http://localhost${path}`, { method, headers, body });
+}
+
+/**
+ * Builds a well-formed request body of an exact byte length. The padding lives
+ * in an ignored `junk` field so the `notes` contract stays valid; `a` is one
+ * byte, making the arithmetic exact.
+ */
+function bodyOfExactByteLength(targetBytes: number): string {
+  const prefix = '{"notes":"x","junk":"';
+  const suffix = '"}';
+  const overhead = prefix.length + suffix.length;
+  return prefix + "a".repeat(Math.max(0, targetBytes - overhead)) + suffix;
 }
 
 function assertNoDatabaseWrites(requests: RecordedRequest[]): void {
@@ -310,6 +345,82 @@ Deno.test("Unauthenticated requests return 401 UNAUTHORIZED before quota or prov
   assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
 });
 
+Deno.test("An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before quota or provider", async () => {
+  const { fetchImpl, requests } = createFetchMock({ auth: "rate_limited", authRetryAfter: "17" });
+  let providerCalled = false;
+
+  const res = await handler(
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: providerThrowing(new Error("must not run"), () => {
+        providerCalled = true;
+      }),
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals(res.headers.get("retry-after"), "17");
+  assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+  assertEquals(res.headers.get("cache-control"), "no-store");
+  const body = await res.json();
+  assertEquals(body.error?.code, "AUTH_SERVICE_RATE_LIMITED");
+
+  assertEquals(providerCalled, false);
+  assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
+});
+
+Deno.test("The operator kill switch refuses extraction before the quota read or provider, and is off unless truthy", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  let providerCalled = false;
+  const previous = Deno.env.get(EXTRACT_DISABLED_ENV);
+
+  try {
+    Deno.env.set(EXTRACT_DISABLED_ENV, "1");
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerThrowing(new Error("must not run"), () => {
+          providerCalled = true;
+        }),
+      },
+    );
+
+    assertEquals(res.status, 503);
+    const body = await res.json();
+    assertEquals(body.error?.code, "AI_DISABLED");
+    assertEquals(providerCalled, false);
+    // Refused before auth's downstream work: no usage read, no writes.
+    assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
+  } finally {
+    if (previous === undefined) Deno.env.delete(EXTRACT_DISABLED_ENV);
+    else Deno.env.set(EXTRACT_DISABLED_ENV, previous);
+  }
+
+  // A falsy value leaves extraction enabled.
+  Deno.env.set(EXTRACT_DISABLED_ENV, "0");
+  try {
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+      },
+    );
+    assertEquals(res.status, 200);
+  } finally {
+    if (previous === undefined) Deno.env.delete(EXTRACT_DISABLED_ENV);
+    else Deno.env.set(EXTRACT_DISABLED_ENV, previous);
+  }
+});
+
 Deno.test("Malformed JSON bodies return 400 INVALID_JSON without calling the provider", async () => {
   const { fetchImpl, requests } = createFetchMock();
   let providerCalled = false;
@@ -432,6 +543,61 @@ Deno.test("Oversized notes and oversized bodies return 413 INPUT_TOO_LARGE befor
   assertEquals(atCap.status, 200);
 
   assertEquals(providerCalled, false);
+  assertNoDatabaseWrites(requests);
+});
+
+Deno.test("The byte budget is enforced on the stream, not on string length, and cancels an over-limit body", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+
+  // Exactly at the byte cap: allowed. +1 byte: rejected. Both bodies contain no
+  // multibyte text, so this isolates the boundary arithmetic.
+  const atCap = await handler(extractRequest(bodyOfExactByteLength(MAX_REQUEST_BYTES)), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+  });
+  assertEquals(atCap.status, 200);
+
+  const overCap = await handler(extractRequest(bodyOfExactByteLength(MAX_REQUEST_BYTES + 1)), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    provider: providerThrowing(new Error("must not run")),
+  });
+  assertEquals(overCap.status, 413);
+  assertEquals((await overCap.json()).error?.code, "INPUT_TOO_LARGE");
+
+  // A multibyte body whose *character* count is under the byte cap but whose
+  // byte length is far over it must still be rejected. 40,000 emoji = 160,000
+  // bytes (4 each) but only 80,000 UTF-16 code units, and it lives in the
+  // ignored `junk` field so the notes contract itself stays valid.
+  const encoder = new TextEncoder();
+  const multibyte = JSON.stringify({ notes: NOTES, junk: "\u{1F600}".repeat(40_000) });
+  assertEquals(multibyte.length < MAX_REQUEST_BYTES, true);
+  assertEquals(encoder.encode(multibyte).byteLength > MAX_REQUEST_BYTES, true);
+  const multibyteOver = await handler(extractRequest(multibyte), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    provider: providerThrowing(new Error("must not run")),
+  });
+  assertEquals(multibyteOver.status, 413);
+  assertEquals((await multibyteOver.json()).error?.code, "INPUT_TOO_LARGE");
+
+  // ...but a multibyte body under the byte cap is decoded (not truncated) and succeeds.
+  const multibyteOkNotes = "\u00e9".repeat(1_000);
+  const multibyteOk = await handler(
+    extractRequest(JSON.stringify({ notes: multibyteOkNotes })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+    },
+  );
+  assertEquals(multibyteOk.status, 200);
+
   assertNoDatabaseWrites(requests);
 });
 
@@ -733,61 +899,77 @@ Deno.test("Malformed output from a provider that forgot to validate is rejected 
   assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID");
 });
 
-Deno.test("Simulation switches are env-gated, never client-triggerable, and exercise the real error contract", async () => {
+Deno.test("Simulation drills need the master switch plus the drill switch, and exercise the real error contract", async () => {
   const { fetchImpl } = createFetchMock();
+  const passthrough = {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+  };
 
-  // Baseline: with no drill set, the injected provider is used.
-  const baseline = await handler(
-    extractRequest(JSON.stringify({ notes: NOTES })),
-    {
-      supabaseUrl: TEST_SUPABASE_URL,
-      supabaseAnonKey: TEST_ANON_KEY,
-      fetch: fetchImpl,
-      provider: providerReturning(MOCK_EXTRACTED_RECIPE),
-    },
-  );
-  assertEquals(baseline.status, 200);
-
-  const drills: Array<{ env: string; status: number; code: string }> = [
-    { env: SIMULATE_OUTAGE_ENV, status: 503, code: "AI_UNAVAILABLE" },
-    { env: SIMULATE_BAD_OUTPUT_ENV, status: 502, code: "AI_OUTPUT_INVALID" },
+  // GEMINI_API_KEY is tracked so that "no drill fired" is deterministic: without
+  // a key the real adapter throws, so the handler answers 500 rather than making
+  // a live call.
+  const trackedEnvs = [
+    ALLOW_FAILURE_DRILLS_ENV,
+    SIMULATE_OUTAGE_ENV,
+    SIMULATE_BAD_OUTPUT_ENV,
+    "GEMINI_API_KEY",
   ];
+  const previousEnv = new Map(trackedEnvs.map((name) => [name, Deno.env.get(name)]));
 
-  for (const drill of drills) {
-    const previous = Deno.env.get(drill.env);
-    try {
-      Deno.env.set(drill.env, "1");
-      // No injected provider: the drill stands in for the real adapter, so no
-      // GEMINI_API_KEY is required.
-      const res = await handler(
-        extractRequest(JSON.stringify({ notes: NOTES })),
-        { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: fetchImpl },
-      );
-      assertEquals(res.status, drill.status);
-      assertEquals((await res.json()).error?.code, drill.code);
-    } finally {
-      if (previous === undefined) Deno.env.delete(drill.env);
-      else Deno.env.set(drill.env, previous);
-    }
-  }
-
-  // A falsy value does not enable a drill.
-  const offValue = Deno.env.get(SIMULATE_OUTAGE_ENV);
   try {
-    Deno.env.set(SIMULATE_OUTAGE_ENV, "0");
-    const res = await handler(
+    for (const name of trackedEnvs) Deno.env.delete(name);
+
+    // Baseline: no drill set, the injected provider is used.
+    const baseline = await handler(
       extractRequest(JSON.stringify({ notes: NOTES })),
-      {
-        supabaseUrl: TEST_SUPABASE_URL,
-        supabaseAnonKey: TEST_ANON_KEY,
-        fetch: fetchImpl,
-        provider: providerReturning(MOCK_EXTRACTED_RECIPE),
-      },
+      { ...passthrough, provider: providerReturning(MOCK_EXTRACTED_RECIPE) },
     );
-    assertEquals(res.status, 200);
-    assertFalse(Deno.env.get(SIMULATE_OUTAGE_ENV) === "1");
+    assertEquals(baseline.status, 200);
+
+    const drills: Array<{ env: string; status: number; code: string }> = [
+      { env: SIMULATE_OUTAGE_ENV, status: 503, code: "AI_UNAVAILABLE" },
+      { env: SIMULATE_BAD_OUTPUT_ENV, status: 502, code: "AI_OUTPUT_INVALID" },
+    ];
+
+    for (const drill of drills) {
+      // Drill switch alone must not fire: no master switch means the real
+      // adapter is used (which here fails as a plain 500, never the drill code).
+      Deno.env.set(drill.env, "1");
+      const withoutMaster = await handler(
+        extractRequest(JSON.stringify({ notes: NOTES })),
+        passthrough,
+      );
+      assertEquals(withoutMaster.status, 500);
+      assertEquals((await withoutMaster.json()).error?.code, "INTERNAL_ERROR");
+
+      // Adding the master switch activates the drill; still no GEMINI_API_KEY needed.
+      Deno.env.set(ALLOW_FAILURE_DRILLS_ENV, "1");
+      const withMaster = await handler(
+        extractRequest(JSON.stringify({ notes: NOTES })),
+        passthrough,
+      );
+      assertEquals(withMaster.status, drill.status);
+      assertEquals((await withMaster.json()).error?.code, drill.code);
+
+      Deno.env.delete(ALLOW_FAILURE_DRILLS_ENV);
+      Deno.env.delete(drill.env);
+    }
+
+    // A falsy drill value stays off even with the master switch on.
+    Deno.env.set(ALLOW_FAILURE_DRILLS_ENV, "1");
+    Deno.env.set(SIMULATE_OUTAGE_ENV, "0");
+    const offDrill = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      passthrough,
+    );
+    assertEquals(offDrill.status, 500);
+    assertEquals((await offDrill.json()).error?.code, "INTERNAL_ERROR");
   } finally {
-    if (offValue === undefined) Deno.env.delete(SIMULATE_OUTAGE_ENV);
-    else Deno.env.set(SIMULATE_OUTAGE_ENV, offValue);
+    for (const [name, value] of previousEnv) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
   }
 });

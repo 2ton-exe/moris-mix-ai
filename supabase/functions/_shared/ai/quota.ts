@@ -8,6 +8,13 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
  * atomic backend operation, which swaps out the injected `QuotaCheck`. Until
  * then this read-only gate still enforces any usage that has been recorded and
  * gives the endpoint a single, testable place to say "allowed / exceeded".
+ *
+ * Known limitation (until BE-12 lands): because AI-05 cannot write, the default
+ * gate can only *observe* usage that a writer has recorded — it does not itself
+ * advance the counter, so it cannot yet meter a user by itself. It is the
+ * integration seam, not the enforcement point. The operator kill switch
+ * (`AI_EXTRACT_DISABLED`, handled in the endpoint) is the stopgap lever if
+ * spend or abuse needs to be cut immediately.
  */
 export const DEFAULT_AI_DAILY_LIMIT = 20;
 export const AI_DAILY_LIMIT_ENV = "AI_DAILY_LIMIT";

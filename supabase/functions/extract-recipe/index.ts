@@ -20,9 +20,23 @@ const ALLOWED_METHODS = "POST, OPTIONS";
 /** Reject bodies larger than this before parsing. 128 KiB comfortably fits the 10k-character cap in any encoding. */
 export const MAX_REQUEST_BYTES = 128 * 1024;
 
-/** Non-production failure drills. Never set in production; never client-triggerable. */
+/**
+ * Non-production failure drills. Never set in production; never client-triggerable.
+ *
+ * Drills need two switches: the master `AI_ALLOW_FAILURE_DRILLS` *and* the
+ * specific drill. A single stray env var (a copy-pasted `.env`, a shared
+ * platform secret) can therefore never turn a real deployment into an outage.
+ */
+export const ALLOW_FAILURE_DRILLS_ENV = "AI_ALLOW_FAILURE_DRILLS";
 export const SIMULATE_OUTAGE_ENV = "AI_SIMULATE_OUTAGE";
 export const SIMULATE_BAD_OUTPUT_ENV = "AI_SIMULATE_BAD_OUTPUT";
+
+/**
+ * Operator kill switch. When truthy, extraction is refused before the quota
+ * read or the provider call, so an operator can stop spend/abuse immediately
+ * without a deploy (see the quota note in `_shared/ai/quota.ts`).
+ */
+export const EXTRACT_DISABLED_ENV = "AI_EXTRACT_DISABLED";
 
 /** Used when the provider rate-limits us without naming a cooldown. */
 const DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS = 30;
@@ -34,8 +48,10 @@ export type ExtractRecipeErrorCode =
   | "METHOD_NOT_ALLOWED"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
+  | "AUTH_SERVICE_RATE_LIMITED"
   | "QUOTA_EXCEEDED"
   | "QUOTA_UNAVAILABLE"
+  | "AI_DISABLED"
   | "AI_OUTPUT_INVALID"
   | "AI_PROVIDER_REJECTED"
   | "AI_TIMEOUT"
@@ -129,6 +145,53 @@ function isEnvEnabled(name: string): boolean {
   return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
+/**
+ * Reads the request body as UTF-8 text while enforcing a *byte* budget.
+ *
+ * Counting bytes (not string length) closes the hole where a multibyte payload
+ * is under the character cap but far over the byte budget. The reader cancels
+ * as soon as the budget is exceeded, so an unbounded body is never buffered in
+ * full. `stream: true` keeps a multibyte character split across chunks intact.
+ */
+async function readBodyWithinByteLimit(
+  req: Request,
+  maxBytes: number,
+): Promise<{ ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }> {
+  if (!req.body) {
+    return { ok: true, text: "" };
+  }
+
+  const reader = req.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The stream may already be errored; the size verdict still stands.
+        }
+        return { ok: false, reason: "too_large" };
+      }
+
+      text += decoder.decode(value, { stream: true });
+    }
+
+    text += decoder.decode();
+    return { ok: true, text };
+  } catch {
+    return { ok: false, reason: "unreadable" };
+  }
+}
+
 function notImplemented(operation: string): Promise<never> {
   return Promise.reject(new Error(`${operation} is not implemented in the extraction endpoint.`));
 }
@@ -136,9 +199,12 @@ function notImplemented(operation: string): Promise<never> {
 /**
  * Builds a provider that fails the way the drill asks, so the demo exercises the
  * real error contract without a public "break me" endpoint or a live outage.
- * Returns null unless a simulation switch is set.
+ * Returns null unless the master switch *and* a drill switch are set.
  */
 function simulationProvider(): AIProvider | null {
+  // Double gate: without the master switch, no drill fires at all.
+  if (!isEnvEnabled(ALLOW_FAILURE_DRILLS_ENV)) return null;
+
   const outage = isEnvEnabled(SIMULATE_OUTAGE_ENV);
   const badOutput = !outage && isEnvEnabled(SIMULATE_BAD_OUTPUT_ENV);
   if (!outage && !badOutput) return null;
@@ -210,7 +276,17 @@ export async function handler(
 
     const { user, supabase } = auth.context;
 
-    // Reject an obviously oversized body before buffering it into memory.
+    // Operator kill switch: refuse before the quota read or any provider spend.
+    if (isEnvEnabled(EXTRACT_DISABLED_ENV)) {
+      return errorResponse(
+        "AI_DISABLED",
+        "AI extraction is temporarily disabled.",
+        503,
+      );
+    }
+
+    // Cheap pre-check first: reject an obviously oversized body (when the client
+    // declares a length) before reading it at all.
     const declaredLength = req.headers.get("content-length");
     if (declaredLength !== null) {
       const declaredBytes = Number(declaredLength);
@@ -223,23 +299,23 @@ export async function handler(
       }
     }
 
-    let rawBody: string;
-    try {
-      rawBody = await req.text();
-    } catch {
+    // Authoritative check: a declared length can be absent or lie, so the byte
+    // budget is enforced while streaming the body.
+    const read = await readBodyWithinByteLimit(req, MAX_REQUEST_BYTES);
+    if (!read.ok) {
+      if (read.reason === "too_large") {
+        return errorResponse(
+          "INPUT_TOO_LARGE",
+          `Request body must be at most ${MAX_REQUEST_BYTES} bytes.`,
+          413,
+        );
+      }
       return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
     }
 
+    const rawBody = read.text;
     if (!rawBody || rawBody.trim().length === 0) {
       return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
-    }
-
-    if (rawBody.length > MAX_REQUEST_BYTES) {
-      return errorResponse(
-        "INPUT_TOO_LARGE",
-        `Request body must be at most ${MAX_REQUEST_BYTES} bytes.`,
-        413,
-      );
     }
 
     let parsedBody: unknown;
