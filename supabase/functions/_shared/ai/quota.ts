@@ -12,9 +12,10 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
  * Known limitation (until BE-12 lands): because AI-05 cannot write, the default
  * gate can only *observe* usage that a writer has recorded — it does not itself
  * advance the counter, so it cannot yet meter a user by itself. It is the
- * integration seam, not the enforcement point. The operator kill switch
- * (`AI_EXTRACT_DISABLED`, handled in the endpoint) is the stopgap lever if
- * spend or abuse needs to be cut immediately.
+ * integration seam, not the enforcement point. Extraction defaults to disabled
+ * until an operator explicitly sets `AI_EXTRACT_ENABLED`; `AI_EXTRACT_DISABLED`
+ * can override that opt-in to stop spend immediately. Keep production disabled
+ * until BE-12 provides atomic accounting.
  */
 export const DEFAULT_AI_DAILY_LIMIT = 20;
 export const AI_DAILY_LIMIT_ENV = "AI_DAILY_LIMIT";

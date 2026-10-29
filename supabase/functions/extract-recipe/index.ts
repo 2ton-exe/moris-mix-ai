@@ -23,13 +23,16 @@ export const MAX_REQUEST_BYTES = 128 * 1024;
 /**
  * Non-production failure drills. Never set in production; never client-triggerable.
  *
- * Drills need two switches: the master `AI_ALLOW_FAILURE_DRILLS` *and* the
- * specific drill. A single stray env var (a copy-pasted `.env`, a shared
- * platform secret) can therefore never turn a real deployment into an outage.
+ * Only explicit development/test environments permit drills. Production, unset
+ * and unknown environments ignore all drill switches, including the master.
  */
+export const AI_ENVIRONMENT_ENV = "AI_ENVIRONMENT";
 export const ALLOW_FAILURE_DRILLS_ENV = "AI_ALLOW_FAILURE_DRILLS";
 export const SIMULATE_OUTAGE_ENV = "AI_SIMULATE_OUTAGE";
 export const SIMULATE_BAD_OUTPUT_ENV = "AI_SIMULATE_BAD_OUTPUT";
+
+/** Operator opt-in while BE-12 atomic quota accounting is pending. Defaults off. */
+export const EXTRACT_ENABLED_ENV = "AI_EXTRACT_ENABLED";
 
 /**
  * Operator kill switch. When truthy, extraction is refused before the quota
@@ -199,10 +202,11 @@ function notImplemented(operation: string): Promise<never> {
 /**
  * Builds a provider that fails the way the drill asks, so the demo exercises the
  * real error contract without a public "break me" endpoint or a live outage.
- * Returns null unless the master switch *and* a drill switch are set.
+ * Requires a development/test environment, the master switch and a drill switch.
  */
 function simulationProvider(): AIProvider | null {
-  // Double gate: without the master switch, no drill fires at all.
+  const environment = Deno.env.get(AI_ENVIRONMENT_ENV)?.trim().toLowerCase();
+  if (environment !== "development" && environment !== "test") return null;
   if (!isEnvEnabled(ALLOW_FAILURE_DRILLS_ENV)) return null;
 
   const outage = isEnvEnabled(SIMULATE_OUTAGE_ENV);
@@ -276,8 +280,9 @@ export async function handler(
 
     const { user, supabase } = auth.context;
 
-    // Operator kill switch: refuse before the quota read or any provider spend.
-    if (isEnvEnabled(EXTRACT_DISABLED_ENV)) {
+    // Keep extraction off until an operator opts in while atomic accounting is pending.
+    // The kill switch takes precedence, even when extraction is explicitly enabled.
+    if (!isEnvEnabled(EXTRACT_ENABLED_ENV) || isEnvEnabled(EXTRACT_DISABLED_ENV)) {
       return errorResponse(
         "AI_DISABLED",
         "AI extraction is temporarily disabled.",

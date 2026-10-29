@@ -76,7 +76,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
-| 503  | `AI_DISABLED`          | Operator kill switch (`AI_EXTRACT_DISABLED`) is on | no |
+| 503  | `AI_DISABLED`          | Extraction is not enabled, or the operator kill switch is on | no |
 | 503  | `AUTH_SERVICE_RATE_LIMITED` | Supabase Auth rate-limited the token check | auth service cooldown, if it sent one |
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
@@ -101,24 +101,33 @@ Counting/consumption is owned by **BE-12** (issue #100). AI-05 exposes the bound
 an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12 replaces the
 default with atomic accounting without changing the handler.
 
-**Known limitation until BE-12 lands.** AI-05 must never write (extraction is a read-only
-preview), so the default gate can only *observe* usage that a writer has already recorded.
-It cannot advance the counter itself, which means it does not yet meter a user on its own —
-it is the integration seam, not the enforcement point. Two things cover the gap meanwhile:
+**Disabled by default until BE-12 lands.** AI-05 must never write (extraction is a
+read-only preview), so the default gate can only observe usage already recorded by a
+writer. It does not advance the counter or meter extraction requests on its own.
 
-- The endpoint **fails closed**: if the counter read errors, it returns
-  `503 QUOTA_UNAVAILABLE` rather than handing out an unmetered provider call.
-- The operator **kill switch** `AI_EXTRACT_DISABLED` (truthy) refuses all extraction with
-  `503 AI_DISABLED` before the quota read or any provider spend, so spend/abuse can be cut
-  without a deploy. Set it (and redeploy/restart the function) if provider usage must stop
-  before BE-12 is live.
+The handler requires the operator-controlled `AI_EXTRACT_ENABLED` opt-in. Unset, blank,
+falsy and unrecognized values return `503 AI_DISABLED` after authentication and before
+reading the body, checking quota or calling the provider. This changes the previous
+default-enabled behavior. Keep production disabled until BE-12 supplies atomic quota
+checking and consumption; use the opt-in only for controlled testing in the meantime.
+
+Set `AI_EXTRACT_ENABLED=true` in the function environment for a controlled test.
+`AI_EXTRACT_DISABLED` (truthy) overrides that opt-in and returns `503 AI_DISABLED`.
+Apply environment changes and restart/redeploy the function for them to take effect.
+Neither switch is read from the client request. A quota read failure still returns
+`503 QUOTA_UNAVAILABLE` when extraction is enabled.
 
 ## Failure drills (demo only)
 
-Non-production failure states are opt-in environment switches on the function. They are
-never reachable from the client and never enabled in production. A drill needs **both** the
-master switch and the specific drill, so a single stray variable cannot turn a real
-deployment into an outage:
+The handler permits drills only when the function environment explicitly sets
+`AI_ENVIRONMENT=development` or `AI_ENVIRONMENT=test` (trimmed, case-insensitive).
+Production (`AI_ENVIRONMENT=production`), unset and unknown environments ignore all
+failure switches, even when both the master and drill switches are enabled. This is
+an environment guard in the handler; deployment configuration does not reject these
+secrets. Keep production's environment unset or set to `production`.
+
+Within an allowed environment, a drill requires both switches below, as well as the
+extraction opt-in described above. Clients cannot select the environment or switches.
 
 | Env var                  | Role |
 | ------------------------ | ---- |
@@ -126,11 +135,8 @@ deployment into an outage:
 | `AI_SIMULATE_OUTAGE`     | With the master switch on, returns `503 AI_UNAVAILABLE` as if Gemini were down |
 | `AI_SIMULATE_BAD_OUTPUT` | With the master switch on, returns `502 AI_OUTPUT_INVALID` as if the model misbehaved |
 
-Truthy values are `1`, `true`, `yes`, `on` (case-insensitive).
-
-A separate, production-safe operator switch is `AI_EXTRACT_DISABLED` (truthy): it refuses
-all extraction with `503 AI_DISABLED` and is safe to set in production as a stopgap
-kill switch (see [Quota](#quota-ai-17)).
+Truthy switch values are `1`, `true`, `yes`, `on` (case-insensitive).
+The operator kill switch `AI_EXTRACT_DISABLED` also overrides failure drills.
 
 ## Provider details
 

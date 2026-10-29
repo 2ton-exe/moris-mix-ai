@@ -1,8 +1,10 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  AI_ENVIRONMENT_ENV,
   ALLOW_FAILURE_DRILLS_ENV,
   EXTRACT_DISABLED_ENV,
-  handler,
+  EXTRACT_ENABLED_ENV,
+  handler as extractRecipeHandler,
   MAX_REQUEST_BYTES,
   SIMULATE_BAD_OUTPUT_ENV,
   SIMULATE_OUTAGE_ENV,
@@ -34,6 +36,18 @@ const VERIFIED_USER_ID = "99999999-9999-9999-9999-999999999999";
 const VERIFIED_USER_EMAIL = "verified@morisscraps.local";
 const NOTES = "Boiled chicken with garlic and a splash of soy sauce.";
 const ENDPOINT_PATHS = ["/functions/v1/extract-recipe", "/extract-recipe"];
+
+/** Existing endpoint contracts are exercised with the operator opt-in explicitly set. */
+async function handler(...args: Parameters<typeof extractRecipeHandler>): Promise<Response> {
+  const previous = Deno.env.get(EXTRACT_ENABLED_ENV);
+  try {
+    Deno.env.set(EXTRACT_ENABLED_ENV, "true");
+    return await extractRecipeHandler(...args);
+  } finally {
+    if (previous === undefined) Deno.env.delete(EXTRACT_ENABLED_ENV);
+    else Deno.env.set(EXTRACT_ENABLED_ENV, previous);
+  }
+}
 
 type RecordedRequest = {
   method: string;
@@ -372,7 +386,70 @@ Deno.test("An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-
   assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
 });
 
-Deno.test("The operator kill switch refuses extraction before the quota read or provider, and is off unless truthy", async () => {
+Deno.test("Extraction defaults off and requires a valid operator opt-in before reading the body or quota", async () => {
+  const names = [EXTRACT_ENABLED_ENV, EXTRACT_DISABLED_ENV];
+  const previous = new Map(names.map((name) => [name, Deno.env.get(name)]));
+  try {
+    Deno.env.delete(EXTRACT_DISABLED_ENV);
+    for (const value of [undefined, "", "false", "0", "off", "typo"]) {
+      if (value === undefined) Deno.env.delete(EXTRACT_ENABLED_ENV);
+      else Deno.env.set(EXTRACT_ENABLED_ENV, value);
+      const { fetchImpl, requests } = createFetchMock();
+      let providerCalls = 0;
+      let quotaCalls = 0;
+      let bodyReads = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          bodyReads++;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify({ notes: NOTES })));
+          controller.close();
+        },
+      }, { highWaterMark: 0 });
+      const res = await extractRecipeHandler(new Request(`http://localhost${ENDPOINT_PATHS[0]}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        body,
+      }), {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(MOCK_EXTRACTED_RECIPE, () => providerCalls++),
+        quotaCheck: () => {
+          quotaCalls++;
+          return Promise.resolve({ status: "allowed", limit: 20, used: 0 });
+        },
+      });
+      assertEquals(res.status, 503);
+      assertEquals((await res.json()).error?.code, "AI_DISABLED");
+      assertEquals(res.headers.get("cache-control"), "no-store");
+      assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+      assertEquals(bodyReads, 0);
+      assertEquals(quotaCalls, 0);
+      assertEquals(providerCalls, 0);
+      assertEquals(requests.map((request) => request.path), ["/auth/v1/user"]);
+      await body.cancel();
+    }
+    for (const value of ["1", "true", "yes", "on", " TRUE "]) {
+      Deno.env.set(EXTRACT_ENABLED_ENV, value);
+      const { fetchImpl, requests } = createFetchMock();
+      const res = await extractRecipeHandler(extractRequest(JSON.stringify({ notes: NOTES })), {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+      });
+      assertEquals(res.status, 200);
+      assertNoDatabaseWrites(requests);
+    }
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+});
+
+Deno.test("The operator kill switch overrides the extraction opt-in before the quota read or provider", async () => {
   const { fetchImpl, requests } = createFetchMock();
   let providerCalled = false;
   const previous = Deno.env.get(EXTRACT_DISABLED_ENV);
@@ -395,14 +472,14 @@ Deno.test("The operator kill switch refuses extraction before the quota read or 
     const body = await res.json();
     assertEquals(body.error?.code, "AI_DISABLED");
     assertEquals(providerCalled, false);
-    // Refused before auth's downstream work: no usage read, no writes.
+    // Authentication completed, but no usage read or writes followed.
     assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
   } finally {
     if (previous === undefined) Deno.env.delete(EXTRACT_DISABLED_ENV);
     else Deno.env.set(EXTRACT_DISABLED_ENV, previous);
   }
 
-  // A falsy value leaves extraction enabled.
+  // A falsy kill switch permits extraction when the operator opt-in is enabled.
   Deno.env.set(EXTRACT_DISABLED_ENV, "0");
   try {
     const res = await handler(
@@ -599,6 +676,44 @@ Deno.test("The byte budget is enforced on the stream, not on string length, and 
   assertEquals(multibyteOk.status, 200);
 
   assertNoDatabaseWrites(requests);
+});
+
+Deno.test("Streaming byte enforcement cancels at the first over-limit chunk regardless of Content-Length", async () => {
+  for (const declaredLength of [undefined, "invalid", "1", String(MAX_REQUEST_BYTES + 1)]) {
+    const { fetchImpl, requests } = createFetchMock();
+    let reads = 0;
+    let cancelled = false;
+    let providerCalls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads++;
+        controller.enqueue(new Uint8Array(reads <= 2 ? MAX_REQUEST_BYTES / 2 : 1));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }, { highWaterMark: 0 });
+    const headers = new Headers({ Authorization: `Bearer ${VALID_TEST_JWT}` });
+    if (declaredLength !== undefined) headers.set("Content-Length", declaredLength);
+    const res = await handler(new Request(`http://localhost${ENDPOINT_PATHS[0]}`, {
+      method: "POST",
+      headers,
+      body,
+    }), {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: providerReturning(MOCK_EXTRACTED_RECIPE, () => providerCalls++),
+    });
+    assertEquals(res.status, 413);
+    assertEquals((await res.json()).error?.code, "INPUT_TOO_LARGE");
+    const fastRejected = declaredLength === String(MAX_REQUEST_BYTES + 1);
+    assertEquals(reads, fastRejected ? 0 : 3);
+    assertEquals(cancelled, !fastRejected);
+    assertEquals(providerCalls, 0);
+    assertEquals(requests.map((request) => request.path), ["/auth/v1/user"]);
+    if (fastRejected) await body.cancel();
+  }
 });
 
 Deno.test("Successful extraction returns the validated preview, uses the verified user context, and never persists", async () => {
@@ -899,7 +1014,7 @@ Deno.test("Malformed output from a provider that forgot to validate is rejected 
   assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID");
 });
 
-Deno.test("Simulation drills need the master switch plus the drill switch, and exercise the real error contract", async () => {
+Deno.test("Simulation drills need an allowed environment plus both switches, and exercise the real error contract", async () => {
   const { fetchImpl } = createFetchMock();
   const passthrough = {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -911,6 +1026,7 @@ Deno.test("Simulation drills need the master switch plus the drill switch, and e
   // a key the real adapter throws, so the handler answers 500 rather than making
   // a live call.
   const trackedEnvs = [
+    AI_ENVIRONMENT_ENV,
     ALLOW_FAILURE_DRILLS_ENV,
     SIMULATE_OUTAGE_ENV,
     SIMULATE_BAD_OUTPUT_ENV,
@@ -920,6 +1036,7 @@ Deno.test("Simulation drills need the master switch plus the drill switch, and e
 
   try {
     for (const name of trackedEnvs) Deno.env.delete(name);
+    Deno.env.set(AI_ENVIRONMENT_ENV, "test");
 
     // Baseline: no drill set, the injected provider is used.
     const baseline = await handler(
@@ -944,14 +1061,31 @@ Deno.test("Simulation drills need the master switch plus the drill switch, and e
       assertEquals(withoutMaster.status, 500);
       assertEquals((await withoutMaster.json()).error?.code, "INTERNAL_ERROR");
 
-      // Adding the master switch activates the drill; still no GEMINI_API_KEY needed.
       Deno.env.set(ALLOW_FAILURE_DRILLS_ENV, "1");
-      const withMaster = await handler(
-        extractRequest(JSON.stringify({ notes: NOTES })),
-        passthrough,
-      );
-      assertEquals(withMaster.status, drill.status);
-      assertEquals((await withMaster.json()).error?.code, drill.code);
+      // Production/default/unknown environments ignore every switch, even together.
+      Deno.env.set(SIMULATE_OUTAGE_ENV, "1");
+      Deno.env.set(SIMULATE_BAD_OUTPUT_ENV, "1");
+      for (const environment of [undefined, "", "production", " PRODUCTION ", "staging", "typo"]) {
+        if (environment === undefined) Deno.env.delete(AI_ENVIRONMENT_ENV);
+        else Deno.env.set(AI_ENVIRONMENT_ENV, environment);
+        const guarded = await handler(extractRequest(JSON.stringify({ notes: NOTES })), passthrough);
+        assertEquals(guarded.status, 500);
+        assertEquals((await guarded.json()).error?.code, "INTERNAL_ERROR");
+      }
+      Deno.env.delete(SIMULATE_OUTAGE_ENV);
+      Deno.env.delete(SIMULATE_BAD_OUTPUT_ENV);
+      Deno.env.set(drill.env, "1");
+
+      // Only an allowed environment plus both switches activates a drill.
+      for (const environment of ["development", "test", " TEST "]) {
+        Deno.env.set(AI_ENVIRONMENT_ENV, environment);
+        const withMaster = await handler(
+          extractRequest(JSON.stringify({ notes: NOTES })),
+          passthrough,
+        );
+        assertEquals(withMaster.status, drill.status);
+        assertEquals((await withMaster.json()).error?.code, drill.code);
+      }
 
       Deno.env.delete(ALLOW_FAILURE_DRILLS_ENV);
       Deno.env.delete(drill.env);
