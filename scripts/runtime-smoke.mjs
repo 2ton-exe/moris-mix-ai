@@ -60,8 +60,9 @@ export function configuration(env) {
 
 /**
  * Require a parsed response containing only the approved fixture's recipe.
- * All recipe fields must match exactly except cooked_at, which may be null or
- * any valid calendar date in YYYY-MM-DD format. Returns undefined on success.
+ * Fixed recipe fields must match exactly. Ingredients may include quantityText
+ * strings; cooked_at may be null or any valid calendar date in YYYY-MM-DD format.
+ * Returns undefined on success.
  * @throws {SmokeFailure} If the envelope, recipe content, or date is invalid.
  */
 export function validateDemo(data) {
@@ -69,7 +70,12 @@ export function validateDemo(data) {
   requireValue(recipe && Object.keys(data).length === 1, 'Invalid demo response envelope');
   const { cooked_at, ...actual } = recipe;
   const { cooked_at: ignored, ...expected } = fixture.recipe;
-  // The hosted seed uses a relative date; every other approved demo field is fixed.
+  requireValue(Array.isArray(actual.ingredients), 'Invalid demo ingredients');
+  actual.ingredients = actual.ingredients.map(({ quantityText, ...ingredient }) => {
+    requireValue(quantityText === undefined || typeof quantityText === 'string', 'Invalid demo ingredient quantityText');
+    return ingredient;
+  });
+  // Exclude only the contract's optional quantityText and the hosted seed's relative date.
   requireValue(isDeepStrictEqual(actual, expected), 'Demo identity/content differs from approved public fixture');
   requireValue(cooked_at === null || (typeof cooked_at === 'string' &&
     /^\d{4}-\d{2}-\d{2}$/.test(cooked_at) &&

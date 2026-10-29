@@ -42,18 +42,43 @@ test('production pins the repository production project and requires its own fro
 test('approved public demo content accepts the relative seed date', () => {
   validateDemo(fixture);
   validateDemo({ recipe: { ...fixture.recipe, cooked_at: '2026-10-28' } });
+  validateDemo({ recipe: { ...fixture.recipe, cooked_at: null } });
 });
+
+test('approved ingredients accept optional quantityText strings without changing the response', () => {
+  const data = structuredClone(fixture);
+  data.recipe.ingredients[0].quantityText = '200 g';
+  data.recipe.ingredients[1].quantityText = '';
+  data.recipe.ingredients[3].quantityText = 'a handful';
+  const original = structuredClone(data);
+  validateDemo(data);
+  assert.deepEqual(data, original);
+});
+
+for (const quantityText of [null, 200, false, [], {}]) {
+  test(`rejects non-string quantityText ${JSON.stringify(quantityText)}`, () => {
+    const data = structuredClone(fixture);
+    data.recipe.ingredients[0].quantityText = quantityText;
+    assert.throws(() => validateDemo(data));
+  });
+}
 
 for (const [name, mutate] of [
   ['wrong identity', data => { data.recipe.id = '22222222-2222-2222-2222-222222222222'; }],
   ['missing ingredients', data => { delete data.recipe.ingredients; }],
   ['wrong ingredient type', data => { data.recipe.ingredients[0].quantity = '200'; }],
+  ['changed ingredient name', data => { data.recipe.ingredients[0].name = 'private'; }],
+  ['changed ingredient quantity', data => { data.recipe.ingredients[0].quantity = 201; }],
+  ['changed ingredient unit', data => { data.recipe.ingredients[0].unit = 'kg'; }],
+  ['changed ingredient inferred', data => { data.recipe.ingredients[0].inferred = true; }],
+  ['private ingredient field', data => { data.recipe.ingredients[0].user_id = 'private'; }],
   ['wrong flavor scores', data => { data.recipe.flavor_scores.sweet = 10; }],
   ['private owner field', data => { data.recipe.user_id = 'private'; }],
   ['error envelope', data => { data.error = { code: 'INTERNAL_ERROR' }; }],
   ['invalid date', data => { data.recipe.cooked_at = '2026-02-30'; }],
 ]) test(`rejects ${name}`, () => {
   const data = structuredClone(fixture);
+  data.recipe.ingredients[0].quantityText = '200 g';
   mutate(data);
   assert.throws(() => validateDemo(data));
 });
@@ -116,11 +141,13 @@ test('network timeout is retried a bounded number of times', async () => {
 });
 
 test('full smoke records separate outcomes and never emits key/response data', async () => {
+  const data = structuredClone(fixture);
+  data.recipe.ingredients[0].quantityText = '200 g';
   const result = await runSmoke(env, { ...offline, fetchImpl: async (url, options) => {
     if (url.pathname.includes('/functions/')) {
       assert.equal(url.origin, env.SMOKE_SUPABASE_URL);
       assert.equal(options.headers.apikey, env.SMOKE_PUBLIC_KEY);
-      return response(JSON.stringify(fixture), 'application/json');
+      return response(JSON.stringify(data), 'application/json');
     }
     assert.equal(options.headers.apikey, undefined);
     return url.pathname === '/home' ? response(html, 'text/html') : response('export {}', 'application/javascript');

@@ -183,8 +183,10 @@ The verifier requires HTTP 200 and the expected MIME type for each check:
   JavaScript, rejecting HTML fallbacks even when labeled as JavaScript.
 - `GET /functions/v1/demo-recipe` must return the exact approved public fixture
   envelope and content, including recipe identity, ingredients, instructions,
-  scores, and rating. Only `cooked_at` may differ, because the seed uses a relative
-  date; it must be null or a valid calendar date. Extra/private fields fail.
+  scores, and rating. Ingredients may include optional `quantityText` strings as
+  allowed by the [API contract](../api/demo-recipe.md); their fixed fields must
+  still match exactly. `cooked_at` may differ because the seed uses a relative
+  date; it must be null or a valid calendar date. Other extra/private fields fail.
 
 Each request gets three attempts, a ten-second timeout covering fetch and body
 read, and four-second sleeps between attempts (about 38 seconds per check).
