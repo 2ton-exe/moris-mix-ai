@@ -414,7 +414,7 @@ A rollback procedure must not be described as verified until an actual rollback 
 
 ## 13. Pipeline Metrics
 
-Pipeline performance is recorded in `docs/devops/pipeline-metrics.md`.
+Weekly/sprint performance and evidence-recording responsibilities are maintained in [pipeline-metrics.md](pipeline-metrics.md). Use the [optimization log](optimization-log.md) for controlled before/after experiments and the [incident log](incident-log.md) for genuine incidents/postmortems. This runbook owns deploy, smoke, rollback and recovery procedures; GitHub Actions runs remain raw execution evidence and issues/PRs retain task-specific acceptance/review records. The Sprint 2 headless-shell result concerns a sampled E2E job, not whole-pipeline or merge-to-live performance.
 
 Tracked measurements include:
 
