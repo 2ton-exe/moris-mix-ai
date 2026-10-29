@@ -6,13 +6,14 @@ export const AUTH_INITIALIZATION_TIMEOUT_MS = 15_000
 let client: SupabaseClient | undefined
 let verificationResult: Promise<boolean> | undefined
 let verificationFinished = false
+let verificationAttempt: { controller: AbortController; expiresAt: number } | undefined
 const callbackParams = ['access_token', 'refresh_token', 'provider_token', 'provider_refresh_token',
   'expires_at', 'expires_in', 'token_type', 'type', 'code', 'token', 'token_hash', 'sb_flow_id',
   'error', 'error_code', 'error_description']
 const implicitSessionParams = ['access_token', 'refresh_token', 'provider_token', 'provider_refresh_token',
   'expires_at', 'expires_in', 'token_type']
 
-// Only the reserved callback route is cleaned; never navigate or change origins.
+/** Removes callback credentials only on the reserved route, preserving unrelated query parameters and history state. */
 export function clearAuthCallbackUrl() {
   const url = new URL(window.location.href)
   if (url.pathname !== '/auth/callback') return
@@ -20,6 +21,7 @@ export function clearAuthCallbackUrl() {
   window.history.replaceState(window.history.state, '', url.pathname + url.search)
 }
 
+/** Strips implicit session credentials before the SDK can see them on any route. */
 function clearUnboundAuthUrlCredentials() {
   const url = new URL(window.location.href)
   const hash = new URLSearchParams(url.hash.slice(1))
@@ -32,6 +34,7 @@ function clearUnboundAuthUrlCredentials() {
   window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
 }
 
+/** Reads a code only from the callback route and rejects error or token-hash links. */
 function getSignupCallbackCode() {
   const url = new URL(window.location.href)
   const hash = new URLSearchParams(url.hash.slice(1))
@@ -40,7 +43,7 @@ function getSignupCallbackCode() {
   return url.pathname === '/auth/callback' && !hasError ? url.searchParams.get('code') : null
 }
 
-// Auth only: domain data continues to use the existing Edge Function REST client.
+/** Returns the single persistent PKCE auth client; domain data uses the existing REST client. */
 export function getAuthClient() {
   clearUnboundAuthUrlCredentials()
   if (!client) {
@@ -54,11 +57,30 @@ export function getAuthClient() {
     }
     client = createClient(url, key, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: 'pkce' },
+      global: {
+        /** Rejects expired callback responses before the SDK can persist a session or emit auth events. */
+        fetch: async (input, init) => {
+          const attempt = verificationAttempt
+          if (!attempt || String(input) !== `${origin.origin}/auth/v1/token?grant_type=pkce`) return fetch(input, init)
+          /** Enforces the deadline even when the browser has delayed the timeout task. */
+          const assertActive = () => {
+            if (Date.now() >= attempt.expiresAt) attempt.controller.abort()
+            attempt.controller.signal.throwIfAborted()
+          }
+          assertActive()
+          const response = await fetch(input, { ...init, signal: attempt.controller.signal })
+          // Headers can arrive before the deadline while the body is still pending.
+          const body = await response.arrayBuffer()
+          assertActive()
+          return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
+        },
+      },
     })
   }
   return client.auth
 }
 
+/** Shares one bounded code exchange per document and rejects reuse or completion after its deadline. */
 export function getVerificationCallbackResult() {
   const auth = getAuthClient()
   if (verificationFinished) {
@@ -71,14 +93,19 @@ export function getVerificationCallbackResult() {
     clearAuthCallbackUrl()
     return Promise.resolve(false)
   }
+  const attempt = { controller: new AbortController(), expiresAt: Date.now() + AUTH_INITIALIZATION_TIMEOUT_MS }
+  verificationAttempt = attempt
   const initialization = auth.initialize().then(async ({ error }) => {
-    if (error) return false
+    if (error || attempt.controller.signal.aborted || Date.now() >= attempt.expiresAt) return false
     const { data, error: exchangeError } = await auth.exchangeCodeForSession(code)
     return !exchangeError && Boolean(data.session)
   }).catch(() => false)
   let timer: number | undefined
   const deadline = new Promise<boolean>((resolve) => {
-    timer = window.setTimeout(() => resolve(false), AUTH_INITIALIZATION_TIMEOUT_MS)
+    timer = window.setTimeout(() => {
+      attempt.controller.abort()
+      resolve(false)
+    }, AUTH_INITIALIZATION_TIMEOUT_MS)
   })
   verificationResult = Promise.race([initialization, deadline]).finally(() => {
     window.clearTimeout(timer)

@@ -29,6 +29,7 @@ it('creates one lazy auth client using the existing public environment configura
   expect(sdk.createClient).toHaveBeenCalledOnce()
   expect(sdk.createClient).toHaveBeenCalledWith('https://auth.example.test', 'sb_publishable_test', {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: 'pkce' },
+    global: { fetch: expect.any(Function) },
   })
 })
 
@@ -84,4 +85,21 @@ it('bounds callback processing independently and never promotes its late success
   await Promise.resolve()
   expect(await getVerificationCallbackResult()).toBe(false)
   expect(sdk.createClient).toHaveBeenCalledOnce()
+})
+
+it('does not start a callback exchange when initialization finishes after the deadline', async () => {
+  vi.useFakeTimers()
+  let resolveInitialization!: (value: { error: null }) => void
+  sdk.auth.initialize.mockReturnValue(new Promise((resolve) => { resolveInitialization = resolve }))
+  window.history.replaceState(null, '', '/auth/callback?lang=en&code=unit-test-code')
+  const { getVerificationCallbackResult } = await import('./client')
+  const result = getVerificationCallbackResult()
+
+  await vi.advanceTimersByTimeAsync(15_000)
+  expect(await result).toBe(false)
+  resolveInitialization({ error: null })
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(sdk.auth.exchangeCodeForSession).not.toHaveBeenCalled()
+  expect(window.location.search).toBe('?lang=en')
 })

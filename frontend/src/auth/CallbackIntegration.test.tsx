@@ -211,6 +211,77 @@ it('does not reuse an old successful callback result when returning to the callb
   expect(window.location.search).toBe('')
 })
 
+it.each([
+  ['headers', 'none'], ['body', 'none'],
+  ['headers', 'existing'], ['body', 'existing'],
+  ['headers', 'newer'], ['body', 'newer'],
+])('rejects late callback %s without changing the %s session or protected UI', async (lateStage, sessionState) => {
+  if (sessionState !== 'none') seedExistingSession()
+  const lateSession = { access_token: 'late-test-access', refresh_token: 'late-test-refresh',
+    token_type: 'bearer', expires_in: 3600, user: { ...user, id: 'late-user' } }
+  let releaseResponse!: () => void
+  const pendingResponse = lateStage === 'headers'
+    ? new Promise<Response>((resolve) => { releaseResponse = () => resolve(Response.json(lateSession)) })
+    : Promise.resolve(new Response(new ReadableStream({
+      start(controller) {
+        releaseResponse = () => {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(lateSession)))
+          controller.close()
+        }
+      },
+    }), { headers: { 'Content-Type': 'application/json' } }))
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const url = String(input)
+    if (url.startsWith(`${authUrl}/auth/v1/signup?`)) return Response.json({ ...user, email_confirmed_at: null })
+    // Deliberately ignore cancellation, so the client must also reject late data.
+    if (url === `${authUrl}/auth/v1/token?grant_type=pkce`) return pendingResponse
+    if (url === `${authUrl}/auth/v1/token?grant_type=password`) return Response.json({
+      ...lateSession, access_token: 'newer-test-access', refresh_token: 'newer-test-refresh',
+      user: { ...user, id: 'newer-user' },
+    })
+    throw new Error('Unexpected auth request in test')
+  })
+  vi.stubGlobal('fetch', fetchImpl)
+  const auth = getAuthClient()
+  await auth.signUp({ email: user.email, password: 'test-password', options: { emailRedirectTo: `${window.location.origin}/auth/callback` } })
+  const exchange = vi.spyOn(auth, 'exchangeCodeForSession')
+  const events: string[] = []
+  const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) events.push(session.access_token)
+  })
+  vi.useFakeTimers()
+  window.history.replaceState(null, '', '/auth/callback?lang=en&code=slow-test-code')
+  mount()
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(exchange).toHaveBeenCalledOnce()
+  expect(fetchImpl).toHaveBeenCalledWith(`${authUrl}/auth/v1/token?grant_type=pkce`, expect.anything())
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+  expect(screen.getByRole('heading', { name: 'Check your verification link' })).toBeTruthy()
+  expect(window.location.search).toBe('?lang=en')
+  const callbackRequest = fetchImpl.mock.calls.find(([input]) => String(input) === `${authUrl}/auth/v1/token?grant_type=pkce`)
+  expect(callbackRequest?.[1]?.signal?.aborted).toBe(true)
+
+  if (sessionState === 'newer') {
+    await act(async () => { await auth.signInWithPassword({ email: user.email, password: 'test-password' }) })
+  }
+  const expectedToken = sessionState === 'none' ? undefined
+    : sessionState === 'newer' ? 'newer-test-access' : 'existing-test-access'
+  await act(async () => {
+    releaseResponse()
+    await exchange.mock.results[0].value
+  })
+
+  expect((await auth.getSession()).data.session?.access_token).toBe(expectedToken)
+  const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')
+  expect(stored?.access_token).toBe(expectedToken)
+  expect(events).not.toContain('late-test-access')
+  expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
+  vi.useRealTimers()
+  fireEvent.click(screen.getByRole('link', { name: 'Back to login' }))
+  await screen.findByRole('heading', { name: sessionState === 'none' ? 'Welcome back' : 'Your cooking journal' })
+  subscription.unsubscribe()
+})
+
 it('removes callback credentials and offers retry if real SDK initialization never settles', async () => {
   vi.useFakeTimers()
   seedExistingSession(Math.floor(Date.now() / 1000) - 60)
