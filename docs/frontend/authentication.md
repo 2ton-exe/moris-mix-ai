@@ -88,23 +88,48 @@ authoritative for stronger project password policy.
 
 The browser chooses `window.location.origin + '/auth/callback'` as the
 `emailRedirectTo` for signup and resend. No production origin is hardcoded.
-This uses Supabase's browser **implicit** flow: the standard confirmation link
-returns session credentials in the fragment and the SDK consumes them. A custom
-PKCE/code or token-hash email template requires an agreed callback contract and
-an implementation update; those formats show recovery guidance today.
+On this branch, `frontend/src/auth/client.ts` still configures Supabase's
+browser **implicit** flow (`flowType: 'implicit'`, `detectSessionInUrl: true`):
+the standard confirmation link returns session credentials in the URL fragment
+(`#access_token=...&refresh_token=...&type=signup`) for the SDK to consume,
+while `code` and `token_hash` callback parameters are rejected and show recovery
+guidance. Issue #122 defines the **PKCE** browser callback contract (pending
+merge onto this branch) without requiring a custom email template: disabling
+automatic URL session detection across routes, using `flowType: 'pkce'`,
+exchanging signup authorization `code` parameters exclusively on
+`/auth/callback` with the SDK's browser-held PKCE verifier, preventing
+URL-supplied `access_token` and `refresh_token` values from establishing or
+replacing a browser session on any route, and requiring both a valid
+authorization code and matching browser-held verifier before establishing a
+session or reporting verification success.
 
 Verification success uses the initialization outcome of the SDK client that
-actually received the signup callback. A restored confirmed session alone is
-insufficient. The SDK's existing `initialize()` promise is observed to retain URL
-processing errors; it does not perform a second exchange. Completed callback
-results are not reused for a later callback visit. Auth fragments and sensitive
-query parameters are removed with same-origin history replacement on success,
-failure, and initialization timeout. Unrelated query parameters are preserved;
-credentials and raw callback errors are never rendered or logged by FE-03.
-Callback processing has the same independent 15-second deadline, so an unrelated
-cross-tab sign-in cannot leave callback feedback spinning indefinitely. Once that
-callback attempt times out, a late SDK completion cannot turn its feedback into
-verification success; login or a fresh email link remains the recovery path.
+actually received the signup callback and requires a confirmed user session
+(`email_confirmed_at`); failed, missing, expired, malformed, or unsupported
+callbacks show recovery guidance and the resend form. On `/auth/callback`,
+query-supplied credential parameters (`access_token`, `refresh_token`,
+`expires_at`, `expires_in`, `token_type`, `type`) are rejected for verification
+even if fragment tokens are also present, though fragment tokens remain accepted
+by the SDK while `flowType: 'implicit'` and `detectSessionInUrl: true` are
+enabled on this branch. A restored confirmed session alone is insufficient: when
+an existing session is already present, missing, expired, malformed,
+query-credential, unsupported (`code` / `token_hash`), or server-rejected
+callbacks never report verification success and preserve the stored session,
+although valid fragment tokens can still replace a session until the Issue #122
+PKCE update disables URL token adoption. Password login (`signInWithPassword`)
+and protected `/functions/v1/recipes` requests (`GET`, `POST`, `PATCH`,
+`DELETE`) continue to use the active authenticated SDK session. The SDK's
+existing `initialize()` promise is observed to retain URL processing errors; it
+does not perform a second exchange. Completed callback results are not reused
+for a later callback visit. Auth fragments and sensitive query parameters are
+removed with same-origin history replacement on success, failure, and
+initialization timeout. Unrelated query parameters are preserved; credentials
+and raw callback errors are never rendered or logged by FE-03. Callback
+processing has the same independent 15-second deadline, so an unrelated
+cross-tab sign-in cannot leave callback feedback spinning indefinitely. Once
+that callback attempt times out, a late SDK completion cannot turn its feedback
+into verification success; login or a fresh email link remains the recovery
+path.
 
 Configure Supabase Auth's Site URL for the approved frontend deployment and add
 exact allowed redirect URLs for each approved environment, for example
