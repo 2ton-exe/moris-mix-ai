@@ -97,7 +97,18 @@ The shared `scripts/runtime-smoke.mjs` verifier requests `/home?revision=${GITHU
 
 Deployment and smoke summaries record **PR head** from `github.event.pull_request.head.sha` separately from **Tested merge revision** from `GITHUB_SHA`. On this PR path, checkout, build/deployment, and the smoke cache-busting revision use the tested merge revision; the source head is traceability evidence, not a claim that it was the exact deployed checkout.
 
-Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. PR #88 successfully executed automated staging deployment and combined smoke for frontend HTML, its referenced JavaScript asset, public `demo-recipe`, and the API/database path. The staging backend source revision remains **operator-attested; not observed from runtime**. Controlled automated staging smoke-failure evidence remains pending.
+`GITHUB_SHA` identifies the tested checkout/merge revision used by the workflow.
+The `/home?revision=${GITHUB_SHA}` query parameter provides cache busting and
+request differentiation; it is not proof that the deployed frontend serves that
+exact revision. Checkout, build, and deployment use the tested workflow revision,
+but the returned HTML and JavaScript do not independently expose a runtime-observed
+build SHA. Successful frontend smoke verifies the deployed target's availability
+and expected content, not independent runtime-observed frontend source provenance.
+If exact runtime-observed provenance is required, a separate design could embed
+a build revision, expose a build metadata endpoint, or verify an artifact
+fingerprint/digest. None of those mechanisms is implemented by this PR.
+
+Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. PR #88 successfully executed automated staging deployment and combined smoke for frontend HTML, its referenced JavaScript asset, public `demo-recipe`, and the API/database path. The staging backend source revision remains **operator-attested; not observed from runtime**. Controlled configuration-failure evidence was collected in temporary PR #119; hosted runtime-response failure was not separately exercised (see the evidence record below).
 
 ### Shared runtime smoke setup (#76 and #61)
 
@@ -206,7 +217,12 @@ checkout/setup failure or cancellation before the verifier executes may leave
 no JSON. Separate always-run workflow summaries record deployment-command and URL
 verification results. An upload or summary step does not mask a smoke failure.
 
-The backend SHA is explicitly **operator-attested, not observed from runtime**.
+The backend SHA is explicitly **operator-attested; not observed from runtime**.
+Even a valid Git SHA in `STAGING_DEMO_RECIPE_REVISION` does not prove that the
+running `demo-recipe` function exposes or was independently observed at that
+source revision. Successful API/database smoke proves expected endpoint behavior,
+not exact backend deployment provenance. Runtime-observed backend provenance
+remains separate future work if exact provenance is required.
 Provider deployment/version evidence must remain in the release record. These
 checks do not establish that backend code matches the PR merge SHA, prove all
 backend functions, or cryptographically identify served frontend bytes. The
@@ -247,7 +263,7 @@ Evidence status:
 - API/database runtime path: manually verified.
 - Automated GitHub staging deployment and combined HTML/JavaScript/public demo API/database smoke: **executed and passed on PR #88**, separately from the manual checks above.
 - Production smoke: **not yet executed**.
-- Controlled automated staging smoke-failure evidence: **pending**.
+- Controlled automated staging configuration-failure evidence: **completed in temporary PR #119**; hosted runtime-response failure was not separately exercised.
 
 These manual corrections are not automated by this DevOps change. Durable table
 permission and approved seed/bootstrap ownership remains a backend/source-of-truth
@@ -284,16 +300,63 @@ existing separately authorized provider rollback/redeployment process; preserve
 the failed run and do not hide it with `continue-on-error`. Re-running the entire
 workflow can redeploy, so inspect the failing step before retrying.
 
-PR #88 supplies successful automated staging deployment and combined smoke evidence.
-Before closing #76, collect a controlled staging smoke-failure run. In a temporary
-reviewed PR change only the smoke invocation's `SMOKE_SUPABASE_URL` to
-`https://example.invalid` (not the build/deploy configuration); the verifier must
-fail configuration without sending requests there. Confirm deployment success,
-smoke/job failure, retained evidence, and overall failed staging result. Remove
-the temporary override and collect a successful rerun. This experiment requires
-normal review/authorization and is not part of this implementation. Record actual
-composed check names before considering any required-check change.
+### PR #88 validation and controlled configuration-failure evidence
 
+The latest verified implementation head before this documentation cleanup was
+`011653a0a2f1ee81192eab5e3c034250cf9a7e3c`, containing Belen's review fix:
+`fix(devops): accept optional ingredient quantityText strings in runtime smoke validation`.
+That fix accepts the API contract's optional string `quantityText` while preserving
+strict fixed-field validation; this documentation cleanup does not modify it or
+imply Belen has approved the PR. Final human re-review remains separate.
+
+At that head, **CI #259** passed Frontend Checks (including PR Secretary regression
+tests and offline runtime-smoke verifier tests), Database Tests, Edge/API Tests,
+Hosted RLS Integration, and Playwright E2E. Production deployment was correctly
+skipped on the PR. **Modular PR Validation #106** passed Modular Frontend,
+Modular Database, Modular Edge/API, Modular E2E, Staging Deploy, staging deployment
+URL verification, and Staging Smoke. Frontend HTML, the referenced JavaScript
+asset, and the public demo API/database path all passed. These are staging and PR
+validation results, not production runtime smoke evidence.
+
+Temporary PR **#119**, branch `experiment/76-staging-smoke-failure`, head
+`6e8025d40961f964b29e4ea8db5fc797fc5a5faf`, intentionally changed only the staging
+smoke `SMOKE_SUPABASE_URL` to `https://example.invalid`; staging build/deployment
+configuration remained unchanged. **CI #257** passed normal PR validation and
+kept production deployment skipped. In **Modular PR Validation #104**, normal
+validation, Staging Deploy, and staging deployment URL verification succeeded.
+Staging Smoke ran and failed with `Supabase origin/project mismatch`. Frontend
+HTML, JavaScript asset, and demo API/database runtime checks were not run, so
+overall staging validation did not succeed. PR #119 was then closed unmerged.
+
+This completed **configuration-validation failure path** proves a staging smoke
+failure is visible, the smoke job fails rather than hiding the failure, and
+overall staging validation is unsuccessful while production remains unaffected.
+The failure occurred before requests were attempted against the deliberately
+invalid Supabase origin. It was not a hosted runtime-response failure experiment:
+an unavailable deployed frontend, a missing JavaScript asset, and a deployed
+API/database response mismatch were not separately exercised in hosted execution.
+Ramos's Finding 1 is technically valid and remains a known evidence limitation;
+this experiment does not exercise every runtime smoke failure mode.
+
+Controlled configuration-failure evidence has been collected successfully.
+Issue #76 remains open until PR #88 is reviewed, merged, and its merged-main
+state is verified; PR #88 remains unmerged, so these changes are not yet
+authoritative main state. Record actual composed check names before considering
+any required-check change.
+
+CodeRabbit's review of that implementation head reported no actionable current-head comments,
+minimal merge risk, low security architecture risk, and no established
+architecture-level vulnerability. Its earlier workflow-level `permissions: { contents: read }`
+recommendation for `ci.yml` is optional least-privilege hardening,
+not a regression: the condition predates PR #88 and smoke requires no broader
+token permissions. Workflow-wide permissions affect authoritative CI and remain
+in the separate security-hardening workstream. The generated AI-agent prompt is
+an execution wrapper for that same recommendation, not another finding, and is
+not executed here. Generic Generate docstrings, Generate unit tests, and Autofix
+features are not independent blockers; existing tests include the `quantityText`
+regression. No workflow or unrelated code/test changes are included.
+
+Issue #61 remains incomplete. Production runtime smoke remains pending after merge.
 Before closing #61, collect a real gated main deployment with separate successful
 Supabase/Cloudflare command results and successful production runtime smoke,
 including summary and artifact. Local tests do not supply that evidence. The
