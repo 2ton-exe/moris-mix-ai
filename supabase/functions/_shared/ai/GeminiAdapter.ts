@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
+import { GoogleGenerativeAI, GoogleGenerativeAIError } from "npm:@google/generative-ai@0.21.0";
 import type {
   AIProvider,
   ExtractRecipeInput,
@@ -29,14 +29,46 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /** One attempt plus one bounded retry (AI-18). */
 const MAX_ATTEMPTS = 2;
 
-/** Small jittered backoff so a retry does not hit the provider at the same instant. */
-function retryDelayMs(): number {
+/** Maximum time spent waiting for the single retry, separate from request timeouts. */
+const MAX_RETRY_DELAY_MS = 5_000;
+
+/** Honor provider cooldowns; never shorten an excessive delay to fit our budget. */
+function retryDelayMs(error: unknown): number | undefined {
+  const providerDelay = readProviderRetryDelayMs(error);
+  if (providerDelay !== undefined) {
+    return providerDelay <= MAX_RETRY_DELAY_MS ? providerDelay : undefined;
+  }
   return 250 + Math.floor(Math.random() * 250);
+}
+
+/**
+ * The pinned SDK drops response headers but preserves google.rpc.RetryInfo in
+ * errorDetails. Its retryDelay uses protobuf's nonnegative seconds string with
+ * up to nine fractional digits. Ignore malformed metadata; use the longest
+ * valid delay when more than one entry is supplied. An overflowing duration is
+ * still excessive, so it must not fall back to an immediate jittered retry.
+ */
+function readProviderRetryDelayMs(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const details = (error as { errorDetails?: unknown }).errorDetails;
+  if (!Array.isArray(details)) return undefined;
+
+  let delayMs: number | undefined;
+  for (const detail of details) {
+    if (typeof detail !== "object" || detail === null) continue;
+    if (detail["@type"] !== "type.googleapis.com/google.rpc.RetryInfo") continue;
+    const duration: unknown = detail.retryDelay;
+    if (typeof duration !== "string" || !/^\d+(?:\.\d{1,9})?s$/.test(duration)) continue;
+    const milliseconds = Math.ceil(Number(duration.slice(0, -1)) * 1000);
+    delayMs = Math.max(delayMs ?? 0, milliseconds);
+  }
+  return delayMs;
 }
 
 /** Stable failure codes that the AI-05 endpoint maps to HTTP statuses. */
 export type AIErrorCode =
   | "invalid_output"
+  | "internal_error"
   | "provider_rejected"
   | "provider_timeout"
   | "provider_unavailable"
@@ -179,8 +211,10 @@ export class GeminiAdapter implements AIProvider {
         });
 
         if (!aiError.retryable || attempt === MAX_ATTEMPTS) throw aiError;
+        const delayMs = retryDelayMs(aiError.code === "rate_limited" ? error : undefined);
+        if (delayMs === undefined) throw aiError;
         lastError = aiError;
-        await this.sleep(retryDelayMs());
+        await this.sleep(delayMs);
       }
     }
 
@@ -294,10 +328,9 @@ function stripCodeFence(text: string): string {
 function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
   if (error instanceof AIError) return error;
 
-  const message = error instanceof Error ? error.message : String(error);
   const status = readStatus(error);
 
-  if (status === 429 || (status === undefined && /quota|rate limit/i.test(message))) {
+  if (status === 429) {
     return new AIError(
       "rate_limited",
       operation,
@@ -319,7 +352,30 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
     );
   }
 
-  return new AIError("provider_unavailable", operation, "Gemini is currently unavailable.");
+  if ((status !== undefined && status >= 500 && status < 600) ||
+    (status === undefined && isNetworkError(error))) {
+    return new AIError("provider_unavailable", operation, "Gemini is currently unavailable.");
+  }
+
+  return new AIError("internal_error", operation, "Gemini extraction failed unexpectedly.");
+}
+
+/** Recognize transport failures without treating every local SDK error as an outage. */
+function isNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string" &&
+    /^(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)$/.test(code)) {
+    return true;
+  }
+
+  // The SDK wraps fetch exceptions and discards their type/cause. Match only
+  // known transport messages inside its fetch wrapper, never the wrapper alone.
+  const message = error instanceof GoogleGenerativeAIError
+    ? error.message.match(/^\[GoogleGenerativeAI Error\]: Error fetching from https?:\/\/\S+: (.+)$/s)?.[1]
+    : error instanceof TypeError ? error.message : undefined;
+  return message !== undefined &&
+    /^(?:fetch failed|failed to fetch|NetworkError when attempting to fetch resource|Load failed|error sending request for url\b)/i.test(message);
 }
 
 /** True when the failure looks like a timeout or an abort. */
@@ -332,5 +388,7 @@ function isTimeout(error: unknown): boolean {
 function readStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const status = (error as { status?: unknown }).status;
-  return typeof status === "number" ? status : undefined;
+  return typeof status === "number" && Number.isInteger(status) && status >= 100 && status < 600
+    ? status
+    : undefined;
 }

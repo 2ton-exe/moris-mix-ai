@@ -1,4 +1,8 @@
 import {
+  GoogleGenerativeAIError,
+  GoogleGenerativeAIFetchError,
+} from "npm:@google/generative-ai@0.21.0";
+import {
   assertEquals,
   assertFalse,
   assertRejects,
@@ -152,6 +156,215 @@ Deno.test("extractRecipe waits before retrying a rate limit", async () => {
   assertEquals(delays.length, 1);
   assertEquals(delays[0] >= 250 && delays[0] < 500, true);
   assertEquals(recipe.title, "Boiled Chicken");
+});
+
+function rateLimitWithDetails(errorDetails: unknown): GoogleGenerativeAIFetchError {
+  return Object.assign(
+    new GoogleGenerativeAIFetchError("Quota exceeded", 429, "Too Many Requests"),
+    {
+      errorDetails,
+    },
+  );
+}
+
+function retryInfo(retryDelay: unknown): Record<string, unknown> {
+  return { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay };
+}
+
+Deno.test("extractRecipe honors SDK RetryInfo durations within the retry budget", async () => {
+  for (
+    const [retryDelay, expectedMs] of [
+      ["2s", 2000],
+      ["2.5s", 2500],
+      ["0s", 0],
+      ["0.000000001s", 1],
+      ["5s", 5000],
+    ] as const
+  ) {
+    let calls = 0;
+    const delays: number[] = [];
+    const adapter = new GeminiAdapter({
+      generateText: () => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)]));
+        assertEquals(delays, [expectedMs], "cooldown must finish before the next call");
+        return Promise.resolve(JSON.stringify(VALID_RECIPE));
+      },
+      log: () => {},
+      sleep: (ms) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+
+    await adapter.extractRecipe({ rawText: NOTES });
+
+    assertEquals(calls, 2);
+    assertEquals(delays, [expectedMs]);
+  }
+});
+
+Deno.test("extractRecipe uses jitter for missing or malformed SDK retry metadata", async () => {
+  const malformed = [
+    undefined,
+    null,
+    {},
+    [],
+    [null],
+    [retryInfo(undefined)],
+    [retryInfo(2)],
+    [retryInfo("-1s")],
+    [retryInfo("NaNs")],
+    [retryInfo("Infinitys")],
+    [retryInfo("2 seconds")],
+    [retryInfo("0.1234567890s")],
+    [{ "@type": "unrelated", retryDelay: "30s" }],
+  ];
+  for (const errorDetails of malformed) {
+    let calls = 0;
+    const delays: number[] = [];
+    const adapter = new GeminiAdapter({
+      generateText: () => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(rateLimitWithDetails(errorDetails));
+        return Promise.resolve(JSON.stringify(VALID_RECIPE));
+      },
+      log: () => {},
+      sleep: (ms) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+
+    await adapter.extractRecipe({ rawText: NOTES });
+
+    assertEquals(calls, 2);
+    assertEquals(delays.length, 1);
+    assertEquals(Number.isInteger(delays[0]) && delays[0] >= 250 && delays[0] < 500, true);
+  }
+});
+
+Deno.test("extractRecipe skips retry when the provider cooldown exceeds the budget", async () => {
+  for (const retryDelay of ["5.000000001s", "15s", "9".repeat(400) + "s"]) {
+    let calls = 0;
+    const delays: number[] = [];
+    const adapter = new GeminiAdapter({
+      generateText: () => {
+        calls += 1;
+        return Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)]));
+      },
+      log: () => {},
+      sleep: (ms) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+
+    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+
+    assertEquals(error.code, "rate_limited");
+    assertEquals(calls, 1);
+    assertEquals(delays, []);
+  }
+});
+
+Deno.test("extractRecipe honors the longest valid cooldown and still tries at most twice", async () => {
+  let calls = 0;
+  const delays: number[] = [];
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      calls += 1;
+      return Promise.reject(
+        rateLimitWithDetails([null, retryInfo("bad"), retryInfo("3s"), retryInfo("1s")]),
+      );
+    },
+    log: () => {},
+    sleep: (ms) => {
+      delays.push(ms);
+      return Promise.resolve();
+    },
+  });
+
+  const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+
+  assertEquals(error.code, "rate_limited");
+  assertEquals(calls, 2);
+  assertEquals(delays, [3000]);
+});
+
+Deno.test("extractRecipe does not retry unexpected local or SDK exceptions", async () => {
+  for (
+    const unexpected of [
+      new Error("local failure with private prompt: " + NOTES),
+      new TypeError("Cannot read properties of undefined"),
+      new Error("quota calculation failed"),
+      new GoogleGenerativeAIError("Unexpected SDK failure"),
+      new GoogleGenerativeAIError(
+        "Error fetching from https://generativelanguage.googleapis.com/test: local bug",
+      ),
+      { status: NaN },
+      { status: Infinity },
+      { status: 200 },
+      null,
+      "unexpected value",
+    ]
+  ) {
+    let calls = 0;
+    const delays: number[] = [];
+    const entries: AIOperationLog[] = [];
+    const adapter = new GeminiAdapter({
+      generateText: () => {
+        calls += 1;
+        return Promise.reject(unexpected);
+      },
+      log: (entry) => {
+        entries.push(entry);
+      },
+      sleep: (ms) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+    });
+
+    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+
+    assertEquals(error.code, "internal_error");
+    assertEquals(error.retryable, false);
+    assertEquals(calls, 1);
+    assertEquals(delays, []);
+    assertFalse(error.message.includes(NOTES));
+    assertFalse(JSON.stringify(entries).includes(NOTES));
+  }
+});
+
+Deno.test("extractRecipe retries recognized transport failures including SDK-wrapped fetch errors", async () => {
+  for (
+    const transportError of [
+      new TypeError("fetch failed"),
+      new TypeError("Failed to fetch"),
+      new TypeError("NetworkError when attempting to fetch resource."),
+      new TypeError("error sending request for url (https://example.test): connection closed"),
+      Object.assign(new Error("socket closed"), { code: "ECONNRESET" }),
+      new GoogleGenerativeAIError(
+        "Error fetching from https://generativelanguage.googleapis.com/test: fetch failed",
+      ),
+      new GoogleGenerativeAIError(
+        "Error fetching from https://generativelanguage.googleapis.com/test: error sending request for url (https://example.test): connection refused",
+      ),
+    ]
+  ) {
+    let calls = 0;
+    const adapter = adapterWith(() => {
+      calls += 1;
+      return Promise.reject(transportError);
+    });
+
+    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+
+    assertEquals(error.code, "provider_unavailable");
+    assertEquals(error.retryable, true);
+    assertEquals(calls, 2);
+  }
 });
 
 Deno.test("extractRecipe stops after two failed attempts", async () => {
