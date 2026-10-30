@@ -294,5 +294,5 @@ test('cutover files contain no literal credential patterns', () => {
   ];
   const contents = cutoverPaths.map(path => readFileSync(path, 'utf8')).join('\n');
   assert.doesNotMatch(contents,
-    /(?:sb_secret_|sbp_|gh[pousr]_)[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
+    /(?:sb_secret_|sbp_|gh[pousr]_|github_pat_)[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
 });
