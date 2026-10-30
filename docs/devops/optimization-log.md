@@ -9,9 +9,9 @@ Use [pipeline metrics](pipeline-metrics.md) for weekly/sprint delivery measureme
 **Date:** 2026-10-29\
 **Sprint:** 2\
 **Issue:** [#62 / DEVOPS-09](https://github.com/2ton-exe/moris-mix-ai/issues/62)\
-**PR:** [#125](https://github.com/2ton-exe/moris-mix-ai/pull/125), open/unmerged at reconciliation\
+**PR:** [#125](https://github.com/2ton-exe/moris-mix-ai/pull/125), human-approved and merged on 2026-10-30\
 **Commit:** [`ead889176e12862d86e644b1406830c3687ea4f2`](https://github.com/2ton-exe/moris-mix-ai/commit/ead889176e12862d86e644b1406830c3687ea4f2) — `ci(e2e): install only chromium headless shell`\
-**State:** Configured, locally validated and passed in PR CI; human review, merge and merged-main verification pending. E2E remains non-gating in authoritative CI.
+**State:** Configured, PR-tested, human-approved, merged, and successfully executed on main. E2E remains non-gating in authoritative CI.
 
 ### Problem / observed bottleneck
 
@@ -91,7 +91,11 @@ This is not a claim that the whole pipeline or total merge-to-live is 5.2s faste
 
 Limitations: only three baseline observations; approximate/rounded baseline values; GitHub-hosted runner/network variance; after range 78-94s; no matched five-run installation-step baseline; reruns on one change are not independent change-frequency observations. This is descriptive sampled evidence, not statistical proof of a stable long-term reduction. Local Supabase/E2E runtime remains a larger cost that the installation change does not remove.
 
-As checked on 2026-10-29, PR #125 still needs human review/merge and merged-main verification. Keep #62 open until those are recorded. CodeRabbit reported no actionable comments, minimal merge risk and zero open review threads for this commit; that is review evidence, not CI, human approval, merge or production runtime proof. Modular validation #114 passed separately, including staging deploy/smoke; staging is not production deployment.
+Belen / `myntchoc` approved PR #125, confirming that Chromium headless-shell installation matches the existing Playwright default headless execution and that the E2E job passed. PR #125 merged on 2026-10-30 at `2026-10-30T04:29:29Z` as [`7278f92e0fc67348efa60a14293dcdfde9329709`](https://github.com/2ton-exe/moris-mix-ai/commit/7278f92e0fc67348efa60a14293dcdfde9329709), `ci(e2e): install only chromium headless shell (#125)`; `main` pointed to that exact SHA at verification.
+
+[Authoritative CI #284](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41003182840) passed on that merged SHA. `Playwright E2E (Non-gating) / Playwright E2E Tests` succeeded in approximately 83s (`04:29:34Z`–`04:30:57Z` on 2026-10-30); Chromium installation succeeded in 15s (`04:29:41Z`–`04:29:56Z`), and `Run Playwright E2E against local Supabase` succeeded in 59s (`04:29:56Z`–`04:30:55Z`). [Modular Main Validation #16](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41003182843) also passed on the same SHA. This is one merged-main verification sample, separate from the five PR after-run attempts; the 86.8s PR mean is unchanged and no new statistical average is calculated.
+
+CI #284's `Deploy to Supabase and Cloudflare` job succeeded, including production configuration validation, `recipes` Edge Function deployment and Cloudflare Worker deployment. This establishes normal production deployment success after #125 merged, not post-deployment runtime verification or production availability verified by runtime checks. PR #125 did not introduce or test PR #88's separate production runtime smoke. #62 remains open pending review and merge of the PR #126 evidence follow-up and remaining evidence work.
 
 Reject/revert if later evidence shows introduced launch/E2E failures, intermittent behavior, lost coverage, changed browser mode/workers, worse diagnostics or no useful repeatable reduction relative to normal variation. A single fast run is insufficient.
 
@@ -109,7 +113,7 @@ Reject/revert if later evidence shows introduced launch/E2E failures, intermitte
 - PR: [#125 implementation, testing and review state](https://github.com/2ton-exe/moris-mix-ai/pull/125).
 - Commit: [ead889176e12862d86e644b1406830c3687ea4f2](https://github.com/2ton-exe/moris-mix-ai/commit/ead889176e12862d86e644b1406830c3687ea4f2).
 - Workflow runs: [authoritative CI #266](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40869775513), attempt links above; [modular #114](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40869775493), excluded from the authoritative timing sample.
-- Relevant jobs: `Playwright E2E (Non-gating) / Playwright E2E Tests`; steps `Install Chromium` and `Run Playwright E2E against local Supabase`; production deploy skipped.
+- Relevant jobs: `Playwright E2E (Non-gating) / Playwright E2E Tests`; steps `Install Chromium` and `Run Playwright E2E against local Supabase`; production deploy skipped in the PR attempts.
 - Reconciliation provenance: issue/PR records supply historical attempt timings. Read-only connector inspection confirmed matching workflow IDs, CI success and latest-attempt E2E success/production skip; its job response did not include timing timestamps or all historical attempts. Independently verified exact GitHub timestamps supplied for this cleanup confirm attempt 1 at 90s and its installation at 12s. Other attempts were not independently retimed during this documentation task.
 
 ## Reusable entry template

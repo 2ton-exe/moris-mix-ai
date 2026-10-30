@@ -4,8 +4,8 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco  
 **Scope:** Continuing weekly and multi-sprint DevOps metrics log\
-**Reconciled:** 2026-10-29, from `origin/main` at `d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` and linked GitHub evidence\
-**Status:** Sprint 1 historical baselines preserved. Sprint 2 samples and the first measured E2E experiment are recorded; complete delivery metrics and PR #125 main verification remain pending.
+**Reconciled:** 2026-10-30, with merged-main optimization verification at `7278f92e0fc67348efa60a14293dcdfde9329709`; historical samples and linked GitHub evidence retained\
+**Status:** Sprint 1 historical baselines preserved. Sprint 2 samples and the first measured E2E experiment, including PR #125 human approval, merge and successful main execution, are recorded; complete delivery metrics remain pending.
 
 ## Sprint metrics summary
 
@@ -14,7 +14,7 @@ Update this log before every consultation. Different pipeline generations and wo
 | Sprint | Avg PR pipeline time | Main pipeline time | Pipeline success rate | Production deploys | Avg merge-to-live | Failed deploys | Time to recover | Change made |
 | --- | ---: | ---: | --- | --- | --- | --- | --- | --- |
 | Sprint 1 | Historical two-job sample: 41.75s (4); later three-job sample: 39.5s (2) | Historical sample: approximately 51s (2); later run #90: approximately 65s (1) | Historical samples: PR 4/4, main 2/2; later samples: PR 2/2, main 1/1. No sprint-wide denominator. | Not fully enumerated | Not yet measured | No failures in historical two-run deployment sample; sprint total not fully enumerated | Production recovery not measured; no qualifying production recovery event in reviewed sample | Add real frontend/DB/Edge validation and all-checks deployment gate |
-| Sprint 2 | Pre-refactor: 35.5s (2). Expanded-workload whole-PR workflow average not yet measured; E2E job samples below are not pipeline averages. | Pre-refactor: 74.5s (2); current expanded-workload main sample not yet measured | Pre-refactor PR 2/2 and main 2/2; experiment E2E 5/5. Sprint-wide observation period/denominator not yet defined. | Not fully enumerated; two successful pre-refactor deployments recorded, not a sprint total | Not yet measured | Not fully enumerated for a defined period | Production recovery not measured; Secretary tooling recovery has no measured interval | Modular shadow validation, hosted/E2E validation, staging frontend delivery, Secretary repair; headless-shell experiment pending merge/main verification |
+| Sprint 2 | Pre-refactor: 35.5s (2). Expanded-workload whole-PR workflow average not yet measured; E2E job samples below are not pipeline averages. | Pre-refactor: 74.5s (2); current expanded-workload main sample not yet measured | Pre-refactor PR 2/2 and main 2/2; experiment E2E 5/5. Sprint-wide observation period/denominator not yet defined. | Not fully enumerated; two successful pre-refactor deployments recorded, not a sprint total | Not yet measured | Not fully enumerated for a defined period | Production recovery not measured; Secretary tooling recovery has no measured interval | Modular shadow validation, hosted/E2E validation, staging frontend delivery, Secretary repair; headless-shell experiment human-approved, merged and verified on main (CI #284; one E2E sample, approximately 83s) |
 
 Sample success fractions describe only their named samples. Rerun attempts are not independent changes or production deployments. Missing values are not zero. Application/API retry recovery is separate from delivery-tooling recovery and production deployment recovery.
 
@@ -354,7 +354,9 @@ The [declared hypothesis](https://github.com/2ton-exe/moris-mix-ai/issues/62#iss
 
 Attempt 1 is canonically **90s**, confirmed by independently verified GitHub job timestamps: `2026-10-29T12:00:36Z` to `2026-10-29T12:02:06Z`. Its Chromium installation took exactly **12s**, from `2026-10-29T12:00:46Z` to `2026-10-29T12:00:58Z`. An earlier live-monitoring estimate was superseded by these exact timestamps; it is not a competing measurement. The [consolidated sample](https://github.com/2ton-exe/moris-mix-ai/issues/62#issuecomment-6496396449) remains unchanged.
 
-As checked on 2026-10-29, PR #125 is open/unmerged, human review and merged-main verification remain pending, and #62 remains open. CodeRabbit's no-actionable-comments/minimal-risk review and zero open threads are review evidence, not CI or merge proof. CI #266 and modular #114 passed; staging evidence is separate from production. Path/test filtering belongs to [#124](https://github.com/2ton-exe/moris-mix-ai/issues/124), not this experiment.
+Belen / `myntchoc` approved PR #125, confirming that headless-shell installation matches Playwright's existing default headless execution and that E2E passed. PR #125 merged on 2026-10-30 at `2026-10-30T04:29:29Z` as `7278f92e0fc67348efa60a14293dcdfde9329709` (`ci(e2e): install only chromium headless shell (#125)`), the exact `main` SHA at verification. [CI #284](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41003182840) passed on that SHA: `Playwright E2E (Non-gating) / Playwright E2E Tests` passed in approximately 83s, Chromium installation took 15s, and `Run Playwright E2E against local Supabase` passed in 59s. [Modular Main Validation #16](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41003182843) also passed on the same SHA. This single merged-main verification sample is separate from the five PR after-run attempts; their 86.8s mean is unchanged and no new statistical average is calculated.
+
+CI #284's `Deploy to Supabase and Cloudflare` job passed, including production configuration validation, `recipes` Edge Function deployment and Cloudflare Worker deployment. This proves normal production deployment success after #125 merged; it does not establish post-deployment runtime smoke or independently runtime-verified production availability. PR #125 did not introduce or test PR #88's separate production runtime smoke. #62 remains open pending review and merge of the PR #126 evidence follow-up and remaining evidence work. Path/test filtering belongs to [#124](https://github.com/2ton-exe/moris-mix-ai/issues/124), not this experiment.
 
 ## 12. Outstanding Sprint 2 Metrics and Evidence
 
@@ -364,6 +366,6 @@ As checked on 2026-10-29, PR #125 is open/unmerged, human review and merged-main
 - Capture merge timestamp and confirmed production availability with revision linkage before computing average merge-to-live.
 - Establish a production change-failure-rate denominator and attributable failures; no rate is currently established.
 - Record time to recover only from a qualifying production deployment/runtime failure with defined detection/restoration endpoints. None is measured in this reviewed evidence. Secretary tooling recovery and application retries do not supply production recovery time.
-- Obtain PR #125 human review/merge and successful main execution evidence for the merged installation behavior before closing #62. Production verification remains separately scoped; a PR deployment skip is not a deployment success.
+- Obtain review and merge of the PR #126 evidence follow-up before closing #62; PR #125 human approval, merge and successful main execution are now recorded. Production runtime-smoke verification remains separately scoped under PR #88.
 - Retain future production smoke, rollback and recovery evidence under the [runbook](deployment-runbook.md), and real incidents under the [incident log](incident-log.md).
 - Complete the named course evidence inventory, including confirmation of the `PIPELINE.md` deliverable. Update these records before each consultation.
