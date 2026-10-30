@@ -292,6 +292,44 @@ Deno.test("extractRecipe honors the longest valid cooldown and still tries at mo
   assertEquals(delays, [3000]);
 });
 
+Deno.test("extractRecipe exposes the provider cooldown as retryAfterSeconds for the AI-05 client", async () => {
+  for (
+    const [retryDelay, expectedSeconds] of [
+      ["15s", 15],
+      // Just over the retry budget: still reported, rounded up to whole seconds.
+      ["5.000000001s", 6],
+      // An overflowing duration clamps to the one-hour ceiling.
+      ["9".repeat(400) + "s", 3600],
+    ] as const
+  ) {
+    const adapter = new GeminiAdapter({
+      generateText: () => Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)])),
+      log: () => {},
+      sleep: async () => {},
+    });
+
+    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+
+    assertEquals(error.code, "rate_limited");
+    assertEquals(error.retryAfterSeconds, expectedSeconds);
+  }
+});
+
+Deno.test("extractRecipe leaves retryAfterSeconds undefined without usable RetryInfo", async () => {
+  for (const errorDetails of [undefined, null, [], [null], [retryInfo("bad")], [{ "@type": "type.googleapis.com/google.rpc.Other" }]]) {
+    const adapter = new GeminiAdapter({
+      generateText: () => Promise.reject(rateLimitWithDetails(errorDetails)),
+      log: () => {},
+      sleep: async () => {},
+    });
+
+    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+
+    assertEquals(error.code, "rate_limited");
+    assertEquals(error.retryAfterSeconds, undefined);
+  }
+});
+
 Deno.test("extractRecipe does not retry unexpected local or SDK exceptions", async () => {
   for (
     const unexpected of [
