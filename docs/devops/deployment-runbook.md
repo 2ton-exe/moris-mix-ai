@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The `recipes` deployment is gated in CI, but its first production execution and CRUD smoke check remain pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The gated `recipes` deployment executed successfully on `main` in CI #284, while production runtime/CRUD smoke verification remains pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -166,7 +166,7 @@ The verified current GitHub ruleset requirements include:
 - Force pushes are blocked.
 - Branch deletion is restricted.
 
-The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. All three required validation jobs are also dependencies of production deployment in the subsequent main run.
+The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. All three required PR validation jobs are also dependencies of production deployment in the subsequent main run, alongside `test-hosted-rls`; the current production gate requires `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`.
 
 Development should take place on feature branches. Approved changes are merged into `main` through GitHub's pull request interface.
 
@@ -309,9 +309,9 @@ Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed
 | Gate Test - Intentional Database Failure | Failure by design |
 | Gate Test - Would Deploy | Skipped |
 
-The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the production deploy gate's three-dependency structure. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the historical production deploy gate's three-dependency structure in effect when PR #68 ran. The current production gate has four dependencies: `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
 
-The evidence chain is production configuration (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
+The historical evidence chain is the production configuration in effect for the PR #68 experiment (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
 
 Normal CI run #98 on the same PR completed Frontend Checks, Database Tests, and Edge/API Tests successfully; Deploy to Cloudflare was skipped because this was a PR. Run #98 is PR validation evidence, not production deployment evidence. Neither the controlled experiment nor the unusually delayed workflow runs associated with PR #68 are added to a performance baseline; no comparable-duration justification or performance optimization is claimed.
 
@@ -450,7 +450,7 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- The `recipes` deployment is configured in CI but still needs a successful main-branch execution. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
+- The gated `recipes` production deployment executed successfully on `main` in [CI #284](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41003182840) at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`: the `Deploy to Supabase and Cloudflare` job passed production configuration validation, `recipes` Edge Function deployment, and Cloudflare Worker deployment. Production runtime/CRUD smoke verification remains pending under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61); CI #284 did not perform PR #88's separate post-deployment runtime smoke.
 - A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
