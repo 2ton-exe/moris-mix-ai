@@ -17,7 +17,11 @@ export const EVALUATION_DATASET_VERSION = "2.0.0";
 export type ExtractionExpectation =
   | {
     kind: "parses";
-    /** Ingredient names that must appear in the parsed result (case-insensitive substring). */
+    /**
+     * Ingredient names that must appear in the parsed result (case-insensitive
+     * substring). An empty list asserts the parsed recipe has no ingredients,
+     * which is what the injection-resilience case expects.
+     */
     ingredientNames: string[];
     /** Names that must carry a vague amount: null quantity, text, inferred true. */
     vagueIngredientNames?: string[];
@@ -311,7 +315,7 @@ export const EXTRACTION_EVAL_CASES: ExtractionEvalCase[] = [
     id: "test-08-messy-multiline-notes",
     category: "messy-notes",
     rawInput:
-      "MOM'S ADOBO!!!\n\n- 1kg pork belly\n- soy sauce (she said 'just pour some')\n- 5 cloves garlic!!\n- 2 bay leaves\n\nSimmer 40 mins, serve w/ rice.",
+      "MOM'S ADOBO!!!\n\n- 1kg pork belly\n- soy sauce (she said 'just pour some')\n- 5 cloves garlic!!\n- 2 bay leaves\n\nSimmer 40 mins, serve w/ rice 🍚",
     providerOutput: json({
       title: "Adobo",
       ingredients: [

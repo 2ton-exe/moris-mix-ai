@@ -66,10 +66,17 @@ Deno.test("extraction evaluation fixtures meet their declared expectations offli
       );
       assertEquals(error.code, testCase.expect.errorCode, testCase.id);
       assertEquals(error.detail, testCase.expect.detail, testCase.id);
+      assertEquals(error.retryable, false, `${testCase.id}: invalid output must not be retried`);
       continue;
     }
 
     const recipe = parseExtractionResponse(testCase.providerOutput);
+
+    // An empty expectation means the recipe must have no ingredients, so an
+    // injected ingredient cannot slip through as an unchecked extra.
+    if (testCase.expect.ingredientNames.length === 0) {
+      assertEquals(recipe.ingredients.length, 0, `${testCase.id}: expected no ingredients`);
+    }
 
     for (const expectedName of testCase.expect.ingredientNames) {
       const found = recipe.ingredients.some((ingredient) =>
