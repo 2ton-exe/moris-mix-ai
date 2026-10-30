@@ -179,12 +179,19 @@ test('failed/cancelled/skipped gating dependencies block both callers; E2E remai
 });
 
 test('single release body preserves order, explicit targets, smoke, evidence and lock', () => {
-  const baseline = spawnSync('git', ['show', 'c7b1bc7147e0d747535e7be46fc760f60e0da757:.github/workflows/ci.yml'], { encoding: 'utf8' });
-  assert.equal(baseline.status, 0);
-  const previous = load(baseline.stdout).jobs.deploy;
-  assert.deepEqual(release.steps.filter(s => s.name !== 'Verify production ownership'), previous.steps);
-  assert.deepEqual(release.env, previous.env);
-  const ordered = ['Validate production deployment configuration', 'Build frontend', 'Deploy recipes Edge Function',
+  // Assert the release contract from this checkout; CI need not have Git history.
+  assert.deepEqual(release.env, {
+    VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
+    VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
+    VITE_SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
+    SMOKE_ENVIRONMENT: 'production',
+    SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
+    SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
+    SMOKE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+    SMOKE_PUBLIC_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}',
+    SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
+  });
+  const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
     'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Production runtime smoke'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
@@ -195,13 +202,46 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const commands = release.steps.map(s => s.run ?? '').join('\n');
   assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes']);
   assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
-  assert.match(step(release, 'Deploy recipes Edge Function').run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  const configuration = step(release, 'Validate production deployment configuration');
+  assert.deepEqual(configuration.env, {
+    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+  });
+  assert.match(configuration.run, /configuration\(process\.env\)/);
+  const install = step(release, 'Install frontend dependencies');
+  assert.equal(install['working-directory'], 'frontend');
+  assert.equal(install.run, 'pnpm install --frozen-lockfile');
+  const build = step(release, 'Build frontend');
+  assert.equal(build['working-directory'], 'frontend');
+  assert.equal(build.run, 'pnpm build');
+  const recipes = step(release, 'Deploy recipes Edge Function');
+  assert.equal(recipes.id, 'deploy-recipes');
+  assert.equal(recipes['working-directory'], 'frontend');
+  assert.deepEqual(recipes.env, configuration.env);
+  assert.match(recipes.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipes/);
+  assert.match(recipes.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
+  assert.match(recipes.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  assert.equal(step(release, 'Deploy to Cloudflare Workers').id, 'deploy-cloudflare');
+  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@v3');
   assert.equal(step(release, 'Deploy to Cloudflare Workers').with.command, 'deploy --config wrangler.jsonc');
+  const verify = step(release, 'Verify production deployment URL');
+  assert.equal(verify.id, 'verify-deployment');
+  assert.equal(verify.env.DEPLOYMENT_URL, '${{ steps.deploy-cloudflare.outputs.deployment-url }}');
+  assert.match(verify.run, /"\$\{DEPLOYMENT_URL%\/\}" != "\$\{SMOKE_FRONTEND_URL%\/\}"/);
+  assert.equal(step(release, 'Production runtime smoke').id, 'runtime-smoke');
   assert.equal(step(release, 'Production runtime smoke').run, 'node scripts/runtime-smoke.mjs');
+  assert.equal(step(release, 'Production runtime smoke').env.SMOKE_DEPLOYMENT_OUTCOME, '${{ steps.deploy-cloudflare.outcome }}');
   for (const name of ['Record production deployment and runtime outcomes', 'Preserve production runtime evidence']) {
     assert.equal(step(release, name).if, 'always()');
   }
+  assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
+    RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    CLOUDFLARE_OUTCOME: '${{ steps.deploy-cloudflare.outcome }}',
+    URL_OUTCOME: '${{ steps.verify-deployment.outcome }}',
+    SMOKE_OUTCOME: '${{ steps.runtime-smoke.outcome }}',
+  });
   const artifact = step(release, 'Preserve production runtime evidence');
+  assert.equal(artifact.uses, 'actions/upload-artifact@v4');
   assert.equal(artifact.with.path, 'runtime-smoke.json');
   assert.equal(artifact.with.name, 'production-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}');
   assert.equal(artifact.with['if-no-files-found'], 'warn');
@@ -214,16 +254,20 @@ test('single release body preserves order, explicit targets, smoke, evidence and
 });
 
 test('main validation covers current authoritative Edge/API targets and mandatory hosted RLS', () => {
-  const baseline = spawnSync('git', ['show', 'c7b1bc7147e0d747535e7be46fc760f60e0da757:.github/workflows/reusable-edge-api.yml'], { encoding: 'utf8' });
-  assert.equal(baseline.status, 0);
-  assert.deepEqual(edge.jobs['test-edge-api'], load(baseline.stdout).jobs['test-edge-api']);
   assert.equal(main.jobs['test-edge-api'].with['require-hosted-rls'], true);
   assert.equal(edge.on.workflow_call.inputs['require-hosted-rls'].default, false);
+  assert.equal(workflow('modular-pr-validation').jobs['test-edge-api'].with?.['require-hosted-rls'] ?? false, false);
   for (const name of ['Type-check Edge Function and tests', 'Run deterministic Edge/API tests']) {
     const current = step(ci.jobs['test-edge-api'], name).run.split(/\s+/).filter(s => s.startsWith('supabase/'));
     const reusable = step(edge.jobs['test-edge-api'], name).run.split(/\s+/);
     for (const target of current) assert.ok(reusable.includes(target), target);
     assert.ok(current.some(s => s.includes('extract_recipe_test.ts')));
+    assert.ok(reusable.includes('supabase/functions/tests/extract_recipe_test.ts'));
+    assert.ok(reusable.includes('supabase/functions/tests/recipe_image_schemas_test.ts'));
+    if (name.startsWith('Type-check')) {
+      assert.ok(reusable.includes('supabase/functions/extract-recipe/index.ts'));
+      assert.ok(reusable.includes('supabase/functions/_shared/recipe-images/schemas.ts'));
+    }
     const extras = reusable.filter(s => s.startsWith('supabase/') && !current.includes(s));
     assert.deepEqual(extras, name.startsWith('Type-check')
       ? ['supabase/functions/_shared/recipe-images/schemas.ts', 'supabase/functions/tests/recipe_image_schemas_test.ts']
@@ -231,6 +275,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
   }
   const hosted = edge.jobs['test-hosted-rls'];
   assert.equal(hosted.needs, 'test-edge-api');
+  assert.notEqual(hosted['continue-on-error'], true);
   assert.match(hosted.if, /inputs.require-hosted-rls/);
   assert.deepEqual(hosted.steps, ci.jobs['test-hosted-rls'].steps);
   assert.equal(step(workflow('reusable-frontend').jobs.frontend, 'Test runtime smoke verifier (offline)').run,
