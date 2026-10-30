@@ -70,6 +70,8 @@ function createFetchMock(
     authRetryAfter?: string;
     usageCount?: number;
     usageError?: boolean;
+    /** Raw PostgREST payload, so tests can simulate a missing or malformed row. */
+    usageRow?: unknown;
   } = {},
 ): { fetchImpl: typeof fetch; requests: RecordedRequest[] } {
   const requests: RecordedRequest[] = [];
@@ -139,9 +141,14 @@ function createFetchMock(
         );
       }
       const count = options.usageCount ?? 0;
+      const payload = options.usageRow !== undefined
+        ? options.usageRow
+        : count > 0
+        ? [{ operation_count: count }]
+        : [];
       return Promise.resolve(
         new Response(
-          JSON.stringify(count > 0 ? [{ operation_count: count }] : []),
+          JSON.stringify(payload),
           { status: 200, headers: jsonHeaders() },
         ),
       );
@@ -817,6 +824,78 @@ Deno.test("Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and neve
   assertNoDatabaseWrites(requests);
 });
 
+Deno.test("QUOTA_EXCEEDED keeps the full wait until the UTC reset instead of capping it at one hour", async () => {
+  const cases: Array<{ retryAfterSeconds: number; expected: string }> = [
+    // 08:00 UTC is 16 hours from the reset; the old provider cap returned "3600".
+    { retryAfterSeconds: 57_600, expected: "57600" },
+    { retryAfterSeconds: 1, expected: "1" },
+    { retryAfterSeconds: 60, expected: "60" },
+    { retryAfterSeconds: 24 * 60 * 60, expected: "86400" },
+    // Anything beyond a day is clamped to a day.
+    { retryAfterSeconds: 90_000, expected: "86400" },
+  ];
+
+  for (const testCase of cases) {
+    const { fetchImpl } = createFetchMock();
+    let providerCalled = false;
+
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerThrowing(new Error("must not run"), () => {
+          providerCalled = true;
+        }),
+        quotaCheck: () =>
+          Promise.resolve({
+            status: "exceeded",
+            limit: 20,
+            used: 20,
+            retryAfterSeconds: testCase.retryAfterSeconds,
+          }),
+      },
+    );
+
+    assertEquals(res.status, 429);
+    assertEquals(res.headers.get("retry-after"), testCase.expected);
+    assertEquals(providerCalled, false);
+  }
+});
+
+Deno.test("Invalid quota retry delays fall back to the real time until the next UTC reset", async () => {
+  for (const invalid of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const { fetchImpl } = createFetchMock();
+    const before = secondsUntilNextUtcDay();
+
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerThrowing(new Error("must not run")),
+        quotaCheck: () =>
+          Promise.resolve({
+            status: "exceeded",
+            limit: 20,
+            used: 20,
+            retryAfterSeconds: invalid,
+          }),
+      },
+    );
+
+    const after = secondsUntilNextUtcDay();
+    const retryAfter = Number(res.headers.get("retry-after"));
+    assertEquals(res.status, 429);
+    // Never the 30-second provider fallback; always a bounded day-scale wait.
+    assertEquals(Number.isSafeInteger(retryAfter), true);
+    assertEquals(retryAfter >= Math.min(before, after), true);
+    assertEquals(retryAfter <= Math.max(before, after), true);
+  }
+});
+
 Deno.test("The default quota gate reads the daily counter and blocks at the configured limit", async () => {
   for (const [usageCount, expectedStatus] of [[0, 200], [19, 200], [20, 429], [25, 429]] as const) {
     const { fetchImpl, requests } = createFetchMock({ usageCount });
@@ -839,6 +918,54 @@ Deno.test("The default quota gate reads the daily counter and blocks at the conf
     const restCalls = requests.filter((request) => request.path.startsWith("/rest/"));
     assertEquals(restCalls.length, 1);
     assertEquals(restCalls[0].method, "GET");
+    assertNoDatabaseWrites(requests);
+  }
+});
+
+Deno.test("A missing usage row allows zero usage, but a malformed counter fails closed", async () => {
+  for (const usageRow of [[], null]) {
+    const { fetchImpl } = createFetchMock({ usageRow });
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+      },
+    );
+    assertEquals(res.status, 200);
+  }
+
+  const malformedRows: unknown[] = [
+    [{ operation_count: "20" }],
+    [{ operation_count: -1 }],
+    [{ operation_count: 1.5 }],
+    [{ operation_count: null }],
+    [{}],
+    [null],
+    { operation_count: "20" },
+  ];
+
+  for (const usageRow of malformedRows) {
+    const { fetchImpl, requests } = createFetchMock({ usageRow });
+    let providerCalled = false;
+
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerThrowing(new Error("must not run"), () => {
+          providerCalled = true;
+        }),
+      },
+    );
+
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).error?.code, "QUOTA_UNAVAILABLE");
+    assertEquals(providerCalled, false);
     assertNoDatabaseWrites(requests);
   }
 });
@@ -882,6 +1009,8 @@ Deno.test("utcDateString and secondsUntilNextUtcDay are UTC-based and bounded", 
   assertEquals(justBeforeMidnight, 1);
   const midday = secondsUntilNextUtcDay(new Date("2026-10-29T12:00:00.000Z"));
   assertEquals(midday, 12 * 60 * 60);
+  const earlyMorning = secondsUntilNextUtcDay(new Date("2026-10-29T08:00:00.000Z"));
+  assertEquals(earlyMorning, 16 * 60 * 60);
 });
 
 Deno.test("A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never calls the provider", async () => {
@@ -928,7 +1057,22 @@ Deno.test("Provider failures map to safe, recoverable errors without leaking det
       retryAfterSeconds: 42,
       expectedRetryAfter: "42",
     },
+    // Provider cooldowns stay capped at one hour, unlike daily-quota waits.
+    {
+      code: "rate_limited",
+      status: 429,
+      expectedCode: "AI_RATE_LIMITED",
+      retryAfterSeconds: 7_200,
+      expectedRetryAfter: "3600",
+    },
     { code: "rate_limited", status: 429, expectedCode: "AI_RATE_LIMITED", expectedRetryAfter: "30" },
+    {
+      code: "rate_limited",
+      status: 429,
+      expectedCode: "AI_RATE_LIMITED",
+      retryAfterSeconds: 0,
+      expectedRetryAfter: "30",
+    },
     { code: "internal_error", status: 500, expectedCode: "INTERNAL_ERROR" },
   ];
 

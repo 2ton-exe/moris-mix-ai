@@ -70,7 +70,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 404  | `NOT_FOUND`            | Unknown path | no |
 | 405  | `METHOD_NOT_ALLOWED`   | Method other than `POST`/`OPTIONS` | no |
 | 413  | `INPUT_TOO_LARGE`      | `notes` > 10,000 chars, or body > 128 KiB | no |
-| 429  | `QUOTA_EXCEEDED`       | Daily per-user AI limit reached (AI-17) | seconds until the UTC reset |
+| 429  | `QUOTA_EXCEEDED`       | Daily per-user AI limit reached (AI-17) | seconds until the UTC reset, up to `86400` |
 | 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown, else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
@@ -88,6 +88,11 @@ cooldown was longer than the adapter's 5-second budget. Either way the client sh
 off for the full `Retry-After`: the provider's own cooldown when it named one, otherwise
 `30` seconds.
 
+The two `429`s have different horizons. `AI_RATE_LIMITED` is a provider cooldown and is
+capped at **3,600 seconds**. `QUOTA_EXCEEDED` is a daily reset and is **not** capped at an
+hour: it reports the real seconds until 00:00 UTC (up to `86400`). A client that retries a
+daily-quota `429` after an hour will simply be rejected again.
+
 ### Quota (AI-17)
 
 Quota is checked **before** the provider call. The default gate reads the caller's
@@ -96,6 +101,12 @@ Quota is checked **before** the provider call. The default gate reads the caller
 endpoint cannot write usage). The limit is `AI_DAILY_LIMIT` (default **20**; a blank,
 non-numeric, or `< 1` value falls back to 20). A read failure fails closed as
 `503 QUOTA_UNAVAILABLE`.
+
+The gate distinguishes **no row** from **an unusable counter**. No row means the user has
+no recorded usage today and is allowed with `used: 0`. If a row exists but
+`operation_count` is missing or not a non-negative safe integer, usage is unknown and the
+gate fails closed as `503 QUOTA_UNAVAILABLE` rather than assuming zero — a corrupted
+counter must never unlock unmetered provider calls.
 
 Counting/consumption is owned by **BE-12** (issue #100). AI-05 exposes the boundary as
 an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12 replaces the

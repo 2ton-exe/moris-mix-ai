@@ -87,8 +87,18 @@ export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
     return { status: "unavailable", limit };
   }
 
-  const row = Array.isArray(data) ? data[0] : data;
-  const used = readOperationCount(row) ?? 0;
+  // Only an empty result means "no usage recorded yet". A row that exists but
+  // carries an unusable counter leaves usage unknown, so fail closed instead of
+  // treating it as zero and handing out an unmetered provider call.
+  const rows = Array.isArray(data) ? data : data === null || data === undefined ? [] : [data];
+  if (rows.length === 0) {
+    return { status: "allowed", limit, used: 0 };
+  }
+
+  const used = readOperationCount(rows[0]);
+  if (used === null) {
+    return { status: "unavailable", limit };
+  }
 
   if (used >= limit) {
     return { status: "exceeded", limit, used, retryAfterSeconds: secondsUntilNextUtcDay() };

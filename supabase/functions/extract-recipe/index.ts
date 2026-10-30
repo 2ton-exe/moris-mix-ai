@@ -7,7 +7,7 @@ import {
 } from "../_shared/schemas.ts";
 import type { AIProvider } from "../_shared/ai/AIProvider.ts";
 import { AIError, type AIErrorCode, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
-import { checkDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
+import { checkDailyQuota, type QuotaCheck, secondsUntilNextUtcDay } from "../_shared/ai/quota.ts";
 
 export type ExtractRecipeDeps = AuthDeps & {
   /** Injected provider (tests/dev). Production builds the real Gemini adapter. */
@@ -43,6 +43,9 @@ export const EXTRACT_DISABLED_ENV = "AI_EXTRACT_DISABLED";
 
 /** Used when the provider rate-limits us without naming a cooldown. */
 const DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS = 30;
+
+/** A quota wait is at most one UTC day, unlike a provider cooldown. */
+const MAX_QUOTA_RETRY_AFTER_SECONDS = 24 * 60 * 60;
 
 export type ExtractRecipeErrorCode =
   | "INVALID_JSON"
@@ -233,12 +236,24 @@ function resolveProvider(deps: ExtractRecipeDeps): AIProvider {
   return deps.provider ?? simulationProvider() ?? new GeminiAdapter();
 }
 
-/** Rounds valid cooldowns up to seconds, caps them at one hour and defaults invalid values to 30. */
+/** Rounds valid provider cooldowns up to seconds, caps them at one hour and defaults invalid values to 30. */
 function normalizeRetryAfterSeconds(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
     return DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS;
   }
   return Math.min(3600, Math.ceil(value));
+}
+
+/**
+ * Daily quota resets can be almost 24 hours away, so the provider one-hour cap
+ * must not apply. Invalid injected values fall back to the real time until the
+ * next UTC midnight; otherwise the wait is rounded up and capped at one day.
+ */
+function normalizeQuotaRetryAfterSeconds(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    return secondsUntilNextUtcDay();
+  }
+  return Math.min(MAX_QUOTA_RETRY_AFTER_SECONDS, Math.ceil(value));
 }
 
 /** Maps a typed provider failure to a safe HTTP response, adding a cooldown for rate limits. */
@@ -387,7 +402,7 @@ export async function handler(
         "QUOTA_EXCEEDED",
         "Daily AI usage limit reached. Please try again after the quota resets.",
         429,
-        { "Retry-After": String(normalizeRetryAfterSeconds(quota.retryAfterSeconds)) },
+        { "Retry-After": String(normalizeQuotaRetryAfterSeconds(quota.retryAfterSeconds)) },
       );
     }
 
