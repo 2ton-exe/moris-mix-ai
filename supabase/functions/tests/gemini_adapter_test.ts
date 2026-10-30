@@ -673,11 +673,12 @@ Deno.test("generateRecipe uses the Chef prompt, candidate IDs and validated outp
   assert(prompt.includes(`[ID: ${PARENT_ID}]`));
   assert(prompt.includes("Available pantry ingredients: rice, eggs"));
   assert(prompt.includes("User preferences: quick weeknight dinner"));
+  assert(prompt.includes('Respect the "User preferences" line'));
 
   assertEquals(logs.length, 1);
   assertEquals(logs[0].op, "generate");
   assertEquals(logs[0].promptId, "chef");
-  assertEquals(logs[0].promptVersion, "1.0.0");
+  assertEquals(logs[0].promptVersion, "1.1.0");
   assertFalse(JSON.stringify(logs).includes("Egg Fried Rice"));
 });
 
@@ -754,6 +755,27 @@ Deno.test("generateRecipe rejects malformed output without retrying", async () =
   );
 
   assertEquals(error.code, "invalid_output");
+  assertEquals(calls, 1);
+});
+
+Deno.test("generateRecipe rejects an orphan substitution without retrying", async () => {
+  let calls = 0;
+  const adapter = adapterWith(async () => {
+    calls += 1;
+    return JSON.stringify({
+      ...VALID_GENERATED,
+      substitutions: [{ original: "quinoa", replacement: "rice" }],
+    });
+  });
+
+  const error = await assertRejects(
+    () => adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    AIError,
+  );
+
+  assertEquals(error.code, "invalid_output");
+  assertEquals(error.detail, "substitutions.0.original");
+  assertEquals(error.retryable, false);
   assertEquals(calls, 1);
 });
 

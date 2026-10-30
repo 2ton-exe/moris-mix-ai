@@ -1065,6 +1065,13 @@ Deno.test("Malformed provider output is rejected before the frontend sees it", a
       },
       label: "blank replacement",
     },
+    {
+      generated: {
+        ...COLD_START_GENERATED,
+        substitutions: [{ original: "quinoa", replacement: "rice" }],
+      },
+      label: "orphan substitution",
+    },
     { generated: { ...COLD_START_GENERATED, parentRecipeIds: ["not-a-uuid"] }, label: "non-uuid parent" },
   ];
 

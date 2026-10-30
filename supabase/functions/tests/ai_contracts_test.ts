@@ -54,6 +54,19 @@ Deno.test("GeneratedRecipeSchema requires an explicit substitutions array", () =
   });
 });
 
+Deno.test("GeneratedRecipeSchema rejects a substitution that names no generated ingredient", () => {
+  assertThrows(() =>
+    GeneratedRecipeSchema.parse({
+      recipe: MOCK_EXTRACTED_RECIPE,
+      substitutions: [{ original: "quinoa", replacement: "rice" }],
+      parentRecipeIds: [],
+    })
+  );
+
+  const parsed = GeneratedRecipeSchema.parse(MOCK_GENERATED_RECIPE);
+  assertEquals(parsed.substitutions[0].original, "soy sauce");
+});
+
 Deno.test("GenerateRecipeRequestSchema trims pantry items and enforces the input caps", () => {
   const parsed = GenerateRecipeRequestSchema.parse({
     pantryItems: ["  chicken  ", "rice"],

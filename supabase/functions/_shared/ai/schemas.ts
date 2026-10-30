@@ -77,6 +77,20 @@ export const GeneratedRecipeSchema = z.object({
   recipe: ExtractedRecipeSchema,
   substitutions: z.array(SubstitutionSchema),
   parentRecipeIds: z.array(z.string().uuid())
+}).superRefine((value, ctx) => {
+  // The prompt requires an exact match, and the UI renders a substitution
+  // against its ingredient. Enforce it instead of trusting the model: an
+  // orphan substitution is invalid output, not a preview the user can use.
+  const ingredientNames = new Set(value.recipe.ingredients.map((ingredient) => ingredient.name));
+  value.substitutions.forEach((substitution, index) => {
+    if (!ingredientNames.has(substitution.original)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["substitutions", index, "original"],
+        message: "Substitution.original must name an ingredient in the generated recipe."
+      });
+    }
+  });
 });
 
 /**

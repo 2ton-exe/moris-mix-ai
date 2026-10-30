@@ -13,7 +13,7 @@ Status: **AI-06 (Sprint 3)**. Both AI endpoints are implemented and tested:
 | Endpoint | Purpose | Prompt | Opt-in switch |
 | -------- | ------- | ------ | ------------- |
 | `POST /extract-recipe` | Brain-dump → structured recipe preview | `extraction@1.0.0` | `AI_EXTRACT_ENABLED` |
-| `POST /generate-recipe` | Pantry + retrieved recipes → unsaved Chef preview | `chef@1.0.0` | `AI_GENERATE_ENABLED` |
+| `POST /generate-recipe` | Pantry + retrieved recipes → unsaved Chef preview | `chef@1.1.0` | `AI_GENERATE_ENABLED` |
 
 ## `POST /extract-recipe`
 
@@ -166,7 +166,8 @@ POST, OPTIONS`). Any other method → `405 METHOD_NOT_ALLOWED`.
 The whole request body must be **≤ 128 KiB**. Unknown fields are ignored. Pantry items
 are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval and the
 prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved
-recipes to retrieve**, not an empty request.
+recipes to retrieve**, not an empty request. Preferences are passed to the prompt as
+recipe constraints (dietary needs, exclusions, taste, time), never as instructions.
 
 ### Success response — `200 OK`
 
@@ -193,7 +194,9 @@ recipes to retrieve**, not an empty request.
 
 - `recipe` matches `ExtractedRecipeSchema`; `substitutions` matches `SubstitutionSchema`
   (`original` names an ingredient in the generated recipe, `replacement` is an
-  alternative, `reason` is optional and user-safe).
+  alternative, `reason` is optional and user-safe). The backend **enforces** the
+  `original` ↔ ingredient match: an orphan substitution is `502 AI_OUTPUT_INVALID`,
+  never a preview with an unmatched substitution.
 - `parents` are **resolved summaries** of the model's `parentRecipeIds`, so the frontend
   never needs a recipe lookup. They are always inside the backend-supplied candidate set.
 - `context.status` is one of `MATCHED`, `NO_PANTRY_OVERLAP` (saved recipes exist but none
@@ -211,13 +214,15 @@ unchanged, with these generation-specific notes:
 | HTTP | `error.code` | When |
 | ---- | ------------ | ---- |
 | 400  | `VALIDATION_ERROR` | Pantry missing/empty/oversized, too many items, or preferences too long |
-| 502  | `AI_OUTPUT_INVALID` | Output failed Zod validation **or a `parentRecipeIds` entry was not in the supplied candidate set** (AI-07 generation boundary) |
+| 502  | `AI_OUTPUT_INVALID` | Output failed Zod validation, **a `parentRecipeIds` entry was not in the supplied candidate set** (AI-07 generation boundary), or a substitution's `original` names no generated ingredient |
 | 503  | `AI_DISABLED` | Generation is not enabled, or the operator kill switch is on |
 
 An invented, foreign, or malformed parent ID is a **hard `502`**, never a silent drop:
 silently ignoring it could hide a prompt-injection attempt. The adapter and the endpoint
 both re-validate; the endpoint also re-resolves every ID against the retrieved candidates
-because AI-10 treats every provider as untrusted.
+because AI-10 treats every provider as untrusted. The same rule applies to a substitution
+whose `original` does not match a generated ingredient name: the schema rejects it, so the
+UI can never render a substitution with no ingredient to attach it to.
 
 ### Switches (AI-06)
 
@@ -272,9 +277,10 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
 
 - Adapter: `GeminiAdapter` (`supabase/functions/_shared/ai/GeminiAdapter.ts`).
 - Model: `AI_MODEL` env override, otherwise the pinned `gemini-3.5-flash-lite`.
-- Prompts: versioned templates `extraction@1.0.0` and `chef@1.0.0`
+- Prompts: versioned templates `extraction@1.0.0` and `chef@1.1.0`
   (`supabase/functions/_shared/ai/prompts.ts`). The Chef prompt treats the retrieved
-  context block as data, so a recipe title or instruction cannot act as an instruction.
+  context block as data, so a recipe title or instruction cannot act as an instruction,
+  and it treats the preferences line strictly as recipe constraints.
 - JSON mode is requested but not trusted — output is parsed and Zod-validated twice
   (adapter, then endpoint). The Chef adapter additionally rejects parent IDs outside the
   supplied candidate set.
