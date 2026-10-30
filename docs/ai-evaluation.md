@@ -14,22 +14,27 @@ so an expectation here can never drift from the code that serves users.
 ## Dataset
 
 - File: `supabase/functions/_shared/ai/eval_dataset.ts`
-- Version: `EVALUATION_DATASET.version` (`2.0.0`). Bump it whenever a case is
+- Version: `EVALUATION_DATASET.version` (`2.1.0`). Bump it whenever a case is
   added, removed, or changes its expectation.
 - Everything is **synthetic**: invented notes, invented recipes, invented IDs.
   Never put real user data, tokens, or secrets in this file.
 
 | Suite | Cases | Covers |
 | ----- | ----- | ------ |
-| `extraction` | Happy path, ambiguous quantities (`"a handful"`, `"a splash"`), messy notes (bullets, all-caps, emoji), safety refusal, injection resilience, fenced JSON, null optionals, and malformed model output (negative quantity, non-sequential steps, non-JSON, wrong types) | AI-04/AI-06 input caps and AI-10 output validation |
+| `extraction` | Happy path, ambiguous quantities (`"a handful"`, `"a splash"`), messy notes (bullets, all-caps, emoji), safety-blocked/empty output and injection-shaped input (parser contract only), fenced JSON, null optionals, and malformed model output (negative quantity, non-sequential steps, non-JSON, wrong types) | AI-04/AI-06 input caps and AI-10 output validation |
 | `generation` | Matched context, cold start, no pantry overlap, foreign parent ID, orphan substitution, malformed output, invalid flavor score, fenced JSON | AI-06/AI-13 generation contract |
-| `providerFailures` | `429` with and without `RetryInfo`, `5xx`, `408`, permanent `403`, transport failure, abort | AI-18 bounded retry and the documented recoverable errors |
+| `providerFailures` | `429` with and without `RetryInfo`, `5xx`, `408`, permanent `403`, a permanent safety-block rejection, transport failure, abort | AI-18 bounded retry and the documented recoverable errors |
 
 Each case declares its expected outcome. Valid cases must parse and satisfy
-checkable properties (expected ingredient names, vague amounts kept as
-`quantityText`, flavor-score presence, parent IDs, substitution originals).
-Invalid cases must fail with the exact `AIError` code and field path, and must
-never be retried.
+checkable properties (expected ingredient names, exact amounts supported by the
+source notes, vague amounts kept as `quantityText`, flavor-score presence,
+parent IDs, substitution originals). Two invariants keep the baseline honest:
+every declared exact amount must appear with the declared unit and `inferred`
+flag, and **any** numeric amount the case did not declare fails the suite —
+so an invented quantity cannot pass as valid extraction. Chef candidates must
+also match BE-10's own `computeIngredientOverlap` math for `overlap_ratio` and
+`matched_ingredients`. Invalid cases must fail with the exact `AIError` code and
+field path, and must never be retried.
 
 ## Run the offline acceptance suite
 
@@ -72,6 +77,13 @@ to spot-check model quality before consultation or Demo Day, not in CI.
   separately (see AI-09's evaluation report).
 - Fixtures are English-only and use a small synthetic recipe vocabulary.
 - The provider-failure suite exercises the adapter's classification and retry
-  rules, not Gemini's real failure distribution.
+  rules, not Gemini's real failure distribution. `pf-08` models a permanent
+  safety-block rejection as the adapter sees it (a non-retryable `4xx`); the
+  real provider shape is verified by live runs.
+- The `safety` and `injection` extraction cases verify **parser contracts**
+  against predetermined provider output: a blocked/empty response must become a
+  safe non-retryable error, and an injection that yields an empty recipe must
+  stay empty. They are not evidence that the live model resists jailbreaks or
+  blocks harmful requests — that belongs to AI-09's live measurement.
 - Ingredient expectations are substring checks, so a renamed but semantically
   equal ingredient can still pass; the prompt, not the fixture, owns wording.

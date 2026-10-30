@@ -12,6 +12,7 @@ import {
   ChefRecipeContextResultSchema,
   MAX_EXTRACTION_INPUT_CHARS,
 } from "../_shared/ai/schemas.ts";
+import { computeIngredientOverlap, normalizePantryItems } from "../_shared/ai/recipeContext.ts";
 
 /**
  * AI-08: the deterministic half of the evaluation. Every check here runs the
@@ -47,6 +48,23 @@ Deno.test("EVALUATION_DATASET is versioned, uniquely identified and within the r
     assert(input.success, `${testCase.id}: pantry input violates the Chef request caps`);
     const context = ChefRecipeContextResultSchema.safeParse(testCase.context);
     assert(context.success, `${testCase.id}: context violates ChefRecipeContextResultSchema`);
+
+    // Fixture candidates must match BE-10's own ranking math, or the suite
+    // would encode a context the backend could never produce.
+    const pantrySet = new Set(normalizePantryItems(testCase.context.pantryItems));
+    for (const candidate of testCase.context.recipes) {
+      const overlap = computeIngredientOverlap(candidate.ingredients, pantrySet);
+      assertEquals(
+        candidate.overlap_ratio,
+        overlap.ratio,
+        `${testCase.id}: ${candidate.id} overlap_ratio must match BE-10`,
+      );
+      assertEquals(
+        candidate.matched_ingredients,
+        overlap.matchedIngredients,
+        `${testCase.id}: ${candidate.id} matched_ingredients must match BE-10`,
+      );
+    }
   }
 
   for (const testCase of EVALUATION_DATASET.providerFailures) {
@@ -96,6 +114,29 @@ Deno.test("extraction evaluation fixtures meet their declared expectations offli
         `${testCase.id}: ${vagueName} must keep the vague wording`,
       );
       assertEquals(ingredient.inferred, true, `${testCase.id}: ${vagueName} inferred`);
+    }
+
+    for (const exact of testCase.expect.exactAmounts ?? []) {
+      const ingredient = recipe.ingredients.find((item) =>
+        item.name.toLowerCase().includes(exact.name.toLowerCase())
+      );
+      assert(
+        ingredient !== undefined,
+        `${testCase.id}: missing exact-amount ingredient "${exact.name}"`,
+      );
+      assertEquals(ingredient.quantity, exact.quantity, `${testCase.id}: ${exact.name} quantity`);
+      assertEquals(ingredient.unit, exact.unit, `${testCase.id}: ${exact.name} unit`);
+      assertEquals(ingredient.inferred, exact.inferred, `${testCase.id}: ${exact.name} inferred`);
+    }
+
+    // A numeric amount the source notes never stated would be an invented
+    // quantity, so every non-null quantity must be declared above.
+    for (const ingredient of recipe.ingredients) {
+      if (ingredient.quantity === null) continue;
+      const declared = (testCase.expect.exactAmounts ?? []).some((exact) =>
+        ingredient.name.toLowerCase().includes(exact.name.toLowerCase())
+      );
+      assert(declared, `${testCase.id}: undeclared quantity for "${ingredient.name}"`);
     }
 
     if (testCase.expect.flavorScores === "required") {
