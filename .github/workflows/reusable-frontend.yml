@@ -51,6 +51,12 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Test runtime smoke verifier (offline)
+        run: node --test scripts/runtime-smoke.test.mjs
+
+      - name: Test production workflow safety (offline)
+        run: node --test scripts/production-workflow.test.mjs
+
       - name: Run lint
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
