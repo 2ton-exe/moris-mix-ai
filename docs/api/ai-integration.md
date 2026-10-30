@@ -83,7 +83,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
-| 503  | `AI_DISABLED`          | Extraction is not enabled, or the operator kill switch is on | no |
+| 503  | `AI_DISABLED`          | The endpoint's opt-in is off, or its operator kill switch is on | no |
 | 503  | `AUTH_SERVICE_RATE_LIMITED` | Supabase Auth rate-limited the token check | auth service cooldown, if it sent one |
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
@@ -115,9 +115,9 @@ no recorded usage today and is allowed with `used: 0`. If a row exists but
 gate fails closed as `503 QUOTA_UNAVAILABLE` rather than assuming zero — a corrupted
 counter must never unlock unmetered provider calls.
 
-Counting/consumption is owned by **BE-12** (issue #100). AI-05 exposes the boundary as
-an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12 replaces the
-default with atomic accounting without changing the handler.
+Counting/consumption is owned by **BE-12** (issue #100). Both endpoints expose the
+boundary as an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12
+replaces the default with atomic accounting without changing either handler.
 
 **Disabled by default until BE-12 lands.** AI-05 must never write (extraction is a
 read-only preview), so the default gate can only observe usage already recorded by a

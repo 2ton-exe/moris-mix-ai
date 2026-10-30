@@ -516,5 +516,9 @@ export function formatChefRecipeContextForPrompt(context: ChefRecipeContextResul
     }
   }
 
-  return parts.join("\n\n");
+  // The Chef prompt fences this block with triple quotes. Pantry items, titles
+  // and instructions are user data, so escape any triple-quote run to stop user
+  // text from closing the fence early. The prompt still instructs the model to
+  // treat the whole block as data; this is defense in depth, not the only guard.
+  return parts.join("\n\n").replaceAll('"""', '\\"\\"\\"');
 }
