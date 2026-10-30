@@ -318,11 +318,19 @@ content, not independent runtime-observed frontend source provenance. Exact
 provenance would require separate design, such as an embedded build revision,
 build metadata endpoint, or artifact fingerprint/digest; none is implemented here.
 
-Issue #61 remains incomplete: production runtime smoke after merge has not yet
-executed. Deployment success does not establish production runtime verification.
-Production runtime smoke after merge, production `demo-recipe` revision
-evidence/configuration, and broader
-authenticated CRUD/runtime journeys remain pending; see the
+At the historical Stage 2A checkpoint described above, before PR #88 merged and
+CI #290 ran, issue #61 was incomplete and post-merge production runtime smoke
+had not executed. Deployment success alone did not establish production runtime
+verification.
+
+Current verified status: [issue #61](https://github.com/2ton-exe/moris-mix-ai/issues/61)
+is completed/closed. [PR #88](https://github.com/2ton-exe/moris-mix-ai/pull/88) merged,
+and [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750)
+successfully executed production runtime smoke, verifying the deployed frontend
+HTML, its referenced JavaScript asset, and the approved public `demo-recipe`
+API/database response. This does not prove authenticated recipe CRUD or
+independent runtime-observed backend/frontend source provenance; broader
+authenticated CRUD/runtime journeys remain unverified. See the
 [deployment runbook](deployment-runbook.md#shared-runtime-smoke-setup-76-and-61)
 for prerequisite configuration, backend revision attestation limits, and recovery.
 This change adds no path filters, pipeline optimizations, provider-resource
