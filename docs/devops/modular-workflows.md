@@ -30,7 +30,8 @@ credentials, expected reference, and database URL are configured, the reusable
 Edge/API workflow applies pending migrations to the dedicated non-production
 test database before the hosted auth/RLS and recipe CRUD integration suite.
 Incomplete configuration retains the explicit hosted-test skip and offline
-fallback. Neither caller forwards Cloudflare secrets to any reusable workflow.
+fallback. The modular PR caller forwards only staging-named Cloudflare secrets
+to `reusable-staging.yml`; the modular main caller forwards no Cloudflare secrets.
 Public Supabase build variables remain read through `vars` inside the reusable
 deployment job.
 
@@ -172,7 +173,7 @@ successfully on PR #74. The observed GitHub checks were:
 PR validation without production deployment and establishes the actual composed
 modular check names. The existing `ci.yml` remains authoritative.
 
-PR #79 at `be283a5` verified the separate E2E calls on a current PR run ([CI]
+PR #79 at `be283a5` verified the separate E2E calls on its historical PR run ([CI]
 and [Modular PR Validation]). The existing required checks (`Frontend Checks`,
 `Database Tests`, and `Edge/API Tests`) all succeeded. `Playwright E2E
 (Non-gating) / Playwright E2E Tests` and `Modular E2E / Playwright E2E Tests`
@@ -226,7 +227,11 @@ jobs and conclusions with the migration evidence.
    PR evidence, but the updated combined main gate remains unverified.
 4. Final production cutover still depends on staging/preview delivery in
    [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains
-   pending. Prepare the production handoff as a separate change after that
+   open until PR #88 is reviewed, merged, and its merged-main state is verified.
+   Successful automated staging deployment and combined smoke have executed on
+   PR #88; controlled configuration-failure evidence was collected in temporary
+   PR #119. Hosted runtime-response failure was not separately exercised.
+   Prepare the production handoff as a separate change after that
    prerequisite: wire a main caller to all three reusable validations and then
    deployment with those same dependencies/conditions. Pass Cloudflare secrets
    explicitly and convert the string frontend output to a boolean input. Do not
@@ -248,14 +253,79 @@ jobs and conclusions with the migration evidence.
 Stage 2A runtime validation does not complete modular required-check migration,
 the ruleset/check-context handoff, production deployment ownership transfer,
 use of `reusable-cloudflare.yml` by the modular main caller, or retirement/removal
-of `ci.yml`; all remain pending, along with staging/preview delivery from #76.
+of `ci.yml`; all remain pending. Staging/preview delivery from #76 has successful
+automated deployment and combined smoke evidence on PR #88 and completed
+controlled configuration-failure evidence from temporary PR #119. Issue #76
+remains open pending PR #88 review, merge, and merged-main verification; its
+changes are not yet authoritative main state.
 BE-06 adds recipe/API validation and guarded migrations
 for optional hosted non-production test-database integration.
 Stage 2A's modular workflows perform no production deployment or production
 database migration. DEVOPS-07 adds a targeted `recipes` deployment step to the
-authoritative `ci.yml` path, before Cloudflare; production execution evidence is
-pending. Production database migration automation remains separate, and
-post-deployment smoke verification belongs to DEVOPS-08. This stage adds no path
-filters, pipeline optimizations, or production configuration changes.
+authoritative `ci.yml` path, before Cloudflare; production deployment executed
+successfully through validated main. This does not establish production runtime
+smoke or full authenticated CRUD. Production database migration automation remains separate, and
+post-deployment smoke verification is now configured for DEVOPS-08 in the active
+`ci.yml` deployment job, with separate command/runtime outcomes and the same
+production concurrency lock. The staging workflow reuses the shared verifier for
+HTML, JavaScript, and the operator-managed public demo database path. The staging
+backend path was manually verified after a staging-only `service_role` table
+SELECT grant and approved demo fixture bootstrap; these database corrections are
+not automated here and their durable source ownership remains a backend follow-up.
+Automated staging deployment and combined HTML, referenced JavaScript asset,
+public `demo-recipe`, and API/database smoke executed successfully on PR #88.
+The staging backend source revision remains **operator-attested; not observed from runtime**.
+Even a valid Git SHA in `STAGING_DEMO_RECIPE_REVISION` does not independently
+prove the running function's source revision. API/database smoke verifies expected
+endpoint behavior; exact runtime-observed backend provenance remains separate
+future work if required.
+
+The latest verified implementation head before this documentation cleanup was
+`011653a0a2f1ee81192eab5e3c034250cf9a7e3c`, containing Belen's optional ingredient
+`quantityText` review fix, which remains unchanged. CI #259 passed Frontend
+Checks, PR Secretary regression tests, offline runtime-smoke verifier tests,
+Database Tests, Edge/API Tests, Hosted RLS Integration, and Playwright E2E;
+production deployment was correctly skipped. Modular PR Validation #106 passed
+Modular Frontend, Modular Database, Modular Edge/API, Modular E2E, Staging Deploy,
+staging deployment URL verification, and Staging Smoke, including frontend HTML,
+the referenced JavaScript asset, and the public demo API/database path.
+
+Temporary PR #119 (`experiment/76-staging-smoke-failure`, head
+`6e8025d40961f964b29e4ea8db5fc797fc5a5faf`) changed only staging smoke's
+`SMOKE_SUPABASE_URL` to `https://example.invalid`; staging build/deployment
+configuration remained unchanged. CI #257 passed normal PR validation with
+production deployment skipped. Modular PR Validation #104 passed normal
+validation, Staging Deploy, and staging deployment URL verification, then Staging
+Smoke ran and failed with `Supabase origin/project mismatch`. Frontend HTML,
+JavaScript asset, and demo API/database runtime checks were not run. Overall
+staging validation was unsuccessful; production remained unaffected. PR #119
+was closed unmerged.
+
+This is completed **configuration-validation failure path** evidence: the smoke
+job visibly failed before requests to the deliberately invalid Supabase origin,
+and staging validation was not treated as successful. It is not a hosted
+runtime-response failure experiment. An unavailable deployed frontend, a missing
+JavaScript asset, and an API/database response mismatch were not separately
+exercised in hosted execution. Ramos's Finding 1 is valid and remains a known
+evidence limitation; not every runtime smoke failure mode has been exercised.
+
+`GITHUB_SHA` identifies the tested checkout/merge revision used for checkout,
+build, and deployment. `/home?revision=${GITHUB_SHA}` provides cache busting and
+request differentiation, not proof that the frontend serves that exact revision.
+Returned HTML and JavaScript do not independently expose a runtime-observed
+build SHA. Frontend smoke verifies deployed-target availability and expected
+content, not independent runtime-observed frontend source provenance. Exact
+provenance would require separate design, such as an embedded build revision,
+build metadata endpoint, or artifact fingerprint/digest; none is implemented here.
+
+Issue #61 remains incomplete: production runtime smoke after merge has not yet
+executed. Deployment success does not establish production runtime verification.
+Production runtime smoke after merge, production `demo-recipe` revision
+evidence/configuration, and broader
+authenticated CRUD/runtime journeys remain pending; see the
+[deployment runbook](deployment-runbook.md#shared-runtime-smoke-setup-76-and-61)
+for prerequisite configuration, backend revision attestation limits, and recovery.
+This change adds no path filters, pipeline optimizations, provider-resource
+changes, or production deployment ownership cutover.
 Keep the original workflow until the replacement behavior has execution evidence
 and the required-check and deployment handoff is ready.

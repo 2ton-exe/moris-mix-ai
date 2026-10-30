@@ -27,10 +27,10 @@ beforeEach(async () => {
   App = (await import('../App')).default
 })
 
-function seedExistingSession() {
+function seedExistingSession(expiresAt = Math.floor(Date.now() / 1000) + 3600) {
   window.localStorage.setItem(storageKey, JSON.stringify({ access_token: 'existing-test-access',
     refresh_token: 'existing-test-refresh', token_type: 'bearer', expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600, user }))
+    expires_at: expiresAt, user }))
 }
 
 function mount() { return render(<StrictMode><BrowserRouter><App /></BrowserRouter></StrictMode>) }
@@ -45,23 +45,33 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 
-it('lets the real SDK consume a signup redirect, clean the URL, and sign out using mocked HTTP only', async () => {
-  window.history.replaceState(null, '', '/auth/callback#access_token=callback-test-token&refresh_token=callback-test-refresh&expires_in=3600&token_type=bearer&type=signup')
+it('uses the browser-held PKCE verifier to consume signup redirects, clean the URL, and sign out', async () => {
   const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
     const url = String(input)
-    if (url === `${authUrl}/auth/v1/user`) return Response.json(user)
+    if (url.startsWith(`${authUrl}/auth/v1/signup?`)) return Response.json({ ...user, email_confirmed_at: null })
+    if (url === `${authUrl}/auth/v1/token?grant_type=pkce`) return Response.json({
+      access_token: 'callback-test-token', refresh_token: 'callback-test-refresh', token_type: 'bearer', expires_in: 3600, user,
+    })
     if (url === `${authUrl}/auth/v1/logout?scope=local`) return new Response(null, { status: 204 })
     throw new Error('Unexpected auth request in test')
   })
   vi.stubGlobal('fetch', fetchImpl)
+  const auth = getAuthClient()
+  await auth.signUp({ email: user.email, password: 'test-password', options: { emailRedirectTo: `${window.location.origin}/auth/callback` } })
+  const signupRequest = fetchImpl.mock.calls.find(([input]) => String(input).includes('/auth/v1/signup'))
+  expect(JSON.parse(signupRequest?.[1]?.body as string)).toMatchObject({
+    code_challenge: expect.any(String), code_challenge_method: 's256',
+  })
+  window.history.replaceState(null, '', '/auth/callback?lang=en&code=callback-test-code')
   mount()
   await screen.findByRole('heading', { name: 'Email verified' })
-  await waitFor(() => expect(window.location.hash).toBe(''))
+  await waitFor(() => expect(window.location.search).toBe('?lang=en'))
   expect(document.body.textContent).not.toContain('callback-test-token')
   expect(document.body.textContent).not.toContain('callback-test-refresh')
-  expect(fetchImpl).toHaveBeenCalledWith(`${authUrl}/auth/v1/user`, expect.objectContaining({
-    headers: expect.objectContaining({ Authorization: 'Bearer callback-test-token' }),
-  }))
+  const exchangeRequest = fetchImpl.mock.calls.find(([input]) => String(input) === `${authUrl}/auth/v1/token?grant_type=pkce`)
+  expect(JSON.parse(exchangeRequest?.[1]?.body as string)).toMatchObject({
+    auth_code: 'callback-test-code', code_verifier: expect.any(String),
+  })
   fireEvent.click(screen.getByRole('link', { name: 'Continue to your journal' }))
   await screen.findByRole('heading', { name: 'Your cooking journal' })
   fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
@@ -82,8 +92,62 @@ it('does not report verification success for rejected callback credentials when 
   expect(window.location.search).toBe('?lang=en')
   expect(document.body.textContent).not.toContain('rejected-test-')
   expect(document.body.textContent).not.toContain('private callback failure')
-  expect(fetchImpl).toHaveBeenCalledOnce()
+  expect(fetchImpl).not.toHaveBeenCalled()
   expect((await getAuthClient().getSession()).data.session?.access_token).toBe('existing-test-access')
+})
+
+it('does not accept a PKCE callback code without its browser verifier when a session already exists', async () => {
+  seedExistingSession()
+  window.history.replaceState(null, '', '/auth/callback?lang=en&code=unbound-test-code')
+  const fetchImpl = vi.fn<typeof fetch>()
+  vi.stubGlobal('fetch', fetchImpl)
+  mount()
+
+  await screen.findByRole('heading', { name: 'Check your verification link' })
+
+  expect(fetchImpl).not.toHaveBeenCalled()
+  expect((await getAuthClient().getSession()).data.session?.access_token).toBe('existing-test-access')
+  expect(window.location.search).toBe('?lang=en')
+})
+
+it('preserves an existing session when the browser verifier cannot redeem a callback code', async () => {
+  seedExistingSession()
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const url = String(input)
+    if (url.startsWith(`${authUrl}/auth/v1/signup?`)) return Response.json({ ...user, email_confirmed_at: null })
+    if (url === `${authUrl}/auth/v1/token?grant_type=pkce`) {
+      return Response.json({ code: 'bad_code_verifier', message: 'private callback failure' }, { status: 400 })
+    }
+    throw new Error('Unexpected auth request in test')
+  })
+  vi.stubGlobal('fetch', fetchImpl)
+  await getAuthClient().signUp({ email: user.email, password: 'test-password', options: { emailRedirectTo: `${window.location.origin}/auth/callback` } })
+  window.history.replaceState(null, '', '/auth/callback?lang=en&code=mismatched-test-code')
+  mount()
+
+  await screen.findByRole('heading', { name: 'Check your verification link' })
+
+  expect(fetchImpl).toHaveBeenCalledWith(`${authUrl}/auth/v1/token?grant_type=pkce`, expect.objectContaining({ method: 'POST' }))
+  expect((await getAuthClient().getSession()).data.session?.access_token).toBe('existing-test-access')
+  expect(document.body.textContent).not.toContain('private callback failure')
+  expect(window.location.search).toBe('?lang=en')
+})
+
+it.each([
+  ['/app?access_token=attacker-access&refresh_token=attacker-refresh&expires_in=3600&token_type=bearer', '/app'],
+  ['/auth/callback#access_token=attacker-access&refresh_token=attacker-refresh&expires_in=3600&token_type=bearer&type=signup', '/auth/callback'],
+])('does not adopt implicit URL tokens on %s', async (url, path) => {
+  window.history.replaceState(null, '', url)
+  const fetchImpl = vi.fn<typeof fetch>()
+  vi.stubGlobal('fetch', fetchImpl)
+
+  const auth = getAuthClient()
+  await auth.initialize()
+
+  expect((await auth.getSession()).data.session).toBeNull()
+  expect(fetchImpl).not.toHaveBeenCalled()
+  expect(window.location.pathname).toBe(path)
+  expect(window.location.search + window.location.hash).not.toMatch(/access_token|refresh_token/)
 })
 
 it.each([
@@ -126,20 +190,101 @@ it('preserves a safe revocation warning when real SDK logout returns HTTP 500 af
 })
 
 it('does not reuse an old successful callback result when returning to the callback route later', async () => {
-  window.history.replaceState(null, '', '/auth/callback#access_token=callback-test-token&refresh_token=callback-test-refresh&expires_in=3600&token_type=bearer&type=signup')
-  vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(user)))
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const url = String(input)
+    if (url.startsWith(`${authUrl}/auth/v1/signup?`)) return Response.json({ ...user, email_confirmed_at: null })
+    if (url === `${authUrl}/auth/v1/token?grant_type=pkce`) return Response.json({
+      access_token: 'callback-test-token', refresh_token: 'callback-test-refresh', token_type: 'bearer', expires_in: 3600, user,
+    })
+    throw new Error('Unexpected auth request in test')
+  })
+  vi.stubGlobal('fetch', fetchImpl)
+  await getAuthClient().signUp({ email: user.email, password: 'test-password', options: { emailRedirectTo: `${window.location.origin}/auth/callback` } })
+  window.history.replaceState(null, '', '/auth/callback?code=callback-test-code')
   const view = mount()
   await screen.findByRole('heading', { name: 'Email verified' })
   view.unmount()
-  window.history.replaceState(null, '', '/auth/callback#access_token=unprocessed-token&refresh_token=unprocessed-refresh&expires_in=3600&token_type=bearer&type=signup')
+  window.history.replaceState(null, '', '/auth/callback?code=unprocessed-code')
   mount()
   await screen.findByRole('heading', { name: 'Check your verification link' })
   expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
-  expect(window.location.hash).toBe('')
+  expect(window.location.search).toBe('')
+})
+
+it.each([
+  ['headers', 'none'], ['body', 'none'],
+  ['headers', 'existing'], ['body', 'existing'],
+  ['headers', 'newer'], ['body', 'newer'],
+])('rejects late callback %s without changing the %s session or protected UI', async (lateStage, sessionState) => {
+  if (sessionState !== 'none') seedExistingSession()
+  const lateSession = { access_token: 'late-test-access', refresh_token: 'late-test-refresh',
+    token_type: 'bearer', expires_in: 3600, user: { ...user, id: 'late-user' } }
+  let releaseResponse!: () => void
+  const pendingResponse = lateStage === 'headers'
+    ? new Promise<Response>((resolve) => { releaseResponse = () => resolve(Response.json(lateSession)) })
+    : Promise.resolve(new Response(new ReadableStream({
+      start(controller) {
+        releaseResponse = () => {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(lateSession)))
+          controller.close()
+        }
+      },
+    }), { headers: { 'Content-Type': 'application/json' } }))
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const url = String(input)
+    if (url.startsWith(`${authUrl}/auth/v1/signup?`)) return Response.json({ ...user, email_confirmed_at: null })
+    // Deliberately ignore cancellation, so the client must also reject late data.
+    if (url === `${authUrl}/auth/v1/token?grant_type=pkce`) return pendingResponse
+    if (url === `${authUrl}/auth/v1/token?grant_type=password`) return Response.json({
+      ...lateSession, access_token: 'newer-test-access', refresh_token: 'newer-test-refresh',
+      user: { ...user, id: 'newer-user' },
+    })
+    throw new Error('Unexpected auth request in test')
+  })
+  vi.stubGlobal('fetch', fetchImpl)
+  const auth = getAuthClient()
+  await auth.signUp({ email: user.email, password: 'test-password', options: { emailRedirectTo: `${window.location.origin}/auth/callback` } })
+  const exchange = vi.spyOn(auth, 'exchangeCodeForSession')
+  const events: string[] = []
+  const { data: { subscription } } = auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) events.push(session.access_token)
+  })
+  vi.useFakeTimers()
+  window.history.replaceState(null, '', '/auth/callback?lang=en&code=slow-test-code')
+  mount()
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(exchange).toHaveBeenCalledOnce()
+  expect(fetchImpl).toHaveBeenCalledWith(`${authUrl}/auth/v1/token?grant_type=pkce`, expect.anything())
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+  expect(screen.getByRole('heading', { name: 'Check your verification link' })).toBeTruthy()
+  expect(window.location.search).toBe('?lang=en')
+  const callbackRequest = fetchImpl.mock.calls.find(([input]) => String(input) === `${authUrl}/auth/v1/token?grant_type=pkce`)
+  expect(callbackRequest?.[1]?.signal?.aborted).toBe(true)
+
+  if (sessionState === 'newer') {
+    await act(async () => { await auth.signInWithPassword({ email: user.email, password: 'test-password' }) })
+  }
+  const expectedToken = sessionState === 'none' ? undefined
+    : sessionState === 'newer' ? 'newer-test-access' : 'existing-test-access'
+  await act(async () => {
+    releaseResponse()
+    await exchange.mock.results[0].value
+  })
+
+  expect((await auth.getSession()).data.session?.access_token).toBe(expectedToken)
+  const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')
+  expect(stored?.access_token).toBe(expectedToken)
+  expect(events).not.toContain('late-test-access')
+  expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
+  vi.useRealTimers()
+  fireEvent.click(screen.getByRole('link', { name: 'Back to login' }))
+  await screen.findByRole('heading', { name: sessionState === 'none' ? 'Welcome back' : 'Your cooking journal' })
+  subscription.unsubscribe()
 })
 
 it('removes callback credentials and offers retry if real SDK initialization never settles', async () => {
   vi.useFakeTimers()
+  seedExistingSession(Math.floor(Date.now() / 1000) - 60)
   window.history.replaceState(null, '', '/auth/callback#access_token=pending-test-access&refresh_token=pending-test-refresh&expires_in=3600&token_type=bearer&type=signup')
   vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(() => new Promise(() => {})))
   mount()

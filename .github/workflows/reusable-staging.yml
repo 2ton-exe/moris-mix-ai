@@ -29,6 +29,7 @@ jobs:
       STAGING_WORKER_NAME: ${{ vars.STAGING_WORKER_NAME }}
       STAGING_FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL }}
       STAGING_SUPABASE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+      STAGING_DEMO_RECIPE_REVISION: ${{ vars.STAGING_DEMO_RECIPE_REVISION }}
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
@@ -48,6 +49,7 @@ jobs:
             STAGING_WORKER_NAME
             STAGING_FRONTEND_URL
             STAGING_SUPABASE_PROJECT_REF
+            STAGING_DEMO_RECIPE_REVISION
             VITE_SUPABASE_URL
             VITE_SUPABASE_PUBLISHABLE_KEY
             STAGING_CLOUDFLARE_API_TOKEN
@@ -60,6 +62,12 @@ jobs:
               exit 1
             fi
           done
+
+          if [[ "$STAGING_SUPABASE_PROJECT_REF" != "pjeykhjzqhryjwuoizgh" ||
+                ! "$STAGING_DEMO_RECIPE_REVISION" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Unexpected staging project or missing demo-recipe source SHA."
+            exit 1
+          fi
 
           expected_url="https://${STAGING_SUPABASE_PROJECT_REF}.supabase.co"
 
@@ -129,13 +137,18 @@ jobs:
           echo "deployment-url=$deployment_url" >> "$GITHUB_OUTPUT"
 
       - name: Record deployment evidence
+        if: always()
         shell: bash
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DEPLOYMENT_OUTCOME: ${{ steps.deploy-staging.outcome }}
+          URL_VERIFICATION_OUTCOME: ${{ steps.verify-deployment.outcome }}
           VERIFIED_DEPLOYMENT_URL: ${{ steps.verify-deployment.outputs.deployment-url }}
         run: |
           {
             echo "### Staging deployment"
+            echo "- Deployment command: ${DEPLOYMENT_OUTCOME}"
+            echo "- Deployment URL verification: ${URL_VERIFICATION_OUTCOME}"
             echo "- PR head: \`${PR_HEAD_SHA}\`"
             echo "- Tested merge revision: \`${GITHUB_SHA}\`"
             echo "- Worker: \`${STAGING_WORKER_NAME}\`"
@@ -149,138 +162,35 @@ jobs:
     timeout-minutes: 5
     environment: staging
 
+    permissions:
+      contents: read
+
     env:
-      STAGING_FRONTEND_URL: ${{ needs.deploy.outputs.deployment-url }}
+      SMOKE_ENVIRONMENT: staging
+      SMOKE_DEPLOYMENT_OUTCOME: ${{ needs.deploy.result }}
+      SMOKE_FRONTEND_URL: ${{ needs.deploy.outputs.deployment-url }}
+      SMOKE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      SMOKE_PROJECT_REF: ${{ vars.STAGING_SUPABASE_PROJECT_REF }}
+      SMOKE_PUBLIC_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      SMOKE_BACKEND_REVISION: ${{ vars.STAGING_DEMO_RECIPE_REVISION }}
+      SMOKE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
     steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      - name: Verify deployed frontend
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Verify deployed frontend and demo database path
+        run: node scripts/runtime-smoke.mjs
 
-          base="${STAGING_FRONTEND_URL%/}"
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "$temp_dir"' EXIT
-
-          verify_origin() {
-            if ! node -e '
-              try {
-                process.exit(new URL(process.argv[1]).origin === new URL(process.argv[2]).origin ? 0 : 1);
-              } catch {
-                process.exit(1);
-              }
-            ' "$base" "$1"; then
-              echo "::error::Staging $2 final effective URL is invalid or outside the verified STAGING_FRONTEND_URL origin."
-              exit 1
-            fi
-          }
-
-          success=false
-
-          for attempt in 1 2 3 4 5; do
-            if response="$(
-              curl \
-                --silent \
-                --show-error \
-                --location \
-                --connect-timeout 5 \
-                --max-time 15 \
-                --output "$temp_dir/home.html" \
-                --write-out "%{http_code} %{content_type}\n%{url_effective}" \
-                "${base}/home?revision=${GITHUB_SHA}"
-            )"; then
-              verify_origin "${response##*$'\n'}" "/home"
-              response="${response%$'\n'*}"
-
-              if [[ "${response,,}" == "200 text/html" || "${response,,}" == "200 text/html;"* ]]; then
-                success=true
-                break
-              fi
-            fi
-
-            if [[ "$attempt" -lt 5 ]]; then
-              sleep 5
-            fi
-          done
-
-          if [[ "$success" != "true" ]]; then
-            echo "::error::Staging /home did not return HTTP 200 with HTML content type."
-            exit 1
-          fi
-
-          asset="$(
-            awk 'match($0, /src="[^"]*assets\/[^"]+\.js"/) {
-              print substr($0, RSTART + 5, RLENGTH - 6)
-              exit
-            }' "$temp_dir/home.html"
-          )"
-
-          if [[ -z "$asset" ]]; then
-            echo "::error::Could not find the built JavaScript asset."
-            exit 1
-          fi
-
-          if [[ "$asset" == /* ]]; then
-            asset_url="${base}${asset}"
-          else
-            asset_url="${base}/${asset}"
-          fi
-
-          success=false
-
-          for attempt in 1 2 3 4 5; do
-            if asset_response="$(
-              curl \
-                --silent \
-                --show-error \
-                --location \
-                --connect-timeout 5 \
-                --max-time 15 \
-                --output "$temp_dir/asset.js" \
-                --write-out "%{http_code} %{content_type}\n%{url_effective}" \
-                "$asset_url"
-            )"; then
-              verify_origin "${asset_response##*$'\n'}" "JavaScript asset"
-              asset_response="${asset_response%$'\n'*}"
-              asset_status="${asset_response%% *}"
-              asset_content_type="${asset_response#* }"
-              asset_content_type="${asset_content_type%%;*}"
-              asset_content_type="${asset_content_type,,}"
-
-              if [[ "$asset_status" == "200" && "$asset_content_type" != *html* &&
-                    ( "$asset_content_type" == *javascript* || "$asset_content_type" == *ecmascript* ) ]]; then
-                success=true
-                break
-              fi
-            fi
-
-            if [[ "$attempt" -lt 5 ]]; then
-              sleep 5
-            fi
-          done
-
-          if [[ "$success" != "true" ]]; then
-            echo "::error::Staging JavaScript asset did not return HTTP 200 with JavaScript content type (HTML fallback is rejected)."
-            exit 1
-          fi
-
-          echo "Staging frontend smoke passed."
-
-      - name: Record smoke evidence
-        shell: bash
-        env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          {
-            echo "### Staging smoke"
-            echo "- PR head: \`${PR_HEAD_SHA}\`"
-            echo "- Tested merge revision: \`${GITHUB_SHA}\`"
-            echo "- URL: ${STAGING_FRONTEND_URL}"
-            echo "- Frontend HTML: passed"
-            echo "- JavaScript asset: passed"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve runtime smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: runtime-smoke.json
+          if-no-files-found: warn

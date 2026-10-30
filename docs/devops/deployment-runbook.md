@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The gated `recipes` deployment executed successfully on `main` in CI #284, while production runtime/CRUD smoke verification remains pending. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -60,7 +60,7 @@ All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
-Manual production verification
+Automated runtime smoke verifies HTML, the referenced JavaScript asset, and the public demo database response; retain manual verification for broader journeys
 
 The temporary frontend-existence mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
 
@@ -80,7 +80,8 @@ Configure these Actions variables under **Settings → Environments → staging*
 | :--- | :--- |
 | `STAGING_WORKER_NAME` | `moris-mix-ai-staging` |
 | `STAGING_FRONTEND_URL` | The staging Worker's HTTPS `workers.dev` URL |
-| `STAGING_SUPABASE_PROJECT_REF` | The isolated staging Supabase project reference |
+| `STAGING_SUPABASE_PROJECT_REF` | `pjeykhjzqhryjwuoizgh` |
+| `STAGING_DEMO_RECIPE_REVISION` | Full 40-character lowercase source SHA of the operator-deployed `demo-recipe` bundle |
 | `VITE_SUPABASE_URL` | `https://<STAGING_SUPABASE_PROJECT_REF>.supabase.co` |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | The staging project's public publishable key |
 
@@ -88,15 +89,297 @@ These staging environment values provide the public Supabase build configuration
 
 **Before pushing the staging workflow changes**, configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller explicitly passes these staging-specific names, and the reusable workflow declares both required and validates both are non-empty before building/deploying. Missing staging credentials fail closed: there is no fallback to the production-named `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. Keep the production secrets unchanged; do not populate repository-level staging-specific names with production credentials.
 
-Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The smoke timeout accommodates the existing request retry budget of about 190 seconds across both requests, leaving about 110 seconds for setup and other job overhead.
+Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The shared smoke script has a maximum request/retry budget of about 114 seconds across three checks, leaving time for checkout, setup, and artifact upload.
 
 After deployment, the workflow requires the official `cloudflare/wrangler-action@v4` `deployment-url` output to be non-empty and equal to `STAGING_FRONTEND_URL`, normalizing only one optional trailing slash on each. Missing or mismatched output fails the deployment job before smoke can run. The verified Wrangler URL is exposed as the deploy job's `deployment-url` output and passed directly to the smoke job; smoke does not independently read the configured URL. Both deployment and smoke evidence record this verified URL.
 
-The current frontend smoke requests `/home?revision=${GITHUB_SHA}` and the first referenced built JavaScript asset. Each request allows up to five attempts with five-second sleeps between failures and no sleep after the last attempt. Both require curl success and final HTTP 200. `/home` must have final `text/html` content type; the asset must have a final JavaScript MIME type containing `javascript` or `ecmascript` (optional charset parameters are accepted). HTML asset responses are rejected even with HTTP 200 because Cloudflare SPA fallback can serve `index.html` for a missing bundle. Missing asset references and exhausted retries fail the smoke job.
+The shared `scripts/runtime-smoke.mjs` verifier requests `/home?revision=${GITHUB_SHA}`, resolves its built JavaScript asset against the document URL, and requests the isolated public `demo-recipe` endpoint. See the runtime smoke setup below for exact checks and backend prerequisites. All redirects are rejected before following them. Missing or invalid responses fail the smoke job.
 
 Deployment and smoke summaries record **PR head** from `github.event.pull_request.head.sha` separately from **Tested merge revision** from `GITHUB_SHA`. On this PR path, checkout, build/deployment, and the smoke cache-busting revision use the tested merge revision; the source head is traceability evidence, not a claim that it was the exact deployed checkout.
 
-Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. API/database-backed staging smoke under #76, controlled staging smoke-failure evidence, and backend staging revision evidence are still pending. Frontend smoke success does not establish backend revision or API/database integration evidence.
+`GITHUB_SHA` identifies the tested checkout/merge revision used by the workflow.
+The `/home?revision=${GITHUB_SHA}` query parameter provides cache busting and
+request differentiation; it is not proof that the deployed frontend serves that
+exact revision. Checkout, build, and deployment use the tested workflow revision,
+but the returned HTML and JavaScript do not independently expose a runtime-observed
+build SHA. Successful frontend smoke verifies the deployed target's availability
+and expected content, not independent runtime-observed frontend source provenance.
+If exact runtime-observed provenance is required, a separate design could embed
+a build revision, expose a build metadata endpoint, or verify an artifact
+fingerprint/digest. None of those mechanisms is implemented by this PR.
+
+Production deployment remains separate: the authoritative `.github/workflows/ci.yml` owns the existing main-only production path. Staging is not yet a required branch-protection check; the existing required validation checks remain unchanged. PR #88 successfully executed automated staging deployment and combined smoke for frontend HTML, its referenced JavaScript asset, public `demo-recipe`, and the API/database path. The staging backend source revision remains **operator-attested; not observed from runtime**. Controlled configuration-failure evidence was collected in temporary PR #119; hosted runtime-response failure was not separately exercised (see the evidence record below).
+
+### Shared runtime smoke setup (#76 and #61)
+
+The workflow changes below describe configured automation. The manual staging
+bootstrap and verification record is separate, in the evidence section below.
+At source revision `7af713040beb6dbaba271867f559149f9d21bce6`, the staging workflow
+deployed only the frontend, and production CI deployed `recipes` plus Cloudflare.
+Neither workflow deployed `demo-recipe`. The initial staging gateway response
+`404 Requested function was not found` preceded the targeted operator deployment;
+it differs from the handler's `404 DEMO_RECIPE_NOT_FOUND` for absent/unapproved data.
+
+Reuse `supabase/functions/demo-recipe/index.ts`; no new endpoint, schema change,
+or backend deployment on every PR is needed. The handler uses its server-side
+service-role configuration to select only recipe
+`11111111-1111-1111-1111-111111111111`, owner
+`d0d8c0b2-3b1e-4c7b-9e2a-1a2b3c4d5e6f`, and `is_public = true`, returning only
+approved fields. Smoke callers use only the environment's public key. No service
+role key or Supabase management token is added to the smoke jobs.
+
+Before enabling the new checks, the DevOps owner and backend owner must:
+
+1. Select a reviewed, clean source revision for the function and its shared
+   dependencies. Record `git rev-parse HEAD` and ensure the function dependency
+   tree has no local edits. A backend source SHA can differ from the frontend SHA.
+2. Verify the staging schema, runtime-role privileges, approved demo user, and
+   fixed public demo row exist. The runtime `service_role` needs schema `USAGE`
+   on `public` and `SELECT` on `public.recipes`; RLS bypass does not supply a
+   missing table privilege. Verify both explicitly. The seed's first recipe is
+   public; its second recipe is private. Coordinate any missing permission/data
+   setup with the backend owner. Do not run `db reset`, blindly apply the entire
+   seed, or copy production user data. `ON CONFLICT DO NOTHING` in `seed.sql`
+   does not repair an existing incompatible demo row. The manual staging bootstrap
+   described below satisfies these prerequisites for the observed check, but the
+   workflows do not create or repair them.
+3. Using the repository-pinned Supabase CLI from `frontend`, inspect `supabase
+   --help`, `supabase functions --help`, and `supabase functions deploy --help`.
+   After explicit operator authorization, deploy only the demo function to staging
+   with an explicit project reference. From the repository root in Bash:
+
+   ```bash
+   repo_root="$PWD"
+   cd frontend
+   pnpm exec supabase --workdir "$repo_root" functions deploy demo-recipe \
+     --project-ref pjeykhjzqhryjwuoizgh --no-verify-jwt --use-api --yes
+   ```
+
+   Authenticate with an authorized operator token outside logs. `--project-ref`
+   is essential because `supabase/config.toml` identifies production. Disabling
+   gateway JWT verification matches the existing public function configuration.
+   Confirm the hosted runtime provides its own `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY`; do not override these with production values or
+   copy the service-role key into GitHub. See the official
+   [function deployment guide](https://supabase.com/docs/guides/functions/deploy)
+   and [CLI reference](https://supabase.com/docs/reference/cli/supabase-functions-deploy).
+4. Save the source SHA, provider function version/deployment ID, target project,
+   timestamp, and operator deployment result in the release record. Set staging
+   environment variable `STAGING_DEMO_RECIPE_REVISION` to that full source SHA
+   only after the targeted deployment succeeds. Update it on each backend release.
+   Keep operator backend changes serialized with staging verification, since
+   GitHub concurrency cannot lock external operator changes.
+5. For production, identify the existing deployed demo function's reviewed source
+   SHA and provider version in its release history. Configure repository variables
+   `PRODUCTION_DEMO_RECIPE_REVISION` and `PRODUCTION_FRONTEND_URL` (the exact
+   Wrangler-reported production origin, currently documented as
+   `https://moris-mix-ai.diofelgwenharesco.workers.dev`). If the source cannot be
+   established, arrange a separately authorized targeted demo function release;
+   do not invent an attestation or assume the frontend SHA is its backend SHA.
+
+The new variables are non-secret configuration. Existing staging variables and
+Cloudflare staging secrets above remain required and must be environment-scoped.
+Production continues using its existing repository `VITE_SUPABASE_URL`,
+`VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`),
+`SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, and
+`CLOUDFLARE_ACCOUNT_ID`. No new GitHub secrets are required. The verifier pins
+staging to `pjeykhjzqhryjwuoizgh` and production to `config.toml`'s project,
+`gtbwblxskctpsqhbpebg`. Missing revision/origin configuration fails preflight
+before deployment; there is no production fallback for staging.
+
+The verifier requires HTTP 200 and the expected MIME type for each check:
+
+- `/home` must contain HTML, the React root, and a built `assets/*.js` script.
+- That referenced script must stay on the frontend origin and return nonempty
+  JavaScript, rejecting HTML fallbacks even when labeled as JavaScript.
+- `GET /functions/v1/demo-recipe` must return the exact approved public fixture
+  envelope and content, including recipe identity, ingredients, instructions,
+  scores, and rating. Ingredients may include optional `quantityText` strings as
+  allowed by the [API contract](../api/demo-recipe.md); their fixed fields must
+  still match exactly. `cooked_at` may differ because the seed uses a relative
+  date; it must be null or a valid calendar date. Other extra/private fields fail.
+
+Each request gets three attempts, a ten-second timeout covering fetch and body
+read, and four-second sleeps between attempts (about 38 seconds per check).
+Every redirect, including same-origin redirects, is rejected. Credentials are
+sent only to the configured Supabase origin. Requests use `Cache-Control:
+no-cache` and revision query parameters on HTML/API; the API also has a unique
+run timestamp to reduce cached-response reuse. The existing function's cache
+policy is unchanged, so this is an API/database-backed public read, not a direct
+uncached database query or a browser end-to-end journey.
+
+Smoke writes `runtime-smoke.json` and a step summary even when checks fail,
+including UTC times, environment, tested checkout SHA, PR head SHA (staging),
+verified origins, backend source attestation, per-check outcomes/attempts, and
+overall smoke outcome. Failure entries expose safe status/validation diagnostics,
+never response bodies or key values. Artifacts are uploaded with `if: always()`;
+checkout/setup failure or cancellation before the verifier executes may leave
+no JSON. Separate always-run workflow summaries record deployment-command and URL
+verification results. An upload or summary step does not mask a smoke failure.
+
+The backend SHA is explicitly **operator-attested; not observed from runtime**.
+Even a valid Git SHA in `STAGING_DEMO_RECIPE_REVISION` does not prove that the
+running `demo-recipe` function exposes or was independently observed at that
+source revision. Successful API/database smoke proves expected endpoint behavior,
+not exact backend deployment provenance. Runtime-observed backend provenance
+remains separate future work if exact provenance is required.
+Provider deployment/version evidence must remain in the release record. These
+checks do not establish that backend code matches the PR merge SHA, prove all
+backend functions, or cryptographically identify served frontend bytes. The
+frontend SHA records the checked-out build/deployment input; the smoke verifies
+the deployed origin and referenced bundle. Production smoke stays inside the
+`cloudflare-production` deployment lock, after both deployment commands and URL
+verification succeed. Staging keeps the existing workflow-wide lock and trust gate.
+
+### Manual staging backend evidence (2026-10-28)
+
+Target: `pjeykhjzqhryjwuoizgh`. Attested deployed function source:
+`7af713040beb6dbaba271867f559149f9d21bce6`. The targeted CLI deployment of only
+`demo-recipe` executed successfully. No backend deployment on every PR was added.
+
+The initial direct request around `2026-10-28T09:13:43Z` returned HTTP 500 with
+the safe `INTERNAL_ERROR` envelope. Subsequent log, privilege, corrective-action,
+and final-response evidence below was supplied by the staging operator; it was
+not produced by the new GitHub smoke job.
+
+| Stage | Observed evidence | Meaning |
+| --- | --- | --- |
+| Initial runtime failure | Function log: `Database query failed code: 42501`; `service_role` had schema `USAGE` but no `SELECT` on `public.recipes` | The HTTP 500 was caused by insufficient database table privileges |
+| Manual staging permission correction | Operator applied `grant select on table public.recipes to service_role;`; the endpoint then returned HTTP 404 | The permission failure was resolved; the approved fixture was still unavailable |
+| Manual staging fixture bootstrap | The approved demo user and fixed public recipe were absent; the operator added exactly those records from current `supabase/seed.sql` | Staging received the approved fixture only, through a separate manual operation |
+| Final direct runtime check | `GET https://pjeykhjzqhryjwuoizgh.supabase.co/functions/v1/demo-recipe` returned HTTP 200 with recipe ID `11111111-1111-1111-1111-111111111111` and title `Classic Tomato Scraps Pasta` | The staging Edge Function to PostgreSQL path was manually verified |
+
+The progression was **500 / 42501 -> 404 missing fixture -> 200 expected demo
+response**. Do not attribute the initial 500 solely to missing seed data: the
+missing table grant blocked the query before the handler could report the absent
+fixture. The function code/source attestation did not change during these manual
+database corrections.
+
+Evidence status:
+
+- Function deployment: executed successfully.
+- Database permission correction: manually applied to staging.
+- Approved demo user/recipe bootstrap: manually applied to staging.
+- API/database runtime path: manually verified.
+- Automated GitHub staging deployment and combined HTML/JavaScript/public demo API/database smoke: **executed and passed on PR #88**, separately from the manual checks above.
+- Production smoke: **executed and passed on merged main in CI #290**, separately from these earlier staging checks; see the merged-main evidence below.
+- Controlled automated staging configuration-failure evidence: **completed in temporary PR #119**; hosted runtime-response failure was not separately exercised.
+
+These manual corrections are not automated by this DevOps change. Durable table
+permission and approved seed/bootstrap ownership remains a backend/source-of-truth
+follow-up: the backend owner must decide how reviewed database setup preserves the
+grant and fixture across new environments or rebuilds. DevOps coordinates that
+handoff and records environment evidence. No grant migration, data migration,
+automatic seed, broad privilege expansion, or production database change is added
+here. Any further staging correction requires separate operator authorization.
+Do not use the manual HTTP 200 as proof that the automated verifier's full fixture
+validation, frontend checks, GitHub failure behavior, or artifacts have executed.
+
+### Smoke failure handling and remaining runtime evidence
+
+Inspect deployment-command results first. If deployment failed, runtime smoke
+is skipped; do not describe the release as verified. If deployment succeeded and
+smoke failed, the release may already be live. Use the JSON check outcomes and
+provider logs to distinguish:
+
+- Gateway function-not-found: verify project/slug and the operator demo deployment.
+- Handler `DEMO_RECIPE_NOT_FOUND`: backend owner checks the fixed ID, owner, and
+  public flag. Never relax the filter to make smoke green.
+- API 500 with `Database query failed code: 42501`: inspect runtime-role schema
+  and table privileges. Coordinate a narrowly scoped correction with the backend
+  owner; do not automatically grant access or broaden public/client permissions.
+- Other API 500 or response validation failure: inspect server configuration,
+  schema, seed values, and function logs without publishing details or secrets.
+- HTML/asset MIME, origin, or redirect failure: inspect Wrangler's URL output,
+  deployed asset references, SPA routing, and unexpected redirects.
+- Missing backend revision/configuration: fix the appropriate environment or
+  repository variable from actual release evidence before retrying.
+
+No automated rollback is introduced. Recover through a reviewed fix or the
+existing separately authorized provider rollback/redeployment process; preserve
+the failed run and do not hide it with `continue-on-error`. Re-running the entire
+workflow can redeploy, so inspect the failing step before retrying.
+
+### PR #88 validation and controlled configuration-failure evidence
+
+The historical pre-merge implementation head verified during the earlier documentation cleanup was
+`011653a0a2f1ee81192eab5e3c034250cf9a7e3c`, containing Belen's review fix:
+`fix(devops): accept optional ingredient quantityText strings in runtime smoke validation`.
+That fix accepts the API contract's optional string `quantityText` while preserving
+strict fixed-field validation; this documentation cleanup does not modify it or
+supply human approval evidence. At that pre-merge point, final human re-review remained separate.
+
+At that head, **CI #259** passed Frontend Checks (including PR Secretary regression
+tests and offline runtime-smoke verifier tests), Database Tests, Edge/API Tests,
+Hosted RLS Integration, and Playwright E2E. Production deployment was correctly
+skipped on the PR. **Modular PR Validation #106** passed Modular Frontend,
+Modular Database, Modular Edge/API, Modular E2E, Staging Deploy, staging deployment
+URL verification, and Staging Smoke. Frontend HTML, the referenced JavaScript
+asset, and the public demo API/database path all passed. These are staging and PR
+validation results, not production runtime smoke evidence.
+
+Temporary PR **#119**, branch `experiment/76-staging-smoke-failure`, head
+`6e8025d40961f964b29e4ea8db5fc797fc5a5faf`, intentionally changed only the staging
+smoke `SMOKE_SUPABASE_URL` to `https://example.invalid`; staging build/deployment
+configuration remained unchanged. **CI #257** passed normal PR validation and
+kept production deployment skipped. In **Modular PR Validation #104**, normal
+validation, Staging Deploy, and staging deployment URL verification succeeded.
+Staging Smoke ran and failed with `Supabase origin/project mismatch`. Frontend
+HTML, JavaScript asset, and demo API/database runtime checks were not run, so
+overall staging validation did not succeed. PR #119 was then closed unmerged.
+
+This completed **configuration-validation failure path** proves a staging smoke
+failure is visible, the smoke job fails rather than hiding the failure, and
+overall staging validation is unsuccessful while production remains unaffected.
+The failure occurred before requests were attempted against the deliberately
+invalid Supabase origin. It was not a hosted runtime-response failure experiment:
+an unavailable deployed frontend, a missing JavaScript asset, and a deployed
+API/database response mismatch were not separately exercised in hosted execution.
+Ramos's Finding 1 is technically valid and remains a known evidence limitation;
+this experiment does not exercise every runtime smoke failure mode.
+
+Controlled configuration-failure evidence has been collected successfully.
+At that historical pre-merge checkpoint, issue #76 still awaited PR #88 review,
+merge, and merged-main verification. PR #88 has since merged as
+`4cfaf2d5c70634e5c849f34c51668dd1432d8b63`; CI #290 and Modular Main Validation #18
+passed on that release. Record actual composed check names before considering
+any required-check change.
+
+CodeRabbit's review of that implementation head reported no actionable current-head comments,
+minimal merge risk, low security architecture risk, and no established
+architecture-level vulnerability. Its earlier workflow-level `permissions: { contents: read }`
+recommendation for `ci.yml` is optional least-privilege hardening,
+not a regression: the condition predates PR #88 and smoke requires no broader
+token permissions. Workflow-wide permissions affect authoritative CI and remain
+in the separate security-hardening workstream. The generated AI-agent prompt is
+an execution wrapper for that same recommendation, not another finding, and is
+not executed here. Generic Generate docstrings, Generate unit tests, and Autofix
+features are not independent blockers; existing tests include the `quantityText`
+regression. No workflow or unrelated code/test changes are included.
+
+### Merged-main production deployment and runtime evidence (2026-10-30)
+
+PR #88 merged as `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`.
+[CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750)
+passed Frontend Checks, Database Tests, Edge/API Tests, Hosted RLS Integration,
+Playwright E2E, and Deploy to Supabase and Cloudflare. Modular Main Validation
+#18 also passed. The production job successfully completed configuration
+validation, frontend dependency installation/build, `recipes` Edge Function
+deployment, Cloudflare Workers deployment, production deployment URL verification,
+**Production runtime smoke**, deployment/runtime outcome recording, and runtime
+evidence preservation.
+
+The retained artifact is `production-runtime-smoke-41007655750-1`, ID
+[`12955704435`](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750/artifacts/12955704435).
+This is successful automated post-deployment production runtime-smoke evidence
+for the merged #88 release: production frontend HTML, its referenced JavaScript
+asset, and the approved public `demo-recipe` API/database-backed response passed.
+The earlier pending merged-main deployment/runtime evidence for #61 is now recorded;
+this does not assert issue closure or full authenticated recipe CRUD verification.
+The backend source revision remains **operator-attested; not observed from runtime**,
+and successful Gemini generation is not established. This run is deployment/runtime
+evidence, not another optimization sample or a merge-to-live measurement. The
+#73 modular production ownership cutover remains separate; `ci.yml` stays active.
 
 ## 4. Repository Structure
 
@@ -234,7 +517,8 @@ The workflow currently has no push path filter: docs-only main pushes can also p
 4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
 5. Supabase CLI deploys only `recipes` with gateway JWT verification disabled, matching `supabase/config.toml` so the handler enforces authentication.
 6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
-7. Confirm both deployment steps executed. Production runtime and CRUD smoke verification is tracked under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
+7. Confirm both deployment steps executed. The workflow then checks the Wrangler deployment URL against `PRODUCTION_FRONTEND_URL` and runs the shared runtime verifier. Deployment-command outcomes and runtime smoke are separate summary entries; a smoke failure fails the delivery job after deployment and does not roll it back.
+8. Retain the runtime JSON artifact and summary for [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61). This public demo check does not verify authenticated recipe CRUD.
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 
@@ -450,7 +734,8 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- The gated `recipes` production deployment executed successfully on `main` in [CI #284](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41003182840) at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`: the `Deploy to Supabase and Cloudflare` job passed production configuration validation, `recipes` Edge Function deployment, and Cloudflare Worker deployment. Production runtime/CRUD smoke verification remains pending under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61); CI #284 did not perform PR #88's separate post-deployment runtime smoke.
+- The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
+- On 2026-10-30, production `demo-recipe` preflight was reconciled separately: only `demo-recipe` was targeted for deployment to project `gtbwblxskctpsqhbpebg` from reviewed source `d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` using the repository-pinned Supabase CLI 2.122.0 and the explicit production project reference. Supabase subsequently reported the function as ACTIVE version 2 with `verify_jwt=false`; the deployed bundle contains the reviewed `.eq("is_public", true)` boundary, and a post-deployment GET returned HTTP 200 for recipe `11111111-1111-1111-1111-111111111111` (`Classic Tomato Scraps Pasta`). Repository variables `PRODUCTION_FRONTEND_URL=https://moris-mix-ai.diofelgwenharesco.workers.dev` and `PRODUCTION_DEMO_RECIPE_REVISION=d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` are operator-confirmed configured, not independently API-observed through the GitHub connector. The backend revision remains operator-attested rather than runtime-observed; this is production preflight evidence, not PR #88 production runtime-smoke evidence.
 - A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
