@@ -225,9 +225,13 @@ jobs and conclusions with the migration evidence.
    `needs.frontend.outputs.exists == 'true'`, and runs only on main pushes
    or manual dispatches. The reusable E2E workflow has separate successful
    PR evidence, but the updated combined main gate remains unverified.
-4. Final production cutover still depends on staging/preview delivery in
-   [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains
-   open until PR #88 is reviewed, merged, and its merged-main state is verified.
+4. At that historical Stage 2A checkpoint, final production cutover still depended
+   on staging/preview delivery in [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76),
+   which was still open while PR #88 awaited review, merge, and merged-main verification.
+   Currently, #76 is completed/closed, PR #88 is merged, and its merged-main
+   verification is authoritative. CI #290 provides the production runtime-smoke
+   evidence recorded in the deployment runbook; it does not prove authenticated
+   recipe CRUD or independent runtime-observed source provenance.
    Successful automated staging deployment and combined smoke have executed on
    PR #88; controlled configuration-failure evidence was collected in temporary
    PR #119. Hosted runtime-response failure was not separately exercised.
@@ -255,9 +259,13 @@ the ruleset/check-context handoff, production deployment ownership transfer,
 use of `reusable-cloudflare.yml` by the modular main caller, or retirement/removal
 of `ci.yml`; all remain pending. Staging/preview delivery from #76 has successful
 automated deployment and combined smoke evidence on PR #88 and completed
-controlled configuration-failure evidence from temporary PR #119. Issue #76
-remains open pending PR #88 review, merge, and merged-main verification; its
-changes are not yet authoritative main state.
+controlled configuration-failure evidence from temporary PR #119. At that historical
+Stage 2A checkpoint, issue #76 was still open while PR #88 awaited review, merge,
+and merged-main verification; its changes were not yet authoritative main state.
+Currently, #76 is completed/closed, PR #88 is merged, and its merged-main verification
+is authoritative. CI #290 provides the production runtime-smoke evidence recorded
+in the deployment runbook; it does not prove authenticated recipe CRUD or independent
+runtime-observed source provenance.
 BE-06 adds recipe/API validation and guarded migrations
 for optional hosted non-production test-database integration.
 Stage 2A's modular workflows perform no production deployment or production
