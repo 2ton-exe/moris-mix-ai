@@ -208,11 +208,13 @@ Expected skips follow the inspected existing workflows:
   including queued, requested, waiting, in progress, success, failure, cancelled,
   or incomplete conclusion data. Absence is NOT RUN. Validation never establishes
   production execution or success.
-- **Staging:** `modular-pr-validation.yml` requires a non-draft PR, same head
-  repository, and OWNER/MEMBER/COLLABORATOR association, plus successful
-  frontend/database/Edge dependencies. Draft/fork/untrusted-association skips
-  are expected. An eligible PR's skip is investigated, with an upstream-check
-  reminder; the Secretary does not invent credential or deployment evidence.
+- **Staging:** `modular-pr-validation.yml` requires a non-draft PR whose head
+  repository matches this repository, plus successful frontend/database/Edge
+  dependencies. Draft/fork skips are expected; author-association labels do
+  not affect eligibility. Restricted repository write access is the trust
+  boundary for same-repository staging branches. An otherwise eligible PR's
+  skip is investigated, with an upstream-check reminder; the Secretary does
+  not invent credential or deployment evidence.
 - **Hosted RLS:** `ci.yml` skips the separate hosted job on forks. For internal
   PRs, a skip needs investigation (including upstream Edge/API failure).
   Missing dedicated hosted credentials cause the separate job to fail closed.
