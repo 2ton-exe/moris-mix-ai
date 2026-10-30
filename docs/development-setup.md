@@ -58,18 +58,20 @@ The local Supabase database is available on loopback port `54322` by default and
    ```sh
    supabase functions serve
    ```
-   The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). Create that gitignored file before serving, because AI extraction is **off by default** (AI-05):
+   The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). Create that gitignored file before serving, because both AI endpoints are **off by default** (AI-05 and AI-06):
 
    ```sh
-   # Required: allow POST /extract-recipe. Keep this off in production until BE-12.
+   # Required: allow POST /extract-recipe and POST /generate-recipe.
+   # Keep both off in production until BE-12 supplies atomic quota accounting.
    AI_EXTRACT_ENABLED=true
+   AI_GENERATE_ENABLED=true
    # development or test permits the demo-only failure drills; production ignores them.
    AI_ENVIRONMENT=development
-   # Needed to reach Gemini when you actually exercise extraction.
+   # Needed to reach Gemini when you actually exercise extraction or generation.
    GEMINI_API_KEY=your_gemini_api_key_here
    ```
 
-   Without `AI_EXTRACT_ENABLED`, the endpoint answers `503 AI_DISABLED` and the app treats extraction as temporarily unavailable. Never set `AI_ENVIRONMENT=development` or any `AI_SIMULATE_*` switch in production; see `docs/api/ai-integration.md` for the full switch list and the drill procedure.
+   Without the matching opt-in, the endpoint answers `503 AI_DISABLED` and the app treats that AI feature as temporarily unavailable. Never set `AI_ENVIRONMENT=development` or any `AI_SIMULATE_*` switch in production; see `docs/api/ai-integration.md` for the full switch list and the drill procedure.
 2. **Configure and start the frontend:**
    In another terminal, configure and launch the Vite development server:
    ```sh

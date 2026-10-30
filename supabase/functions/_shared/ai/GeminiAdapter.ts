@@ -3,11 +3,18 @@ import type {
   AIProvider,
   ExtractRecipeInput,
   ExtractedRecipe,
+  GenerateRecipeContext,
   GenerateRecipeInput,
   GeneratedRecipe,
 } from "./AIProvider.ts";
-import { EXTRACTION_PROMPT, buildExtractionPrompt } from "./prompts.ts";
-import { ExtractedRecipeSchema } from "./schemas.ts";
+import {
+  CHEF_PROMPT,
+  EXTRACTION_PROMPT,
+  type PromptTemplate,
+  buildChefPrompt,
+  buildExtractionPrompt,
+} from "./prompts.ts";
+import { ExtractedRecipeSchema, GeneratedRecipeSchema } from "./schemas.ts";
 
 /**
  * Pinned extraction model as of Sprint 3. AI_MODEL overrides it, so a model
@@ -129,7 +136,7 @@ export class AIError extends Error {
 
 /** Metadata-only log entry (AI-20). Never carries prompts or recipe text. */
 export type AIOperationLog = {
-  op: "extract";
+  op: "extract" | "generate";
   model: string;
   promptId: string;
   promptVersion: string;
@@ -156,9 +163,9 @@ export type GeminiAdapterConfig = {
 /**
  * Gemini-backed `AIProvider`.
  *
- * Extraction is the only implemented operation; `generateRecipe` belongs to
- * AI-06. Tests inject a generator so they never touch the network, and inject
- * a log sink so they can assert the metadata that gets recorded.
+ * Both operations share one bounded-retry loop and one metadata-only log shape;
+ * tests inject a generator so they never touch the network, and a log sink so
+ * they can assert the metadata that gets recorded.
  */
 export class GeminiAdapter implements AIProvider {
   private readonly modelName: string;
@@ -198,14 +205,55 @@ export class GeminiAdapter implements AIProvider {
   /**
    * Extracts a recipe from the user's own notes.
    *
-   * Retries once for provider failures only. Invalid model output is not
-   * retried: the same prompt is unlikely to produce different JSON, and a
-   * retry would burn free-tier quota for no benefit. Nothing is persisted.
+   * @throws {AIError} with a stable `code` the endpoint can map to HTTP.
+   */
+  extractRecipe(input: ExtractRecipeInput): Promise<ExtractedRecipe> {
+    return this.runOperation(
+      "extract",
+      EXTRACTION_PROMPT,
+      buildExtractionPrompt(input.rawText),
+      parseExtractionResponse,
+    );
+  }
+
+  /**
+   * Generates an unsaved recipe preview from the user's pantry and their own
+   * retrieved recipes (AI-06).
+   *
+   * BE-10 builds `context` from `input` and normalizes the pantry and
+   * preferences, so the prompt reads those values from the context rather than
+   * keeping a second copy that could drift. `input` still shapes the request
+   * the caller validated; the adapter never persists anything.
    *
    * @throws {AIError} with a stable `code` the endpoint can map to HTTP.
    */
-  async extractRecipe(input: ExtractRecipeInput): Promise<ExtractedRecipe> {
-    const prompt = buildExtractionPrompt(input.rawText);
+  generateRecipe(
+    _input: GenerateRecipeInput,
+    context: GenerateRecipeContext,
+  ): Promise<GeneratedRecipe> {
+    const allowedParentIds = new Set(context.recipes.map((recipe) => recipe.id));
+    return this.runOperation(
+      "generate",
+      CHEF_PROMPT,
+      buildChefPrompt(context),
+      (raw) => parseGenerationResponse(raw, allowedParentIds),
+    );
+  }
+
+  /**
+   * Runs one operation with at most one retry for provider failures only.
+   *
+   * Invalid model output is not retried: the same prompt is unlikely to
+   * produce different JSON, and a retry would burn free-tier quota for no
+   * benefit. Extraction and generation share this loop so their retry,
+   * timeout and logging behavior cannot drift. Nothing is persisted.
+   */
+  private async runOperation<T>(
+    operation: "extract" | "generate",
+    promptTemplate: PromptTemplate,
+    prompt: string,
+    parse: (raw: string) => T,
+  ): Promise<T> {
     let lastError: AIError | undefined;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -213,19 +261,19 @@ export class GeminiAdapter implements AIProvider {
 
       try {
         const raw = await this.generateText(prompt);
-        const recipe = parseExtractionResponse(raw);
+        const result = parse(raw);
 
         this.safeLog({
-          ...this.logMeta(attempt, startedAt),
+          ...this.logMeta(operation, promptTemplate, attempt, startedAt),
           outcome: "success",
         });
 
-        return recipe;
+        return result;
       } catch (error) {
-        const aiError = toAIError(error, "extract");
+        const aiError = toAIError(error, operation);
 
         this.safeLog({
-          ...this.logMeta(attempt, startedAt),
+          ...this.logMeta(operation, promptTemplate, attempt, startedAt),
           outcome: aiError.code,
           detail: aiError.detail,
         });
@@ -238,12 +286,12 @@ export class GeminiAdapter implements AIProvider {
       }
     }
 
-    throw lastError ?? new AIError("provider_unavailable", "extract", "Gemini extraction failed.");
-  }
-
-  /** Not part of AI-04; reserved for AI-06. */
-  generateRecipe(_input: GenerateRecipeInput): Promise<GeneratedRecipe> {
-    return Promise.reject(new Error("Method not implemented for Sprint 1."));
+    throw lastError ??
+      new AIError(
+        "provider_unavailable",
+        operation,
+        operation === "extract" ? "Gemini extraction failed." : "Gemini generation failed.",
+      );
   }
 
   /** Live smoke check used by the optional connectivity script. */
@@ -277,12 +325,17 @@ export class GeminiAdapter implements AIProvider {
   }
 
   /** Metadata-only part of a log entry. Never includes prompt or recipe text. */
-  private logMeta(attempt: number, startedAt: number): Omit<AIOperationLog, "outcome"> {
+  private logMeta(
+    operation: "extract" | "generate",
+    promptTemplate: PromptTemplate,
+    attempt: number,
+    startedAt: number,
+  ): Omit<AIOperationLog, "outcome"> {
     return {
-      op: "extract",
+      op: operation,
       model: this.modelName,
-      promptId: EXTRACTION_PROMPT.id,
-      promptVersion: EXTRACTION_PROMPT.version,
+      promptId: promptTemplate.id,
+      promptVersion: promptTemplate.version,
       attempt,
       latencyMs: Date.now() - startedAt,
     };
@@ -328,6 +381,52 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
     throw new AIError("invalid_output", "extract", message, fieldPaths);
+  }
+
+  return parsed.data;
+}
+
+/**
+ * Validates a generated preview and enforces AI-07's generation boundary:
+ * every proposed parent must be one of the recipes the backend actually put in
+ * the prompt. An invented or foreign ID is a hard failure, never a silent drop,
+ * because silently dropping could hide a prompt-injection attempt.
+ *
+ * Exported for tests.
+ */
+export function parseGenerationResponse(
+  raw: string,
+  allowedParentIds: ReadonlySet<string>,
+): GeneratedRecipe {
+  const cleaned = stripCodeFence(raw);
+
+  let value: unknown;
+  try {
+    value = JSON.parse(cleaned);
+  } catch {
+    throw new AIError("invalid_output", "generate", "Gemini did not return valid JSON.");
+  }
+
+  const parsed = GeneratedRecipeSchema.safeParse(value);
+  if (!parsed.success) {
+    const fieldPaths = parsed.error.issues
+      .map((issue) => issue.path.join("."))
+      .join(", ");
+    const message = fieldPaths
+      ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
+      : "Gemini output did not match the recipe schema.";
+    throw new AIError("invalid_output", "generate", message, fieldPaths);
+  }
+
+  const hasUnknownParent = parsed.data.parentRecipeIds
+    .some((id) => !allowedParentIds.has(id));
+  if (hasUnknownParent) {
+    throw new AIError(
+      "invalid_output",
+      "generate",
+      "Gemini proposed a parent recipe outside the supplied candidates.",
+      "parentRecipeIds",
+    );
   }
 
   return parsed.data;
@@ -381,7 +480,7 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
     return new AIError("provider_unavailable", operation, "Gemini is currently unavailable.");
   }
 
-  return new AIError("internal_error", operation, "Gemini extraction failed unexpectedly.");
+  return new AIError("internal_error", operation, `Gemini ${operation} failed unexpectedly.`);
 }
 
 /** Recognize transport failures without treating every local SDK error as an outage. */
