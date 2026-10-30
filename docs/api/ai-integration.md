@@ -71,7 +71,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 405  | `METHOD_NOT_ALLOWED`   | Method other than `POST`/`OPTIONS` | no |
 | 413  | `INPUT_TOO_LARGE`      | `notes` > 10,000 chars, or body > 128 KiB | no |
 | 429  | `QUOTA_EXCEEDED`       | Daily per-user AI limit reached (AI-17) | seconds until the UTC reset, up to `86400` |
-| 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown, else `30` |
+| 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown (rounded up, capped at 3,600 seconds), else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
@@ -81,12 +81,12 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
 
-The endpoint does **not** retry a `429` itself. The adapter already performed its one
+The endpoint does **not** retry a `429` itself. The adapter handles at most one
 bounded retry (AI-18). A `rate_limited` surfaced here means that single retry was either
 **exhausted** (the provider kept returning `429`) or **skipped** because the provider's
-cooldown was longer than the adapter's 5-second budget. Either way the client should back
-off for the full `Retry-After`: the provider's own cooldown when it named one, otherwise
-`30` seconds.
+cooldown was longer than the adapter's 5-second budget. The client should honor
+`Retry-After`: the provider's cooldown rounded up to whole seconds and capped at 3,600
+seconds, or `30` seconds when no usable cooldown is available.
 
 The two `429`s have different horizons. `AI_RATE_LIMITED` is a provider cooldown and is
 capped at **3,600 seconds**. `QUOTA_EXCEEDED` is a daily reset and is **not** capped at an
