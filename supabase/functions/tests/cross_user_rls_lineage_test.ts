@@ -432,6 +432,27 @@ export function evaluateCascadeVerification(params: {
   };
 }
 
+export function evaluateBatchAtomicityVerification(params: {
+  attemptedRows: number;
+  insertError: { code?: string } | null;
+  persistedRowCount: number;
+}): { atomicFailureProven: boolean; reason?: string } {
+  if (params.insertError && params.persistedRowCount === 0) {
+    return {
+      atomicFailureProven: true,
+    };
+  }
+  if (!params.insertError && params.persistedRowCount === params.attemptedRows) {
+    return {
+      atomicFailureProven: true,
+    };
+  }
+  return {
+    atomicFailureProven: false,
+    reason: "Partial persistence observed or unexpected state.",
+  };
+}
+
 export type CleanupAdminClient = {
   from: (table: string) => {
     delete: () => {
@@ -1336,6 +1357,51 @@ Deno.test({
 
       const { data: verifyS9Lineage } = await assertionClient(rlsClientB, "User B assertion client").from("recipe_lineage").select("id").eq("id", s9LineageId).single();
       assertEquals(verifyS9Lineage?.id, s9LineageId);
+
+      const s10ChildA = await createRecipe(rlsClientA, userAId, "Scenario 10 Child A");
+      const s10ParentA = await createRecipe(rlsClientA, userAId, "Scenario 10 Parent A");
+      const s10ParentB = await createRecipe(rlsClientB, userBId, "Scenario 10 Parent B");
+
+      const { data: s10BatchData, error: s10BatchErr } = await rlsClientA
+        .from("recipe_lineage")
+        .insert([
+          { parent_recipe_id: s10ParentA, child_recipe_id: s10ChildA },
+          { parent_recipe_id: s10ParentB, child_recipe_id: s10ChildA },
+        ])
+        .select("id");
+      assertEquals(s10BatchData, null);
+      assertNotEquals(s10BatchErr, null);
+      assertEquals(s10BatchErr?.code, "42501");
+
+      const { data: verifyS10LineageA } = await assertionClient(rlsClientA, "User A assertion client")
+        .from("recipe_lineage")
+        .select("id")
+        .eq("child_recipe_id", s10ChildA);
+      assertEquals(verifyS10LineageA?.length, 0);
+
+      const s10AtomicityEval = evaluateBatchAtomicityVerification({
+        attemptedRows: 2,
+        insertError: s10BatchErr,
+        persistedRowCount: verifyS10LineageA?.length ?? 0,
+      });
+      assertEquals(s10AtomicityEval.atomicFailureProven, true);
+
+      const s10ParentA2 = await createRecipe(rlsClientA, userAId, "Scenario 10 Parent A2");
+      const { data: s10ValidBatchData, error: s10ValidBatchErr } = await rlsClientA
+        .from("recipe_lineage")
+        .insert([
+          { parent_recipe_id: s10ParentA, child_recipe_id: s10ChildA },
+          { parent_recipe_id: s10ParentA2, child_recipe_id: s10ChildA },
+        ])
+        .select("id, parent_recipe_id, child_recipe_id");
+      assertEquals(s10ValidBatchErr, null);
+      assertEquals(s10ValidBatchData?.length, 2);
+
+      const { data: verifyS10BatchSuccess } = await assertionClient(rlsClientA, "User A assertion client")
+        .from("recipe_lineage")
+        .select("id")
+        .eq("child_recipe_id", s10ChildA);
+      assertEquals(verifyS10BatchSuccess?.length, 2);
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       primaryError = new Error(sanitizeSecrets(raw, knownSecrets));
@@ -2280,4 +2346,28 @@ Deno.test("Finding 3 review regression: Remaining cleanup stages still execute a
   assertEquals(operationsCalled.includes("in:recipes:id"), true);
   assertEquals(operationsCalled.includes("eq:profiles:user-1"), true);
   assertEquals(operationsCalled.includes("deleteUser:user-1"), true);
+});
+
+
+Deno.test("evaluateBatchAtomicityVerification verifies all-or-nothing batch semantics under RLS rejection", () => {
+  const failureCase = evaluateBatchAtomicityVerification({
+    attemptedRows: 2,
+    insertError: { code: "42501" },
+    persistedRowCount: 0,
+  });
+  assertEquals(failureCase.atomicFailureProven, true);
+
+  const successCase = evaluateBatchAtomicityVerification({
+    attemptedRows: 2,
+    insertError: null,
+    persistedRowCount: 2,
+  });
+  assertEquals(successCase.atomicFailureProven, true);
+
+  const partialCase = evaluateBatchAtomicityVerification({
+    attemptedRows: 2,
+    insertError: { code: "42501" },
+    persistedRowCount: 1,
+  });
+  assertEquals(partialCase.atomicFailureProven, false);
 });

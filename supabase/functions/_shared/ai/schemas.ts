@@ -194,6 +194,34 @@ export type RecipeParams = z.infer<typeof RecipeParamsSchema>;
 export type RecipeListResponse = z.infer<typeof RecipeListResponseSchema>;
 export type UpdateRecipeRequest = z.infer<typeof UpdateRecipeRequestSchema>;
 
+export const MAX_PARENT_RECIPE_IDS = 10;
+
+export const LineageRecordSchema = z.object({
+  id: z.string().uuid(),
+  parent_recipe_id: z.string().uuid(),
+  child_recipe_id: z.string().uuid(),
+  created_at: z.string().min(1),
+});
+
+export const CreateLineageRequestSchema = z.object({
+  parent_recipe_ids: z
+    .array(z.string().uuid())
+    .min(1, { message: "At least one parent recipe ID must be provided." })
+    .max(MAX_PARENT_RECIPE_IDS, { message: "At most 10 parent recipe IDs may be provided." })
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      { message: "Duplicate parent recipe ID in request." },
+    ),
+}).strict();
+
+export const LineageResponseSchema = z.object({
+  lineage: z.array(LineageRecordSchema),
+});
+
+export type LineageRecord = z.infer<typeof LineageRecordSchema>;
+export type CreateLineageRequest = z.infer<typeof CreateLineageRequestSchema>;
+export type LineageResponse = z.infer<typeof LineageResponseSchema>;
+
 export const ChefContextStatusSchema = z.enum([
   "MATCHED",
   "NO_PANTRY_OVERLAP",

@@ -1,7 +1,9 @@
 import { authenticateRequest, type AuthDeps } from "../_shared/auth.ts";
 import { getCorsHeaders, handleCorsPreflight, jsonResponse } from "../_shared/cors.ts";
 import {
+  CreateLineageRequestSchema,
   CreateRecipeRequestSchema,
+  LineageResponseSchema,
   RecipeCursorSchema,
   RecipeListResponseSchema,
   RecipeParamsSchema,
@@ -21,6 +23,7 @@ const MAX_OFFSET_PAGE_LIMIT = 1000;
 type RouteMatch =
   | { kind: "COLLECTION" }
   | { kind: "MEMBER"; id: string }
+  | { kind: "LINEAGE"; id: string }
   | { kind: "NOT_FOUND" };
 
 function parseRoute(pathname: string): RouteMatch {
@@ -39,6 +42,9 @@ function parseRoute(pathname: string): RouteMatch {
   }
   if (parts.length === 1) {
     return { kind: "MEMBER", id: parts[0] };
+  }
+  if (parts.length === 2 && parts[1] === "lineage") {
+    return { kind: "LINEAGE", id: parts[0] };
   }
   return { kind: "NOT_FOUND" };
 }
@@ -629,6 +635,23 @@ export async function handler(
           },
         );
       }
+    } else if (route.kind === "LINEAGE") {
+      if (req.method !== "GET" && req.method !== "POST") {
+        return recipesJsonResponse(
+          {
+            error: {
+              code: "METHOD_NOT_ALLOWED",
+              message: "Only GET, POST, and OPTIONS methods are supported.",
+            },
+          },
+          {
+            status: 405,
+            headers: {
+              Allow: "GET, POST, OPTIONS",
+            },
+          },
+        );
+      }
     } else {
       if (req.method !== "GET" && req.method !== "PATCH" && req.method !== "DELETE") {
         return recipesJsonResponse(
@@ -973,6 +996,341 @@ export async function handler(
       }
 
       return recipesJsonResponse(responseValidation.data, { status: 201 });
+    }
+
+    if (route.kind === "LINEAGE") {
+      const paramValidation = RecipeParamsSchema.safeParse({ id: route.id });
+      if (!paramValidation.success) {
+        const details = paramValidation.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+          message: issue.message,
+        }));
+        return recipesJsonResponse(
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid recipe ID.",
+              details,
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      const childId = paramValidation.data.id;
+
+      if (req.method === "POST") {
+        let rawBody: string;
+        try {
+          rawBody = await req.text();
+        } catch {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INVALID_JSON",
+                message: "Request body must be a valid JSON object.",
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        if (!rawBody || rawBody.trim().length === 0) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INVALID_JSON",
+                message: "Request body must be a valid JSON object.",
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        let parsedBody: unknown;
+        try {
+          parsedBody = JSON.parse(rawBody);
+        } catch {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INVALID_JSON",
+                message: "Request body must be a valid JSON object.",
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        if (!isPlainObject(parsedBody)) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INVALID_JSON",
+                message: "Request body must be a valid JSON object.",
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        const validation = CreateLineageRequestSchema.safeParse(parsedBody);
+        if (!validation.success) {
+          const details = validation.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            code: issue.code,
+            message: issue.message,
+          }));
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "Invalid recipe lineage payload.",
+                details,
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        const parentIds = validation.data.parent_recipe_ids;
+        if (parentIds.includes(childId)) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "A recipe cannot be its own parent.",
+                details: [
+                  {
+                    path: "parent_recipe_ids",
+                    code: "custom",
+                    message: "A recipe cannot be its own parent.",
+                  },
+                ],
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        const { data: childData, error: childError } = await supabase
+          .from("recipes")
+          .select("id, user_id")
+          .eq("id", childId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (childError) {
+          console.error("Database child recipe verification failed", childError?.code ? `code: ${childError.code}` : "");
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "Internal server error.",
+              },
+            },
+            { status: 500 },
+          );
+        }
+
+        const childRecord = normalizeRecord(childData);
+        if (!childRecord || childRecord.user_id !== user.id) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "NOT_FOUND",
+                message: "Recipe not found.",
+              },
+            },
+            { status: 404 },
+          );
+        }
+
+        const { data: parentsData, error: parentsError } = await supabase
+          .from("recipes")
+          .select("id, user_id")
+          .in("id", parentIds)
+          .eq("user_id", user.id);
+
+        if (parentsError || !Array.isArray(parentsData)) {
+          console.error("Database parent recipes verification failed", parentsError?.code ? `code: ${parentsError.code}` : "");
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "Internal server error.",
+              },
+            },
+            { status: 500 },
+          );
+        }
+
+        if (parentsData.length !== parentIds.length || parentsData.some((p: { user_id: string }) => p.user_id !== user.id)) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "NOT_FOUND",
+                message: "Recipe not found.",
+              },
+            },
+            { status: 404 },
+          );
+        }
+
+        const insertPayload = parentIds.map((parentId) => ({
+          parent_recipe_id: parentId,
+          child_recipe_id: childId,
+        }));
+
+        const { data: insertedData, error: insertError } = await supabase
+          .from("recipe_lineage")
+          .insert(insertPayload)
+          .select("id, parent_recipe_id, child_recipe_id, created_at");
+
+        if (insertError) {
+          if (insertError.code === "23505") {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "CONFLICT",
+                  message: "Recipe lineage relationship already exists.",
+                },
+              },
+              { status: 409 },
+            );
+          }
+          if (insertError.code === "23514") {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message: "A recipe cannot be its own parent.",
+                },
+              },
+              { status: 400 },
+            );
+          }
+          if (insertError.code === "42501") {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "NOT_FOUND",
+                  message: "Recipe not found.",
+                },
+              },
+              { status: 404 },
+            );
+          }
+          console.error("Database lineage insert failed", insertError.code ? `code: ${insertError.code}` : "");
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "Internal server error.",
+              },
+            },
+            { status: 500 },
+          );
+        }
+
+        if (!Array.isArray(insertedData)) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "Internal server error.",
+              },
+            },
+            { status: 500 },
+          );
+        }
+
+        const responseValidation = LineageResponseSchema.safeParse({ lineage: insertedData });
+        if (!responseValidation.success) {
+          console.error("Lineage response validation failed");
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "Internal server error.",
+              },
+            },
+            { status: 500 },
+          );
+        }
+
+        return recipesJsonResponse(responseValidation.data, { status: 201 });
+      }
+
+      const { data: childData, error: childError } = await supabase
+        .from("recipes")
+        .select("id, user_id")
+        .eq("id", childId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (childError) {
+        console.error("Database child recipe verification failed", childError?.code ? `code: ${childError.code}` : "");
+        return recipesJsonResponse(
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Internal server error.",
+            },
+          },
+          { status: 500 },
+        );
+      }
+
+      const childRecord = normalizeRecord(childData);
+      if (!childRecord || childRecord.user_id !== user.id) {
+        return recipesJsonResponse(
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: "Recipe not found.",
+            },
+          },
+          { status: 404 },
+        );
+      }
+
+      const { data: lineageData, error: lineageError } = await supabase
+        .from("recipe_lineage")
+        .select("id, parent_recipe_id, child_recipe_id, created_at")
+        .eq("child_recipe_id", childId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
+
+      if (lineageError || !Array.isArray(lineageData)) {
+        console.error("Database lineage query failed", lineageError?.code ? `code: ${lineageError.code}` : "");
+        return recipesJsonResponse(
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Internal server error.",
+            },
+          },
+          { status: 500 },
+        );
+      }
+
+      const getResponseValidation = LineageResponseSchema.safeParse({ lineage: lineageData });
+      if (!getResponseValidation.success) {
+        console.error("Lineage response validation failed");
+        return recipesJsonResponse(
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Internal server error.",
+            },
+          },
+          { status: 500 },
+        );
+      }
+
+      return recipesJsonResponse(getResponseValidation.data, { status: 200 });
     }
 
     const paramValidation = RecipeParamsSchema.safeParse({ id: route.id });
