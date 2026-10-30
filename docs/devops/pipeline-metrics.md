@@ -51,11 +51,15 @@ Course evidence inventory: workflow configuration exists under `.github/workflow
 Evidence states, where applicable:
 
 ```text
+Implementation / execution evidence:
 Proposed -> Configured -> Locally tested -> Executed in CI -> Passed in CI
-         -> Required -> Merged -> Deployed -> Verified
+         -> Merged -> Deployed -> Verified
+
+GitHub policy evidence:
+Required
 ```
 
-These are distinct claims, not automatic promotions: passing does not make a check required; requirement is a separate GitHub policy fact. Configured does not mean executed; executed does not mean passed; PR CI passed does not mean main verified; deployed does not mean runtime verified; skipped does not mean passed. Human review and CodeRabbit review are separate from CI results.
+These are distinct claims, not automatic promotions: a check may pass without being required; requirement is an independently configured GitHub policy condition, and a required check still needs its own execution/pass evidence. Configured does not mean executed; executed does not mean passed; PR CI passed does not mean main verified; deployed does not mean runtime verified; skipped does not mean passed. Human review and CodeRabbit review are separate from CI results.
 
 ## 1. Current Delivery System
 
