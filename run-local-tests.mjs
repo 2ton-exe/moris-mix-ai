@@ -525,6 +525,7 @@ async function runMain() {
     "supabase/functions/tests/auth_rls_integration_test.ts",
     "supabase/functions/tests/recipes_test.ts",
     "supabase/functions/tests/cross_user_rls_lineage_test.ts",
+    "supabase/functions/tests/recipe_context_test.ts",
   ];
 
   runCommand("deno", denoArgs, process.platform === "win32");

@@ -12,7 +12,7 @@ application data, Edge Function, schema, RLS, or deployment files are changed.
 | `/`, `/home`, `/about`, `/demo-recipe` | Existing public FE-01/FE-02 behavior; no auth initialization or auth requests required |
 | `/login`, `/signup` | Guest forms; signed-in visitors return to their intended `/app` destination |
 | `/verify-email` | Confirmation instructions and email-link resend form |
-| `/auth/callback` | Waits for the SDK to consume a signup verification link; shows confirmed-session status or recovery guidance |
+| `/auth/callback` | Explicitly exchanges a signup authorization code with the SDK's browser-held PKCE verifier; shows confirmed-session status or recovery guidance |
 | `/app/*` | Protected journal entry, ready for FE-04 recipe routes |
 
 `/app` is a frontend landing route introduced here, not a backend endpoint or a
@@ -30,8 +30,10 @@ Auth interface. It uses the existing `VITE_SUPABASE_URL` and
 legacy public-key fallback. Configuration failures have safe, retryable UI.
 All browser environment values are public; privileged keys must never be used.
 
-The SDK owns session persistence, URL consumption, automatic refresh, and tab
-notifications. There is no additional localStorage token key. The provider
+The SDK owns session persistence, automatic refresh, and tab notifications.
+Automatic URL session detection is disabled; the callback helper explicitly
+requests a PKCE code exchange only on `/auth/callback`. There is no additional
+localStorage token key. The provider
 restores the session, listens synchronously for auth events, unsubscribes on
 cleanup, ignores obsolete initialization results, and hides protected content
 until initialization finishes. `INITIAL_SESSION` is not a new auth mutation and
@@ -88,23 +90,37 @@ authoritative for stronger project password policy.
 
 The browser chooses `window.location.origin + '/auth/callback'` as the
 `emailRedirectTo` for signup and resend. No production origin is hardcoded.
-This uses Supabase's browser **implicit** flow: the standard confirmation link
-returns session credentials in the fragment and the SDK consumes them. A custom
-PKCE/code or token-hash email template requires an agreed callback contract and
-an implementation update; those formats show recovery guidance today.
+`frontend/src/auth/client.ts` implements the **PKCE** browser callback contract
+from Issue #122 with `flowType: 'pkce'` and `detectSessionInUrl: false`.
+The standard signup confirmation link returns an authorization `code` query
+parameter. After SDK initialization, `getVerificationCallbackResult()` explicitly
+calls `exchangeCodeForSession(code)` only on `/auth/callback`; the SDK supplies
+the browser-held PKCE verifier. Open the confirmation link in the same browser
+that started signup so that verifier is available. No custom email template is
+required. URL-supplied `access_token` and `refresh_token` credentials in queries
+or fragments are stripped before SDK access on any route and cannot establish
+or replace a browser session. Token-hash and error callbacks show recovery
+guidance without a code exchange.
 
-Verification success uses the initialization outcome of the SDK client that
-actually received the signup callback. A restored confirmed session alone is
-insufficient. The SDK's existing `initialize()` promise is observed to retain URL
-processing errors; it does not perform a second exchange. Completed callback
-results are not reused for a later callback visit. Auth fragments and sensitive
-query parameters are removed with same-origin history replacement on success,
-failure, and initialization timeout. Unrelated query parameters are preserved;
-credentials and raw callback errors are never rendered or logged by FE-03.
-Callback processing has the same independent 15-second deadline, so an unrelated
-cross-tab sign-in cannot leave callback feedback spinning indefinitely. Once that
-callback attempt times out, a late SDK completion cannot turn its feedback into
-verification success; login or a fresh email link remains the recovery path.
+Verification success requires a successful code exchange returning a session
+and a confirmed user session (`email_confirmed_at`). A restored confirmed
+session alone is insufficient. Missing, expired, malformed, URL-token,
+token-hash, or server-rejected callbacks show recovery guidance and the resend
+form while preserving an existing session. A code without its matching
+browser-held verifier cannot establish a session or report verification success.
+A valid code with its matching verifier can establish the returned session and
+report verification success even when a session already exists. Password login
+(`signInWithPassword`) and protected `/functions/v1/recipes` requests (`GET`,
+`POST`, `PATCH`, `DELETE`) continue to use the active authenticated SDK session.
+Concurrent callback consumers share one code exchange, and completed callback
+results are not reused for a later callback visit. Sensitive callback query
+parameters and fragment values are removed with same-origin history replacement
+on success, failure, and timeout; unrelated query parameters and fragment values
+are preserved. Credentials and raw callback errors are never rendered or logged
+by FE-03. Callback processing has an independent 15-second deadline. A timed-out
+exchange is aborted, and a late response cannot persist a session or turn its
+feedback into verification success; login or a fresh email link remains the
+recovery path.
 
 Configure Supabase Auth's Site URL for the approved frontend deployment and add
 exact allowed redirect URLs for each approved environment, for example
