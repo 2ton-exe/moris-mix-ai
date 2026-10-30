@@ -1,6 +1,6 @@
 # Authenticated recipe REST API contract (`GET`, `POST`, `PATCH`, `DELETE /recipes`)
 
-This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47), BE-06 (#48), and BE-08.
+This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema`, `CreateLineageRequestSchema`, `LineageResponseSchema`, `LineageRecordSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47), BE-06 (#48), BE-08, and BE-11.
 
 ## Endpoints overview
 
@@ -11,6 +11,8 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 | `GET` | `/functions/v1/recipes/:id` or `/recipes/:id` | Retrieve an owned recipe | `200 OK` | `{ "recipe": Recipe }` |
 | `PATCH` | `/functions/v1/recipes/:id` or `/recipes/:id` | Update allowed fields and rating | `200 OK` | `{ "recipe": Recipe }` |
 | `DELETE` | `/functions/v1/recipes/:id` or `/recipes/:id` | Delete an owned recipe | `204 No Content` | (empty body) |
+| `POST` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Persist authorized recipe parent-child lineage relationships | `201 Created` | `{ "lineage": LineageRecord[] }` |
+| `GET` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Retrieve deterministic parent lineage for an owned recipe | `200 OK` | `{ "lineage": LineageRecord[] }` |
 | `OPTIONS` | Any supported recipe path | CORS preflight check | `204 No Content` | (empty body) |
 
 ## Headers and Authentication
@@ -325,6 +327,91 @@ Deletes an owned recipe according to the database model.
 
 Returns `204 No Content` with an empty response body, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and CORS headers.
 
+## 6. POST /recipes/:id/lineage — Persist recipe lineage
+
+Persists user-approved parent-child relationships between recipes in `public.recipe_lineage`. Only relationships where the authenticated caller owns both the child recipe and all parent recipes are persisted.
+
+### Request
+
+- **Method and path:** `POST /functions/v1/recipes/:id/lineage` (or `POST /recipes/:id/lineage`)
+- **Parameters:** `:id` must be a valid RFC 4122 UUID representing the child recipe.
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional. `Content-Type: application/json` is recommended.
+
+### Request body (`CreateLineageRequestSchema`)
+
+Accepts a canonical JSON object containing an array of parent recipe UUIDs. Unrecognized or client-supplied fields (`user_id`, `child_recipe_id`, etc.) are rejected by `.strict()` validation:
+
+```json
+{
+  "parent_recipe_ids": [
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333"
+  ]
+}
+```
+
+### Validation rules
+
+| Field | Required | Type / Constraints | Behavior |
+| --- | --- | --- | --- |
+| `parent_recipe_ids` | Required | Array of RFC 4122 UUID strings, length `1..10`, strictly unique | Rejects empty arrays (`min(1)`), arrays exceeding 10 parents (`max(10)`), duplicate UUIDs (`400 VALIDATION_ERROR`), non-UUID items, or non-array inputs. |
+
+- **Self-referencing restriction:** A recipe cannot be its own parent. If `parent_recipe_ids` contains `:id`, the request is rejected with `400 Bad Request` and `VALIDATION_ERROR` (`A recipe cannot be its own parent.`).
+- **Array limit:** The maximum of 10 parent recipe IDs per request (`MAX_PARENT_RECIPE_IDS`) aligns with culinary composition limits and safeguards against unbounded batch writes.
+
+### Ownership verification and atomicity
+
+1. **Child recipe ownership:** The handler verifies that `:id` exists and belongs to the authenticated user (`.eq("id", childId).eq("user_id", user.id)`). If not found or owned by another user, returns `404 Not Found` before querying parents or attempting insertion.
+2. **Parent recipes ownership:** The handler verifies that every ID in `parent_recipe_ids` exists and belongs to the authenticated user (`.in("id", parentIds).eq("user_id", user.id)`). If any parent recipe is missing or owned by another user, returns `404 Not Found` without inserting any rows.
+3. **Atomic batch persistence:** Lineage relationships are written in a single PostgREST batch `INSERT` through the user-scoped client. Because PostgreSQL executes multi-row insert statements in an all-or-nothing transaction, any database failure (e.g., concurrent conflict or foreign key constraint) rolls back the entire batch, ensuring zero partial lineage persistence.
+4. **Database constraint mapping:**
+   - Duplicate relationship (unique constraint `unique_parent_child_pair`, code `23505`): mapped to `409 Conflict` with `CONFLICT`.
+   - Self-reference (check constraint `check_parent_child_distinct`, code `23514`): mapped to `400 Bad Request` with `VALIDATION_ERROR`.
+   - Row-level security denial (RLS policy violation, code `42501`): mapped to `404 Not Found` with `NOT_FOUND`.
+
+### Response (`201 Created`)
+
+Returns `201 Created` with `{ "lineage": LineageRecord[] }` matching `LineageResponseSchema`:
+
+```json
+{
+  "lineage": [
+    {
+      "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "parent_recipe_id": "22222222-2222-4222-8222-222222222222",
+      "child_recipe_id": "11111111-1111-4111-8111-111111111111",
+      "created_at": "2026-10-30T10:00:00.000Z"
+    },
+    {
+      "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "parent_recipe_id": "33333333-3333-4333-8333-333333333333",
+      "child_recipe_id": "11111111-1111-4111-8111-111111111111",
+      "created_at": "2026-10-30T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+## 7. GET /recipes/:id/lineage — Retrieve recipe lineage
+
+Retrieves the parent recipe relationships for an owned child recipe, ordered deterministically.
+
+### Request
+
+- **Method and path:** `GET /functions/v1/recipes/:id/lineage` (or `GET /recipes/:id/lineage`)
+- **Parameters:** `:id` must be a valid RFC 4122 UUID representing the child recipe.
+- **Headers:** `Authorization: Bearer <token>` (required); `apikey: <key>` is optional.
+- **Body:** none
+
+### Ownership and ordering rules
+
+- **Ownership verification:** Verifies that `:id` belongs to the authenticated caller before querying relationships. If the child recipe does not exist or belongs to another user, returns `404 Not Found` without querying `recipe_lineage`.
+- **Deterministic ordering:** Results are queried from `public.recipe_lineage` ordered by `created_at ASC, id ASC`, ensuring stable and repeatable retrieval order across requests.
+
+### Response (`200 OK`)
+
+Returns `200 OK` with `{ "lineage": LineageRecord[] }` matching `LineageResponseSchema`. If the recipe has no recorded parents, returns `200 OK` with `{ "lineage": [] }`.
+
 ## Ownership and server-controlled fields
 
 - Recipe ownership (`user_id`) is derived exclusively from `auth.context.user.id` after verifying the Bearer token.
@@ -334,6 +421,10 @@ Returns `204 No Content` with an empty response body, `Cache-Control: no-store`,
   - `recipes_insert_own`: `WITH CHECK (auth.uid() = user_id)`
   - `recipes_update_own`: `USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id)`
   - `recipes_delete_own`: `USING (auth.uid() = user_id)`
+- Lineage table operations on `public.recipe_lineage` strictly enforce independent PostgreSQL Row-Level Security:
+  - `lineage_select_own`: `USING (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = auth.uid()))`
+  - `lineage_insert_own`: `WITH CHECK (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = auth.uid()) AND EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.child_recipe_id AND r.user_id = auth.uid()))`
+  - `lineage_delete_own`: `USING (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = auth.uid()))`
 
 ## Errors
 
@@ -343,6 +434,8 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | --- | --- | --- | --- |
 | `400 Bad Request` | `INVALID_JSON` | `Request body must be a valid JSON object.` | Request body is empty, malformed JSON, or not a plain JSON object. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe payload.` | Request body fails Zod validation. Includes `error.details` array of `{ path, code, message }`. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe lineage payload.` | Lineage request body fails Zod validation (e.g. empty, duplicate IDs, >10 IDs, extra properties). Includes `error.details` array. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `A recipe cannot be its own parent.` | Lineage `parent_recipe_ids` contains child recipe ID or database check `23514` fails. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe ID.` | Route parameter `:id` is not a valid UUID string. Includes `error.details` array with `path: "id"`. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination parameters.` | Collection `GET` has an invalid, duplicate, or out-of-range `limit` or `offset`, or combines `cursor` and `offset`. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination cursor.` | Collection `GET` has a malformed, corrupt, or incompatible `cursor`. |
@@ -350,10 +443,11 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid search parameter.` | Collection `GET` has duplicate `title` or `ingredient` query parameters. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid Authorization header.` | `Authorization` header is missing, empty, not `Bearer`, or not a compact 3-part JWS. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Invalid or expired authentication credentials.` | Supabase Auth rejects the Bearer JWT as invalid, expired, revoked, or unauthenticated. |
-| `404 Not Found` | `NOT_FOUND` | `Recipe not found.` | Target recipe does not exist or belongs to another user. |
+| `404 Not Found` | `NOT_FOUND` | `Recipe not found.` | Target recipe does not exist or belongs to another user (applies to recipes, child lineage target, and parent lineage targets). |
 | `404 Not Found` | `NOT_FOUND` | `Route not found.` | Request targets an unsupported sub-path under `/recipes`. |
-| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, POST, and OPTIONS methods are supported.` | Unsupported method on collection route (`/recipes`). Includes `Allow: GET, POST, OPTIONS`. |
+| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, POST, and OPTIONS methods are supported.` | Unsupported method on collection route (`/recipes`) or lineage route (`/recipes/:id/lineage`). Includes `Allow: GET, POST, OPTIONS`. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, PATCH, DELETE, and OPTIONS methods are supported.` | Unsupported method on member route (`/recipes/:id`). Includes `Allow: GET, PATCH, DELETE, OPTIONS`. |
+| `409 Conflict` | `CONFLICT` | `Recipe lineage relationship already exists.` | Database unique constraint `unique_parent_child_pair` (`23505`) is violated. |
 | `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Upstream Supabase Auth returns `429 Too Many Requests`. Propagates `Retry-After` header when present. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Server configuration error, database query failure, RLS denial, or schema mismatch. Never leaks secrets or SQL details. |
 
@@ -368,15 +462,16 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 - On success, use the returned `recipes` or `recipe` envelope; after `204 No Content` from delete, remove the recipe without trying to parse a response body.
 - For non-2xx responses, network failures, or invalid JSON, show a retryable, user-safe error and do not display raw backend details.
 
-## Verification and testing (`supabase/functions/tests/recipes_test.ts`)
+## Verification and testing (`supabase/functions/tests/recipes_test.ts` and `cross_user_rls_lineage_test.ts`)
 
 Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
-- **Deterministic offline tests (53 tests in `recipes_test.ts`):** Run completely offline without database or Auth dependencies, verifying search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
+- **Deterministic Edge Function offline tests (70 tests in `recipes_test.ts`):** Run completely offline without external database or Auth network dependencies, verifying lineage persistence, deterministic retrieval ordering, array limits, duplicate rejection, CORS, method handling, search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
+- **RLS and cross-user authorization tests (28 offline tests in `cross_user_rls_lineage_test.ts`):** Verify multi-parent atomic batch insert semantics, cross-user isolation, target safety guards, and cleanup guarantees.
 - **Database migration tests:** Run offline via `node test-migrations.mjs`.
 - **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.
 - **Command:**
   ```sh
-  deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/recipes_test.ts
+  deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/recipes_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
   ```
 
 ### Test database isolation
