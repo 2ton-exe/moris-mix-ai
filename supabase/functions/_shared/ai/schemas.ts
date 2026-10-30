@@ -61,9 +61,36 @@ export const ExtractedRecipeSchema = z.object({
   flavor_scores: nullToUndefined(FlavorScoreSchema.optional())
 });
 
+/**
+ * AI-15: substitutions are explicit and structured, never prose buried in an
+ * instruction. `original` must name an ingredient in the generated recipe;
+ * `replacement` is what the cook can use instead. `reason` is optional and
+ * user-safe (for example "not in your pantry").
+ */
+export const SubstitutionSchema = z.object({
+  original: z.string().min(1),
+  replacement: z.string().min(1),
+  reason: z.string().min(1).optional()
+});
+
 export const GeneratedRecipeSchema = z.object({
   recipe: ExtractedRecipeSchema,
+  substitutions: z.array(SubstitutionSchema),
   parentRecipeIds: z.array(z.string().uuid())
+}).superRefine((value, ctx) => {
+  // The prompt requires an exact match, and the UI renders a substitution
+  // against its ingredient. Enforce it instead of trusting the model: an
+  // orphan substitution is invalid output, not a preview the user can use.
+  const ingredientNames = new Set(value.recipe.ingredients.map((ingredient) => ingredient.name));
+  value.substitutions.forEach((substitution, index) => {
+    if (!ingredientNames.has(substitution.original)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["substitutions", index, "original"],
+        message: "Substitution.original must name an ingredient in the generated recipe."
+      });
+    }
+  });
 });
 
 /**
@@ -393,3 +420,52 @@ export const ChefRecipeContextResultSchema = z.object({
   }
 });
 export type ChefRecipeContextResult = z.infer<typeof ChefRecipeContextResultSchema>;
+
+// --- CHEF GENERATION CONTRACT (AI-06) ---
+
+/**
+ * Request contract for `POST /generate-recipe`.
+ *
+ * Pantry items are trimmed and must be non-empty: generation from nothing is a
+ * client bug, not a cold start. A cold start means the user has no saved
+ * recipes to retrieve, which the response reports through `context.status`.
+ * Limits mirror BE-10's context input so retrieval and validation agree.
+ */
+export const GenerateRecipeRequestSchema = z.object({
+  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100),
+  preferences: z.string().trim().max(1000).optional()
+});
+
+/** A proposed lineage parent, resolved from the retrieved candidate set. */
+export const SuggestedParentSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite).nullable()
+});
+
+/** Safe context metadata for the UI: why parents are (or are not) available. */
+export const GenerateRecipeContextSummarySchema = z.object({
+  status: ChefContextStatusSchema,
+  matchedCandidateCount: z.number().int().min(0).max(1000).refine(Number.isFinite),
+  totalCandidateCount: z.number().int().min(0).max(1000).refine(Number.isFinite)
+}).refine((value) => value.matchedCandidateCount <= value.totalCandidateCount, {
+  path: ["matchedCandidateCount"],
+  message: "matchedCandidateCount cannot exceed totalCandidateCount."
+});
+
+/**
+ * Successful `POST /generate-recipe` body. `parents` are resolved summaries of
+ * the validated `parentRecipeIds`, so the frontend never has to look up an ID
+ * (and can never see an ID outside the retrieved candidate set).
+ */
+export const GenerateRecipeResponseSchema = z.object({
+  recipe: ExtractedRecipeSchema,
+  substitutions: z.array(SubstitutionSchema),
+  parents: z.array(SuggestedParentSchema),
+  context: GenerateRecipeContextSummarySchema
+});
+
+export type GenerateRecipeRequest = z.infer<typeof GenerateRecipeRequestSchema>;
+export type SuggestedParent = z.infer<typeof SuggestedParentSchema>;
+export type GenerateRecipeContextSummary = z.infer<typeof GenerateRecipeContextSummarySchema>;
+export type GenerateRecipeResponse = z.infer<typeof GenerateRecipeResponseSchema>;
