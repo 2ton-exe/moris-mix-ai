@@ -48,7 +48,7 @@ jobs:
       - name: Install Chromium
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps --only-shell chromium
 
       - name: Run Playwright E2E against local Supabase
         if: steps.frontend.outputs.exists == 'true'
