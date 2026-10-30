@@ -7,6 +7,7 @@ import {
   assertFalse,
   assertRejects,
   assertThrows,
+  assert,
 } from "jsr:@std/assert@1";
 import {
   AIError,
@@ -14,7 +15,9 @@ import {
   GeminiAdapter,
   type GenerateText,
   parseExtractionResponse,
+  parseGenerationResponse,
 } from "../_shared/ai/GeminiAdapter.ts";
+import type { GenerateRecipeContext } from "../_shared/ai/AIProvider.ts";
 import { buildExtractionPrompt } from "../_shared/ai/prompts.ts";
 
 const NOTES = "Boiled chicken with garlic and a splash of soy sauce.";
@@ -28,6 +31,63 @@ const VALID_RECIPE = {
   instructions: [
     { step: 1, text: "Boil the chicken with garlic and soy sauce." },
   ],
+};
+
+const PARENT_ID = "11111111-1111-4111-8111-111111111111";
+const FOREIGN_PARENT_ID = "22222222-2222-4222-8222-222222222222";
+
+const VALID_GENERATED = {
+  recipe: {
+    title: "Egg Fried Rice",
+    ingredients: [
+      { name: "rice", quantity: 2, unit: "cups", inferred: false },
+      { name: "eggs", quantity: 2, unit: null, inferred: false },
+      { name: "soy sauce", quantity: null, unit: null, quantityText: "a splash", inferred: true },
+    ],
+    instructions: [
+      { step: 1, text: "Scramble the eggs, then fold in the rice." },
+      { step: 2, text: "Season with soy sauce and serve." },
+    ],
+  },
+  substitutions: [
+    { original: "soy sauce", replacement: "tamari", reason: "gluten-free" },
+  ],
+  parentRecipeIds: [PARENT_ID],
+};
+
+const MATCHED_CONTEXT: GenerateRecipeContext = {
+  status: "MATCHED",
+  pantryItems: ["rice", "eggs"],
+  preferences: "quick weeknight dinner",
+  recipes: [{
+    id: PARENT_ID,
+    title: "Garlic Fried Rice",
+    ingredients: [
+      { name: "rice", quantity: 2, unit: "cups", inferred: false },
+      { name: "garlic", quantity: 2, unit: "cloves", inferred: false },
+    ],
+    instructions: [
+      { step: 1, text: "Fry the garlic." },
+      { step: 2, text: "Toss in the rice." },
+    ],
+    flavor_scores: null,
+    star_rating: 5,
+    created_at: "2026-10-01T00:00:00.000Z",
+    overlap_ratio: 1,
+    matched_ingredients: ["rice"],
+  }],
+  totalCandidateCount: 4,
+  matchedCandidateCount: 1,
+  truncated: false,
+};
+
+const COLD_START_CONTEXT: GenerateRecipeContext = {
+  status: "NO_SAVED_RECIPES",
+  pantryItems: ["rice", "eggs"],
+  recipes: [],
+  totalCandidateCount: 0,
+  matchedCandidateCount: 0,
+  truncated: false,
 };
 
 function adapterWith(
@@ -587,6 +647,149 @@ Deno.test("a throwing log sink cannot mask a provider error", async () => {
 
   assertEquals(error.code, "provider_unavailable");
   assertEquals(calls, 2);
+});
+
+Deno.test("generateRecipe uses the Chef prompt, candidate IDs and validated output", async () => {
+  let prompt = "";
+  const logs: AIOperationLog[] = [];
+  const adapter = adapterWith(
+    async (value) => {
+      prompt = value;
+      return JSON.stringify(VALID_GENERATED);
+    },
+    (entry) => logs.push(entry),
+  );
+
+  const result = await adapter.generateRecipe(
+    { pantryItems: ["rice", "eggs"], preferences: "quick weeknight dinner" },
+    MATCHED_CONTEXT,
+  );
+
+  assertEquals(result.recipe.title, "Egg Fried Rice");
+  assertEquals(result.substitutions, [
+    { original: "soy sauce", replacement: "tamari", reason: "gluten-free" },
+  ]);
+  assertEquals(result.parentRecipeIds, [PARENT_ID]);
+  assert(prompt.includes(`[ID: ${PARENT_ID}]`));
+  assert(prompt.includes("Available pantry ingredients: rice, eggs"));
+  assert(prompt.includes("User preferences: quick weeknight dinner"));
+
+  assertEquals(logs.length, 1);
+  assertEquals(logs[0].op, "generate");
+  assertEquals(logs[0].promptId, "chef");
+  assertEquals(logs[0].promptVersion, "1.0.0");
+  assertFalse(JSON.stringify(logs).includes("Egg Fried Rice"));
+});
+
+Deno.test("generateRecipe cold start sends no candidate IDs and accepts no parents", async () => {
+  let prompt = "";
+  const adapter = adapterWith(async (value) => {
+    prompt = value;
+    return JSON.stringify({ ...VALID_GENERATED, parentRecipeIds: [] });
+  });
+
+  const result = await adapter.generateRecipe({ pantryItems: ["rice", "eggs"] }, COLD_START_CONTEXT);
+
+  assertEquals(result.parentRecipeIds, []);
+  assert(prompt.includes("No historical matching recipes available for context."));
+  assertFalse(prompt.includes(`[ID: ${PARENT_ID}]`));
+});
+
+Deno.test("generateRecipe accepts JSON wrapped in a markdown fence", async () => {
+  const adapter = adapterWith(
+    async () => "```json\n" + JSON.stringify(VALID_GENERATED) + "\n```",
+  );
+
+  const result = await adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT);
+
+  assertEquals(result.recipe.instructions.length, 2);
+});
+
+Deno.test("generateRecipe rejects an invented parent ID without retrying", async () => {
+  let calls = 0;
+  const adapter = adapterWith(async () => {
+    calls += 1;
+    return JSON.stringify({ ...VALID_GENERATED, parentRecipeIds: [FOREIGN_PARENT_ID] });
+  });
+
+  const error = await assertRejects(
+    () => adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    AIError,
+  );
+
+  assertEquals(error.code, "invalid_output");
+  assertEquals(error.detail, "parentRecipeIds");
+  assertEquals(error.retryable, false);
+  assertEquals(calls, 1);
+  assertFalse(error.message.includes(FOREIGN_PARENT_ID));
+});
+
+Deno.test("generateRecipe rejects a parent ID when there are no candidates", async () => {
+  let calls = 0;
+  const adapter = adapterWith(async () => {
+    calls += 1;
+    return JSON.stringify(VALID_GENERATED);
+  });
+
+  const error = await assertRejects(
+    () => adapter.generateRecipe({ pantryItems: ["rice"] }, COLD_START_CONTEXT),
+    AIError,
+  );
+
+  assertEquals(error.code, "invalid_output");
+  assertEquals(error.detail, "parentRecipeIds");
+  assertEquals(calls, 1);
+});
+
+Deno.test("generateRecipe rejects malformed output without retrying", async () => {
+  let calls = 0;
+  const adapter = adapterWith(async () => {
+    calls += 1;
+    return JSON.stringify({ ...VALID_GENERATED, substitutions: undefined });
+  });
+
+  const error = await assertRejects(
+    () => adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    AIError,
+  );
+
+  assertEquals(error.code, "invalid_output");
+  assertEquals(calls, 1);
+});
+
+Deno.test("generateRecipe rejects non-JSON output", async () => {
+  const adapter = adapterWith(async () => "Here is a recipe you might like!");
+
+  const error = await assertRejects(
+    () => adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    AIError,
+  );
+
+  assertEquals(error.code, "invalid_output");
+});
+
+Deno.test("generateRecipe retries once after a transient provider failure", async () => {
+  let calls = 0;
+  const adapter = adapterWith(async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    return JSON.stringify(VALID_GENERATED);
+  });
+
+  const result = await adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT);
+
+  assertEquals(calls, 2);
+  assertEquals(result.recipe.title, "Egg Fried Rice");
+});
+
+Deno.test("parseGenerationResponse rejects parents outside the supplied set", () => {
+  const error = assertThrows(
+    () => parseGenerationResponse(JSON.stringify(VALID_GENERATED), new Set()),
+    AIError,
+  );
+
+  assertEquals(error.code, "invalid_output");
+  assertEquals(error.operation, "generate");
 });
 
 Deno.test("buildExtractionPrompt inserts notes literally", () => {
