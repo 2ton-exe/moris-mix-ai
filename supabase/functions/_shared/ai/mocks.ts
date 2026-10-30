@@ -28,6 +28,9 @@ import { GeneratedRecipe } from "./AIProvider.ts"; // Add GeneratedRecipe to you
 // NEW: Valid and Malformed Generated Recipe Mocks
 export const MOCK_GENERATED_RECIPE: GeneratedRecipe = {
   recipe: MOCK_EXTRACTED_RECIPE,
+  substitutions: [
+    { original: "soy sauce", replacement: "tamari", reason: "gluten-free" }
+  ],
   parentRecipeIds: ["123e4567-e89b-12d3-a456-426614174000"]
 };
 

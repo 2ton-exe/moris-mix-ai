@@ -46,8 +46,7 @@ export function classify(paths) {
 }
 
 export function stagingEligible(pr, repository) {
-  return !pr.draft && pr.head.repo?.full_name === repository &&
-    ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.author_association);
+  return !pr.draft && pr.head.repo?.full_name === repository;
 }
 
 export function normalize(check, { expectedSkip = false, applicable = true } = {}) {

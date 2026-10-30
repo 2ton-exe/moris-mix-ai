@@ -39,6 +39,10 @@ verify_jwt = false
 [functions.extract-recipe]
 verify_jwt = false
 
+# AI-06 Chef generation: same authentication and preflight contract as extraction.
+[functions.generate-recipe]
+verify_jwt = false
+
 # These future handlers must authenticate POST requests themselves and handle OPTIONS before authentication.
 [functions.recipe-image-upload-url]
 verify_jwt = false

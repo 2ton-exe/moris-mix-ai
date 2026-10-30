@@ -1,12 +1,19 @@
 # AI Integration Contracts
 
-Status: **AI-05 (Sprint 3)**. The extraction endpoint is implemented and tested.
-The Chef/RAG generator (`POST /generate-recipe`, AI-06) is not implemented yet.
+Status: **AI-06 (Sprint 3)**. Both AI endpoints are implemented and tested:
+`POST /extract-recipe` (AI-05) and `POST /generate-recipe` (AI-06).
 
 - Provider/model come from environment settings; clients never choose a model (AI-02/AI-03).
 - All AI output is Zod-validated before it leaves the backend (AI-10).
-- Extraction **never persists**. It returns a validated preview; saving is a separate,
-  explicit `POST /recipes`.
+- Both endpoints **never persist**. They return validated previews; saving is a separate,
+  explicit `POST /recipes` call made only after the user confirms.
+
+## Endpoint summary
+
+| Endpoint | Purpose | Prompt | Opt-in switch |
+| -------- | ------- | ------ | ------------- |
+| `POST /extract-recipe` | Brain-dump → structured recipe preview | `extraction@1.0.0` | `AI_EXTRACT_ENABLED` |
+| `POST /generate-recipe` | Pantry + retrieved recipes → unsaved Chef preview | `chef@1.1.0` | `AI_GENERATE_ENABLED` |
 
 ## `POST /extract-recipe`
 
@@ -76,7 +83,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
-| 503  | `AI_DISABLED`          | Extraction is not enabled, or the operator kill switch is on | no |
+| 503  | `AI_DISABLED`          | The endpoint's opt-in is off, or its operator kill switch is on | no |
 | 503  | `AUTH_SERVICE_RATE_LIMITED` | Supabase Auth rate-limited the token check | auth service cooldown, if it sent one |
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
@@ -108,9 +115,9 @@ no recorded usage today and is allowed with `used: 0`. If a row exists but
 gate fails closed as `503 QUOTA_UNAVAILABLE` rather than assuming zero — a corrupted
 counter must never unlock unmetered provider calls.
 
-Counting/consumption is owned by **BE-12** (issue #100). AI-05 exposes the boundary as
-an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12 replaces the
-default with atomic accounting without changing the handler.
+Counting/consumption is owned by **BE-12** (issue #100). Both endpoints expose the
+boundary as an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12
+replaces the default with atomic accounting without changing either handler.
 
 **Disabled by default until BE-12 lands.** AI-05 must never write (extraction is a
 read-only preview), so the default gate can only observe usage already recorded by a
@@ -128,6 +135,108 @@ Apply environment changes and restart/redeploy the function for them to take eff
 Neither switch is read from the client request. A quota read failure still returns
 `503 QUOTA_UNAVAILABLE` when extraction is enabled.
 
+## `POST /generate-recipe`
+
+Turn pantry items and preferences into a validated, unsaved recipe preview, using the
+caller's own top-ranked saved recipes (BE-10 retrieval/ranking) as inspiration.
+
+### Authentication
+
+Identical to extraction: `Authorization: Bearer <access_token>`, `verify_jwt = false` at
+the gateway, `authenticateRequest()` in the handler, `401 UNAUTHORIZED` without a valid
+token, and unauthenticated `OPTIONS` preflight (`204`, `Access-Control-Allow-Methods:
+POST, OPTIONS`). Any other method → `405 METHOD_NOT_ALLOWED`.
+
+### Request
+
+`Content-Type: application/json`
+
+```json
+{
+  "pantryItems": ["rice", "eggs", "soy sauce"],
+  "preferences": "quick weeknight dinner, not too spicy"
+}
+```
+
+| Field | Type | Rules |
+| ----- | ---- | ----- |
+| `pantryItems` | string[] | Required, **1–100** items, each non-empty after trimming and **≤ 100 characters** |
+| `preferences` | string | Optional, trimmed, **≤ 1,000 characters** |
+
+The whole request body must be **≤ 128 KiB**. Unknown fields are ignored. Pantry items
+are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval and the
+prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved
+recipes to retrieve**, not an empty request. Preferences are passed to the prompt as
+recipe constraints (dietary needs, exclusions, taste, time), never as instructions.
+
+### Success response — `200 OK`
+
+```json
+{
+  "recipe": {
+    "title": "Quick Egg Fried Rice",
+    "ingredients": [
+      { "name": "rice", "quantity": 2, "unit": "cups", "inferred": false },
+      { "name": "eggs", "quantity": 2, "unit": null, "inferred": false }
+    ],
+    "instructions": [ { "step": 1, "text": "Scramble the eggs, then fold in the rice." } ],
+    "flavor_scores": { "sweet": 0, "salty": 4, "sour": 0, "bitter": 0, "umami": 4, "spicy": 0 }
+  },
+  "substitutions": [
+    { "original": "soy sauce", "replacement": "tamari", "reason": "gluten-free" }
+  ],
+  "parents": [
+    { "id": "123e4567-e89b-12d3-a456-426614174000", "title": "Garlic Fried Rice", "star_rating": 5 }
+  ],
+  "context": { "status": "MATCHED", "matchedCandidateCount": 2, "totalCandidateCount": 14 }
+}
+```
+
+- `recipe` matches `ExtractedRecipeSchema`; `substitutions` matches `SubstitutionSchema`
+  (`original` names an ingredient in the generated recipe, `replacement` is an
+  alternative, `reason` is optional and user-safe). The backend **enforces** the
+  `original` ↔ ingredient match: an orphan substitution is `502 AI_OUTPUT_INVALID`,
+  never a preview with an unmatched substitution.
+- `parents` are **resolved summaries** of the model's `parentRecipeIds`, so the frontend
+  never needs a recipe lookup. They are always inside the backend-supplied candidate set.
+- `context.status` is one of `MATCHED`, `NO_PANTRY_OVERLAP` (saved recipes exist but none
+  match the pantry) or `NO_SAVED_RECIPES` (cold start). In the two cold-start statuses
+  `parents` is `[]` and the recipe comes from the pantry alone. `EMPTY_PANTRY` cannot
+  occur here because the request contract rejects an empty pantry.
+- **No recipe row, lineage row, or usage row is created.** Saving the preview and its
+  proposed lineage is a separate, explicit call owned by BE-11 (#101).
+
+### Error responses
+
+The shared envelope, validation `details`, and the full status table above apply
+unchanged, with these generation-specific notes:
+
+| HTTP | `error.code` | When |
+| ---- | ------------ | ---- |
+| 400  | `VALIDATION_ERROR` | Pantry missing/empty/oversized, too many items, or preferences too long |
+| 502  | `AI_OUTPUT_INVALID` | Output failed Zod validation, **a `parentRecipeIds` entry was not in the supplied candidate set** (AI-07 generation boundary), or a substitution's `original` names no generated ingredient |
+| 503  | `AI_DISABLED` | Generation is not enabled, or the operator kill switch is on |
+
+An invented, foreign, or malformed parent ID is a **hard `502`**, never a silent drop:
+silently ignoring it could hide a prompt-injection attempt. The adapter and the endpoint
+both re-validate; the endpoint also re-resolves every ID against the retrieved candidates
+because AI-10 treats every provider as untrusted. The same rule applies to a substitution
+whose `original` does not match a generated ingredient name: the schema rejects it, so the
+UI can never render a substitution with no ingredient to attach it to.
+
+### Switches (AI-06)
+
+Generation is **off by default** for the same reason as extraction: the read-only quota
+gate cannot meter calls until BE-12 (#100) adds atomic accounting.
+
+| Env var | Role |
+| ------- | ---- |
+| `AI_GENERATE_ENABLED` | Operator opt-in; unset/blank/falsy → `503 AI_DISABLED` after auth and before reading the body |
+| `AI_GENERATE_DISABLED` | Kill switch; truthy overrides the opt-in and returns `503 AI_DISABLED` immediately |
+
+Quota (AI-17), `Retry-After` semantics, and the `QUOTA_UNAVAILABLE` fail-closed behavior
+are identical to extraction.
+
 ## Failure drills (demo only)
 
 The handler permits drills only when the function environment explicitly sets
@@ -138,7 +247,10 @@ an environment guard in the handler; deployment configuration does not reject th
 secrets. Keep production's environment unset or set to `production`.
 
 Within an allowed environment, a drill requires both switches below, as well as the
-extraction opt-in described above. Clients cannot select the environment or switches.
+endpoint's opt-in (`AI_EXTRACT_ENABLED` for extraction, `AI_GENERATE_ENABLED` for
+generation). The outage drill wins when both `AI_SIMULATE_*` switches are set, so the
+demo always shows one deterministic failure. Clients cannot select the environment or
+switches.
 
 | Env var                  | Role |
 | ------------------------ | ---- |
@@ -147,13 +259,15 @@ extraction opt-in described above. Clients cannot select the environment or swit
 | `AI_SIMULATE_BAD_OUTPUT` | With the master switch on, returns `502 AI_OUTPUT_INVALID` as if the model misbehaved |
 
 Truthy switch values are `1`, `true`, `yes`, `on` (case-insensitive).
-The operator kill switch `AI_EXTRACT_DISABLED` also overrides failure drills.
+The operator kill switches (`AI_EXTRACT_DISABLED`, `AI_GENERATE_DISABLED`) also override
+failure drills.
 
-A complete drill setup for a non-production environment (all four values together, or
-the drill silently does nothing):
+A complete drill setup for a non-production environment (all values together, or the
+drill silently does nothing). Set the opt-in matching the endpoint under test:
 
 ```sh
 AI_EXTRACT_ENABLED=true
+AI_GENERATE_ENABLED=true
 AI_ENVIRONMENT=development   # or test
 AI_ALLOW_FAILURE_DRILLS=1
 AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
@@ -163,9 +277,16 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
 
 - Adapter: `GeminiAdapter` (`supabase/functions/_shared/ai/GeminiAdapter.ts`).
 - Model: `AI_MODEL` env override, otherwise the pinned `gemini-3.5-flash-lite`.
-- Prompt: versioned template `extraction@1.0.0`.
+- Prompts: versioned templates `extraction@1.0.0` and `chef@1.1.0`
+  (`supabase/functions/_shared/ai/prompts.ts`). The Chef prompt treats the retrieved
+  context block as data, so a recipe title or instruction cannot act as an instruction,
+  and it treats the preferences line strictly as recipe constraints.
 - JSON mode is requested but not trusted — output is parsed and Zod-validated twice
-  (adapter, then endpoint).
+  (adapter, then endpoint). The Chef adapter additionally rejects parent IDs outside the
+  supplied candidate set.
+- One bounded retry for provider failures (`429`/`5xx`/timeout/network), none for invalid
+  output: the same prompt is unlikely to produce different JSON, and a retry would burn
+  free-tier quota (AI-18).
 - Logs are metadata-only: operation, model, prompt id/version, attempt, latency, outcome.
   Prompt and recipe text are never logged.
 
@@ -179,3 +300,16 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
 - `503 AI_DISABLED` is an operator setting, not a transient outage: show extraction as
   temporarily unavailable rather than auto-retrying, and do not clear the notes. Local
   development must set `AI_EXTRACT_ENABLED=true` (see `docs/development-setup.md`).
+
+## Frontend notes (FE-10)
+
+- Send `POST /generate-recipe` with the pantry items and preferences; keep them in
+  component state so a failed request does not erase the user's input.
+- Render `recipe`, `substitutions`, and `parents` for review **before** any save action.
+  Generation alone writes nothing; Save is a separate explicit call (BE-11).
+- Use `context.status` to explain the result: `MATCHED` means parents are available,
+  while `NO_PANTRY_OVERLAP` and `NO_SAVED_RECIPES` are normal cold-start paths, not errors.
+- `parents` already carry `id`, `title`, and `star_rating`; do not build a lookup call.
+- Map errors like extraction: `400` → fix input, `401` → sign in, `429` → honor
+  `Retry-After`, `5xx`/`502`/`503`/`504` → transient "try again" with input preserved.
+  Local development must set `AI_GENERATE_ENABLED=true`.
