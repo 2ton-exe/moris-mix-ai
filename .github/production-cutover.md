@@ -65,8 +65,9 @@ existing Supabase command and flags. It deploys Cloudflare using
 `deploy --config wrangler.jsonc`, verifies the deployment URL against
 `PRODUCTION_FRONTEND_URL`, and runs `node scripts/runtime-smoke.mjs` only after
 both deployments and URL verification succeed. `demo-recipe` remains
-operator-managed. `extract-recipe` is validated, including AI-05 tests, but is not
-automatically deployed. Its existence does not declare it release-required.
+operator-managed. `extract-recipe` and `generate-recipe` are validated, including
+AI-06 coverage, but neither is automatically deployed. Their production deployment
+is tracked separately in issue #130 and is outside this PR's release target.
 
 The job keeps `contents: read`, explicitly forwarded deployment secrets, and the
 `cloudflare-production` concurrency group with cancellation disabled. The lock
@@ -147,7 +148,8 @@ with `ci.yml`, `reusable-edge-api.yml` additionally type-checks:
 
 Its deterministic test command also includes
 `supabase/functions/tests/recipe_image_schemas_test.ts`, which legacy omits. There
-are no legacy-only targets in those lists. Both retain AI-05 extract-recipe coverage.
+are no legacy-only targets in those lists. Both retain AI-06 extract-recipe and
+generate-recipe coverage.
 No recipe-image coverage is removed and legacy lists are unchanged. Issue #124
 separately tracks final path/test selection; list identity is not required here.
 
@@ -163,7 +165,7 @@ git diff --check
 
 The workflow safety suite parses all workflow YAML, exercises actual guard
 expressions and strict ownership preflight using local Node processes, checks main
-validation parity (including extract-recipe and preserved recipe-image extras),
+validation parity (including extract-recipe, generate-recipe, and preserved recipe-image extras),
 asserts exclusive ownership for unset/false/true/TRUE plus other values, checks
 failed/cancelled/skipped dependencies and non-gating E2E, and asserts release ordering,
 evidence, concurrency, PR isolation, explicit secrets, and absence of production
