@@ -79,14 +79,23 @@ test('eligible staging unexpected skip needs investigation', () => {
   const d = data(); d.checks = [check('Modular Staging / Staging Deploy', 'skipped')];
   assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — INVESTIGATE');
 });
-for (const reason of ['draft', 'fork', 'association']) test(`ineligible ${reason} staging skip is expected`, () => {
+for (const reason of ['draft', 'fork']) test(`ineligible ${reason} staging skip is expected`, () => {
   const d = data();
   if (reason === 'draft') d.pr.draft = true;
   if (reason === 'fork') d.pr.head.repo.full_name = 'fork/repo';
-  if (reason === 'association') d.pr.author_association = 'CONTRIBUTOR';
   assert.equal(stagingEligible(d.pr, repository), false);
   d.checks = [check('Modular Staging', 'skipped')];
   assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — EXPECTED');
+});
+test('author association does not gate same-repository staging eligibility', () => {
+  const d = data();
+  for (const authorAssociation of ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'FIRST_TIMER', 'NONE']) {
+    d.pr.author_association = authorAssociation;
+    assert.equal(stagingEligible(d.pr, repository), true);
+  }
+  d.pr.author_association = 'CONTRIBUTOR';
+  d.checks = [check('Modular Staging', 'skipped')];
+  assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — INVESTIGATE');
 });
 test('hosted RLS fork skip expected; internal skip investigated', () => {
   const d = data(); d.checks = [check('Hosted RLS Integration', 'skipped')];
