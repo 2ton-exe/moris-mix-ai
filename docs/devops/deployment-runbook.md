@@ -385,7 +385,7 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 - Confirm the actual deployment step executed rather than being skipped.
 - Confirm `frontend/package.json` exists on `main`.
-- Confirm the unified CI workflow ran for the expected commit, all three validation jobs succeeded, and the frontend-existence output is true.
+- Confirm the unified CI workflow ran for the expected commit, the `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls` jobs all succeeded, and the frontend-existence output is true.
 - Inspect the Wrangler deployment output.
 - Inspect the latest Cloudflare Worker deployment.
 - Check the production URL independently.
