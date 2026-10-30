@@ -1035,6 +1035,10 @@ Deno.test("formatChefRecipeContextForPrompt formats cold-start and matched state
     promptMatched.includes('Recipe 1: "Garlic Fried Rice" (Pantry match: 100%, Star rating: 5)'),
     true,
   );
+  assertEquals(
+    promptMatched.includes("[ID: 11111111-1111-4111-8111-111111111111]"),
+    true,
+  );
   assertEquals(promptMatched.includes("1. Fry garlic. 2. Toss rice."), true);
 });
 

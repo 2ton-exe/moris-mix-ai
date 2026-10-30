@@ -511,7 +511,7 @@ export function formatChefRecipeContextForPrompt(context: ChefRecipeContextResul
         .map((inst) => `${inst.step}. ${inst.text}`)
         .join(" ");
       parts.push(
-        `Recipe ${i + 1}: "${recipe.title}" (Pantry match: ${matchPct}%, Star rating: ${recipe.star_rating ?? "unrated"})\nIngredients: ${ingredientList}\nInstructions: ${instructionList}`,
+        `Recipe ${i + 1}: "${recipe.title}" (Pantry match: ${matchPct}%, Star rating: ${recipe.star_rating ?? "unrated"}) [ID: ${recipe.id}]\nIngredients: ${ingredientList}\nInstructions: ${instructionList}`,
       );
     }
   }
