@@ -11,6 +11,7 @@ import { createFailureDrillProvider } from "../_shared/ai/drills.ts";
 import { checkDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
 import {
   AI_ALLOWED_METHODS,
+  AI_MAX_REQUEST_BYTES,
   type AIEndpointErrorCode,
   aiErrorResponse,
   aiJsonResponse,
@@ -31,7 +32,7 @@ export type ExtractRecipeDeps = AuthDeps & {
 
 const ALLOWED_METHODS = AI_ALLOWED_METHODS;
 /** Reject bodies larger than this before parsing. 128 KiB comfortably fits the 10k-character cap in any encoding. */
-export const MAX_REQUEST_BYTES = 128 * 1024;
+export const MAX_REQUEST_BYTES = AI_MAX_REQUEST_BYTES;
 
 /** Operator opt-in while BE-12 atomic quota accounting is pending. Defaults off. */
 export const EXTRACT_ENABLED_ENV = "AI_EXTRACT_ENABLED";

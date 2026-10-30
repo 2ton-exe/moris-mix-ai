@@ -32,6 +32,12 @@ export type AIEndpointErrorCode =
 /** Methods every AI endpoint supports. */
 export const AI_ALLOWED_METHODS = "POST, OPTIONS";
 
+/**
+ * Request body budget every AI endpoint enforces while streaming. The largest
+ * valid extraction (10k chars) or generation request fits well inside it.
+ */
+export const AI_MAX_REQUEST_BYTES = 128 * 1024;
+
 /** Used when the provider rate-limits us without naming a cooldown. */
 const DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS = 30;
 

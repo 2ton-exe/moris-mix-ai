@@ -5,6 +5,7 @@ import { AIError, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
 import { createFailureDrillProvider } from "../_shared/ai/drills.ts";
 import {
   AI_ALLOWED_METHODS,
+  AI_MAX_REQUEST_BYTES,
   type AIEndpointErrorCode,
   aiErrorResponse,
   aiJsonResponse,
@@ -40,7 +41,7 @@ export type GenerateRecipeDeps = AuthDeps & {
 
 const ALLOWED_METHODS = AI_ALLOWED_METHODS;
 /** Reject bodies larger than this before parsing. The request caps fit comfortably. */
-export const MAX_REQUEST_BYTES = 128 * 1024;
+export const MAX_REQUEST_BYTES = AI_MAX_REQUEST_BYTES;
 
 /** Operator opt-in while BE-12 atomic quota accounting is pending. Defaults off. */
 export const GENERATE_ENABLED_ENV = "AI_GENERATE_ENABLED";
