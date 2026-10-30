@@ -170,6 +170,7 @@ asserts exclusive ownership for unset/false/true/TRUE plus other values, checks
 failed/cancelled/skipped dependencies and non-gating E2E, and asserts release ordering,
 evidence, concurrency, PR isolation, explicit secrets, and absence of production
 migration commands. It runs in both frontend validation paths. It does not deploy
-or contact production. It also compares the release body/environment directly to
-the pinned baseline and scans the patch for literal credential patterns. Actionlint here disables optional external ShellCheck and
+or contact production. It uses explicit production-contract assertions for deployment
+targets and smoke behavior, checks current-tree Edge/API parity, and scans changed
+content for literal credential patterns. Actionlint here disables optional external ShellCheck and
 pyflakes integrations; GitHub execution evidence remains required before cutover.
