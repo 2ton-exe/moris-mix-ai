@@ -282,11 +282,17 @@ test('main validation covers current authoritative Edge/API targets and mandator
     step(ci.jobs.frontend, 'Test runtime smoke verifier (offline)').run);
 });
 
-test('changed patch contains no literal credential patterns', () => {
-  const tracked = spawnSync('git', ['diff', '--', '.github', 'scripts'], { encoding: 'utf8' });
-  assert.equal(tracked.status, 0);
-  const added = ['.github/production-cutover.md', '.github/workflows/reusable-production.yml',
-    'scripts/production-workflow.test.mjs'].map(path => readFileSync(path, 'utf8')).join('\n');
-  assert.doesNotMatch(tracked.stdout + added,
+test('cutover files contain no literal credential patterns', () => {
+  const cutoverPaths = [
+    '.github/production-cutover.md',
+    '.github/workflows/ci.yml',
+    '.github/workflows/modular-main.yml',
+    '.github/workflows/reusable-edge-api.yml',
+    '.github/workflows/reusable-frontend.yml',
+    '.github/workflows/reusable-production.yml',
+    'scripts/production-workflow.test.mjs',
+  ];
+  const contents = cutoverPaths.map(path => readFileSync(path, 'utf8')).join('\n');
+  assert.doesNotMatch(contents,
     /(?:sb_secret_|sbp_|gh[pousr]_)[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
 });
