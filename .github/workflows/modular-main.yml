@@ -1,6 +1,6 @@
 name: Modular Main Validation
 
-# Shadow validation only. ci.yml retains required checks and production deployment.
+# The cutover variable selects exactly one production owner; ci.yml retains required checks.
 on:
   push:
     branches: [main]
@@ -10,6 +10,27 @@ permissions:
   contents: read
 
 jobs:
+  production-ownership:
+    name: Select production owner
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      owner: ${{ steps.select.outputs.owner }}
+    steps:
+      # Actions string equality ignores case. Compare the raw variable in Node.
+      - name: Select exact-string owner
+        id: select
+        env:
+          MODULAR_PRODUCTION_ENABLED: ${{ vars.MODULAR_PRODUCTION_ENABLED }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const owner = process.env.MODULAR_PRODUCTION_ENABLED === "true" ? "modular" : "legacy";
+            appendFileSync(process.env.GITHUB_OUTPUT, "owner=" + owner + "\n");
+          '
+
   frontend:
     name: Modular Main Frontend
     uses: ./.github/workflows/reusable-frontend.yml
@@ -21,6 +42,8 @@ jobs:
   test-edge-api:
     name: Modular Main Edge/API
     uses: ./.github/workflows/reusable-edge-api.yml
+    with:
+      require-hosted-rls: true
     secrets:
       NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
       NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}
@@ -46,4 +69,23 @@ jobs:
         run: |
           echo "All four modular validations succeeded and frontend exists on main."
           echo "INERT EVIDENCE ONLY: no production deployment occurred in this job."
-          echo "ci.yml retains production deployment ownership."
+          echo "Production ownership is selected separately by MODULAR_PRODUCTION_ENABLED."
+
+  production:
+    name: Modular Main Production
+    needs: [frontend, test-db, test-edge-api, production-ownership]
+    if: >-
+      success() && needs.production-ownership.outputs.owner == 'modular' &&
+      needs.frontend.outputs.exists == 'true' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/reusable-production.yml
+    permissions:
+      contents: read
+    with:
+      owner: modular
+      frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
+    secrets:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

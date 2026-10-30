@@ -2,6 +2,11 @@ name: Reusable Edge/API Validation
 
 on:
   workflow_call:
+    inputs:
+      require-hosted-rls:
+        description: Require hosted integration as a separate validation job on main
+        type: boolean
+        default: false
     secrets:
       NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL:
         required: false
@@ -112,3 +117,31 @@ jobs:
             echo "SKIPPED: Non-production test database RLS integration test not executed because dedicated non-production test project configuration is not completely configured."
             deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/recipe_context_test.ts
           fi
+
+  test-hosted-rls:
+    name: Hosted RLS Integration
+    needs: test-edge-api
+    if: inputs.require-hosted-rls && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.7"
+
+      - name: Run hosted RLS integration tests
+        env:
+          REQUIRE_HOSTED_RLS_INTEGRATION: "true"
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY }}
+          NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+          NON_PRODUCTION_TEST_DATABASE_PROJECT_REF: ${{ vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}
+        shell: bash
+        run: |
+          deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts supabase/functions/tests/recipe_context_test.ts

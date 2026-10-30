@@ -10,6 +10,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  production-ownership:
+    name: Select production owner
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      owner: ${{ steps.select.outputs.owner }}
+    steps:
+      # Actions string equality ignores case. Compare the raw variable in Node.
+      - name: Select exact-string owner
+        id: select
+        env:
+          MODULAR_PRODUCTION_ENABLED: ${{ vars.MODULAR_PRODUCTION_ENABLED }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const owner = process.env.MODULAR_PRODUCTION_ENABLED === "true" ? "modular" : "legacy";
+            appendFileSync(process.env.GITHUB_OUTPUT, "owner=" + owner + "\n");
+          '
+
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
@@ -55,6 +76,9 @@ jobs:
 
       - name: Test runtime smoke verifier (offline)
         run: node --test scripts/runtime-smoke.test.mjs
+
+      - name: Test production workflow safety (offline)
+        run: node --test scripts/production-workflow.test.mjs
 
       - name: Run lint
         if: steps.frontend.outputs.exists == 'true'
@@ -272,149 +296,15 @@ jobs:
       - test-db
       - test-edge-api
       - test-hosted-rls
-    if: success() && needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-
-    concurrency:
-      group: cloudflare-production
-      cancel-in-progress: false
-
+      - production-ownership
+    if: success() && needs.production-ownership.outputs.owner == 'legacy' && needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/reusable-production.yml
     permissions:
       contents: read
-
-    env:
-      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-      VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-      SMOKE_ENVIRONMENT: production
-      SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
-      SMOKE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-      SMOKE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-      SMOKE_PUBLIC_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}
-      SMOKE_BACKEND_REVISION: ${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Validate production deployment configuration
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        shell: bash
-        run: |
-          if [[ -z "${VITE_SUPABASE_URL//[[:space:]]/}" ]]; then
-            echo "::error::Configure the VITE_SUPABASE_URL repository variable."
-            exit 1
-          fi
-          public_key="${VITE_SUPABASE_PUBLISHABLE_KEY:-$VITE_SUPABASE_ANON_KEY}"
-          if [[ -z "${public_key//[[:space:]]/}" ]]; then
-            echo "::error::Configure the VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY repository variable."
-            exit 1
-          fi
-          if [[ -z "${SUPABASE_ACCESS_TOKEN//[[:space:]]/}" ]]; then
-            echo "::error::Configure the SUPABASE_ACCESS_TOKEN repository secret."
-            exit 1
-          fi
-          if [[ -z "${SUPABASE_PROJECT_REF//[[:space:]]/}" ]]; then
-            echo "::error::Configure the SUPABASE_PROJECT_REF repository variable."
-            exit 1
-          fi
-          vite_supabase_url="${VITE_SUPABASE_URL%/}"
-          if [[ "$vite_supabase_url" != "https://${SUPABASE_PROJECT_REF}.supabase.co" ]]; then
-            echo "::error::VITE_SUPABASE_URL must target the SUPABASE_PROJECT_REF project."
-            exit 1
-          fi
-          config_project_ref="$(sed -n 's/^project_id = "\(.*\)"/\1/p' supabase/config.toml)"
-          if [[ "$SUPABASE_PROJECT_REF" != "$config_project_ref" ]]; then
-            echo "::error::SUPABASE_PROJECT_REF must match project_id in supabase/config.toml."
-            exit 1
-          fi
-
-          node --input-type=module -e 'import { configuration } from "./scripts/runtime-smoke.mjs"; configuration(process.env);'
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        working-directory: frontend
-        run: pnpm build
-
-      - name: Deploy recipes Edge Function
-        id: deploy-recipes
-        working-directory: frontend
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: |
-          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy recipes \
-            --project-ref "$SUPABASE_PROJECT_REF" \
-            --no-verify-jwt \
-            --use-api \
-            --yes
-
-      - name: Deploy to Cloudflare Workers
-        id: deploy-cloudflare
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.jsonc
-
-      - name: Verify production deployment URL
-        id: verify-deployment
-        env:
-          DEPLOYMENT_URL: ${{ steps.deploy-cloudflare.outputs.deployment-url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "$DEPLOYMENT_URL" || "${DEPLOYMENT_URL%/}" != "${SMOKE_FRONTEND_URL%/}" ]]; then
-            echo "::error::Wrangler deployment URL does not match PRODUCTION_FRONTEND_URL."
-            exit 1
-          fi
-
-      # Kept inside the deployment job so cloudflare-production covers smoke too.
-      # Normal success semantics ensure no runtime smoke after a failed deploy.
-      - name: Production runtime smoke
-        id: runtime-smoke
-        env:
-          SMOKE_DEPLOYMENT_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
-        run: node scripts/runtime-smoke.mjs
-
-      - name: Record production deployment and runtime outcomes
-        if: always()
-        env:
-          RECIPES_OUTCOME: ${{ steps.deploy-recipes.outcome }}
-          CLOUDFLARE_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
-          URL_OUTCOME: ${{ steps.verify-deployment.outcome }}
-          SMOKE_OUTCOME: ${{ steps.runtime-smoke.outcome }}
-        shell: bash
-        run: |
-          {
-            echo "### Production delivery"
-            echo "- Source revision: ${GITHUB_SHA}"
-            echo "- recipes deployment command: ${RECIPES_OUTCOME}"
-            echo "- Cloudflare deployment command: ${CLOUDFLARE_OUTCOME}"
-            echo "- Deployment URL verification: ${URL_OUTCOME}"
-            echo "- Runtime smoke: ${SMOKE_OUTCOME}"
-            echo "- demo-recipe is operator-managed; source attestation is in runtime smoke evidence."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Preserve production runtime evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: production-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}
-          path: runtime-smoke.json
-          if-no-files-found: warn
+    with:
+      owner: legacy
+      frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
+    secrets:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
