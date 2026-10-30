@@ -289,8 +289,23 @@ diagnostics, timestamp-only activity, and rejection of changed/closed targets.
 
 ## Runtime repair evidence for issue #86 (2026-10-28)
 
-Current main was inspected at `7af713040beb6dbaba271867f559149f9d21bce6`, the merge
-of PR #87. Real PR #88 exposed failures; #86 remains incomplete.
+### Later recovery status
+
+[Issue #86](https://github.com/2ton-exe/moris-mix-ai/issues/86) was subsequently
+completed and closed after [PR #89](https://github.com/2ton-exe/moris-mix-ai/pull/89)
+merged and recorded post-merge verification on real PR #88 confirmed persistent
+summary creation/update behavior, with no observed bot loop or older-state
+overwrite in the exercised scenarios. This status reconciliation relies on the
+recorded GitHub evidence; it does not claim a new lifecycle rerun. Recovery time
+was not measured. This was a DevOps delivery-tooling incident, not a production
+application outage. See the [reconciled incident record](incident-log.md#incident-devops-86--2026-10-28--pr-secretary-publication-failure).
+
+### Historical pre-repair record
+
+At the time of this 2026-10-28 observation, main was inspected at
+`7af713040beb6dbaba271867f559149f9d21bce6`, the merge of PR #87. Real PR #88
+exposed failures; issue #86 was still incomplete. The failure evidence below
+is retained as the pre-repair record, superseded in status by the recovery above.
 
 - [PR Secretary run #35](https://github.com/2ton-exe/moris-mix-ai/actions/runs/40676161057)
   was an `issue_comment` run from trusted main. Resolve succeeded; summarize (88)
@@ -311,7 +326,7 @@ of PR #87. Real PR #88 exposed failures; #86 remains incomplete.
   [upstream API issue](https://github.com/github/rest-api-description/issues/6994)
   reports an installation-token 403 with Issues write plus PR read, resolved by
   adding PR write. This supports the narrowly targeted writer permission repair;
-  it is not proof that our repaired workflow has succeeded. No PAT, broader
+  it was not itself proof that our repaired workflow had succeeded. No PAT, broader
   workflow-wide permissions, alternate event, or repository-policy change is added.
 - A separate CodeRabbit-triggered run was reported to collect successfully but
   return `stale` after `updated_at` changed. The old equality check explains
@@ -327,10 +342,11 @@ GitHub policy, abuse/rate limit, or resource restriction without blindly adding
 more permissions. Write failures are not automatically retried, avoiding duplicate
 comments after uncertain outcomes.
 
-This repair is locally testable but needs a later authorized merge and real
-default-branch event to establish successful creation and subsequent update of
-the same bot-owned summary. No comments or workflow reruns were performed during
-the repair. Keep #86 open pending that lifecycle proof.
+At the repair stage, local validation still required a later authorized merge
+and real default-branch event to establish successful creation and subsequent
+update of the same bot-owned summary. No comments or workflow reruns were
+performed during that repair task. Issue #86 was kept open pending that proof;
+the later recovery status above records its completion.
 
 Known limits:
 
@@ -360,6 +376,10 @@ Known limits:
 
 ## Post-merge lifecycle verification for issue #86
 
+The following historical pre-closure verification plan is retained for traceability
+and future regression checks. It is not a current instruction to keep the completed
+issue open; the later recovery status is recorded above and in the incident log.
+
 **configured ≠ executed**; **local tests ≠ GitHub Actions evidence**;
 **merged ≠ runtime-verified**.
 
@@ -367,9 +387,10 @@ The safe consumer and module must exist on trusted `main`. It is acceptable for
 the implementation PR not to receive a working Secretary comment. Do not execute
 its head with a write token to manufacture that evidence.
 
-After Haresco reviews, commits, pushes, and merges the implementation, use
-subsequent real PR activity while #86 remains open. Collect run URLs, PR/comment
-URLs, revision SHAs, comment IDs, timestamps, and observed gate names for:
+The pre-closure plan called for subsequent real PR activity after Haresco reviewed,
+committed, pushed, and merged the implementation, while #86 was open. It specified
+collecting run URLs, PR/comment URLs, revision SHAs, comment IDs, timestamps, and
+observed gate names for:
 
 1. Open/reopen and rapid synchronize through CI-related workflow activity.
    Confirm one comment, fresh revision, and per-PR cancellation. Test ready/draft
@@ -391,8 +412,9 @@ URLs, revision SHAs, comment IDs, timestamps, and observed gate names for:
    checks and delivery behavior remain unchanged.
 
 Record configured, locally tested, GitHub-executed, and real-PR-runtime-verified
-states separately. Keep #86 open until the lifecycle evidence has been collected
-and reviewed. This implementation alone does not complete the issue.
+states separately. At that stage, #86 required lifecycle evidence to be collected
+and reviewed before closure; implementation alone was insufficient. That later
+evidence is now recorded and the issue is completed/closed.
 
 GitHub references: [event semantics and privileged-event boundaries](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows),
 [read-only active branch rules](https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch),
