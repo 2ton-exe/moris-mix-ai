@@ -7,6 +7,7 @@ import {
 } from "../_shared/schemas.ts";
 import type { AIProvider } from "../_shared/ai/AIProvider.ts";
 import { AIError, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
+import { createFailureDrillProvider } from "../_shared/ai/drills.ts";
 import { checkDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
 import {
   AI_ALLOWED_METHODS,
@@ -31,17 +32,6 @@ export type ExtractRecipeDeps = AuthDeps & {
 const ALLOWED_METHODS = AI_ALLOWED_METHODS;
 /** Reject bodies larger than this before parsing. 128 KiB comfortably fits the 10k-character cap in any encoding. */
 export const MAX_REQUEST_BYTES = 128 * 1024;
-
-/**
- * Non-production failure drills. Never set in production; never client-triggerable.
- *
- * Only explicit development/test environments permit drills. Production, unset
- * and unknown environments ignore all drill switches, including the master.
- */
-export const AI_ENVIRONMENT_ENV = "AI_ENVIRONMENT";
-export const ALLOW_FAILURE_DRILLS_ENV = "AI_ALLOW_FAILURE_DRILLS";
-export const SIMULATE_OUTAGE_ENV = "AI_SIMULATE_OUTAGE";
-export const SIMULATE_BAD_OUTPUT_ENV = "AI_SIMULATE_BAD_OUTPUT";
 
 /** Operator opt-in while BE-12 atomic quota accounting is pending. Defaults off. */
 export const EXTRACT_ENABLED_ENV = "AI_EXTRACT_ENABLED";
@@ -70,41 +60,9 @@ function errorResponse(
   return aiErrorResponse(code, message, status, extraHeaders, ALLOWED_METHODS);
 }
 
-function notImplemented(operation: string): Promise<never> {
-  return Promise.reject(new Error(`${operation} is not implemented in the extraction endpoint.`));
-}
-
-/**
- * Builds a provider that fails the way the drill asks, so the demo exercises the
- * real error contract without a public "break me" endpoint or a live outage.
- * Requires a development/test environment, the master switch and a drill switch.
- */
-function simulationProvider(): AIProvider | null {
-  const environment = Deno.env.get(AI_ENVIRONMENT_ENV)?.trim().toLowerCase();
-  if (environment !== "development" && environment !== "test") return null;
-  if (!isEnvEnabled(ALLOW_FAILURE_DRILLS_ENV)) return null;
-
-  const outage = isEnvEnabled(SIMULATE_OUTAGE_ENV);
-  const badOutput = !outage && isEnvEnabled(SIMULATE_BAD_OUTPUT_ENV);
-  if (!outage && !badOutput) return null;
-
-  return {
-    extractRecipe: () =>
-      outage
-        ? Promise.reject(
-          new AIError("provider_unavailable", "extract", "Simulated provider outage."),
-        )
-        : Promise.reject(
-          new AIError("invalid_output", "extract", "Simulated malformed model output."),
-        ),
-    generateRecipe: () => notImplemented("generateRecipe"),
-    testConnection: () => notImplemented("testConnection"),
-  };
-}
-
 /** Injected provider wins (tests/dev); otherwise honor the drill; otherwise the real adapter. */
 function resolveProvider(deps: ExtractRecipeDeps): AIProvider {
-  return deps.provider ?? simulationProvider() ?? new GeminiAdapter();
+  return deps.provider ?? createFailureDrillProvider("extract") ?? new GeminiAdapter();
 }
 
 /**

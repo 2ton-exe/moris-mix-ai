@@ -1,14 +1,16 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
-  AI_ENVIRONMENT_ENV,
-  ALLOW_FAILURE_DRILLS_ENV,
   EXTRACT_DISABLED_ENV,
   EXTRACT_ENABLED_ENV,
   handler as extractRecipeHandler,
   MAX_REQUEST_BYTES,
+} from "../extract-recipe/index.ts";
+import {
+  AI_ENVIRONMENT_ENV,
+  ALLOW_FAILURE_DRILLS_ENV,
   SIMULATE_BAD_OUTPUT_ENV,
   SIMULATE_OUTAGE_ENV,
-} from "../extract-recipe/index.ts";
+} from "../_shared/ai/drills.ts";
 import {
   ExtractRecipeRequestSchema,
   ExtractRecipeResponseSchema,
