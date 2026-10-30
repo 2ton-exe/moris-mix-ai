@@ -209,7 +209,7 @@ export const CreateLineageRequestSchema = z.object({
     .min(1, { message: "At least one parent recipe ID must be provided." })
     .max(MAX_PARENT_RECIPE_IDS, { message: "At most 10 parent recipe IDs may be provided." })
     .refine(
-      (ids) => new Set(ids).size === ids.length,
+      (ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
       { message: "Duplicate parent recipe ID in request." },
     ),
 }).strict();

@@ -19,6 +19,7 @@ const DEFAULT_CURSOR_PAGE_LIMIT = 20;
 const MAX_CURSOR_PAGE_LIMIT = 100;
 const DEFAULT_OFFSET_PAGE_LIMIT = 1000;
 const MAX_OFFSET_PAGE_LIMIT = 1000;
+export const MAX_LINEAGE_REQUEST_BYTES = 16384;
 
 type RouteMatch =
   | { kind: "COLLECTION" }
@@ -72,6 +73,44 @@ function base64UrlToBytes(base64Url: string): Uint8Array | null {
     return bytes;
   } catch {
     return null;
+  }
+}
+
+async function readBodyWithinByteLimit(
+  req: Request,
+  maxBytes: number,
+): Promise<{ ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }> {
+  if (!req.body) {
+    return { ok: true, text: "" };
+  }
+
+  const reader = req.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let text = "";
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+        }
+        return { ok: false, reason: "too_large" };
+      }
+
+      text += decoder.decode(value, { stream: true });
+    }
+
+    text += decoder.decode();
+    return { ok: true, text };
+  } catch {
+    return { ok: false, reason: "unreadable" };
   }
 }
 
@@ -1021,10 +1060,35 @@ export async function handler(
       const childId = paramValidation.data.id;
 
       if (req.method === "POST") {
-        let rawBody: string;
-        try {
-          rawBody = await req.text();
-        } catch {
+        const declaredLength = req.headers.get("content-length");
+        if (declaredLength !== null) {
+          const declaredBytes = Number(declaredLength);
+          if (Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_LINEAGE_REQUEST_BYTES) {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "INPUT_TOO_LARGE",
+                  message: `Request body must be at most ${MAX_LINEAGE_REQUEST_BYTES} bytes.`,
+                },
+              },
+              { status: 413 },
+            );
+          }
+        }
+
+        const read = await readBodyWithinByteLimit(req, MAX_LINEAGE_REQUEST_BYTES);
+        if (!read.ok) {
+          if (read.reason === "too_large") {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "INPUT_TOO_LARGE",
+                  message: `Request body must be at most ${MAX_LINEAGE_REQUEST_BYTES} bytes.`,
+                },
+              },
+              { status: 413 },
+            );
+          }
           return recipesJsonResponse(
             {
               error: {
@@ -1036,6 +1100,7 @@ export async function handler(
           );
         }
 
+        const rawBody = read.text;
         if (!rawBody || rawBody.trim().length === 0) {
           return recipesJsonResponse(
             {
@@ -1095,7 +1160,7 @@ export async function handler(
         }
 
         const parentIds = validation.data.parent_recipe_ids;
-        if (parentIds.includes(childId)) {
+        if (parentIds.some((id) => id.toLowerCase() === childId.toLowerCase())) {
           return recipesJsonResponse(
             {
               error: {

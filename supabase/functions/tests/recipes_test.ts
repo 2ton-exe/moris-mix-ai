@@ -1,6 +1,6 @@
 import { assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { handler } from "../recipes/index.ts";
+import { handler, MAX_LINEAGE_REQUEST_BYTES } from "../recipes/index.ts";
 import {
   CreateLineageRequestSchema,
   CreateRecipeRequestSchema,
@@ -5690,4 +5690,436 @@ Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does
   const body = await res.json();
   assertEquals(body.error?.code, "NOT_FOUND");
   assertEquals(lineageQueryCalled, false);
+});
+
+
+function lineageBodyOfExactByteLength(targetBytes: number): string {
+  const prefix = `{"parent_recipe_ids":["${LINEAGE_PARENT_ID_1}"]`;
+  const suffix = "}";
+  const overhead = new TextEncoder().encode(prefix + suffix).byteLength;
+  const paddingLength = Math.max(0, targetBytes - overhead);
+  return prefix + " ".repeat(paddingLength) + suffix;
+}
+
+Deno.test("CreateLineageRequestSchema rejects case-insensitive duplicate UUIDs and accepts distinct UUIDs", () => {
+  const lowercaseDupe = CreateLineageRequestSchema.safeParse({
+    parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toLowerCase()],
+  });
+  assertEquals(lowercaseDupe.success, false);
+  if (!lowercaseDupe.success) {
+    assertEquals(lowercaseDupe.error.issues[0].message, "Duplicate parent recipe ID in request.");
+  }
+
+  const mixedCaseDupe = CreateLineageRequestSchema.safeParse({
+    parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toUpperCase()],
+  });
+  assertEquals(mixedCaseDupe.success, false);
+  if (!mixedCaseDupe.success) {
+    assertEquals(mixedCaseDupe.error.issues[0].message, "Duplicate parent recipe ID in request.");
+  }
+
+  const alternatingCaseDupe = CreateLineageRequestSchema.safeParse({
+    parent_recipe_ids: [
+      "22222222-2222-4222-8222-22222222222a",
+      "22222222-2222-4222-8222-22222222222A",
+    ],
+  });
+  assertEquals(alternatingCaseDupe.success, false);
+  if (!alternatingCaseDupe.success) {
+    assertEquals(alternatingCaseDupe.error.issues[0].message, "Duplicate parent recipe ID in request.");
+  }
+
+  const distinctCase = CreateLineageRequestSchema.safeParse({
+    parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_2.toUpperCase()],
+  });
+  assertEquals(distinctCase.success, true);
+});
+
+Deno.test("POST /recipes/:id/lineage rejects case-insensitive duplicate UUIDs with 400 VALIDATION_ERROR before database calls", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toUpperCase()],
+    }),
+  });
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 400);
+  const body = await res.json();
+  assertEquals(body.error?.code, "VALIDATION_ERROR");
+  assertEquals(dbCalled, false);
+});
+
+Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 16385 bytes with 413 INPUT_TOO_LARGE", async () => {
+  let dbInsertCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipe_lineage") {
+      dbInsertCalled = true;
+      return Promise.resolve(new Response(
+        JSON.stringify([{
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          parent_recipe_id: LINEAGE_PARENT_ID_1,
+          child_recipe_id: LINEAGE_CHILD_ID,
+          created_at: "2026-10-30T10:00:00.000Z",
+        }]),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const exact16kBody = lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES);
+  assertEquals(new TextEncoder().encode(exact16kBody).byteLength, 16384);
+  const req16k = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: exact16kBody,
+  });
+  const res16k = await handler(req16k, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res16k.status, 201);
+  assertEquals(dbInsertCalled, true);
+
+  dbInsertCalled = false;
+  const over16kBody = lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES + 1);
+  assertEquals(new TextEncoder().encode(over16kBody).byteLength, 16385);
+  const reqOver = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: over16kBody,
+  });
+  const resOver = await handler(reqOver, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(resOver.status, 413);
+  const bodyOver = await resOver.json();
+  assertEquals(bodyOver.error?.code, "INPUT_TOO_LARGE");
+  assertEquals(bodyOver.error?.message, "Request body must be at most 16384 bytes.");
+  assertEquals(dbInsertCalled, false);
+});
+
+Deno.test("POST /recipes/:id/lineage byte limit enforces streaming chunks, cancels stream, and rejects without Content-Length", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  let pulls = 0;
+  let cancelled = false;
+  const chunkStream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls++;
+      controller.enqueue(new Uint8Array(pulls <= 2 ? MAX_LINEAGE_REQUEST_BYTES / 2 : 1));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  }, { highWaterMark: 0 });
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: chunkStream,
+  });
+
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 413);
+  const body = await res.json();
+  assertEquals(body.error?.code, "INPUT_TOO_LARGE");
+  assertEquals(cancelled, true);
+  assertEquals(pulls, 3);
+  assertEquals(dbCalled, false);
+});
+
+Deno.test("POST /recipes/:id/lineage rejects misleading Content-Length and fast-rejects oversized Content-Length", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const reqFastReject = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+      "Content-Length": "20000",
+    },
+    body: "small body",
+  });
+  const resFast = await handler(reqFastReject, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(resFast.status, 413);
+  const bodyFast = await resFast.json();
+  assertEquals(bodyFast.error?.code, "INPUT_TOO_LARGE");
+  assertEquals(dbCalled, false);
+
+  const reqMisleading = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+      "Content-Length": "10",
+    },
+    body: "x".repeat(MAX_LINEAGE_REQUEST_BYTES + 10),
+  });
+  const resMisleading = await handler(reqMisleading, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(resMisleading.status, 413);
+  const bodyMisleading = await resMisleading.json();
+  assertEquals(bodyMisleading.error?.code, "INPUT_TOO_LARGE");
+  assertEquals(dbCalled, false);
+});
+
+Deno.test("POST /recipes/:id/lineage measures bytes rather than characters for multibyte UTF-8", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const emojiText = "\u{1F600}".repeat(5000);
+  assertEquals(emojiText.length, 10000);
+  const byteCount = new TextEncoder().encode(emojiText).byteLength;
+  assertEquals(byteCount, 20000);
+  assertEquals(byteCount > MAX_LINEAGE_REQUEST_BYTES, true);
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: emojiText,
+  });
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 413);
+  const body = await res.json();
+  assertEquals(body.error?.code, "INPUT_TOO_LARGE");
+  assertEquals(dbCalled, false);
+});
+
+Deno.test("POST /recipes/:id/lineage decodes chunked streams split across arbitrary byte boundaries", async () => {
+  let dbInsertCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipe_lineage") {
+      dbInsertCalled = true;
+      return Promise.resolve(new Response(
+        JSON.stringify([{
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          parent_recipe_id: LINEAGE_PARENT_ID_1,
+          child_recipe_id: LINEAGE_CHILD_ID,
+          created_at: "2026-10-30T10:00:00.000Z",
+        }]),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const payload = JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] });
+  const rawBytes = new TextEncoder().encode(payload);
+  const splitPoint = 12;
+  const part1 = rawBytes.slice(0, splitPoint);
+  const part2 = rawBytes.slice(splitPoint);
+
+  let pullCount = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pullCount++;
+      if (pullCount === 1) {
+        controller.enqueue(part1);
+      } else if (pullCount === 2) {
+        controller.enqueue(part2);
+      } else {
+        controller.close();
+      }
+    },
+  });
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: stream,
+  });
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 201);
+  assertEquals(dbInsertCalled, true);
+});
+
+Deno.test("POST /recipes/:id/lineage safely handles malformed UTF-8 and stream read failures with 400 INVALID_JSON", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const malformedUtf8Bytes = new Uint8Array([0x7B, 0x22, 0xFF, 0xFE, 0x7D]);
+  const streamMalformed = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(malformedUtf8Bytes);
+      controller.close();
+    },
+  });
+  const reqMalformed = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: streamMalformed,
+  });
+  const resMalformed = await handler(reqMalformed, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(resMalformed.status, 400);
+  const bodyMalformed = await resMalformed.json();
+  assertEquals(bodyMalformed.error?.code, "INVALID_JSON");
+
+  const streamError = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.error(new Error("Simulated network stream disconnect"));
+    },
+  });
+  const reqError = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: streamError,
+  });
+  const resError = await handler(reqError, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(resError.status, 400);
+  const bodyError = await resError.json();
+  assertEquals(bodyError.error?.code, "INVALID_JSON");
+  assertEquals(dbCalled, false);
 });

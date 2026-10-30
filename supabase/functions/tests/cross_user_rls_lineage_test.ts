@@ -1373,16 +1373,25 @@ Deno.test({
       assertNotEquals(s10BatchErr, null);
       assertEquals(s10BatchErr?.code, "42501");
 
-      const { data: verifyS10LineageA } = await assertionClient(rlsClientA, "User A assertion client")
+      const { data: verifyS10LineageA, error: errVerifyS10A } = await assertionClient(rlsClientA, "User A assertion client")
         .from("recipe_lineage")
         .select("id")
         .eq("child_recipe_id", s10ChildA);
+      assertEquals(errVerifyS10A, null);
       assertEquals(verifyS10LineageA?.length, 0);
+
+      const { data: verifyS10LineageB, error: errVerifyS10B } = await assertionClient(rlsClientB, "User B assertion client")
+        .from("recipe_lineage")
+        .select("id")
+        .eq("parent_recipe_id", s10ParentB)
+        .eq("child_recipe_id", s10ChildA);
+      assertEquals(errVerifyS10B, null);
+      assertEquals(verifyS10LineageB?.length, 0);
 
       const s10AtomicityEval = evaluateBatchAtomicityVerification({
         attemptedRows: 2,
         insertError: s10BatchErr,
-        persistedRowCount: verifyS10LineageA?.length ?? 0,
+        persistedRowCount: (verifyS10LineageA?.length ?? 0) + (verifyS10LineageB?.length ?? 0),
       });
       assertEquals(s10AtomicityEval.atomicFailureProven, true);
 
