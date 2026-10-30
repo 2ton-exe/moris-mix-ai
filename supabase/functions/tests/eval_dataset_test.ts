@@ -130,13 +130,22 @@ Deno.test("extraction evaluation fixtures meet their declared expectations offli
     }
 
     // A numeric amount the source notes never stated would be an invented
-    // quantity, so every non-null quantity must be declared above.
+    // quantity. Each quantified ingredient must match a declared amount on
+    // name, quantity, unit and inferred, so a duplicate entry with a different
+    // amount (for example `eggs: 99` next to a declared `eggs: 2`) also fails.
     for (const ingredient of recipe.ingredients) {
       if (ingredient.quantity === null) continue;
       const declared = (testCase.expect.exactAmounts ?? []).some((exact) =>
-        ingredient.name.toLowerCase().includes(exact.name.toLowerCase())
+        ingredient.name.toLowerCase().includes(exact.name.toLowerCase()) &&
+        ingredient.quantity === exact.quantity &&
+        (ingredient.unit ?? null) === exact.unit &&
+        ingredient.inferred === exact.inferred
       );
-      assert(declared, `${testCase.id}: undeclared quantity for "${ingredient.name}"`);
+      assert(
+        declared,
+        `${testCase.id}: undeclared quantity for "${ingredient.name}" ` +
+          `(quantity=${ingredient.quantity}, unit=${ingredient.unit}, inferred=${ingredient.inferred})`,
+      );
     }
 
     if (testCase.expect.flavorScores === "required") {
