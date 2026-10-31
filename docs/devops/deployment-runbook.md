@@ -650,7 +650,7 @@ Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed
 | Gate Test - Intentional Database Failure | Failure by design |
 | Gate Test - Would Deploy | Skipped |
 
-The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the historical production deploy gate's three-dependency structure in effect when PR #68 ran. The current production gate has four dependencies: `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the historical production deploy gate's three-dependency structure in effect when PR #68 ran. The current modular production caller has three direct dependencies: `frontend`, `test-db`, and `test-edge-api`. Mandatory Hosted RLS is enforced inside the aggregate Edge/API workflow on main; a failed Hosted RLS integration fails the aggregate `test-edge-api` result and blocks production. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
 
 The historical evidence chain is the production configuration in effect for the PR #68 experiment (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
 
@@ -724,9 +724,9 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 ### GitHub Actions Is Green but the Website Has Not Changed
 
-- Confirm the actual deployment step executed rather than being skipped.
+- Confirm `Modular Main Production / Deploy to Supabase and Cloudflare` actually executed rather than being skipped.
 - Confirm `frontend/package.json` exists on `main`.
-- Confirm the unified CI workflow ran for the expected commit, the `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls` jobs all succeeded, and the frontend-existence output is true.
+- Confirm `Modular Main Validation` ran for the expected `main` commit, `frontend`, `test-db`, and `test-edge-api` succeeded, the main Edge/API path executed its mandatory Hosted RLS integration successfully, and the frontend-existence output was true.
 - Inspect the Wrangler deployment output.
 - Inspect the latest Cloudflare Worker deployment.
 - Check the production URL independently.
