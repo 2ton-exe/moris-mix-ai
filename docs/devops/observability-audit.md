@@ -1,12 +1,16 @@
 # Production Observability Baseline
 
+> Issue #73 cleanup proposes modular-only PR/main validation and production.
+> Workflow/policy descriptions below are dated evidence, not the final required-check
+> policy. See [current proposal and handoff](modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31).
+
 ## Scope
 
 This October 24, 2026 audit records what operators can currently observe for Mori's Scraps. It documents existing visibility and supplied, verified manual production observations; it does not implement new monitoring or rerun those checks.
 
 Evidence levels are distinct: **configured** means present in repository configuration; **deployed** means observed in production; **manually verified** means an operator observed the stated behavior; **automated** means an implemented workflow performs that specific activity. CI tests and automated deployment do not establish automated production runtime verification.
 
-Repository references: [deployment runbook](deployment-runbook.md), [workflow migration status](modular-workflows.md), [active CI workflow](../../.github/workflows/ci.yml), [Worker configuration](../../wrangler.jsonc), [Supabase configuration](../../supabase/config.toml), [demo API contract](../api/demo-recipe.md), and [auth contract](../api/auth-session.md). Provider and smoke observations below are dated October 24, 2026. No credentials, account identifiers, request identifiers, or screenshots are included.
+Repository references: [deployment runbook](deployment-runbook.md), [workflow migration status](modular-workflows.md), `ci.yml` (historical workflow), [Worker configuration](../../wrangler.jsonc), [Supabase configuration](../../supabase/config.toml), [demo API contract](../api/demo-recipe.md), and [auth contract](../api/auth-session.md). Provider and smoke observations below are dated October 24, 2026. No credentials, account identifiers, request identifiers, or screenshots are included.
 
 ## Cloudflare Visibility
 
