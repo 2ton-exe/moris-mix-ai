@@ -20,7 +20,7 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 - **Authentication:** `Authorization: Bearer <supabase-access-token>` is required and verified by the handler.
 - **API key:** `apikey` is optional for this handler and is not used to authenticate the caller. Supabase clients may send the project key alongside the user token.
 - **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended but the handler does not enforce the header.
-- **Query parameters:** collection `GET` accepts `title`, `ingredient`, `sort`, `limit`, `cursor`, and legacy `offset`.
+- **Query parameters:** collection `GET` accepts `search`, `title`, `ingredient`, `sort`, `limit`, `cursor`, and legacy `offset`.
 - **Access control:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`). All queries and database operations are strictly scoped to the authenticated caller (`auth.uid() = user_id`).
 - **Preflight exception:** `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with CORS headers.
 
@@ -32,6 +32,8 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 
 | Parameter | Type / Constraints | Default | Behavior |
 | --- | --- | --- | --- |
+| `search` | `string` | optional | Search query across recipe title, ingredient names, or both with relevance ranking. Cannot be combined with `title` or `ingredient`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored without filtering out recipes. |
+| `searchMode` | `string` (`title` \| `ingredients` \| `both`) | `both` | Scopes `search` matching to recipe title (`title`), ingredient names (`ingredients`), or both (`both`). Requires `search` to be present. Unsupported values or duplicate parameters return `400 VALIDATION_ERROR`. |
 | `title` | `string` | optional | Case-insensitive partial substring match against recipe `title`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored without filtering out recipes. |
 | `ingredient` | `string` | optional | Case-insensitive partial substring match against canonical persisted recipe ingredient names via generated column `ingredients_text`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored. |
 | `sort` | `string` (`newest` \| `rating`) | `newest` | Controls result ordering. Unsupported sort values return `400 VALIDATION_ERROR`. |
@@ -42,10 +44,17 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 
 ### Search rules
 
+- **Relevance-ranked search (`search`):** Performs relevance-ranked search via database-side RPC `search_recipes`. When `searchMode` is `both` (default), performs logical OR across title and ingredient names. When `searchMode` is `title`, matches exclusively against recipe title. When `searchMode` is `ingredients`, matches exclusively against ingredient names.
+- **Three-tier relevance ranking:**
+  - **Tier 1 (Exact match):** Full-phrase exact case-insensitive match on recipe title or any ingredient name.
+  - **Tier 2 (Partial substring match):** Full-phrase contiguous substring match on recipe title or any ingredient name.
+  - **Tier 3 (Fuzzy match):** Token-level match where all query words match title or ingredient tokens either exactly, as substrings, or within supported Damerau-Levenshtein edit distance (adjacent transposition counts as 1 edit; threshold: length <= 3 requires 0 edits, 4-6 allows 1 edit, >= 7 allows 2 edits).
+- **Pre-pagination ranking:** Relevance ranking occurs in PostgreSQL before `LIMIT` or pagination, ensuring older exact matches cannot be displaced by newer partial matches.
+- **Ingredient metadata isolation:** Ingredient search matches exclusively against individual ingredient `name` values, strictly excluding non-name metadata such as `unit`, `quantity`, `quantityText`, and `inferred`.
 - **Title search:** `title` performs case-insensitive substring matching (`ILIKE '%title%'`).
 - **Ingredient search:** `ingredient` performs case-insensitive substring matching against persisted `ingredients` via generated column `ingredients_text` (`ingredients_text ILIKE '%ingredient%'`).
-- **Whitespace handling:** Leading and trailing whitespace in `title` and `ingredient` is trimmed. Empty or whitespace-only search terms do not filter out recipes.
-- **Filter combination:** When both `title` and `ingredient` are supplied, both filters must be satisfied (logical AND).
+- **Whitespace handling:** Leading and trailing whitespace in `search`, `title`, and `ingredient` is trimmed. Empty or whitespace-only search terms do not filter out recipes.
+- **Filter combination and exclusivity:** When both `title` and `ingredient` are supplied, both filters must be satisfied (logical AND). Supplying `search` alongside `title` or `ingredient` returns `400 VALIDATION_ERROR`. Supplying identical `title` and `ingredient` values triggers combined search for backward compatibility.
 - **No matches:** If no recipes match the filters, returns `200 OK` with `{ "recipes": [], "next_cursor": null, "has_more": false }`, not an error.
 
 ### Sorting rules

@@ -175,6 +175,48 @@ async function runRlsTests() {
     check(lineageReadA.rowCount, 1, 'User A should be able to read own recipe lineage');
     console.log('✓ User A recipe_lineage creation and read authorization verified');
 
+    const searchExactA = await client.query('select * from public.search_recipes(p_search => $1)', ['User A Secret Scrap Stew']);
+    check(searchExactA.rowCount >= 1, true, 'User A exact search should return results');
+    check(searchExactA.rows[0].relevance_rank, 1, 'Exact title match should be rank 1');
+    check(searchExactA.rows[0].id, userARecipe1Id, 'Exact search should match recipe 1');
+
+    const searchPartialA = await client.query('select * from public.search_recipes(p_search => $1)', ['Scrap Stew']);
+    check(searchPartialA.rowCount >= 1, true, 'User A partial search should return results');
+    check(searchPartialA.rows[0].relevance_rank, 2, 'Partial substring match should be rank 2');
+
+    const searchFuzzyA = await client.query('select * from public.search_recipes(p_search => $1)', ['secert scrap']);
+    check(searchFuzzyA.rowCount >= 1, true, 'User A fuzzy transposition search should return results');
+    check(searchFuzzyA.rows[0].relevance_rank, 3, 'Fuzzy transposition match should be rank 3');
+
+    const searchRankingA = await client.query('select * from public.search_recipes(p_search => $1)', ['stew']);
+    check(searchRankingA.rowCount >= 2, true, 'User A stew search should match both recipes');
+    check(searchRankingA.rows[0].relevance_rank <= searchRankingA.rows[1].relevance_rank, true, 'Search results must be ordered by relevance_rank asc');
+
+    const searchIngredientA = await client.query('select * from public.search_recipes(p_search => $1)', ['miso']);
+    check(searchIngredientA.rowCount >= 1, true, 'User A ingredient search should return results');
+    check(searchIngredientA.rows[0].id, userARecipe2Id, 'Ingredient search should match recipe 2');
+
+    const searchTitleFuzzyA = await client.query('select * from public.search_recipes(p_title => $1)', ['secert scrap']);
+    check(searchTitleFuzzyA.rowCount >= 1, true, 'User A title-only fuzzy search should return results');
+    check(searchTitleFuzzyA.rows[0].relevance_rank, 3, 'Title-only fuzzy match should be rank 3');
+
+    const searchIngredientFuzzyA = await client.query('select * from public.search_recipes(p_ingredient => $1)', ['scallon']);
+    check(searchIngredientFuzzyA.rowCount >= 1, true, 'User A ingredient-only fuzzy search should return results');
+    check(searchIngredientFuzzyA.rows[0].relevance_rank, 3, 'Ingredient-only fuzzy match should be rank 3');
+
+    const searchTitleMismatchA = await client.query('select * from public.search_recipes(p_title => $1)', ['scallon']);
+    check(searchTitleMismatchA.rowCount, 0, 'User A title-only search should not match ingredient terms');
+
+    const searchIngredientMismatchA = await client.query('select * from public.search_recipes(p_ingredient => $1)', ['secert']);
+    check(searchIngredientMismatchA.rowCount, 0, 'User A ingredient-only search should not match title terms');
+
+    const searchPage1A = await client.query('select * from public.search_recipes(p_search => $1, p_limit => 1, p_offset => 0)', ['stew']);
+    check(searchPage1A.rowCount, 2, 'p_limit = 1 should fetch 2 rows for hasMore evaluation');
+    const searchPage2A = await client.query('select * from public.search_recipes(p_search => $1, p_limit => 1, p_offset => 1)', ['stew']);
+    check(searchPage2A.rowCount >= 1, true, 'p_offset = 1 should return remaining recipes');
+    check(searchPage1A.rows[0].id !== searchPage2A.rows[0].id, true, 'Page 1 and Page 2 must not return identical rows');
+    console.log('✓ User A search_recipes exact, partial, fuzzy, ranking, and pagination verified');
+
     await client.query('COMMIT');
 
     await client.query('BEGIN');
@@ -214,6 +256,10 @@ async function runRlsTests() {
     const lineageDeleteB = await client.query('delete from public.recipe_lineage where parent_recipe_id = $1', [userARecipe1Id]);
     check(lineageDeleteB.rowCount, 0, 'User B must not be able to delete User A recipe lineage');
     console.log('✓ User B cross-user recipe_lineage read and delete isolation verified (0 rows affected)');
+
+    const searchB = await client.query('select * from public.search_recipes(p_search => $1)', ['stew']);
+    check(searchB.rowCount, 0, 'User B search must return 0 rows for User A recipes');
+    console.log('✓ User B cross-user search_recipes isolation verified (0 rows returned)');
 
     await client.query('COMMIT');
 
@@ -345,8 +391,8 @@ async function runRlsTests() {
     console.log('Skipped: false');
     console.log('-----------------------------------------\n');
 
-    if (process.env.CI === 'true' && (assertionsExecuted !== 30 || assertionsPassed !== 30)) {
-      throw new Error(`CI failure: Expected 30 RLS regression assertions to execute and pass, but executed ${assertionsExecuted} (passed: ${assertionsPassed})`);
+    if (process.env.CI === 'true' && (assertionsExecuted !== 51 || assertionsPassed !== 51)) {
+      throw new Error(`CI failure: Expected 51 RLS regression assertions to execute and pass, but executed ${assertionsExecuted} (passed: ${assertionsPassed})`);
     }
   } catch (err) {
     console.error('\nFAILED: RLS policy regression tests failed:', err);

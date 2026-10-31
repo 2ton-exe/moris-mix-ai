@@ -91,10 +91,10 @@ it('loads cursor pages through the BE-08 contract', async () => {
 })
 
 it.each([
-  ['title', 'rice & beans', 'rice & beans', null],
-  ['ingredients', 'rice & beans', null, 'rice & beans'],
-  ['both', '🍚 rice', '🍚 rice', '🍚 rice'],
-] as const)('maps %s search and rating sort to the authenticated API contract', async (searchMode, search, title, ingredient) => {
+  ['title', 'rice & beans', 'rice & beans', 'title'],
+  ['ingredients', 'rice & beans', 'rice & beans', 'ingredients'],
+  ['both', '🍚 rice', '🍚 rice', null],
+] as const)('maps %s search and rating sort to the authenticated API contract', async (searchMode, search, searchParam, searchModeParam) => {
   const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ recipes: [], has_more: false, next_cursor: null }))
   const discovery = createRecipeSource(client(fetchImpl)).discovery!
   await discovery.page({
@@ -105,8 +105,10 @@ it.each([
   expect(url.searchParams.get('pagination')).toBe('cursor')
   expect(url.searchParams.get('limit')).toBe('24')
   expect(url.searchParams.get('sort')).toBe('rating')
-  expect(url.searchParams.get('title')).toBe(title)
-  expect(url.searchParams.get('ingredient')).toBe(ingredient)
+  expect(url.searchParams.get('search')).toBe(searchParam)
+  expect(url.searchParams.get('searchMode')).toBe(searchModeParam)
+  expect(url.searchParams.get('title')).toBeNull()
+  expect(url.searchParams.get('ingredient')).toBeNull()
   expect(url.searchParams.get('cursor')).toBe('opaque cursor/1')
 })
 

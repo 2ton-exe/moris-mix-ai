@@ -150,6 +150,8 @@ function formatIlikePattern(term: string): string {
 type RecipeListParams =
   | {
       mode: "cursor";
+      search: string | null;
+      searchMode: "title" | "ingredients" | "both";
       title: string | null;
       ingredient: string | null;
       sort: "newest" | "rating";
@@ -158,6 +160,8 @@ type RecipeListParams =
     }
   | {
       mode: "offset";
+      search: string | null;
+      searchMode: "title" | "ingredients" | "both";
       title: string | null;
       ingredient: string | null;
       sort: "newest" | "rating";
@@ -263,6 +267,111 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
     if (trimmed.length > 0) {
       ingredient = trimmed;
     }
+  }
+
+  const searchValues = url.searchParams.getAll("search");
+  if (searchValues.length > 1) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid search parameter.",
+          details: [{
+            path: "search",
+            code: "invalid_value",
+            message: "Duplicate search parameter.",
+          }],
+        },
+      },
+    };
+  }
+
+  let search: string | null = null;
+  if (searchValues.length === 1) {
+    const trimmed = searchValues[0].trim();
+    if (trimmed.length > 0) {
+      search = trimmed;
+    }
+  }
+
+  if (search !== null && (title !== null || ingredient !== null)) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid search parameter.",
+          details: [{
+            path: "query",
+            code: "invalid_union",
+            message: "Cannot combine 'search' with 'title' or 'ingredient' parameters.",
+          }],
+        },
+      },
+    };
+  }
+
+  const searchModeValues = url.searchParams.getAll("searchMode");
+  if (searchModeValues.length > 1) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid searchMode parameter.",
+          details: [{
+            path: "searchMode",
+            code: "invalid_value",
+            message: "Duplicate searchMode parameter.",
+          }],
+        },
+      },
+    };
+  }
+
+  let searchMode: "title" | "ingredients" | "both" = "both";
+  if (searchModeValues.length === 1) {
+    const val = searchModeValues[0];
+    if (val !== "title" && val !== "ingredients" && val !== "both") {
+      return {
+        ok: false,
+        errorStatus: 400,
+        errorResponse: {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid searchMode parameter.",
+            details: [{
+              path: "searchMode",
+              code: "invalid_value",
+              message: "Search mode must be 'title', 'ingredients', or 'both'.",
+            }],
+          },
+        },
+      };
+    }
+    searchMode = val;
+  }
+
+  if (searchModeValues.length === 1 && search === null) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid searchMode parameter.",
+          details: [{
+            path: "searchMode",
+            code: "custom",
+            message: "Parameter 'searchMode' requires 'search' parameter.",
+          }],
+        },
+      },
+    };
   }
 
   const paginationValues = url.searchParams.getAll("pagination");
@@ -412,9 +521,48 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
 
       if (
         decoded.cursor.sort !== sort ||
+        (decoded.cursor.search ?? null) !== search ||
+        (decoded.cursor.search ? (decoded.cursor.searchMode ?? "both") : "both") !== searchMode ||
         (decoded.cursor.title ?? null) !== title ||
         (decoded.cursor.ingredient ?? null) !== ingredient
       ) {
+        return {
+          ok: false,
+          errorStatus: 400,
+          errorResponse: {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid pagination cursor.",
+              details: [{
+                path: "cursor",
+                code: "custom",
+                message: "Pagination cursor is incompatible with active search filters or sort mode.",
+              }],
+            },
+          },
+        };
+      }
+
+      const isSearchActive = search !== null;
+      if (isSearchActive && (typeof decoded.cursor.rank !== "number" || decoded.cursor.rank < 1 || decoded.cursor.rank > 3)) {
+        return {
+          ok: false,
+          errorStatus: 400,
+          errorResponse: {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Invalid pagination cursor.",
+              details: [{
+                path: "cursor",
+                code: "custom",
+                message: "Pagination cursor is incompatible with active search filters or sort mode.",
+              }],
+            },
+          },
+        };
+      }
+
+      if (!isSearchActive && decoded.cursor.rank !== undefined) {
         return {
           ok: false,
           errorStatus: 400,
@@ -479,6 +627,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
       ok: true,
       params: {
         mode: "cursor",
+        search,
+        searchMode,
         title,
         ingredient,
         sort,
@@ -590,6 +740,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
     ok: true,
     params: {
       mode: "offset",
+      search,
+      searchMode,
       title,
       ingredient,
       sort,
@@ -725,153 +877,227 @@ export async function handler(
         }
 
         const params = parsed.params;
-        const searchFilters: Array<{
-          column: "title" | "ingredients_text";
-          pattern: string;
-        }> = [];
-        if (params.title) {
-          searchFilters.push({ column: "title", pattern: formatIlikePattern(params.title) });
-        }
-        if (params.ingredient) {
-          searchFilters.push({ column: "ingredients_text", pattern: formatIlikePattern(params.ingredient) });
-        }
-        const sortOrders: Array<{
-          column: "star_rating" | "created_at" | "id";
-          options: { ascending: boolean; nullsFirst?: boolean };
-        }> = params.sort === "rating"
-          ? [
-            { column: "star_rating", options: { ascending: false, nullsFirst: false } },
-            { column: "created_at", options: { ascending: false } },
-            { column: "id", options: { ascending: true } },
-          ]
-          : [
-            { column: "created_at", options: { ascending: false } },
-            { column: "id", options: { ascending: true } },
-          ];
-        let listQuery = supabase
-          .from("recipes")
-          .select(
-            "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
-          )
-          .eq("user_id", user.id);
+        const isCombinedSearch = Boolean(params.search);
 
-        for (const { column, pattern } of searchFilters) {
-          listQuery = listQuery.ilike(column, pattern);
-        }
+        type SearchRecipeRecord = {
+  id: string;
+  created_at: string;
+  star_rating: number | null;
+  relevance_rank?: number;
+  [key: string]: unknown;
+};
 
-        if (params.mode === "cursor") {
-          const { sort, cursor } = params;
-          if (cursor) {
-            if (sort === "newest") {
-              listQuery = listQuery.or(
-                `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
-              );
-            } else {
-              if (cursor.starRating !== null && cursor.starRating !== undefined) {
-                listQuery = listQuery.or(
-                  `star_rating.lt.${cursor.starRating},star_rating.is.null,and(star_rating.eq.${cursor.starRating},created_at.lt.${cursor.createdAt}),and(star_rating.eq.${cursor.starRating},created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
-                );
-              } else {
-                listQuery = listQuery.or(
-                  `and(star_rating.is.null,created_at.lt.${cursor.createdAt}),and(star_rating.is.null,created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
-                );
-              }
-            }
-          }
-        }
-
-        for (const { column, options } of sortOrders) {
-          listQuery = listQuery.order(column, options);
-        }
-
-        if (params.mode === "cursor") {
-          listQuery = listQuery.limit(params.limit + 1);
-        } else {
-          const { limit, offset } = params;
-          listQuery = listQuery.range(offset, offset + limit);
-        }
-
-        const { data, error } = await listQuery;
-
-        if (error || !data || !Array.isArray(data)) {
-          console.error("Database list query failed", error?.code ? `code: ${error.code}` : "");
-          return recipesJsonResponse(
-            {
-              error: {
-                code: "INTERNAL_ERROR",
-                message: "Internal server error.",
-              },
-            },
-            { status: 500 },
-          );
-        }
-
-        if (data.some((item: { user_id: string }) => item.user_id !== user.id)) {
-          console.error("Recipe ownership mismatch detected in list");
-          return recipesJsonResponse(
-            {
-              error: {
-                code: "INTERNAL_ERROR",
-                message: "Internal server error.",
-              },
-            },
-            { status: 500 },
-          );
-        }
-
-        let recipesData: typeof data;
+        let recipesData: Array<Record<string, unknown>>;
         let nextCursor: string | null = null;
         let hasMore = false;
 
-        if (params.mode === "cursor") {
+        if (isCombinedSearch) {
+          const { data, error } = await supabase.rpc("search_recipes", {
+            p_search: params.searchMode === "both" ? params.search : null,
+            p_title: params.searchMode === "title" ? params.search : null,
+            p_ingredient: params.searchMode === "ingredients" ? params.search : null,
+            p_sort: params.sort,
+            p_limit: params.limit,
+            p_offset: params.mode === "offset" ? params.offset : 0,
+            p_cursor_rank: params.mode === "cursor" && params.cursor ? params.cursor.rank ?? null : null,
+            p_cursor_created_at: params.mode === "cursor" && params.cursor ? params.cursor.createdAt : null,
+            p_cursor_star_rating: params.mode === "cursor" && params.cursor ? params.cursor.starRating ?? null : null,
+            p_cursor_id: params.mode === "cursor" && params.cursor ? params.cursor.id : null,
+          });
+
+          if (error || !data || !Array.isArray(data)) {
+            console.error("Database search query failed", error?.code ? `code: ${error.code}` : "");
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "INTERNAL_ERROR",
+                  message: "Internal server error.",
+                },
+              },
+              { status: 500 },
+            );
+          }
+
+          if (data.some((item: { user_id: string }) => item.user_id !== user.id)) {
+            console.error("Recipe ownership mismatch detected in list");
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "INTERNAL_ERROR",
+                  message: "Internal server error.",
+                },
+              },
+              { status: 500 },
+            );
+          }
+
           hasMore = data.length > params.limit;
-          recipesData = hasMore ? data.slice(0, params.limit) : data;
-          if (hasMore && recipesData.length > 0) {
-            const lastItem = recipesData[recipesData.length - 1];
+          const pageItems = hasMore ? data.slice(0, params.limit) : data;
+
+          if (params.mode === "cursor" && hasMore && pageItems.length > 0) {
+            const lastItem = (pageItems[pageItems.length - 1] as unknown) as SearchRecipeRecord;
             nextCursor = encodeCursor({
               sort: params.sort,
+              ...(params.search ? { search: params.search } : {}),
+              ...(params.search && params.searchMode !== "both" ? { searchMode: params.searchMode } : {}),
               ...(params.title ? { title: params.title } : {}),
               ...(params.ingredient ? { ingredient: params.ingredient } : {}),
+              rank: lastItem.relevance_rank,
               id: lastItem.id,
               createdAt: lastItem.created_at,
               starRating: lastItem.star_rating,
             });
           }
+
+          recipesData = pageItems.map((item: Record<string, unknown>) => {
+            const { relevance_rank, ...recipe } = item;
+            return recipe;
+          });
         } else {
-          hasMore = data.length > params.limit;
-          if (!hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT && data.length === params.limit) {
-            let continuationQuery = supabase
-              .from("recipes")
-              .select("id")
-              .eq("user_id", user.id);
-
-            for (const { column, pattern } of searchFilters) {
-              continuationQuery = continuationQuery.ilike(column, pattern);
-            }
-            for (const { column, options } of sortOrders) {
-              continuationQuery = continuationQuery.order(column, options);
-            }
-
-            const continuationOffset = params.offset + params.limit;
-            const { data: continuationData, error: continuationError } = await continuationQuery.range(
-              continuationOffset,
-              continuationOffset,
-            );
-            if (continuationError || !Array.isArray(continuationData)) {
-              console.error("Database continuation probe failed", continuationError?.code ? `code: ${continuationError.code}` : "");
-              return recipesJsonResponse(
-                {
-                  error: {
-                    code: "INTERNAL_ERROR",
-                    message: "Internal server error.",
-                  },
-                },
-                { status: 500 },
-              );
-            }
-            hasMore = continuationData.length > 0;
+          const searchFilters: Array<{
+            column: "title" | "ingredients_text";
+            pattern: string;
+          }> = [];
+          if (params.title) {
+            searchFilters.push({ column: "title", pattern: formatIlikePattern(params.title) });
           }
-          recipesData = hasMore ? data.slice(0, params.limit) : data;
+          if (params.ingredient) {
+            searchFilters.push({ column: "ingredients_text", pattern: formatIlikePattern(params.ingredient) });
+          }
+          const sortOrders: Array<{
+            column: "star_rating" | "created_at" | "id";
+            options: { ascending: boolean; nullsFirst?: boolean };
+          }> = params.sort === "rating"
+            ? [
+              { column: "star_rating", options: { ascending: false, nullsFirst: false } },
+              { column: "created_at", options: { ascending: false } },
+              { column: "id", options: { ascending: true } },
+            ]
+            : [
+              { column: "created_at", options: { ascending: false } },
+              { column: "id", options: { ascending: true } },
+            ];
+          let listQuery = supabase
+            .from("recipes")
+            .select(
+              "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
+            )
+            .eq("user_id", user.id);
+
+          for (const { column, pattern } of searchFilters) {
+            listQuery = listQuery.ilike(column, pattern);
+          }
+
+          if (params.mode === "cursor") {
+            const { sort, cursor } = params;
+            if (cursor) {
+              if (sort === "newest") {
+                listQuery = listQuery.or(
+                  `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
+                );
+              } else {
+                if (cursor.starRating !== null && cursor.starRating !== undefined) {
+                  listQuery = listQuery.or(
+                    `star_rating.lt.${cursor.starRating},star_rating.is.null,and(star_rating.eq.${cursor.starRating},created_at.lt.${cursor.createdAt}),and(star_rating.eq.${cursor.starRating},created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
+                  );
+                } else {
+                  listQuery = listQuery.or(
+                    `and(star_rating.is.null,created_at.lt.${cursor.createdAt}),and(star_rating.is.null,created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
+                  );
+                }
+              }
+            }
+          }
+
+          for (const { column, options } of sortOrders) {
+            listQuery = listQuery.order(column, options);
+          }
+
+          if (params.mode === "cursor") {
+            listQuery = listQuery.limit(params.limit + 1);
+          } else {
+            const { limit, offset } = params;
+            listQuery = listQuery.range(offset, offset + limit);
+          }
+
+          const { data, error } = await listQuery;
+
+          if (error || !data || !Array.isArray(data)) {
+            console.error("Database list query failed", error?.code ? `code: ${error.code}` : "");
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "INTERNAL_ERROR",
+                  message: "Internal server error.",
+                },
+              },
+              { status: 500 },
+            );
+          }
+
+          if (data.some((item: { user_id: string }) => item.user_id !== user.id)) {
+            console.error("Recipe ownership mismatch detected in list");
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "INTERNAL_ERROR",
+                  message: "Internal server error.",
+                },
+              },
+              { status: 500 },
+            );
+          }
+
+          if (params.mode === "cursor") {
+            hasMore = data.length > params.limit;
+            recipesData = hasMore ? data.slice(0, params.limit) : data;
+            if (hasMore && recipesData.length > 0) {
+              const lastItem = (recipesData[recipesData.length - 1] as unknown) as SearchRecipeRecord;
+              nextCursor = encodeCursor({
+                sort: params.sort,
+                ...(params.title ? { title: params.title } : {}),
+                ...(params.ingredient ? { ingredient: params.ingredient } : {}),
+                id: lastItem.id,
+                createdAt: lastItem.created_at,
+                starRating: lastItem.star_rating,
+              });
+            }
+          } else {
+            hasMore = data.length > params.limit;
+            if (!hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT && data.length === params.limit) {
+              let continuationQuery = supabase
+                .from("recipes")
+                .select("id")
+                .eq("user_id", user.id);
+
+              for (const { column, pattern } of searchFilters) {
+                continuationQuery = continuationQuery.ilike(column, pattern);
+              }
+              for (const { column, options } of sortOrders) {
+                continuationQuery = continuationQuery.order(column, options);
+              }
+
+              const continuationOffset = params.offset + params.limit;
+              const { data: continuationData, error: continuationError } = await continuationQuery.range(
+                continuationOffset,
+                continuationOffset,
+              );
+              if (continuationError || !Array.isArray(continuationData)) {
+                console.error("Database continuation probe failed", continuationError?.code ? `code: ${continuationError.code}` : "");
+                return recipesJsonResponse(
+                  {
+                    error: {
+                      code: "INTERNAL_ERROR",
+                      message: "Internal server error.",
+                    },
+                  },
+                  { status: 500 },
+                );
+              }
+              hasMore = continuationData.length > 0;
+            }
+            recipesData = hasMore ? data.slice(0, params.limit) : data;
+          }
         }
 
         const listValidation = RecipeListResponseSchema.safeParse({

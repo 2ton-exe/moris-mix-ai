@@ -354,3 +354,21 @@ it.each([
   expect(card()).toBeNull()
   expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
 })
+
+it.each([
+  ['title', 'Garlick Rice', 'Garlic Rice'],
+  ['ingredients', 'shalots', 'Shallot Fried Rice'],
+  ['both', 'buter pasta', 'Butter Pasta'],
+] as const)('renders matching card when searching misspelled query in %s mode', async (mode, query, title) => {
+  const matchingRecipe = { id: `recipe-${mode}`, title }
+  page.mockImplementation(({ criteria }) => {
+    if (criteria.search === query && criteria.searchMode === mode) {
+      return Promise.resolve({ recipes: [matchingRecipe], nextPage: null })
+    }
+    return Promise.resolve({ recipes: [], nextPage: null })
+  })
+  render(tree())
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search in' }), { target: { value: mode } })
+  await enterSearch(query)
+  expect(await screen.findByRole('heading', { name: title })).toBeTruthy()
+})
