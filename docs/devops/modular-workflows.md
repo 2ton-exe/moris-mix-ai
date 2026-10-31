@@ -20,7 +20,7 @@ operator-confirmed outcomes supplied for this cleanup, not new runs performed by
 this branch; run IDs were not supplied. Earlier run links below remain historical
 evidence for their own revisions.
 
-### Proposed permanent architecture and remaining handoff
+### Proposed permanent architecture, completed handoff and pending verification
 
 PRs use `modular-pr-validation.yml`; main uses `modular-main.yml`, the sole
 production caller. This branch removes `ci.yml`, the production owner selector,
@@ -31,18 +31,28 @@ frontend existence, exact caller identity, main push/manual-only restrictions,
 explicit production secrets, recipes-only targeting, URL verification, runtime
 smoke/evidence, and serialized production concurrency remain. E2E is non-gating.
 
-The six-context overlap remains unchanged until a separate GitHub handoff after
-healthy PR checks. Intended final contexts are `Modular Frontend / Frontend Checks`,
-`Modular Database / Database Tests`, and `Modular Edge/API / Edge/API Tests`.
-Legacy requirements may remain pending after their producer is removed; coordinate
-the handoff without a protection gap. PR Secretary uses modular runs and an
-explicitly unconfirmed intended-policy fallback; live rules take precedence.
+Operator-confirmed GitHub state (2026-11-01): the `Protect main` ruleset now
+requires exactly these contexts, all tied to the GitHub Actions integration:
+
+- `Modular Frontend / Frontend Checks`
+- `Modular Database / Database Tests`
+- `Modular Edge/API / Edge/API Tests`
+
+The legacy `Frontend Checks`, `Database Tests`, and `Edge/API Tests` requirements
+were removed only after the modular contexts were already required and green on
+PR #142. The planned no-gap handoff is complete. Required human review and
+review-thread resolution remain enabled. PR Secretary uses modular runs and an
+explicitly unconfirmed fallback; live rules take precedence.
 
 The [full cleanup contract and GitHub handoff](../../.github/production-cutover.md#issue-73-final-cleanup-proposal-2026-10-31)
 records production targets, release safeguards, and outstanding verification.
-After an authorized merge, observe the new main SHA's modular-only release,
-mandatory hosted RLS, deployment/smoke/artifact outcomes, and Secretary refresh.
-No modular-only post-merge verification or issue #73 completion is claimed.
+PR #142 is still unmerged. Its merge, `ci.yml` absence from merged main, and
+automatic Modular Main Validation on the merge SHA remain pending. Verify Hosted
+RLS execution on main, Modular Main Production execution, recipes deployment,
+Cloudflare deployment, production URL verification, runtime smoke and artifact
+preservation. PR Secretary verification from the new default-branch code and
+final issue #73 closure also remain pending. The completed ruleset handoff does
+not establish merged modular production steady state or post-merge success.
 After retirement, a variable flip cannot restore legacy production; rollback
 requires a reviewed repository change. Do not rerun stale production revisions.
 

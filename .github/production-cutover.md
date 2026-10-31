@@ -48,30 +48,36 @@ evidence for their own revisions.
   `extract-recipe` and `generate-recipe` are not automatic release targets.
 - PR Secretary consumes modular PR runs and composed check names. Its intended
   fallback is the three modular core contexts; live effective branch rules still
-  take precedence, including all six overlap requirements until GitHub handoff.
+  take precedence; the completed GitHub handoff now requires only the three modular
+  contexts listed below.
   Fallback reporting explicitly leaves live enforcement and integration identity
   unconfirmed. Generic legacy workflow-path fixtures remain useful parser tests.
 
-### GitHub handoff and verification still required
+### GitHub handoff completed; post-merge verification still required
 
-The six-context overlap policy remains unchanged. Intended final required contexts:
+Operator-confirmed GitHub state (2026-11-01): the `Protect main` ruleset handoff
+from six required contexts to three is complete. Current required contexts are
+exactly the following, all tied to the GitHub Actions integration:
 
 - `Modular Frontend / Frontend Checks`
 - `Modular Database / Database Tests`
 - `Modular Edge/API / Edge/API Tests`
 
-After this branch's PR checks are healthy, the separately authorized GitHub handoff
-must coordinate retiring legacy requirements without a protection gap. Legacy
-checks may remain pending under the overlap once their producer is removed; this
-branch does not bypass them or change policy. Verify effective contexts and Actions
-app identities, blocking on missing/failing modular checks, review requirements,
-and the resulting policy separately.
+The obsolete legacy requirements `Frontend Checks`, `Database Tests`, and
+`Edge/API Tests` have been removed. The modular contexts were already required
+and green on PR #142 before those legacy requirements were removed, completing
+the planned handoff without a required-check protection gap. Required human
+review and review-thread resolution remain enabled. This documentation update
+records that completed GitHub action; it changes no policy.
 
-After an authorized merge, observe the resulting main SHA: only Modular Main
-Production must execute after core validations and mandatory hosted RLS; verify
-recipes-only deployment, Cloudflare, URL verification, smoke, summary and artifact.
-Confirm legacy CI is absent from merged main and PR Secretary refreshes correctly
-from default-branch code. Modular-only post-merge behavior remains unverified.
+PR #142 is still unmerged. Still pending are its merge, confirmation that `ci.yml`
+is absent from merged main, and automatic Modular Main Validation on the merge
+SHA. Observe mandatory Hosted RLS on main and Modular Main Production execution;
+verify recipes deployment, Cloudflare deployment, production URL verification,
+runtime smoke, outcome summary and artifact preservation. Verify PR Secretary
+from the new default-branch code. The completed ruleset handoff does not establish
+merged production steady state or any of these post-merge outcomes; issue #73
+remains open until that verification is complete.
 Do not rerun pre-cleanup production revisions as a rollback shortcut; concurrency
 serializes deployments but does not reject stale runs. Rollback after retirement
 requires a reviewed repository change restoring the required caller/guards, not a
@@ -88,9 +94,9 @@ Occurrences were reviewed by role rather than globally replaced:
 | Modular PR introductory comment | Active documentation: corrected to permanent PR/staging responsibility |
 | Reusable frontend/database/Edge internal job names | Active runtime dependency: retained unchanged, because they form the composed modular contexts |
 | `production-workflow.test.mjs` legacy reads, parity and ownership truth table | Active test dependency: replaced by absence, modular caller/gate, explicit Edge/API target and hosted-RLS assertions; detailed release assertions retained |
-| Secretary workflow trigger, allowlist, fallback, GATES and collection fixtures | PR Secretary compatibility: mapped to modular runs/contexts, corrected main-only hosted-RLS skip and production label; live six-context precedence remains covered |
+| Secretary workflow trigger, allowlist, fallback, GATES and collection fixtures | PR Secretary compatibility: mapped to modular runs/contexts, corrected main-only hosted-RLS skip and production label; live-rule precedence, including historical six-context fixtures, remains covered |
 | Secretary changed-file/thread fixtures and generic workflow-path matching using `ci.yml` | Unrelated/example text and historical parsing coverage: retained; no file read or active workflow dependency |
-| This cutover record and modular-workflows migration archive | Historical evidence: retained under explicit historical labels; current proposal and remaining handoff are separate |
+| This cutover record and modular-workflows migration archive | Historical evidence: retained under explicit historical labels; current proposal, completed handoff and remaining verification are separate |
 | Deployment runbook, Secretary guide, development setup, auth-session CI note and architecture workflow links | Active documentation: corrected workflow paths, dependencies, policy and remaining verification |
 | Pipeline metrics and observability audit | Historical evidence: dated records retained; retired-file links removed and current handoff linked |
 | AI evaluation report and Sprint 1 records | Historical evidence: original commands, check names and observed results retained |
