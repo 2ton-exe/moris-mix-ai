@@ -12,7 +12,7 @@ import {
   SIMULATE_OUTAGE_ENV,
 } from "../_shared/ai/drills.ts";
 import { MOCK_EXTRACTED_RECIPE, MOCK_GENERATED_RECIPE } from "../_shared/ai/mocks.ts";
-import { AIError, type AIErrorCode } from "../_shared/ai/GeminiAdapter.ts";
+import { AIError, GeminiAdapter, type AIErrorCode } from "../_shared/ai/GeminiAdapter.ts";
 import type {
   AIProvider,
   GenerateRecipeContext,
@@ -1817,27 +1817,15 @@ Deno.test("Missing service role credentials fail closed with QUOTA_UNAVAILABLE b
   }
 });
 
-Deno.test("Definite non-consuming 503 provider rejection across retries refunds generate quota reservation", async () => {
-  let providerCalls = 0;
-  const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
-    generateRecipe: () => {
-      providerCalls++;
-      throw new AIError(
-        "provider_unavailable",
-        "generate",
-        "Gemini is currently unavailable.",
-        undefined,
-        undefined,
-        true,
-        [
-          { code: "provider_unavailable", nonConsuming: true },
-          { code: "provider_unavailable", nonConsuming: true },
-        ],
-      );
+Deno.test("HTTP 503 provider failure across retries confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      throw Object.assign(new Error("Service Unavailable"), { status: 503 });
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
-  };
+    sleep: () => Promise.resolve(),
+  });
 
   const consumedReservations: string[] = [];
   const confirmedReservations: string[] = [];
@@ -1862,37 +1850,310 @@ Deno.test("Definite non-consuming 503 provider rejection across retries refunds 
       supabaseAnonKey: TEST_ANON_KEY,
       fetch: fetchImpl,
       buildContext: contextReturning(MATCHED_CONTEXT),
-      provider: failingProvider,
+      provider: adapter,
     },
   );
 
   assertEquals(res.status, 503);
   assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
-  assertEquals(providerCalls, 1);
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("HTTP 500 provider failure across retries confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      throw Object.assign(new Error("Internal Server Error"), { status: 500 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Network transport disconnect failure across retries confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      throw Object.assign(new Error("fetch failed"), { code: "ECONNRESET" });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Ambiguous provider timeout failure confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      throw Object.assign(new Error("Request timed out"), { name: "AbortError" });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 504);
+  assertEquals((await res.json()).error?.code, "AI_TIMEOUT");
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Mixed retries with timeout followed by 503 confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      if (attemptsCount === 1) {
+        throw Object.assign(new Error("Request timed out"), { name: "AbortError" });
+      }
+      throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Mixed retries with 429 followed by 503 confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      if (attemptsCount === 1) {
+        throw Object.assign(new Error("Rate limit exceeded"), { status: 429 });
+      }
+      throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Definite non-consuming 429 rate limit across retries refunds generate quota reservation using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      throw Object.assign(new Error("Rate limit exceeded"), { status: 429 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 429);
+  assertEquals((await res.json()).error?.code, "AI_RATE_LIMITED");
+  assertEquals(attemptsCount, 2);
   assertEquals(consumedReservations.length, 1);
   assertEquals(confirmedReservations.length, 0);
   assertEquals(reconciledReservations.length, 1);
   assertEquals(reconciledReservations[0], consumedReservations[0]);
 });
 
-Deno.test("Ambiguous transport disconnect failure confirms generate quota and does not refund", async () => {
-  let providerCalls = 0;
-  const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
-    generateRecipe: () => {
-      providerCalls++;
-      throw new AIError(
-        "provider_unavailable",
-        "generate",
-        "Gemini is currently unavailable.",
-        undefined,
-        undefined,
-        false,
-        [{ code: "provider_unavailable", nonConsuming: false }],
-      );
+Deno.test("Invalid model output schema failure confirms generate quota and does not refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      return Promise.resolve(JSON.stringify({ invalid: true }));
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
-  };
+    sleep: () => Promise.resolve(),
+  });
 
   const consumedReservations: string[] = [];
   const confirmedReservations: string[] = [];
@@ -1917,181 +2178,13 @@ Deno.test("Ambiguous transport disconnect failure confirms generate quota and do
       supabaseAnonKey: TEST_ANON_KEY,
       fetch: fetchImpl,
       buildContext: contextReturning(MATCHED_CONTEXT),
-      provider: failingProvider,
-    },
-  );
-
-  assertEquals(res.status, 503);
-  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
-  assertEquals(providerCalls, 1);
-  assertEquals(consumedReservations.length, 1);
-  assertEquals(confirmedReservations.length, 1);
-  assertEquals(reconciledReservations.length, 0);
-  assertEquals(confirmedReservations[0], consumedReservations[0]);
-});
-
-Deno.test("Ambiguous provider timeout failure confirms generate quota and does not refund", async () => {
-  let providerCalls = 0;
-  const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
-    generateRecipe: () => {
-      providerCalls++;
-      throw new AIError(
-        "provider_timeout",
-        "generate",
-        "Gemini did not respond in time.",
-        undefined,
-        undefined,
-        false,
-        [{ code: "provider_timeout", nonConsuming: false }],
-      );
-    },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
-  };
-
-  const consumedReservations: string[] = [];
-  const confirmedReservations: string[] = [];
-  const reconciledReservations: string[] = [];
-
-  const { fetchImpl } = createFetchMock({
-    onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-    onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-    onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-  });
-
-  const res = await handler(
-    generateRequest(validBody()),
-    {
-      supabaseUrl: TEST_SUPABASE_URL,
-      supabaseAnonKey: TEST_ANON_KEY,
-      fetch: fetchImpl,
-      buildContext: contextReturning(MATCHED_CONTEXT),
-      provider: failingProvider,
-    },
-  );
-
-  assertEquals(res.status, 504);
-  assertEquals((await res.json()).error?.code, "AI_TIMEOUT");
-  assertEquals(providerCalls, 1);
-  assertEquals(consumedReservations.length, 1);
-  assertEquals(confirmedReservations.length, 1);
-  assertEquals(reconciledReservations.length, 0);
-  assertEquals(confirmedReservations[0], consumedReservations[0]);
-});
-
-Deno.test("Mixed retry failure with timeout followed by 503 confirms generate quota without refund", async () => {
-  let providerCalls = 0;
-  const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
-    generateRecipe: () => {
-      providerCalls++;
-      throw new AIError(
-        "provider_unavailable",
-        "generate",
-        "Gemini is currently unavailable.",
-        undefined,
-        undefined,
-        false,
-        [
-          { code: "provider_timeout", nonConsuming: false },
-          { code: "provider_unavailable", nonConsuming: true },
-        ],
-      );
-    },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
-  };
-
-  const consumedReservations: string[] = [];
-  const confirmedReservations: string[] = [];
-  const reconciledReservations: string[] = [];
-
-  const { fetchImpl } = createFetchMock({
-    onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-    onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-    onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-  });
-
-  const res = await handler(
-    generateRequest(validBody()),
-    {
-      supabaseUrl: TEST_SUPABASE_URL,
-      supabaseAnonKey: TEST_ANON_KEY,
-      fetch: fetchImpl,
-      buildContext: contextReturning(MATCHED_CONTEXT),
-      provider: failingProvider,
-    },
-  );
-
-  assertEquals(res.status, 503);
-  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
-  assertEquals(providerCalls, 1);
-  assertEquals(consumedReservations.length, 1);
-  assertEquals(confirmedReservations.length, 1);
-  assertEquals(reconciledReservations.length, 0);
-  assertEquals(confirmedReservations[0], consumedReservations[0]);
-});
-
-Deno.test("Invalid model output schema failure confirms generate quota and does not refund", async () => {
-  let providerCalls = 0;
-  const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
-    generateRecipe: () => {
-      providerCalls++;
-      throw new AIError(
-        "invalid_output",
-        "generate",
-        "Generation failed schema validation.",
-        undefined,
-        undefined,
-        false,
-        [{ code: "invalid_output", nonConsuming: false }],
-      );
-    },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
-  };
-
-  const consumedReservations: string[] = [];
-  const confirmedReservations: string[] = [];
-  const reconciledReservations: string[] = [];
-
-  const { fetchImpl } = createFetchMock({
-    onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-    onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-    onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
-    },
-  });
-
-  const res = await handler(
-    generateRequest(validBody()),
-    {
-      supabaseUrl: TEST_SUPABASE_URL,
-      supabaseAnonKey: TEST_ANON_KEY,
-      fetch: fetchImpl,
-      buildContext: contextReturning(MATCHED_CONTEXT),
-      provider: failingProvider,
+      provider: adapter,
     },
   );
 
   assertEquals(res.status, 502);
   assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID");
-  assertEquals(providerCalls, 1);
+  assertEquals(attemptsCount, 1);
   assertEquals(consumedReservations.length, 1);
   assertEquals(confirmedReservations.length, 1);
   assertEquals(reconciledReservations.length, 0);

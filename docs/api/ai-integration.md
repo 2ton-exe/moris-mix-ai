@@ -121,11 +121,11 @@ procedures (`consume_ai_quota`, `confirm_ai_quota`, `reconcile_ai_quota`).
 
 Each logical AI operation reserves one quota slot atomically before provider dispatch.
 If pre-provider operations fail or all retry attempts fail with definitively non-consuming
-provider errors (such as HTTP 429 rate limit or HTTP 5xx outage rejections), the reservation
+provider rejections (such as HTTP 429 rate limit or HTTP 4xx provider rejection), the reservation
 is automatically rolled back and refunded (`reconcile_ai_quota`). If the provider may have
-consumed resources (such as transport disconnections, timeouts, mixed failures where an
-earlier attempt timed out, or invalid model output), the reservation is confirmed
-(`confirm_ai_quota`) rather than refunded, preventing unmetered usage leakage.
+consumed resources (such as HTTP 5xx errors, transport disconnections, timeouts, mixed failures,
+or invalid model output), the reservation is confirmed (`confirm_ai_quota`) rather than refunded,
+preventing unmetered usage leakage.
 
 Extraction remains guarded by the operator-controlled `AI_EXTRACT_ENABLED` opt-in.
 Unset, blank, falsy and unrecognized values return `503 AI_DISABLED` after authentication
@@ -260,8 +260,8 @@ Usage is tracked in `public.ai_usage_daily` and `public.ai_quota_reservations`:
    - Upon successful AI output generation and schema validation, the backend confirms the reservation, transitioning status from `'reserved'` to `'confirmed'`.
    - Confirmation failures (e.g. transient database connection hiccup during confirmation) are non-fatal to the client response: the 200 OK preview is delivered to the user, and no erroneous refund is triggered.
 5. **Lifecycle-Aware Failure Settlement (`reconcile_ai_quota` vs `confirm_ai_quota`)**:
-   - If pre-provider preparation fails or all provider retry attempts were definitively non-consuming (e.g., server HTTP 429 rate limiting or HTTP 5xx rejection), the reservation is refunded via `reconcile_ai_quota`, decrementing `operation_count` (clamped at 0).
-   - If the provider attempted execution and cannot be definitively proven non-consuming (e.g., transport disconnect, request timeout, mixed failures where an earlier attempt timed out, or invalid model output), the operation is confirmed via `confirm_ai_quota` to avoid unmetered quota leakage.
+   - If pre-provider preparation fails or all provider retry attempts were definitively non-consuming (e.g., server HTTP 429 rate limiting or HTTP 4xx provider rejection), the reservation is refunded via `reconcile_ai_quota`, decrementing `operation_count` (clamped at 0).
+   - If the provider attempted execution and cannot be definitively proven non-consuming (e.g., server HTTP 5xx errors, transport disconnect, request timeout, mixed failures, or invalid model output), the operation is confirmed via `confirm_ai_quota` to avoid unmetered quota leakage.
    - If rollback or confirmation RPC encounters an error, the original provider error is preserved and returned to the client rather than masking it.
 6. **Audited Administrative Reconciliation (`reconcile_unconfirmed_reservation`)**:
    - Operators can manually reconcile stale or unresolved reservations via backend admin procedures.

@@ -526,7 +526,7 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
       "Gemini is currently unavailable.",
       undefined,
       undefined,
-      true,
+      false,
     );
   }
 
