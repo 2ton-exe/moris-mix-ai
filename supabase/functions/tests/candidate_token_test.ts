@@ -100,14 +100,28 @@ Deno.test("verifyCandidateToken rejects a tampered payload, tampered signature a
   });
   assertEquals(payloadResult, { ok: false, reason: "invalid_signature" });
 
-  // Flip the last signature character.
-  const last = signature.at(-1) === "A" ? "B" : "A";
-  const tamperedSignature = `${version}.${payload}.${signature.slice(0, -1)}${last}`;
+  // Flip the first signature character: every one of its six bits is
+  // significant, unlike the last character's two padding bits.
+  const first = signature[0] === "A" ? "B" : "A";
+  const tamperedSignature = `${version}.${payload}.${first}${signature.slice(1)}`;
   const signatureResult = await verifyCandidateToken(tamperedSignature, {
     userId: USER_A,
     secret: TEST_SECRET,
   });
   assertEquals(signatureResult, { ok: false, reason: "invalid_signature" });
+
+  // A non-canonical spelling (padding bits set) decodes to the same bytes but
+  // must still be rejected: one token, one canonical encoding.
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const lastChar = signature.at(-1)!;
+  const malleableSignature = `${version}.${payload}.${signature.slice(0, -1)}${
+    alphabet[alphabet.indexOf(lastChar) + 1]
+  }`;
+  const malleableResult = await verifyCandidateToken(malleableSignature, {
+    userId: USER_A,
+    secret: TEST_SECRET,
+  });
+  assertEquals(malleableResult, { ok: false, reason: "invalid_signature" });
 
   const wrongSecretResult = await verifyCandidateToken(token, {
     userId: USER_A,

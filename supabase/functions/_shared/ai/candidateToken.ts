@@ -230,6 +230,12 @@ export async function verifyCandidateToken(
   if (!signature) {
     return { ok: false, reason: "invalid_signature" };
   }
+  // Require the canonical encoding: the last base64url character carries
+  // padding bits, so several strings decode to the same bytes. Without this
+  // check one valid token would have many equivalent spellings.
+  if (base64UrlEncode(signature) !== parts[2]) {
+    return { ok: false, reason: "invalid_signature" };
+  }
 
   const key = await hmacKey(secret, ["verify"]);
   const validSignature = await crypto.subtle.verify(
@@ -243,7 +249,7 @@ export async function verifyCandidateToken(
   }
 
   const payloadBytes = base64UrlToBytes(parts[1]);
-  if (!payloadBytes) {
+  if (!payloadBytes || base64UrlEncode(payloadBytes) !== parts[1]) {
     return { ok: false, reason: "malformed" };
   }
 

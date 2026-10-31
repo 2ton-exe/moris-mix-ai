@@ -5661,8 +5661,8 @@ Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wron
 
   const validToken = await candidateTokenFor([LINEAGE_PARENT_ID_1]);
   const [version, payload, signature] = validToken.split(".");
-  const lastSignatureChar = signature.at(-1) === "A" ? "B" : "A";
-  const tamperedSignatureToken = `${version}.${payload}.${signature.slice(0, -1)}${lastSignatureChar}`;
+  const firstSignatureChar = signature[0] === "A" ? "B" : "A";
+  const tamperedSignatureToken = `${version}.${payload}.${firstSignatureChar}${signature.slice(1)}`;
   const expiredToken = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
     ttlSeconds: 60,
     now: new Date(Date.now() - 2 * 60 * 60 * 1000),
