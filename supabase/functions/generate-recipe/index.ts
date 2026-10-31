@@ -16,7 +16,7 @@ import {
   readBodyWithinByteLimit,
   withAiCorsMethods,
 } from "../_shared/ai/http.ts";
-import { checkDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
+import { consumeDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
 import { buildChefRecipeContext } from "../_shared/ai/recipeContext.ts";
 import {
   GenerateRecipeRequestSchema,
@@ -28,11 +28,9 @@ import {
 } from "../_shared/ai/schemas.ts";
 
 export type GenerateRecipeDeps = AuthDeps & {
-  /** Injected provider (tests/dev). Production builds the real Gemini adapter. */
+  supabaseServiceRoleKey?: string;
   provider?: AIProvider;
-  /** Injected quota boundary (tests); production reads `ai_usage_daily`. */
   quotaCheck?: QuotaCheck;
-  /** Injected retrieval boundary (tests); production reads the caller's recipes. */
   buildContext?: (
     auth: AuthContext,
     input: GenerateRecipeInput,
@@ -40,27 +38,17 @@ export type GenerateRecipeDeps = AuthDeps & {
 };
 
 const ALLOWED_METHODS = AI_ALLOWED_METHODS;
-/** Reject bodies larger than this before parsing. The request caps fit comfortably. */
 export const MAX_REQUEST_BYTES = AI_MAX_REQUEST_BYTES;
 
-/** Operator opt-in while BE-12 atomic quota accounting is pending. Defaults off. */
 export const GENERATE_ENABLED_ENV = "AI_GENERATE_ENABLED";
-
-/**
- * Operator kill switch. When truthy, generation is refused before the quota
- * read or the provider call, so an operator can stop spend/abuse immediately
- * without a deploy (see the quota note in `_shared/ai/quota.ts`).
- */
 export const GENERATE_DISABLED_ENV = "AI_GENERATE_DISABLED";
 
 export type GenerateRecipeErrorCode = AIEndpointErrorCode;
 
-/** JSON response that advertises this route's allowed methods. */
 function generateJsonResponse(body: unknown, init?: ResponseInit): Response {
   return aiJsonResponse(body, init, ALLOWED_METHODS);
 }
 
-/** Shared error envelope bound to this route's allowed methods. */
 function errorResponse(
   code: AIEndpointErrorCode,
   message: string,
@@ -70,20 +58,23 @@ function errorResponse(
   return aiErrorResponse(code, message, status, extraHeaders, ALLOWED_METHODS);
 }
 
-/** Injected provider wins (tests/dev); otherwise honor the drill; otherwise the real adapter. */
+function shouldRefundQuota(error: unknown, providerStarted: boolean): boolean {
+  if (!providerStarted) {
+    return true;
+  }
+  if (error instanceof AIError) {
+    if (error.attempts.length === 0) {
+      return false;
+    }
+    return error.attempts.every((attempt) => attempt.nonConsuming);
+  }
+  return false;
+}
+
 function resolveProvider(deps: GenerateRecipeDeps): AIProvider {
   return deps.provider ?? createFailureDrillProvider("generate") ?? new GeminiAdapter();
 }
 
-/**
- * Resolves the model's parent IDs into display summaries (FE-10).
- *
- * The provider already rejected IDs outside the candidate set, but the endpoint
- * re-checks because AI-10 treats every provider as untrusted. A missing ID is a
- * hard failure, never a silent drop, so a hallucinated or foreign parent can
- * never reach the client. Duplicate IDs collapse to one parent while keeping
- * model order.
- */
 function resolveParents(
   parentRecipeIds: string[],
   context: ChefRecipeContextResult,
@@ -101,6 +92,8 @@ function resolveParents(
         "generate",
         "Generation proposed a parent recipe outside the supplied candidates.",
         "parentRecipeIds",
+        undefined,
+        false,
       );
     }
     seen.add(id);
@@ -114,12 +107,6 @@ function resolveParents(
   return parents;
 }
 
-/**
- * Authenticates generation requests, checks the operator opt-in, input limits
- * and quota, retrieves the caller's own ranked recipes, then returns a
- * validated but unsaved preview. No recipe, lineage or usage row is written
- * here; saving is an explicit later action.
- */
 export async function handler(
   req: Request,
   deps: GenerateRecipeDeps = {},
@@ -153,9 +140,6 @@ export async function handler(
 
     const { user, supabase } = auth.context;
 
-    // Keep generation off until an operator opts in while atomic accounting is
-    // pending. The kill switch takes precedence, even when generation is
-    // explicitly enabled.
     if (!isEnvEnabled(GENERATE_ENABLED_ENV) || isEnvEnabled(GENERATE_DISABLED_ENV)) {
       return errorResponse(
         "AI_DISABLED",
@@ -164,8 +148,6 @@ export async function handler(
       );
     }
 
-    // Cheap pre-check first: reject an obviously oversized body (when the client
-    // declares a length) before reading it at all.
     const declaredLength = req.headers.get("content-length");
     if (declaredLength !== null) {
       const declaredBytes = Number(declaredLength);
@@ -178,8 +160,6 @@ export async function handler(
       }
     }
 
-    // Authoritative check: a declared length can be absent or lie, so the byte
-    // budget is enforced while streaming the body.
     const read = await readBodyWithinByteLimit(req, MAX_REQUEST_BYTES);
     if (!read.ok) {
       if (read.reason === "too_large") {
@@ -234,8 +214,11 @@ export async function handler(
         : { preferences: validation.data.preferences }),
     };
 
-    // AI-17: check the per-user daily quota before retrieval and the provider call.
-    const quota = await (deps.quotaCheck ?? checkDailyQuota)(user.id, supabase);
+    const quota = await (deps.quotaCheck ?? consumeDailyQuota)(user.id, supabase, {
+      supabaseUrl: deps.supabaseUrl,
+      supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
+      fetch: deps.fetch,
+    });
     if (quota.status === "unavailable") {
       return errorResponse(
         "QUOTA_UNAVAILABLE",
@@ -252,41 +235,61 @@ export async function handler(
       );
     }
 
-    // BE-10: retrieve only the caller's own recipes and rank them against this
-    // pantry. Cold start is a normal status here, not an error.
-    const context = await (deps.buildContext ?? buildChefRecipeContext)(
-      auth.context,
-      input,
-    );
+    let providerStarted = false;
+    try {
+      const context = await (deps.buildContext ?? buildChefRecipeContext)(
+        auth.context,
+        input,
+      );
 
-    const provider = resolveProvider(deps);
-    const generated = await provider.generateRecipe(input, context);
+      const provider = resolveProvider(deps);
+      providerStarted = true;
+      const generated = await provider.generateRecipe(input, context);
 
-    // AI-10: never trust the provider, even one that claims to validate. The
-    // endpoint re-validates so malformed data can never reach the frontend.
-    const revalidated = GeneratedRecipeSchema.safeParse(generated);
-    if (!revalidated.success) {
-      throw new AIError("invalid_output", "generate", "Generation failed schema validation.");
+      const revalidated = GeneratedRecipeSchema.safeParse(generated);
+      if (!revalidated.success) {
+        throw new AIError("invalid_output", "generate", "Generation failed schema validation.", undefined, undefined, false);
+      }
+
+      const response: GenerateRecipeResponse = {
+        recipe: revalidated.data.recipe,
+        substitutions: revalidated.data.substitutions,
+        parents: resolveParents(revalidated.data.parentRecipeIds, context),
+        context: {
+          status: context.status,
+          matchedCandidateCount: context.matchedCandidateCount,
+          totalCandidateCount: context.totalCandidateCount,
+        },
+      };
+
+      const responseValidation = GenerateRecipeResponseSchema.safeParse(response);
+      if (!responseValidation.success) {
+        throw new AIError("invalid_output", "generate", "Generation failed response validation.", undefined, undefined, false);
+      }
+
+      try {
+        await quota.confirm?.();
+      } catch (confirmError) {
+        console.error("Quota confirmation failed", confirmError);
+      }
+
+      return generateJsonResponse(responseValidation.data, { status: 200 });
+    } catch (opError) {
+      if (shouldRefundQuota(opError, providerStarted)) {
+        try {
+          await quota.rollback?.();
+        } catch (rollbackError) {
+          console.error("Quota rollback failed", rollbackError);
+        }
+      } else {
+        try {
+          await quota.confirm?.();
+        } catch (confirmError) {
+          console.error("Quota confirmation failed", confirmError);
+        }
+      }
+      throw opError;
     }
-
-    const response: GenerateRecipeResponse = {
-      recipe: revalidated.data.recipe,
-      substitutions: revalidated.data.substitutions,
-      parents: resolveParents(revalidated.data.parentRecipeIds, context),
-      context: {
-        status: context.status,
-        matchedCandidateCount: context.matchedCandidateCount,
-        totalCandidateCount: context.totalCandidateCount,
-      },
-    };
-
-    const responseValidation = GenerateRecipeResponseSchema.safeParse(response);
-    if (!responseValidation.success) {
-      throw new AIError("invalid_output", "generate", "Generation failed response validation.");
-    }
-
-    // AI-06: return the validated preview only. Nothing is persisted here.
-    return generateJsonResponse(responseValidation.data, { status: 200 });
   } catch (error) {
     if (error instanceof AIError) {
       return mapAiError(error, ALLOWED_METHODS);
