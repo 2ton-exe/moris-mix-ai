@@ -289,6 +289,8 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
   free-tier quota (AI-18).
 - Logs are metadata-only: operation, model, prompt id/version, attempt, latency, outcome.
   Prompt and recipe text are never logged.
+- Versioned evaluation fixtures, coverage, and offline/live run commands:
+  `docs/ai-evaluation.md`.
 
 ## Frontend notes (FE-08)
 
