@@ -35,6 +35,21 @@ import { ExtractedRecipeSchema, GeneratedRecipeSchema } from "./schemas.ts";
  * 3.5 Flash-Lite today, but an alias can move and silently change what the
  * evaluation measured.
  */
+/**
+ * Finish reasons that mean the provider blocked the content rather than
+ * returned malformed output. The pinned SDK's own list is a subset; the API
+ * can return newer reasons that its enum does not know about yet.
+ */
+const BLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set([
+  "SAFETY",
+  "RECITATION",
+  "LANGUAGE",
+  "BLOCKLIST",
+  "PROHIBITED_CONTENT",
+  "SPII",
+  "IMAGE_SAFETY",
+]);
+
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_TIMEOUT_MS = 30_000;
 /** One attempt plus one bounded retry (AI-18). */
@@ -370,7 +385,20 @@ export class GeminiAdapter implements AIProvider {
     );
 
     const result = await model.generateContent(prompt);
-    return result.response.text();
+    const response = result.response;
+    const finishReason = response.candidates?.[0]?.finishReason;
+
+    // SDK 0.21.0 throws for SAFETY/RECITATION/LANGUAGE, but newer block
+    // reasons such as PROHIBITED_CONTENT return empty text instead. Without
+    // this check they would be misreported as invalid model output.
+    if (finishReason && BLOCKED_FINISH_REASONS.has(finishReason)) {
+      throw new GoogleGenerativeAIResponseError(
+        `Candidate was blocked due to ${finishReason}`,
+        response,
+      );
+    }
+
+    return response.text();
   }
 }
 

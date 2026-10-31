@@ -36,12 +36,17 @@ The first four rows are measured **end-to-end by the AI-09 tests**: the real
 endpoint maps it to the public error. The remaining rows are covered by the
 existing deterministic contract tests in the same suite.
 
+Safety blocks are detected in both shapes: the SDK's thrown
+`GoogleGenerativeAIResponseError`, and blocked finish reasons such as
+`PROHIBITED_CONTENT` that the pinned SDK does not throw for and would
+otherwise return empty text. Both map to `AI_PROVIDER_REJECTED`.
+
 | Failure | HTTP | Error code | Retry behavior | Persists recipe/lineage? |
 | ------- | ---- | ---------- | -------------- | ------------------------ |
 | Timeout / abort | `504` | `AI_TIMEOUT` | one bounded retry (2 calls asserted) | No |
 | Provider outage (`5xx`) | `503` | `AI_UNAVAILABLE` | one bounded retry (2 calls asserted) | No |
 | Malformed / non-JSON output | `502` | `AI_OUTPUT_INVALID` | not retried (1 call asserted) | No |
-| Provider safety block (SDK blocked response) | `502` | `AI_PROVIDER_REJECTED` | not retried (1 call asserted) | No |
+| Provider safety block (thrown or blocked finish reason) | `502` | `AI_PROVIDER_REJECTED` | not retried (1 call asserted) | No |
 | Schema-invalid output | `502` | `AI_OUTPUT_INVALID` | not retried | No |
 | Orphan substitution | `502` | `AI_OUTPUT_INVALID` | not retried | No |
 | Parent ID outside candidates | `502` | `AI_OUTPUT_INVALID` | not retried | No |
@@ -81,7 +86,7 @@ asserts the exact `AIError` code and field path. Chef candidates are recomputed
 with BE-10's `computeIngredientOverlap` before they are accepted.
 
 The full deterministic Edge/API suite (exact `ci.yml` command) is
-**265 passed / 0 failed / 5 ignored** at the time of this report. The five
+**266 passed / 0 failed / 5 ignored** at the time of this report. The five
 ignored tests are the opt-in live PostgreSQL hosted-integration checks; none is
 an AI failure test.
 
