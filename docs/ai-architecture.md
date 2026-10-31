@@ -100,7 +100,8 @@ user-scoped client (RLS applies), normalizes the pantry (trimmed, lowercased,
 deduplicated), and ranks candidates:
 
 1. **Ingredient overlap** — `computeIngredientOverlap` returns the fraction of
-   pantry items matched by each recipe's ingredient names. Highest first.
+   the recipe's own unique ingredient names that the pantry matches, normalized.
+   Highest first.
 2. **Star rating** — higher first, unrated recipes last.
 3. **Newest first**, then a deterministic id tie-break.
 
@@ -141,7 +142,12 @@ Output validation (`GeneratedRecipeSchema`):
   dropped silently. Duplicate IDs collapse to one parent while keeping model
   order.
 
-### 4.3 Save-time candidate membership — AI-07
+### 4.3 Save-time candidate membership — AI-07 (planned)
+
+> **Landing note.** AI-07 is in review (PR #143) and is **not on `main` yet**.
+> Until it merges, `POST /generate-recipe` does not return `candidate_token`
+> and `POST /recipes/:id/lineage` does not require one. The design below is the
+> contract this document will carry once it lands.
 
 Generation runs before the child recipe exists, so the save endpoint cannot ask
 the database which parents the model was allowed to propose. Instead
@@ -164,9 +170,6 @@ the database which parents the model was allowed to propose. Instead
 
 `GET /recipes/:id/lineage` is unchanged. The token is stateless: within its TTL
 the same user can replay it with the same allowed parent set.
-
-> **Landing note.** AI-07 is in review (PR #143) at the time of writing. Until
-> it merges, `POST /recipes/:id/lineage` does not yet require a token.
 
 ## 5. Trust boundary and validation
 
@@ -327,12 +330,14 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   Supabase client; RLS restricts rows to `auth.uid() = user_id`.
 - **Persistence scope.** Saves run through the user-scoped client; user IDs are
   server-derived; lineage requires ownership of the child and every parent.
-  AI-07 adds the candidate-token check on top.
+  AI-07 (landing with PR #143) adds the candidate-token check on top.
 - **Input caps.** 128 KiB request bodies; extraction notes ≤ 10,000 characters;
   generation pantry ≤ 100 items of ≤ 100 characters and preferences ≤ 1,000.
-- **Output caps.** Responses are Zod-validated and bounded; errors never echo
-  prompts, recipes or provider payloads.
-- **Abuse controls.** Daily quota plus operator opt-ins and kill switches.
+- **Output validation.** Responses are Zod-validated before they leave the
+  backend; errors never echo prompts, recipes or provider payloads. The schemas
+  validate shape, not size: no output-token or array-size cap is enforced today.
+- **Abuse controls.** A recorded-usage quota gate plus operator opt-ins and kill
+  switches; atomic metering arrives with BE-12.
 
 ## 10. Limitations and non-claims
 
@@ -349,16 +354,19 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 - **No nutrition, safety or quality guarantees.** The AI never claims food is
   safe, fully cooked or safe to store, and the system makes no dietary,
   nutritional or health claims. Users must apply normal food-safety practice.
-- **Quota and cost.** The free tier allows roughly 20 requests per project per
-  model per day; live testing consumes real quota. Production uses operator
-  opt-ins for the same reason.
+- **Quota and cost.** At the time of writing, free-tier runs were bounded by
+  roughly 20 requests per project and model per day. That is an observed budget,
+  not a guaranteed provider limit: Google's RPD limits vary by model and tier
+  and must be checked in AI Studio. Live testing consumes real quota, and
+  production uses operator opt-ins for the same reason.
 - **Latency.** Flash-Lite was chosen for stability; a live extraction measured
   about 4 seconds, and slower runs (12–22 s) have been observed. No latency
   percentiles are benchmarked.
 - **Token replay.** A candidate token can be replayed by the same user with the
   same allowed parent set inside its 15-minute TTL by design.
-- **Read-only quota today.** Atomic quota accounting arrives with BE-12; until
-  it merges, the daily counter is observed, not enforced by the AI layer.
+- **Read-only quota today.** The gate enforces usage already recorded in
+  `ai_usage_daily` (it rejects at the limit) but cannot meter new calls by
+  itself; atomic reservation accounting arrives with BE-12.
 
 ## 11. Operations quick reference
 
@@ -372,7 +380,7 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 | `AI_ENVIRONMENT` | `development`/`test` allows demo drills; production ignores them |
 | `AI_ALLOW_FAILURE_DRILLS` | Master switch for drills |
 | `AI_SIMULATE_OUTAGE` / `AI_SIMULATE_BAD_OUTPUT` | Deterministic demo failures |
-| `AI_CANDIDATE_TOKEN_SECRET` | Signs lineage candidate tokens (AI-07; ≥ 32 chars) |
+| `AI_CANDIDATE_TOKEN_SECRET` | Signs lineage candidate tokens (AI-07, landing with PR #143; ≥ 32 chars) |
 
 Where to look:
 
