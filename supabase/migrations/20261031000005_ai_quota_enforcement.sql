@@ -23,8 +23,20 @@ create trigger tr_ai_quota_reservations_updated_at
 
 alter table public.ai_quota_reservations enable row level security;
 revoke all on table public.ai_quota_reservations from public;
-revoke all on table public.ai_quota_reservations from authenticated;
-grant all on table public.ai_quota_reservations to service_role;
+
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+        execute 'revoke all on table public.ai_quota_reservations from anon';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+        execute 'revoke all on table public.ai_quota_reservations from authenticated';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+        execute 'grant all on table public.ai_quota_reservations to service_role';
+    end if;
+end;
+$$;
 
 create or replace function public.consume_ai_quota(
     p_user_id uuid,
@@ -266,17 +278,29 @@ end;
 $$;
 
 revoke all on function public.consume_ai_quota(uuid, uuid, integer, date) from public;
-revoke all on function public.consume_ai_quota(uuid, uuid, integer, date) from authenticated;
-grant execute on function public.consume_ai_quota(uuid, uuid, integer, date) to service_role;
-
 revoke all on function public.confirm_ai_quota(uuid) from public;
-revoke all on function public.confirm_ai_quota(uuid) from authenticated;
-grant execute on function public.confirm_ai_quota(uuid) to service_role;
-
 revoke all on function public.reconcile_ai_quota(uuid) from public;
-revoke all on function public.reconcile_ai_quota(uuid) from authenticated;
-grant execute on function public.reconcile_ai_quota(uuid) to service_role;
-
 revoke all on function public.reconcile_unconfirmed_reservation(uuid, text) from public;
-revoke all on function public.reconcile_unconfirmed_reservation(uuid, text) from authenticated;
-grant execute on function public.reconcile_unconfirmed_reservation(uuid, text) to service_role;
+
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+        execute 'revoke all on function public.consume_ai_quota(uuid, uuid, integer, date) from anon';
+        execute 'revoke all on function public.confirm_ai_quota(uuid) from anon';
+        execute 'revoke all on function public.reconcile_ai_quota(uuid) from anon';
+        execute 'revoke all on function public.reconcile_unconfirmed_reservation(uuid, text) from anon';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+        execute 'revoke all on function public.consume_ai_quota(uuid, uuid, integer, date) from authenticated';
+        execute 'revoke all on function public.confirm_ai_quota(uuid) from authenticated';
+        execute 'revoke all on function public.reconcile_ai_quota(uuid) from authenticated';
+        execute 'revoke all on function public.reconcile_unconfirmed_reservation(uuid, text) from authenticated';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+        execute 'grant execute on function public.consume_ai_quota(uuid, uuid, integer, date) to service_role';
+        execute 'grant execute on function public.confirm_ai_quota(uuid) to service_role';
+        execute 'grant execute on function public.reconcile_ai_quota(uuid) to service_role';
+        execute 'grant execute on function public.reconcile_unconfirmed_reservation(uuid, text) to service_role';
+    end if;
+end;
+$$;

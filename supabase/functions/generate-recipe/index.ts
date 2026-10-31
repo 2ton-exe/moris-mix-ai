@@ -58,6 +58,19 @@ function errorResponse(
   return aiErrorResponse(code, message, status, extraHeaders, ALLOWED_METHODS);
 }
 
+function shouldRefundQuota(error: unknown, providerStarted: boolean): boolean {
+  if (!providerStarted) {
+    return true;
+  }
+  if (error instanceof AIError) {
+    if (error.attempts.length === 0) {
+      return false;
+    }
+    return error.attempts.every((attempt) => attempt.nonConsuming);
+  }
+  return false;
+}
+
 function resolveProvider(deps: GenerateRecipeDeps): AIProvider {
   return deps.provider ?? createFailureDrillProvider("generate") ?? new GeminiAdapter();
 }
@@ -79,6 +92,8 @@ function resolveParents(
         "generate",
         "Generation proposed a parent recipe outside the supplied candidates.",
         "parentRecipeIds",
+        undefined,
+        false,
       );
     }
     seen.add(id);
@@ -220,6 +235,7 @@ export async function handler(
       );
     }
 
+    let providerStarted = false;
     try {
       const context = await (deps.buildContext ?? buildChefRecipeContext)(
         auth.context,
@@ -227,11 +243,12 @@ export async function handler(
       );
 
       const provider = resolveProvider(deps);
+      providerStarted = true;
       const generated = await provider.generateRecipe(input, context);
 
       const revalidated = GeneratedRecipeSchema.safeParse(generated);
       if (!revalidated.success) {
-        throw new AIError("invalid_output", "generate", "Generation failed schema validation.");
+        throw new AIError("invalid_output", "generate", "Generation failed schema validation.", undefined, undefined, false);
       }
 
       const response: GenerateRecipeResponse = {
@@ -247,7 +264,7 @@ export async function handler(
 
       const responseValidation = GenerateRecipeResponseSchema.safeParse(response);
       if (!responseValidation.success) {
-        throw new AIError("invalid_output", "generate", "Generation failed response validation.");
+        throw new AIError("invalid_output", "generate", "Generation failed response validation.", undefined, undefined, false);
       }
 
       try {
@@ -258,10 +275,18 @@ export async function handler(
 
       return generateJsonResponse(responseValidation.data, { status: 200 });
     } catch (opError) {
-      try {
-        await quota.rollback?.();
-      } catch (rollbackError) {
-        console.error("Quota rollback failed", rollbackError);
+      if (shouldRefundQuota(opError, providerStarted)) {
+        try {
+          await quota.rollback?.();
+        } catch (rollbackError) {
+          console.error("Quota rollback failed", rollbackError);
+        }
+      } else {
+        try {
+          await quota.confirm?.();
+        } catch (confirmError) {
+          console.error("Quota confirmation failed", confirmError);
+        }
       }
       throw opError;
     }

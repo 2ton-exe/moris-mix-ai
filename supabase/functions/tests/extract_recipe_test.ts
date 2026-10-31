@@ -1680,22 +1680,350 @@ Deno.test("Administrative reconciliation requires audit reason and handles succe
 });
 
 Deno.test("Missing service role credentials fail closed with QUOTA_UNAVAILABLE before provider execution", async () => {
+  const prevKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const prevUrl = Deno.env.get("SUPABASE_URL");
   const { fetchImpl } = createFetchMock();
   let providerCalled = false;
+  try {
+    Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    Deno.env.delete("SUPABASE_URL");
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),{
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        supabaseServiceRoleKey: undefined,
+        fetch: fetchImpl,
+        provider: providerThrowing(new Error("must not run"), () => {
+          providerCalled = true;
+        }),
+      },
+    );
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).error?.code, "QUOTA_UNAVAILABLE");
+    assertEquals(providerCalled, false);
+  } finally {
+    if (prevKey === undefined) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", prevKey);
+    if (prevUrl === undefined) Deno.env.delete("SUPABASE_URL");
+    else Deno.env.set("SUPABASE_URL", prevUrl);
+  }
+});
+
+Deno.test("Definite non-consuming 503 provider rejection across retries refunds quota reservation", async () => {
+  let providerCalls = 0;
+  const failingProvider: AIProvider = {
+    extractRecipe: () => {
+      providerCalls++;
+      throw new AIError(
+        "provider_unavailable",
+        "extract",
+        "Gemini is currently unavailable.",
+        undefined,
+        undefined,
+        true,
+        [
+          { code: "provider_unavailable", nonConsuming: true },
+          { code: "provider_unavailable", nonConsuming: true },
+        ],
+      );
+    },
+    generateRecipe: () => Promise.reject(new Error("generateRecipe is not used here")),
+    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+  };
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
   const res = await handler(
-    extractRequest(JSON.stringify({ notes: NOTES })),{
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
-      supabaseServiceRoleKey: undefined,
       fetch: fetchImpl,
-      provider: providerThrowing(new Error("must not run"), () => {
-        providerCalled = true;
-      }),
+      provider: failingProvider,
     },
   );
+
   assertEquals(res.status, 503);
-  assertEquals((await res.json()).error?.code, "QUOTA_UNAVAILABLE");
-  assertEquals(providerCalled, false);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(providerCalls, 1);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 0);
+  assertEquals(reconciledReservations.length, 1);
+  assertEquals(reconciledReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Ambiguous transport disconnect failure confirms quota and does not refund", async () => {
+  let providerCalls = 0;
+  const failingProvider: AIProvider = {
+    extractRecipe: () => {
+      providerCalls++;
+      throw new AIError(
+        "provider_unavailable",
+        "extract",
+        "Gemini is currently unavailable.",
+        undefined,
+        undefined,
+        false,
+        [{ code: "provider_unavailable", nonConsuming: false }],
+      );
+    },
+    generateRecipe: () => Promise.reject(new Error("generateRecipe is not used here")),
+    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+  };
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: failingProvider,
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(providerCalls, 1);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Ambiguous provider timeout failure confirms quota and does not refund", async () => {
+  let providerCalls = 0;
+  const failingProvider: AIProvider = {
+    extractRecipe: () => {
+      providerCalls++;
+      throw new AIError(
+        "provider_timeout",
+        "extract",
+        "Gemini did not respond in time.",
+        undefined,
+        undefined,
+        false,
+        [{ code: "provider_timeout", nonConsuming: false }],
+      );
+    },
+    generateRecipe: () => Promise.reject(new Error("generateRecipe is not used here")),
+    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+  };
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: failingProvider,
+    },
+  );
+
+  assertEquals(res.status, 504);
+  assertEquals((await res.json()).error?.code, "AI_TIMEOUT");
+  assertEquals(providerCalls, 1);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Mixed retry failure with timeout followed by 503 confirms quota without refund", async () => {
+  let providerCalls = 0;
+  const failingProvider: AIProvider = {
+    extractRecipe: () => {
+      providerCalls++;
+      throw new AIError(
+        "provider_unavailable",
+        "extract",
+        "Gemini is currently unavailable.",
+        undefined,
+        undefined,
+        false,
+        [
+          { code: "provider_timeout", nonConsuming: false },
+          { code: "provider_unavailable", nonConsuming: true },
+        ],
+      );
+    },
+    generateRecipe: () => Promise.reject(new Error("generateRecipe is not used here")),
+    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+  };
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: failingProvider,
+    },
+  );
+
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error?.code, "AI_UNAVAILABLE");
+  assertEquals(providerCalls, 1);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Invalid model output schema failure confirms quota and does not refund", async () => {
+  let providerCalls = 0;
+  const failingProvider: AIProvider = {
+    extractRecipe: () => {
+      providerCalls++;
+      throw new AIError(
+        "invalid_output",
+        "extract",
+        "Extraction failed schema validation.",
+        undefined,
+        undefined,
+        false,
+        [{ code: "invalid_output", nonConsuming: false }],
+      );
+    },
+    generateRecipe: () => Promise.reject(new Error("generateRecipe is not used here")),
+    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+  };
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: failingProvider,
+    },
+  );
+
+  assertEquals(res.status, 502);
+  assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID");
+  assertEquals(providerCalls, 1);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+Deno.test("Pre-provider initialization failure refunds reserved quota", async () => {
+  const prevApiKey = Deno.env.get("GEMINI_API_KEY");
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  try {
+    Deno.env.delete("GEMINI_API_KEY");
+    const res = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+      },
+    );
+
+    assertEquals(res.status, 500);
+    assertEquals((await res.json()).error?.code, "INTERNAL_ERROR");
+    assertEquals(consumedReservations.length, 1);
+    assertEquals(confirmedReservations.length, 0);
+    assertEquals(reconciledReservations.length, 1);
+    assertEquals(reconciledReservations[0], consumedReservations[0]);
+  } finally {
+    if (prevApiKey === undefined) Deno.env.delete("GEMINI_API_KEY");
+    else Deno.env.set("GEMINI_API_KEY", prevApiKey);
+  }
 });
 
 Deno.test("Quota consumption falls back to environment variables when dependencies omit service role credentials", async () => {

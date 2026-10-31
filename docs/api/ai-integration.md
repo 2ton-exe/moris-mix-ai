@@ -115,20 +115,21 @@ no recorded usage today and is allowed with `used: 0`. If a row exists but
 gate fails closed as `503 QUOTA_UNAVAILABLE` rather than assuming zero — a corrupted
 counter must never unlock unmetered provider calls.
 
-Counting/consumption is owned by **BE-12** (issue #100). Both endpoints expose the
-boundary as an injected `QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`); BE-12
-replaces the default with atomic accounting without changing either handler.
+Quota consumption is enforced by **BE-12** (issue #100). Both endpoints inject a
+`QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`) backed by atomic PostgreSQL
+procedures (`consume_ai_quota`, `confirm_ai_quota`, `reconcile_ai_quota`).
 
-**Disabled by default until BE-12 lands.** AI-05 must never write (extraction is a
-read-only preview), so the default gate can only observe usage already recorded by a
-writer. It does not advance the counter or meter extraction requests on its own.
+Each logical AI operation reserves one quota slot atomically before provider dispatch.
+If pre-provider operations fail or all retry attempts fail with definitively non-consuming
+provider errors (such as HTTP 429 rate limit or HTTP 5xx outage rejections), the reservation
+is automatically rolled back and refunded (`reconcile_ai_quota`). If the provider may have
+consumed resources (such as transport disconnections, timeouts, mixed failures where an
+earlier attempt timed out, or invalid model output), the reservation is confirmed
+(`confirm_ai_quota`) rather than refunded, preventing unmetered usage leakage.
 
-Extraction is therefore **off by default**: the handler requires the operator-controlled
-`AI_EXTRACT_ENABLED` opt-in. Unset, blank, falsy and unrecognized values return
-`503 AI_DISABLED` after authentication and before reading the body, checking quota or
-calling the provider. Enable it per environment — for local development and controlled
-demo/testing environments only — until BE-12 supplies atomic quota checking and
-consumption. Production keeps the default until that lands.
+Extraction remains guarded by the operator-controlled `AI_EXTRACT_ENABLED` opt-in.
+Unset, blank, falsy and unrecognized values return `503 AI_DISABLED` after authentication
+and before reading the body, checking quota or calling the provider.
 
 `AI_EXTRACT_DISABLED` (truthy) overrides the opt-in and returns `503 AI_DISABLED`.
 Apply environment changes and restart/redeploy the function for them to take effect.
@@ -258,10 +259,10 @@ Usage is tracked in `public.ai_usage_daily` and `public.ai_quota_reservations`:
 4. **Confirmation Safety (`confirm_ai_quota`)**:
    - Upon successful AI output generation and schema validation, the backend confirms the reservation, transitioning status from `'reserved'` to `'confirmed'`.
    - Confirmation failures (e.g. transient database connection hiccup during confirmation) are non-fatal to the client response: the 200 OK preview is delivered to the user, and no erroneous refund is triggered.
-5. **Provider Failure Rollback (`reconcile_ai_quota`)**:
-   - When the provider exhausts retries or fails unrecoverably, the handler initiates an immediate rollback.
-   - `reconcile_ai_quota` transitions the reservation status from `'reserved'` to `'refunded'` and decrements `operation_count` (clamped at 0).
-   - If the rollback call fails, the original provider error (`AIError`) is preserved and returned to the client rather than masking it.
+5. **Lifecycle-Aware Failure Settlement (`reconcile_ai_quota` vs `confirm_ai_quota`)**:
+   - If pre-provider preparation fails or all provider retry attempts were definitively non-consuming (e.g., server HTTP 429 rate limiting or HTTP 5xx rejection), the reservation is refunded via `reconcile_ai_quota`, decrementing `operation_count` (clamped at 0).
+   - If the provider attempted execution and cannot be definitively proven non-consuming (e.g., transport disconnect, request timeout, mixed failures where an earlier attempt timed out, or invalid model output), the operation is confirmed via `confirm_ai_quota` to avoid unmetered quota leakage.
+   - If rollback or confirmation RPC encounters an error, the original provider error is preserved and returned to the client rather than masking it.
 6. **Audited Administrative Reconciliation (`reconcile_unconfirmed_reservation`)**:
    - Operators can manually reconcile stale or unresolved reservations via backend admin procedures.
    - A non-empty audit reason (`p_reason`) is mandatory (`22023`) and stored in `refund_reason` and `refunded_at`.
@@ -271,8 +272,8 @@ Usage is tracked in `public.ai_usage_daily` and `public.ai_quota_reservations`:
 ### Security and Authorization
 
 - Table `public.ai_quota_reservations` has Row Level Security (RLS) enabled.
-- All permissions on `ai_quota_reservations` and RPC functions (`consume_ai_quota`, `confirm_ai_quota`, `reconcile_ai_quota`, `reconcile_unconfirmed_reservation`) are revoked from `public` and `authenticated` roles, and granted exclusively to `service_role`.
-- Authenticated browser tokens cannot invoke quota mutation RPCs or alter quota records directly.
+- All permissions on `ai_quota_reservations` and RPC functions (`consume_ai_quota`, `confirm_ai_quota`, `reconcile_ai_quota`, `reconcile_unconfirmed_reservation`) are revoked from `public`, `anon`, and `authenticated` roles, and granted exclusively to `service_role`.
+- Neither anonymous nor authenticated client tokens can invoke quota mutation RPCs or alter quota records directly.
 
 ### UTC Reset Boundaries
 

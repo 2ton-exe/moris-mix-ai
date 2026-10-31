@@ -2461,6 +2461,38 @@ Deno.test({
       });
       assertEquals(userTableInsert.error !== null, true);
 
+      const anonClient = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey);
+
+      const anonConsumeAttempt = await anonClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(anonConsumeAttempt.error !== null, true);
+
+      const anonConfirmAttempt = await anonClient.rpc("confirm_ai_quota", {
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(anonConfirmAttempt.error !== null, true);
+
+      const anonRollbackAttempt = await anonClient.rpc("reconcile_ai_quota", {
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(anonRollbackAttempt.error !== null, true);
+
+      const anonAdminRefundAttempt = await anonClient.rpc("reconcile_unconfirmed_reservation", {
+        p_reservation_id: reservationId1,
+        p_reason: "anon trying to refund",
+      });
+      assertEquals(anonAdminRefundAttempt.error !== null, true);
+
+      const anonTableInsert = await anonClient.from("ai_quota_reservations").insert({
+        id: reservationId1,
+        daily_usage_id: crypto.randomUUID(),
+        user_id: userId,
+        status: "reserved",
+      });
+      assertEquals(anonTableInsert.error !== null, true);
+
       const firstConsume = await adminClient.rpc("consume_ai_quota", {
         p_user_id: userId,
         p_reservation_id: reservationId1,
@@ -2561,25 +2593,27 @@ Deno.test({
       assertEquals(conflictCount, 4);
 
       const newRunId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-      const { data: newUserRes } = await adminClient.auth.admin.createUser({
+      const { data: newUserRes, error: newCreateErr } = await adminClient.auth.admin.createUser({
         email: `concurrent-first-${newRunId}@morisscraps.test`,
         password: `PassQ!${crypto.randomUUID()}9`,
         email_confirm: true,
       });
-      if (newUserRes?.user?.id) {
-        createdUserIds.push(newUserRes.user.id);
-        const firstBatch = await Promise.all([
-          adminClient.rpc("consume_ai_quota", { p_user_id: newUserRes.user.id, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
-          adminClient.rpc("consume_ai_quota", { p_user_id: newUserRes.user.id, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
-          adminClient.rpc("consume_ai_quota", { p_user_id: newUserRes.user.id, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
-        ]);
-        const allSuccess = firstBatch.every((c) => c.data?.status === "allowed");
-        assertEquals(allSuccess, true);
-
-        const { data: dailyRows } = await adminClient.from("ai_usage_daily").select("id, operation_count").eq("user_id", newUserRes.user.id);
-        assertEquals(dailyRows?.length, 1);
-        assertEquals(dailyRows?.[0].operation_count, 3);
+      if (newCreateErr || !newUserRes?.user?.id) {
+        throw new Error(`Failed to create concurrent test user: ${newCreateErr?.message}`);
       }
+      const newUserId = newUserRes.user.id;
+      createdUserIds.push(newUserId);
+      const firstBatch = await Promise.all([
+        adminClient.rpc("consume_ai_quota", { p_user_id: newUserId, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
+        adminClient.rpc("consume_ai_quota", { p_user_id: newUserId, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
+        adminClient.rpc("consume_ai_quota", { p_user_id: newUserId, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
+      ]);
+      const allSuccess = firstBatch.every((c) => c.data?.status === "allowed");
+      assertEquals(allSuccess, true);
+
+      const { data: dailyRows } = await adminClient.from("ai_usage_daily").select("id, operation_count").eq("user_id", newUserId);
+      assertEquals(dailyRows?.length, 1);
+      assertEquals(dailyRows?.[0].operation_count, 3);
     } finally {
       for (const uid of createdUserIds) {
         await adminClient.auth.admin.deleteUser(uid);
