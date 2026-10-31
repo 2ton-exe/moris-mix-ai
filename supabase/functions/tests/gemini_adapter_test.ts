@@ -557,42 +557,61 @@ Deno.test("extractRecipe maps a blocked response from response.text() to provide
   assertEquals(calls, 1, "a safety block must not consume the bounded retry");
 });
 
-Deno.test("extractRecipe classifies PROHIBITED_CONTENT as provider_rejected even when text() is empty", async () => {
-  let calls = 0;
-  let textCalls = 0;
-  const fakeClient = {
-    getGenerativeModel: () => ({
-      generateContent: () => {
-        calls += 1;
-        return Promise.resolve({
-          response: {
-            // SDK 0.21.0 does not throw for this newer block reason.
-            candidates: [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }],
-            text: () => {
-              textCalls += 1;
-              return "";
+Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even when text() is empty", async () => {
+  const operations: Array<{
+    label: string;
+    run: (adapter: GeminiAdapter) => Promise<unknown>;
+  }> = [
+    { label: "extract", run: (adapter) => adapter.extractRecipe({ rawText: NOTES }) },
+    {
+      label: "generate",
+      run: (adapter) => adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    },
+  ];
+
+  for (const operation of operations) {
+    let calls = 0;
+    let textCalls = 0;
+    const fakeClient = {
+      getGenerativeModel: () => ({
+        generateContent: () => {
+          calls += 1;
+          return Promise.resolve({
+            response: {
+              // SDK 0.21.0 does not throw for this newer block reason.
+              candidates: [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }],
+              text: () => {
+                textCalls += 1;
+                return "";
+              },
             },
-          },
-        });
-      },
-    }),
-  } as unknown as GoogleGenerativeAI;
+          });
+        },
+      }),
+    } as unknown as GoogleGenerativeAI;
 
-  const adapter = new GeminiAdapter({
-    client: fakeClient,
-    log: () => {},
-    sleep: async () => {},
-  });
+    const adapter = new GeminiAdapter({
+      client: fakeClient,
+      log: () => {},
+      sleep: async () => {},
+    });
 
-  const error = await assertRejects(
-    () => adapter.extractRecipe({ rawText: NOTES }),
-    AIError,
-  );
+    const error = await assertRejects(
+      () => operation.run(adapter),
+      AIError,
+      undefined,
+      operation.label,
+    );
 
-  assertEquals(error.code, "provider_rejected");
-  assertEquals(error.retryable, false);
-  assertEquals(calls, 1, "a blocked candidate must not be retried");
-  assertEquals(textCalls, 0, "blocked finish reasons must be checked before text()");
+    assertEquals(error.code, "provider_rejected", operation.label);
+    assertEquals(error.retryable, false, operation.label);
+    assertEquals(calls, 1, `${operation.label}: a blocked candidate must not be retried`);
+    assertEquals(
+      textCalls,
+      0,
+      `${operation.label}: blocked finish reasons must be checked before text()`,
+    );
+  }
 });
 
 Deno.test("extractRecipe does not retry invalid output", async () => {

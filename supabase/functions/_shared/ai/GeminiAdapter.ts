@@ -48,6 +48,8 @@ const BLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set([
   "PROHIBITED_CONTENT",
   "SPII",
   "IMAGE_SAFETY",
+  "ESCALATION",
+  "PUP_LIMITED_DISABLED",
 ]);
 
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
