@@ -2380,3 +2380,210 @@ Deno.test("evaluateBatchAtomicityVerification verifies all-or-nothing batch sema
   });
   assertEquals(partialCase.atomicFailureProven, false);
 });
+
+
+Deno.test({
+  name: "Live PostgreSQL AI quota atomicity, RLS restrictions, RPC authorization, and reconciliation (hosted integration)",
+  ignore: !activeRlsConfig.shouldRun,
+  fn: async () => {
+    if (!activeRlsConfig.shouldRun) return;
+    if (activeRlsConfig.error) {
+      throw new Error(activeRlsConfig.error);
+    }
+
+    validateDedicatedTestTarget(
+      activeRlsConfig.url,
+      activeRlsConfig.anonKey,
+      activeRlsConfig.serviceRoleKey,
+      activeRlsConfig.expectedProjectRef,
+    );
+
+    const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const userEmail = `quota-${runId}@morisscraps.test`;
+    const userPassword = `PassQ!${crypto.randomUUID()}9`;
+
+    const adminClient = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.serviceRoleKey);
+    const createdUserIds: string[] = [];
+
+    try {
+      const { data: userRes, error: errCreate } = await adminClient.auth.admin.createUser({
+        email: userEmail,
+        password: userPassword,
+        email_confirm: true,
+      });
+      if (errCreate || !userRes?.user?.id) {
+        throw new Error(`Failed to create test user: ${errCreate?.message}`);
+      }
+      const userId = userRes.user.id;
+      createdUserIds.push(userId);
+
+      const userClient = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey);
+      const { data: signInData, error: signInErr } = await userClient.auth.signInWithPassword({
+        email: userEmail,
+        password: userPassword,
+      });
+      if (signInErr || !signInData.session) {
+        throw new Error(`Failed to sign in test user: ${signInErr?.message}`);
+      }
+
+      const authenticatedClient = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey, signInData.session.access_token);
+
+      const reservationId1 = crypto.randomUUID();
+
+      const userConsumeAttempt = await authenticatedClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(userConsumeAttempt.error !== null, true);
+      assertEquals(userConsumeAttempt.error?.code === "42501" || userConsumeAttempt.error?.message.includes("Unauthorized"), true);
+
+      const userConfirmAttempt = await authenticatedClient.rpc("confirm_ai_quota", {
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(userConfirmAttempt.error !== null, true);
+
+      const userRollbackAttempt = await authenticatedClient.rpc("reconcile_ai_quota", {
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(userRollbackAttempt.error !== null, true);
+
+      const userAdminRefundAttempt = await authenticatedClient.rpc("reconcile_unconfirmed_reservation", {
+        p_reservation_id: reservationId1,
+        p_reason: "user trying to refund",
+      });
+      assertEquals(userAdminRefundAttempt.error !== null, true);
+
+      const userTableInsert = await authenticatedClient.from("ai_quota_reservations").insert({
+        id: reservationId1,
+        daily_usage_id: crypto.randomUUID(),
+        user_id: userId,
+        status: "reserved",
+      });
+      assertEquals(userTableInsert.error !== null, true);
+
+      const firstConsume = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId1,
+        p_daily_limit: 2,
+      });
+      assertEquals(firstConsume.error, null);
+      assertEquals(firstConsume.data?.status, "allowed");
+      assertEquals(firstConsume.data?.used, 1);
+      assertEquals(firstConsume.data?.is_new, true);
+
+      const replayConsume = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId1,
+        p_daily_limit: 2,
+      });
+      assertEquals(replayConsume.error, null);
+      assertEquals(replayConsume.data?.status, "conflict");
+      assertEquals(replayConsume.data?.is_new, false);
+
+      const confirmRes = await adminClient.rpc("confirm_ai_quota", {
+        p_reservation_id: reservationId1,
+      });
+      assertEquals(confirmRes.error, null);
+      assertEquals(confirmRes.data?.confirmed, true);
+
+      const adminRefundAttempt = await adminClient.rpc("reconcile_unconfirmed_reservation", {
+        p_reservation_id: reservationId1,
+        p_reason: "test refund on confirmed",
+      });
+      assertEquals(adminRefundAttempt.error !== null, true);
+      assertEquals(adminRefundAttempt.error?.code === "22000" || adminRefundAttempt.error?.message.includes("Cannot refund confirmed"), true);
+
+      const reservationId2 = crypto.randomUUID();
+      const secondConsume = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId2,
+        p_daily_limit: 2,
+      });
+      assertEquals(secondConsume.error, null);
+      assertEquals(secondConsume.data?.status, "allowed");
+      assertEquals(secondConsume.data?.used, 2);
+
+      const rollbackRes = await adminClient.rpc("reconcile_ai_quota", {
+        p_reservation_id: reservationId2,
+      });
+      assertEquals(rollbackRes.error, null);
+      assertEquals(rollbackRes.data?.reconciled, true);
+      assertEquals(rollbackRes.data?.status, "refunded");
+
+      const duplicateRollback = await adminClient.rpc("reconcile_ai_quota", {
+        p_reservation_id: reservationId2,
+      });
+      assertEquals(duplicateRollback.error, null);
+      assertEquals(duplicateRollback.data?.reconciled, false);
+
+      const reservationId3 = crypto.randomUUID();
+      const thirdConsume = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId3,
+        p_daily_limit: 2,
+      });
+      assertEquals(thirdConsume.error, null);
+      assertEquals(thirdConsume.data?.status, "allowed");
+
+      const adminReconcileNoReason = await adminClient.rpc("reconcile_unconfirmed_reservation", {
+        p_reservation_id: reservationId3,
+        p_reason: "   ",
+      });
+      assertEquals(adminReconcileNoReason.error !== null, true);
+      assertEquals(adminReconcileNoReason.error?.code === "22023" || adminReconcileNoReason.error?.message.includes("Audit reason is required"), true);
+
+      const adminReconcileSuccess = await adminClient.rpc("reconcile_unconfirmed_reservation", {
+        p_reservation_id: reservationId3,
+        p_reason: "provider_crash_during_generation",
+      });
+      assertEquals(adminReconcileSuccess.error, null);
+      assertEquals(adminReconcileSuccess.data?.reconciled, true);
+      assertEquals(adminReconcileSuccess.data?.status, "refunded");
+
+      const duplicateAdminReconcile = await adminClient.rpc("reconcile_unconfirmed_reservation", {
+        p_reservation_id: reservationId3,
+        p_reason: "second_refund_attempt",
+      });
+      assertEquals(duplicateAdminReconcile.error, null);
+      assertEquals(duplicateAdminReconcile.data?.reconciled, false);
+
+      const concurrentReservationId = crypto.randomUUID();
+      const concurrentCalls = await Promise.all([
+        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
+        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
+        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
+        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
+        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
+      ]);
+      const allowedCount = concurrentCalls.filter((c) => c.data?.status === "allowed").length;
+      const conflictCount = concurrentCalls.filter((c) => c.data?.status === "conflict").length;
+      assertEquals(allowedCount, 1);
+      assertEquals(conflictCount, 4);
+
+      const newRunId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      const { data: newUserRes } = await adminClient.auth.admin.createUser({
+        email: `concurrent-first-${newRunId}@morisscraps.test`,
+        password: `PassQ!${crypto.randomUUID()}9`,
+        email_confirm: true,
+      });
+      if (newUserRes?.user?.id) {
+        createdUserIds.push(newUserRes.user.id);
+        const firstBatch = await Promise.all([
+          adminClient.rpc("consume_ai_quota", { p_user_id: newUserRes.user.id, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
+          adminClient.rpc("consume_ai_quota", { p_user_id: newUserRes.user.id, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
+          adminClient.rpc("consume_ai_quota", { p_user_id: newUserRes.user.id, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
+        ]);
+        const allSuccess = firstBatch.every((c) => c.data?.status === "allowed");
+        assertEquals(allSuccess, true);
+
+        const { data: dailyRows } = await adminClient.from("ai_usage_daily").select("id, operation_count").eq("user_id", newUserRes.user.id);
+        assertEquals(dailyRows?.length, 1);
+        assertEquals(dailyRows?.[0].operation_count, 3);
+      }
+    } finally {
+      for (const uid of createdUserIds) {
+        await adminClient.auth.admin.deleteUser(uid);
+      }
+    }
+  },
+});

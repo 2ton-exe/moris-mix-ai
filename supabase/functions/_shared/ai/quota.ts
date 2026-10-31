@@ -1,42 +1,33 @@
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
 
-/**
- * Per-user daily AI quota (AI-17: 20 operations per user per UTC day).
- *
- * AI-05 only *checks* quota before calling the provider; it must never write to
- * the database. The counter in `ai_usage_daily` is advanced by BE-12 through an
- * atomic backend operation, which swaps out the injected `QuotaCheck`. Until
- * then this read-only gate still enforces any usage that has been recorded and
- * gives the endpoint a single, testable place to say "allowed / exceeded".
- *
- * Known limitation (until BE-12 lands): because AI-05 cannot write, the default
- * gate can only *observe* usage that a writer has recorded — it does not itself
- * advance the counter, so it cannot yet meter a user by itself. It is the
- * integration seam, not the enforcement point. Extraction defaults to disabled
- * until an operator explicitly sets `AI_EXTRACT_ENABLED`; `AI_EXTRACT_DISABLED`
- * can override that opt-in to stop spend immediately. Keep production disabled
- * until BE-12 provides atomic accounting.
- */
 export const DEFAULT_AI_DAILY_LIMIT = 20;
 export const AI_DAILY_LIMIT_ENV = "AI_DAILY_LIMIT";
 
 export type QuotaDecision =
-  | { status: "allowed"; limit: number; used: number }
+  | {
+      status: "allowed";
+      limit: number;
+      used: number;
+      confirm?: () => Promise<void>;
+      rollback?: () => Promise<void>;
+    }
   | { status: "exceeded"; limit: number; used: number; retryAfterSeconds: number }
   | { status: "unavailable"; limit: number };
 
-/**
- * Injected quota boundary. The endpoint depends on this, never on the table
- * directly, so tests can force each branch and BE-12 can replace the default
- * with atomic accounting without touching the handler.
- */
-export type QuotaCheck = (userId: string, supabase: SupabaseClient) => Promise<QuotaDecision>;
+export type QuotaCheckDeps = {
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+  fetch?: typeof fetch;
+  reservationId?: string;
+  usageDate?: string;
+};
 
-/**
- * Reads `AI_DAILY_LIMIT`. An absent, blank, non-numeric or out-of-range value
- * falls back to the default: a typo must never accidentally block every user
- * (limit 0) or remove the cap entirely.
- */
+export type QuotaCheck = (
+  userId: string,
+  supabase: SupabaseClient,
+  deps?: QuotaCheckDeps,
+) => Promise<QuotaDecision>;
+
 export function resolveDailyLimit(raw: string | undefined = Deno.env.get(AI_DAILY_LIMIT_ENV)): number {
   if (typeof raw !== "string") return DEFAULT_AI_DAILY_LIMIT;
   const trimmed = raw.trim();
@@ -46,18 +37,15 @@ export function resolveDailyLimit(raw: string | undefined = Deno.env.get(AI_DAIL
   return parsed;
 }
 
-/** The UTC calendar date the quota window is measured against. */
 export function utcDateString(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** Seconds until the quota window resets, used as the client `Retry-After`. */
 export function secondsUntilNextUtcDay(now: Date = new Date()): number {
   const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   return Math.max(1, Math.ceil((nextMidnight - now.getTime()) / 1000));
 }
 
-/** Trusts only a non-negative safe integer from the counter row. */
 function readOperationCount(row: unknown): number | null {
   if (typeof row !== "object" || row === null) return null;
   const value = (row as { operation_count?: unknown }).operation_count;
@@ -65,14 +53,6 @@ function readOperationCount(row: unknown): number | null {
   return value;
 }
 
-/**
- * Default gate: read today's counter for the verified user through the
- * user-scoped client (RLS `ai_usage_select_own` permits the select, and the
- * `authenticated` role has no insert/update grant, so this call cannot write).
- *
- * A read failure fails *closed* as `unavailable`: a transient database error
- * must not silently hand out unmetered provider calls.
- */
 export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
   const limit = resolveDailyLimit();
 
@@ -87,9 +67,6 @@ export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
     return { status: "unavailable", limit };
   }
 
-  // Only an empty result means "no usage recorded yet". A row that exists but
-  // carries an unusable counter leaves usage unknown, so fail closed instead of
-  // treating it as zero and handing out an unmetered provider call.
   const rows = Array.isArray(data) ? data : data === null || data === undefined ? [] : [data];
   if (rows.length === 0) {
     return { status: "allowed", limit, used: 0 };
@@ -106,3 +83,139 @@ export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
 
   return { status: "allowed", limit, used };
 };
+
+export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => {
+  const limit = resolveDailyLimit();
+  const usageDate = deps?.usageDate ?? utcDateString();
+  const reservationId = deps?.reservationId ?? crypto.randomUUID();
+
+  const supabaseUrl = deps?.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
+  const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    console.error("Missing service role configuration for quota consumption");
+    return { status: "unavailable", limit };
+  }
+
+  let serviceClient: SupabaseClient;
+  try {
+    serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+      ...(deps?.fetch ? { global: { fetch: deps.fetch } } : {}),
+    });
+  } catch (err) {
+    console.error("Failed to initialize service role client for quota consumption", err);
+    return { status: "unavailable", limit };
+  }
+
+  let rpcResult: { data: unknown; error: unknown };
+  try {
+    rpcResult = await serviceClient.rpc("consume_ai_quota", {
+      p_user_id: userId,
+      p_reservation_id: reservationId,
+      p_daily_limit: limit,
+      p_usage_date: usageDate,
+    });
+  } catch (err) {
+    console.error("RPC consume_ai_quota network or execution failure", err);
+    return { status: "unavailable", limit };
+  }
+
+  if (rpcResult.error) {
+    console.error("RPC consume_ai_quota returned error", rpcResult.error);
+    return { status: "unavailable", limit };
+  }
+
+  const res = rpcResult.data as {
+    status?: string;
+    is_new?: boolean;
+    limit?: number;
+    used?: number;
+  } | null;
+
+  if (!res || typeof res !== "object") {
+    return { status: "unavailable", limit };
+  }
+
+  if (res.status === "exceeded") {
+    return {
+      status: "exceeded",
+      limit: typeof res.limit === "number" ? res.limit : limit,
+      used: typeof res.used === "number" ? res.used : limit,
+      retryAfterSeconds: secondsUntilNextUtcDay(),
+    };
+  }
+
+  if (res.status === "conflict") {
+    return {
+      status: "unavailable",
+      limit,
+    };
+  }
+
+  if (res.status === "allowed" && res.is_new === true) {
+    const used = typeof res.used === "number" ? res.used : 1;
+    const resolvedLimit = typeof res.limit === "number" ? res.limit : limit;
+
+    return {
+      status: "allowed",
+      limit: resolvedLimit,
+      used,
+      confirm: async () => {
+        const { error: confirmError } = await serviceClient.rpc("confirm_ai_quota", {
+          p_reservation_id: reservationId,
+        });
+        if (confirmError) {
+          throw confirmError;
+        }
+      },
+      rollback: async () => {
+        const { error: rollbackError } = await serviceClient.rpc("reconcile_ai_quota", {
+          p_reservation_id: reservationId,
+        });
+        if (rollbackError) {
+          throw rollbackError;
+        }
+      },
+    };
+  }
+
+  return { status: "unavailable", limit };
+};
+
+export async function reconcileUnconfirmedReservation(
+  reservationId: string,
+  reason: string,
+  deps?: QuotaCheckDeps,
+): Promise<{ reconciled: boolean; status: string; used?: number }> {
+  const supabaseUrl = deps?.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
+  const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error("Missing service role credentials for administrative reconciliation");
+  }
+
+  const serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    ...(deps?.fetch ? { global: { fetch: deps.fetch } } : {}),
+  });
+
+  const { data, error } = await serviceClient.rpc("reconcile_unconfirmed_reservation", {
+    p_reservation_id: reservationId,
+    p_reason: reason,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data as { reconciled: boolean; status: string; used?: number };
+}

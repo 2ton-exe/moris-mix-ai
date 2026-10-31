@@ -1,7 +1,7 @@
 # AI Integration Contracts
 
-Status: **AI-06 (Sprint 3)**. Both AI endpoints are implemented and tested:
-`POST /extract-recipe` (AI-05) and `POST /generate-recipe` (AI-06).
+Status: **BE-12 (Sprint 3)**. Both AI endpoints are implemented, hardened with atomic per-user quotas, safe provider error mapping, and automated reconciliation:
+`POST /extract-recipe` (AI-05, BE-12) and `POST /generate-recipe` (AI-06, BE-12).
 
 - Provider/model come from environment settings; clients never choose a model (AI-02/AI-03).
 - All AI output is Zod-validated before it leaves the backend (AI-10).
@@ -226,8 +226,7 @@ UI can never render a substitution with no ingredient to attach it to.
 
 ### Switches (AI-06)
 
-Generation is **off by default** for the same reason as extraction: the read-only quota
-gate cannot meter calls until BE-12 (#100) adds atomic accounting.
+Generation is guarded by operator opt-in and kill switch settings, with atomic quota accounting enforced by BE-12.
 
 | Env var | Role |
 | ------- | ---- |
@@ -236,6 +235,49 @@ gate cannot meter calls until BE-12 (#100) adds atomic accounting.
 
 Quota (AI-17), `Retry-After` semantics, and the `QUOTA_UNAVAILABLE` fail-closed behavior
 are identical to extraction.
+
+
+## AI Quota Lifecycle and Safe Provider Errors (BE-12)
+
+The backend enforces daily per-user AI quotas through concurrency-safe PostgreSQL operations and returns safe, non-leaking errors for quota exhaustion and provider failures.
+
+### Quota Accounting and Reservation Lifecycle
+
+Usage is tracked in `public.ai_usage_daily` and `public.ai_quota_reservations`:
+
+1. **Logical Operation Scope**:
+   - One quota reservation authorizes **one logical AI operation**, which includes existing bounded provider retries (such as a single retry for transient rate limits or upstream timeouts).
+   - A single quota charge is reserved before provider calls begin.
+2. **Atomic Quota Reservation (`consume_ai_quota`)**:
+   - The backend service acquires a transaction-level PostgreSQL advisory lock on `hashtext('reservation:' || p_reservation_id::text)`. This serializes concurrent calls with identical reservation IDs across all users.
+   - Initial requests for a given calendar day are handled using a loop UPSERT (`insert ... on conflict (user_id, usage_date) do nothing`), preventing concurrent creation race conditions.
+   - If the user's daily usage is at or above the configured limit (`DEFAULT_AI_DAILY_LIMIT = 20`, overridable via `AI_DAILY_LIMIT`), `status: "exceeded"` is returned.
+   - Otherwise, an entry in `ai_quota_reservations` is created with `status = 'reserved'`, `operation_count` is atomically incremented, and `status: "allowed"` is returned.
+3. **Replay Prevention**:
+   - Replaying an existing reservation ID returns `status: "conflict"` and fails closed as `503 QUOTA_UNAVAILABLE`. Duplicate calls cannot trigger additional AI provider calls under an existing reservation.
+4. **Confirmation Safety (`confirm_ai_quota`)**:
+   - Upon successful AI output generation and schema validation, the backend confirms the reservation, transitioning status from `'reserved'` to `'confirmed'`.
+   - Confirmation failures (e.g. transient database connection hiccup during confirmation) are non-fatal to the client response: the 200 OK preview is delivered to the user, and no erroneous refund is triggered.
+5. **Provider Failure Rollback (`reconcile_ai_quota`)**:
+   - When the provider exhausts retries or fails unrecoverably, the handler initiates an immediate rollback.
+   - `reconcile_ai_quota` transitions the reservation status from `'reserved'` to `'refunded'` and decrements `operation_count` (clamped at 0).
+   - If the rollback call fails, the original provider error (`AIError`) is preserved and returned to the client rather than masking it.
+6. **Audited Administrative Reconciliation (`reconcile_unconfirmed_reservation`)**:
+   - Operators can manually reconcile stale or unresolved reservations via backend admin procedures.
+   - A non-empty audit reason (`p_reason`) is mandatory (`22023`) and stored in `refund_reason` and `refunded_at`.
+   - Reservations already in `'confirmed'` state are strictly protected from refunds (`22000`).
+   - Duplicate reconciliation calls are idempotent no-ops.
+
+### Security and Authorization
+
+- Table `public.ai_quota_reservations` has Row Level Security (RLS) enabled.
+- All permissions on `ai_quota_reservations` and RPC functions (`consume_ai_quota`, `confirm_ai_quota`, `reconcile_ai_quota`, `reconcile_unconfirmed_reservation`) are revoked from `public` and `authenticated` roles, and granted exclusively to `service_role`.
+- Authenticated browser tokens cannot invoke quota mutation RPCs or alter quota records directly.
+
+### UTC Reset Boundaries
+
+- Quota windows strictly track calendar dates in UTC (`utcDateString()`).
+- The client `Retry-After` duration is calculated as the exact number of seconds remaining until next UTC midnight (`secondsUntilNextUtcDay()`), bounded between 1 and 86,400 seconds.
 
 ## Failure drills (demo only)
 
