@@ -490,7 +490,28 @@ export const GenerateRecipeResponseSchema = z.object({
   recipe: ExtractedRecipeSchema,
   substitutions: z.array(SubstitutionSchema),
   parents: z.array(SuggestedParentSchema),
+  /**
+   * AI-07: short-lived proof of the exact parents shown in this preview. The
+   * save endpoint requires it and rejects any selected parent outside the
+   * token's allowed set. Null only when no parents were proposed.
+   */
+  candidate_token: z.string().min(1).nullable(),
   context: GenerateRecipeContextSummarySchema
+}).superRefine((value, ctx) => {
+  if (value.parents.length > 0 && value.candidate_token === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["candidate_token"],
+      message: "A candidate token is required when parents are proposed.",
+    });
+  }
+  if (value.parents.length === 0 && value.candidate_token !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["candidate_token"],
+      message: "A candidate token must be null when no parents are proposed.",
+    });
+  }
 });
 
 export type GenerateRecipeRequest = z.infer<typeof GenerateRecipeRequestSchema>;

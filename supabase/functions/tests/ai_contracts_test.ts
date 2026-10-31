@@ -98,6 +98,7 @@ Deno.test("GenerateRecipeResponseSchema validates resolved parent summaries", ()
     parents: [
       { id: "123e4567-e89b-12d3-a456-426614174000", title: "Garlic Rice", star_rating: 5 },
     ],
+    candidate_token: "v1.test-token",
     context: {
       status: "MATCHED",
       matchedCandidateCount: 1,
@@ -111,6 +112,21 @@ Deno.test("GenerateRecipeResponseSchema validates resolved parent summaries", ()
     GenerateRecipeResponseSchema.parse({
       ...response,
       context: { status: "MATCHED", matchedCandidateCount: 4, totalCandidateCount: 3 },
+    })
+  );
+
+  // AI-07: proposed parents require a token, and no parents must mean no token.
+  assertThrows(() =>
+    GenerateRecipeResponseSchema.parse({
+      ...response,
+      candidate_token: null,
+    })
+  );
+  assertThrows(() =>
+    GenerateRecipeResponseSchema.parse({
+      ...response,
+      parents: [],
+      candidate_token: "v1.test-token",
     })
   );
 });

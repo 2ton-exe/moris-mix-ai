@@ -19,6 +19,10 @@ import {
 import { checkDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
 import { buildChefRecipeContext } from "../_shared/ai/recipeContext.ts";
 import {
+  resolveCandidateTokenSecret,
+  signCandidateToken,
+} from "../_shared/ai/candidateToken.ts";
+import {
   GenerateRecipeRequestSchema,
   GenerateRecipeResponseSchema,
   GeneratedRecipeSchema,
@@ -37,6 +41,8 @@ export type GenerateRecipeDeps = AuthDeps & {
     auth: AuthContext,
     input: GenerateRecipeInput,
   ) => Promise<ChefRecipeContextResult>;
+  /** Override for tests/DI; production reads `AI_CANDIDATE_TOKEN_SECRET`. */
+  candidateTokenSecret?: string;
 };
 
 const ALLOWED_METHODS = AI_ALLOWED_METHODS;
@@ -234,6 +240,16 @@ export async function handler(
         : { preferences: validation.data.preferences }),
     };
 
+    // AI-07: without a signing secret the endpoint cannot issue the token the
+    // save path requires, so refuse before spending quota or provider calls.
+    let candidateTokenSecret: string;
+    try {
+      candidateTokenSecret = resolveCandidateTokenSecret(deps.candidateTokenSecret);
+    } catch {
+      console.error("AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing generation.");
+      return errorResponse("INTERNAL_ERROR", "Internal server error.", 500);
+    }
+
     // AI-17: check the per-user daily quota before retrieval and the provider call.
     const quota = await (deps.quotaCheck ?? checkDailyQuota)(user.id, supabase);
     if (quota.status === "unavailable") {
@@ -269,10 +285,22 @@ export async function handler(
       throw new AIError("invalid_output", "generate", "Generation failed schema validation.");
     }
 
+    const parents = resolveParents(revalidated.data.parentRecipeIds, context);
+    // AI-07: the token lists exactly the parents shown in this preview; the
+    // user may save a subset later, but never anything outside it.
+    const candidateToken = parents.length === 0
+      ? null
+      : await signCandidateToken({
+        userId: user.id,
+        parentRecipeIds: parents.map((parent) => parent.id),
+        secret: candidateTokenSecret,
+      });
+
     const response: GenerateRecipeResponse = {
       recipe: revalidated.data.recipe,
       substitutions: revalidated.data.substitutions,
-      parents: resolveParents(revalidated.data.parentRecipeIds, context),
+      parents,
+      candidate_token: candidateToken,
       context: {
         status: context.status,
         matchedCandidateCount: context.matchedCandidateCount,
