@@ -1,5 +1,8 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { GoogleGenerativeAIResponseError } from "npm:@google/generative-ai@0.21.0";
+import {
+  GoogleGenerativeAIResponseError,
+  type GoogleGenerativeAI,
+} from "npm:@google/generative-ai@0.21.0";
 import {
   GENERATE_DISABLED_ENV,
   GENERATE_ENABLED_ENV,
@@ -1199,6 +1202,58 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
       assertNoDatabaseWrites(requests);
       assertNoRecipeOrLineageWrites(requests);
     }
+  }
+});
+
+Deno.test("AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTENT block without retrying or writing", async () => {
+  for (const path of ENDPOINT_PATHS) {
+    const { fetchImpl, requests } = createFetchMock();
+    let generateContentCalls = 0;
+    let textCalls = 0;
+    const fakeClient = {
+      getGenerativeModel: () => ({
+        generateContent: () => {
+          generateContentCalls += 1;
+          return Promise.resolve({
+            response: {
+              // SDK 0.21.0 returns empty text for this newer block reason; the
+              // adapter must classify it from the finish reason before reading
+              // text(), otherwise it would surface as AI_OUTPUT_INVALID.
+              candidates: [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }],
+              text: () => {
+                textCalls += 1;
+                return "";
+              },
+            },
+          });
+        },
+      }),
+    } as unknown as GoogleGenerativeAI;
+
+    const provider = new GeminiAdapter({
+      client: fakeClient,
+      log: () => {},
+      sleep: async () => {},
+    });
+
+    const res = await handler(
+      generateRequest(validBody(), path),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider,
+        buildContext: contextReturning(MATCHED_CONTEXT),
+      },
+    );
+
+    const label = `${path} PROHIBITED_CONTENT`;
+    assertEquals(res.status, 502, label);
+    assertEquals((await res.json()).error?.code, "AI_PROVIDER_REJECTED", label);
+    assertEquals(generateContentCalls, 1, `${label}: a blocked candidate must not be retried`);
+    assertEquals(textCalls, 0, `${label}: the adapter must not read text() for a blocked candidate`);
+    assertNoDatabaseWrites(requests);
+    assertNoRecipeOrLineageWrites(requests);
   }
 });
 
