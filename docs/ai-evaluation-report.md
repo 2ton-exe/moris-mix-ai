@@ -2,7 +2,8 @@
 
 Status: **AI-09 (Sprint 3)**. Measured results for the AI failure contract and the
 versioned evaluation set. The fixtures themselves are documented in
-[AI evaluation fixtures](ai-evaluation.md).
+[AI evaluation fixtures](ai-evaluation.md); the system-level explanation is in
+[AI architecture and operations](ai-architecture.md).
 
 - Dataset: `EVALUATION_DATASET` **2.1.1**
   (`supabase/functions/_shared/ai/eval_dataset.ts`)
@@ -17,7 +18,7 @@ versioned evaluation set. The fixtures themselves are documented in
 | ----- | ------- | -------------- |
 | Versioned offline acceptance | `tests/eval_dataset_test.ts` | No |
 | Endpoint failure contract | `tests/extract_recipe_test.ts`, `tests/generate_recipe_test.ts` | No (mock transport) |
-| Full Edge/API regression | the `ci.yml` deterministic suite | No |
+| Full Edge/API regression | the modular Edge/API workflow's deterministic suite | No |
 | Live extraction spot check | `tests/ai_extraction_live.ts` (opt-in) | Yes |
 
 The endpoint failure tests inject the **real `GeminiAdapter`** and mock only the
@@ -85,7 +86,8 @@ flavor-score presence, parent IDs and substitution originals. Every invalid case
 asserts the exact `AIError` code and field path. Chef candidates are recomputed
 with BE-10's `computeIngredientOverlap` before they are accepted.
 
-The full deterministic Edge/API suite (exact `ci.yml` command) is
+The full deterministic Edge/API suite (exact modular `reusable-edge-api.yml`
+command) is
 **266 passed / 0 failed / 5 ignored** at the time of this report. The five
 ignored tests are the opt-in live PostgreSQL hosted-integration checks; none is
 an AI failure test.
@@ -154,19 +156,10 @@ deno test --frozen-lockfile --node-modules-dir=auto --allow-env \
   supabase/functions/tests/extract_recipe_test.ts \
   supabase/functions/tests/generate_recipe_test.ts
 
-# Full deterministic Edge/API suite (same command as ci.yml)
-deno test --frozen-lockfile --node-modules-dir=auto --allow-env \
-  --allow-read=fixtures/demo-recipe.json \
-  supabase/functions/tests/demo_recipe_test.ts \
-  supabase/functions/tests/auth_test.ts \
-  supabase/functions/tests/recipes_test.ts \
-  supabase/functions/tests/ai_contracts_test.ts \
-  supabase/functions/tests/eval_dataset_test.ts \
-  supabase/functions/tests/cross_user_rls_lineage_test.ts \
-  supabase/functions/tests/recipe_context_test.ts \
-  supabase/functions/tests/gemini_adapter_test.ts \
-  supabase/functions/tests/extract_recipe_test.ts \
-  supabase/functions/tests/generate_recipe_test.ts
+# Full deterministic Edge/API suite: run the exact `deno test` command from
+# .github/workflows/reusable-edge-api.yml (the modular Edge/API workflow).
+# That workflow is the authoritative target list; it is not duplicated here so
+# this report cannot drift when the suite grows.
 ```
 
 When the dataset changes, bump `EVALUATION_DATASET_VERSION` and re-run the

@@ -7,6 +7,8 @@ Status: **AI-06 (Sprint 3)**. Both AI endpoints are implemented and tested:
 - All AI output is Zod-validated before it leaves the backend (AI-10).
 - Both endpoints **never persist**. They return validated previews; saving is a separate,
   explicit `POST /recipes` call made only after the user confirms.
+- System-level walkthrough (architecture, prompt versions, failure behavior and
+  limitations): [AI architecture and operations](../ai-architecture.md).
 
 ## Endpoint summary
 
