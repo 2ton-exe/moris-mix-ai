@@ -1,6 +1,6 @@
 # Authenticated recipe REST API contract (`GET`, `POST`, `PATCH`, `DELETE /recipes`)
 
-This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema`, `CreateLineageRequestSchema`, `LineageResponseSchema`, `LineageRecordSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47), BE-06 (#48), BE-08, and BE-11.
+This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema`, `CreateLineageRequestSchema`, `LineageResponseSchema`, `LineageRecordSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47), BE-06 (#48), BE-08, BE-11, and AI-07 (#97).
 
 ## Endpoints overview
 
@@ -11,7 +11,7 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 | `GET` | `/functions/v1/recipes/:id` or `/recipes/:id` | Retrieve an owned recipe | `200 OK` | `{ "recipe": Recipe }` |
 | `PATCH` | `/functions/v1/recipes/:id` or `/recipes/:id` | Update allowed fields and rating | `200 OK` | `{ "recipe": Recipe }` |
 | `DELETE` | `/functions/v1/recipes/:id` or `/recipes/:id` | Delete an owned recipe | `204 No Content` | (empty body) |
-| `POST` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Persist authorized recipe parent-child lineage relationships | `201 Created` | `{ "lineage": LineageRecord[] }` |
+| `POST` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Persist candidate-authorized recipe parent-child lineage (requires `candidate_token`) | `201 Created` | `{ "lineage": LineageRecord[] }` |
 | `GET` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Retrieve deterministic parent lineage for an owned recipe | `200 OK` | `{ "lineage": LineageRecord[] }` |
 | `OPTIONS` | Any supported recipe path | CORS preflight check | `204 No Content` | (empty body) |
 
@@ -339,14 +339,15 @@ Persists user-approved parent-child relationships between recipes in `public.rec
 
 ### Request body (`CreateLineageRequestSchema`)
 
-Accepts a canonical JSON object containing an array of parent recipe UUIDs. Unrecognized or client-supplied fields (`user_id`, `child_recipe_id`, etc.) are rejected by `.strict()` validation:
+Accepts a canonical JSON object containing an array of parent recipe UUIDs and the AI-07 generation candidate token. Unrecognized or client-supplied fields (`user_id`, `child_recipe_id`, etc.) are rejected by `.strict()` validation:
 
 ```json
 {
   "parent_recipe_ids": [
     "22222222-2222-4222-8222-222222222222",
     "33333333-3333-4333-8333-333333333333"
-  ]
+  ],
+  "candidate_token": "v1.eyJqdGkiOiI...signature"
 }
 ```
 
@@ -355,11 +356,25 @@ Accepts a canonical JSON object containing an array of parent recipe UUIDs. Unre
 | Field | Required | Type / Constraints | Behavior |
 | --- | --- | --- | --- |
 | `parent_recipe_ids` | Required | Array of RFC 4122 UUID strings, length `1..10`, strictly unique | Rejects empty arrays (`min(1)`), arrays exceeding 10 parents (`max(10)`), duplicate UUIDs (`400 VALIDATION_ERROR`), non-UUID items, or non-array inputs. |
+| `candidate_token` | Required | Opaque string, `1..2048` characters | Missing or empty → `400 VALIDATION_ERROR`. Invalid signature, expired, wrong user, or a parent outside its allowed set → `403 FORBIDDEN`. |
+
+### Candidate token verification (AI-07)
+
+Every `POST` requires `candidate_token`, issued by `POST /generate-recipe` for the authenticated user's preview:
+
+1. **Signature, user and expiry** are verified before any database work, using the server-side `AI_CANDIDATE_TOKEN_SECRET`. Rejections return `403 FORBIDDEN` with `details[0].code` of `invalid_token`, `expired_token` or `wrong_user`.
+2. **Membership:** after child and parent ownership checks, every selected parent must be inside the token's `parent_recipe_ids`. A selected subset is allowed, but an owned parent outside the set is rejected with `403 FORBIDDEN` (`not_a_candidate`).
+3. **Fail closed:** a missing or too-short server secret returns `500 INTERNAL_ERROR` before any database call.
+4. `GET /recipes/:id/lineage` is unchanged and requires no token. The token is stateless; within its 15-minute TTL it can be replayed by the same user with the same allowed parent set.
 
 - **Self-referencing restriction:** A recipe cannot be its own parent. If `parent_recipe_ids` contains `:id`, the request is rejected with `400 Bad Request` and `VALIDATION_ERROR` (`A recipe cannot be its own parent.`).
 - **Array limit:** The maximum of 10 parent recipe IDs per request (`MAX_PARENT_RECIPE_IDS`) aligns with culinary composition limits and safeguards against unbounded batch writes.
 
 ### Ownership verification and atomicity
+
+Token validity (signature, user, expiry) is checked before step 1. The candidate
+membership check runs after step 2, so a foreign or missing parent keeps the `404`
+behavior and membership never reveals another user's data.
 
 1. **Child recipe ownership:** The handler verifies that `:id` exists and belongs to the authenticated user (`.eq("id", childId).eq("user_id", user.id)`). If not found or owned by another user, returns `404 Not Found` before querying parents or attempting insertion.
 2. **Parent recipes ownership:** The handler verifies that every ID in `parent_recipe_ids` exists and belongs to the authenticated user (`.in("id", parentIds).eq("user_id", user.id)`). If any parent recipe is missing or owned by another user, returns `404 Not Found` without inserting any rows.
