@@ -26,8 +26,10 @@ export function createRecipeSource(client: typeof apiClient = apiClient): Recipe
         }
         const params = new URLSearchParams({ pagination: 'cursor', limit: String(discoveryPageSize), sort: criteria.sort })
         if (criteria.search) {
-          if (criteria.searchMode !== 'ingredients') params.set('title', criteria.search)
-          if (criteria.searchMode !== 'title') params.set('ingredient', criteria.search)
+          params.set('search', criteria.search)
+          if (criteria.searchMode !== 'both') {
+            params.set('searchMode', criteria.searchMode)
+          }
         }
         if (continuation !== null) params.set('cursor', continuation)
         const payload = await client.getAuthenticatedJson(`${recipesPath}?${params}`, request)
