@@ -19,6 +19,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Controlled DEVOPS-73 required-check failure
+        run: |
+          echo "Intentional DEVOPS-73 modular required-check failure experiment."
+          exit 1
+
       - name: Check for frontend project
         id: frontend
         shell: bash
