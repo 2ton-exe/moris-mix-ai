@@ -1,6 +1,6 @@
 name: Modular Main Validation
 
-# The cutover variable selects exactly one production owner; ci.yml retains required checks.
+# Permanent main validation and sole production caller after legacy CI retirement.
 on:
   push:
     branches: [main]
@@ -10,27 +10,6 @@ permissions:
   contents: read
 
 jobs:
-  production-ownership:
-    name: Select production owner
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      owner: ${{ steps.select.outputs.owner }}
-    steps:
-      # Actions string equality ignores case. Compare the raw variable in Node.
-      - name: Select exact-string owner
-        id: select
-        env:
-          MODULAR_PRODUCTION_ENABLED: ${{ vars.MODULAR_PRODUCTION_ENABLED }}
-        run: |
-          node --input-type=module -e '
-            import { appendFileSync } from "node:fs";
-            const owner = process.env.MODULAR_PRODUCTION_ENABLED === "true" ? "modular" : "legacy";
-            appendFileSync(process.env.GITHUB_OUTPUT, "owner=" + owner + "\n");
-          '
-
   frontend:
     name: Modular Main Frontend
     uses: ./.github/workflows/reusable-frontend.yml
@@ -58,24 +37,11 @@ jobs:
     name: Modular Main E2E
     uses: ./.github/workflows/reusable-e2e.yml
 
-  gate-evidence:
-    name: Modular Main Inert Gate
-    needs: [frontend, test-db, test-edge-api, test-e2e]
-    if: needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Record successful shadow gate
-        run: |
-          echo "All four modular validations succeeded and frontend exists on main."
-          echo "INERT EVIDENCE ONLY: no production deployment occurred in this job."
-          echo "Production ownership is selected separately by MODULAR_PRODUCTION_ENABLED."
-
   production:
     name: Modular Main Production
-    needs: [frontend, test-db, test-edge-api, production-ownership]
+    needs: [frontend, test-db, test-edge-api]
     if: >-
-      success() && needs.production-ownership.outputs.owner == 'modular' &&
+      success() &&
       needs.frontend.outputs.exists == 'true' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main'
@@ -83,7 +49,6 @@ jobs:
     permissions:
       contents: read
     with:
-      owner: modular
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
     secrets:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
