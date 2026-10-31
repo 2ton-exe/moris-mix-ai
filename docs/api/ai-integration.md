@@ -82,7 +82,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 429  | `QUOTA_EXCEEDED`       | Daily per-user AI limit reached (AI-17) | seconds until the UTC reset, up to `86400` |
 | 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown (rounded up and clamped to 1–3,600 seconds), else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
-| 502  | `AI_PROVIDER_REJECTED` | Provider rejected the request (bad key/model) | no |
+| 502  | `AI_PROVIDER_REJECTED` | Provider rejected or blocked the request (bad key/model, safety policy) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
 | 503  | `AI_DISABLED`          | The endpoint's opt-in is off, or its operator kill switch is on | no |
@@ -355,6 +355,10 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
   free-tier quota (AI-18).
 - Logs are metadata-only: operation, model, prompt id/version, attempt, latency, outcome.
   Prompt and recipe text are never logged.
+- Versioned evaluation fixtures, coverage, and offline/live run commands:
+  [AI evaluation fixtures](../ai-evaluation.md). Measured failure-contract
+  results and limitations:
+  [AI evaluation report](../ai-evaluation-report.md).
 
 ## Frontend notes (FE-08)
 
