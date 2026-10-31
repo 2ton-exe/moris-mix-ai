@@ -932,6 +932,28 @@ export async function handler(
           }
 
           hasMore = data.length > params.limit;
+          if (params.mode === "offset" && !hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT && data.length === params.limit) {
+            const { data: continuationData, error: continuationError } = await supabase.rpc("search_recipes", {
+              p_search: params.searchMode === "both" ? params.search : null,
+              p_title: params.searchMode === "title" ? params.search : null,
+              p_ingredient: params.searchMode === "ingredients" ? params.search : null,
+              p_sort: params.sort,
+              p_limit: 0,
+              p_offset: params.offset + params.limit,
+              p_cursor_rank: null,
+              p_cursor_created_at: null,
+              p_cursor_star_rating: null,
+              p_cursor_id: null,
+            });
+            if (continuationError || !Array.isArray(continuationData)) {
+              console.error("Database continuation probe failed", continuationError?.code ? `code: ${continuationError.code}` : "");
+              return recipesJsonResponse(
+                { error: { code: "INTERNAL_ERROR", message: "Internal server error." } },
+                { status: 500 },
+              );
+            }
+            hasMore = continuationData.length > 0;
+          }
           const pageItems = hasMore ? data.slice(0, params.limit) : data;
 
           if (params.mode === "cursor" && hasMore && pageItems.length > 0) {

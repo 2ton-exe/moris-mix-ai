@@ -6210,6 +6210,88 @@ Deno.test("Authenticated GET /recipes search routes to search_recipes RPC with r
   assertEquals(capturedBody!.p_cursor_id, recipe2Id);
 });
 
+for (const searchMode of ["title", "ingredients", "both"]) {
+  for (const sort of ["newest", "rating"]) {
+    for (const scenario of [
+      { name: "capped page with continuation", count: 1000, continuation: true, probe: true, hasMore: true },
+      { name: "capped final page", count: 1000, continuation: false, probe: true, hasMore: false },
+      { name: "incomplete page", count: 999, continuation: false, probe: false, hasMore: false },
+      { name: "established lookahead", count: 1001, continuation: true, probe: false, hasMore: true },
+    ]) {
+      Deno.test(`Search offset pagination: ${searchMode}, ${sort}, ${scenario.name}`, async () => {
+        const calls: Record<string, unknown>[] = [];
+        const rows = Array.from({ length: scenario.count }, () =>
+          persistedRecipeRow({ id: crypto.randomUUID(), relevance_rank: 1 })
+        );
+        const mockFetch: typeof fetch = (input, init) => {
+          const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+          if (url.pathname === "/auth/v1/user") {
+            return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated" }), { headers: { "Content-Type": "application/json" } }));
+          }
+          assertEquals(url.pathname, "/rest/v1/rpc/search_recipes");
+          calls.push(JSON.parse(init?.body as string));
+          const data = calls.length === 1 ? rows : scenario.continuation ? [rows[0]] : [];
+          return Promise.resolve(new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } }));
+        };
+        const response = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&searchMode=${searchMode}&sort=${sort}&limit=1000&offset=2000`, {
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+        assertEquals(response.status, 200);
+        const body = await response.json();
+        assertEquals(body.has_more, scenario.hasMore);
+        assertEquals(body.next_cursor, null);
+        assertEquals(body.recipes.length, Math.min(scenario.count, 1000));
+        assertEquals(body.recipes.map((row: { id: string }) => row.id), rows.slice(0, 1000).map((row) => row.id));
+        assertEquals("relevance_rank" in body.recipes[0], false);
+        assertEquals(calls.length, scenario.probe ? 2 : 1);
+        assertEquals(calls[0], {
+          p_search: searchMode === "both" ? "garlic" : null,
+          p_title: searchMode === "title" ? "garlic" : null,
+          p_ingredient: searchMode === "ingredients" ? "garlic" : null,
+          p_sort: sort,
+          p_limit: 1000,
+          p_offset: 2000,
+          p_cursor_rank: null,
+          p_cursor_created_at: null,
+          p_cursor_star_rating: null,
+          p_cursor_id: null,
+        });
+        if (scenario.probe) {
+          assertEquals(calls[1], { ...calls[0], p_limit: 0, p_offset: 3000 });
+        }
+      });
+    }
+  }
+}
+
+for (const failure of ["rpc", "null", "object", "transport"]) {
+  Deno.test(`Search offset continuation failure returns safe INTERNAL_ERROR: ${failure}`, async () => {
+    let calls = 0;
+    const rows = Array.from({ length: 1000 }, () => persistedRecipeRow({ relevance_rank: 1 }));
+    const mockFetch: typeof fetch = (input) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      if (url.pathname === "/auth/v1/user") {
+        return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated" }), { headers: { "Content-Type": "application/json" } }));
+      }
+      assertEquals(url.pathname, "/rest/v1/rpc/search_recipes");
+      calls++;
+      if (calls === 1) return Promise.resolve(new Response(JSON.stringify(rows), { headers: { "Content-Type": "application/json" } }));
+      if (failure === "transport") throw new TypeError("private provider detail");
+      const data = failure === "rpc" ? { code: "XX000", message: "private database detail" } : failure === "null" ? null : {};
+      return Promise.resolve(new Response(JSON.stringify(data), {
+        status: failure === "rpc" ? 500 : 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    };
+    const response = await handler(new Request("http://localhost/functions/v1/recipes?search=garlic&limit=1000", {
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    assertEquals(calls, 2);
+    assertEquals(response.status, 500);
+    assertEquals(await response.json(), { error: { code: "INTERNAL_ERROR", message: "Internal server error." } });
+  });
+}
+
 Deno.test("Authenticated GET /recipes search validates cursors across search terms and relevance ranks", async () => {
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);

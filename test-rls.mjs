@@ -86,6 +86,21 @@ async function runRlsTests() {
   const createdRecipeIds = [];
   let assertionsExecuted = 0;
   let assertionsPassed = 0;
+  const rankCases = [
+    [' Garlic Rice ', ' GARLIC RICE ', 1],
+    ['Spicy Garlic Rice', 'garlic rice', 2],
+    ['Garlic Fried Rice', 'garlic rice', 3],
+    ['Garlick Fried Rices', 'garlic rice', 3],
+    ['Garlic Rice', 'garilc rice', 3],
+    ['Garlic Rice', 'garlc rice', 3],
+    ['Coriander', 'corxandyr', 3],
+    ['Rice', 'rce', null],
+    ['Garlic Rice', 'garlic beans', null],
+    ['Garlic Rice', '', null],
+    ['', 'garlic', null],
+    ['Garlic Rice', 'garxxx rice', null]
+  ];
+  const expectedAssertionCount = 51 + rankCases.length * 2 + 11;
 
   const check = (actual, expected, message) => {
     assertionsExecuted++;
@@ -216,6 +231,53 @@ async function runRlsTests() {
     check(searchPage2A.rowCount >= 1, true, 'p_offset = 1 should return remaining recipes');
     check(searchPage1A.rows[0].id !== searchPage2A.rows[0].id, true, 'Page 1 and Page 2 must not return identical rows');
     console.log('✓ User A search_recipes exact, partial, fuzzy, ranking, and pagination verified');
+
+    for (const [target, query, expected] of rankCases) {
+      const textRank = await client.query('select public.match_text_rank($1, $2) as rank', [target, query]);
+      check(textRank.rows[0].rank, expected, `Text rank for ${JSON.stringify([target, query])}`);
+      const ingredientRank = await client.query('select public.match_ingredients_rank($1::jsonb, $2) as rank', [JSON.stringify([{ name: target }]), query]);
+      check(ingredientRank.rows[0].rank, expected, `Ingredient rank for ${JSON.stringify([target, query])}`);
+    }
+
+    await client.query('SAVEPOINT search_rank_regression');
+    const rankedFixtures = await client.query(`
+      insert into public.recipes (user_id, title, star_rating, created_at)
+      values
+        ($1, 'Garlic Rice', 1, now() - interval '2 days'),
+        ($1, 'Spicy Garlic Rice', 3, now() - interval '1 day'),
+        ($1, 'Garlic Fried Rice', 5, now())
+      returning id
+    `, [userA]);
+    check(rankedFixtures.rowCount, 3, 'Three isolated ranking fixtures should be created');
+    for (const sort of ['newest', 'rating']) {
+      const firstPage = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1)
+      `, ['garlic rice', sort]);
+      check(JSON.stringify(firstPage.rows.map((row) => row.relevance_rank)), '[1,2]', `${sort}: relevance must precede sorting and LIMIT with lookahead`);
+      const offsetPage = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1, p_offset => 1)
+      `, ['garlic rice', sort]);
+      check(JSON.stringify(offsetPage.rows.map((row) => row.relevance_rank)), '[2,3]', `${sort}: offset must follow relevance ordering`);
+      const last = firstPage.rows[1];
+      const cursorPage = await client.query(`
+        select * from public.search_recipes(
+          p_search => $1, p_sort => $2, p_limit => 1,
+          p_cursor_rank => $3, p_cursor_created_at => $4,
+          p_cursor_star_rating => $5::smallint, p_cursor_id => $6
+        )
+      `, ['garlic rice', sort, last.relevance_rank, last.created_at, last.star_rating, last.id]);
+      check(JSON.stringify(cursorPage.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: cursor must continue at the token-match tier`);
+      const continuation = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 0, p_offset => 2)
+      `, ['garlic rice', sort]);
+      check(JSON.stringify(continuation.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: zero-limit probe must return one remaining match`);
+      const exhausted = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 0, p_offset => 3)
+      `, ['garlic rice', sort]);
+      check(exhausted.rowCount, 0, `${sort}: zero-limit probe must be empty after the final match`);
+    }
+    await client.query('ROLLBACK TO SAVEPOINT search_rank_regression');
+    await client.query('RELEASE SAVEPOINT search_rank_regression');
 
     await client.query('COMMIT');
 
@@ -391,8 +453,8 @@ async function runRlsTests() {
     console.log('Skipped: false');
     console.log('-----------------------------------------\n');
 
-    if (process.env.CI === 'true' && (assertionsExecuted !== 51 || assertionsPassed !== 51)) {
-      throw new Error(`CI failure: Expected 51 RLS regression assertions to execute and pass, but executed ${assertionsExecuted} (passed: ${assertionsPassed})`);
+    if (process.env.CI === 'true' && (assertionsExecuted !== expectedAssertionCount || assertionsPassed !== expectedAssertionCount)) {
+      throw new Error(`CI failure: Expected ${expectedAssertionCount} RLS regression assertions to execute and pass, but executed ${assertionsExecuted} (passed: ${assertionsPassed})`);
     }
   } catch (err) {
     console.error('\nFAILED: RLS policy regression tests failed:', err);
