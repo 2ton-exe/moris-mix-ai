@@ -69,9 +69,12 @@ The local Supabase database is available on loopback port `54322` by default and
    AI_ENVIRONMENT=development
    # Needed to reach Gemini when you actually exercise extraction or generation.
    GEMINI_API_KEY=your_gemini_api_key_here
+   # AI-07: signs generation candidate tokens; at least 32 characters.
+   # Generate one with: openssl rand -base64 48
+   AI_CANDIDATE_TOKEN_SECRET=your_dev_candidate_token_secret_at_least_32_chars
    ```
 
-   Without the matching opt-in, the endpoint answers `503 AI_DISABLED` and the app treats that AI feature as temporarily unavailable. Never set `AI_ENVIRONMENT=development` or any `AI_SIMULATE_*` switch in production; see `docs/api/ai-integration.md` for the full switch list and the drill procedure.
+   Without the matching opt-in, the endpoint answers `503 AI_DISABLED` and the app treats that AI feature as temporarily unavailable. Generation also fails closed with `500 INTERNAL_ERROR` when `AI_CANDIDATE_TOKEN_SECRET` is missing or shorter than 32 characters, because the save path could not enforce candidate membership. Never set `AI_ENVIRONMENT=development` or any `AI_SIMULATE_*` switch in production; see `docs/api/ai-integration.md` for the full switch list and the drill procedure.
 2. **Configure and start the frontend:**
    In another terminal, configure and launch the Vite development server:
    ```sh
