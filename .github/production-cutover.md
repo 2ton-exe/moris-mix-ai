@@ -1,4 +1,106 @@
-# Production cutover preparation — issue #73
+# Production ownership and final cleanup - issue #73
+
+## Issue #73 final cleanup proposal (2026-10-31)
+
+Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
+This branch proposes repository cleanup; it is not merged-main verification and
+issue #73 is not complete. No GitHub settings are changed here.
+
+Operator-provided evidence at that main SHA already proves both ownership modes:
+
+| Experiment | Variable | Legacy production | Modular Main Production |
+| --- | --- | --- | --- |
+| Cutover | exact `true` | skipped | successful |
+| Rollback | `false` | successful | skipped |
+
+The modular release passed recipes deployment, Cloudflare deployment, production
+URL verification, runtime smoke, and artifact preservation. The variable was
+subsequently restored to exact `true`; this cleanup does not change it. These are
+operator-confirmed outcomes supplied for this cleanup, not new runs performed by
+this branch; run IDs were not supplied. Earlier run links below remain historical
+evidence for their own revisions.
+
+### Proposed permanent architecture
+
+- PRs: `modular-pr-validation.yml` calls reusable frontend, database, Edge/API and
+  non-gating E2E validation, plus staging for eligible PRs. No production call or
+  production secrets are present in the PR caller.
+- Main: `modular-main.yml` is the sole caller of `reusable-production.yml`, after
+  successful frontend/database/Edge validation and frontend existence. Hosted RLS
+  is mandatory inside the aggregate Edge/API workflow on main. Failed, cancelled,
+  or skipped gating validation blocks production. E2E remains non-gating.
+- This branch deletes `ci.yml` and removes the coexistence owner selector, owner
+  input/preflight, and inert shadow gate. `MODULAR_PRODUCTION_ENABLED` is no longer
+  read by runtime workflows once this proposal is merged. It coordinated two
+  owners; with one caller it has no remaining selection role. Its repository value
+  stays untouched. Setting it to false will no longer restore legacy production.
+- The reusable production job independently checks the exact modular-main caller
+  identity, main ref, push/manual event, success and frontend existence. Production
+  secrets are explicitly forwarded only to it. Configuration validation, frozen
+  dependency installation, build, recipes-only explicit-project deployment,
+  Cloudflare command/config, URL check, runtime smoke, outcome recording and
+  runtime JSON preservation remain unchanged. No production migrations are added.
+  `cloudflare-production` remains serialized with cancellation disabled.
+- `demo-recipe` stays operator-managed. AI deployment is separate in issue #130;
+  `extract-recipe` and `generate-recipe` are not automatic release targets.
+- PR Secretary consumes modular PR runs and composed check names. Its intended
+  fallback is the three modular core contexts; live effective branch rules still
+  take precedence, including all six overlap requirements until GitHub handoff.
+  Fallback reporting explicitly leaves live enforcement and integration identity
+  unconfirmed. Generic legacy workflow-path fixtures remain useful parser tests.
+
+### GitHub handoff and verification still required
+
+The six-context overlap policy remains unchanged. Intended final required contexts:
+
+- `Modular Frontend / Frontend Checks`
+- `Modular Database / Database Tests`
+- `Modular Edge/API / Edge/API Tests`
+
+After this branch's PR checks are healthy, the separately authorized GitHub handoff
+must coordinate retiring legacy requirements without a protection gap. Legacy
+checks may remain pending under the overlap once their producer is removed; this
+branch does not bypass them or change policy. Verify effective contexts and Actions
+app identities, blocking on missing/failing modular checks, review requirements,
+and the resulting policy separately.
+
+After an authorized merge, observe the resulting main SHA: only Modular Main
+Production must execute after core validations and mandatory hosted RLS; verify
+recipes-only deployment, Cloudflare, URL verification, smoke, summary and artifact.
+Confirm legacy CI is absent from merged main and PR Secretary refreshes correctly
+from default-branch code. Modular-only post-merge behavior remains unverified.
+Do not rerun pre-cleanup production revisions as a rollback shortcut; concurrency
+serializes deployments but does not reject stale runs. Rollback after retirement
+requires a reviewed repository change restoring the required caller/guards, not a
+variable flip. Application/data recovery remains a separate procedure. No automatic
+rollback or independent runtime-observed source provenance is claimed.
+
+## Legacy-reference audit
+
+Occurrences were reviewed by role rather than globally replaced:
+
+| Files / occurrences | Classification and disposition |
+| --- | --- |
+| `ci.yml`; modular-main selector, owner variable, inert gate; reusable-production owner contract | Temporary migration logic / active runtime dependency: legacy workflow and coexistence logic removed; permanent caller and release guards retained |
+| Modular PR introductory comment | Active documentation: corrected to permanent PR/staging responsibility |
+| Reusable frontend/database/Edge internal job names | Active runtime dependency: retained unchanged, because they form the composed modular contexts |
+| `production-workflow.test.mjs` legacy reads, parity and ownership truth table | Active test dependency: replaced by absence, modular caller/gate, explicit Edge/API target and hosted-RLS assertions; detailed release assertions retained |
+| Secretary workflow trigger, allowlist, fallback, GATES and collection fixtures | PR Secretary compatibility: mapped to modular runs/contexts, corrected main-only hosted-RLS skip and production label; live six-context precedence remains covered |
+| Secretary changed-file/thread fixtures and generic workflow-path matching using `ci.yml` | Unrelated/example text and historical parsing coverage: retained; no file read or active workflow dependency |
+| This cutover record and modular-workflows migration archive | Historical evidence: retained under explicit historical labels; current proposal and remaining handoff are separate |
+| Deployment runbook, Secretary guide, development setup, auth-session CI note and architecture workflow links | Active documentation: corrected workflow paths, dependencies, policy and remaining verification |
+| Pipeline metrics and observability audit | Historical evidence: dated records retained; retired-file links removed and current handoff linked |
+| AI evaluation report and Sprint 1 records | Historical evidence: original commands, check names and observed results retained |
+
+No ambiguous occurrence required deletion. No application, database, provider
+configuration, or GitHub policy dependency was expanded into this cleanup.
+
+## Historical migration record (superseded operational guidance)
+
+The following record preserves earlier preparation, evidence and then-pending
+work. Statements such as "sole legacy owner", "not yet required", and "cutover
+pending" describe those checkpoints, not the proposal above or current policy.
+Do not execute its old variable-switch instructions after legacy retirement.
 
 This is local preparation for review, not authorization to change production
 ownership or GitHub policy. Baseline: `c7b1bc7147e0d747535e7be46fc760f60e0da757`.

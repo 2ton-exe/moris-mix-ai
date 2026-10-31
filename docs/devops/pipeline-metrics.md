@@ -1,5 +1,9 @@
 # Project-wide DevOps Pipeline Metrics
 
+> Issue #73 cleanup proposes modular-only PR/main validation and production.
+> Workflow/policy descriptions below are dated evidence, not the final required-check
+> policy. See [current proposal and handoff](modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31).
+
 **Project:** Mori's Scraps  
 **Team:** 2ton.exe  
 **Maintainer:** Haresco  
@@ -70,7 +74,7 @@ These are distinct claims, not automatic promotions: a check may pass without be
 - **Cloudflare Worker:** `moris-mix-ai`
 - **Production Branch:** `main`
 
-At the reconciled source revision, the authoritative [CI workflow](../../.github/workflows/ci.yml) starts these validation paths:
+At the reconciled source revision, the authoritative `ci.yml` (historical source workflow) starts these validation paths:
 
 | Job | Workload |
 | :--- | :--- |
