@@ -7,16 +7,55 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
+  classify:
+    name: Classify PR paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      reason: ${{ steps.classify.outputs.reason }}
+    steps:
+      - name: Checkout real PR head with full history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Classify complete PR diff
+        id: classify
+        run: node scripts/ci-path-classifier.mjs
+
   frontend:
     name: Modular Frontend
+    needs: classify
+    # A failed/missing classifier must run full validation, not skip this context.
+    if: ${{ !cancelled() }}
+    with:
+      docs-only: ${{ needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' }}
     uses: ./.github/workflows/reusable-frontend.yml
 
   test-db:
     name: Modular Database
+    needs: classify
+    # A failed/missing classifier must run full validation, not skip this context.
+    if: ${{ !cancelled() }}
+    with:
+      docs-only: ${{ needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' }}
     uses: ./.github/workflows/reusable-database.yml
 
   test-edge-api:
     name: Modular Edge/API
+    needs: classify
+    # A failed/missing classifier must run full validation, not skip this context.
+    if: ${{ !cancelled() }}
+    with:
+      docs-only: ${{ needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' }}
     uses: ./.github/workflows/reusable-edge-api.yml
     secrets:
       NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}

@@ -56,6 +56,83 @@ not establish merged modular production steady state or post-merge success.
 After retirement, a variable flip cannot restore legacy production; rollback
 requires a reviewed repository change. Do not rerun stale production revisions.
 
+## Issue #124 Stage A: conservative PR path selection
+
+This branch proposes a PR-only optimization. No timing improvement or hosted
+execution result is claimed; measure the effect after GitHub Actions runs it.
+Main validation and production ownership, guards, secrets and deployment targets
+are unchanged. `ci.yml` stays retired. The three required core context names stay
+`Modular Frontend / Frontend Checks`, `Modular Database / Database Tests`, and
+`Modular Edge/API / Edge/API Tests`; no required workflow uses top-level `paths`
+or `paths-ignore` suppression.
+
+### Stage A matrix
+
+| Changed-file evidence | Core validation decision |
+| --- | --- |
+| Only added/modified `README.md` or plain Markdown files under `docs/` | Explicit documentation-only successful paths |
+| Renames entirely within that prose allowlist, considering both paths | Documentation-only if all other evidence is complete |
+| `.github/**`, `frontend/**`, `supabase/**`, `scripts/**`, manifests, configuration, code, lockfiles, or unknown paths | Existing full validation |
+| Mixed prose/code, cross-category renames, any deletion, type change, ambiguous or malformed paths | Full validation |
+| Empty diff, count mismatch, shallow/missing history, missing/ambiguous merge base, wrong checkout, parser/Git/classifier failure | Full validation |
+| Push/manual events, including main | Full validation regardless of the supplied docs-only input |
+
+The prose allowlist is case-sensitive: `README.md`, or `docs/` followed by directory
+segments and a basename containing only ASCII letters, digits, `_` and `-`, with a
+single final `.md` extension. Other Markdown paths are not automatically prose.
+The Git collector also requires destination files to have regular `100644` blob
+mode; symlinks, submodules and executable modes fall back to full validation.
+
+Repository inspection found no README/docs build imports. The production workflow
+safety suite does read several DevOps Markdown documents for credential-pattern
+scanning, so that suite remains active. Secretary documentation path strings are
+metadata/classification fixtures rather than runtime instructions. Future changes
+that make documentation build/test input must revisit this matrix before enabling
+lighter validation for those inputs.
+
+### Collection, fallback and required contexts
+
+`scripts/ci-path-classifier.mjs` reads the PR event's base SHA, head SHA and complete
+changed-file count. A read-only, secret-free classifier job checks out the real PR
+head with `fetch-depth: 0`. The script verifies that checkout and both commit
+objects, finds a unique merge base, and reads the complete NUL-delimited Git
+`--name-status -z --find-renames` diff from merge base to head. It does not classify
+the synthetic PR merge commit. The collector has no network or secret dependency.
+
+The independently testable `classify(input, {complete, expectedCount})` interface
+accepts that normalized diff format. CLI decisions are printed and appended to
+`GITHUB_OUTPUT`: `docs_only`, `frontend`, `database`, `edge_api`, `e2e`, `staging`,
+and a bounded, fixed human-readable `reason`. Only a successful classifier job
+with `docs_only=true` enables the reusable input. Missing/failed classifier jobs
+still allow the core callers to run full validation unless the run is cancelled.
+Each reusable workflow defaults to full validation and independently restricts
+docs-only mode to PR events. Explicit log steps identify the lighter paths.
+
+| Context/path | Confident documentation-only PR behavior |
+| --- | --- |
+| Frontend Checks | Keeps checkout, frontend detection/`exists` output, Node/pnpm setup, locked frontend dependency installation, Secretary regressions, runtime-smoke tests, production-workflow safety tests, and classifier tests. Skips only application lint, unit tests and build. |
+| Database Tests | Keeps the job/check and PostgreSQL service; checkout and an explicit successful no-op step run. Skips tooling install, readiness command, migrations, lifecycle and RLS commands. Service startup can still fail the job. |
+| Edge/API Tests | Keeps the job/check, checkout and explicit successful no-op step. Skips Deno/tooling setup, type-checks, deterministic tests and optional hosted work. Main still requires its nested Hosted RLS job; a required-hosted-RLS input also disables docs-only mode. |
+| E2E and staging | Remain unchanged in Stage A, including staging eligibility, deployment and smoke. No new skips or Secretary/reporting semantics are introduced. PR workflows still cannot call production. |
+
+### Limitations and measurement plan
+
+Frontend dependencies remain necessary because workflow YAML safety tests use the
+parser bundled with locked frontend ESLint tooling. PostgreSQL still starts at
+job level. The classifier adds checkout/history and scheduling overhead. E2E and
+eligible staging work remain, so workflow duration may show little or no gain.
+No database startup optimization or measured improvement is claimed.
+
+Collect GitHub run URLs, head/merge SHAs, path decisions/reasons, composed check
+names/conclusions, job/service/step durations and queue times. Compare repeated,
+comparable docs-only PR runs with the pre-change full-validation baseline, keeping
+mixed/code PRs as full-path controls. Verify missing/failing classification falls
+back to full validation and all three contexts remain present/successful on the
+lighter path. Observe an unchanged full main run with mandatory Hosted RLS and
+normal production gating separately. Separate classifier overhead, retained
+frontend install/database startup, and unchanged E2E/staging costs from skipped
+commands; do not equate fewer commands with a proven end-to-end improvement.
+
 ## Historical migration record (superseded operational guidance)
 
 The following record preserves earlier preparation, evidence and then-pending

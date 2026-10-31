@@ -3,6 +3,10 @@ name: Reusable Edge/API Validation
 on:
   workflow_call:
     inputs:
+      docs-only:
+        description: Verified Stage A prose-only PR; never applies to main
+        type: boolean
+        default: false
       require-hosted-rls:
         description: Require hosted integration as a separate validation job on main
         type: boolean
@@ -29,22 +33,28 @@ jobs:
   test-edge-api:
     name: Edge/API Tests
     runs-on: ubuntu-latest
+    env:
+      DOCS_ONLY: ${{ inputs.docs-only && github.event_name == 'pull_request' && !inputs.require-hosted-rls }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Deno
+        if: env.DOCS_ONLY != 'true'
         uses: denoland/setup-deno@v2
         with:
           deno-version: "2.9.7"
 
       - name: Type-check Edge Function and tests
+        if: env.DOCS_ONLY != 'true'
         run: deno check --frozen-lockfile --node-modules-dir=auto supabase/functions/_shared/auth.ts supabase/functions/_shared/ai/recipeContext.ts supabase/functions/_shared/recipe-images/schemas.ts supabase/functions/demo-recipe/index.ts supabase/functions/auth-session/index.ts supabase/functions/recipes/index.ts supabase/functions/extract-recipe/index.ts supabase/functions/generate-recipe/index.ts supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts supabase/functions/tests/recipe_image_schemas_test.ts supabase/functions/tests/gemini_adapter_test.ts supabase/functions/tests/extract_recipe_test.ts supabase/functions/tests/generate_recipe_test.ts supabase/functions/tests/recipe_context_test.ts
 
       - name: Run deterministic Edge/API tests
+        if: env.DOCS_ONLY != 'true'
         run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts supabase/functions/tests/recipe_image_schemas_test.ts supabase/functions/tests/gemini_adapter_test.ts supabase/functions/tests/extract_recipe_test.ts supabase/functions/tests/generate_recipe_test.ts supabase/functions/tests/recipe_context_test.ts
 
       - name: Check hosted migration configuration
+        if: env.DOCS_ONLY != 'true'
         id: hosted-migration
         env:
           NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
@@ -64,23 +74,23 @@ jobs:
           fi
 
       - name: Set up pnpm for hosted test migrations
-        if: steps.hosted-migration.outputs.run == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.hosted-migration.outputs.run == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 10
 
       - name: Set up Node.js for hosted test migrations
-        if: steps.hosted-migration.outputs.run == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.hosted-migration.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
       - name: Install repository tooling dependencies
-        if: steps.hosted-migration.outputs.run == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.hosted-migration.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Migrate dedicated hosted RLS test database
-        if: steps.hosted-migration.outputs.run == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.hosted-migration.outputs.run == 'true'
         env:
           RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true"
           NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
@@ -94,6 +104,7 @@ jobs:
         run: node run-migrations.mjs --test-target
 
       - name: Run non-production test database RLS integration test
+        if: env.DOCS_ONLY != 'true'
         env:
           NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
           NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}
@@ -117,6 +128,10 @@ jobs:
             echo "SKIPPED: Non-production test database RLS integration test not executed because dedicated non-production test project configuration is not completely configured."
             deno test --frozen-lockfile --node-modules-dir=auto --allow-env supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/recipe_context_test.ts
           fi
+
+      - name: Record documentation-only validation path
+        if: env.DOCS_ONLY == 'true'
+        run: echo "Verified documentation-only PR - expensive application validation is not required in this context."
 
   test-hosted-rls:
     name: Hosted RLS Integration

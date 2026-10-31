@@ -2,6 +2,11 @@ name: Reusable Frontend Validation
 
 on:
   workflow_call:
+    inputs:
+      docs-only:
+        description: Verified Stage A prose-only PR; never applies to main
+        type: boolean
+        default: false
     outputs:
       exists:
         description: Whether the frontend project exists
@@ -11,6 +16,8 @@ jobs:
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
+    env:
+      DOCS_ONLY: ${{ inputs.docs-only && github.event_name == 'pull_request' }}
 
     outputs:
       exists: ${{ steps.frontend.outputs.exists }}
@@ -51,6 +58,9 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Test CI path classifier (offline)
+        run: node --test scripts/ci-path-classifier.test.mjs
+
       - name: Test runtime smoke verifier (offline)
         run: node --test scripts/runtime-smoke.test.mjs
 
@@ -58,16 +68,20 @@ jobs:
         run: node --test scripts/production-workflow.test.mjs
 
       - name: Run lint
-        if: steps.frontend.outputs.exists == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm lint
 
       - name: Run frontend tests
-        if: steps.frontend.outputs.exists == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm test
 
       - name: Build frontend
-        if: steps.frontend.outputs.exists == 'true'
+        if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm build
+
+      - name: Record documentation-only validation path
+        if: env.DOCS_ONLY == 'true'
+        run: echo "Verified documentation-only PR - expensive application validation is not required in this context."

@@ -25,7 +25,9 @@ function condition(expression, overrides = {}) {
     format: (template, value) => template.replace('{0}', value),
     ...overrides,
   };
-  const source = expression.replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
+  const source = expression.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+    .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
+    .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
     .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]');
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
@@ -249,6 +251,92 @@ test('main validation covers current authoritative Edge/API targets and mandator
     'node --test scripts/production-workflow.test.mjs');
 });
 
+test('Stage A keeps required workflows unfiltered and classifier failure runs core validation', () => {
+  const pr = workflow('modular-pr-validation');
+  for (const name of readdirSync('.github/workflows').filter(n => /\.ya?ml$/.test(n))) {
+    const triggers = load(readFileSync(`.github/workflows/${name}`, 'utf8')).on;
+    for (const event of ['pull_request', 'push']) {
+      assert.equal(triggers[event]?.paths, undefined, name);
+      assert.equal(triggers[event]?.['paths-ignore'], undefined, name);
+    }
+  }
+  const classifier = pr.jobs.classify;
+  assert.deepEqual(classifier.permissions, { contents: 'read' });
+  assert.equal(classifier.secrets, undefined);
+  const checkout = step(classifier, 'Checkout real PR head with full history');
+  assert.equal(checkout.with.ref, '${{ github.event.pull_request.head.sha }}');
+  assert.equal(checkout.with['fetch-depth'], 0);
+  assert.equal(checkout.with['persist-credentials'], false);
+  assert.equal(step(classifier, 'Classify complete PR diff').run, 'node scripts/ci-path-classifier.mjs');
+  assert.equal(classifier.outputs.docs_only, '${{ steps.classify.outputs.docs_only }}');
+  for (const id of ['frontend', 'test-db', 'test-edge-api']) {
+    const caller = pr.jobs[id];
+    assert.equal(caller.needs, 'classify');
+    assert.equal(caller.if, '${{ !cancelled() }}');
+    for (const result of ['success', 'failure', 'skipped', 'cancelled']) {
+      for (const docs_only of ['true', 'false', '', undefined]) {
+        const overrides = { needs: { classify: { result, outputs: { docs_only } } }, cancelled: () => false };
+        assert.equal(condition(caller.if, overrides), true);
+        assert.equal(condition(caller.with['docs-only'], overrides), result === 'success' && docs_only === 'true');
+      }
+    }
+    assert.equal(condition(caller.if, { cancelled: () => true }), false);
+    assert.equal(main.jobs[id].with?.['docs-only'], undefined, 'main never opts into selection');
+    assert.equal(main.jobs[id].needs, undefined, 'main does not depend on PR classification');
+  }
+});
+
+test('docs-only paths execute successful core jobs; main and hosted RLS cannot no-op', () => {
+  for (const [file, id] of [['reusable-frontend', 'frontend'], ['reusable-database', 'test-db'], ['reusable-edge-api', 'test-edge-api']]) {
+    const reusable = workflow(file);
+    const job = reusable.jobs[id];
+    assert.deepEqual(reusable.on.workflow_call.inputs['docs-only'], {
+      description: 'Verified Stage A prose-only PR; never applies to main', type: 'boolean', default: false,
+    });
+    assert.equal(job.if, undefined, 'required context itself must not skip');
+    assert.equal(step(job, 'Checkout repository').if, undefined);
+    const noop = step(job, 'Record documentation-only validation path');
+    assert.equal(noop.if, "env.DOCS_ONLY == 'true'");
+    for (const event_name of ['push', 'workflow_dispatch', 'pull_request']) {
+      for (const docsOnly of [false, true]) {
+        const expected = event_name === 'pull_request' && docsOnly;
+        assert.equal(condition(job.env.DOCS_ONLY, { inputs: { 'docs-only': docsOnly, 'require-hosted-rls': false },
+          github: { event_name } }), expected);
+      }
+    }
+    if (file === 'reusable-edge-api') {
+      assert.equal(condition(job.env.DOCS_ONLY, { inputs: { 'docs-only': true, 'require-hosted-rls': true },
+        github: { event_name: 'pull_request' } }), false);
+    }
+    const skippedNames = id === 'frontend' ? ['Run lint', 'Run frontend tests', 'Build frontend'] :
+      job.steps.filter(s => s.name !== 'Checkout repository' && s !== noop).map(s => s.name);
+    for (const name of skippedNames) {
+      const expression = step(job, name).if;
+      const context = { steps: { frontend: { outputs: { exists: 'true' } }, 'hosted-migration': { outputs: { run: 'true' } } } };
+      // Actual conditions contain hyphenated Actions identifiers.
+      const source = expression.replace(/steps\.hosted-migration/g, 'steps["hosted-migration"]');
+      assert.equal(condition(source, { ...context, env: { DOCS_ONLY: 'true' } }), false, name);
+      assert.equal(condition(source, { ...context, env: { DOCS_ONLY: 'false' } }), true, name);
+    }
+  }
+  const frontend = workflow('reusable-frontend');
+  assert.equal(frontend.on.workflow_call.outputs.exists.value, '${{ jobs.frontend.outputs.exists }}');
+  assert.equal(frontend.jobs.frontend.outputs.exists, '${{ steps.frontend.outputs.exists }}');
+  for (const name of ['Test CI path classifier (offline)', 'Test runtime smoke verifier (offline)',
+    'Test production workflow safety (offline)', 'Check for frontend project']) {
+    assert.equal(step(frontend.jobs.frontend, name).if, undefined, name);
+  }
+  assert.equal(step(frontend.jobs.frontend, 'Run PR Secretary regression tests').if, "hashFiles('scripts/pr-secretary.test.mjs') != ''");
+  assert.equal(step(frontend.jobs.frontend, 'Install dependencies').if, "steps.frontend.outputs.exists == 'true'");
+  assert.equal(workflow('reusable-database').jobs['test-db'].services.postgres.image, 'postgres:16');
+  assert.equal(main.jobs['test-edge-api'].with['require-hosted-rls'], true);
+  assert.doesNotMatch(edge.jobs['test-hosted-rls'].if, /docs-only|DOCS_ONLY/);
+  const pr = workflow('modular-pr-validation');
+  assert.equal(pr.jobs['test-e2e'].needs, undefined);
+  assert.deepEqual(pr.jobs.staging.needs, ['frontend', 'test-db', 'test-edge-api']);
+  assert.doesNotMatch(pr.jobs.staging.if, /docs.only|classify/);
+});
+
 test('cutover files contain no literal credential patterns', () => {
   const cutoverPaths = [
     '.github/production-cutover.md',
@@ -261,6 +349,8 @@ test('cutover files contain no literal credential patterns', () => {
     'scripts/production-workflow.test.mjs',
     'scripts/pr-secretary.mjs',
     'scripts/pr-secretary.test.mjs',
+    'scripts/ci-path-classifier.mjs',
+    'scripts/ci-path-classifier.test.mjs',
     'docs/api/auth-session.md',
     'docs/architecture/sprint-1-adr.md',
     'docs/development-setup.md',
