@@ -1,12 +1,13 @@
 # AI Integration Contracts
 
-Status: **BE-12 (Sprint 3)**. Both AI endpoints are implemented, hardened with atomic per-user quotas, safe provider error mapping, and automated reconciliation:
+Status: **BE-12 (Sprint 3)**. Both AI endpoints are implemented, hardened with atomic per-user quotas, safe provider error mapping, and automatic settlement:
 `POST /extract-recipe` (AI-05, BE-12) and `POST /generate-recipe` (AI-06, BE-12).
 
 - Provider/model come from environment settings; clients never choose a model (AI-02/AI-03).
 - All AI output is Zod-validated before it leaves the backend (AI-10).
-- Both endpoints **never persist**. They return validated previews; saving is a separate,
-  explicit `POST /recipes` call made only after the user confirms.
+- Both endpoints return validated previews without persisting recipes or lineage.
+  Quota reservations and daily usage counters are recorded; saving a recipe is a
+  separate, explicit `POST /recipes` call made only after the user confirms.
 
 ## Endpoint summary
 
@@ -61,7 +62,8 @@ The whole request body must be **≤ 128 KiB**. Unknown fields are ignored.
 
 `recipe` matches `ExtractedRecipeSchema` in `supabase/functions/_shared/ai/schemas.ts`.
 `flavor_scores` and per-ingredient `quantityText` are optional. Instruction steps are
-numbered `1..n` in order. **No recipe row, lineage row, or usage row is created.**
+numbered `1..n` in order. **No recipe or lineage row is created; the quota reservation
+and daily usage counter are recorded.**
 
 ### Error responses
 
@@ -102,22 +104,16 @@ daily-quota `429` after an hour will simply be rejected again.
 
 ### Quota (AI-17)
 
-Quota is checked **before** the provider call. The default gate reads the caller's
-`ai_usage_daily` row for the current UTC day through the user-scoped client (RLS
-`ai_usage_select_own`; the `authenticated` role has no insert/update grant, so the
-endpoint cannot write usage). The limit is `AI_DAILY_LIMIT` (default **20**; a blank,
-non-numeric, or `< 1` value falls back to 20). A read failure fails closed as
-`503 QUOTA_UNAVAILABLE`.
-
-The gate distinguishes **no row** from **an unusable counter**. No row means the user has
-no recorded usage today and is allowed with `used: 0`. If a row exists but
-`operation_count` is missing or not a non-negative safe integer, usage is unknown and the
-gate fails closed as `503 QUOTA_UNAVAILABLE` rather than assuming zero — a corrupted
-counter must never unlock unmetered provider calls.
-
-Quota consumption is enforced by **BE-12** (issue #100). Both endpoints inject a
-`QuotaCheck` (`supabase/functions/_shared/ai/quota.ts`) backed by atomic PostgreSQL
-procedures (`consume_ai_quota`, `confirm_ai_quota`, `reconcile_ai_quota`).
+Quota is reserved **before** the provider call using `consumeDailyQuota` in
+`supabase/functions/_shared/ai/quota.ts`. Both endpoints pass the authenticated
+user's ID to `consume_ai_quota` through a separate backend service-role client.
+The procedure creates the current UTC day's usage row if needed, locks it, and
+atomically checks and increments its counter while creating a reservation.
+The limit is `AI_DAILY_LIMIT` (default **20**; blank, non-numeric, unsafe integer,
+or `< 1` values fall back to 20). Extraction and generation share this daily allowance.
+An exhausted allowance returns `429 QUOTA_EXCEEDED`; unavailable quota configuration,
+failed consumption, or a replayed reservation fails closed as `503 QUOTA_UNAVAILABLE`.
+The caller-scoped client retains RLS restrictions and cannot mutate quota records.
 
 Each logical AI operation reserves one quota slot atomically before provider dispatch.
 If pre-provider operations fail or all retry attempts fail with definitively non-consuming
@@ -133,7 +129,7 @@ and before reading the body, checking quota or calling the provider.
 
 `AI_EXTRACT_DISABLED` (truthy) overrides the opt-in and returns `503 AI_DISABLED`.
 Apply environment changes and restart/redeploy the function for them to take effect.
-Neither switch is read from the client request. A quota read failure still returns
+Neither switch is read from the client request. A quota reservation failure still returns
 `503 QUOTA_UNAVAILABLE` when extraction is enabled.
 
 ## `POST /generate-recipe`
@@ -204,8 +200,9 @@ recipe constraints (dietary needs, exclusions, taste, time), never as instructio
   match the pantry) or `NO_SAVED_RECIPES` (cold start). In the two cold-start statuses
   `parents` is `[]` and the recipe comes from the pantry alone. `EMPTY_PANTRY` cannot
   occur here because the request contract rejects an empty pantry.
-- **No recipe row, lineage row, or usage row is created.** Saving the preview and its
-  proposed lineage is a separate, explicit call owned by BE-11 (#101).
+- **No recipe or lineage row is created; the quota reservation and daily usage counter
+  are recorded.** Saving the preview and its proposed lineage is a separate, explicit
+  call owned by BE-11 (#101).
 
 ### Error responses
 
@@ -268,6 +265,32 @@ Usage is tracked in `public.ai_usage_daily` and `public.ai_quota_reservations`:
    - A non-empty audit reason (`p_reason`) is mandatory (`22023`) and stored in `refund_reason` and `refunded_at`.
    - Reservations already in `'confirmed'` state are strictly protected from refunds (`22000`).
    - Duplicate reconciliation calls are idempotent no-ops.
+
+### Manual Recovery of Unresolved Reservations
+
+There is no automatic recovery sweep or dedicated reconciliation CLI. A failed
+consume response can leave a charged reservation whose ID is unavailable to the
+caller. Failed confirmation or refund can also leave a reservation `reserved`.
+Reservation age and `reserved` status alone do not prove that provider usage was absent.
+
+1. Use authorized backend access to inspect `ai_quota_reservations` and its linked
+   `ai_usage_daily` row. Correlate the reservation ID, user, creation time, and operation
+   with available request and provider evidence. Current settlement-failure logs do
+   not include the reservation ID, so correlation may require additional investigation.
+2. Retain the charge when provider consumption is possible or unknown. If independent
+   evidence establishes consumption, use `confirm_ai_quota` with `p_reservation_id`.
+   A confirmed reservation cannot be administratively refunded.
+3. Only when independent evidence establishes non-consumption, use the server-side
+   `reconcileUnconfirmedReservation(reservationId, reason)` helper in `quota.ts`, or
+   call `reconcile_unconfirmed_reservation` with `p_reservation_id` and `p_reason`
+   through an authorized service-role client. Record the evidence in the non-empty
+   audit reason; never include credentials or user recipe text.
+4. Check the returned result, reservation status, `refund_reason`, `refunded_at`, and
+   linked daily counter. Repeated refunds are no-ops and must not decrement usage again.
+
+The database stores the audit reason and refund timestamp, but not the operator's
+identity. Record operator identity and the recovery decision in an external incident
+or recovery record. Keep service-role credentials on the backend.
 
 ### Security and Authorization
 
@@ -349,7 +372,8 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
 - Send `POST /generate-recipe` with the pantry items and preferences; keep them in
   component state so a failed request does not erase the user's input.
 - Render `recipe`, `substitutions`, and `parents` for review **before** any save action.
-  Generation alone writes nothing; Save is a separate explicit call (BE-11).
+  Generation records quota usage; Save persists the recipe and lineage through a
+  separate explicit call (BE-11).
 - Use `context.status` to explain the result: `MATCHED` means parents are available,
   while `NO_PANTRY_OVERLAP` and `NO_SAVED_RECIPES` are normal cold-start paths, not errors.
 - `parents` already carry `id`, `title`, and `star_rating`; do not build a lookup call.

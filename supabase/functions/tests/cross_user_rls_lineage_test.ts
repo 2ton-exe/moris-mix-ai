@@ -2428,38 +2428,77 @@ Deno.test({
 
       const authenticatedClient = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey, signInData.session.access_token);
 
+      const usageDate = new Date().toISOString().slice(0, 10);
+      const replayDate = new Date(Date.parse(usageDate) + 86_400_000).toISOString().slice(0, 10);
+      const assertUsage = async (expected: number, targetUserId = userId, date = usageDate) => {
+        const result = await adminClient.from("ai_usage_daily")
+          .select("id, operation_count")
+          .eq("user_id", targetUserId)
+          .eq("usage_date", date);
+        assertEquals(result.error, null);
+        assertEquals(result.data?.length, 1);
+        assertEquals(result.data?.[0].operation_count, expected);
+      };
+      const assertReservation = async (id: string, status: string) => {
+        const result = await adminClient.from("ai_quota_reservations")
+          .select("status, refund_reason, refunded_at")
+          .eq("id", id)
+          .single();
+        assertEquals(result.error, null);
+        assertEquals(result.data?.status, status);
+        return result.data;
+      };
+
       const reservationId1 = crypto.randomUUID();
+
+      const firstConsume = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId1,
+        p_daily_limit: 2,
+        p_usage_date: usageDate,
+      });
+      assertEquals(firstConsume.error, null);
+      assertEquals(firstConsume.data?.status, "allowed");
+      assertEquals(firstConsume.data?.used, 1);
+      assertEquals(firstConsume.data?.is_new, true);
+
+      const reservation = await adminClient.from("ai_quota_reservations")
+        .select("daily_usage_id")
+        .eq("id", reservationId1)
+        .single();
+      assertEquals(reservation.error, null);
+      assertEquals(typeof reservation.data?.daily_usage_id, "string");
+      const dailyUsageId = reservation.data!.daily_usage_id;
 
       const userConsumeAttempt = await authenticatedClient.rpc("consume_ai_quota", {
         p_user_id: userId,
         p_reservation_id: reservationId1,
       });
-      assertEquals(userConsumeAttempt.error !== null, true);
-      assertEquals(userConsumeAttempt.error?.code === "42501" || userConsumeAttempt.error?.message.includes("Unauthorized"), true);
+      assertEquals(userConsumeAttempt.error?.code, "42501");
 
       const userConfirmAttempt = await authenticatedClient.rpc("confirm_ai_quota", {
         p_reservation_id: reservationId1,
       });
-      assertEquals(userConfirmAttempt.error !== null, true);
+      assertEquals(userConfirmAttempt.error?.code, "42501");
 
       const userRollbackAttempt = await authenticatedClient.rpc("reconcile_ai_quota", {
         p_reservation_id: reservationId1,
       });
-      assertEquals(userRollbackAttempt.error !== null, true);
+      assertEquals(userRollbackAttempt.error?.code, "42501");
 
       const userAdminRefundAttempt = await authenticatedClient.rpc("reconcile_unconfirmed_reservation", {
         p_reservation_id: reservationId1,
         p_reason: "user trying to refund",
       });
-      assertEquals(userAdminRefundAttempt.error !== null, true);
+      assertEquals(userAdminRefundAttempt.error?.code, "42501");
 
       const userTableInsert = await authenticatedClient.from("ai_quota_reservations").insert({
-        id: reservationId1,
-        daily_usage_id: crypto.randomUUID(),
+        id: crypto.randomUUID(),
+        daily_usage_id: dailyUsageId,
         user_id: userId,
         status: "reserved",
       });
-      assertEquals(userTableInsert.error !== null, true);
+      assertEquals(userTableInsert.error?.code, "42501");
 
       const anonClient = createScopedTestClient(activeRlsConfig.url, activeRlsConfig.anonKey);
 
@@ -2467,56 +2506,63 @@ Deno.test({
         p_user_id: userId,
         p_reservation_id: reservationId1,
       });
-      assertEquals(anonConsumeAttempt.error !== null, true);
+      assertEquals(anonConsumeAttempt.error?.code, "42501");
 
       const anonConfirmAttempt = await anonClient.rpc("confirm_ai_quota", {
         p_reservation_id: reservationId1,
       });
-      assertEquals(anonConfirmAttempt.error !== null, true);
+      assertEquals(anonConfirmAttempt.error?.code, "42501");
 
       const anonRollbackAttempt = await anonClient.rpc("reconcile_ai_quota", {
         p_reservation_id: reservationId1,
       });
-      assertEquals(anonRollbackAttempt.error !== null, true);
+      assertEquals(anonRollbackAttempt.error?.code, "42501");
 
       const anonAdminRefundAttempt = await anonClient.rpc("reconcile_unconfirmed_reservation", {
         p_reservation_id: reservationId1,
         p_reason: "anon trying to refund",
       });
-      assertEquals(anonAdminRefundAttempt.error !== null, true);
+      assertEquals(anonAdminRefundAttempt.error?.code, "42501");
 
       const anonTableInsert = await anonClient.from("ai_quota_reservations").insert({
-        id: reservationId1,
-        daily_usage_id: crypto.randomUUID(),
+        id: crypto.randomUUID(),
+        daily_usage_id: dailyUsageId,
         user_id: userId,
         status: "reserved",
       });
-      assertEquals(anonTableInsert.error !== null, true);
-
-      const firstConsume = await adminClient.rpc("consume_ai_quota", {
-        p_user_id: userId,
-        p_reservation_id: reservationId1,
-        p_daily_limit: 2,
-      });
-      assertEquals(firstConsume.error, null);
-      assertEquals(firstConsume.data?.status, "allowed");
-      assertEquals(firstConsume.data?.used, 1);
-      assertEquals(firstConsume.data?.is_new, true);
+      assertEquals(anonTableInsert.error?.code, "42501");
 
       const replayConsume = await adminClient.rpc("consume_ai_quota", {
         p_user_id: userId,
         p_reservation_id: reservationId1,
         p_daily_limit: 2,
+        p_usage_date: usageDate,
       });
       assertEquals(replayConsume.error, null);
       assertEquals(replayConsume.data?.status, "conflict");
       assertEquals(replayConsume.data?.is_new, false);
+      await assertUsage(1);
+      await assertReservation(reservationId1, "reserved");
 
       const confirmRes = await adminClient.rpc("confirm_ai_quota", {
         p_reservation_id: reservationId1,
       });
       assertEquals(confirmRes.error, null);
       assertEquals(confirmRes.data?.confirmed, true);
+      await assertReservation(reservationId1, "confirmed");
+      await assertUsage(1);
+
+      const confirmedReplay = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId1,
+        p_daily_limit: 2,
+        p_usage_date: usageDate,
+      });
+      assertEquals(confirmedReplay.error, null);
+      assertEquals(confirmedReplay.data?.status, "conflict");
+      assertEquals(confirmedReplay.data?.is_new, false);
+      await assertUsage(1);
+      await assertReservation(reservationId1, "confirmed");
 
       const adminRefundAttempt = await adminClient.rpc("reconcile_unconfirmed_reservation", {
         p_reservation_id: reservationId1,
@@ -2525,15 +2571,34 @@ Deno.test({
       assertEquals(adminRefundAttempt.error !== null, true);
       assertEquals(adminRefundAttempt.error?.code === "22000" || adminRefundAttempt.error?.message.includes("Cannot refund confirmed"), true);
 
+      await assertUsage(1);
+      await assertReservation(reservationId1, "confirmed");
+
       const reservationId2 = crypto.randomUUID();
       const secondConsume = await adminClient.rpc("consume_ai_quota", {
         p_user_id: userId,
         p_reservation_id: reservationId2,
         p_daily_limit: 2,
+        p_usage_date: usageDate,
       });
       assertEquals(secondConsume.error, null);
       assertEquals(secondConsume.data?.status, "allowed");
       assertEquals(secondConsume.data?.used, 2);
+
+      const exhaustedReservationId = crypto.randomUUID();
+      const exhaustedConsume = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: exhaustedReservationId,
+        p_daily_limit: 2,
+        p_usage_date: usageDate,
+      });
+      assertEquals(exhaustedConsume.error, null);
+      assertEquals(exhaustedConsume.data, { status: "exceeded", is_new: false, limit: 2, used: 2 });
+      await assertUsage(2);
+      const exhaustedReservation = await adminClient.from("ai_quota_reservations")
+        .select("id").eq("id", exhaustedReservationId);
+      assertEquals(exhaustedReservation.error, null);
+      assertEquals(exhaustedReservation.data, []);
 
       const rollbackRes = await adminClient.rpc("reconcile_ai_quota", {
         p_reservation_id: reservationId2,
@@ -2541,21 +2606,42 @@ Deno.test({
       assertEquals(rollbackRes.error, null);
       assertEquals(rollbackRes.data?.reconciled, true);
       assertEquals(rollbackRes.data?.status, "refunded");
+      assertEquals(rollbackRes.data?.used, 1);
+      const refunded = await assertReservation(reservationId2, "refunded");
+      assertEquals(refunded?.refund_reason, "provider_failure_rollback");
+      assertNotEquals(refunded?.refunded_at, null);
+      await assertUsage(1);
 
       const duplicateRollback = await adminClient.rpc("reconcile_ai_quota", {
         p_reservation_id: reservationId2,
       });
       assertEquals(duplicateRollback.error, null);
       assertEquals(duplicateRollback.data?.reconciled, false);
+      assertEquals(await assertReservation(reservationId2, "refunded"), refunded);
+      await assertUsage(1);
+      const refundedReplay = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId2,
+        p_daily_limit: 2,
+        p_usage_date: usageDate,
+      });
+      assertEquals(refundedReplay.error, null);
+      assertEquals(refundedReplay.data?.status, "conflict");
+      assertEquals(refundedReplay.data?.is_new, false);
+      await assertUsage(1);
+      assertEquals(await assertReservation(reservationId2, "refunded"), refunded);
 
       const reservationId3 = crypto.randomUUID();
       const thirdConsume = await adminClient.rpc("consume_ai_quota", {
         p_user_id: userId,
         p_reservation_id: reservationId3,
         p_daily_limit: 2,
+        p_usage_date: usageDate,
       });
       assertEquals(thirdConsume.error, null);
       assertEquals(thirdConsume.data?.status, "allowed");
+      assertEquals(thirdConsume.data?.used, 2);
+      await assertUsage(2);
 
       const adminReconcileNoReason = await adminClient.rpc("reconcile_unconfirmed_reservation", {
         p_reservation_id: reservationId3,
@@ -2564,6 +2650,9 @@ Deno.test({
       assertEquals(adminReconcileNoReason.error !== null, true);
       assertEquals(adminReconcileNoReason.error?.code === "22023" || adminReconcileNoReason.error?.message.includes("Audit reason is required"), true);
 
+      await assertUsage(2);
+      await assertReservation(reservationId3, "reserved");
+
       const adminReconcileSuccess = await adminClient.rpc("reconcile_unconfirmed_reservation", {
         p_reservation_id: reservationId3,
         p_reason: "provider_crash_during_generation",
@@ -2571,6 +2660,11 @@ Deno.test({
       assertEquals(adminReconcileSuccess.error, null);
       assertEquals(adminReconcileSuccess.data?.reconciled, true);
       assertEquals(adminReconcileSuccess.data?.status, "refunded");
+      assertEquals(adminReconcileSuccess.data?.used, 1);
+      const adminRefunded = await assertReservation(reservationId3, "refunded");
+      assertEquals(adminRefunded?.refund_reason, "provider_crash_during_generation");
+      assertNotEquals(adminRefunded?.refunded_at, null);
+      await assertUsage(1);
 
       const duplicateAdminReconcile = await adminClient.rpc("reconcile_unconfirmed_reservation", {
         p_reservation_id: reservationId3,
@@ -2578,19 +2672,40 @@ Deno.test({
       });
       assertEquals(duplicateAdminReconcile.error, null);
       assertEquals(duplicateAdminReconcile.data?.reconciled, false);
+      assertEquals(duplicateAdminReconcile.data?.status, "already_refunded");
+      assertEquals(await assertReservation(reservationId3, "refunded"), adminRefunded);
+      await assertUsage(1);
+      const adminRefundedReplay = await adminClient.rpc("consume_ai_quota", {
+        p_user_id: userId,
+        p_reservation_id: reservationId3,
+        p_daily_limit: 2,
+        p_usage_date: usageDate,
+      });
+      assertEquals(adminRefundedReplay.error, null);
+      assertEquals(adminRefundedReplay.data?.status, "conflict");
+      assertEquals(adminRefundedReplay.data?.is_new, false);
+      assertEquals(await assertReservation(reservationId3, "refunded"), adminRefunded);
+      await assertUsage(1);
 
       const concurrentReservationId = crypto.randomUUID();
-      const concurrentCalls = await Promise.all([
-        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
-        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
-        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
-        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
-        adminClient.rpc("consume_ai_quota", { p_user_id: userId, p_reservation_id: concurrentReservationId, p_daily_limit: 10 }),
-      ]);
+      const concurrentCalls = await Promise.all(Array.from({ length: 5 }, () =>
+        adminClient.rpc("consume_ai_quota", {
+          p_user_id: userId,
+          p_reservation_id: concurrentReservationId,
+          p_daily_limit: 2,
+          p_usage_date: replayDate,
+        })
+      ));
+      for (const result of concurrentCalls) {
+        assertEquals(result.error, null);
+        assertEquals(result.data?.is_new, result.data?.status === "allowed");
+      }
       const allowedCount = concurrentCalls.filter((c) => c.data?.status === "allowed").length;
       const conflictCount = concurrentCalls.filter((c) => c.data?.status === "conflict").length;
       assertEquals(allowedCount, 1);
       assertEquals(conflictCount, 4);
+      await assertUsage(1, userId, replayDate);
+      await assertReservation(concurrentReservationId, "reserved");
 
       const newRunId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
       const { data: newUserRes, error: newCreateErr } = await adminClient.auth.admin.createUser({
@@ -2603,17 +2718,31 @@ Deno.test({
       }
       const newUserId = newUserRes.user.id;
       createdUserIds.push(newUserId);
-      const firstBatch = await Promise.all([
-        adminClient.rpc("consume_ai_quota", { p_user_id: newUserId, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
-        adminClient.rpc("consume_ai_quota", { p_user_id: newUserId, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
-        adminClient.rpc("consume_ai_quota", { p_user_id: newUserId, p_reservation_id: crypto.randomUUID(), p_daily_limit: 10 }),
-      ]);
-      const allSuccess = firstBatch.every((c) => c.data?.status === "allowed");
-      assertEquals(allSuccess, true);
-
-      const { data: dailyRows } = await adminClient.from("ai_usage_daily").select("id, operation_count").eq("user_id", newUserId);
-      assertEquals(dailyRows?.length, 1);
-      assertEquals(dailyRows?.[0].operation_count, 3);
+      const batchReservationIds = Array.from({ length: 5 }, () => crypto.randomUUID());
+      const firstBatch = await Promise.all(batchReservationIds.map((id) =>
+        adminClient.rpc("consume_ai_quota", {
+          p_user_id: newUserId,
+          p_reservation_id: id,
+          p_daily_limit: 2,
+          p_usage_date: usageDate,
+        })
+      ));
+      for (const result of firstBatch) {
+        assertEquals(result.error, null);
+        assertEquals(result.data?.limit, 2);
+        assertEquals(result.data?.is_new, result.data?.status === "allowed");
+        if (result.data?.status === "exceeded") assertEquals(result.data?.used, 2);
+      }
+      assertEquals(firstBatch.filter((result) => result.data?.status === "allowed").length, 2);
+      assertEquals(firstBatch.filter((result) => result.data?.status === "exceeded").length, 3);
+      assertEquals(firstBatch.filter((result) => result.data?.status === "allowed")
+        .map((result) => result.data?.used).sort(), [1, 2]);
+      await assertUsage(2, newUserId);
+      const batchReservations = await adminClient.from("ai_quota_reservations")
+        .select("id, status").in("id", batchReservationIds);
+      assertEquals(batchReservations.error, null);
+      assertEquals(batchReservations.data?.length, 2);
+      for (const row of batchReservations.data ?? []) assertEquals(row.status, "reserved");
     } finally {
       for (const uid of createdUserIds) {
         await adminClient.auth.admin.deleteUser(uid);
