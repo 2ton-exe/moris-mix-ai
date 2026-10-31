@@ -17,7 +17,7 @@ import {
   MAX_EXTRACTION_INPUT_CHARS,
 } from "../_shared/schemas.ts";
 import { MOCK_EXTRACTED_RECIPE } from "../_shared/ai/mocks.ts";
-import { AIError, type AIErrorCode } from "../_shared/ai/GeminiAdapter.ts";
+import { AIError, type AIErrorCode, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
 import type { AIProvider, ExtractRecipeInput, ExtractedRecipe } from "../_shared/ai/AIProvider.ts";
 import {
   DEFAULT_AI_DAILY_LIMIT,
@@ -214,6 +214,17 @@ function bodyOfExactByteLength(targetBytes: number): string {
 function assertNoDatabaseWrites(requests: RecordedRequest[]): void {
   const writes = requests.filter(
     (request) => request.path.startsWith("/rest/") && request.method !== "GET",
+  );
+  assertEquals(writes, []);
+}
+
+/** AI-09: a failed AI call must never create or mutate a recipe or lineage row. */
+function assertNoRecipeOrLineageWrites(requests: RecordedRequest[]): void {
+  const writes = requests.filter(
+    (request) =>
+      (request.path.startsWith("/rest/v1/recipes") ||
+        request.path.startsWith("/rest/v1/recipe_lineage")) &&
+      request.method !== "GET",
   );
   assertEquals(writes, []);
 }
@@ -1142,7 +1153,7 @@ Deno.test("An unexpected provider exception becomes a generic 500 INTERNAL_ERROR
 });
 
 Deno.test("Malformed output from a provider that forgot to validate is rejected before the frontend sees it", async () => {
-  const { fetchImpl } = createFetchMock();
+  const { fetchImpl, requests } = createFetchMock();
 
   const res = await handler(
     extractRequest(JSON.stringify({ notes: NOTES })),
@@ -1159,6 +1170,98 @@ Deno.test("Malformed output from a provider that forgot to validate is rejected 
 
   assertEquals(res.status, 502);
   assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID");
+  assertNoDatabaseWrites(requests);
+  assertNoRecipeOrLineageWrites(requests);
+});
+
+Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes", async () => {
+  const cases: Array<{
+    label: string;
+    fail: (recordAttempt: () => void) => Promise<string>;
+    status: number;
+    code: string;
+    attempts: number;
+  }> = [
+    {
+      label: "timeout",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        // The SDK aborts the request when its timeout elapses.
+        return Promise.reject(Object.assign(new Error("The operation was aborted."), {
+          name: "AbortError",
+        }));
+      },
+      status: 504,
+      code: "AI_TIMEOUT",
+      // AI-18: one attempt plus one bounded retry, then a recoverable error.
+      attempts: 2,
+    },
+    {
+      label: "provider outage",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        return Promise.reject(Object.assign(new Error("upstream unavailable"), { status: 503 }));
+      },
+      status: 503,
+      code: "AI_UNAVAILABLE",
+      attempts: 2,
+    },
+    {
+      label: "malformed output",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        return Promise.resolve("this is not JSON");
+      },
+      status: 502,
+      code: "AI_OUTPUT_INVALID",
+      // Invalid output is not retried: the same prompt would burn quota again.
+      attempts: 1,
+    },
+    {
+      label: "safety block",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        return Promise.reject(
+          Object.assign(new Error("Response blocked by provider safety settings"), { status: 400 }),
+        );
+      },
+      status: 502,
+      code: "AI_PROVIDER_REJECTED",
+      // A permanent block is never retried (pf-08).
+      attempts: 1,
+    },
+  ];
+
+  for (const path of ENDPOINT_PATHS) {
+    for (const testCase of cases) {
+      const { fetchImpl, requests } = createFetchMock();
+      let attempts = 0;
+      const provider = new GeminiAdapter({
+        generateText: () => testCase.fail(() => {
+          attempts += 1;
+        }),
+        log: () => {},
+        sleep: async () => {},
+      });
+
+      const res = await handler(
+        extractRequest(JSON.stringify({ notes: NOTES }), path),
+        {
+          supabaseUrl: TEST_SUPABASE_URL,
+          supabaseAnonKey: TEST_ANON_KEY,
+          fetch: fetchImpl,
+          provider,
+        },
+      );
+
+      const label = `${path} ${testCase.label}`;
+      assertEquals(res.status, testCase.status, label);
+      assertEquals((await res.json()).error?.code, testCase.code, label);
+      assertEquals(attempts, testCase.attempts, `${label}: bounded retry count`);
+      assertNoDatabaseWrites(requests);
+      assertNoRecipeOrLineageWrites(requests);
+    }
+  }
 });
 
 Deno.test("Simulation drills need an allowed environment plus both switches, and exercise the real error contract", async () => {

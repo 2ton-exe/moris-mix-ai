@@ -290,7 +290,8 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
 - Logs are metadata-only: operation, model, prompt id/version, attempt, latency, outcome.
   Prompt and recipe text are never logged.
 - Versioned evaluation fixtures, coverage, and offline/live run commands:
-  `docs/ai-evaluation.md`.
+  `docs/ai-evaluation.md`. Measured failure-contract results and limitations:
+  `docs/ai-evaluation-report.md`.
 
 ## Frontend notes (FE-08)
 

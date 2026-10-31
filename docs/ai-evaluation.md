@@ -11,6 +11,9 @@ so an expectation here can never drift from the code that serves users.
 | **Offline acceptance** (`tests/eval_dataset_test.ts`) | Parser, schema, boundary and error-contract behavior against versioned fixtures | No — no network, no API key |
 | **Live extraction** (`tests/ai_extraction_live.ts`) | Actual Gemini output quality on messy notes | Yes — opt-in, quota-limited |
 
+Measured results, the failure contract and the current limitations are recorded
+in the [AI failure evaluation report](ai-evaluation-report.md).
+
 ## Dataset
 
 - File: `supabase/functions/_shared/ai/eval_dataset.ts`
@@ -74,7 +77,7 @@ to spot-check model quality before consultation or Demo Day, not in CI.
 - The offline suite measures **contract and robustness**, not model quality:
   its provider output is hand-crafted to represent a well-behaved or broken
   model. Model-quality numbers must come from live runs and are recorded
-  separately (see AI-09's evaluation report).
+  separately (see the [AI failure evaluation report](ai-evaluation-report.md)).
 - Fixtures are English-only and use a small synthetic recipe vocabulary.
 - The provider-failure suite exercises the adapter's classification and retry
   rules, not Gemini's real failure distribution. `pf-08` models a permanent
@@ -84,6 +87,9 @@ to spot-check model quality before consultation or Demo Day, not in CI.
   against predetermined provider output: a blocked/empty response must become a
   safe non-retryable error, and an injection that yields an empty recipe must
   stay empty. They are not evidence that the live model resists jailbreaks or
-  blocks harmful requests — that belongs to AI-09's live measurement.
+  blocks harmful requests. A live safety assessment needs a separate,
+  explicitly approved red-team procedure; the
+  [AI-09 report](ai-evaluation-report.md) records why it is not part of this
+  automated suite.
 - Ingredient expectations are substring checks, so a renamed but semantically
   equal ingredient can still pass; the prompt, not the fixture, owns wording.

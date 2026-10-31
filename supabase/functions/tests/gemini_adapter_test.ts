@@ -73,7 +73,8 @@ const MATCHED_CONTEXT: GenerateRecipeContext = {
     flavor_scores: null,
     star_rating: 5,
     created_at: "2026-10-01T00:00:00.000Z",
-    overlap_ratio: 1,
+    // BE-10: 1 matched ingredient (rice) / 2 unique recipe ingredients.
+    overlap_ratio: 0.5,
     matched_ingredients: ["rice"],
   }],
   totalCandidateCount: 4,
