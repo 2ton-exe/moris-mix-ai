@@ -159,10 +159,22 @@ export type GeminiAdapterConfig = {
   modelName?: string;
   timeoutMs?: number;
   generateText?: GenerateText;
+  /**
+   * Test seam: replaces the SDK client so tests can exercise the real
+   * `callModel` (`generateContent` then `response.text()`) path without a key.
+   */
+  client?: GoogleGenerativeAI;
   log?: (entry: AIOperationLog) => void;
   /** Test seam for the backoff, so retry tests do not sleep for real. */
   sleep?: (ms: number) => Promise<void>;
 };
+
+/** Builds the real SDK client, requiring a key only when none is injected. */
+function createGeminiClient(apiKey: string | undefined): GoogleGenerativeAI {
+  const resolvedKey = apiKey ?? Deno.env.get("GEMINI_API_KEY");
+  if (!resolvedKey) throw new Error("GEMINI_API_KEY is missing.");
+  return new GoogleGenerativeAI(resolvedKey);
+}
 
 /**
  * Gemini-backed `AIProvider`.
@@ -198,10 +210,7 @@ export class GeminiAdapter implements AIProvider {
       return;
     }
 
-    const apiKey = config.apiKey ?? Deno.env.get("GEMINI_API_KEY");
-    if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
-
-    const client = new GoogleGenerativeAI(apiKey);
+    const client = config.client ?? createGeminiClient(config.apiKey);
     this.client = client;
     this.generateText = (prompt) => this.callModel(client, prompt);
   }

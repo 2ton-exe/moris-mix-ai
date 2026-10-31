@@ -1,4 +1,5 @@
 import {
+  GoogleGenerativeAI,
   GoogleGenerativeAIError,
   GoogleGenerativeAIFetchError,
   GoogleGenerativeAIResponseError,
@@ -518,15 +519,32 @@ Deno.test("a 4xx mentioning quota is rejected, not treated as a rate limit", asy
   assertEquals(calls, 1);
 });
 
-Deno.test("extractRecipe maps the SDK's blocked-response error to provider_rejected without retrying", async () => {
+Deno.test("extractRecipe maps a blocked response from response.text() to provider_rejected without retrying", async () => {
   let calls = 0;
-  const adapter = adapterWith(async () => {
-    calls += 1;
-    // This is exactly what `response.text()` throws on a 200 response whose
-    // prompt or candidate Gemini blocked. It deliberately has no HTTP status.
-    throw new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
-      promptFeedback: { blockReason: "SAFETY" },
-    });
+  // Exercise the default path: callModel -> generateContent -> response.text().
+  const fakeClient = {
+    getGenerativeModel: () => ({
+      generateContent: () => {
+        calls += 1;
+        return Promise.resolve({
+          response: {
+            text: () => {
+              // Exactly what the SDK throws on a blocked prompt/candidate:
+              // a GoogleGenerativeAIResponseError with no HTTP status.
+              throw new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
+                promptFeedback: { blockReason: "SAFETY" },
+              });
+            },
+          },
+        });
+      },
+    }),
+  } as unknown as GoogleGenerativeAI;
+
+  const adapter = new GeminiAdapter({
+    client: fakeClient,
+    log: () => {},
+    sleep: async () => {},
   });
 
   const error = await assertRejects(
