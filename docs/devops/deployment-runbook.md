@@ -556,8 +556,11 @@ success() && needs.frontend.outputs.exists == 'true' && (github.event_name == 'p
 ```
 
 Hosted RLS is mandatory within Edge/API. Failed, cancelled or skipped gating
-validation blocks production. The callee independently checks success, frontend
-existence, main event/ref and the exact modular-main workflow identity. PRs have no
+validation blocks production. `modular-main.yml` gates successful frontend,
+database and Edge/API validation and frontend existence before calling production.
+The callee independently checks the exact modular-main caller identity,
+`refs/heads/main`, push/workflow_dispatch event and supplied frontend-existence
+input; it does not independently re-evaluate upstream validation results. PRs have no
 production caller. Earlier run #90 and PR #68 remain historical gate evidence;
 operator-confirmed cutover/rollback evidence and post-merge obligations are above.
 
@@ -778,7 +781,7 @@ No optimization should be claimed until a baseline exists and a before-versus-af
 
 The following limitations or pending items remain:
 
-- The unified CI workflow retains the temporary frontend-existence check and exposes the result as a job output required by deployment.
+- `modular-main.yml` requires the reusable frontend validation's `exists` output to be true before calling production; frontend absence currently causes the production path to skip.
 - Since the frontend is now required on `main`, the temporary skip behavior should be removed or converted into a failing validation when appropriate.
 - TypeScript checking currently occurs inside `pnpm build` instead of being exposed as a separately named CI step.
 - Frontend CI has been verified against the real FE-01 application.

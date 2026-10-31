@@ -35,7 +35,10 @@ evidence for their own revisions.
   owners; with one caller it has no remaining selection role. Its repository value
   stays untouched. Setting it to false will no longer restore legacy production.
 - The reusable production job independently checks the exact modular-main caller
-  identity, main ref, push/manual event, success and frontend existence. Production
+  identity, `refs/heads/main`, push/workflow_dispatch event and supplied
+  frontend-existence input. `modular-main.yml` gates successful frontend, database
+  and Edge/API validation and frontend existence before calling production; the
+  reusable job does not independently re-evaluate those validation results. Production
   secrets are explicitly forwarded only to it. Configuration validation, frozen
   dependency installation, build, recipes-only explicit-project deployment,
   Cloudflare command/config, URL check, runtime smoke, outcome recording and
