@@ -239,6 +239,12 @@ export const CreateLineageRequestSchema = z.object({
       (ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
       { message: "Duplicate parent recipe ID in request." },
     ),
+  /**
+   * AI-07: signed proof of the parents the generation preview showed. Required
+   * on every save; the endpoint verifies signature, user and expiry before any
+   * database work, then checks the selected IDs against the token's list.
+   */
+  candidate_token: z.string().min(1).max(2048),
 }).strict();
 
 export const LineageResponseSchema = z.object({

@@ -15,6 +15,7 @@ import {
   RecipeResponseSchema,
   UpdateRecipeRequestSchema,
 } from "../_shared/schemas.ts";
+import { signCandidateToken } from "../_shared/ai/candidateToken.ts";
 import {
   evaluateHostedRlsPrerequisites,
   isLoopbackHost,
@@ -36,6 +37,23 @@ const TEST_ANON_KEY = "mock-anon-public-key-value";
 const VERIFIED_USER_ID = "99999999-9999-9999-9999-999999999999";
 const VERIFIED_USER_EMAIL = "verified@morisscraps.local";
 const CREATED_RECIPE_ID = "33333333-3333-4333-8333-333333333333";
+
+/** AI-07: lineage tests sign and verify with the same fixed secret. */
+const TEST_CANDIDATE_TOKEN_SECRET = "test-candidate-token-secret-0123456789abcdef";
+Deno.env.set("AI_CANDIDATE_TOKEN_SECRET", TEST_CANDIDATE_TOKEN_SECRET);
+
+function candidateTokenFor(
+  parentIds: readonly string[],
+  options: { userId?: string; ttlSeconds?: number; now?: Date } = {},
+): Promise<string> {
+  return signCandidateToken({
+    userId: options.userId ?? VERIFIED_USER_ID,
+    parentRecipeIds: parentIds,
+    secret: TEST_CANDIDATE_TOKEN_SECRET,
+    ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+}
 
 function validRecipePayload() {
   return {
@@ -4922,6 +4940,7 @@ const FOREIGN_RECIPE_ID = "55555555-5555-4555-8555-555555555555";
 Deno.test("CreateLineageRequestSchema and LineageResponseSchema validate valid lineage payloads", () => {
   const singleParentResult = CreateLineageRequestSchema.safeParse({
     parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+    candidate_token: "v1.test-token",
   });
   assertEquals(singleParentResult.success, true);
   if (singleParentResult.success) {
@@ -4931,6 +4950,7 @@ Deno.test("CreateLineageRequestSchema and LineageResponseSchema validate valid l
 
   const multiParentResult = CreateLineageRequestSchema.safeParse({
     parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2, LINEAGE_PARENT_ID_3],
+    candidate_token: "v1.test-token",
   });
   assertEquals(multiParentResult.success, true);
   if (multiParentResult.success) {
@@ -4939,6 +4959,7 @@ Deno.test("CreateLineageRequestSchema and LineageResponseSchema validate valid l
 
   const maxParentsResult = CreateLineageRequestSchema.safeParse({
     parent_recipe_ids: Array.from({ length: 10 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
+    candidate_token: "v1.test-token",
   });
   assertEquals(maxParentsResult.success, true);
 
@@ -4968,6 +4989,7 @@ Deno.test("CreateLineageRequestSchema rejects empty, oversized, duplicate, non-U
 
   const duplicateResult = CreateLineageRequestSchema.safeParse({
     parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_1],
+    candidate_token: "v1.test-token",
   });
   assertEquals(duplicateResult.success, false);
   if (!duplicateResult.success) {
@@ -5118,7 +5140,10 @@ Deno.test("Auth rate limit on /recipes/:id/lineage returns 503 AUTH_SERVICE_RATE
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5249,7 +5274,10 @@ Deno.test("POST /recipes/:id/lineage rejects self-referencing relationship with 
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_CHILD_ID] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_CHILD_ID],
+      candidate_token: await candidateTokenFor([LINEAGE_CHILD_ID]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5289,7 +5317,10 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when child recipe doe
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5337,7 +5368,10 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when any parent recip
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1, FOREIGN_RECIPE_ID] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1, FOREIGN_RECIPE_ID],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1, FOREIGN_RECIPE_ID]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5395,7 +5429,10 @@ Deno.test("POST /recipes/:id/lineage persists single parent and returns 201 Crea
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5469,7 +5506,10 @@ Deno.test("POST /recipes/:id/lineage persists multiple parents atomically and re
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5520,7 +5560,10 @@ Deno.test("POST /recipes/:id/lineage maps database unique conflict 23505 to 409 
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
   });
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5567,7 +5610,10 @@ Deno.test("POST /recipes/:id/lineage maps database check violation 23514 to 400 
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
   });
   const resCheck = await handler(reqCheck, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5584,7 +5630,10 @@ Deno.test("POST /recipes/:id/lineage maps database check violation 23514 to 400 
       Authorization: `Bearer ${VALID_TEST_JWT}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }),
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
   });
   const resRls = await handler(reqRls, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -5594,6 +5643,261 @@ Deno.test("POST /recipes/:id/lineage maps database check violation 23514 to 400 
   assertEquals(resRls.status, 404);
   const bodyRls = await resRls.json();
   assertEquals(bodyRls.error?.code, "NOT_FOUND");
+});
+
+Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wrong-user tokens before database calls", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const validToken = await candidateTokenFor([LINEAGE_PARENT_ID_1]);
+  const [version, payload, signature] = validToken.split(".");
+  const lastSignatureChar = signature.at(-1) === "A" ? "B" : "A";
+  const tamperedSignatureToken = `${version}.${payload}.${signature.slice(0, -1)}${lastSignatureChar}`;
+  const expiredToken = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
+    ttlSeconds: 60,
+    now: new Date(Date.now() - 2 * 60 * 60 * 1000),
+  });
+  const wrongUserToken = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
+    userId: "88888888-8888-4888-8888-888888888888",
+  });
+
+  const cases: Array<{
+    label: string;
+    parentRecipeIds: string[];
+    candidateToken?: string;
+    status: number;
+    code: string;
+    detailCode?: string;
+  }> = [
+    {
+      label: "missing token",
+      parentRecipeIds: [LINEAGE_PARENT_ID_1],
+      status: 400,
+      code: "VALIDATION_ERROR",
+    },
+    {
+      label: "malformed token",
+      parentRecipeIds: [LINEAGE_PARENT_ID_1],
+      candidateToken: "not-a-token",
+      status: 403,
+      code: "FORBIDDEN",
+      detailCode: "invalid_token",
+    },
+    {
+      label: "tampered signature",
+      parentRecipeIds: [LINEAGE_PARENT_ID_1],
+      candidateToken: tamperedSignatureToken,
+      status: 403,
+      code: "FORBIDDEN",
+      detailCode: "invalid_token",
+    },
+    {
+      label: "expired token",
+      parentRecipeIds: [LINEAGE_PARENT_ID_1],
+      candidateToken: expiredToken,
+      status: 403,
+      code: "FORBIDDEN",
+      detailCode: "expired_token",
+    },
+    {
+      label: "wrong user",
+      parentRecipeIds: [LINEAGE_PARENT_ID_1],
+      candidateToken: wrongUserToken,
+      status: 403,
+      code: "FORBIDDEN",
+      detailCode: "wrong_user",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: testCase.parentRecipeIds,
+        ...(testCase.candidateToken === undefined ? {} : { candidate_token: testCase.candidateToken }),
+      }),
+    });
+    const res = await handler(req, {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    });
+    assertEquals(res.status, testCase.status, testCase.label);
+    const body = await res.json();
+    assertEquals(body.error?.code, testCase.code, testCase.label);
+    if (testCase.detailCode) {
+      assertEquals(body.error?.details?.[0]?.code, testCase.detailCode, testCase.label);
+    }
+  }
+  assertEquals(dbCalled, false);
+});
+
+Deno.test("AI-07: lineage rejects an owned parent outside the token's candidate set", async () => {
+  let lineageInsertCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        JSON.stringify([
+          { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+          { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipe_lineage") {
+      lineageInsertCalled = true;
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 201 }));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2],
+      // The token only allows the first parent; the second is owned but not a candidate.
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
+  });
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 403);
+  const body = await res.json();
+  assertEquals(body.error?.code, "FORBIDDEN");
+  assertEquals(body.error?.details?.[0]?.code, "not_a_candidate");
+  assertEquals(lineageInsertCalled, false);
+});
+
+Deno.test("AI-07: lineage accepts a subset of the token's candidates", async () => {
+  let capturedInsertBody: unknown = null;
+  const mockFetch: typeof fetch = (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipes") {
+      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ));
+      }
+      // Only the selected parent is requested and owned.
+      return Promise.resolve(new Response(
+        JSON.stringify([{ id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID }]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    if (url.pathname === "/rest/v1/recipe_lineage") {
+      capturedInsertBody = JSON.parse(typeof init?.body === "string" ? init.body : "[]");
+      return Promise.resolve(new Response(
+        JSON.stringify([{
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          parent_recipe_id: LINEAGE_PARENT_ID_2,
+          child_recipe_id: LINEAGE_CHILD_ID,
+          created_at: "2026-10-30T10:00:00.000Z",
+        }]),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_2],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2]),
+    }),
+  });
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(res.status, 201);
+  const body = await res.json();
+  assertEquals(body.lineage.length, 1);
+  assertEquals(body.lineage[0].parent_recipe_id, LINEAGE_PARENT_ID_2);
+  assertEquals((capturedInsertBody as Array<{ parent_recipe_id: string }>)[0].parent_recipe_id, LINEAGE_PARENT_ID_2);
+});
+
+Deno.test("AI-07: lineage fails closed when the candidate token secret is missing", async () => {
+  let dbCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
+    dbCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+
+  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+    }),
+  });
+  const res = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+    candidateTokenSecret: "",
+  });
+  assertEquals(res.status, 500);
+  const body = await res.json();
+  assertEquals(body.error?.code, "INTERNAL_ERROR");
+  assertEquals(dbCalled, false);
 });
 
 Deno.test("GET /recipes/:id/lineage returns 200 OK with ordered lineage records for owned child recipe", async () => {
@@ -5693,8 +5997,21 @@ Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does
 });
 
 
-function lineageBodyOfExactByteLength(targetBytes: number): string {
-  const prefix = `{"parent_recipe_ids":["${LINEAGE_PARENT_ID_1}"]`;
+/** Fixed token so the byte-length arithmetic stays deterministic. */
+let exactByteLineageToken: Promise<string> | null = null;
+function exactByteLineageCandidateToken(): Promise<string> {
+  exactByteLineageToken ??= signCandidateToken({
+    userId: VERIFIED_USER_ID,
+    parentRecipeIds: [LINEAGE_PARENT_ID_1],
+    secret: TEST_CANDIDATE_TOKEN_SECRET,
+    jti: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  });
+  return exactByteLineageToken;
+}
+
+async function lineageBodyOfExactByteLength(targetBytes: number): Promise<string> {
+  const token = await exactByteLineageCandidateToken();
+  const prefix = `{"parent_recipe_ids":["${LINEAGE_PARENT_ID_1}"],"candidate_token":"${token}"`;
   const suffix = "}";
   const overhead = new TextEncoder().encode(prefix + suffix).byteLength;
   const paddingLength = Math.max(0, targetBytes - overhead);
@@ -5731,6 +6048,7 @@ Deno.test("CreateLineageRequestSchema rejects case-insensitive duplicate UUIDs a
 
   const distinctCase = CreateLineageRequestSchema.safeParse({
     parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_2.toUpperCase()],
+    candidate_token: "v1.test-token",
   });
   assertEquals(distinctCase.success, true);
 });
@@ -5757,6 +6075,7 @@ Deno.test("POST /recipes/:id/lineage rejects case-insensitive duplicate UUIDs wi
     },
     body: JSON.stringify({
       parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toUpperCase()],
+      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
     }),
   });
   const res = await handler(req, {
@@ -5807,7 +6126,7 @@ Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const exact16kBody = lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES);
+  const exact16kBody = await lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES);
   assertEquals(new TextEncoder().encode(exact16kBody).byteLength, 16384);
   const req16k = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
     method: "POST",
@@ -5826,7 +6145,7 @@ Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 
   assertEquals(dbInsertCalled, true);
 
   dbInsertCalled = false;
-  const over16kBody = lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES + 1);
+  const over16kBody = await lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES + 1);
   assertEquals(new TextEncoder().encode(over16kBody).byteLength, 16385);
   const reqOver = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
     method: "POST",
@@ -6025,7 +6344,10 @@ Deno.test("POST /recipes/:id/lineage decodes chunked streams split across arbitr
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const payload = JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] });
+  const payload = JSON.stringify({
+    parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+    candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+  });
   const rawBytes = new TextEncoder().encode(payload);
   const splitPoint = 12;
   const part1 = rawBytes.slice(0, splitPoint);
