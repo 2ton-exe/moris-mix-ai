@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import { GoogleGenerativeAIResponseError } from "npm:@google/generative-ai@0.21.0";
 import {
   EXTRACT_DISABLED_ENV,
   EXTRACT_ENABLED_ENV,
@@ -1221,8 +1222,12 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
       label: "safety block",
       fail: (recordAttempt) => {
         recordAttempt();
+        // The real SDK shape: `response.text()` throws this on a blocked
+        // prompt/candidate, and it carries no HTTP status.
         return Promise.reject(
-          Object.assign(new Error("Response blocked by provider safety settings"), { status: 400 }),
+          new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
+            promptFeedback: { blockReason: "SAFETY" },
+          }),
         );
       },
       status: 502,

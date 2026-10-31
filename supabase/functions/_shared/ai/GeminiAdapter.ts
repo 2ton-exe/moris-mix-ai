@@ -1,4 +1,8 @@
-import { GoogleGenerativeAI, GoogleGenerativeAIError } from "npm:@google/generative-ai@0.21.0";
+import {
+  GoogleGenerativeAI,
+  GoogleGenerativeAIError,
+  GoogleGenerativeAIResponseError,
+} from "npm:@google/generative-ai@0.21.0";
 import type {
   AIProvider,
   ExtractRecipeInput,
@@ -446,6 +450,18 @@ function stripCodeFence(text: string): string {
 /** Maps any thrown value to a typed, user-safe `AIError`. */
 function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
   if (error instanceof AIError) return error;
+
+  // The SDK throws this from `response.text()` when Gemini blocks the prompt
+  // or candidate for safety, recitation or language reasons. It carries no
+  // HTTP status, so without this branch a real block would surface as a 500
+  // INTERNAL_ERROR instead of the documented 502 AI_PROVIDER_REJECTED.
+  if (error instanceof GoogleGenerativeAIResponseError) {
+    return new AIError(
+      "provider_rejected",
+      operation,
+      "Gemini blocked the response for safety or policy reasons.",
+    );
+  }
 
   const status = readStatus(error);
 

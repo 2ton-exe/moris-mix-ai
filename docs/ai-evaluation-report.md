@@ -4,7 +4,7 @@ Status: **AI-09 (Sprint 3)**. Measured results for the AI failure contract and t
 versioned evaluation set. The fixtures themselves are documented in
 [AI evaluation fixtures](ai-evaluation.md).
 
-- Dataset: `EVALUATION_DATASET` **2.1.0**
+- Dataset: `EVALUATION_DATASET` **2.1.1**
   (`supabase/functions/_shared/ai/eval_dataset.ts`)
 - Model: `AI_MODEL` override, otherwise the pinned `gemini-3.5-flash-lite`
 - Report date: **2026-10-31**
@@ -41,16 +41,17 @@ existing deterministic contract tests in the same suite.
 | Timeout / abort | `504` | `AI_TIMEOUT` | one bounded retry (2 calls asserted) | No |
 | Provider outage (`5xx`) | `503` | `AI_UNAVAILABLE` | one bounded retry (2 calls asserted) | No |
 | Malformed / non-JSON output | `502` | `AI_OUTPUT_INVALID` | not retried (1 call asserted) | No |
-| Provider safety block (`4xx`) | `502` | `AI_PROVIDER_REJECTED` | not retried (1 call asserted) | No |
+| Provider safety block (SDK blocked response) | `502` | `AI_PROVIDER_REJECTED` | not retried (1 call asserted) | No |
 | Schema-invalid output | `502` | `AI_OUTPUT_INVALID` | not retried | No |
 | Orphan substitution | `502` | `AI_OUTPUT_INVALID` | not retried | No |
 | Parent ID outside candidates | `502` | `AI_OUTPUT_INVALID` | not retried | No |
 | Rate limit (`429`) | `429` | `AI_RATE_LIMITED` | one retry when the cooldown fits | No |
 | Unexpected exception | `500` | `INTERNAL_ERROR` | not retried | No |
 
-Recoverable errors carry a `Retry-After` header when the provider supplied a
-cooldown; permanent failures never do. Error bodies contain no prompt text,
-recipe text, provider detail, stack traces or file paths.
+Provider rate-limit errors carry a `Retry-After` header, using the provider
+cooldown when available and a default otherwise. Outages and timeouts do not;
+permanent failures never do. Error bodies contain no prompt text, recipe text,
+provider detail, stack traces or file paths.
 
 The successful paths are also checked: extraction and generation return a
 validated preview and never write a recipe, lineage or usage row. Generation is
@@ -68,6 +69,10 @@ provider failure fixtures follow the documented recoverable-error contract ... o
 ok | 4 passed | 0 failed
 ```
 
+Version 2.1.1 corrects the `pf-08` safety-block fixture to throw the SDK's real
+`GoogleGenerativeAIResponseError`, which has no HTTP status; its expectation is
+unchanged.
+
 Coverage: **14 extraction cases, 8 generation cases and 8 provider-failure
 cases** (30 total). Every valid case asserts ingredient recall, declared exact
 amounts (quantity, unit and `inferred`), `quantityText` for vague amounts,
@@ -76,7 +81,7 @@ asserts the exact `AIError` code and field path. Chef candidates are recomputed
 with BE-10's `computeIngredientOverlap` before they are accepted.
 
 The full deterministic Edge/API suite (exact `ci.yml` command) is
-**264 passed / 0 failed / 5 ignored** at the time of this report. The five
+**265 passed / 0 failed / 5 ignored** at the time of this report. The five
 ignored tests are the opt-in live PostgreSQL hosted-integration checks; none is
 an AI failure test.
 

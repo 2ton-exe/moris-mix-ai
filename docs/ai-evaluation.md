@@ -17,7 +17,7 @@ in the [AI failure evaluation report](ai-evaluation-report.md).
 ## Dataset
 
 - File: `supabase/functions/_shared/ai/eval_dataset.ts`
-- Version: `EVALUATION_DATASET.version` (`2.1.0`). Bump it whenever a case is
+- Version: `EVALUATION_DATASET.version` (`2.1.1`). Bump it whenever a case is
   added, removed, or changes its expectation.
 - Everything is **synthetic**: invented notes, invented recipes, invented IDs.
   Never put real user data, tokens, or secrets in this file.

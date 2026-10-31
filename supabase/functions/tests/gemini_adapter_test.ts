@@ -1,6 +1,7 @@
 import {
   GoogleGenerativeAIError,
   GoogleGenerativeAIFetchError,
+  GoogleGenerativeAIResponseError,
 } from "npm:@google/generative-ai@0.21.0";
 import {
   assertEquals,
@@ -515,6 +516,27 @@ Deno.test("a 4xx mentioning quota is rejected, not treated as a rate limit", asy
 
   assertEquals(error.code, "provider_rejected");
   assertEquals(calls, 1);
+});
+
+Deno.test("extractRecipe maps the SDK's blocked-response error to provider_rejected without retrying", async () => {
+  let calls = 0;
+  const adapter = adapterWith(async () => {
+    calls += 1;
+    // This is exactly what `response.text()` throws on a 200 response whose
+    // prompt or candidate Gemini blocked. It deliberately has no HTTP status.
+    throw new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
+      promptFeedback: { blockReason: "SAFETY" },
+    });
+  });
+
+  const error = await assertRejects(
+    () => adapter.extractRecipe({ rawText: NOTES }),
+    AIError,
+  );
+
+  assertEquals(error.code, "provider_rejected");
+  assertEquals(error.retryable, false);
+  assertEquals(calls, 1, "a safety block must not consume the bounded retry");
 });
 
 Deno.test("extractRecipe does not retry invalid output", async () => {
