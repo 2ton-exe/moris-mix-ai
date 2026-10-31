@@ -225,9 +225,13 @@ jobs and conclusions with the migration evidence.
    `needs.frontend.outputs.exists == 'true'`, and runs only on main pushes
    or manual dispatches. The reusable E2E workflow has separate successful
    PR evidence, but the updated combined main gate remains unverified.
-4. Final production cutover still depends on staging/preview delivery in
-   [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76), which remains
-   open until PR #88 is reviewed, merged, and its merged-main state is verified.
+4. At that historical Stage 2A checkpoint, final production cutover still depended
+   on staging/preview delivery in [#76](https://github.com/2ton-exe/moris-mix-ai/issues/76),
+   which was still open while PR #88 awaited review, merge, and merged-main verification.
+   Currently, #76 is completed/closed, PR #88 is merged, and its merged-main
+   verification is authoritative. CI #290 provides the production runtime-smoke
+   evidence recorded in the deployment runbook; it does not prove authenticated
+   recipe CRUD or independent runtime-observed source provenance.
    Successful automated staging deployment and combined smoke have executed on
    PR #88; controlled configuration-failure evidence was collected in temporary
    PR #119. Hosted runtime-response failure was not separately exercised.
@@ -255,9 +259,13 @@ the ruleset/check-context handoff, production deployment ownership transfer,
 use of `reusable-cloudflare.yml` by the modular main caller, or retirement/removal
 of `ci.yml`; all remain pending. Staging/preview delivery from #76 has successful
 automated deployment and combined smoke evidence on PR #88 and completed
-controlled configuration-failure evidence from temporary PR #119. Issue #76
-remains open pending PR #88 review, merge, and merged-main verification; its
-changes are not yet authoritative main state.
+controlled configuration-failure evidence from temporary PR #119. At that historical
+Stage 2A checkpoint, issue #76 was still open while PR #88 awaited review, merge,
+and merged-main verification; its changes were not yet authoritative main state.
+Currently, #76 is completed/closed, PR #88 is merged, and its merged-main verification
+is authoritative. CI #290 provides the production runtime-smoke evidence recorded
+in the deployment runbook; it does not prove authenticated recipe CRUD or independent
+runtime-observed source provenance.
 BE-06 adds recipe/API validation and guarded migrations
 for optional hosted non-production test-database integration.
 Stage 2A's modular workflows perform no production deployment or production
@@ -318,11 +326,19 @@ content, not independent runtime-observed frontend source provenance. Exact
 provenance would require separate design, such as an embedded build revision,
 build metadata endpoint, or artifact fingerprint/digest; none is implemented here.
 
-Issue #61 remains incomplete: production runtime smoke after merge has not yet
-executed. Deployment success does not establish production runtime verification.
-Production runtime smoke after merge, production `demo-recipe` revision
-evidence/configuration, and broader
-authenticated CRUD/runtime journeys remain pending; see the
+At the historical Stage 2A checkpoint described above, before PR #88 merged and
+CI #290 ran, issue #61 was incomplete and post-merge production runtime smoke
+had not executed. Deployment success alone did not establish production runtime
+verification.
+
+Current verified status: [issue #61](https://github.com/2ton-exe/moris-mix-ai/issues/61)
+is completed/closed. [PR #88](https://github.com/2ton-exe/moris-mix-ai/pull/88) merged,
+and [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750)
+successfully executed production runtime smoke, verifying the deployed frontend
+HTML, its referenced JavaScript asset, and the approved public `demo-recipe`
+API/database response. This does not prove authenticated recipe CRUD or
+independent runtime-observed backend/frontend source provenance; broader
+authenticated CRUD/runtime journeys remain unverified. See the
 [deployment runbook](deployment-runbook.md#shared-runtime-smoke-setup-76-and-61)
 for prerequisite configuration, backend revision attestation limits, and recovery.
 This change adds no path filters, pipeline optimizations, provider-resource

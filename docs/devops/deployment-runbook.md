@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The production `recipes` deployment executed successfully through validated main; this does not establish production runtime smoke or full authenticated CRUD. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
 ## 1. Purpose
 
@@ -70,7 +70,7 @@ A green workflow alone is not considered sufficient deployment evidence. The rel
 
 PR #81 introduces frontend staging delivery through `.github/workflows/modular-pr-validation.yml` and `.github/workflows/reusable-staging.yml`. This describes the configured PR path, not evidence that the remaining #76 verification work is complete.
 
-PRs targeting `main` run the normal Frontend / Database / Edge API validations. After all three modular validation jobs succeed, trusted, non-draft PRs can deploy to staging. The staging gate requires a source branch in this repository and an author association of `OWNER`, `MEMBER`, or `COLLABORATOR`. Draft and fork PRs do not deploy staging. The modular PR workflow handles `opened`, `synchronize`, `reopened`, and `ready_for_review` events.
+PRs targeting `main` run the normal Frontend / Database / Edge API validations. After all three modular validation jobs succeed, non-draft PRs whose source branch is in this repository can deploy to staging; author-association labels do not affect eligibility. Draft and fork PRs do not deploy staging. Same-repository source branches can be updated only by repository writers, so keep repository write access restricted to trusted collaborators; this is the trust boundary for staging's Cloudflare deployment credentials. The GitHub `staging` environment does not require reviewer approval. The modular PR workflow handles `opened`, `synchronize`, `reopened`, and `ready_for_review` events.
 
 The reusable workflow builds the frontend in the isolated GitHub `staging` environment and deploys to the Cloudflare Worker `moris-mix-ai-staging` with `wrangler deploy --config wrangler.jsonc --env staging`. The target is explicitly named in `wrangler.jsonc` under `env.staging.name`; the workflow also guards `STAGING_WORKER_NAME`. The workflow concurrency group `moris-mix-staging` serializes staging deployment and its dependent smoke job, with `cancel-in-progress: false`, so another run cannot replace the staging deployment while its smoke check is running.
 
@@ -262,7 +262,7 @@ Evidence status:
 - Approved demo user/recipe bootstrap: manually applied to staging.
 - API/database runtime path: manually verified.
 - Automated GitHub staging deployment and combined HTML/JavaScript/public demo API/database smoke: **executed and passed on PR #88**, separately from the manual checks above.
-- Production smoke: **not yet executed**.
+- Production smoke: **executed and passed on merged main in CI #290**, separately from these earlier staging checks; see the merged-main evidence below.
 - Controlled automated staging configuration-failure evidence: **completed in temporary PR #119**; hosted runtime-response failure was not separately exercised.
 
 These manual corrections are not automated by this DevOps change. Durable table
@@ -302,12 +302,12 @@ workflow can redeploy, so inspect the failing step before retrying.
 
 ### PR #88 validation and controlled configuration-failure evidence
 
-The latest verified implementation head before this documentation cleanup was
+The historical pre-merge implementation head verified during the earlier documentation cleanup was
 `011653a0a2f1ee81192eab5e3c034250cf9a7e3c`, containing Belen's review fix:
 `fix(devops): accept optional ingredient quantityText strings in runtime smoke validation`.
 That fix accepts the API contract's optional string `quantityText` while preserving
 strict fixed-field validation; this documentation cleanup does not modify it or
-imply Belen has approved the PR. Final human re-review remains separate.
+supply human approval evidence. At that pre-merge point, final human re-review remained separate.
 
 At that head, **CI #259** passed Frontend Checks (including PR Secretary regression
 tests and offline runtime-smoke verifier tests), Database Tests, Edge/API Tests,
@@ -339,9 +339,10 @@ Ramos's Finding 1 is technically valid and remains a known evidence limitation;
 this experiment does not exercise every runtime smoke failure mode.
 
 Controlled configuration-failure evidence has been collected successfully.
-Issue #76 remains open until PR #88 is reviewed, merged, and its merged-main
-state is verified; PR #88 remains unmerged, so these changes are not yet
-authoritative main state. Record actual composed check names before considering
+At that historical pre-merge checkpoint, issue #76 still awaited PR #88 review,
+merge, and merged-main verification. PR #88 has since merged as
+`4cfaf2d5c70634e5c849f34c51668dd1432d8b63`; CI #290 and Modular Main Validation #18
+passed on that release. Record actual composed check names before considering
 any required-check change.
 
 CodeRabbit's review of that implementation head reported no actionable current-head comments,
@@ -356,10 +357,28 @@ not executed here. Generic Generate docstrings, Generate unit tests, and Autofix
 features are not independent blockers; existing tests include the `quantityText`
 regression. No workflow or unrelated code/test changes are included.
 
-Issue #61 remains incomplete. Production runtime smoke remains pending after merge.
-Before closing #61, collect a real gated main deployment with separate successful
-Supabase/Cloudflare command results and successful production runtime smoke,
-including summary and artifact. Local tests do not supply that evidence. The
+### Merged-main production deployment and runtime evidence (2026-10-30)
+
+PR #88 merged as `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`.
+[CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750)
+passed Frontend Checks, Database Tests, Edge/API Tests, Hosted RLS Integration,
+Playwright E2E, and Deploy to Supabase and Cloudflare. Modular Main Validation
+#18 also passed. The production job successfully completed configuration
+validation, frontend dependency installation/build, `recipes` Edge Function
+deployment, Cloudflare Workers deployment, production deployment URL verification,
+**Production runtime smoke**, deployment/runtime outcome recording, and runtime
+evidence preservation.
+
+The retained artifact is `production-runtime-smoke-41007655750-1`, ID
+[`12955704435`](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750/artifacts/12955704435).
+This is successful automated post-deployment production runtime-smoke evidence
+for the merged #88 release: production frontend HTML, its referenced JavaScript
+asset, and the approved public `demo-recipe` API/database-backed response passed.
+The earlier pending merged-main deployment/runtime evidence for #61 is now recorded;
+this does not assert issue closure or full authenticated recipe CRUD verification.
+The backend source revision remains **operator-attested; not observed from runtime**,
+and successful Gemini generation is not established. This run is deployment/runtime
+evidence, not another optimization sample or a merge-to-live measurement. The
 #73 modular production ownership cutover remains separate; `ci.yml` stays active.
 
 ## 4. Repository Structure
@@ -430,7 +449,7 @@ The verified current GitHub ruleset requirements include:
 - Force pushes are blocked.
 - Branch deletion is restricted.
 
-The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. All three required validation jobs are also dependencies of production deployment in the subsequent main run.
+The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. All three required PR validation jobs are also dependencies of production deployment in the subsequent main run, alongside `test-hosted-rls`; the current production gate requires `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`.
 
 Development should take place on feature branches. Approved changes are merged into `main` through GitHub's pull request interface.
 
@@ -574,9 +593,9 @@ Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed
 | Gate Test - Intentional Database Failure | Failure by design |
 | Gate Test - Would Deploy | Skipped |
 
-The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the production deploy gate's three-dependency structure. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the historical production deploy gate's three-dependency structure in effect when PR #68 ran. The current production gate has four dependencies: `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
 
-The evidence chain is production configuration (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
+The historical evidence chain is the production configuration in effect for the PR #68 experiment (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
 
 Normal CI run #98 on the same PR completed Frontend Checks, Database Tests, and Edge/API Tests successfully; Deploy to Cloudflare was skipped because this was a PR. Run #98 is PR validation evidence, not production deployment evidence. Neither the controlled experiment nor the unusually delayed workflow runs associated with PR #68 are added to a performance baseline; no comparable-duration justification or performance optimization is claimed.
 
@@ -650,7 +669,7 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 - Confirm the actual deployment step executed rather than being skipped.
 - Confirm `frontend/package.json` exists on `main`.
-- Confirm the unified CI workflow ran for the expected commit, all three validation jobs succeeded, and the frontend-existence output is true.
+- Confirm the unified CI workflow ran for the expected commit, the `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls` jobs all succeeded, and the frontend-existence output is true.
 - Inspect the Wrangler deployment output.
 - Inspect the latest Cloudflare Worker deployment.
 - Check the production URL independently.
@@ -679,7 +698,7 @@ A rollback procedure must not be described as verified until an actual rollback 
 
 ## 13. Pipeline Metrics
 
-Pipeline performance is recorded in `docs/devops/pipeline-metrics.md`.
+Weekly/sprint performance and evidence-recording responsibilities are maintained in [pipeline-metrics.md](pipeline-metrics.md). Use the [optimization log](optimization-log.md) for controlled before/after experiments and the [incident log](incident-log.md) for genuine incidents/postmortems. This runbook owns deploy, smoke, rollback and recovery procedures; GitHub Actions runs remain raw execution evidence and issues/PRs retain task-specific acceptance/review records. The Sprint 2 headless-shell result concerns a sampled E2E job, not whole-pipeline or merge-to-live performance.
 
 Tracked measurements include:
 
@@ -715,7 +734,7 @@ The following limitations or pending items remain:
 - Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
-- The production `recipes` deployment executed successfully through validated main; this does not establish PR #88 production runtime smoke. Production runtime smoke remains pending until an actual gated merged-main deployment executes after PR #88 is merged; broader authenticated CRUD/runtime journeys also remain pending under [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61).
+- The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
 - On 2026-10-30, production `demo-recipe` preflight was reconciled separately: only `demo-recipe` was targeted for deployment to project `gtbwblxskctpsqhbpebg` from reviewed source `d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` using the repository-pinned Supabase CLI 2.122.0 and the explicit production project reference. Supabase subsequently reported the function as ACTIVE version 2 with `verify_jwt=false`; the deployed bundle contains the reviewed `.eq("is_public", true)` boundary, and a post-deployment GET returned HTTP 200 for recipe `11111111-1111-1111-1111-111111111111` (`Classic Tomato Scraps Pasta`). Repository variables `PRODUCTION_FRONTEND_URL=https://moris-mix-ai.diofelgwenharesco.workers.dev` and `PRODUCTION_DEMO_RECIPE_REVISION=d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` are operator-confirmed configured, not independently API-observed through the GitHub connector. The backend revision remains operator-attested rather than runtime-observed; this is production preflight evidence, not PR #88 production runtime-smoke evidence.
 - A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
 - Production rollback and recovery procedures have not yet been tested.
