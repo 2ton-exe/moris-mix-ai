@@ -16,7 +16,7 @@ import {
   SIMULATE_OUTAGE_ENV,
 } from "../_shared/ai/drills.ts";
 import { MOCK_EXTRACTED_RECIPE, MOCK_GENERATED_RECIPE } from "../_shared/ai/mocks.ts";
-import { AIError, GeminiAdapter, type AIErrorCode, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
+import { AIError, GeminiAdapter, type AIErrorCode } from "../_shared/ai/GeminiAdapter.ts";
 import type {
   AIProvider,
   GenerateRecipeContext,
@@ -2264,6 +2264,119 @@ Deno.test("Mixed retries with 429 followed by 503 confirms generate quota withou
   assertEquals(reconciledReservations.length, 0);
   assertEquals(confirmedReservations[0], consumedReservations[0]);
 });
+
+Deno.test("Mixed retries with 503 followed by 429 confirms generate quota without refund using GeminiAdapter", async () => {
+  let attemptsCount = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      attemptsCount++;
+      if (attemptsCount === 1) {
+        throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+      }
+      throw Object.assign(new Error("Rate limit exceeded"), { status: 429 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const consumedReservations: string[] = [];
+  const confirmedReservations: string[] = [];
+  const reconciledReservations: string[] = [];
+
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => {
+      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onConfirm: (body) => {
+      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+    onReconcile: (body) => {
+      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+    },
+  });
+
+  const res = await handler(
+    generateRequest(validBody()),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      buildContext: contextReturning(MATCHED_CONTEXT),
+      provider: adapter,
+    },
+  );
+
+  assertEquals(res.status, 429);
+  assertEquals((await res.json()).error?.code, "AI_RATE_LIMITED");
+  assertEquals(attemptsCount, 2);
+  assertEquals(consumedReservations.length, 1);
+  assertEquals(confirmedReservations.length, 1);
+  assertEquals(reconciledReservations.length, 0);
+  assertEquals(confirmedReservations[0], consumedReservations[0]);
+});
+
+for (const blockKind of ["prompt", "candidate"]) {
+  Deno.test(`SDK ${blockKind} safety block confirms generate quota without refund using GeminiAdapter`, async () => {
+    let attemptsCount = 0;
+    let textCalls = 0;
+    const client = {
+      getGenerativeModel: () => ({
+        generateContent: async () => {
+          attemptsCount++;
+          return {
+            response: {
+              candidates: blockKind === "candidate"
+                ? [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }]
+                : undefined,
+              text: () => {
+                textCalls++;
+                throw new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
+                  promptFeedback: { blockReason: "SAFETY" },
+                });
+              },
+            },
+          };
+        },
+      }),
+    } as unknown as GoogleGenerativeAI;
+    const adapter = new GeminiAdapter({ client, log: () => {}, sleep: async () => {} });
+
+    const consumedReservations: string[] = [];
+    const confirmedReservations: string[] = [];
+    const reconciledReservations: string[] = [];
+
+    const { fetchImpl } = createFetchMock({
+      onConsume: (body) => {
+        consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      },
+      onConfirm: (body) => {
+        confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      },
+      onReconcile: (body) => {
+        reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      },
+    });
+
+    const res = await handler(
+      generateRequest(validBody()),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        buildContext: contextReturning(MATCHED_CONTEXT),
+        provider: adapter,
+      },
+    );
+
+    assertEquals(res.status, 502);
+    assertEquals((await res.json()).error?.code, "AI_PROVIDER_REJECTED");
+    assertEquals(attemptsCount, 1);
+    assertEquals(textCalls, blockKind === "prompt" ? 1 : 0);
+    assertEquals(consumedReservations.length, 1);
+    assertEquals(confirmedReservations.length, 1);
+    assertEquals(reconciledReservations.length, 0);
+    assertEquals(confirmedReservations[0], consumedReservations[0]);
+  });
+}
 
 Deno.test("Definite non-consuming 429 rate limit across retries refunds generate quota reservation using GeminiAdapter", async () => {
   let attemptsCount = 0;

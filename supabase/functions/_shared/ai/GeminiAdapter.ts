@@ -532,6 +532,9 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
       "provider_rejected",
       operation,
       "Gemini blocked the response for safety or policy reasons.",
+      undefined,
+      undefined,
+      false,
     );
   }
 
