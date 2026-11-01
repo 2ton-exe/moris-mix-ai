@@ -92,8 +92,18 @@ export const GATES = [
 function gateChecks(checks, workflow, name) {
   const aliases = [name];
   if (name.startsWith('Modular Staging / ')) aliases.push('Modular Staging');
+  if (name.startsWith('Modular E2E / ')) aliases.push('Modular E2E');
   return checks.filter(c => aliases.includes(c.name) && (!c.workflow || c.workflow === workflow) &&
     (!c.app || c.app.slug === 'github-actions') && !c.context);
+}
+
+function docsOnlySkip(checks, check) {
+  return Number.isSafeInteger(check?.run_id) && checks.some(c =>
+    c.name === 'Classify PR paths' && c.workflow === 'Modular PR Validation' &&
+    c.app?.slug === 'github-actions' && c.run_id === check.run_id &&
+    c.status === 'completed' && c.conclusion === 'success' &&
+    c.steps?.some(s => s.name === 'Record documentation-only E2E/staging skips' &&
+      s.status === 'completed' && s.conclusion === 'success'));
 }
 
 export function codeRabbit({ comments = [], reviews = [], inlineComments = [], threads = [], threadsAvailable = true }, sha, paths) {
@@ -171,6 +181,7 @@ export function summarize(data) {
     const check = unexpectedProduction ?? evidence[0];
     const staging = label.startsWith('Staging');
     const expectedSkip = label === 'Production deploy' || (staging && !stagingEligible(pr, repository)) ||
+      ((staging || label === 'E2E (non-gating)') && docsOnlySkip(checks, check)) ||
       label === 'Hosted RLS';
     const applicable = pr.base.ref === 'main';
     const state = normalize(check, { expectedSkip, applicable });
@@ -417,6 +428,7 @@ export async function collect(api, number, repository) {
   }))).flat();
   const namesForActiveRuns = new Set(GATES.filter(g => newest.some(r => r.name === g[1])).map(g => g[2]));
   if (newest.some(r => r.name === 'Modular PR Validation')) namesForActiveRuns.add('Modular Staging');
+  if (newest.some(r => r.name === 'Modular PR Validation')) namesForActiveRuns.add('Modular E2E');
   const checks = [...runChecks, ...checkRuns.filter(c => !namesForActiveRuns.has(c.name)),
     ...statuses.filter((c, i, all) => all.findIndex(s => s.context === c.context) === i).map(c => ({ ...c, name: c.context }))];
   return { pr, repository, paths: sorted(files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean))),

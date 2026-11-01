@@ -1,0 +1,7 @@
+# CI/CD validation policy requires independent review.
+# GitHub evaluates CODEOWNERS from the pull request base branch.
+
+/.github/CODEOWNERS @DaeSaster @myntchoc
+/.github/workflows/** @DaeSaster @myntchoc
+/scripts/ci-path-classifier.mjs @DaeSaster @myntchoc
+/scripts/ci-path-classifier.test.mjs @DaeSaster @myntchoc
