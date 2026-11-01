@@ -44,7 +44,7 @@ export function relationships(body, native = []) {
       continue;
     }
     if (fence || /^(?: {4}|\t|\s*>)/.test(line)) continue;
-    const heading = line.match(/^\s{0,3}(#{1,6})\s+(\S.*)?$/);
+    const heading = line.match(/^\s{0,3}(#{1,6})(?:\s+(\S.*)?)?$/);
     if (heading) {
       const level = heading[1].length;
       const content = (heading[2] ?? '').trimEnd();

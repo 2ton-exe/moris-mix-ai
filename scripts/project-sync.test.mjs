@@ -101,6 +101,21 @@ test('ATX levels, indentation and marker spacing preserve relationship boundarie
   }
 });
 
+test('bare ATX heading ends a Related Issue section', () => {
+  assert.deepEqual(relationships('## Related Issue\n#147\n##\n#999'), [147]);
+});
+
+for (let level = 1; level <= 6; level++) {
+  test(`bare ATX level ${level} preserves section boundaries with valid indentation`, () => {
+    for (let indent = 0; indent <= 3; indent++) {
+      for (const trailing of ['', '   ', '\t']) {
+        const heading = ' '.repeat(indent) + '#'.repeat(level) + trailing;
+        assert.deepEqual(relationships(`###### Related Issue\n#147\n${heading}\n#999`), [147]);
+      }
+    }
+  });
+}
+
 test('adversarial headings finish promptly without recognizing unrelated references', () => {
   const moduleURL = new URL('./project-sync.mjs', import.meta.url).href;
   const script = `import { relationships } from ${JSON.stringify(moduleURL)};
