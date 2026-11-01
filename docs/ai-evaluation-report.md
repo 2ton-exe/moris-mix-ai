@@ -60,8 +60,10 @@ permanent failures never do. Error bodies contain no prompt text, recipe text,
 provider detail, stack traces or file paths.
 
 The successful paths are also checked: extraction and generation return a
-validated preview and never write a recipe, lineage or usage row. Generation is
-a stateless preview; saving remains an explicit later call.
+validated preview and write no recipe or lineage row. At the AI-09 baseline
+(`0aeaaea`) that also meant no usage row; since BE-12 the endpoints record
+quota usage and confirm the reservation on success. Generation is a stateless
+preview; saving remains an explicit later call.
 
 ## Versioned dataset results
 
@@ -144,8 +146,9 @@ This matches the historical 3/3 note in the adapter's model-selection comment.
   error shapes can differ.
 - **No latency benchmark.** The suite asserts behavior and error codes, not
   response-time percentiles.
-- **Quota accounting is read-only.** AI-17's atomic usage accounting is tracked
-  separately (BE-12); this report does not claim quota writes.
+- **Quota accounting was out of scope.** At the baseline the quota gate was
+  read-only; BE-12 later added atomic reservations and usage counters, covered
+  by its own hosted tests. This report makes no claims about quota settlement.
 
 ## Reproduction
 
