@@ -150,12 +150,20 @@ artifact steps retain their `always()` behavior without turning the release gree
 
 `scripts/ai-route-smoke.mjs` pins its HTTPS origin to the production project in
 `supabase/config.toml` and checks both `/functions/v1/extract-recipe` and
-`/functions/v1/generate-recipe`. For each route, OPTIONS must return HTTP 204 with
-a valid non-empty allowed origin, exactly POST/OPTIONS allowed methods, all four
+`/functions/v1/generate-recipe`. The required `AI_ROUTE_SMOKE_FRONTEND_URL` comes
+from `PRODUCTION_FRONTEND_URL` and must be a bare HTTPS origin. OPTIONS simulates
+the production browser preflight: it sends that Origin, requests POST and the
+four shared request headers, and must return HTTP 204 with
+an allowed origin of `*` or exactly the production frontend origin, exactly
+POST/OPTIONS allowed methods, all four
 shared allowed headers (`authorization`, `x-client-info`, `apikey`, `content-type`),
-and `X-Content-Type-Options: nosniff`. Configured origins are supported; `*` is not
-required. POST without Authorization must return HTTP 401 with the application's exact
-`UNAUTHORIZED` response and `Missing or invalid Authorization header.` message.
+and `X-Content-Type-Options: nosniff`. POST sends the same production frontend
+Origin without Authorization and must return HTTP 401 with JSON content type,
+the application's exact `UNAUTHORIZED` response and
+`Missing or invalid Authorization header.` message. Its allowed origin must also
+be `*` or exactly the production frontend origin so the browser can observe the
+401. Both requests send `Cache-Control: no-cache`; `null` and unrelated origins
+fail either response check.
 A missing-route 404, unexpected 2xx, gateway-shaped 401, malformed error body,
 redirect, network error, or timeout fails verification. Each of the four probes
 has a 10-second timeout; there are no retries or authenticated probes.
@@ -365,8 +373,9 @@ checks do not establish that backend code matches the PR merge SHA, prove all
 backend functions, or cryptographically identify served frontend bytes. The
 frontend SHA records the checked-out build/deployment input; the smoke verifies
 the deployed origin and referenced bundle. Production smoke stays inside the
-`cloudflare-production` deployment lock, after both deployment commands and URL
-verification succeed. Staging keeps the existing workflow-wide lock and trust gate.
+`cloudflare-production` deployment lock, after all three Supabase deployments,
+Cloudflare deployment, URL verification, and AI route smoke succeed. Staging
+keeps the existing workflow-wide lock and trust gate.
 
 ### Manual staging backend evidence (2026-10-28)
 
@@ -659,14 +668,22 @@ The workflow currently has no push path filter: docs-only main pushes can also p
 
 ### Deployment Steps
 
-1. Changes are reviewed and merged into `main`; the resulting push event triggers Modular Main Validation. Alternatively, use a permitted `workflow_dispatch` run on `main`.
-2. Frontend, database, Edge/API, and hosted RLS validation run; Playwright E2E runs separately and is non-gating.
-3. Confirm every `production.needs` job succeeded and the frontend-existence output is true.
-4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
-5. Supabase CLI deploys only `recipes` with gateway JWT verification disabled, matching `supabase/config.toml` so the handler enforces authentication.
-6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
-7. Confirm both deployment steps executed. The workflow then checks the Wrangler deployment URL against `PRODUCTION_FRONTEND_URL` and runs the shared runtime verifier. Deployment-command outcomes and runtime smoke are separate summary entries; a smoke failure fails the delivery job after deployment and does not roll it back.
-8. Retain the runtime JSON artifact and summary for [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61). This public demo check does not verify authenticated recipe CRUD.
+Before merge, complete the DEVOPS-10 AI-disabled operator verification above.
+Reviewed changes merged into `main` trigger Modular Main Validation; permitted
+manual dispatch on `main` follows the same production path:
+
+1. Run required frontend, database, Edge/API, and mandatory Hosted RLS validation. Confirm every `production.needs` job succeeded and frontend existence is true. Playwright E2E runs separately and is non-gating.
+2. Validate production deployment configuration, including the Supabase token and project reference.
+3. Install frontend dependencies and build the frontend.
+4. Deploy the explicit `recipes` Edge Function target.
+5. Deploy the explicit `extract-recipe` Edge Function target.
+6. Deploy the explicit `generate-recipe` Edge Function target. All three targets use the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; handlers enforce authentication.
+7. Deploy to Cloudflare only after all three function deployments succeed.
+8. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
+9. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
+10. Run the existing production runtime smoke. Its public demo check does not verify authenticated recipe CRUD.
+11. Inspect the production summary's separate outcomes for recipes, extract-recipe, generate-recipe, Cloudflare, URL verification, AI route smoke, and existing runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
+12. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 

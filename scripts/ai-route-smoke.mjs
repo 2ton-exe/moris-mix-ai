@@ -9,13 +9,13 @@ class SmokeFailure extends Error {}
 const requireValue = (condition, message) => { if (!condition) throw new SmokeFailure(message); };
 const failure = error => error instanceof SmokeFailure ? error.message : 'Network, timeout, or response parsing failure';
 
-function validateCors(headers) {
+function validateAllowedOrigin(headers, frontend) {
   const allowedOrigin = (headers.get('access-control-allow-origin') ?? '').trim();
-  let validOrigin = allowedOrigin === '*' || allowedOrigin === 'null';
-  if (allowedOrigin && !validOrigin) {
-    try { validOrigin = new URL(allowedOrigin).origin === allowedOrigin; } catch { /* Reject invalid origins below. */ }
-  }
-  requireValue(validOrigin, 'Missing or invalid CORS allowed origin');
+  requireValue(allowedOrigin === '*' || allowedOrigin === frontend, 'CORS allowed origin does not permit the production frontend');
+}
+
+function validateCors(headers, frontend) {
+  validateAllowedOrigin(headers, frontend);
   const tokens = name => new Set((headers.get(name) ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
   const methods = tokens('access-control-allow-methods');
   requireValue(methods.size === 2 && methods.has('post') && methods.has('options'), 'Unexpected AI CORS allowed methods');
@@ -25,7 +25,7 @@ function validateCors(headers) {
   requireValue((headers.get('x-content-type-options') ?? '').trim().toLowerCase() === 'nosniff', 'Missing CORS nosniff protection');
 }
 
-/** Pin unauthenticated route probes to the configured production project. */
+/** Validate the production frontend and pin route probes to the configured production project. */
 export function configuration(env) {
   requireValue(shaPattern.test(env.GITHUB_SHA ?? ''), 'Missing tested Git SHA');
   const project = env.AI_ROUTE_SMOKE_PROJECT_REF;
@@ -36,22 +36,30 @@ export function configuration(env) {
   try { url = new URL(env.AI_ROUTE_SMOKE_SUPABASE_URL); } catch { throw new SmokeFailure('Invalid Supabase origin'); }
   requireValue(url.origin === `https://${project}.supabase.co` && !url.username && !url.password &&
     url.pathname === '/' && !url.search && !url.hash, 'Supabase origin/project mismatch');
-  return url.origin;
+  let frontend;
+  try { frontend = new URL(env.AI_ROUTE_SMOKE_FRONTEND_URL); } catch { throw new SmokeFailure('Invalid production frontend origin'); }
+  requireValue(frontend.protocol === 'https:' && !frontend.username && !frontend.password &&
+    frontend.pathname === '/' && !frontend.search && !frontend.hash, 'Expected a bare HTTPS production frontend origin');
+  return { frontend: frontend.origin, api: url.origin };
 }
 
-async function probe(url, method, fetchImpl) {
+async function probe(url, method, frontend, fetchImpl) {
   let httpStatus = null;
   try {
     const response = await fetchImpl(url, {
       method, redirect: 'manual', credentials: 'omit', signal: AbortSignal.timeout(10000),
-      headers: { 'Cache-Control': 'no-cache' },
+      headers: { Origin: frontend, 'Cache-Control': 'no-cache', ...(method === 'OPTIONS' ? {
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'authorization, x-client-info, apikey, content-type',
+      } : {}) },
     });
     httpStatus = response.status;
     requireValue(!response.redirected && (!response.url || response.url === url), 'Unexpected effective URL');
     requireValue(httpStatus === (method === 'OPTIONS' ? 204 : 401),
       method === 'OPTIONS' ? 'Expected HTTP 204 OPTIONS' : 'Expected HTTP 401 unauthenticated POST');
-    if (method === 'OPTIONS') validateCors(response.headers);
+    if (method === 'OPTIONS') validateCors(response.headers, frontend);
     if (method === 'POST') {
+      validateAllowedOrigin(response.headers, frontend);
       const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
       requireValue(type === 'application/json', 'Expected application JSON unauthorized response');
       requireValue(isDeepStrictEqual(await response.json(), unauthorized), 'Unexpected application UNAUTHORIZED contract');
@@ -66,23 +74,23 @@ async function probe(url, method, fetchImpl) {
 export async function runSmoke(env, { fetchImpl = fetch } = {}) {
   const evidence = {
     environment: 'production', tested_sha: shaPattern.test(env.GITHUB_SHA ?? '') ? env.GITHUB_SHA : null,
-    scope: 'Unauthenticated route availability only; no AI execution or quota acceptance claim',
+    scope: 'Production browser CORS and unauthenticated route availability only; no AI execution or quota acceptance claim',
     started_at: new Date().toISOString(), configuration: { outcome: 'not run' },
     routes: Object.fromEntries(routes.map(route => [route, {
       options: { outcome: 'not run' }, unauthenticated_post: { outcome: 'not run' },
     }])),
   };
-  let origin;
+  let origins;
   try {
-    origin = configuration(env);
-    evidence.api_origin = origin;
+    origins = configuration(env);
+    evidence.api_origin = origins.api;
     evidence.configuration = { outcome: 'passed' };
   } catch (error) { evidence.configuration = { outcome: 'failed', error: failure(error) }; }
-  if (origin) {
+  if (origins) {
     for (const route of routes) {
-      const url = `${origin}/functions/v1/${route}`;
-      evidence.routes[route].options = await probe(url, 'OPTIONS', fetchImpl);
-      evidence.routes[route].unauthenticated_post = await probe(url, 'POST', fetchImpl);
+      const url = `${origins.api}/functions/v1/${route}`;
+      evidence.routes[route].options = await probe(url, 'OPTIONS', origins.frontend, fetchImpl);
+      evidence.routes[route].unauthenticated_post = await probe(url, 'POST', origins.frontend, fetchImpl);
     }
   }
   evidence.outcome = evidence.configuration.outcome === 'passed' && Object.values(evidence.routes)

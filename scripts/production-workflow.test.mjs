@@ -200,6 +200,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.deepEqual(aiSmoke.env, {
     AI_ROUTE_SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     AI_ROUTE_SMOKE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+    AI_ROUTE_SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
   });
   assert.equal(step(release, 'Production runtime smoke').id, 'runtime-smoke');
   assert.equal(step(release, 'Production runtime smoke').run, 'node scripts/runtime-smoke.mjs');

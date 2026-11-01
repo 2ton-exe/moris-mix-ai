@@ -168,6 +168,7 @@ jobs:
         env:
           AI_ROUTE_SMOKE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           AI_ROUTE_SMOKE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          AI_ROUTE_SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
         run: node scripts/ai-route-smoke.mjs
 
       # Kept inside the deployment job so cloudflare-production covers smoke too.
