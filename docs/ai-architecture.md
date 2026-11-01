@@ -106,17 +106,21 @@ deduplicated), and ranks candidates:
 3. **Newest first**, then a deterministic id tie-break.
 
 The prompt receives the top candidates (`topK`, default **3**, range 1–10);
-retrieval scans up to `maxCandidates` (default **1000**).
+retrieval scans only the newest `maxCandidates` recipes (default **1000**) and
+reports `truncated: true` when more saved recipes exist beyond that window.
 
 | Status | Meaning |
 | ------ | ------- |
-| `MATCHED` | At least one saved recipe overlaps the pantry; the top matches go into the prompt |
-| `NO_PANTRY_OVERLAP` | Recipes exist, none share an ingredient with the pantry |
+| `MATCHED` | At least one retrieved recipe overlaps the pantry; the top matches go into the prompt |
+| `NO_PANTRY_OVERLAP` | Retrieved recipes exist, but none share an ingredient with the pantry |
 | `NO_SAVED_RECIPES` | Cold start: the user has no saved recipes |
 | `EMPTY_PANTRY` | No pantry items were supplied (the request contract rejects an empty pantry, so this is a defensive state) |
 
-The response reports `matchedCandidateCount` and `totalCandidateCount` so the
-UI can explain why parents are (or are not) available.
+The statuses describe only the scanned window: `NO_PANTRY_OVERLAP` means no
+*retrieved* candidate overlaps, so a matching recipe older than the newest
+1,000 is not found. The response reports `matchedCandidateCount` and
+`totalCandidateCount` for the same window, so the UI can explain why parents
+are (or are not) available.
 
 ### 4.2 Generation — AI-06
 
@@ -142,12 +146,7 @@ Output validation (`GeneratedRecipeSchema`):
   dropped silently. Duplicate IDs collapse to one parent while keeping model
   order.
 
-### 4.3 Save-time candidate membership — AI-07 (planned)
-
-> **Landing note.** AI-07 is in review (PR #143) and is **not on `main` yet**.
-> Until it merges, `POST /generate-recipe` does not return `candidate_token`
-> and `POST /recipes/:id/lineage` does not require one. The design below is the
-> contract this document will carry once it lands.
+### 4.3 Save-time candidate membership — AI-07
 
 Generation runs before the child recipe exists, so the save endpoint cannot ask
 the database which parents the model was allowed to propose. Instead
@@ -330,7 +329,7 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   Supabase client; RLS restricts rows to `auth.uid() = user_id`.
 - **Persistence scope.** Saves run through the user-scoped client; user IDs are
   server-derived; lineage requires ownership of the child and every parent.
-  AI-07 (landing with PR #143) adds the candidate-token check on top.
+  AI-07 adds the candidate-token check on top.
 - **Input caps.** 128 KiB request bodies; extraction notes ≤ 10,000 characters;
   generation pantry ≤ 100 items of ≤ 100 characters and preferences ≤ 1,000.
 - **Output validation.** Responses are Zod-validated before they leave the
@@ -380,7 +379,7 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 | `AI_ENVIRONMENT` | `development`/`test` allows demo drills; production ignores them |
 | `AI_ALLOW_FAILURE_DRILLS` | Master switch for drills |
 | `AI_SIMULATE_OUTAGE` / `AI_SIMULATE_BAD_OUTPUT` | Deterministic demo failures |
-| `AI_CANDIDATE_TOKEN_SECRET` | Signs lineage candidate tokens (AI-07, landing with PR #143; ≥ 32 chars) |
+| `AI_CANDIDATE_TOKEN_SECRET` | Signs lineage candidate tokens (AI-07; ≥ 32 chars) |
 
 Where to look:
 
