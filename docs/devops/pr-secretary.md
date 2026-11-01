@@ -10,11 +10,11 @@ merge, deploy, or change delivery gates.
 ## Architecture and security
 
 The comment workflow remains informational and non-gating. Its deterministic
-regression tests run inside the existing `Frontend Checks` job in authoritative
-`ci.yml` and reusable frontend validation, from the repository root, using Node's
+regression tests run inside `reusable-frontend.yml`, producing the composed
+modular frontend check for each caller, from the repository root, using Node's
 built-in test runner with no added dependencies. A regression fails that existing
-CI check. Required check names, staging and production deployment configuration,
-and branch rules are unchanged.
+modular frontend check. The retirement compatibility update changes the displayed
+workflow/check mapping; staging configuration and branch rules are unchanged.
 
 - `.github/workflows/pr-secretary.yml` resolves event metadata in a read-only job,
   then renders and upserts a comment in a separate per-PR job.
@@ -138,12 +138,12 @@ current-revision human approval gets an Attention item; drafts do not.
 ## Delivery evidence and required checks
 
 Collection reads check runs and commit statuses for the current PR **head SHA**.
-It also reads jobs from the newest head-SHA PR run of the known CI workflow
-paths, so pending/rerunning jobs take precedence over older successful checks.
+It also reads jobs from the newest head-SHA PR run of the Modular PR Validation workflow
+path, so pending/rerunning jobs take precedence over older successful checks.
 Known workflow paths accept GitHub's optional `@ref` suffix while still requiring
 the exact workflow file path before the suffix.
 Nested reusable job names are matched explicitly, including
-`Playwright E2E (Non-gating) / Playwright E2E Tests`, modular validation jobs,
+the three composed modular core validation jobs,
 `Modular E2E / Playwright E2E Tests`, and
 `Modular Staging / Staging Deploy` / `Modular Staging / Staging Smoke`.
 A skipped caller named `Modular Staging` supplies skip evidence for its absent
@@ -155,7 +155,9 @@ The read-only branch-rules endpoint is tried first. Structured active
 `required_status_checks` objects preserve both `context` and `integration_id`
 (represented as `integrationId`) and take precedence. If unavailable (403/404/422)
 or absent, `PROJECT_REQUIRED` is the centralized documented **main-only policy
-fallback**: `Frontend Checks`, `Database Tests`, `Edge/API Tests`. Its source is
+fallback**: `Modular Frontend / Frontend Checks`, `Modular Database / Database Tests`,
+`Modular Edge/API / Edge/API Tests`. This is the intended final policy, not proof
+that GitHub has retired the six-check overlap; live rules still take precedence. Its source is
 `docs/devops/deployment-runbook.md` and `docs/devops/modular-workflows.md`.
 Each fallback entry has `integrationId: null` and `integrationUnverified: true`.
 The comment labels the fallback as live enforcement unconfirmed, and a successful
@@ -202,7 +204,8 @@ Validation success never implies staging or production deployment success.
 
 Expected skips follow the inspected existing workflows:
 
-- **Production:** `Deploy to Cloudflare` runs only on main push/dispatch after
+- **Production:** `Modular Main Production / Deploy to Supabase and Cloudflare`
+  runs only in Modular Main Validation on main push/dispatch after
   validation; only an observed `status: completed`, `conclusion: skipped` is
   expected. Any other observed PR production-job state produces Attention,
   including queued, requested, waiting, in progress, success, failure, cancelled,
@@ -215,12 +218,17 @@ Expected skips follow the inspected existing workflows:
   boundary for same-repository staging branches. An otherwise eligible PR's
   skip is investigated, with an upstream-check reminder; the Secretary does
   not invent credential or deployment evidence.
-- **Hosted RLS:** `ci.yml` skips the separate hosted job on forks. For internal
-  PRs, a skip needs investigation (including upstream Edge/API failure).
-  Missing dedicated hosted credentials cause the separate job to fail closed.
-  Optional hosted-test steps inside Edge/API may skip when credentials are
-  absent; the Secretary neither inspects secrets nor claims those steps ran
-  from their parent job's success.
+- **Hosted RLS:** `Modular Edge/API / Hosted RLS Integration` is a separate
+  main-only job, enabled by the main caller's mandatory input. An observed skip
+  is expected on both internal and fork PRs. Missing main hosted credentials fail
+  closed. Optional hosted-test steps inside Edge/API can skip when credentials
+  are absent; the Secretary does not infer their execution from parent success.
+
+The Secretary workflow-run trigger, run allowlist and collection path now use only
+Modular PR Validation. Main pushes still do not resolve PR summaries; absence of a
+production check on a PR remains NOT RUN, never inferred success. Generic tests
+retain `ci.yml` as a historical changed-file/path fixture without opening it.
+This is retirement compatibility, not a Secretary redesign.
 
 ## CodeRabbit boundary
 

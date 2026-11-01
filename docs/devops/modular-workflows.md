@@ -1,4 +1,67 @@
-# Modular workflow migration (issue #73)
+# Modular workflow architecture and migration evidence - issue #73
+
+## Issue #73 final cleanup proposal (2026-10-31)
+
+Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
+This branch proposes repository cleanup; it is not merged-main verification and
+issue #73 is not complete. No GitHub settings are changed here.
+
+Operator-provided evidence at that main SHA already proves both ownership modes:
+
+| Experiment | Variable | Legacy production | Modular Main Production |
+| --- | --- | --- | --- |
+| Cutover | exact `true` | skipped | successful |
+| Rollback | `false` | successful | skipped |
+
+The modular release passed recipes deployment, Cloudflare deployment, production
+URL verification, runtime smoke, and artifact preservation. The variable was
+subsequently restored to exact `true`; this cleanup does not change it. These are
+operator-confirmed outcomes supplied for this cleanup, not new runs performed by
+this branch; run IDs were not supplied. Earlier run links below remain historical
+evidence for their own revisions.
+
+### Proposed permanent architecture, completed handoff and pending verification
+
+PRs use `modular-pr-validation.yml`; main uses `modular-main.yml`, the sole
+production caller. This branch removes `ci.yml`, the production owner selector,
+owner input/preflight and inert shadow gate. It removes runtime reads of
+`MODULAR_PRODUCTION_ENABLED` without changing the repository variable.
+Successful frontend/database/Edge validation, mandatory hosted RLS on main,
+frontend existence, exact caller identity, main push/manual-only restrictions,
+explicit production secrets, recipes-only targeting, URL verification, runtime
+smoke/evidence, and serialized production concurrency remain. E2E is non-gating.
+
+Operator-confirmed GitHub state (2026-11-01): the `Protect main` ruleset now
+requires exactly these contexts, all tied to the GitHub Actions integration:
+
+- `Modular Frontend / Frontend Checks`
+- `Modular Database / Database Tests`
+- `Modular Edge/API / Edge/API Tests`
+
+The legacy `Frontend Checks`, `Database Tests`, and `Edge/API Tests` requirements
+were removed only after the modular contexts were already required and green on
+PR #142. The planned no-gap handoff is complete. Required human review and
+review-thread resolution remain enabled. PR Secretary uses modular runs and an
+explicitly unconfirmed fallback; live rules take precedence.
+
+The [full cleanup contract and GitHub handoff](../../.github/production-cutover.md#issue-73-final-cleanup-proposal-2026-10-31)
+records production targets, release safeguards, and outstanding verification.
+PR #142 is still unmerged. Its merge, `ci.yml` absence from merged main, and
+automatic Modular Main Validation on the merge SHA remain pending. Verify Hosted
+RLS execution on main, Modular Main Production execution, recipes deployment,
+Cloudflare deployment, production URL verification, runtime smoke and artifact
+preservation. PR Secretary verification from the new default-branch code and
+final issue #73 closure also remain pending. The completed ruleset handoff does
+not establish merged modular production steady state or post-merge success.
+After retirement, a variable flip cannot restore legacy production; rollback
+requires a reviewed repository change. Do not rerun stale production revisions.
+
+## Historical migration record (superseded operational guidance)
+
+The following record preserves earlier preparation, evidence and then-pending
+work. Statements such as "sole legacy owner", "not yet required", and "cutover
+pending" describe those checkpoints, not the proposal above or current policy.
+Do not execute its old variable-switch instructions after legacy retirement.
 
 ## Authority through Stage 2A
 

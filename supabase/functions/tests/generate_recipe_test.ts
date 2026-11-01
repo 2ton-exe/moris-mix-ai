@@ -1,5 +1,9 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  GoogleGenerativeAIResponseError,
+  type GoogleGenerativeAI,
+} from "npm:@google/generative-ai@0.21.0";
+import {
   GENERATE_DISABLED_ENV,
   GENERATE_ENABLED_ENV,
   handler as generateRecipeHandler,
@@ -12,7 +16,7 @@ import {
   SIMULATE_OUTAGE_ENV,
 } from "../_shared/ai/drills.ts";
 import { MOCK_EXTRACTED_RECIPE, MOCK_GENERATED_RECIPE } from "../_shared/ai/mocks.ts";
-import { AIError, type AIErrorCode } from "../_shared/ai/GeminiAdapter.ts";
+import { AIError, type AIErrorCode, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
 import type {
   AIProvider,
   GenerateRecipeContext,
@@ -23,6 +27,14 @@ import type { AuthContext } from "../_shared/auth.ts";
 import type { ChefRecipeContextResult } from "../_shared/ai/schemas.ts";
 import { GenerateRecipeResponseSchema } from "../_shared/ai/schemas.ts";
 import { DEFAULT_AI_DAILY_LIMIT } from "../_shared/ai/quota.ts";
+import {
+  CANDIDATE_TOKEN_AUDIENCE,
+  verifyCandidateToken,
+} from "../_shared/ai/candidateToken.ts";
+
+/** AI-07: every generation test runs with a fixed signing secret. */
+const TEST_CANDIDATE_TOKEN_SECRET = "test-candidate-token-secret-0123456789abcdef";
+Deno.env.set("AI_CANDIDATE_TOKEN_SECRET", TEST_CANDIDATE_TOKEN_SECRET);
 
 const VALID_TEST_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTk5OTk5OS05OTk5LTk5OTktOTk5OS05OTk5OTk5OTk5OTkiLCJlbWFpbCI6InZlcmlmaWVkQG1vcmlzc2NyYXBzLmxvY2FsIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ.signature_segment_ok";
@@ -184,7 +196,8 @@ const MATCHED_CONTEXT: ChefRecipeContextResult = {
     flavor_scores: null,
     star_rating: 5,
     created_at: "2026-10-01T00:00:00.000Z",
-    overlap_ratio: 1,
+    // BE-10: 1 matched ingredient (rice) / 2 unique recipe ingredients.
+    overlap_ratio: 0.5,
     matched_ingredients: ["rice"],
   }],
   totalCandidateCount: 4,
@@ -298,6 +311,20 @@ function assertNoRecipeOrLineageAccess(requests: RecordedRequest[]): void {
       request.path.startsWith("/rest/v1/recipe_lineage"),
   );
   assertEquals(touched, []);
+}
+
+/**
+ * AI-09: retrieval GETs are legitimate, but a failed generation must never
+ * create or mutate a recipe or lineage row.
+ */
+function assertNoRecipeOrLineageWrites(requests: RecordedRequest[]): void {
+  const writes = requests.filter(
+    (request) =>
+      (request.path.startsWith("/rest/v1/recipes") ||
+        request.path.startsWith("/rest/v1/recipe_lineage")) &&
+      request.method !== "GET",
+  );
+  assertEquals(writes, []);
 }
 
 Deno.test("The generate contract defaults to 20 AI operations per day", () => {
@@ -858,6 +885,61 @@ Deno.test("Successful generation returns the validated preview, resolves parents
   }
 });
 
+Deno.test("AI-07: generation returns a candidate token bound to the resolved parents", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  const res = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    provider: providerReturning(MOCK_GENERATED_RECIPE),
+    buildContext: contextReturning(MATCHED_CONTEXT),
+  });
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(typeof body.candidate_token, "string");
+
+  const verified = await verifyCandidateToken(body.candidate_token, {
+    userId: VERIFIED_USER_ID,
+    secret: TEST_CANDIDATE_TOKEN_SECRET,
+  });
+  assertEquals(verified.ok, true);
+  if (!verified.ok) return;
+  assertEquals(verified.claims.sub, VERIFIED_USER_ID);
+  assertEquals(verified.claims.aud, CANDIDATE_TOKEN_AUDIENCE);
+  assertEquals(verified.claims.parent_recipe_ids, [PARENT_ID]);
+  const ttlSeconds = verified.claims.exp - verified.claims.iat;
+  assertEquals(ttlSeconds > 0 && ttlSeconds <= 3600, true);
+  assertNoRecipeOrLineageWrites(requests);
+});
+
+Deno.test("AI-07: generation fails closed before quota or provider when the candidate token secret is missing", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  let quotaCalls = 0;
+  let providerCalls = 0;
+
+  const res = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    candidateTokenSecret: "",
+    quotaCheck: () => {
+      quotaCalls += 1;
+      return Promise.resolve({ status: "allowed", limit: 20, used: 0 });
+    },
+    provider: providerReturning(MOCK_GENERATED_RECIPE, () => {
+      providerCalls += 1;
+    }),
+    buildContext: contextReturning(MATCHED_CONTEXT),
+  });
+
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error?.code, "INTERNAL_ERROR");
+  assertEquals(quotaCalls, 0);
+  assertEquals(providerCalls, 0);
+  assertEquals(requests.map((request) => request.path), ["/auth/v1/user"]);
+});
+
 Deno.test("The endpoint passes the authenticated user and trimmed input to retrieval, and returns its MATCHED context", async () => {
   const { fetchImpl, requests } = createFetchMock();
   const seen: Array<{ user: string; input: GenerateRecipeInput }> = [];
@@ -898,6 +980,7 @@ Deno.test("Cold start with no saved recipes still generates an unsaved preview w
   const body = await res.json();
   assertEquals(GenerateRecipeResponseSchema.safeParse(body).success, true);
   assertEquals(body.parents, []);
+  assertEquals(body.candidate_token, null);
   assertEquals(body.context, {
     status: "NO_SAVED_RECIPES",
     matchedCandidateCount: 0,
@@ -1088,6 +1171,153 @@ Deno.test("Malformed provider output is rejected before the frontend sees it", a
     assertEquals(res.status, 502, testCase.label);
     assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID", testCase.label);
     assertNoDatabaseWrites(requests);
+  }
+});
+
+Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes", async () => {
+  const cases: Array<{
+    label: string;
+    fail: (recordAttempt: () => void) => Promise<string>;
+    status: number;
+    code: string;
+    attempts: number;
+  }> = [
+    {
+      label: "timeout",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        // The SDK aborts the request when its timeout elapses.
+        return Promise.reject(Object.assign(new Error("The operation was aborted."), {
+          name: "AbortError",
+        }));
+      },
+      status: 504,
+      code: "AI_TIMEOUT",
+      // AI-18: one attempt plus one bounded retry, then a recoverable error.
+      attempts: 2,
+    },
+    {
+      label: "provider outage",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        return Promise.reject(Object.assign(new Error("upstream unavailable"), { status: 503 }));
+      },
+      status: 503,
+      code: "AI_UNAVAILABLE",
+      attempts: 2,
+    },
+    {
+      label: "malformed output",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        return Promise.resolve("this is not JSON");
+      },
+      status: 502,
+      code: "AI_OUTPUT_INVALID",
+      // Invalid output is not retried: the same prompt would burn quota again.
+      attempts: 1,
+    },
+    {
+      label: "safety block",
+      fail: (recordAttempt) => {
+        recordAttempt();
+        // The real SDK shape: `response.text()` throws this on a blocked
+        // prompt/candidate, and it carries no HTTP status.
+        return Promise.reject(
+          new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
+            promptFeedback: { blockReason: "SAFETY" },
+          }),
+        );
+      },
+      status: 502,
+      code: "AI_PROVIDER_REJECTED",
+      // A permanent block is never retried (pf-08).
+      attempts: 1,
+    },
+  ];
+
+  for (const path of ENDPOINT_PATHS) {
+    for (const testCase of cases) {
+      const { fetchImpl, requests } = createFetchMock();
+      let attempts = 0;
+      const provider = new GeminiAdapter({
+        generateText: () => testCase.fail(() => {
+          attempts += 1;
+        }),
+        log: () => {},
+        sleep: async () => {},
+      });
+
+      const res = await handler(
+        generateRequest(validBody(), path),
+        {
+          supabaseUrl: TEST_SUPABASE_URL,
+          supabaseAnonKey: TEST_ANON_KEY,
+          fetch: fetchImpl,
+          provider,
+          buildContext: contextReturning(MATCHED_CONTEXT),
+        },
+      );
+
+      const label = `${path} ${testCase.label}`;
+      assertEquals(res.status, testCase.status, label);
+      assertEquals((await res.json()).error?.code, testCase.code, label);
+      assertEquals(attempts, testCase.attempts, `${label}: bounded retry count`);
+      assertNoDatabaseWrites(requests);
+      assertNoRecipeOrLineageWrites(requests);
+    }
+  }
+});
+
+Deno.test("AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTENT block without retrying or writing", async () => {
+  for (const path of ENDPOINT_PATHS) {
+    const { fetchImpl, requests } = createFetchMock();
+    let generateContentCalls = 0;
+    let textCalls = 0;
+    const fakeClient = {
+      getGenerativeModel: () => ({
+        generateContent: () => {
+          generateContentCalls += 1;
+          return Promise.resolve({
+            response: {
+              // SDK 0.21.0 returns empty text for this newer block reason; the
+              // adapter must classify it from the finish reason before reading
+              // text(), otherwise it would surface as AI_OUTPUT_INVALID.
+              candidates: [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }],
+              text: () => {
+                textCalls += 1;
+                return "";
+              },
+            },
+          });
+        },
+      }),
+    } as unknown as GoogleGenerativeAI;
+
+    const provider = new GeminiAdapter({
+      client: fakeClient,
+      log: () => {},
+      sleep: async () => {},
+    });
+
+    const res = await handler(
+      generateRequest(validBody(), path),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider,
+        buildContext: contextReturning(MATCHED_CONTEXT),
+      },
+    );
+
+    const label = `${path} PROHIBITED_CONTENT`;
+    assertEquals(res.status, 502, label);
+    assertEquals((await res.json()).error?.code, "AI_PROVIDER_REJECTED", label);
+    assertEquals(generateContentCalls, 1, `${label}: a blocked candidate must not be retried`);
+    assertEquals(textCalls, 0, `${label}: the adapter must not read text() for a blocked candidate`);
+    assertNoDatabaseWrites(requests);
+    assertNoRecipeOrLineageWrites(requests);
   }
 });
 

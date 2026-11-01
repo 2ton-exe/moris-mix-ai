@@ -11,7 +11,7 @@ import type { ChefRecipeContextResult, RankedRecipeContextItem } from "./schemas
  * Bump `version` whenever a case is added, removed or changes its expectation.
  * Prompt versions are recorded separately in `prompts.ts`.
  */
-export const EVALUATION_DATASET_VERSION = "2.1.0";
+export const EVALUATION_DATASET_VERSION = "2.1.1";
 
 /** How a simulated model response must behave once it reaches the parsers. */
 export type ExtractionExpectation =
@@ -103,7 +103,7 @@ export type ProviderFailureEvalCase = {
   id: string;
   /** Shape of the thrown provider failure, re-created by the test at runtime. */
   thrown: {
-    errorType: "Error" | "TypeError";
+    errorType: "Error" | "TypeError" | "GoogleGenerativeAIResponseError";
     message: string;
     status?: number;
     name?: string;
@@ -663,11 +663,12 @@ export const PROVIDER_FAILURE_EVAL_CASES: ProviderFailureEvalCase[] = [
   {
     id: "pf-08-safety-block-rejection",
     // A blocked response is permanent: the adapter must classify it as
-    // provider_rejected and never spend the one bounded retry on it.
+    // provider_rejected and never spend the one bounded retry on it. Real
+    // blocks arrive as a 200 response whose `text()` throws the SDK's
+    // response error, which has no HTTP status.
     thrown: {
-      errorType: "Error",
-      message: "Response blocked by provider safety settings",
-      status: 400,
+      errorType: "GoogleGenerativeAIResponseError",
+      message: "Response was blocked due to SAFETY",
     },
     expect: { errorCode: "provider_rejected", retryable: false, attempts: 1 },
   },

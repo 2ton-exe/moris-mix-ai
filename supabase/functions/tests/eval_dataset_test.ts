@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
+import { GoogleGenerativeAIResponseError } from "npm:@google/generative-ai@0.21.0";
 import { EVALUATION_DATASET } from "../_shared/ai/eval_dataset.ts";
 import type { ProviderFailureEvalCase } from "../_shared/ai/eval_dataset.ts";
 import {
@@ -215,6 +216,12 @@ Deno.test("provider failure fixtures follow the documented recoverable-error con
 
 /** Re-creates the recorded thrown shape exactly as the SDK/transport would. */
 function thrownFrom(testCase: ProviderFailureEvalCase): Error {
+  if (testCase.thrown.errorType === "GoogleGenerativeAIResponseError") {
+    return new GoogleGenerativeAIResponseError(testCase.thrown.message, {
+      promptFeedback: { blockReason: "SAFETY" },
+    });
+  }
+
   const error = testCase.thrown.errorType === "TypeError"
     ? new TypeError(testCase.thrown.message)
     : new Error(testCase.thrown.message);

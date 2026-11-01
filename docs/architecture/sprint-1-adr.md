@@ -94,12 +94,17 @@ pnpm-lock.yaml           Repository tooling dependency lockfile
 wrangler.jsonc           Cloudflare Workers configuration
 ```
 
-The frontend and repository tooling are separate pnpm projects. Run frontend installs from `frontend/` and keep its manifest, workspace file, and lockfile there. Keep repository tooling dependencies and its lockfile at the repository root; do not share or move dependencies between these projects. The [CI workflow](../../.github/workflows/ci.yml) and production workflow are configured to use Node.js 24, pnpm 10, and `pnpm install --frozen-lockfile` from `frontend/` when `frontend/package.json` exists. Install repository tooling from the repository root with the same versions and a frozen lockfile.
+The frontend and repository tooling are separate pnpm projects. Run frontend installs from `frontend/` and keep its manifest, workspace file, and lockfile there. Keep repository tooling dependencies and its lockfile at the repository root; do not share or move dependencies between these projects. The [reusable frontend validation](../../.github/workflows/reusable-frontend.yml) and production workflow are configured to use Node.js 24, pnpm 10, and `pnpm install --frozen-lockfile` from `frontend/` when `frontend/package.json` exists. Install repository tooling from the repository root with the same versions and a frozen lockfile.
 
 ## Cloudflare Workers deployment
 
-Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The unified [CI workflow](../../.github/workflows/ci.yml) builds and deploys the frontend with Wrangler on `main` after its required checks succeed.
+Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The proposed [modular main caller](../../.github/workflows/modular-main.yml) invokes the shared production release after successful core validation, mandatory hosted RLS, and frontend existence on main. See the [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) for policy and post-merge verification still required.
 
-The [CI workflow](../../.github/workflows/ci.yml) uses Node.js 24 and pnpm 10 for repository tooling and frontend installs. Its gated `deploy` job deploys the `recipes` Edge Function to Supabase before deploying the frontend to Cloudflare. The function step uses `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
+The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10 for frontend installs. Its guarded `deploy` job deploys the `recipes` Edge Function to Supabase before deploying the frontend to Cloudflare. The function step uses `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
 
-**Current status:** `frontend/package.json` is present. The production `deploy` job runs only on pushes to `main` or manual `workflow_dispatch` runs on `main`, after `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls` succeed. It builds the frontend, deploys `recipes` to Supabase, then publishes the static assets to Cloudflare; pull requests skip deployment. The earlier behavior that skipped build and deployment when the frontend package was absent is historical. The first successful run of this production path remains unverified.
+**Cleanup proposal:** `frontend/package.json` is present. The modular main
+production caller retains main push/manual-only guards, successful frontend,
+database and aggregate Edge/API validation, mandatory nested hosted RLS, and
+frontend existence. PRs cannot call production. Cutover and ownership rollback
+were operator-confirmed on `46809319eb23394a45d6f1ea79f8ee41f541011b`;
+modular-only behavior after merging this cleanup remains unverified.

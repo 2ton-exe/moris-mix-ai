@@ -57,7 +57,7 @@ test('absent check distinguishes not run and not required', () => {
   assert.equal(normalize(null, { applicable: false }), 'NOT REQUIRED');
 });
 test('production PR skip is expected; success is never inferred', () => {
-  const d = data(); d.checks = [check('Deploy to Cloudflare', 'skipped')];
+  const d = data(); d.checks = [check('Modular Main Production / Deploy to Supabase and Cloudflare', 'skipped')];
   assert.deepEqual(summarize(d).rows.at(-1), ['Production deploy', 'SKIPPED — EXPECTED']);
   assert.ok(!summarize(d).attention.some(a => a.includes('not completed/skipped')));
 });
@@ -67,11 +67,11 @@ for (const observed of [
   { status: 'completed', conclusion: 'cancelled' }, { status: 'completed', conclusion: null },
   { status: 'queued', conclusion: 'skipped' },
 ]) test(`production PR job ${observed.status}/${observed.conclusion ?? 'null'} raises attention`, () => {
-  const d = data(); d.checks = [{ name: 'Deploy to Cloudflare', ...observed }];
+  const d = data(); d.checks = [{ name: 'Modular Main Production / Deploy to Supabase and Cloudflare', ...observed }];
   assert.ok(summarize(d).attention.some(a => a.includes('Production deploy: observed PR job is not completed/skipped')));
 });
 test('a skipped production result cannot hide another observed non-skipped PR job', () => {
-  const d = data(); d.checks = [check('Deploy to Cloudflare', 'skipped'), { name: 'Deploy to Cloudflare', status: 'queued' }];
+  const d = data(); d.checks = [check('Modular Main Production / Deploy to Supabase and Cloudflare', 'skipped'), { name: 'Modular Main Production / Deploy to Supabase and Cloudflare', status: 'queued' }];
   assert.equal(summarize(d).rows.at(-1)[1], 'RUNNING');
   assert.ok(summarize(d).attention.some(a => a.includes('not completed/skipped')));
 });
@@ -97,15 +97,15 @@ test('author association does not gate same-repository staging eligibility', () 
   d.checks = [check('Modular Staging', 'skipped')];
   assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — INVESTIGATE');
 });
-test('hosted RLS fork skip expected; internal skip investigated', () => {
-  const d = data(); d.checks = [check('Hosted RLS Integration', 'skipped')];
-  assert.equal(summarize(d).rows.find(r => r[0] === 'Hosted RLS')[1], 'SKIPPED — INVESTIGATE');
+test('separate main-only hosted RLS skip is expected for internal and fork PRs', () => {
+  const d = data(); d.checks = [check('Modular Edge/API / Hosted RLS Integration', 'skipped')];
+  assert.equal(summarize(d).rows.find(r => r[0] === 'Hosted RLS')[1], 'SKIPPED — EXPECTED');
   d.pr.head.repo.full_name = 'fork/repo';
   assert.equal(summarize(d).rows.find(r => r[0] === 'Hosted RLS')[1], 'SKIPPED — EXPECTED');
 });
 test('missing/failed known required checks produce attention; pending does not', () => {
   const d = data(); d.required = [...PROJECT_REQUIRED];
-  d.checks = [check('Frontend Checks', 'failure'), { name: 'Database Tests', status: 'queued' }];
+  d.checks = [check('Modular Frontend / Frontend Checks', 'failure'), { name: 'Modular Database / Database Tests', status: 'queued' }];
   const a = summarize(d).attention.join('\n');
   assert.match(a, /Frontend Checks: FAIL/); assert.match(a, /Edge\/API Tests: NOT RUN/);
   assert.doesNotMatch(a, /Database Tests:/);
@@ -117,9 +117,22 @@ test('live required contexts can include modular or external status checks', () 
   assert.equal(summarize(d).attention.length, 0);
   assert.deepEqual(summarize(d).rows.at(-1), ['External Gate (required)', 'PASS']);
 });
+test('live six-context overlap takes precedence over the intended modular fallback', async () => {
+  const contexts = ['Frontend Checks', 'Database Tests', 'Edge/API Tests', ...PROJECT_REQUIRED.map(r => r.context)];
+  const policy = await requiredPolicy(mockApi(() => [{ type: 'required_status_checks', parameters: {
+    required_status_checks: contexts.map(context => ({ context, integration_id: 15368 })),
+  } }]), 'main');
+  assert.equal(policy.requiredSource, 'active GitHub branch rules');
+  assert.deepEqual(policy.required.map(r => r.context).sort(), [...contexts].sort());
+  const d = { ...data(), ...policy, checks: PROJECT_REQUIRED.map(r =>
+    check(r.context, 'success', { app: { id: 15368, slug: 'github-actions' } })) };
+  for (const name of contexts.slice(0, 3)) {
+    assert.ok(summarize(d).attention.some(a => a.startsWith(`${name}: NOT RUN`)));
+  }
+});
 test('app-bound required check passes only with correct context and integration', () => {
-  const requirement = { context: 'Frontend Checks', integrationId: 15368 };
-  const evidence = [check('Frontend Checks', 'success', { app: { id: 15368, slug: 'github-actions' } })];
+  const requirement = { context: 'Modular Frontend / Frontend Checks', integrationId: 15368 };
+  const evidence = [check('Modular Frontend / Frontend Checks', 'success', { app: { id: 15368, slug: 'github-actions' } })];
   assert.equal(normalizeRequired(requirement, evidence), 'PASS');
   assert.equal(normalizeRequired({ ...requirement, context: 'Other' }, evidence), 'NOT RUN');
   const d = data(); d.required = [requirement]; d.checks = evidence;
@@ -127,30 +140,30 @@ test('app-bound required check passes only with correct context and integration'
   assert.equal(summarize(d).attention.length, 0);
 });
 test('same context with wrong app cannot satisfy app-bound requirement', () => {
-  const d = data(); d.required = [{ context: 'Frontend Checks', integrationId: 15368 }];
-  d.checks = [check('Frontend Checks', 'success', { app: { id: 999, slug: 'github-actions' } })];
+  const d = data(); d.required = [{ context: 'Modular Frontend / Frontend Checks', integrationId: 15368 }];
+  d.checks = [check('Modular Frontend / Frontend Checks', 'success', { app: { id: 999, slug: 'github-actions' } })];
   assert.equal(summarize(d).rows[0][1], 'INTEGRATION MISMATCH');
   assert.match(summarize(d).attention.join('\n'), /INTEGRATION MISMATCH.*integration 15368/);
 });
 test('same-context statuses and jobs without app identity cannot masquerade as bound success', () => {
-  const requirement = { context: 'Frontend Checks', integrationId: 15368 };
-  for (const evidence of [check('Frontend Checks', 'success'),
-    check('Frontend Checks', 'success', { app: { slug: 'github-actions' } }),
-    { name: 'Frontend Checks', context: 'Frontend Checks', state: 'success', creator: { id: 15368 } }]) {
+  const requirement = { context: 'Modular Frontend / Frontend Checks', integrationId: 15368 };
+  for (const evidence of [check('Modular Frontend / Frontend Checks', 'success'),
+    check('Modular Frontend / Frontend Checks', 'success', { app: { slug: 'github-actions' } }),
+    { name: 'Modular Frontend / Frontend Checks', context: 'Modular Frontend / Frontend Checks', state: 'success', creator: { id: 15368 } }]) {
     assert.equal(normalizeRequired(requirement, [evidence]), 'IDENTITY UNVERIFIED');
   }
-  const d = data(); d.required = [requirement]; d.checks = [check('Frontend Checks', 'success')];
+  const d = data(); d.required = [requirement]; d.checks = [check('Modular Frontend / Frontend Checks', 'success')];
   assert.equal(summarize(d).rows[0][1], 'IDENTITY UNVERIFIED');
   assert.match(summarize(d).attention.join('\n'), /IDENTITY UNVERIFIED/);
 });
 test('matching app is selected over a same-name external success or failure', () => {
-  const requirement = { context: 'Frontend Checks', integrationId: 15368 };
-  assert.equal(normalizeRequired(requirement, [check('Frontend Checks', 'success', { app: { id: 999 } }),
-    check('Frontend Checks', 'failure', { app: { id: 15368 } })]), 'FAIL');
+  const requirement = { context: 'Modular Frontend / Frontend Checks', integrationId: 15368 };
+  assert.equal(normalizeRequired(requirement, [check('Modular Frontend / Frontend Checks', 'success', { app: { id: 999 } }),
+    check('Modular Frontend / Frontend Checks', 'failure', { app: { id: 15368 } })]), 'FAIL');
 });
 test('external name lookalikes do not establish GitHub Actions delivery gates', () => {
-  const d = data(); d.checks = [check('Frontend Checks', 'success', { app: { slug: 'other-app' } }),
-    { name: 'Database Tests', context: 'Database Tests', state: 'success' }];
+  const d = data(); d.checks = [check('Modular Frontend / Frontend Checks', 'success', { app: { slug: 'other-app' } }),
+    { name: 'Modular Database / Database Tests', context: 'Modular Database / Database Tests', state: 'success' }];
   assert.equal(summarize(d).rows[0][1], 'NOT RUN');
   assert.equal(summarize(d).rows[1][1], 'NOT RUN');
 });
@@ -243,10 +256,10 @@ test('CodeRabbit PR comment resolves through fresh PR metadata', async () => {
   assert.deepEqual(await resolvePRs(api, 'issue_comment', { issue: { number: 87, pull_request: {} }, comment: { user: bot } }, repository), [87]);
 });
 test('workflow association rejects stale heads, wrong repositories, main pushes', async () => {
-  const event = { workflow_run: { name: 'CI', event: 'pull_request', repository: { full_name: repository },
+  const event = { workflow_run: { name: 'Modular PR Validation', event: 'pull_request', repository: { full_name: repository },
     head_repository: { full_name: repository }, head_sha: sha, pull_requests: [{ number: 87 }] } };
   assert.deepEqual(await resolvePRs(mockApi(() => pr()), 'workflow_run', event, repository), [87]);
-  for (const patch of [{ head_sha: 'b'.repeat(40) }, { event: 'push' }, { repository: { full_name: 'other/repo' } }, { name: 'PR Secretary' }]) {
+  for (const patch of [{ head_sha: 'b'.repeat(40) }, { event: 'push' }, { repository: { full_name: 'other/repo' } }, { name: 'PR Secretary' }, { name: 'CI' }]) {
     assert.deepEqual(await resolvePRs(mockApi(() => pr()), 'workflow_run', { workflow_run: { ...event.workflow_run, ...patch } }, repository), []);
   }
 });
@@ -290,9 +303,9 @@ test('unavailable or empty rules use documented main policy; unknown branch stay
 test('fallback contexts explicitly carry unknown integration identity and labeled PASS', async () => {
   const policy = await requiredPolicy(mockApi(() => []), 'main');
   assert.match(policy.requiredSource, /fallback.*unconfirmed/);
-  assert.deepEqual(policy.required.map(r => r.context), ['Frontend Checks', 'Database Tests', 'Edge/API Tests']);
+  assert.deepEqual(policy.required.map(r => r.context), ['Modular Frontend / Frontend Checks', 'Modular Database / Database Tests', 'Modular Edge/API / Edge/API Tests']);
   assert.ok(policy.required.every(r => r.integrationId === null && r.integrationUnverified));
-  const d = { ...data(), ...policy, checks: [check('Frontend Checks', 'success')] };
+  const d = { ...data(), ...policy, checks: [check('Modular Frontend / Frontend Checks', 'success')] };
   assert.equal(summarize(d).rows[0][1], 'PASS (fallback; integration unverified)');
   assert.match(render(d), /fallback; live enforcement unconfirmed/);
 });
@@ -308,15 +321,15 @@ test('GraphQL thread pagination is complete', async () => {
 });
 test('job identity joins exact check-run ID without borrowing a same-name app', async () => {
   const api = mockApi(() => { throw new Error('must not fetch'); });
-  const job = { name: 'Frontend Checks', check_run_url: `https://api.github.com${api.root}/check-runs/42` };
+  const job = { name: 'Modular Frontend / Frontend Checks', check_run_url: `https://api.github.com${api.root}/check-runs/42` };
   const app = { id: 15368, slug: 'github-actions' };
   assert.deepEqual(await jobApp(api, job, [check(job.name, 'success', { id: 41, app: { id: 999 } }),
     check(job.name, 'success', { id: 42, app })]), app);
 });
 test('job identity fetch constructs a local endpoint; unavailable or unsafe identity is unknown', async () => {
   const app = { id: 15368, slug: 'github-actions' };
-  const api = mockApi(() => check('Frontend Checks', 'success', { id: 42, app }));
-  const job = { name: 'Frontend Checks', check_run_url: `https://api.github.com${api.root}/check-runs/42` };
+  const api = mockApi(() => check('Modular Frontend / Frontend Checks', 'success', { id: 42, app }));
+  const job = { name: 'Modular Frontend / Frontend Checks', check_run_url: `https://api.github.com${api.root}/check-runs/42` };
   assert.deepEqual(await jobApp(api, job, []), app);
   assert.equal(api.calls[0].path, `${api.root}/check-runs/42`);
   assert.equal(await jobApp(api, { ...job, check_run_url: 'https://evil.example/check-runs/42' }, []), null);
@@ -493,12 +506,12 @@ test('collection selects the newest relevant run with a ref-suffixed workflow pa
     if (path.endsWith('/files')) return [{ filename: 'frontend/src/App.tsx' }];
     if (path === '/graphql') throw new Error('optional API unavailable');
     if (path.includes('/actions/runs?')) return [
-      { id: 1, path: '.github/workflows/ci.yml' },
-      { id: 2, path: '.github/workflows/ci.yml@refs/pull/87/merge' },
+      { id: 1, path: '.github/workflows/modular-pr-validation.yml' },
+      { id: 2, path: '.github/workflows/modular-pr-validation.yml@refs/pull/87/merge' },
       { id: 3, path: '.github/workflows/other.yml@main' },
-      { id: 4, path: '.github/workflows/ci.yml.bak@main' },
-    ].map(run => ({ ...run, name: 'CI', head_sha: sha, pull_requests: [{ number: 87 }] }));
-    if (path.includes('/actions/runs/2/jobs')) return [{ name: 'Frontend Checks', status: 'in_progress' }];
+      { id: 4, path: '.github/workflows/modular-pr-validation.yml.bak@main' },
+    ].map(run => ({ ...run, name: 'Modular PR Validation', head_sha: sha, pull_requests: [{ number: 87 }] }));
+    if (path.includes('/actions/runs/2/jobs')) return [{ name: 'Modular Frontend / Frontend Checks', status: 'in_progress' }];
     if (path.includes('/actions/runs/')) throw new Error('must only read newest relevant run');
     return [];
   });
@@ -515,9 +528,9 @@ test('collection tolerates optional CodeRabbit API failures and prefers newest w
     if (path.endsWith('/files')) return [{ filename: 'frontend/src/App.tsx' }];
     if (path === '/graphql') throw new Error('unsupported');
     if (path.includes('/rules/')) return [];
-    if (path.includes('/check-runs')) return [check('Frontend Checks', 'success', { app: { slug: 'github-actions' } })];
-    if (path.includes('/actions/runs?')) return [1, 2].map(id => ({ id, name: 'CI', path: '.github/workflows/ci.yml', head_sha: sha, pull_requests: [{ number: 87 }] }));
-    if (path.includes('/actions/runs/2/jobs')) return [{ name: 'Frontend Checks', status: 'in_progress' }];
+    if (path.includes('/check-runs')) return [check('Modular Frontend / Frontend Checks', 'success', { app: { slug: 'github-actions' } })];
+    if (path.includes('/actions/runs?')) return [1, 2].map(id => ({ id, name: 'Modular PR Validation', path: '.github/workflows/modular-pr-validation.yml', head_sha: sha, pull_requests: [{ number: 87 }] }));
+    if (path.includes('/actions/runs/2/jobs')) return [{ name: 'Modular Frontend / Frontend Checks', status: 'in_progress' }];
     if (path.includes('/actions/runs/1/jobs')) throw new Error('must not read stale run');
     return [];
   });
@@ -535,7 +548,7 @@ test('current Actions jobs satisfy active Actions-bound contexts using linked ch
     } }];
     if (path.includes('/commits/') && path.includes('/check-runs')) return PROJECT_REQUIRED.map((r, i) =>
       check(r.context, 'success', { id: 40 + i, app: { id: 15368, slug: 'github-actions' } }));
-    if (path.includes('/actions/runs?')) return [{ id: 2, name: 'CI', path: '.github/workflows/ci.yml', head_sha: sha, pull_requests: [{ number: 87 }] }];
+    if (path.includes('/actions/runs?')) return [{ id: 2, name: 'Modular PR Validation', path: '.github/workflows/modular-pr-validation.yml', head_sha: sha, pull_requests: [{ number: 87 }] }];
     if (path.includes('/actions/runs/2/jobs')) return PROJECT_REQUIRED.map((r, i) =>
       check(r.context, 'success', { check_run_url: `https://api.github.com/repos/${repository}/check-runs/${40 + i}` }));
     return [];
@@ -554,7 +567,7 @@ test('workflow uses only the three trusted metadata/reconciliation events and de
   const workflow = (await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const events = workflow.split('on:\n')[1].split('\npermissions:')[0];
   assert.deepEqual([...events.matchAll(/^  (\w+):/gm)].map(m => m[1]), ['issue_comment', 'workflow_run', 'schedule']);
-  assert.match(events, /workflows: \[CI, Modular PR Validation\]/);
+  assert.match(events, /workflows: \[Modular PR Validation\]/);
   assert.match(events, /types: \[in_progress, completed\]/);
   assert.equal((workflow.match(/ref: \$\{\{ github.event.repository.default_branch \}\}/g) ?? []).length, 2);
   assert.equal((workflow.match(/repository: \$\{\{ github.repository \}\}/g) ?? []).length, 2);
@@ -585,7 +598,7 @@ test('only the trusted writer has the targeted PR-comment permissions', async ()
   assert.match(workflow, /^permissions: \{\}$/m);
 });
 
-for (const file of ['ci.yml', 'reusable-frontend.yml']) {
+for (const file of ['reusable-frontend.yml']) {
   test(`${file} runs Secretary regressions from root in Frontend Checks`, async () => {
     const workflow = (await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
     const frontend = workflow.split('  frontend:\n')[1].split(/^  [\w-]+:\n/m)[0];

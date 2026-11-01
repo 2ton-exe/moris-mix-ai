@@ -1,7 +1,6 @@
 name: Modular PR Validation
 
-# Stage 1 comparison runs only. ci.yml remains authoritative for required
-# checks and is the sole production deployment entry point.
+# PR validation and eligible staging delivery; production belongs to modular-main.yml.
 on:
   pull_request:
     branches: [main]
