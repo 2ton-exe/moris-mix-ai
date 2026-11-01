@@ -230,8 +230,9 @@ for (const number of [6, 20, 24, 26, 29, 68, 119, 139, 141]) {
   test(`historical closed unmerged #${number} is archived when present, never bulk-added/Done`, () => {
     const content = pr(number, { state: 'CLOSED' });
     assert.deepEqual(operationsFor(snapshot({ issues: [], prs: [content] })), []);
-    assert.deepEqual(operationsFor(snapshot({ issues: [], prs: [content], items: [card(content, 'Done')] })).map(o => o.kind), ['archive']);
-    assert.deepEqual(operationsFor(snapshot({ issues: [], prs: [content], items: [card(content, 'Done', true)] })), []);
+    assert.deepEqual(operationsFor(snapshot({ issues: [], prs: [content], items: [card(content, 'Done')] })).map(o => o.kind), ['clear-status', 'archive']);
+    assert.deepEqual(operationsFor(snapshot({ issues: [], prs: [content], items: [card(content, 'Done', true)] })).map(o => o.kind), ['clear-status']);
+    assert.deepEqual(operationsFor(snapshot({ issues: [], prs: [content], items: [card(content, null, true)] })), []);
   });
 }
 test('history is preserved; absent merged PRs are not backfilled; fresh merge event can add', () => {
@@ -244,12 +245,26 @@ test('not-planned archives, completed remains Done, reopened archived items unar
   const done = issue(1, { state: 'CLOSED', stateReason: 'COMPLETED' });
   const abandoned = issue(2, { state: 'CLOSED', stateReason: 'NOT_PLANNED' });
   assert.deepEqual(operationsFor(snapshot({ issues: [done, abandoned], items: [card(done, 'Todo'), card(abandoned)] })).map(o => [o.number, o.kind, o.status]),
-    [[1, 'status', 'Done'], [2, 'archive', undefined]]);
+    [[1, 'status', 'Done'], [2, 'clear-status', undefined], [2, 'archive', undefined]]);
   for (const content of [issue(), pr(148, { body: '' })]) {
     assert.deepEqual(operationsFor(snapshot({ issues: content.__typename === 'Issue' ? [content] : [],
       prs: content.__typename === 'PullRequest' ? [content] : [], items: [card(content, 'Done', true)] })).map(o => o.kind), ['unarchive', 'status']);
   }
 });
+for (const content of [issue(1, { state: 'CLOSED', stateReason: 'NOT_PLANNED' }), pr(2, { state: 'CLOSED', body: '' })]) {
+  for (const status of ['Todo', 'In Progress', 'In Review', 'Done', null]) {
+    for (const isArchived of [false, true]) {
+      test(`excluded ${content.__typename}: Status=${status}, archived=${isArchived}`, () => {
+        const data = snapshot({ issues: content.__typename === 'Issue' ? [content] : [],
+          prs: content.__typename === 'PullRequest' ? [content] : [], items: [card(content, status, isArchived)] });
+        const operations = operationsFor(data);
+        assert.deepEqual(operations.map(o => o.kind), [...(status ? ['clear-status'] : []), ...(isArchived ? [] : ['archive'])]);
+        assert.ok(operations.every(o => !Object.hasOwn(o, 'status')), 'excluded state is never assigned an ordinary Status');
+        assert.deepEqual(operationsFor({ ...data, items: [], eventContentId: content.id }), [], 'excluded history is never added');
+      });
+    }
+  }
+}
 test('correct status no mutation, wrong status one mutation, missing item add+status', () => {
   assert.deepEqual(operationsFor(snapshot({ items: [card(issue())] })), []);
   assert.deepEqual(operationsFor(snapshot({ items: [card(issue(), 'Done')] })).map(o => o.kind), ['status']);
@@ -334,6 +349,7 @@ function fakeClient(initial = snapshot()) {
         item = card([...data.issues, ...data.prs].find(c => c.id === operation.contentId), null);
         data.items.push(item);
       } else if (operation.kind === 'status') item.fieldValueByName = { name: operation.status, optionId: `option-${operation.status}` };
+      else if (operation.kind === 'clear-status') item.fieldValueByName = null;
       else item.isArchived = operation.kind === 'archive';
       return item;
     },
@@ -405,6 +421,70 @@ test('full reconciliation converges through archive, reopen, ready, merge and co
   assert.ok(client.data.items.every(i => i.fieldValueByName.name === 'Done'));
   assert.equal((await reconcile(client, options)).applied, 0);
 });
+test('excluded cards clear Status before archive, repair archived Status, and converge idempotently', async () => {
+  for (const content of [issue(1, { state: 'CLOSED', stateReason: 'NOT_PLANNED' }), pr(2, { state: 'CLOSED', body: '' })]) {
+    for (const isArchived of [false, true]) {
+      const client = fakeClient(snapshot({ issues: content.__typename === 'Issue' ? [content] : [],
+        prs: content.__typename === 'PullRequest' ? [content] : [], items: [card(content, 'Done', isArchived)] }));
+      assert.equal((await reconcile(client, options)).applied, isArchived ? 1 : 2);
+      assert.deepEqual(client.mutations.map(o => o.kind), isArchived ? ['clear-status'] : ['clear-status', 'archive']);
+      assert.equal(client.data.items[0].fieldValueByName, null);
+      assert.equal(client.data.items[0].isArchived, true);
+      assert.equal((await reconcile(client, options)).applied, 0);
+    }
+  }
+});
+
+test('excluded dry-run reports clear-status and archive without writes', async () => {
+  const content = pr(2, { state: 'CLOSED', body: '' });
+  const client = fakeClient(snapshot({ issues: [], prs: [content], items: [card(content, 'Done')] }));
+  client.itemFor = client.mutate = () => { throw Error('write path reached'); };
+  const logs = [];
+  const result = await reconcile(client, { ...options, mode: 'dry-run', log: value => logs.push(value) });
+  assert.equal(result.proposed, 2);
+  assert.equal(result.applied, 0);
+  assert.ok(logs.some(line => line.includes('"kind":"clear-status"')));
+  assert.equal(client.data.items[0].fieldValueByName.name, 'Done');
+  assert.equal(client.data.items[0].isArchived, false);
+});
+
+test('pre-write recheck skips clear-status and archive already performed by another writer', async () => {
+  const content = pr(2, { state: 'CLOSED', body: '' });
+  const client = fakeClient(snapshot({ issues: [], prs: [content], items: [card(content, 'Done')] }));
+  client.itemFor = async () => card(content, null, true);
+  client.mutate = () => { throw Error('duplicate clear/archive mutation'); };
+  assert.equal((await reconcile(client, options)).applied, 0);
+});
+
+test('failed clear-status stops before archival and fails the reconciliation', async () => {
+  const content = issue(1, { state: 'CLOSED', stateReason: 'NOT_PLANNED' });
+  const client = fakeClient(snapshot({ issues: [content], items: [card(content, 'Done')] }));
+  const attempted = [];
+  client.mutate = async operation => { attempted.push(operation.kind); throw Error('clear failed'); };
+  await assert.rejects(() => reconcile(client, options), /clear failed/);
+  assert.deepEqual(attempted, ['clear-status']);
+  assert.equal(client.data.items[0].isArchived, false);
+});
+
+test('reopened archived issue with a valid implementation PR still unarchives into In Progress', () => {
+  const content = issue(1);
+  const operations = operationsFor(snapshot({ issues: [content], prs: [pr(2, { body: 'Part of #1' })],
+    items: [card(content, null, true)] })).filter(o => o.contentId === content.id);
+  assert.deepEqual(operations.map(o => [o.kind, o.status]), [['unarchive', undefined], ['status', 'In Progress']]);
+});
+
+test('completed issues and merged PRs retain Done and their terminal archive state', () => {
+  for (const content of [issue(1, { state: 'CLOSED', stateReason: 'COMPLETED' }), pr(2, { state: 'MERGED', body: '' })]) {
+    for (const isArchived of [false, true]) {
+      const data = snapshot({ issues: content.__typename === 'Issue' ? [content] : [],
+        prs: content.__typename === 'PullRequest' ? [content] : [], items: [card(content, 'Done', isArchived)] });
+      assert.deepEqual(operationsFor(data), []);
+      assert.deepEqual(operationsFor({ ...data, items: [card(content, 'Todo', isArchived)] }).map(o => [o.kind, o.status]),
+        [['status', 'Done']]);
+    }
+  }
+});
+
 test('fresh state before each write avoids duplicating concurrent add/status', async () => {
   const client = fakeClient();
   client.itemFor = async () => card(issue());
@@ -441,16 +521,33 @@ test('adapter requests archived items, native links and validates mutation paylo
 });
 test('adapter emits only documented operations and discovered Status IDs', async () => {
   for (const [kind, key] of [['add', 'addProjectV2ItemById'], ['status', 'updateProjectV2ItemFieldValue'],
+    ['clear-status', 'clearProjectV2ItemFieldValue'],
     ['archive', 'archiveProjectV2Item'], ['unarchive', 'unarchiveProjectV2Item']]) {
     const client = adapter(async (query, variables) => {
       assert.ok(query.startsWith('mutation'));
       assert.ok(query.includes(key));
       assert.equal(variables.projectId, 'PROJECT');
       if (kind === 'status') assert.equal(variables.optionId, 'option-Done');
-      return { [key]: kind === 'status' ? { projectV2Item: { id: 'ITEM_I_147' } } : { item: { id: 'ITEM_I_147' } } };
+      if (kind === 'clear-status') {
+        assert.deepEqual(variables, { projectId: 'PROJECT', itemId: 'ITEM_I_147', fieldId: 'STATUS' });
+        assert.match(query, /input:\{projectId:\$projectId,itemId:\$itemId,fieldId:\$fieldId\}/);
+        assert.doesNotMatch(query, /value:|optionId|unarchive|delete/);
+      }
+      return { [key]: ['status', 'clear-status'].includes(kind)
+        ? { projectV2Item: { id: 'ITEM_I_147' } } : { item: { id: 'ITEM_I_147' } } };
     });
     await client.mutate({ kind, contentId: 'I_147', status: 'Done' }, metadata(), card(issue()));
   }
+});
+
+test('clear-status validates the returned item ID even for archived cards', async () => {
+  for (const result of [{}, { projectV2Item: {} }, { projectV2Item: { id: 'OTHER_ITEM' } }]) {
+    const client = adapter(async () => ({ clearProjectV2ItemFieldValue: result }));
+    await assert.rejects(() => client.mutate({ kind: 'clear-status', contentId: 'I_147' }, metadata(), card(issue(), 'Done', true)),
+      /Malformed clearProjectV2ItemFieldValue mutation result/);
+  }
+  const client = adapter(async () => ({ clearProjectV2ItemFieldValue: { projectV2Item: { id: 'ITEM_I_147' } } }));
+  assert.equal((await client.mutate({ kind: 'clear-status', contentId: 'I_147' }, metadata(), card(issue(), 'Done', true))).id, 'ITEM_I_147');
 });
 
 const require = createRequire(import.meta.url);

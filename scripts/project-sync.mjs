@@ -164,6 +164,7 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
     const base = { contentId: content.id, number: content.number };
     if (!item) operations.push({ ...base, kind: 'add' });
     if (desired.archive === true) {
+      if (item.fieldValueByName !== null) operations.push({ ...base, kind: 'clear-status' });
       if (!item.isArchived) operations.push({ ...base, kind: 'archive' });
       continue;
     }
@@ -300,6 +301,12 @@ export function adapter(api) {
           query = `mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!) {
             ${key}(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId,value:{singleSelectOptionId:$optionId}}) { projectV2Item { id } }
           }`;
+        } else if (operation.kind === 'clear-status') {
+          key = 'clearProjectV2ItemFieldValue';
+          variables.fieldId = metadata.fieldId;
+          query = `mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!) {
+            ${key}(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId}) { projectV2Item { id } }
+          }`;
         } else {
           requireValue(['archive', 'unarchive'].includes(operation.kind), 'Unknown mutation');
           key = `${operation.kind}ProjectV2Item`;
@@ -336,6 +343,7 @@ export async function reconcile(client, { mode, enabled, event = {}, log = conso
       const item = await client.itemFor(operation.contentId, metadata.projectId);
       if (operation.kind === 'add' && item) continue;
       requireValue(operation.kind === 'add' || item, `Project item disappeared: ${operation.contentId}; retry reconciliation`);
+      if (operation.kind === 'clear-status' && item.fieldValueByName === null) continue;
       if (operation.kind === 'archive' && item.isArchived) continue;
       if (operation.kind === 'unarchive' && !item.isArchived) continue;
       if (operation.kind === 'status' && item.fieldValueByName?.optionId === metadata.options[operation.status]) continue;

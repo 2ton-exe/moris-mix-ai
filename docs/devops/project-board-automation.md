@@ -39,20 +39,24 @@ branch, comment, or arbitrary number mention implies implementation state.
 | Open issue, at least one recognized **currently open** PR | In Progress |
 | Open issue, no recognized currently open PR | Todo |
 | Issue closed with `COMPLETED` state reason | Done |
-| Issue closed with `NOT_PLANNED` state reason | Archive if represented, never set Done |
+| Issue closed with `NOT_PLANNED` state reason | Clear Status, then archive if represented |
 | Open draft PR | In Progress |
 | Open non-draft PR | In Review |
 | Merged PR | Done |
-| Closed-unmerged PR | Archive if represented, never set Done |
+| Closed-unmerged PR | Clear Status, then archive if represented |
 
 An open issue with only merged/closed implementation PRs resolves to Todo. Draft
 PRs count as active implementation. Multiple PRs per issue and several issues per
 PR are supported. Reopened/open content is unarchived and recalculated. Unknown
 closed issue reasons fail visibly rather than inventing completion.
 
-Archiving preserves history, including existing field values; it does not delete
-content or rewrite a closed-unmerged card to Done. Already archived excluded
-content stays archived. Completed/merged represented history gets Done without
+Archiving preserves history without deleting content. Excluded closed-unmerged
+PRs and `NOT_PLANNED` issues have any Project Status cleared before archival;
+they are not normalized to Todo, In Progress, In Review, or Done. Already archived
+excluded content stays archived, but stale Status values are still cleared.
+An archived excluded card whose Status is already unset needs no mutation.
+These are locally tested semantics, not hosted runtime verification.
+Completed/merged represented history gets Done without
 unarchiving intentionally archived terminal history. Missing historical closed
 content is not imported. A newly delivered lifecycle event can ensure its own
 completed issue/merged PR is represented if absent; scheduled reconciliation
@@ -172,8 +176,12 @@ changed; inaccessible content fails safely.
 
 Open issues/PRs are added only if missing. Correct fields and archive state are
 left alone. Each planned write re-reads current project membership, including
-archived items, to avoid repeating an add/status/archive already performed.
-Only `addProjectV2ItemById`, `updateProjectV2ItemFieldValue`,
+archived items, to avoid repeating an add/status/clear-status/archive already
+performed. A separate `clear-status` operation uses `clearProjectV2ItemFieldValue`
+with the discovered project/item/Status field IDs; it does not unarchive a card
+just to clear the field. The pre-write check skips clearing if another writer
+already unset the Status. Only `addProjectV2ItemById`, `updateProjectV2ItemFieldValue`,
+`clearProjectV2ItemFieldValue`,
 `archiveProjectV2Item`, and `unarchiveProjectV2Item` are used for writes.
 Mutation payloads must confirm the affected item ID. Duplicate event delivery
 and repeated stable reconciliation produce zero extra mutations.
