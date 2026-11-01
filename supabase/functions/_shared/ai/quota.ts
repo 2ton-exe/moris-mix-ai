@@ -161,24 +161,36 @@ export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => 
     const used = typeof res.used === "number" ? res.used : 1;
     const resolvedLimit = typeof res.limit === "number" ? res.limit : limit;
 
+    console.log(JSON.stringify({ event: "ai_quota_consumed", reservationId }));
+
     return {
       status: "allowed",
       limit: resolvedLimit,
       used,
       confirm: async () => {
-        const { error: confirmError } = await serviceClient.rpc("confirm_ai_quota", {
-          p_reservation_id: reservationId,
-        });
-        if (confirmError) {
-          throw confirmError;
+        try {
+          const { error: confirmError } = await serviceClient.rpc("confirm_ai_quota", {
+            p_reservation_id: reservationId,
+          });
+          if (confirmError) {
+            throw confirmError;
+          }
+        } catch (error) {
+          console.error(JSON.stringify({ event: "ai_quota_confirmation_failed", reservationId }));
+          throw error;
         }
       },
       rollback: async () => {
-        const { error: rollbackError } = await serviceClient.rpc("reconcile_ai_quota", {
-          p_reservation_id: reservationId,
-        });
-        if (rollbackError) {
-          throw rollbackError;
+        try {
+          const { error: rollbackError } = await serviceClient.rpc("reconcile_ai_quota", {
+            p_reservation_id: reservationId,
+          });
+          if (rollbackError) {
+            throw rollbackError;
+          }
+        } catch (error) {
+          console.error(JSON.stringify({ event: "ai_quota_rollback_failed", reservationId }));
+          throw error;
         }
       },
     };

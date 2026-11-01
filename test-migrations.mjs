@@ -41,6 +41,18 @@ const silentLogger = {
 };
 
 function runDiscoveryAndIntegrityUnitTests() {
+  const migrations = discoverMigrations(path.join(__dirname, 'supabase/migrations'));
+  const quotaMigration = migrations.find((migration) => migration.file.endsWith('_ai_quota_enforcement.sql'));
+  assert.equal(quotaMigration?.version, '20261031000007');
+  const quotaSql = fs.readFileSync(quotaMigration.filePath, 'utf8');
+  const quotaFunctions = [...quotaSql.matchAll(/create or replace function public\.(\w+)\([\s\S]*?\$\$;/g)];
+  assert.deepEqual(quotaFunctions.map((match) => match[1]), [
+    'consume_ai_quota', 'confirm_ai_quota', 'reconcile_ai_quota', 'reconcile_unconfirmed_reservation'
+  ]);
+  for (const [definition] of quotaFunctions) {
+    assert.match(definition, /begin\s+if auth\.role\(\) IS DISTINCT FROM 'service_role' then\s+raise exception 'Unauthorized quota operation' using errcode = '42501';/);
+    assert.doesNotMatch(definition, /auth\.role\(\)\s*<>/);
+  }
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-unit-'));
   try {
     fs.writeFileSync(path.join(tempDir, '20261020000000_second.sql'), 'SELECT 2;');
@@ -79,6 +91,40 @@ function runDiscoveryAndIntegrityUnitTests() {
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+async function runQuotaAuthorizationDatabaseTests(client) {
+  const reservationId = crypto.randomUUID();
+  const operations = [
+    ['SELECT public.consume_ai_quota($1::uuid, $2::uuid, 20, current_date)', [crypto.randomUUID(), reservationId]],
+    ['SELECT public.confirm_ai_quota($1::uuid)', [reservationId]],
+    ['SELECT public.reconcile_ai_quota($1::uuid)', [reservationId]],
+    ['SELECT public.reconcile_unconfirmed_reservation($1::uuid, $2::text)', [reservationId, 'authorization regression']]
+  ];
+  await client.query('BEGIN');
+  try {
+    for (const role of ['', 'anon', 'authenticated']) {
+      await client.query("SELECT set_config('request.jwt.claim.role', $1, true)", [role]);
+      assert.equal((await client.query('SELECT auth.role() AS role')).rows[0].role, role || null);
+      for (const [sql, params] of operations) {
+        await client.query('SAVEPOINT quota_authorization');
+        try {
+          await assert.rejects(() => client.query(sql, params), (error) => error.code === '42501');
+        } finally {
+          await client.query('ROLLBACK TO SAVEPOINT quota_authorization');
+          await client.query('RELEASE SAVEPOINT quota_authorization');
+        }
+      }
+    }
+    await client.query("SELECT set_config('request.jwt.claim.role', 'service_role', true)");
+    for (const [sql, params] of operations.slice(1)) {
+      const result = await client.query(sql, params);
+      assert.equal(Object.values(result.rows[0])[0].status, 'not_found');
+    }
+  } finally {
+    await client.query('ROLLBACK');
+  }
+  console.log('PASS: All four quota RPCs reject null and non-service role claims; service-role settlement contracts remain unchanged.');
 }
 
 async function runSchemaVerificationUnitTests() {
@@ -648,6 +694,7 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     assert.equal(freshResult.appliedMigrations.length, expectedMigrationVersions.length);
     assert.deepEqual(freshResult.appliedMigrations, expectedMigrationFiles);
+    await runQuotaAuthorizationDatabaseTests(testClient);
     assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());
 
     const historyRows = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');

@@ -1701,6 +1701,7 @@ Deno.test("Reservation replay rejection prevents repeated provider invocations u
 
 Deno.test("Error preservation returns original provider error even when rollback RPC fails", async () => {
   let providerCalls = 0;
+  let reservationId = "";
   const failingProvider: AIProvider = {
     extractRecipe: () => {
       providerCalls++;
@@ -1712,6 +1713,9 @@ Deno.test("Error preservation returns original provider error even when rollback
 
   const { fetchImpl } = createFetchMock({
     reconcileError: true,
+    onConsume: (body) => {
+      reservationId = (body as { p_reservation_id: string }).p_reservation_id;
+    },
   });
 
   const res = await handler(
@@ -1728,15 +1732,23 @@ Deno.test("Error preservation returns original provider error even when rollback
   const body = await res.json();
   assertEquals(body.error?.code, "AI_PROVIDER_REJECTED");
   assertEquals(providerCalls, 1);
+  assertEquals(reservationId.length > 0, true);
+  for (const value of [reservationId, TEST_SERVICE_ROLE_KEY, "reconcile failed"]) {
+    assertEquals(JSON.stringify(body).includes(value), false);
+  }
 });
 
 Deno.test("Confirmation safety delivers 200 OK preview even if confirmation RPC fails", async () => {
   let providerCalls = 0;
+  let reservationId = "";
   const mockProvider = providerReturning(MOCK_EXTRACTED_RECIPE, () => providerCalls++);
   const reconciledReservations: string[] = [];
 
   const { fetchImpl } = createFetchMock({
     confirmError: true,
+    onConsume: (body) => {
+      reservationId = (body as { p_reservation_id: string }).p_reservation_id;
+    },
     onReconcile: (body) => {
       reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
     },
@@ -1757,7 +1769,116 @@ Deno.test("Confirmation safety delivers 200 OK preview even if confirmation RPC 
   assertEquals(reconciledReservations.length, 0);
   const body = await res.json();
   assertEquals(body.recipe?.title, MOCK_EXTRACTED_RECIPE.title);
+  assertEquals(reservationId.length > 0, true);
+  for (const value of [reservationId, TEST_SERVICE_ROLE_KEY, "confirm failed"]) {
+    assertEquals(JSON.stringify(body).includes(value), false);
+  }
 });
+
+Deno.test("Quota consumption logs its reservation once and successful settlement adds no failure logs", async () => {
+  const reservationId = crypto.randomUUID();
+  const logs: unknown[][] = [];
+  const errors: unknown[][] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  try {
+    console.log = (...args) => logs.push(args);
+    console.error = (...args) => errors.push(args);
+    const { fetchImpl } = createFetchMock();
+    const decision = await consumeDailyQuota(VERIFIED_USER_ID, {} as SupabaseClient, {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+      reservationId,
+      fetch: fetchImpl,
+    });
+    assertEquals(decision.status, "allowed");
+    if (decision.status !== "allowed") throw new Error("Expected allowed quota");
+    assertEquals("reservationId" in decision, false);
+    await decision.confirm?.();
+    await decision.rollback?.();
+    assertEquals(logs, [[JSON.stringify({ event: "ai_quota_consumed", reservationId })]]);
+    assertEquals(errors, []);
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+});
+
+for (const operation of ["confirm", "rollback"] as const) {
+  for (const failure of ["rpc", "transport"] as const) {
+    Deno.test(`Quota ${operation} ${failure} failure logs only the reservation and event and still rejects`, async () => {
+      const reservationId = crypto.randomUUID();
+      const internalDetail = crypto.randomUUID();
+      const logs: unknown[][] = [];
+      const errors: unknown[][] = [];
+      const originalLog = console.log;
+      const originalError = console.error;
+      const { fetchImpl } = createFetchMock();
+      const rpc = operation === "confirm" ? "confirm_ai_quota" : "reconcile_ai_quota";
+      const fetchWithFailure: typeof fetch = (input, init) => {
+        const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+        if (url.pathname === `/rest/v1/rpc/${rpc}`) {
+          if (failure === "transport") throw new Error(`${internalDetail} ${TEST_SERVICE_ROLE_KEY}`);
+          return Promise.resolve(new Response(JSON.stringify({
+            code: "PGRST500",
+            message: `${internalDetail} ${TEST_SERVICE_ROLE_KEY}`,
+          }), { status: 500, headers: jsonHeaders() }));
+        }
+        return fetchImpl(input, init);
+      };
+      try {
+        console.log = (...args) => logs.push(args);
+        console.error = (...args) => errors.push(args);
+        const decision = await consumeDailyQuota(VERIFIED_USER_ID, {} as SupabaseClient, {
+          supabaseUrl: TEST_SUPABASE_URL,
+          supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+          reservationId,
+          fetch: fetchWithFailure,
+        });
+        assertEquals(decision.status, "allowed");
+        if (decision.status !== "allowed") throw new Error("Expected allowed quota");
+        let rejected = false;
+        try {
+          await decision[operation]?.();
+        } catch {
+          rejected = true;
+        }
+        assertEquals(rejected, true);
+        assertEquals(logs, [[JSON.stringify({ event: "ai_quota_consumed", reservationId })]]);
+        assertEquals(errors, [[JSON.stringify({
+          event: operation === "confirm" ? "ai_quota_confirmation_failed" : "ai_quota_rollback_failed",
+          reservationId,
+        })]]);
+        for (const value of [internalDetail, TEST_SERVICE_ROLE_KEY, VERIFIED_USER_ID]) {
+          assertEquals(JSON.stringify([...logs, ...errors]).includes(value), false);
+        }
+      } finally {
+        console.log = originalLog;
+        console.error = originalError;
+      }
+    });
+  }
+}
+
+for (const status of ["exceeded", "conflict"] as const) {
+  Deno.test(`Quota ${status} does not log successful consumption`, async () => {
+    const logs: unknown[][] = [];
+    const originalLog = console.log;
+    try {
+      console.log = (...args) => logs.push(args);
+      const { fetchImpl } = createFetchMock({ quotaConsumeStatus: status });
+      const decision = await consumeDailyQuota(VERIFIED_USER_ID, {} as SupabaseClient, {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+        fetch: fetchImpl,
+      });
+      assertEquals(decision.status === "allowed", false);
+      assertEquals(logs, []);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+}
 
 Deno.test("UTC reset boundaries behave deterministically across midnight transition", () => {
   const beforeMidnight = new Date("2026-10-31T23:59:59.000Z");

@@ -58,7 +58,7 @@ declare
     v_existing_status text;
     v_existing_date date;
 begin
-    if auth.role() <> 'service_role' then
+    if auth.role() IS DISTINCT FROM 'service_role' then
         raise exception 'Unauthorized quota operation' using errcode = '42501';
     end if;
 
@@ -144,7 +144,7 @@ as $$
 declare
     v_status text;
 begin
-    if auth.role() <> 'service_role' then
+    if auth.role() IS DISTINCT FROM 'service_role' then
         raise exception 'Unauthorized quota operation' using errcode = '42501';
     end if;
 
@@ -187,7 +187,7 @@ declare
     v_status text;
     v_new_count integer;
 begin
-    if auth.role() <> 'service_role' then
+    if auth.role() IS DISTINCT FROM 'service_role' then
         raise exception 'Unauthorized quota operation' using errcode = '42501';
     end if;
 
@@ -235,7 +235,7 @@ declare
     v_status text;
     v_new_count integer;
 begin
-    if auth.role() <> 'service_role' then
+    if auth.role() IS DISTINCT FROM 'service_role' then
         raise exception 'Unauthorized quota operation' using errcode = '42501';
     end if;
 
