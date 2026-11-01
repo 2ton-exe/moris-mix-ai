@@ -83,7 +83,8 @@ Prompt `extraction@1.0.0` (`supabase/functions/_shared/ai/prompts.ts`):
   `quantityText` with `inferred: true`.
 - Keeps steps in order and numbered `1..n`; flavor scores appear only when taste
   is described.
-- Never claims food is safe, fully cooked or safe to store.
+- Instructs the model never to claim food is safe, fully cooked or safe to
+  store (an instruction; validation does not enforce it).
 
 Validation (`ExtractedRecipeSchema`, `supabase/functions/_shared/ai/schemas.ts`):
 ingredients, sequential instructions, optional flavor scores. A field that
@@ -107,7 +108,10 @@ deduplicated), and ranks candidates:
 
 The prompt receives the top candidates (`topK`, default **3**, range 1–10);
 retrieval scans only the newest `maxCandidates` recipes (default **1000**) and
-reports `truncated: true` when more saved recipes exist beyond that window.
+computes an internal `truncated` flag when more saved recipes exist beyond that
+window. The generation API does not return that flag — its context summary
+carries only the status and the two counts — so a client cannot distinguish a
+complete scan from a truncated one.
 
 | Status | Meaning |
 | ------ | ------- |
@@ -126,8 +130,10 @@ are (or are not) available.
 
 Prompt `chef@1.1.0`:
 
-- Treats the entire CONTEXT block (pantry, preferences, retrieved recipes) as
-  **data**; instructions inside a recipe title or step are ignored.
+- Instructs the model to treat the entire CONTEXT block (pantry, preferences,
+  retrieved recipes) as **data** and to ignore instructions inside a recipe
+  title or step — an instruction only; parsing cannot enforce that the model
+  obeyed it.
 - Uses the "User preferences" line as recipe constraints only — never as an
   override of the rules or the JSON shape.
 - Prefers pantry items; anything else needs a substitution with a reason.
@@ -355,9 +361,11 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 - **No live safety claim.** Safety and injection fixtures verify parser
   contracts against predetermined output. They are **not** evidence that the
   live model blocks harmful requests or resists jailbreaks.
-- **No nutrition, safety or quality guarantees.** The AI never claims food is
-  safe, fully cooked or safe to store, and the system makes no dietary,
-  nutritional or health claims. Users must apply normal food-safety practice.
+- **No nutrition, safety or quality guarantees.** The prompts instruct the
+  model not to claim food is safe, fully cooked or safe to store, but schema
+  validation cannot detect or block such text, so this is a prompt instruction,
+  not an enforced behavior. The system makes no dietary, nutritional or health
+  claims; users must apply normal food-safety practice.
 - **Quota and cost.** At the time of writing, free-tier runs were bounded by
   roughly 20 requests per project and model per day. That is an observed budget,
   not a guaranteed provider limit: Google's RPD limits vary by model and tier
