@@ -86,6 +86,27 @@ async function runRlsTests() {
   const createdRecipeIds = [];
   let assertionsExecuted = 0;
   let assertionsPassed = 0;
+  const rankCases = [
+    [' Garlic Rice ', ' GARLIC RICE ', 1],
+    ['Spicy Garlic Rice', 'garlic rice', 2],
+    ['Garlic Fried Rice', 'garlic rice', 3],
+    ['Garlick Fried Rices', 'garlic rice', 3],
+    ['Garlic Rice', 'garilc rice', 3],
+    ['Garlic Rice', 'garlc rice', 3],
+    ['Coriander', 'corxandyr', 3],
+    ['Rice', 'rce', null],
+    ['Garlic Rice', 'garlic beans', null],
+    ['Garlic Rice', '', null],
+    ['', 'garlic', null],
+    ['Garlic Rice', 'garxxx rice', null],
+    ['a'.repeat(64), 'a'.repeat(64), 1],
+    ['a'.repeat(65), 'a'.repeat(65), null],
+    ['Garlic Rice', 'garlic '.repeat(1000), null],
+    ['garlic ' + 'fried '.repeat(1000) + 'rice', 'garlic rice', null],
+    ['a'.repeat(65) + ' Garlic Rice', 'garlic rice', 2],
+    ['Garlic Rice', null, null]
+  ];
+  const expectedAssertionCount = 51 + rankCases.length * 2 + 11 + 6 + 12 + 11 + 6 + 1 + 3;
 
   const check = (actual, expected, message) => {
     assertionsExecuted++;
@@ -175,6 +196,173 @@ async function runRlsTests() {
     check(lineageReadA.rowCount, 1, 'User A should be able to read own recipe lineage');
     console.log('✓ User A recipe_lineage creation and read authorization verified');
 
+    const searchExactA = await client.query('select * from public.search_recipes(p_search => $1)', ['User A Secret Scrap Stew']);
+    check(searchExactA.rowCount >= 1, true, 'User A exact search should return results');
+    check(searchExactA.rows[0].relevance_rank, 1, 'Exact title match should be rank 1');
+    check(searchExactA.rows[0].id, userARecipe1Id, 'Exact search should match recipe 1');
+
+    const searchPartialA = await client.query('select * from public.search_recipes(p_search => $1)', ['Scrap Stew']);
+    check(searchPartialA.rowCount >= 1, true, 'User A partial search should return results');
+    check(searchPartialA.rows[0].relevance_rank, 2, 'Partial substring match should be rank 2');
+
+    const searchFuzzyA = await client.query('select * from public.search_recipes(p_search => $1)', ['secert scrap']);
+    check(searchFuzzyA.rowCount >= 1, true, 'User A fuzzy transposition search should return results');
+    check(searchFuzzyA.rows[0].relevance_rank, 3, 'Fuzzy transposition match should be rank 3');
+
+    const searchRankingA = await client.query('select * from public.search_recipes(p_search => $1)', ['stew']);
+    check(searchRankingA.rowCount >= 2, true, 'User A stew search should match both recipes');
+    check(searchRankingA.rows[0].relevance_rank <= searchRankingA.rows[1].relevance_rank, true, 'Search results must be ordered by relevance_rank asc');
+
+    const searchIngredientA = await client.query('select * from public.search_recipes(p_search => $1)', ['miso']);
+    check(searchIngredientA.rowCount >= 1, true, 'User A ingredient search should return results');
+    check(searchIngredientA.rows[0].id, userARecipe2Id, 'Ingredient search should match recipe 2');
+
+    const searchTitleFuzzyA = await client.query('select * from public.search_recipes(p_title => $1)', ['secert scrap']);
+    check(searchTitleFuzzyA.rowCount >= 1, true, 'User A title-only fuzzy search should return results');
+    check(searchTitleFuzzyA.rows[0].relevance_rank, 3, 'Title-only fuzzy match should be rank 3');
+
+    const searchIngredientFuzzyA = await client.query('select * from public.search_recipes(p_ingredient => $1)', ['scallon']);
+    check(searchIngredientFuzzyA.rowCount >= 1, true, 'User A ingredient-only fuzzy search should return results');
+    check(searchIngredientFuzzyA.rows[0].relevance_rank, 3, 'Ingredient-only fuzzy match should be rank 3');
+
+    const searchTitleMismatchA = await client.query('select * from public.search_recipes(p_title => $1)', ['scallon']);
+    check(searchTitleMismatchA.rowCount, 0, 'User A title-only search should not match ingredient terms');
+
+    const searchIngredientMismatchA = await client.query('select * from public.search_recipes(p_ingredient => $1)', ['secert']);
+    check(searchIngredientMismatchA.rowCount, 0, 'User A ingredient-only search should not match title terms');
+
+    const expectSqlError = async (sql, params, code, message) => {
+      await client.query('SAVEPOINT search_input_regression');
+      let actualCode;
+      try {
+        await client.query(sql, params);
+      } catch (error) {
+        actualCode = error.code;
+      } finally {
+        await client.query('ROLLBACK TO SAVEPOINT search_input_regression');
+        await client.query('RELEASE SAVEPOINT search_input_regression');
+      }
+      check(actualCode, code, message);
+    };
+
+    for (const [left, right, expected] of [
+      ['a'.repeat(64), 'a'.repeat(64), 0],
+      ['a'.repeat(65), 'a'.repeat(65), null],
+      ['a'.repeat(10000), 'garlic', null],
+      ['garlic', 'a'.repeat(10000), null],
+      [null, 'garlic', null],
+      ['garlic', null, null],
+    ]) {
+      const result = await client.query('select public.damerau_levenshtein($1, $2) as distance', [left, right]);
+      check(result.rows[0].distance, expected, 'Edit distance must bound both inputs at 64 characters');
+    }
+
+    for (const [args, params] of [
+      ['p_limit => $1', [0]],
+      ['p_limit => $1', [-1]],
+      ['p_limit => $1', [101]],
+      ['p_limit => $1', [2147483647]],
+      ['p_limit => $1', [null]],
+      ['p_offset => $1', [-1]],
+      ['p_offset => $1', [null]],
+      ['p_sort => $1', ['invalid']],
+      ['p_sort => $1', ['']],
+      ['p_sort => $1', [null]],
+    ]) {
+      await expectSqlError('select * from public.search_recipes(' + args + ')', params, '22023', 'Invalid or null RPC controls must be rejected');
+    }
+    await expectSqlError('select * from public.search_recipes(p_offset => $1)', ['1.5'], '22P02', 'Integer RPC signature must reject fractional offsets');
+    const defaults = await client.query("select * from public.search_recipes(p_search => 'stew', p_limit => 100, p_offset => 0, p_sort => 'newest')");
+    check(defaults.rowCount, 2, 'Upper limit and valid explicit defaults must remain supported');
+
+    for (const [args, expected] of [
+      ["p_title => 'stew', p_ingredient => 'stew'", 0],
+      ["p_title => 'scallon', p_ingredient => 'scallon'", 0],
+      ["p_search => 'stew'", 2],
+      ["p_search => 'scallon'", 2],
+      ["p_title => 'stew', p_ingredient => 'scallon'", 2],
+      ["p_title => 's', p_ingredient => 's'", 2],
+    ]) {
+      const result = await client.query('select * from public.search_recipes(' + args + ')');
+      check(result.rowCount, expected, 'Independent filters must use AND while explicit search uses OR');
+    }
+
+    for (const parameter of ['p_search', 'p_title', 'p_ingredient']) {
+      const result = await client.query('select * from public.search_recipes(' + parameter + ' => $1)', ['garlic '.repeat(1000)]);
+      check(result.rowCount, 0, 'Oversized queries must not match in any search mode');
+    }
+
+    for (const [signature, invocation] of [
+      ['public.damerau_levenshtein(text,text)', "public.damerau_levenshtein('rice','rice')"],
+      ['public.match_text_rank(text,text)', "public.match_text_rank('rice','rice')"],
+      ['public.match_ingredients_rank(jsonb,text)', "public.match_ingredients_rank('[]'::jsonb,'rice')"],
+      ['public.search_recipes(text,text,text,text,integer,integer,integer,timestamp with time zone,smallint,uuid)', 'public.search_recipes()'],
+    ]) {
+      const privileges = await client.query(
+        "select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated, has_function_privilege('anon', $1, 'EXECUTE') as anon",
+        [signature],
+      );
+      check(privileges.rows[0].authenticated, true, 'Authenticated callers must retain required execution rights');
+      check(privileges.rows[0].anon, false, 'Anonymous callers must have no effective execution rights');
+      await client.query('SET LOCAL ROLE anon');
+      await expectSqlError('select * from ' + invocation, [], '42501', 'Anonymous RPC invocation must be denied');
+      await client.query('SET LOCAL ROLE authenticated');
+    }
+
+    const searchPage1A = await client.query('select * from public.search_recipes(p_search => $1, p_limit => 1, p_offset => 0)', ['stew']);
+    check(searchPage1A.rowCount, 2, 'p_limit = 1 should fetch 2 rows for hasMore evaluation');
+    const searchPage2A = await client.query('select * from public.search_recipes(p_search => $1, p_limit => 1, p_offset => 1)', ['stew']);
+    check(searchPage2A.rowCount >= 1, true, 'p_offset = 1 should return remaining recipes');
+    check(searchPage1A.rows[0].id !== searchPage2A.rows[0].id, true, 'Page 1 and Page 2 must not return identical rows');
+    console.log('✓ User A search_recipes exact, partial, fuzzy, ranking, and pagination verified');
+
+    for (const [target, query, expected] of rankCases) {
+      const textRank = await client.query('select public.match_text_rank($1, $2) as rank', [target, query]);
+      check(textRank.rows[0].rank, expected, `Text rank for ${JSON.stringify([target, query])}`);
+      const ingredientRank = await client.query('select public.match_ingredients_rank($1::jsonb, $2) as rank', [JSON.stringify([{ name: target }]), query]);
+      check(ingredientRank.rows[0].rank, expected, `Ingredient rank for ${JSON.stringify([target, query])}`);
+    }
+
+    await client.query('SAVEPOINT search_rank_regression');
+    const rankedFixtures = await client.query(`
+      insert into public.recipes (user_id, title, star_rating, created_at)
+      values
+        ($1, 'Garlic Rice', 1, now() - interval '2 days'),
+        ($1, 'Spicy Garlic Rice', 3, now() - interval '1 day'),
+        ($1, 'Garlic Fried Rice', 5, now())
+      returning id
+    `, [userA]);
+    check(rankedFixtures.rowCount, 3, 'Three isolated ranking fixtures should be created');
+    for (const sort of ['newest', 'rating']) {
+      const firstPage = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1)
+      `, ['garlic rice', sort]);
+      check(JSON.stringify(firstPage.rows.map((row) => row.relevance_rank)), '[1,2]', `${sort}: relevance must precede sorting and LIMIT with lookahead`);
+      const offsetPage = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1, p_offset => 1)
+      `, ['garlic rice', sort]);
+      check(JSON.stringify(offsetPage.rows.map((row) => row.relevance_rank)), '[2,3]', `${sort}: offset must follow relevance ordering`);
+      const last = firstPage.rows[1];
+      const cursorPage = await client.query(`
+        select * from public.search_recipes(
+          p_search => $1, p_sort => $2, p_limit => 1,
+          p_cursor_rank => $3, p_cursor_created_at => $4,
+          p_cursor_star_rating => $5::smallint, p_cursor_id => $6
+        )
+      `, ['garlic rice', sort, last.relevance_rank, last.created_at, last.star_rating, last.id]);
+      check(JSON.stringify(cursorPage.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: cursor must continue at the token-match tier`);
+      const continuation = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1, p_offset => 2)
+      `, ['garlic rice', sort]);
+      check(JSON.stringify(continuation.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: bounded continuation probe must return one remaining match`);
+      const exhausted = await client.query(`
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1, p_offset => 3)
+      `, ['garlic rice', sort]);
+      check(exhausted.rowCount, 0, `${sort}: bounded continuation probe must be empty after the final match`);
+    }
+    await client.query('ROLLBACK TO SAVEPOINT search_rank_regression');
+    await client.query('RELEASE SAVEPOINT search_rank_regression');
+
     await client.query('COMMIT');
 
     await client.query('BEGIN');
@@ -214,6 +402,10 @@ async function runRlsTests() {
     const lineageDeleteB = await client.query('delete from public.recipe_lineage where parent_recipe_id = $1', [userARecipe1Id]);
     check(lineageDeleteB.rowCount, 0, 'User B must not be able to delete User A recipe lineage');
     console.log('✓ User B cross-user recipe_lineage read and delete isolation verified (0 rows affected)');
+
+    const searchB = await client.query('select * from public.search_recipes(p_search => $1)', ['stew']);
+    check(searchB.rowCount, 0, 'User B search must return 0 rows for User A recipes');
+    console.log('✓ User B cross-user search_recipes isolation verified (0 rows returned)');
 
     await client.query('COMMIT');
 
@@ -345,8 +537,8 @@ async function runRlsTests() {
     console.log('Skipped: false');
     console.log('-----------------------------------------\n');
 
-    if (process.env.CI === 'true' && (assertionsExecuted !== 30 || assertionsPassed !== 30)) {
-      throw new Error(`CI failure: Expected 30 RLS regression assertions to execute and pass, but executed ${assertionsExecuted} (passed: ${assertionsPassed})`);
+    if (process.env.CI === 'true' && (assertionsExecuted !== expectedAssertionCount || assertionsPassed !== expectedAssertionCount)) {
+      throw new Error(`CI failure: Expected ${expectedAssertionCount} RLS regression assertions to execute and pass, but executed ${assertionsExecuted} (passed: ${assertionsPassed})`);
     }
   } catch (err) {
     console.error('\nFAILED: RLS policy regression tests failed:', err);

@@ -41,6 +41,7 @@ const silentLogger = {
 };
 
 function runDiscoveryAndIntegrityUnitTests() {
+  discoverMigrations(path.join(__dirname, 'supabase/migrations'));
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-unit-'));
   try {
     fs.writeFileSync(path.join(tempDir, '20261020000000_second.sql'), 'SELECT 2;');
@@ -79,6 +80,107 @@ function runDiscoveryAndIntegrityUnitTests() {
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+async function runRecipeSearchMigrationUnitTests() {
+  const migrations = discoverMigrations(path.join(__dirname, 'supabase/migrations'));
+  const hardening = migrations.find((migration) => migration.version === '20261101000008');
+  const sql = fs.readFileSync(hardening.filePath, 'utf8').replaceAll('\r\n', '\n');
+  const rankingSql = fs.readFileSync(
+    migrations.find((migration) => migration.version === '20261031000005').filePath,
+    'utf8'
+  ).replaceAll('\r\n', '\n');
+  const signatures = [
+    'public.damerau_levenshtein(text, text)',
+    'public.match_text_rank(text, text)',
+    'public.match_ingredients_rank(jsonb, text)',
+    'public.search_recipes(text, text, text, text, int, int, int, timestamptz, smallint, uuid)'
+  ];
+  const permissions = sql.slice(sql.indexOf('revoke execute on function'));
+  const anon = permissions.match(/if exists \(select from pg_roles where rolname = 'anon'\) then([\s\S]*?)end if;/);
+  const authenticated = permissions.match(/if exists \(select from pg_roles where rolname = 'authenticated'\) then([\s\S]*?)end if;/);
+  assert.ok(anon, 'Anonymous revokes must be guarded by role existence');
+  assert.ok(authenticated, 'Authenticated grants must be guarded by role existence');
+  for (const signature of signatures) {
+    assert.ok(permissions.slice(0, permissions.indexOf('do $$')).includes(`revoke execute on function ${signature} from public;`));
+    assert.ok(anon[1].includes(`revoke execute on function ${signature} from anon;`));
+    assert.ok(authenticated[1].includes(`grant execute on function ${signature} to authenticated;`));
+  }
+  assert.doesNotMatch(permissions.replace(anon[0], '').replace(authenticated[0], ''), /from anon|to authenticated/);
+  const restore = sql.match(/if to_regprocedure\('public\.match_ingredients_rank\(jsonb,text\)'\) is null then\s+execute \$function\$([\s\S]*?)\$function\$;\s+end if;/);
+  assert.ok(restore, 'Restore the ingredient helper only when its exact signature is absent');
+  const originalHelper = rankingSql.slice(
+    rankingSql.indexOf('create or replace function public.match_ingredients_rank'),
+    rankingSql.indexOf('create or replace function public.search_recipes')
+  ).trim().replace('create or replace function', 'create function');
+  assert.equal(restore[1].trim(), originalHelper, 'Restore the existing canonical helper without changing its behavior');
+  assert.ok(sql.indexOf(restore[0]) < sql.indexOf('create or replace function public.search_recipes'));
+  assert.doesNotMatch(sql, /schema_migrations|security definer/i);
+
+  const queries = [];
+  const history = migrations.filter((migration) => migration !== hardening).map((migration) => migration.version);
+  const client = {
+    query: async (query, params) => {
+      queries.push({ query, params });
+      if (query.startsWith('SELECT version FROM')) return { rows: history.map((version) => ({ version })) };
+      return { rows: [] };
+    }
+  };
+  const result = await runMigrations({ client, logger: silentLogger });
+  assert.deepEqual(result.appliedMigrations, [hardening.file]);
+  assert.equal(queries.filter(({ query }) => query === fs.readFileSync(hardening.filePath, 'utf8')).length, 1);
+  assert.deepEqual(
+    queries.filter(({ query }) => /INSERT INTO supabase_migrations\.schema_migrations/.test(query)).map(({ params }) => params),
+    [[hardening.version]]
+  );
+  assert.equal(queries.some(({ query }) => /^\s*(delete|update)\s/i.test(query)), false);
+  console.log('PASS: Search migration role guards, canonical dependency restoration, and version-only history handling verified.');
+}
+
+async function runRecipeSearchMigrationDatabaseTests(client) {
+  const sql = fs.readFileSync(path.join(__dirname, 'supabase/migrations/20261101000008_harden_recipe_search_rpc.sql'), 'utf8');
+  const history = await client.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version');
+  const helperQuery = "SELECT oid, pg_get_functiondef(oid) AS definition FROM pg_proc WHERE oid = to_regprocedure('public.match_ingredients_rank(jsonb,text)')";
+  const originalHelper = await client.query(helperQuery);
+  await client.query('BEGIN');
+  try {
+    await client.query(sql);
+    assert.deepEqual((await client.query(helperQuery)).rows, originalHelper.rows, 'An existing helper must retain its identity and definition');
+    await client.query('DROP FUNCTION public.match_ingredients_rank(jsonb, text)');
+    await client.query(sql);
+    const restored = await client.query(helperQuery);
+    assert.equal(restored.rows.length, 1);
+    assert.equal(restored.rows[0].definition, originalHelper.rows[0].definition);
+    const rank = await client.query("SELECT public.match_ingredients_rank('[{\"name\":\"Garlic Fried Rice\"}]'::jsonb, 'garlic rice') AS rank");
+    assert.equal(rank.rows[0].rank, 3);
+    const privileges = await client.query(`
+      SELECT p.oid, p.prosecdef,
+        has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+        has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+        EXISTS (
+          SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+          WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+        ) AS public
+      FROM pg_proc p
+      WHERE p.oid IN (
+        'public.damerau_levenshtein(text,text)'::regprocedure,
+        'public.match_text_rank(text,text)'::regprocedure,
+        'public.match_ingredients_rank(jsonb,text)'::regprocedure,
+        'public.search_recipes(text,text,text,text,int,int,int,timestamptz,smallint,uuid)'::regprocedure
+      )
+    `);
+    assert.equal(privileges.rows.length, 4);
+    for (const row of privileges.rows) {
+      assert.equal(row.prosecdef, false);
+      assert.equal(row.anon, false);
+      assert.equal(row.public, false);
+      assert.equal(row.authenticated, true);
+    }
+    assert.deepEqual((await client.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version')).rows, history.rows);
+  } finally {
+    await client.query('ROLLBACK');
+  }
+  console.log('PASS: Search migration preserves existing helpers, restores missing helpers, restricts RPC permissions, and leaves migration history unchanged.');
 }
 
 async function runSchemaVerificationUnitTests() {
@@ -648,6 +750,7 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     assert.equal(freshResult.appliedMigrations.length, expectedMigrationVersions.length);
     assert.deepEqual(freshResult.appliedMigrations, expectedMigrationFiles);
+    await runRecipeSearchMigrationDatabaseTests(testClient);
     assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());
 
     const historyRows = await testClient.query('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version ASC;');
@@ -1580,6 +1683,7 @@ async function runForeignKeyCascadeUnitTests() {
 async function main() {
   console.log('Starting migration runner test suite...');
   runDiscoveryAndIntegrityUnitTests();
+  await runRecipeSearchMigrationUnitTests();
   await runSchemaVerificationUnitTests();
   await runForeignKeyCascadeUnitTests();
   await runTestTargetMigrationUnitTests();
