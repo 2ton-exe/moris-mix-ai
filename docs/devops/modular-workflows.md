@@ -58,8 +58,10 @@ requires a reviewed repository change. Do not rerun stale production revisions.
 
 ## Issue #124 Stage A: conservative PR path selection
 
-This branch proposes a PR-only optimization. No timing improvement or hosted
-execution result is claimed; measure the effect after GitHub Actions runs it.
+PR [#144](https://github.com/2ton-exe/moris-mix-ai/pull/144) was squash-merged as
+`c425a30e0ec4e20dac289acb8eb5b0c894630903`. Hosted before/after evidence below
+measures the conservative documentation-only PR path at 91 seconds before and
+37 seconds in each of two controlled after-runs.
 Main validation and production ownership, guards, secrets and deployment targets
 are unchanged. `ci.yml` stays retired. The three required core context names stay
 `Modular Frontend / Frontend Checks`, `Modular Database / Database Tests`, and
@@ -68,15 +70,20 @@ or `paths-ignore` suppression.
 
 ### Stage A matrix
 
-Stage A path selection is an optimization mechanism, not an independent security
-boundary. Under the intended classifier policy, workflow and classifier changes
-are outside the docs-only allowlist and receive full validation. Pull-request
-workflow and classifier code is still part of the proposed revision, so required
+Stage A path selection is an optimization mechanism, not an independent
+malicious-author security boundary. Under the intended classifier policy,
+workflow and classifier changes are outside the docs-only allowlist and receive
+full validation. Pull-request
+workflow and classifier code is still part of the PR revision, so required
 human review remains the trust control against deliberate validation-policy
 tampering. The CODEOWNERS policy inherited from PR #146 is now on main, and
-code-owner review enforcement protects workflow and classifier policy changes.
-Workflow and classifier changes still require review. After merge,
-`main` runs the complete validation path again; docs-only mode is never enabled
+workflow/classifier policy changes rely on CODEOWNERS ownership, enforced
+code-owner review, one required approval, stale-review dismissal after pushes,
+required thread resolution, and no bypass actors. This is not a claim that the
+design is malicious-insider-proof. A stronger trusted-workflow architecture
+remains a possible future hardening direction, outside this measured Stage A
+result. Workflow and classifier changes still require review.
+`main` runs the complete validation path; docs-only mode is never enabled
 for main production validation.
 
 | Changed-file evidence | Core validation decision |
@@ -141,25 +148,72 @@ evidence does not excuse an otherwise unexpected skip. The marker and job
 metadata are already available from the Jobs API; no extra permissions or
 deployment behavior are introduced.
 
-### Limitations and measurement plan
+### Measured hosted Stage A result
+
+The comparable pre-change documentation-only baseline and controlled
+post-change evidence are:
+
+| Revision context | Hosted run | Start (UTC) | Finish (UTC) | Wall-clock duration |
+| --- | --- | --- | --- | --- |
+| PR #145, pre-change docs-only baseline | [Modular PR Validation #191 / 41277951140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41277951140) | `2026-11-01T05:42:17Z` | `2026-11-01T05:43:48Z` | 91 s |
+| PR #149, controlled post-change evidence | [Modular PR Validation #200 / 41316881204](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41316881204) | — | — | 37 s |
+| PR #149, controlled post-change evidence | [Modular PR Validation #201 / 41317009174](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41317009174) | — | — | 37 s |
+
+The measured result is **91 s → 37 s**, a **54 s reduction** and approximately
+**59.3% lower wall-clock duration** (`54 / 91 × 100`). Both after-runs observed:
+
+| Context/path | Observed result in #200 and #201 |
+| --- | --- |
+| `Modular Frontend / Frontend Checks` | success, lightweight path |
+| `Modular Database / Database Tests` | success, lightweight path |
+| `Modular Edge/API / Edge/API Tests` | success, lightweight path |
+| E2E | intentionally skipped |
+| Staging | intentionally skipped |
+| Hosted RLS on PR | skipped as expected |
+| Production on PR | not run |
+
+PR Secretary reported `E2E (non-gating) = SKIPPED — EXPECTED`,
+`Staging deploy = SKIPPED — EXPECTED`, and
+`Staging smoke = SKIPPED — EXPECTED`. These are intentional skips, not passed
+executions of E2E, deployment, or smoke tests.
+
+### Merged-main execution evidence
+
+[Modular Main Validation #33 / run 41316590915](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41316590915)
+completed successfully on the exact squash-merge SHA
+`c425a30e0ec4e20dac289acb8eb5b0c894630903`. It successfully executed Frontend,
+Database, Edge/API, E2E, and mandatory Hosted RLS validation, followed by
+production deployment: recipes Edge Function deployment, Cloudflare deployment,
+production URL verification, and production runtime smoke.
+
+The preserved runtime evidence is
+`production-runtime-smoke-41316590915-1`, artifact ID `13087259097`, digest
+`sha256:b9e86410fe00d75c9c7c2e28a5f0e03defea983e0ab53b9f61c909ea7c02c064`.
+This proves that this merged revision executed and verified successfully; it
+does not establish a general reliability guarantee.
+
+### Scope and measurement limitations
+
+The measured improvement applies to the tested controlled conservative
+documentation-only path. It does not prove the same improvement for code,
+configuration, migration, workflow, lockfile, mixed, or unknown changes; those
+cases intentionally retain full validation.
 
 Frontend dependencies remain necessary because workflow YAML safety tests use the
 parser bundled with locked frontend ESLint tooling. PostgreSQL still starts at
 job level. The classifier adds checkout/history and scheduling overhead. Verified
 docs-only PRs skip E2E and staging, but retained work and queue time still affect
-workflow duration. This remains an experiment until hosted before/after evidence
-is collected; no optimization result or timing improvement is claimed.
-No database startup optimization or measured improvement is claimed.
+workflow duration, and queue time can vary. The measured 54-second reduction is
+specific to the comparable runs above; it is not a database startup optimization
+or a guarantee for every future docs-only run.
 
-Collect GitHub run URLs, head/merge SHAs, path decisions/reasons, composed check
-names/conclusions, job/service/step durations and queue times. Compare repeated,
-comparable docs-only PR runs with the pre-change full-validation baseline, keeping
-mixed/code PRs as full-path controls. Verify missing/failing classification falls
-back to full validation and all three contexts remain present/successful on the
-lighter path. Observe an unchanged full main run with mandatory Hosted RLS and
-normal production gating separately. Separate classifier overhead, retained
-frontend install/database startup, and intentionally skipped E2E/staging work;
-do not equate fewer commands with a proven end-to-end improvement.
+Future path classes require their own dependency review and hosted measurement;
+the docs-only result must not be assumed to generalize. Retain run URLs, revision
+SHAs, classifier decisions, check conclusions, job/service/step durations and
+queue times for further comparisons, with mixed/code PRs as full-path controls.
+Separate classifier overhead, retained frontend setup/database startup, and
+intentionally skipped work when interpreting results. Main remains full
+validation with mandatory Hosted RLS and unchanged production gating.
 
 ## Historical migration record (superseded operational guidance)
 

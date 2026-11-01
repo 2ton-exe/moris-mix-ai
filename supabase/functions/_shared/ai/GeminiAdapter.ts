@@ -118,6 +118,11 @@ export type AIErrorCode =
  * to an HTTP status without parsing messages. Messages are user-safe: they
  * never contain prompt text or recipe text.
  */
+export type AIAttempt = {
+  readonly code: AIErrorCode;
+  readonly nonConsuming: boolean;
+};
+
 export class AIError extends Error {
   readonly code: AIErrorCode;
   readonly operation: "extract" | "generate";
@@ -131,6 +136,8 @@ export class AIError extends Error {
    * the client `Retry-After`. Undefined when the provider gave no usable delay.
    */
   readonly retryAfterSeconds?: number;
+  readonly nonConsuming: boolean;
+  readonly attempts: readonly AIAttempt[];
 
   /** Records safe failure metadata and derives retryability from the stable error code. */
   constructor(
@@ -139,6 +146,8 @@ export class AIError extends Error {
     message: string,
     detail?: string,
     retryAfterSeconds?: number,
+    nonConsuming?: boolean,
+    attempts?: readonly AIAttempt[],
   ) {
     super(message);
     this.name = "AIError";
@@ -152,6 +161,9 @@ export class AIError extends Error {
       code === "rate_limited";
     this.detail = detail;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.nonConsuming = nonConsuming ??
+      (code === "rate_limited" || code === "provider_rejected");
+    this.attempts = attempts ?? [{ code, nonConsuming: this.nonConsuming }];
   }
 }
 
@@ -284,6 +296,7 @@ export class GeminiAdapter implements AIProvider {
     prompt: string,
     parse: (raw: string) => T,
   ): Promise<T> {
+    const attempts: AIAttempt[] = [];
     let lastError: AIError | undefined;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -301,6 +314,10 @@ export class GeminiAdapter implements AIProvider {
         return result;
       } catch (error) {
         const aiError = toAIError(error, operation);
+        attempts.push({
+          code: aiError.code,
+          nonConsuming: aiError.nonConsuming,
+        });
 
         this.safeLog({
           ...this.logMeta(operation, promptTemplate, attempt, startedAt),
@@ -308,10 +325,20 @@ export class GeminiAdapter implements AIProvider {
           detail: aiError.detail,
         });
 
-        if (!aiError.retryable || attempt === MAX_ATTEMPTS) throw aiError;
+        const accumulatedError = new AIError(
+          aiError.code,
+          aiError.operation,
+          aiError.message,
+          aiError.detail,
+          aiError.retryAfterSeconds,
+          attempts.every((entry) => entry.nonConsuming),
+          [...attempts],
+        );
+
+        if (!aiError.retryable || attempt === MAX_ATTEMPTS) throw accumulatedError;
         const delayMs = retryDelayMs(aiError.code === "rate_limited" ? error : undefined);
-        if (delayMs === undefined) throw aiError;
-        lastError = aiError;
+        if (delayMs === undefined) throw accumulatedError;
+        lastError = accumulatedError;
         await this.sleep(delayMs);
       }
     }
@@ -321,6 +348,10 @@ export class GeminiAdapter implements AIProvider {
         "provider_unavailable",
         operation,
         operation === "extract" ? "Gemini extraction failed." : "Gemini generation failed.",
+        undefined,
+        undefined,
+        attempts.length > 0 ? attempts.every((entry) => entry.nonConsuming) : false,
+        attempts,
       );
   }
 
@@ -412,7 +443,7 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
   try {
     value = JSON.parse(cleaned);
   } catch {
-    throw new AIError("invalid_output", "extract", "Gemini did not return valid JSON.");
+    throw new AIError("invalid_output", "extract", "Gemini did not return valid JSON.", undefined, undefined, false);
   }
 
   const parsed = ExtractedRecipeSchema.safeParse(value);
@@ -423,7 +454,7 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
     const message = fieldPaths
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
-    throw new AIError("invalid_output", "extract", message, fieldPaths);
+    throw new AIError("invalid_output", "extract", message, fieldPaths, undefined, false);
   }
 
   return parsed.data;
@@ -447,7 +478,7 @@ export function parseGenerationResponse(
   try {
     value = JSON.parse(cleaned);
   } catch {
-    throw new AIError("invalid_output", "generate", "Gemini did not return valid JSON.");
+    throw new AIError("invalid_output", "generate", "Gemini did not return valid JSON.", undefined, undefined, false);
   }
 
   const parsed = GeneratedRecipeSchema.safeParse(value);
@@ -458,7 +489,7 @@ export function parseGenerationResponse(
     const message = fieldPaths
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
-    throw new AIError("invalid_output", "generate", message, fieldPaths);
+    throw new AIError("invalid_output", "generate", message, fieldPaths, undefined, false);
   }
 
   const hasUnknownParent = parsed.data.parentRecipeIds
@@ -469,6 +500,8 @@ export function parseGenerationResponse(
       "generate",
       "Gemini proposed a parent recipe outside the supplied candidates.",
       "parentRecipeIds",
+      undefined,
+      false,
     );
   }
 
@@ -499,6 +532,9 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
       "provider_rejected",
       operation,
       "Gemini blocked the response for safety or policy reasons.",
+      undefined,
+      undefined,
+      false,
     );
   }
 
@@ -513,11 +549,19 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
       // Forward the provider's own cooldown when it supplied one; the endpoint
       // turns this into a client `Retry-After` so the UI waits the right amount.
       retryAfterSecondsFromMs(readProviderRetryDelayMs(error)),
+      true,
     );
   }
 
   if (status === 408 || (status === undefined && isTimeout(error))) {
-    return new AIError("provider_timeout", operation, "Gemini did not respond in time.");
+    return new AIError(
+      "provider_timeout",
+      operation,
+      "Gemini did not respond in time.",
+      undefined,
+      undefined,
+      false,
+    );
   }
 
   // Any other 4xx means the request, key, or model is wrong. A retry cannot
@@ -527,15 +571,42 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
       "provider_rejected",
       operation,
       "Gemini rejected the request. Check the API key and model configuration.",
+      undefined,
+      undefined,
+      true,
     );
   }
 
-  if ((status !== undefined && status >= 500 && status < 600) ||
-    (status === undefined && isNetworkError(error))) {
-    return new AIError("provider_unavailable", operation, "Gemini is currently unavailable.");
+  if (status !== undefined && status >= 500 && status < 600) {
+    return new AIError(
+      "provider_unavailable",
+      operation,
+      "Gemini is currently unavailable.",
+      undefined,
+      undefined,
+      false,
+    );
   }
 
-  return new AIError("internal_error", operation, `Gemini ${operation} failed unexpectedly.`);
+  if (status === undefined && isNetworkError(error)) {
+    return new AIError(
+      "provider_unavailable",
+      operation,
+      "Gemini is currently unavailable.",
+      undefined,
+      undefined,
+      false,
+    );
+  }
+
+  return new AIError(
+    "internal_error",
+    operation,
+    `Gemini ${operation} failed unexpectedly.`,
+    undefined,
+    undefined,
+    false,
+  );
 }
 
 /** Recognize transport failures without treating every local SDK error as an outage. */
