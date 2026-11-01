@@ -111,10 +111,19 @@ test('Git collection uses the PR merge base and fails closed on incomplete evide
     git('update-index', '--chmod=+x', 'docs/example.md');
     git('commit', '-m', 'mode changes');
     assert.equal(classifyGit({ ...input, head: git('rev-parse', 'HEAD') }).docs_only, 'false');
-    git('switch', 'docs-change');
+
+    // Shallow history must independently fail closed while the PR diff remains valid prose.
+    git('reset', '--hard', head);
+    assert.equal(classifyGit(input).docs_only, 'true');
+    const mergeBase = git('merge-base', '--all', base, head);
+    assert.match(mergeBase, /^[a-f0-9]{40}$/);
+    assert.match(git('ls-tree', head, '--', 'docs/example.md'), /^100644 blob /);
+    const shallowBoundary = git('commit-tree', git('write-tree'), '-m', 'unrelated shallow boundary');
     const shallow = join(cwd, '.git/shallow');
-    writeFileSync(shallow, git('rev-parse', 'HEAD') + '\n');
-    assert.equal(classifyGit({ ...input, head: git('rev-parse', 'HEAD') }).docs_only, 'false');
+    writeFileSync(shallow, shallowBoundary + '\n');
+    assert.equal(git('rev-parse', '--is-shallow-repository'), 'true');
+    assert.equal(git('merge-base', '--all', base, head), mergeBase);
+    assert.equal(classifyGit(input).docs_only, 'false');
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
