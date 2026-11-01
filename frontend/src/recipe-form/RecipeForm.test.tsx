@@ -10,6 +10,8 @@ afterEach(() => vi.restoreAllMocks())
 const editable = { ...recipeFormFixture, notes: '' }
 const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
+const nextPages = () => click('Next Pages')
+const previousPages = () => click('Previous Pages')
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => { resolve = res })
@@ -19,11 +21,12 @@ function deferred<T>() {
 it('renders an empty create form with accessible labels and optional journal fields', () => {
   render(<RecipeForm mode="create" />)
   expect((screen.getByLabelText('Recipe title') as HTMLInputElement).value).toBe('')
-  expect(screen.getByText('No ingredients added.')).toBeTruthy()
-  expect(screen.getByText('No cooking steps added.')).toBeTruthy()
+  expect(screen.getByText(/No ingredients added yet/)).toBeTruthy()
   expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
   expect(screen.getByLabelText('Cooked date').getAttribute('type')).toBe('date')
   expect(screen.getByText(/Local draft only/)).toBeTruthy()
+  nextPages()
+  expect(screen.getByText(/No cooking steps added yet/)).toBeTruthy()
 })
 
 it('populates edit mode including multiline notes, rating, quantities and calendar date', () => {
@@ -34,6 +37,8 @@ it('populates edit mode including multiline notes, rating, quantities and calend
   expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('4')
   expect((screen.getByLabelText('Cooked date') as HTMLInputElement).value).toBe('2026-10-19')
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe(recipeFormFixture.notes)
+  nextPages()
+  expect((screen.getByLabelText('Step 1 description') as HTMLTextAreaElement).value).toBe(recipeFormFixture.instructions[0].text)
 })
 
 it('defaults missing optional notes to an empty editor', () => {
@@ -71,38 +76,102 @@ it('adds ingredients, edits amounts, removes rows and submits normalized values'
   fill('Ingredient 1 unit', ' cups ')
   click('Add ingredient')
   fill('Ingredient 2 name', 'ginger')
-  click('Remove ingredient 1')
+  click('Add ingredient')
+  fill('Ingredient 3 name', 'mint')
+  fill('Ingredient 3 quantity', '1')
+  previousPages()
+  click('Move ingredient 1 down')
+  expect((screen.getByLabelText('Ingredient 2 name') as HTMLInputElement).value).toBe(' rice ')
+  nextPages()
+  expect((screen.getByLabelText('Ingredient 3 name') as HTMLInputElement).value).toBe('mint')
+  click('Remove ingredient 3')
+  expect((screen.getByLabelText('Ingredient 1 name') as HTMLInputElement).value).toBe('ginger')
   click('Save recipe')
   await screen.findByText('Recipe saved.')
   expect(submit.mock.calls[0][0]).toMatchObject({ title: 'Ginger rice', ingredients: [
     { name: 'ginger', quantity: null, unit: null, inferred: false },
+    { name: 'rice', quantity: 2.5, unit: 'cups', inferred: false },
   ] })
 })
 
-it('preserves input DOM identity and entered values while reordering ingredients', () => {
+it('follows a reordered ingredient across physical pages and restores focus with its value', () => {
   render(<RecipeForm mode="edit" initialValues={editable} />)
   const first = screen.getByLabelText('Ingredient 1 name')
   fill('Ingredient 1 name', 'brown rice')
   click('Move ingredient 1 down')
-  expect(screen.getByLabelText('Ingredient 2 name')).toBe(first)
-  expect((screen.getByLabelText('Ingredient 2 name') as HTMLInputElement).value).toBe('brown rice')
+  const moved = screen.getByLabelText('Ingredient 2 name')
+  expect(moved).toBe(first)
+  expect((moved as HTMLInputElement).value).toBe('brown rice')
+  expect(document.activeElement).toBe(moved)
   expect(screen.getByText('Ingredient 1 moved down.')).toBeTruthy()
 })
 
 it('adds, edits, removes and reorders multiline steps with contiguous sequence positions', async () => {
   const submit = vi.fn().mockResolvedValue({ id: 'updated' })
   render(<RecipeForm mode="edit" initialValues={editable} onSubmit={submit} />)
+  nextPages()
   const first = screen.getByLabelText('Step 1 description')
   click('Move step 1 down')
-  expect(screen.getByLabelText('Step 2 description')).toBe(first)
-  click('Remove step 1')
+  const moved = screen.getByLabelText('Step 2 description')
+  expect(moved).toBe(first)
+  expect(moved).toBe(document.activeElement)
+  click('Remove step 2')
   click('Add cooking step')
   fill('Step 2 description', 'Serve warm.\nEnjoy slowly.')
   click('Save changes')
   await screen.findByText('Recipe saved.')
   expect(submit.mock.calls[0][0].instructions).toEqual([
-    { step: 1, text: recipeFormFixture.instructions[0].text }, { step: 2, text: 'Serve warm.\nEnjoy slowly.' },
+    { step: 1, text: recipeFormFixture.instructions[1].text }, { step: 2, text: 'Serve warm.\nEnjoy slowly.' },
   ])
+})
+
+it('keeps one form and one controlled draft through page turns and submits all rows from the last page', async () => {
+  const submit = vi.fn().mockResolvedValue({ id: 'created' })
+  render(<RecipeForm mode="create" onSubmit={submit} />)
+  const form = screen.getByRole('form', { name: 'Create recipe' })
+  fill('Recipe title', 'A complete folio')
+  click('Add ingredient')
+  fill('Ingredient 1 name', 'Rice')
+  click('Add ingredient')
+  fill('Ingredient 2 name', 'Ginger')
+  click('Add ingredient')
+  fill('Ingredient 3 name', 'Garlic')
+  expect(document.querySelectorAll('form')).toHaveLength(1)
+  previousPages()
+  nextPages()
+  expect(screen.getByRole('form', { name: 'Create recipe' })).toBe(form)
+  expect((screen.getByLabelText('Ingredient 3 name') as HTMLInputElement).value).toBe('Garlic')
+  click('Save recipe')
+  await screen.findByText('Recipe saved.')
+  expect(submit).toHaveBeenCalledTimes(1)
+  expect(submit.mock.calls[0][0]).toMatchObject({ title: 'A complete folio', ingredients: [
+    { name: 'Rice' }, { name: 'Ginger' }, { name: 'Garlic' },
+  ] })
+})
+
+it('turns to the first invalid leaf and announces errors on additional pages', () => {
+  const submit = vi.fn()
+  const multiPage = { ...editable, ingredients: [
+    ...editable.ingredients,
+    { name: 'salt', quantity: 1, unit: 'tsp', inferred: false },
+    { name: 'pepper', quantity: null, unit: null, inferred: false },
+  ] }
+  render(<RecipeForm mode="edit" initialValues={multiPage} onSubmit={submit} />)
+  fill('Ingredient 1 quantity', 'some')
+  nextPages()
+  fill('Ingredient 3 quantity', 'a few')
+  previousPages()
+  click('Save changes')
+  const first = screen.getByLabelText('Ingredient 1 quantity')
+  expect(first.getAttribute('aria-invalid')).toBe('true')
+  expect(document.activeElement).toBe(first)
+  const otherPage = screen.getByRole('button', { name: /another recipe page with errors/i })
+  expect(otherPage.textContent).toContain('1 other page has errors')
+  fireEvent.click(otherPage)
+  const second = screen.getByLabelText('Ingredient 3 quantity')
+  expect(second.getAttribute('aria-invalid')).toBe('true')
+  expect(document.activeElement).toBe(second)
+  expect(submit).not.toHaveBeenCalled()
 })
 
 it('validates the required trimmed title, links its error, and focuses the field', async () => {

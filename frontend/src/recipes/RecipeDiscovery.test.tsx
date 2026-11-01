@@ -25,7 +25,7 @@ function auth(id: string | null = 'cook-a'): AuthState {
   return { user: id ? { id } : null, isAuthenticated: !!id, isLoading: false } as AuthState
 }
 function tree(id: string | null = 'cook-a') {
-  return <StrictMode><MemoryRouter><AuthContext.Provider value={auth(id)}>
+  return <StrictMode><MemoryRouter initialEntries={['/app/recipes?view=index']}><AuthContext.Provider value={auth(id)}>
     <RecipeQueryProvider source={source}><Probe /><RecipeDashboardPage /></RecipeQueryProvider>
   </AuthContext.Provider></MemoryRouter></StrictMode>
 }

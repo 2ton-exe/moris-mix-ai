@@ -50,6 +50,7 @@ function tree(path: string, state = authState(), duplicateConsumer = false) {
       <Routes><Route path="/app" element={<JournalPage />}>
         <Route index element={<RecipeDashboardPage />} />
         <Route path="recipes" element={<RecipeDashboardPage />} />
+        <Route path="recipes/new" element={<h1>A recipe of your own.</h1>} />
         <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
       </Route><Route path="/demo-recipe" element={<h1>Public demo</h1>} /></Routes>
     </RecipeQueryProvider></AuthContext.Provider>
@@ -68,18 +69,76 @@ it('reserves a card grid while loading, then renders collection metadata and det
   const link = await screen.findByRole('link', { name: /Ginger and garlic rice/ })
   expect(link.getAttribute('href')).toBe(`/app/recipes/${previewRecipes[0].id}`)
   expect(within(link).getByText('4 / 5')).toBeTruthy()
-  expect(within(link).getByText('2026-10-18')).toBeTruthy()
+  expect(within(link).getByText('Oct 18, 2026')).toBeTruthy()
+  expect(within(link).getByRole('img', { name: /no recipe photo is available/ })).toBeTruthy()
+  expect(link.querySelector('img')).toBeNull()
   const other = screen.getByRole('link', { name: /Lemon chickpea salad/ })
   expect(within(other).queryByText('Rating')).toBeNull()
 })
 
-it('shows an empty journal with creation guidance and a working demo link', async () => {
+it('opens the collection against the inside cover, then fills both pages through server cursors', async () => {
+  const entries = Array.from({ length: 6 }, (_, i) => ({ ...previewRecipes[i % 2], id: `entry-${i}`, title: `Saved recipe ${i + 1}` }))
+  const fetchPage = vi.fn().mockImplementation(({ continuation }) => Promise.resolve(continuation === null
+    ? { recipes: entries.slice(0, 2), nextPage: 'opaque-next' }
+    : { recipes: entries.slice(2), nextPage: null }))
+  source.discovery = { searchModes: ['title'], sorts: ['newest'], filters: [], page: fetchPage }
+  source.detail = vi.fn().mockImplementation((id) => Promise.resolve(entries.find((recipe) => recipe.id === id)))
+  render(tree('/app/recipes'))
+  const first = await screen.findByRole('link', { name: 'Open recipe Saved recipe 1' })
+  expect(first.closest('.mm-journal-page')).toBeTruthy()
+  expect(document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')).toHaveLength(0)
+  expect(document.querySelector('.mm-bookplate')?.textContent).toContain('This journal belongs to')
+  expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
+  fireEvent.click(screen.getByRole('link', { name: 'Next page →' }))
+  await screen.findByRole('link', { name: 'Open recipe Saved recipe 6' })
+  expect(fetchPage.mock.calls.at(-1)![0].continuation).toBe('opaque-next')
+  expect([...document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')].filter((card) => !card.closest('[inert]'))).toHaveLength(2)
+  expect([...document.querySelectorAll('.mm-journal-page [data-recipe-id]')].filter((card) => !card.closest('[inert]'))).toHaveLength(2)
+  const selected = screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })
+  fireEvent.click(selected)
+  await screen.findByRole('heading', { name: 'Saved recipe 4', level: 1 })
+  fireEvent.click(screen.getByRole('link', { name: 'Back to recipes' }))
+  await screen.findByRole('link', { name: 'Open recipe Saved recipe 4' })
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })))
+  expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(2)
+})
+
+it('reads ingredients, ordered method and notes on the right, with identity on the left and footer actions outside the body', async () => {
+  render(tree(`/app/recipes/${previewRecipes[0].id}`))
+  const title = await screen.findByRole('heading', { name: previewRecipes[0].title, level: 1 })
+  expect(title.closest('.mm-journal-flyleaf')).toBeTruthy()
+  for (const name of ['Ingredients', 'In the kitchen', 'Personal notes', 'Flavor notes']) {
+    expect(screen.getByRole('heading', { name }).closest('.mm-journal-page')).toBeTruthy()
+  }
+  const edit = screen.getByRole('link', { name: 'Edit recipe' })
+  expect(edit.closest('.mm-journal-page-footer')).toBeTruthy()
+  expect(edit.closest('.mm-page-body')).toBeNull()
+})
+
+it('restores an index anchor through unloaded cursors without requiring an existing query cache', async () => {
+  const entries = Array.from({ length: 6 }, (_, i) => ({ id: `entry-${i}`, title: `Restored recipe ${i + 1}` }))
+  const fetchPage = vi.fn().mockImplementation(({ continuation }) => {
+    const offset = continuation === 'last-batch' ? 4 : continuation === 'next-batch' ? 2 : 0
+    return Promise.resolve({ recipes: entries.slice(offset, offset + 2), nextPage: offset === 0 ? 'next-batch' : offset === 2 ? 'last-batch' : null })
+  })
+  source.discovery = { searchModes: ['title'], sorts: ['newest', 'rating'], filters: [], page: fetchPage }
+  render(tree('/app/recipes?view=index&q=rice&sort=rating&entry=5'))
+  const card = await screen.findByRole('link', { name: 'Open recipe Restored recipe 6' })
+  await waitFor(() => expect(document.activeElement).toBe(card))
+  expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted).map(([request]) => request.continuation)).toEqual([null, 'next-batch', 'last-batch'])
+  expect(fetchPage.mock.calls.every(([request]) => request.criteria.search === 'rice' && request.criteria.sort === 'rating')).toBe(true)
+  expect(document.querySelectorAll('[data-recipe-id]')).toHaveLength(6)
+})
+
+it('shows a physically empty journal and directs the cook to add a real first scrap', async () => {
   vi.mocked(source.list).mockResolvedValue([])
   render(tree('/app/recipes'))
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
-  expect(screen.getByRole('link', { name: 'Start a recipe' }).getAttribute('href')).toBe('/app/recipes/new')
-  fireEvent.click(screen.getByRole('link', { name: 'Explore a demonstration recipe' }))
-  await screen.findByRole('heading', { name: 'Public demo' })
+  const firstScrap = screen.getByRole('link', { name: 'Add Your First Scrap' })
+  expect(firstScrap.getAttribute('href')).toBe('/app/recipes/new')
+  expect(screen.queryByRole('link', { name: /Explore a demonstration recipe/ })).toBeNull()
+  fireEvent.click(firstScrap)
+  await screen.findByRole('heading', { name: 'A recipe of your own.' })
 })
 
 it('keeps loaded cards visible during refresh and replaces them with fresh server results', async () => {
@@ -166,15 +225,17 @@ it('loads a detail by route ID, orders steps without mutating data, and navigate
   vi.mocked(source.detail).mockResolvedValue(recipe)
   render(tree(`/app/recipes/${recipe.id}`))
   await screen.findByRole('heading', { name: recipe.title, level: 1 })
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: recipe.title, level: 1 }))
   expect(source.detail).toHaveBeenCalledWith(recipe.id, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
   const steps = within(screen.getByRole('region', { name: 'In the kitchen' })).getAllByRole('listitem')
-  expect(steps.map((step) => step.textContent)).toEqual(['Prepare it.', 'Serve it.'])
+  expect(steps.map((step) => step.querySelector('p')?.textContent)).toEqual(['Prepare it.', 'Serve it.'])
   expect(steps.map((step) => step.getAttribute('value'))).toEqual(['1', '2'])
   expect(recipe.instructions[0].step).toBe(2)
   expect(screen.getByText('To taste salt')).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'Flavor notes' })).toBeTruthy()
   fireEvent.click(screen.getByRole('link', { name: /Back to recipes/ }))
-  await screen.findByRole('heading', { name: 'Your cooking journal' })
+  const returnedCard = await screen.findByRole('link', { name: `Open recipe ${recipe.title}` })
+  await waitFor(() => expect(document.activeElement).toBe(returnedCard))
 })
 
 it('offers editing from a live recipe detail', async () => {
