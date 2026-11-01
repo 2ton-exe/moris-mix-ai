@@ -26,10 +26,12 @@ implementation detail:
 - **Validated output only.** No model output reaches a client without Zod
   validation at the adapter boundary **and** again at the endpoint boundary.
 - **Stateless previews.** Neither AI endpoint writes a recipe or lineage row.
-  Both reserve quota before provider work: successful and provider-consumed
-  requests confirm the reservation; pre-provider and definitively non-consuming
-  failures roll it back (see §6 Quota). Saving is a separate, explicit call
-  made by the user.
+  Both reserve quota before provider work and attempt settlement after it:
+  success or provider-consumed outcomes attempt to confirm the reservation;
+  pre-provider and definitively non-consuming failures attempt to roll it
+  back. Settlement is best-effort — a failed call is logged and may need
+  administrative reconciliation (see §6 Quota). Saving is a separate, explicit
+  call made by the user.
 - **Safe failures.** Every provider failure becomes a stable error code with no
   prompt text, recipe text, provider detail, stack trace or file path.
 - **Ownership and RLS on save.** Persistence uses the caller's own token and
@@ -173,10 +175,13 @@ the database which parents the model was allowed to propose. Instead
   PostgreSQL RLS still apply; finally every selected parent must be inside the
   token's allowed set. The user may save a subset but can never add a parent the
   preview did not show.
-- Rejections are `403 FORBIDDEN` with `details[0].code` of `invalid_token`,
-  `expired_token`, `wrong_user` or `not_a_candidate`. A missing or too-short
-  server secret (`AI_CANDIDATE_TOKEN_SECRET`, at least 32 characters) fails
-  closed with `500` before any database work.
+- Token-verification and candidate-membership failures are `403 FORBIDDEN` with
+  `details[0].code` of `invalid_token`, `expired_token`, `wrong_user` or
+  `not_a_candidate`. Requests missing `candidate_token`, or whose token fails
+  request-schema validation (empty or over 2,048 characters), return
+  `400 VALIDATION_ERROR` before any verification. A missing or too-short server
+  secret (`AI_CANDIDATE_TOKEN_SECRET`, at least 32 characters) fails closed
+  with `500` before any database work.
 
 `GET /recipes/:id/lineage` is unchanged. The token is stateless: within its TTL
 the same user can replay it with the same allowed parent set.
@@ -264,7 +269,10 @@ Settlement follows what the provider may have consumed:
   reservation is confirmed and charged (`confirm_ai_quota`), so failures cannot
   leak unmetered usage.
 
-Stale reservations can be resolved administratively with
+Settlement is best-effort: the handlers catch and log a failed
+`confirm_ai_quota` or `reconcile_ai_quota` call and continue serving the
+response, so a failure or a crash can leave the reservation `reserved`. Stale
+reservations can be resolved administratively with
 `reconcile_unconfirmed_reservation`.
 
 ### Failure drills (demo only)
@@ -393,9 +401,9 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   percentiles are benchmarked.
 - **Token replay.** A candidate token can be replayed by the same user with the
   same allowed parent set inside its 15-minute TTL by design.
-- **Settlement is not automatic after a crash.** If the function instance dies
-  between reserving and settling, the row stays `reserved` until an operator
-  resolves it; there is no automatic sweeper.
+- **Settlement is best-effort.** If the confirm/rollback call fails, or the
+  function instance dies between reserving and settling, the row stays
+  `reserved` until an operator resolves it; there is no automatic sweeper.
 
 ## 11. Operations quick reference
 
