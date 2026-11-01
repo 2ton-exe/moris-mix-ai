@@ -1,6 +1,6 @@
 # Authenticated recipe REST API contract (`GET`, `POST`, `PATCH`, `DELETE /recipes`)
 
-This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema`, `CreateLineageRequestSchema`, `LineageResponseSchema`, `LineageRecordSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47), BE-06 (#48), BE-08, and BE-11.
+This contract defines the authenticated recipe REST endpoints (`supabase/functions/recipes/index.ts`) and shared Zod schemas (`CreateRecipeRequestSchema`, `UpdateRecipeRequestSchema`, `RecipeSchema`, `RecipeResponseSchema`, `RecipeListResponseSchema`, `RecipeParamsSchema`, `RecipeIdParamSchema`, `CreateLineageRequestSchema`, `LineageResponseSchema`, `LineageRecordSchema` in `supabase/functions/_shared/ai/schemas.ts`, re-exported via `supabase/functions/_shared/schemas.ts`) implemented for BE-05 (#47), BE-06 (#48), BE-08, BE-11, and AI-07 (#97).
 
 ## Endpoints overview
 
@@ -11,7 +11,7 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 | `GET` | `/functions/v1/recipes/:id` or `/recipes/:id` | Retrieve an owned recipe | `200 OK` | `{ "recipe": Recipe }` |
 | `PATCH` | `/functions/v1/recipes/:id` or `/recipes/:id` | Update allowed fields and rating | `200 OK` | `{ "recipe": Recipe }` |
 | `DELETE` | `/functions/v1/recipes/:id` or `/recipes/:id` | Delete an owned recipe | `204 No Content` | (empty body) |
-| `POST` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Persist authorized recipe parent-child lineage relationships | `201 Created` | `{ "lineage": LineageRecord[] }` |
+| `POST` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Persist candidate-authorized recipe parent-child lineage (requires `candidate_token`) | `201 Created` | `{ "lineage": LineageRecord[] }` |
 | `GET` | `/functions/v1/recipes/:id/lineage` or `/recipes/:id/lineage` | Retrieve deterministic parent lineage for an owned recipe | `200 OK` | `{ "lineage": LineageRecord[] }` |
 | `OPTIONS` | Any supported recipe path | CORS preflight check | `204 No Content` | (empty body) |
 
@@ -20,35 +20,59 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 - **Authentication:** `Authorization: Bearer <supabase-access-token>` is required and verified by the handler.
 - **API key:** `apikey` is optional for this handler and is not used to authenticate the caller. Supabase clients may send the project key alongside the user token.
 - **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended but the handler does not enforce the header.
-- **Query parameters:** collection `GET` accepts `title`, `ingredient`, `sort`, `limit`, `cursor`, and legacy `offset`.
+- **Query parameters:** collection `GET` accepts `search`, `searchMode`, `title`, `ingredient`, `sort`, `pagination`, `limit`, `cursor`, and legacy `offset`.
 - **Access control:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`). All queries and database operations are strictly scoped to the authenticated caller (`auth.uid() = user_id`).
 - **Preflight exception:** `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with CORS headers.
 
 ## 1. GET /recipes — List user recipes
 
-Retrieves recipes belonging to the authenticated caller, supporting case-insensitive title and ingredient substring search, rating and creation date sorting, and stable cursor-based keyset pagination.
+Retrieves recipes belonging to the authenticated caller, supporting case-insensitive, typo-tolerant relevance-ranked search, legacy title and ingredient substring filters, rating and creation date sorting, and offset or stable cursor-based keyset pagination.
 
 ### Supported query parameters
 
 | Parameter | Type / Constraints | Default | Behavior |
 | --- | --- | --- | --- |
+| `search` | `string` | optional | Search query across recipe title, ingredient names, or both with relevance ranking. Cannot be combined with `title` or `ingredient`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored without filtering out recipes. |
+| `searchMode` | `string` (`title` \| `ingredients` \| `both`) | `both` | Scopes `search` matching to recipe title (`title`), ingredient names (`ingredients`), or either (`both`, logical OR). Requires a non-empty `search`. Unsupported values or duplicate parameters return `400 VALIDATION_ERROR`. |
 | `title` | `string` | optional | Case-insensitive partial substring match against recipe `title`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored without filtering out recipes. |
 | `ingredient` | `string` | optional | Case-insensitive partial substring match against canonical persisted recipe ingredient names via generated column `ingredients_text`. Leading and trailing whitespace is trimmed. Empty or whitespace-only values are ignored. |
 | `sort` | `string` (`newest` \| `rating`) | `newest` | Controls result ordering. Unsupported sort values return `400 VALIDATION_ERROR`. |
-| `pagination` | `string` (`cursor` \| `offset`) | optional (`offset`) | Explicit pagination mode selector. When set to `cursor`, enables cursor keyset pagination (default limit 20, max limit 100). When omitted or set to `offset`, requests use legacy offset pagination (default limit 1000, max limit 1000). |
+| `pagination` | `string` (`cursor` \| `offset`) | optional (`offset`) | Explicit pagination mode selector. `pagination=cursor` or a `cursor` token enables keyset pagination (default limit 20, max limit 100). Otherwise, requests use offset pagination (default limit 1000, max limit 1000). Unsupported values or duplicate parameters return `400 VALIDATION_ERROR`. |
 | `limit` | integer `1..100` (cursor mode) or `1..1000` (legacy offset mode) | `20` (cursor mode), `1000` (offset mode) | Number of recipes to return per page. In legacy offset mode, requests such as `?limit=200` are valid without an explicit `offset`. Exceeding the mode's maximum limit returns `400 VALIDATION_ERROR`. |
 | `cursor` | opaque base64 string | optional | Opaque URL-safe Unicode-safe keyset continuation token returned in `next_cursor` from a preceding cursor response. Opts the request into cursor mode. Cannot be combined with `offset` or `pagination=offset`. |
 | `offset` | non-negative safe integer | optional (`0`) | Backward-compatible offset pagination parameter from BE-06. Cannot be combined with `cursor` or `pagination=cursor`. |
 
 ### Search rules
 
+- **Relevance-ranked search (`search`):** Performs relevance-ranked search via database-side RPC `search_recipes`. When `searchMode` is `both` (default), performs logical OR across title and ingredient names. When `searchMode` is `title`, matches exclusively against recipe title. When `searchMode` is `ingredients`, matches exclusively against ingredient names.
+- **Three-tier relevance ranking:**
+  - **Tier 1 (Exact match):** Full-phrase exact case-insensitive match on recipe title or any ingredient name, such as `Garlic Rice` for `garlic rice`.
+  - **Tier 2 (Partial substring match):** Full-phrase contiguous substring match on recipe title or any ingredient name, such as `Spicy Garlic Rice` for `garlic rice`.
+  - **Tier 3 (Token-level match):** All query words match tokens within the title or within one ingredient name, either exactly, as substrings, or fuzzily. Non-contiguous matches such as `Garlic Fried Rice` for `garlic rice` belong here even without typos. Damerau-Levenshtein thresholds are unchanged: adjacent transposition counts as 1 edit; query-token length <= 3 requires 0 edits, 4-6 allows 1 edit, >= 7 allows 2 edits.
+- **Pre-pagination ranking:** Relevance ranking occurs in PostgreSQL before `LIMIT` or pagination, ensuring older exact matches cannot be displaced by newer partial matches.
+- **Ingredient metadata isolation:** Ingredient search matches exclusively against individual ingredient `name` values, strictly excluding non-name metadata such as `unit`, `quantity`, `quantityText`, and `inferred`.
 - **Title search:** `title` performs case-insensitive substring matching (`ILIKE '%title%'`).
 - **Ingredient search:** `ingredient` performs case-insensitive substring matching against persisted `ingredients` via generated column `ingredients_text` (`ingredients_text ILIKE '%ingredient%'`).
-- **Whitespace handling:** Leading and trailing whitespace in `title` and `ingredient` is trimmed. Empty or whitespace-only search terms do not filter out recipes.
-- **Filter combination:** When both `title` and `ingredient` are supplied, both filters must be satisfied (logical AND).
+- **Whitespace handling:** Leading and trailing whitespace in `search`, `title`, and `ingredient` is trimmed. Empty or whitespace-only search terms do not filter out recipes.
+- **Filter combination and exclusivity:** When both legacy `title` and `ingredient` filters are supplied, both must be satisfied (logical AND), including when their values are identical. A recipe matching only one filter is excluded. A non-empty `search` alongside either non-empty legacy filter returns `400 VALIDATION_ERROR`; use `search` with `searchMode=both` for OR matching.
 - **No matches:** If no recipes match the filters, returns `200 OK` with `{ "recipes": [], "next_cursor": null, "has_more": false }`, not an error.
 
+### Direct search RPC contract
+
+`public.search_recipes` and its ranking helpers require the `authenticated` role;
+`anon` and `PUBLIC` have no execution permission. The RPC uses `SECURITY INVOKER`,
+the caller's `auth.uid()`, and recipe RLS policies.
+
+- `p_limit` defaults to `20` and accepts integers `1..100`; `p_offset` defaults to `0` and accepts non-negative integers. `p_sort` defaults to `newest` and accepts only `newest` or `rating`. Explicit nulls and invalid values are rejected (`22023`); integer argument types also reject fractional values. Results include up to one extra row for pagination lookahead.
+- Independent `p_title` and `p_ingredient` use AND, including identical values. Explicit `p_search` uses OR across title and ingredient names and takes precedence over independent filters. All three frontend search modes retain fuzzy matching.
+- Ranking queries longer than 64 characters return no match. Full-phrase matching against longer titles or ingredient names remains supported for queries within that cap. Token-level matching is limited to targets of at most 64 characters. `damerau_levenshtein` returns null if either input exceeds 64 characters, before allocating its distance matrix. Multi-word queries within the cap are matched as complete phrases and tokens without truncation.
+- The REST endpoint retains its existing cursor and offset limits, including offset pages of up to 1,000 recipes, by fetching bounded RPC batches when necessary.
+
 ### Sorting rules
+
+With a non-empty `search`, relevance tier ascending is the primary ordering before
+pagination. The selected sort below orders results within each tier. Legacy filters
+and unfiltered listings use the selected sort directly.
 
 - **`sort=newest` (default):**
   - Primary sort key: `created_at` descending (`DESC`).
@@ -62,11 +86,11 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 
 - First-page cursor requests pass `pagination=cursor` (e.g., `GET /recipes?pagination=cursor` or `GET /recipes?pagination=cursor&limit=20&sort=rating`). Requests omitting pagination parameters default to legacy offset pagination (limit 1000, offset 0).
 - When more results are available, the response includes `has_more: true` and an opaque `next_cursor` string.
-- Continuation requests pass `cursor=<next_cursor>` along with identical `sort`, `title`, and `ingredient` query parameters.
+- Continuation requests pass `cursor=<next_cursor>` with the same trimmed `search`, effective `searchMode`, trimmed `title` and `ingredient` filters, and `sort`. An omitted `searchMode` is equivalent to `both`; an omitted `sort` is equivalent to `newest`.
 - Cursors are serialized using URL-safe, UTF-8-safe Base64 without padding, supporting arbitrary Unicode search terms and emojis. The `createdAt` property is strictly validated as an ISO 8601 datetime with timezone. Cursors encode sort keys and tie-breakers from the last row of the previous page. Keyset filtering ensures no skipped rows and no duplicate rows across ordinary page boundaries.
 - When no more results exist, the response includes `has_more: false` and `next_cursor: null`.
 - Malformed, corrupt, or non-base64 cursors are rejected with `400 VALIDATION_ERROR`.
-- Cursors that do not match the active `sort`, `title`, or `ingredient` parameters are rejected with `400 VALIDATION_ERROR`.
+- Cursors that do not match the active `sort`, `search`, `searchMode`, `title`, or `ingredient` parameters are rejected with `400 VALIDATION_ERROR`. Search cursors also carry a relevance tier from 1 to 3 and cannot be reused for an unfiltered listing, or vice versa.
 - Supplying both `cursor` and `offset` is rejected with `400 VALIDATION_ERROR`.
 
 ### Owner isolation
@@ -339,14 +363,15 @@ Persists user-approved parent-child relationships between recipes in `public.rec
 
 ### Request body (`CreateLineageRequestSchema`)
 
-Accepts a canonical JSON object containing an array of parent recipe UUIDs. Unrecognized or client-supplied fields (`user_id`, `child_recipe_id`, etc.) are rejected by `.strict()` validation:
+Accepts a canonical JSON object containing an array of parent recipe UUIDs and the AI-07 generation candidate token. Unrecognized or client-supplied fields (`user_id`, `child_recipe_id`, etc.) are rejected by `.strict()` validation:
 
 ```json
 {
   "parent_recipe_ids": [
     "22222222-2222-4222-8222-222222222222",
     "33333333-3333-4333-8333-333333333333"
-  ]
+  ],
+  "candidate_token": "v1.eyJqdGkiOiI...signature"
 }
 ```
 
@@ -355,11 +380,25 @@ Accepts a canonical JSON object containing an array of parent recipe UUIDs. Unre
 | Field | Required | Type / Constraints | Behavior |
 | --- | --- | --- | --- |
 | `parent_recipe_ids` | Required | Array of RFC 4122 UUID strings, length `1..10`, strictly unique | Rejects empty arrays (`min(1)`), arrays exceeding 10 parents (`max(10)`), duplicate UUIDs (`400 VALIDATION_ERROR`), non-UUID items, or non-array inputs. |
+| `candidate_token` | Required | Opaque string, `1..2048` characters | Missing or empty → `400 VALIDATION_ERROR`. Invalid signature, expired, wrong user, or a parent outside its allowed set → `403 FORBIDDEN`. |
+
+### Candidate token verification (AI-07)
+
+Every `POST` requires `candidate_token`, issued by `POST /generate-recipe` for the authenticated user's preview:
+
+1. **Signature, user and expiry** are verified before any database work, using the server-side `AI_CANDIDATE_TOKEN_SECRET`. Rejections return `403 FORBIDDEN` with `details[0].code` of `invalid_token`, `expired_token` or `wrong_user`.
+2. **Membership:** after child and parent ownership checks, every selected parent must be inside the token's `parent_recipe_ids`. A selected subset is allowed, but an owned parent outside the set is rejected with `403 FORBIDDEN` (`not_a_candidate`).
+3. **Fail closed:** a missing or too-short server secret returns `500 INTERNAL_ERROR` before any database call.
+4. `GET /recipes/:id/lineage` is unchanged and requires no token. The token is stateless; within its 15-minute TTL it can be replayed by the same user with the same allowed parent set.
 
 - **Self-referencing restriction:** A recipe cannot be its own parent. If `parent_recipe_ids` contains `:id`, the request is rejected with `400 Bad Request` and `VALIDATION_ERROR` (`A recipe cannot be its own parent.`).
 - **Array limit:** The maximum of 10 parent recipe IDs per request (`MAX_PARENT_RECIPE_IDS`) aligns with culinary composition limits and safeguards against unbounded batch writes.
 
 ### Ownership verification and atomicity
+
+Token validity (signature, user, expiry) is checked before step 1. The candidate
+membership check runs after step 2, so a foreign or missing parent keeps the `404`
+behavior and membership never reveals another user's data.
 
 1. **Child recipe ownership:** The handler verifies that `:id` exists and belongs to the authenticated user (`.eq("id", childId).eq("user_id", user.id)`). If not found or owned by another user, returns `404 Not Found` before querying parents or attempting insertion.
 2. **Parent recipes ownership:** The handler verifies that every ID in `parent_recipe_ids` exists and belongs to the authenticated user (`.in("id", parentIds).eq("user_id", user.id)`). If any parent recipe is missing or owned by another user, returns `404 Not Found` without inserting any rows.
@@ -437,10 +476,11 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe lineage payload.` | Lineage request body fails Zod validation (e.g. empty, duplicate IDs, >10 IDs, extra properties). Includes `error.details` array. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `A recipe cannot be its own parent.` | Lineage `parent_recipe_ids` contains child recipe ID or database check `23514` fails. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe ID.` | Route parameter `:id` is not a valid UUID string. Includes `error.details` array with `path: "id"`. |
-| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination parameters.` | Collection `GET` has an invalid, duplicate, or out-of-range `limit` or `offset`, or combines `cursor` and `offset`. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination parameters.` | Collection `GET` has invalid or duplicate `pagination`, invalid, duplicate, or out-of-range `limit` or `offset`, or incompatible cursor/offset pagination parameters. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination cursor.` | Collection `GET` has a malformed, corrupt, or incompatible `cursor`. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid sort parameter.` | Collection `GET` has an invalid or duplicate `sort` query parameter. |
-| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid search parameter.` | Collection `GET` has duplicate `title` or `ingredient` query parameters. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid search parameter.` | Collection `GET` has duplicate `search`, `title`, or `ingredient` parameters, or combines a non-empty `search` with either non-empty legacy filter. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid searchMode parameter.` | Collection `GET` has an unsupported or duplicate `searchMode`, or supplies it without a non-empty `search`. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid Authorization header.` | `Authorization` header is missing, empty, not `Bearer`, or not a compact 3-part JWS. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Invalid or expired authentication credentials.` | Supabase Auth rejects the Bearer JWT as invalid, expired, revoked, or unauthenticated. |
 | `404 Not Found` | `NOT_FOUND` | `Recipe not found.` | Target recipe does not exist or belongs to another user (applies to recipes, child lineage target, and parent lineage targets). |

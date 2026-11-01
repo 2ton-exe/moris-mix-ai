@@ -19,6 +19,9 @@ create table if not exists auth.users (
 
 do $$
 begin
+  if not exists (select from pg_roles where rolname = 'anon') then
+    create role anon;
+  end if;
   if not exists (select from pg_roles where rolname = 'authenticated') then
     create role authenticated;
   end if;

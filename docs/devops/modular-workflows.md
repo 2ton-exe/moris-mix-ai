@@ -68,6 +68,15 @@ or `paths-ignore` suppression.
 
 ### Stage A matrix
 
+Stage A path selection is an optimization mechanism, not an independent security
+boundary. Under the intended classifier policy, workflow and classifier changes
+are outside the docs-only allowlist and receive full validation. Pull-request
+workflow and classifier code is still part of the proposed revision, so required
+human review remains the trust control against deliberate validation-policy
+tampering. Workflow and classifier changes still require review. After merge,
+`main` runs the complete validation path again; docs-only mode is never enabled
+for main production validation.
+
 | Changed-file evidence | Core validation decision |
 | --- | --- |
 | Only added/modified `README.md` or plain Markdown files under `docs/` | Explicit documentation-only successful paths |
