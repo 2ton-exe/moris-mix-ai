@@ -224,13 +224,17 @@ is passed only through the synchronization step's environment. Do not echo it,
 persist it in Git configuration, upload it in artifacts, or enable debug output
 that prints credentials. API error bodies and untrusted PR text are not logged.
 
-Missing or non-`true` activation skips automatic work with a clear disabled
-message before credential minting. The script independently requires the exact,
-case-sensitive string `true` before apply mode can access the API. This matters
-because Actions expression string equality is case-insensitive: an uppercase
-value may enter the workflow job but still cannot mutate through the script.
-Manual `reconcile` is subject to the same guard. Dispatch from a non-default
-branch is skipped. There is no hidden apply mode; unknown modes fail.
+Missing/false activation skips automatic work with a clear disabled message.
+Actions expression string equality is case-insensitive, so an uppercase value
+may enter the workflow job. A case-sensitive Bash validation step therefore
+requires activation to be exactly lowercase `true` before minting a write-capable
+App token for event-driven runs or manual `reconcile`. Nonexact values fail
+before token creation; the guard receives only the activation value, never the
+private key. Manual `dry-run` bypasses this activation check and still requests
+only Projects read access. The script independently requires exact lowercase
+`true` before apply mode can access the API. These guards have local regression
+coverage; hosted pre-token behavior is not yet runtime-verified. Dispatch from a
+non-default branch is skipped. There is no hidden apply mode; unknown modes fail.
 
 ## Trusted-base security boundary
 

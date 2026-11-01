@@ -50,6 +50,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Require exact activation before write token
+        if: github.event_name != 'workflow_dispatch' || inputs.mode != 'dry-run'
+        shell: bash
+        env:
+          ENABLED: ${{ vars.PROJECT_AUTOMATION_ENABLED }}
+        run: |
+          if [ "$ENABLED" != 'true' ]; then
+            echo '::error::PROJECT_AUTOMATION_ENABLED must be exactly true before minting a write token.'
+            exit 1
+          fi
       - name: Check credential configuration
         env:
           APP_CLIENT_ID: ${{ vars.PROJECT_AUTOMATION_APP_CLIENT_ID }}

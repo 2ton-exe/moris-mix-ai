@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import test from 'node:test';
 import { CONFIG, STATUSES, relationships, desiredState, discover, plan, paginate, createApi, adapter, reconcile, main } from './project-sync.mjs';
 
@@ -492,6 +493,49 @@ test('App credentials stay in action inputs/output env; no application/deploymen
   assert.deepEqual([...source.matchAll(/secrets\.([A-Z_]+)/g)].map(m => m[1]),
     ['PROJECT_AUTOMATION_APP_PRIVATE_KEY', 'PROJECT_AUTOMATION_APP_PRIVATE_KEY']);
   assert.doesNotMatch(source, /echo.*(?:\$GH_TOKEN|outputs\.token|\$APP_PRIVATE_KEY)|skip-token-revoke|\n\s+token:\s*\$\{/);
+});
+
+test('exact activation validation gates write-token minting; dry-run retains read-only access', () => {
+  const steps = workflow.jobs.synchronize.steps;
+  const guard = steps.find(s => s.name === 'Require exact activation before write token');
+  const app = steps.find(s => s.uses === 'actions/create-github-app-token@v3');
+  assert.ok(guard && steps.indexOf(guard) < steps.indexOf(app));
+  assert.equal(guard.shell, 'bash');
+  assert.deepEqual(guard.env, { ENABLED: '${{ vars.PROJECT_AUTOMATION_ENABLED }}' });
+  assert.match(guard.run, /if \[ "\$ENABLED" != 'true' \]; then/);
+  assert.match(guard.run, /exit 1/);
+  assert.equal(guard['continue-on-error'], undefined);
+  assert.equal(app.if, undefined, 'token step retains implicit success() after the guard');
+  assert.equal(app['continue-on-error'], undefined);
+  const required = (event_name, mode) => Function('github', 'inputs', `return (${guard.if});`)(
+    { event_name }, { mode });
+  const permission = (event_name, mode) => Function('github', 'inputs',
+    `return (${app.with['permission-organization-projects'].replace(/^\$\{\{\s*|\s*\}\}$/g, '')});`)(
+    { event_name }, { mode });
+  for (const event of ['issues', 'pull_request_target', 'schedule']) {
+    for (const mode of [undefined, 'reconcile', 'dry-run']) {
+      assert.equal(required(event, mode), true);
+      assert.equal(permission(event, mode), 'write');
+    }
+  }
+  assert.equal(required('workflow_dispatch', 'reconcile'), true);
+  assert.equal(required('workflow_dispatch', undefined), true);
+  assert.equal(permission('workflow_dispatch', 'reconcile'), 'write');
+  assert.equal(required('workflow_dispatch', 'dry-run'), false);
+  assert.equal(permission('workflow_dispatch', 'dry-run'), 'read');
+
+  const bash = process.platform === 'win32'
+    ? join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe') : 'bash';
+  for (const enabled of ['true', 'TRUE', 'True', '1', '', 'false', ' true', 'true ']) {
+    const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-s'], {
+      input: guard.run + "\nprintf '%s\\n' token-step-reached\n", encoding: 'utf8',
+      env: { ...process.env, ENABLED: enabled }, timeout: 5000,
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, enabled === 'true' ? 0 : 1, `${enabled}: ${result.stderr}`);
+    assert.equal(result.stdout.includes('token-step-reached'), enabled === 'true');
+    if (enabled !== 'true') assert.match(result.stdout, /::error::PROJECT_AUTOMATION_ENABLED must be exactly true/);
+  }
 });
 test('automatic writer job is gated and dispatch restricted to default branch', () => {
   assert.match(workflow.jobs.synchronize.if, /vars\.PROJECT_AUTOMATION_ENABLED == 'true'/);
