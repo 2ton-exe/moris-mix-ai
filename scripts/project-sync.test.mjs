@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
@@ -69,6 +70,52 @@ for (const heading of ['## Related Issue', '## Related GitHub Issue', '### Relat
     assert.deepEqual(relationships(`${heading}\n\n#147\n- #148\n${heading.startsWith('###') ? '###' : '##'} Testing\n#999`), [147, 148]);
   });
 }
+
+for (const [heading, expected] of [
+  ['## Related Issue', [147]],
+  ['## Related Issues', [147]],
+  ['## Related GitHub Issue', [147]],
+  ['## Related GitHub Issues', [147]],
+  ['## rElAtEd gItHuB iSsUeS', [147]],
+  ['## Related Issue ##', [147]],
+  ['## Related GitHub Issue ###', [147]],
+  ['## Related Issue   \t', [147]],
+  ['## Related GitHub Issues ###   \t', [147]],
+  ['## Testing', []],
+]) test(`ATX heading normalization: ${JSON.stringify(heading)}`, () => {
+  assert.deepEqual(relationships(`${heading}\n#147`), expected);
+});
+
+test('ATX levels, indentation and marker spacing preserve relationship boundaries', () => {
+  for (let level = 1; level <= 6; level++) {
+    for (let indent = 0; indent <= 3; indent++) {
+      for (const spacing of [' ', '   ', '\t']) {
+        const marker = '#'.repeat(level);
+        assert.deepEqual(relationships(`${' '.repeat(indent)}${marker}${spacing}Related Issue ##\n#147\n${marker} Testing\n#999`), [147]);
+      }
+    }
+  }
+  assert.deepEqual(relationships('## Related Issue\n#147\n##   \n#999'), [147]);
+  for (const heading of ['####### Related Issue', '    ## Related Issue', '> ## Related Issue']) {
+    assert.deepEqual(relationships(`${heading}\n#147`), []);
+  }
+});
+
+test('adversarial headings finish promptly without recognizing unrelated references', () => {
+  const moduleURL = new URL('./project-sync.mjs', import.meta.url).href;
+  const script = `import { relationships } from ${JSON.stringify(moduleURL)};
+    const bodies = [
+      '## Related Issue' + ' '.repeat(50000) + 'x\\n#147',
+      '## Related Issue ' + '#'.repeat(50000) + 'x\\n#147',
+    ];
+    process.stdout.write(JSON.stringify(bodies.map(body => relationships(body))));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.error, undefined, 'heading parsing must complete within five seconds');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [[], []]);
+});
 test('multiple relationships, qualified same-repo refs, native relationships, deduplication', () => {
   assert.deepEqual(relationships('Part of #147, #148\nRefs: #147\nFixes 2ton-exe/moris-mix-ai#149\nCloses https://github.com/2ton-exe/moris-mix-ai/issues/150',
     [{ number: 151, repository }, { number: 147, repository }, { number: 10, repository: { nameWithOwner: 'other/repo' } }]),

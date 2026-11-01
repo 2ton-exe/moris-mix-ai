@@ -44,11 +44,15 @@ export function relationships(body, native = []) {
       continue;
     }
     if (fence || /^(?: {4}|\t|\s*>)/.test(line)) continue;
-    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(\S.*)?$/);
     if (heading) {
       const level = heading[1].length;
+      const content = (heading[2] ?? '').trimEnd();
+      let end = content.length;
+      while (end > 0 && content[end - 1] === '#') end--;
+      const title = content.slice(0, end).trimEnd();
       if (relatedLevel !== null && level <= relatedLevel) relatedLevel = null;
-      if (/^Related (?:GitHub )?Issues?$/i.test(heading[2])) relatedLevel = level;
+      if (/^Related (?:GitHub )?Issues?$/i.test(title)) relatedLevel = level;
       continue;
     }
     line = line.trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)\s*(?:\[[ xX]\]\s*)?/, '');
