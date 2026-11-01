@@ -2,6 +2,11 @@ name: Reusable Database Validation
 
 on:
   workflow_call:
+    inputs:
+      docs-only:
+        description: Verified Stage A prose-only PR; never applies to main
+        type: boolean
+        default: false
 
 jobs:
   test-db:
@@ -22,6 +27,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      DOCS_ONLY: ${{ inputs.docs-only && github.event_name == 'pull_request' }}
       DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/postgres
       RUN_MIGRATION_DB_TESTS: "true"
       CI: "true"
@@ -30,20 +36,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up pnpm
+        if: env.DOCS_ONLY != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 10
 
       - name: Set up Node.js
+        if: env.DOCS_ONLY != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: "pnpm"
 
       - name: Install dependencies
+        if: env.DOCS_ONLY != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Verify PostgreSQL readiness
+        if: env.DOCS_ONLY != 'true'
         run: |
           node -e "
             import('pg').then(async ({ Client }) => {
@@ -66,10 +76,17 @@ jobs:
           "
 
       - name: Run database migrations
+        if: env.DOCS_ONLY != 'true'
         run: pnpm run db:setup
 
       - name: Run migration tests
+        if: env.DOCS_ONLY != 'true'
         run: pnpm run test:lifecycle
 
       - name: Run RLS tests
+        if: env.DOCS_ONLY != 'true'
         run: pnpm test:db
+
+      - name: Record documentation-only validation path
+        if: env.DOCS_ONLY == 'true'
+        run: echo "Verified documentation-only PR - expensive application validation is not required in this context."
