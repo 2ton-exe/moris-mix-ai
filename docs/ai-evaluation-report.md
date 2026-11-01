@@ -86,12 +86,14 @@ flavor-score presence, parent IDs and substitution originals. Every invalid case
 asserts the exact `AIError` code and field path. Chef candidates are recomputed
 with BE-10's `computeIngredientOverlap` before they are accepted.
 
-At the report's baseline commit (`0aeaaea`, running the then-current legacy
-`ci.yml` list) the full deterministic suite was **266 passed / 0 failed /
-5 ignored**. Re-running the current modular `reusable-edge-api.yml` list on
-`main` (which also runs the recipe-image schema tests) reports **279 passed /
-0 failed / 5 ignored**. The five ignored tests are the opt-in live PostgreSQL
-hosted-integration checks; none is an AI failure test.
+At the report's baseline commit (`0aeaaea`) the then-current legacy `ci.yml`
+list passed with **0 failures** and 5 ignored tests. Those totals are a
+historical snapshot, not a comparable suite size: the suite has grown
+considerably since (candidate tokens, quota reservations, recipe search and
+recipe-image schema tests all landed). The modular `reusable-edge-api.yml`
+target list is authoritative, and the latest `main` validation run reports
+**425 passed / 0 failed / 6 ignored**. The ignored tests are the opt-in live
+PostgreSQL hosted-integration checks; none is an AI failure test.
 
 ## Live extraction spot check
 

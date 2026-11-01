@@ -25,8 +25,11 @@ implementation detail:
 - **Server-only provider access.** Gemini credentials never reach the browser.
 - **Validated output only.** No model output reaches a client without Zod
   validation at the adapter boundary **and** again at the endpoint boundary.
-- **Stateless previews.** Neither AI endpoint writes a recipe, lineage or usage
-  row. Saving is a separate, explicit call made by the user.
+- **Stateless previews.** Neither AI endpoint writes a recipe or lineage row.
+  Both reserve quota before provider work: successful and provider-consumed
+  requests confirm the reservation; pre-provider and definitively non-consuming
+  failures roll it back (see §6 Quota). Saving is a separate, explicit call
+  made by the user.
 - **Safe failures.** Every provider failure becomes a stable error code with no
   prompt text, recipe text, provider detail, stack trace or file path.
 - **Ownership and RLS on save.** Persistence uses the caller's own token and
@@ -231,7 +234,9 @@ Gemini can block a prompt or candidate. The adapter detects both shapes:
   `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `IMAGE_SAFETY`, `ESCALATION`,
   `PUP_LIMITED_DISABLED`.
 
-Both map to `502 AI_PROVIDER_REJECTED`, are never retried, and persist nothing.
+Both map to `502 AI_PROVIDER_REJECTED`, are never retried, and persist no
+recipe or lineage row; their quota reservation is confirmed and charged rather
+than refunded.
 The [AI-09 report](ai-evaluation-report.md) records the end-to-end evidence.
 
 ### Quota (AI-17)
