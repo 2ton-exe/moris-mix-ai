@@ -62,9 +62,8 @@ try {
       assert.equal(url.searchParams.get('limit'), '24')
       assert.ok(['newest', 'rating'].includes(url.searchParams.get('sort')))
       recipeRequests.push(url.search)
-      const title = url.searchParams.get('title')
-      const ingredient = url.searchParams.get('ingredient')
-      const search = title ?? ingredient
+      const search = url.searchParams.get('search')
+      const searchMode = url.searchParams.get('searchMode') ?? 'both'
       if (search) {
         if (search === 'slow') await new Promise((resolve) => globalThis.setTimeout(resolve, 650))
         if (search === 'missing') return route.fulfill({ json: { recipes: [], has_more: false, next_cursor: null } })
@@ -73,7 +72,7 @@ try {
           searchFailures.set(search, attempts + 1)
           if (attempts === 0) return route.fulfill({ status: 422, json: { error: { code: 'TEST_FAILURE', message: 'Isolated search failure' } } })
         }
-        const prefix = title && ingredient ? 'Combined match' : ingredient ? 'Ingredient match' : 'Title match'
+        const prefix = searchMode === 'both' ? 'Combined match' : searchMode === 'ingredients' ? 'Ingredient match' : 'Title match'
         const result = { ...recipes[0], title: `${prefix}: ${search}` }
         return route.fulfill({ json: { recipes: [result], has_more: false, next_cursor: null } })
       }
@@ -127,20 +126,26 @@ try {
       await page.getByRole('heading', { name: 'Title match: rice & beans' }).waitFor()
       assert.equal(recipeRequests.length, previousRequestCount + 1, 'rapid input changes should produce one debounced request')
       let lastQuery = new globalThis.URLSearchParams(recipeRequests.at(-1))
-      assert.equal(lastQuery.get('title'), 'rice & beans')
+      assert.equal(lastQuery.get('search'), 'rice & beans')
+      assert.equal(lastQuery.get('searchMode'), 'title')
+      assert.equal(lastQuery.has('title'), false)
       assert.equal(lastQuery.has('ingredient'), false)
 
       await searchScope.selectOption('ingredients')
       await page.getByRole('heading', { name: 'Ingredient match: rice & beans' }).waitFor()
       lastQuery = new globalThis.URLSearchParams(recipeRequests.at(-1))
-      assert.equal(lastQuery.get('ingredient'), 'rice & beans')
+      assert.equal(lastQuery.get('search'), 'rice & beans')
+      assert.equal(lastQuery.get('searchMode'), 'ingredients')
       assert.equal(lastQuery.has('title'), false)
+      assert.equal(lastQuery.has('ingredient'), false)
 
       await searchScope.selectOption('both')
       await page.getByRole('heading', { name: 'Combined match: rice & beans' }).waitFor()
       lastQuery = new globalThis.URLSearchParams(recipeRequests.at(-1))
-      assert.equal(lastQuery.get('title'), 'rice & beans')
-      assert.equal(lastQuery.get('ingredient'), 'rice & beans')
+      assert.equal(lastQuery.get('search'), 'rice & beans')
+      assert.equal(lastQuery.has('searchMode'), false)
+      assert.equal(lastQuery.has('title'), false)
+      assert.equal(lastQuery.has('ingredient'), false)
 
       await sort.selectOption('rating')
       await expect.poll(() => new globalThis.URLSearchParams(recipeRequests.at(-1)).get('sort')).toBe('rating')
