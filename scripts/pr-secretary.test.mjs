@@ -79,6 +79,31 @@ test('eligible staging unexpected skip needs investigation', () => {
   const d = data(); d.checks = [check('Modular Staging / Staging Deploy', 'skipped')];
   assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — INVESTIGATE');
 });
+
+test('explicit docs-only classifier evidence reports E2E/staging skips without claiming execution', () => {
+  const marker = check('Classify PR paths', 'success', { workflow: 'Modular PR Validation',
+    app: { slug: 'github-actions' }, run_id: 321, steps: [check('Record documentation-only E2E/staging skips', 'success')] });
+  const d = data();
+  d.checks = [marker, check('Modular E2E', 'skipped', { run_id: 321 }),
+    check('Modular Staging', 'skipped', { run_id: 321 })];
+  const result = summarize(d);
+  for (const label of ['E2E (non-gating)', 'Staging deploy', 'Staging smoke']) {
+    assert.equal(result.rows.find(r => r[0] === label)[1], 'SKIPPED — EXPECTED');
+    assert.ok(!result.attention.some(a => a.startsWith(`${label}: unexpected skip`)));
+  }
+  for (const patch of [{ conclusion: 'failure' }, { status: 'in_progress' }, { run_id: 320 },
+    { workflow: 'Other workflow' }, { app: { slug: 'other-app' } },
+    { steps: [] }, { steps: [check('Record documentation-only E2E/staging skips', 'skipped')] }]) {
+    d.checks[0] = { ...marker, ...patch };
+    for (const label of ['E2E (non-gating)', 'Staging deploy', 'Staging smoke']) {
+      assert.equal(summarize(d).rows.find(r => r[0] === label)[1], 'SKIPPED — INVESTIGATE');
+    }
+  }
+  d.checks = [marker, check('Modular E2E', 'cancelled', { run_id: 321 }),
+    check('Modular Staging', 'failure', { run_id: 321 })];
+  assert.equal(summarize(d).rows.find(r => r[0] === 'E2E (non-gating)')[1], 'CANCELLED');
+  assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'FAIL');
+});
 for (const reason of ['draft', 'fork']) test(`ineligible ${reason} staging skip is expected`, () => {
   const d = data();
   if (reason === 'draft') d.pr.draft = true;
@@ -557,6 +582,35 @@ test('current Actions jobs satisfy active Actions-bound contexts using linked ch
   assert.ok(collected.checks.slice(0, 3).every(c => c.app.id === 15368));
   assert.deepEqual(summarize(collected).rows.slice(0, 3).map(r => r[1]), ['PASS', 'PASS', 'PASS']);
   assert.ok(!summarize(collected).attention.some(a => a.includes('required context')));
+});
+
+test('collection preserves same-run docs-only step evidence and ignores stale skipped callers', async () => {
+  const app = { id: 15368, slug: 'github-actions' };
+  const classifier = check('Classify PR paths', 'success', { id: 42, app });
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return pr();
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path === '/graphql') throw new Error('optional API unavailable');
+    if (path.includes('/rules/')) return [];
+    if (path.includes('/commits/') && path.includes('/check-runs')) return [classifier,
+      check('Modular E2E', 'success'), check('Modular Staging', 'success')];
+    if (path.includes('/actions/runs?')) return [{ id: 2, name: 'Modular PR Validation',
+      path: '.github/workflows/modular-pr-validation.yml', head_sha: sha, pull_requests: [{ number: 87 }] }];
+    if (path.includes('/actions/runs/2/jobs')) return [
+      check('Classify PR paths', 'success', { run_id: 2,
+        check_run_url: `https://api.github.com/repos/${repository}/check-runs/42`,
+        steps: [check('Record documentation-only E2E/staging skips', 'success')] }),
+      check('Modular E2E', 'skipped', { run_id: 2 }), check('Modular Staging', 'skipped', { run_id: 2 }),
+    ];
+    return [];
+  });
+  const collected = await collect(api, 87, repository);
+  for (const name of ['Modular E2E', 'Modular Staging']) {
+    assert.equal(collected.checks.filter(c => c.name === name).length, 1);
+  }
+  for (const label of ['E2E (non-gating)', 'Staging deploy', 'Staging smoke']) {
+    assert.equal(summarize(collected).rows.find(r => r[0] === label)[1], 'SKIPPED — EXPECTED');
+  }
 });
 test('incomplete changed files fail closed', async () => {
   const api = mockApi(path => path.endsWith('/pulls/87') ? { ...pr(), changed_files: 3001 } :
