@@ -892,68 +892,56 @@ export async function handler(
         let hasMore = false;
 
         if (isCombinedSearch) {
-          const { data, error } = await supabase.rpc("search_recipes", {
-            p_search: params.searchMode === "both" ? params.search : null,
-            p_title: params.searchMode === "title" ? params.search : null,
-            p_ingredient: params.searchMode === "ingredients" ? params.search : null,
-            p_sort: params.sort,
-            p_limit: params.limit,
-            p_offset: params.mode === "offset" ? params.offset : 0,
-            p_cursor_rank: params.mode === "cursor" && params.cursor ? params.cursor.rank ?? null : null,
-            p_cursor_created_at: params.mode === "cursor" && params.cursor ? params.cursor.createdAt : null,
-            p_cursor_star_rating: params.mode === "cursor" && params.cursor ? params.cursor.starRating ?? null : null,
-            p_cursor_id: params.mode === "cursor" && params.cursor ? params.cursor.id : null,
-          });
-
-          if (error || !data || !Array.isArray(data)) {
-            console.error("Database search query failed", error?.code ? `code: ${error.code}` : "");
-            return recipesJsonResponse(
-              {
-                error: {
-                  code: "INTERNAL_ERROR",
-                  message: "Internal server error.",
-                },
-              },
-              { status: 500 },
-            );
-          }
-
-          if (data.some((item: { user_id: string }) => item.user_id !== user.id)) {
-            console.error("Recipe ownership mismatch detected in list");
-            return recipesJsonResponse(
-              {
-                error: {
-                  code: "INTERNAL_ERROR",
-                  message: "Internal server error.",
-                },
-              },
-              { status: 500 },
-            );
-          }
-
-          hasMore = data.length > params.limit;
-          if (params.mode === "offset" && !hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT && data.length === params.limit) {
-            const { data: continuationData, error: continuationError } = await supabase.rpc("search_recipes", {
+          const data: SearchRecipeRecord[] = [];
+          while (data.length < params.limit) {
+            const batchLimit = Math.min(100, params.limit - data.length);
+            const { data: batch, error } = await supabase.rpc("search_recipes", {
               p_search: params.searchMode === "both" ? params.search : null,
               p_title: params.searchMode === "title" ? params.search : null,
               p_ingredient: params.searchMode === "ingredients" ? params.search : null,
               p_sort: params.sort,
-              p_limit: 0,
-              p_offset: params.offset + params.limit,
-              p_cursor_rank: null,
-              p_cursor_created_at: null,
-              p_cursor_star_rating: null,
-              p_cursor_id: null,
+              p_limit: batchLimit,
+              p_offset: params.mode === "offset" ? params.offset + data.length : 0,
+              p_cursor_rank: params.mode === "cursor" && params.cursor ? params.cursor.rank ?? null : null,
+              p_cursor_created_at: params.mode === "cursor" && params.cursor ? params.cursor.createdAt : null,
+              p_cursor_star_rating: params.mode === "cursor" && params.cursor ? params.cursor.starRating ?? null : null,
+              p_cursor_id: params.mode === "cursor" && params.cursor ? params.cursor.id : null,
             });
-            if (continuationError || !Array.isArray(continuationData)) {
-              console.error("Database continuation probe failed", continuationError?.code ? `code: ${continuationError.code}` : "");
+
+            if (error || !batch || !Array.isArray(batch)) {
+              console.error("Database search query failed", error?.code ? `code: ${error.code}` : "");
               return recipesJsonResponse(
-                { error: { code: "INTERNAL_ERROR", message: "Internal server error." } },
+                {
+                  error: {
+                    code: "INTERNAL_ERROR",
+                    message: "Internal server error.",
+                  },
+                },
                 { status: 500 },
               );
             }
-            hasMore = continuationData.length > 0;
+
+            if (batch.some((item: { user_id: string }) => item.user_id !== user.id)) {
+              console.error("Recipe ownership mismatch detected in list");
+              return recipesJsonResponse(
+                {
+                  error: {
+                    code: "INTERNAL_ERROR",
+                    message: "Internal server error.",
+                  },
+                },
+                { status: 500 },
+              );
+            }
+
+            if (batch.length > batchLimit && data.length + batchLimit < params.limit) {
+              data.push(...batch.slice(0, batchLimit));
+            } else {
+              data.push(...batch);
+              break;
+            }
           }
+          hasMore = data.length > params.limit;
           const pageItems = hasMore ? data.slice(0, params.limit) : data;
 
           if (params.mode === "cursor" && hasMore && pageItems.length > 0) {

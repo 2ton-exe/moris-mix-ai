@@ -41,6 +41,7 @@ const silentLogger = {
 };
 
 function runDiscoveryAndIntegrityUnitTests() {
+  discoverMigrations(path.join(__dirname, 'supabase/migrations'));
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-unit-'));
   try {
     fs.writeFileSync(path.join(tempDir, '20261020000000_second.sql'), 'SELECT 2;');

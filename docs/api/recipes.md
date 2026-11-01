@@ -57,6 +57,17 @@ Retrieves recipes belonging to the authenticated caller, supporting case-insensi
 - **Filter combination and exclusivity:** When both legacy `title` and `ingredient` filters are supplied, both must be satisfied (logical AND), including when their values are identical. A recipe matching only one filter is excluded. A non-empty `search` alongside either non-empty legacy filter returns `400 VALIDATION_ERROR`; use `search` with `searchMode=both` for OR matching.
 - **No matches:** If no recipes match the filters, returns `200 OK` with `{ "recipes": [], "next_cursor": null, "has_more": false }`, not an error.
 
+### Direct search RPC contract
+
+`public.search_recipes` and its ranking helpers require the `authenticated` role;
+`anon` and `PUBLIC` have no execution permission. The RPC uses `SECURITY INVOKER`,
+the caller's `auth.uid()`, and recipe RLS policies.
+
+- `p_limit` defaults to `20` and accepts integers `1..100`; `p_offset` defaults to `0` and accepts non-negative integers. `p_sort` defaults to `newest` and accepts only `newest` or `rating`. Explicit nulls and invalid values are rejected (`22023`); integer argument types also reject fractional values. Results include up to one extra row for pagination lookahead.
+- Independent `p_title` and `p_ingredient` use AND, including identical values. Explicit `p_search` uses OR across title and ingredient names and takes precedence over independent filters. All three frontend search modes retain fuzzy matching.
+- Ranking queries longer than 64 characters return no match. Full-phrase matching against longer titles or ingredient names remains supported for queries within that cap. Token-level matching is limited to targets of at most 64 characters. `damerau_levenshtein` returns null if either input exceeds 64 characters, before allocating its distance matrix. Multi-word queries within the cap are matched as complete phrases and tokens without truncation.
+- The REST endpoint retains its existing cursor and offset limits, including offset pages of up to 1,000 recipes, by fetching bounded RPC batches when necessary.
+
 ### Sorting rules
 
 With a non-empty `search`, relevance tier ascending is the primary ordering before

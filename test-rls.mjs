@@ -98,9 +98,15 @@ async function runRlsTests() {
     ['Garlic Rice', 'garlic beans', null],
     ['Garlic Rice', '', null],
     ['', 'garlic', null],
-    ['Garlic Rice', 'garxxx rice', null]
+    ['Garlic Rice', 'garxxx rice', null],
+    ['a'.repeat(64), 'a'.repeat(64), 1],
+    ['a'.repeat(65), 'a'.repeat(65), null],
+    ['Garlic Rice', 'garlic '.repeat(1000), null],
+    ['garlic ' + 'fried '.repeat(1000) + 'rice', 'garlic rice', null],
+    ['a'.repeat(65) + ' Garlic Rice', 'garlic rice', 2],
+    ['Garlic Rice', null, null]
   ];
-  const expectedAssertionCount = 51 + rankCases.length * 2 + 11;
+  const expectedAssertionCount = 51 + rankCases.length * 2 + 11 + 6 + 12 + 11 + 6 + 1 + 3;
 
   const check = (actual, expected, message) => {
     assertionsExecuted++;
@@ -225,6 +231,84 @@ async function runRlsTests() {
     const searchIngredientMismatchA = await client.query('select * from public.search_recipes(p_ingredient => $1)', ['secert']);
     check(searchIngredientMismatchA.rowCount, 0, 'User A ingredient-only search should not match title terms');
 
+    const expectSqlError = async (sql, params, code, message) => {
+      await client.query('SAVEPOINT search_input_regression');
+      let actualCode;
+      try {
+        await client.query(sql, params);
+      } catch (error) {
+        actualCode = error.code;
+      } finally {
+        await client.query('ROLLBACK TO SAVEPOINT search_input_regression');
+        await client.query('RELEASE SAVEPOINT search_input_regression');
+      }
+      check(actualCode, code, message);
+    };
+
+    for (const [left, right, expected] of [
+      ['a'.repeat(64), 'a'.repeat(64), 0],
+      ['a'.repeat(65), 'a'.repeat(65), null],
+      ['a'.repeat(10000), 'garlic', null],
+      ['garlic', 'a'.repeat(10000), null],
+      [null, 'garlic', null],
+      ['garlic', null, null],
+    ]) {
+      const result = await client.query('select public.damerau_levenshtein($1, $2) as distance', [left, right]);
+      check(result.rows[0].distance, expected, 'Edit distance must bound both inputs at 64 characters');
+    }
+
+    for (const [args, params] of [
+      ['p_limit => $1', [0]],
+      ['p_limit => $1', [-1]],
+      ['p_limit => $1', [101]],
+      ['p_limit => $1', [2147483647]],
+      ['p_limit => $1', [null]],
+      ['p_offset => $1', [-1]],
+      ['p_offset => $1', [null]],
+      ['p_sort => $1', ['invalid']],
+      ['p_sort => $1', ['']],
+      ['p_sort => $1', [null]],
+    ]) {
+      await expectSqlError('select * from public.search_recipes(' + args + ')', params, '22023', 'Invalid or null RPC controls must be rejected');
+    }
+    await expectSqlError('select * from public.search_recipes(p_offset => $1)', ['1.5'], '22P02', 'Integer RPC signature must reject fractional offsets');
+    const defaults = await client.query("select * from public.search_recipes(p_search => 'stew', p_limit => 100, p_offset => 0, p_sort => 'newest')");
+    check(defaults.rowCount, 2, 'Upper limit and valid explicit defaults must remain supported');
+
+    for (const [args, expected] of [
+      ["p_title => 'stew', p_ingredient => 'stew'", 0],
+      ["p_title => 'scallon', p_ingredient => 'scallon'", 0],
+      ["p_search => 'stew'", 2],
+      ["p_search => 'scallon'", 2],
+      ["p_title => 'stew', p_ingredient => 'scallon'", 2],
+      ["p_title => 's', p_ingredient => 's'", 2],
+    ]) {
+      const result = await client.query('select * from public.search_recipes(' + args + ')');
+      check(result.rowCount, expected, 'Independent filters must use AND while explicit search uses OR');
+    }
+
+    for (const parameter of ['p_search', 'p_title', 'p_ingredient']) {
+      const result = await client.query('select * from public.search_recipes(' + parameter + ' => $1)', ['garlic '.repeat(1000)]);
+      check(result.rowCount, 0, 'Oversized queries must not match in any search mode');
+    }
+
+    for (const [signature, invocation] of [
+      ['public.damerau_levenshtein(text,text)', "public.damerau_levenshtein('rice','rice')"],
+      ['public.match_text_rank(text,text)', "public.match_text_rank('rice','rice')"],
+      ['public.match_ingredients_rank(jsonb,text)', "public.match_ingredients_rank('[]'::jsonb,'rice')"],
+      ['public.search_recipes(text,text,text,text,integer,integer,integer,timestamp with time zone,smallint,uuid)', 'public.search_recipes()'],
+    ]) {
+      const privileges = await client.query(
+        "select has_function_privilege('authenticated', $1, 'EXECUTE') as authenticated, has_function_privilege('anon', $1, 'EXECUTE') as anon",
+        [signature],
+      );
+      check(privileges.rows[0].authenticated, true, 'Authenticated callers must retain required execution rights');
+      check(privileges.rows[0].anon, false, 'Anonymous callers must have no effective execution rights');
+      await client.query('SET LOCAL ROLE anon');
+      await expectSqlError('select * from ' + invocation, [], '42501', 'Anonymous RPC invocation must be denied');
+      await client.query('SET LOCAL ROLE authenticated');
+    }
+
     const searchPage1A = await client.query('select * from public.search_recipes(p_search => $1, p_limit => 1, p_offset => 0)', ['stew']);
     check(searchPage1A.rowCount, 2, 'p_limit = 1 should fetch 2 rows for hasMore evaluation');
     const searchPage2A = await client.query('select * from public.search_recipes(p_search => $1, p_limit => 1, p_offset => 1)', ['stew']);
@@ -268,13 +352,13 @@ async function runRlsTests() {
       `, ['garlic rice', sort, last.relevance_rank, last.created_at, last.star_rating, last.id]);
       check(JSON.stringify(cursorPage.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: cursor must continue at the token-match tier`);
       const continuation = await client.query(`
-        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 0, p_offset => 2)
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1, p_offset => 2)
       `, ['garlic rice', sort]);
-      check(JSON.stringify(continuation.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: zero-limit probe must return one remaining match`);
+      check(JSON.stringify(continuation.rows.map((row) => row.relevance_rank)), '[3]', `${sort}: bounded continuation probe must return one remaining match`);
       const exhausted = await client.query(`
-        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 0, p_offset => 3)
+        select * from public.search_recipes(p_search => $1, p_sort => $2, p_limit => 1, p_offset => 3)
       `, ['garlic rice', sort]);
-      check(exhausted.rowCount, 0, `${sort}: zero-limit probe must be empty after the final match`);
+      check(exhausted.rowCount, 0, `${sort}: bounded continuation probe must be empty after the final match`);
     }
     await client.query('ROLLBACK TO SAVEPOINT search_rank_regression');
     await client.query('RELEASE SAVEPOINT search_rank_regression');
