@@ -52,6 +52,11 @@ export function relationships(body, native = [], rejected = null) {
       fence = marker[1];
       continue;
     }
+    if (/^(?: {4}|\t|\s*>)/.test(rawLine)) {
+      // Ignored examples cannot open comments, but raw text can close an active one.
+      if (comment && rawLine.includes('-->')) comment = false;
+      continue;
+    }
     // Keep visible fragments separate: removing a comment must not create syntax.
     const visible = [];
     let cursor = 0;
@@ -72,7 +77,6 @@ export function relationships(body, native = [], rejected = null) {
         cursor = start + 4;
       }
     }
-    if (/^(?: {4}|\t|\s*>)/.test(rawLine)) continue;
     for (let line of visible) {
       if (/^(?: {4}|\t|\s*>)/.test(line)) continue;
       const heading = line.match(/^\s{0,3}(#{1,6})(?:\s+(\S.*)?)?$/);

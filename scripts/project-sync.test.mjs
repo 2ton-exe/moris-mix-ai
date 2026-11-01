@@ -215,6 +215,24 @@ for (const [name, body, expected] of [
   assert.deepEqual(relationships(body), expected);
 });
 
+for (const [context, prefix] of [['blockquote', '> '], ['four-space code', '    '], ['tab code', '\t']]) {
+  test(`${context} comment opener cannot suppress a following relationship`, () => {
+    assert.deepEqual(relationships(`${prefix}<!--\nPart of #147`), [147]);
+  });
+  test(`${context} relationship examples remain ignored after a literal comment opener`, () => {
+    assert.deepEqual(relationships(`${prefix}<!--\n${prefix}Part of #999\nPart of #147`), [147]);
+  });
+  test(`${context} closed comment and relationship text remain ignored`, () => {
+    assert.deepEqual(relationships(`${prefix}<!-- hidden --> Part of #999\nPart of #147`), [147]);
+  });
+  test(`active top-level comment can close on a ${context} raw line`, () => {
+    assert.deepEqual(relationships(`<!--\nRefs #999\n${prefix}-->\nPart of #147`), [147]);
+  });
+  test(`${context} cannot reopen a comment after closing the active top-level comment`, () => {
+    assert.deepEqual(relationships(`<!--\n${prefix}--> <!--\nPart of #147`), [147]);
+  });
+}
+
 for (const character of ['`', '~']) {
   const marker = character.repeat(3);
   test(`${character} fence treats comment markers as literal code`, () => {
