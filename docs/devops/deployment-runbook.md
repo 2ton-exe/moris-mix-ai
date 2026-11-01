@@ -150,8 +150,11 @@ artifact steps retain their `always()` behavior without turning the release gree
 
 `scripts/ai-route-smoke.mjs` pins its HTTPS origin to the production project in
 `supabase/config.toml` and checks both `/functions/v1/extract-recipe` and
-`/functions/v1/generate-recipe`. For each route, OPTIONS must return HTTP 204 and
-POST without Authorization must return HTTP 401 with the application's exact
+`/functions/v1/generate-recipe`. For each route, OPTIONS must return HTTP 204 with
+a valid non-empty allowed origin, exactly POST/OPTIONS allowed methods, all four
+shared allowed headers (`authorization`, `x-client-info`, `apikey`, `content-type`),
+and `X-Content-Type-Options: nosniff`. Configured origins are supported; `*` is not
+required. POST without Authorization must return HTTP 401 with the application's exact
 `UNAUTHORIZED` response and `Missing or invalid Authorization header.` message.
 A missing-route 404, unexpected 2xx, gateway-shaped 401, malformed error body,
 redirect, network error, or timeout fails verification. Each of the four probes
@@ -171,10 +174,25 @@ The existing `runtime-smoke.json` schema and
 remain unchanged. If a prior deployment fails, the summary records the skipped
 smoke; no missing artifact is represented as a successful check.
 
-**Deployed route does not mean enabled AI execution.** For this delivery,
-`AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` must remain unset/false. They are
-separate operational enablement controls, and this change does not set either
-flag or modify Supabase secrets/settings. `AI_CANDIDATE_TOKEN_SECRET` is required
+**Before this branch is authorized to merge into `main`, an authorized operator
+must verify the current production Supabase Edge Function secret/configuration
+state without exposing values.** Merge to main automatically invokes production
+delivery, so this verification must precede merge. The required conditions are:
+
+- `AI_EXTRACT_ENABLED` is not truthy, OR `AI_EXTRACT_DISABLED` is truthy.
+- `AI_GENERATE_ENABLED` is not truthy, OR `AI_GENERATE_DISABLED` is truthy.
+
+Truthy follows the handlers' current switch semantics: trimmed, case-insensitive
+`1`, `true`, `yes`, or `on`. Prefer both opt-ins to remain unset/false for this
+deployment. Record only the verification result/status and timestamp in release
+evidence, never secret values. This is an operational prerequisite, not a new
+GitHub variable or permanent workflow gate.
+
+**Deployed route does not mean enabled AI execution.** This workflow does not set
+or modify these flags or Supabase secrets/settings. Existing secret values are
+operational state rather than repository state: the workflow cannot infer that
+AI is disabled merely because this branch does not set the opt-ins. Actual AI
+enablement remains separately reviewed. `AI_CANDIDATE_TOKEN_SECRET` is required
 before actual Chef generation is enabled; `GEMINI_API_KEY` is required when the
 provider is actually reached. Those prerequisites require separate operational
 review, not values copied into workflow logs or this document.

@@ -12,11 +12,21 @@ const env = { GITHUB_SHA: 'a'.repeat(40), AI_ROUTE_SMOKE_PROJECT_REF: project,
   AI_ROUTE_SMOKE_SUPABASE_URL: `https://${project}.supabase.co`,
   SUPABASE_ACCESS_TOKEN: 'must-not-appear', SMOKE_PUBLIC_KEY: 'must-not-appear', GEMINI_API_KEY: 'must-not-appear' };
 const unauthorized = { error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header.' } };
+const cors = {
+  'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'X-Content-Type-Options': 'nosniff',
+};
 const reply = (method, { status = method === 'OPTIONS' ? 204 : 401, body = unauthorized,
-  type = 'application/json', redirected = false, url = '' } = {}) => ({
-  status, redirected, url, headers: new Headers({ 'content-type': type }),
-  json: async () => typeof body === 'string' ? JSON.parse(body) : body,
-});
+  type = 'application/json', redirected = false, url = '', headers = {} } = {}) => {
+  const responseHeaders = new Headers({ 'content-type': type, ...(method === 'OPTIONS' ? cors : {}) });
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === null) responseHeaders.delete(name);
+    else responseHeaders.set(name, value);
+  }
+  return { status, redirected, url, headers: responseHeaders,
+    json: async () => typeof body === 'string' ? JSON.parse(body) : body };
+};
 
 test('configuration pins production origin/project and tested revision before requests', async () => {
   assert.equal(configuration(env), env.AI_ROUTE_SMOKE_SUPABASE_URL);
@@ -53,6 +63,42 @@ test('both routes require 204 OPTIONS and application 401 without credentials or
     assert.deepEqual(checks.unauthenticated_post, { outcome: 'passed', http_status: 401 });
   }
   assert.ok(!JSON.stringify(evidence).includes('must-not-appear'));
+});
+
+test('CORS accepts configured origins and comma-separated values independent of formatting/casing', async () => {
+  for (const origin of ['*', 'https://app.example', 'https://app.example:8443', 'null']) {
+    const evidence = await runSmoke(env, { fetchImpl: async (url, init) => reply(init.method, { headers: {
+      'aCcEsS-cOnTrOl-AlLoW-oRiGiN': origin,
+      'access-control-allow-methods': ' OPTIONS ,\tPOST ',
+      'ACCESS-CONTROL-ALLOW-HEADERS': ' Content-Type , APIKEY, X-CLIENT-INFO ,AUTHORIZATION, x-extra ',
+    } }) });
+    assert.equal(evidence.outcome, 'passed');
+    assert.ok(!JSON.stringify(evidence).includes('app.example'));
+  }
+});
+
+for (const [name, headers] of [
+  ['missing origin', { 'Access-Control-Allow-Origin': null }],
+  ['empty origin', { 'Access-Control-Allow-Origin': '   ' }],
+  ['invalid origin', { 'Access-Control-Allow-Origin': 'not-an-origin' }],
+  ['multiple origins', { 'Access-Control-Allow-Origin': 'https://app.example, https://other.example' }],
+  ['missing methods', { 'Access-Control-Allow-Methods': null }],
+  ['wrong methods', { 'Access-Control-Allow-Methods': 'GET, OPTIONS' }],
+  ['extra method', { 'Access-Control-Allow-Methods': 'POST, OPTIONS, GET' }],
+  ['missing allowed headers', { 'Access-Control-Allow-Headers': null }],
+  ...['authorization', 'x-client-info', 'apikey', 'content-type'].map(missing => [
+    `missing allowed ${missing}`, { 'Access-Control-Allow-Headers':
+      ['authorization', 'x-client-info', 'apikey', 'content-type'].filter(name => name !== missing).join(', ') },
+  ]),
+  ['missing nosniff', { 'X-Content-Type-Options': null }],
+  ['incorrect nosniff', { 'X-Content-Type-Options': 'none' }],
+]) test(`OPTIONS 204 fails with ${name}`, async () => {
+  const evidence = await runSmoke(env, { fetchImpl: async (url, init) =>
+    reply(init.method, url.endsWith('/extract-recipe') && init.method === 'OPTIONS' ? { headers } : {}) });
+  assert.equal(evidence.outcome, 'failed');
+  assert.equal(evidence.routes['extract-recipe'].options.outcome, 'failed');
+  assert.equal(evidence.routes['generate-recipe'].options.outcome, 'passed');
+  assert.ok(!JSON.stringify(evidence).includes('app.example'));
 });
 
 for (const [name, method, overrides] of [

@@ -9,6 +9,22 @@ class SmokeFailure extends Error {}
 const requireValue = (condition, message) => { if (!condition) throw new SmokeFailure(message); };
 const failure = error => error instanceof SmokeFailure ? error.message : 'Network, timeout, or response parsing failure';
 
+function validateCors(headers) {
+  const allowedOrigin = (headers.get('access-control-allow-origin') ?? '').trim();
+  let validOrigin = allowedOrigin === '*' || allowedOrigin === 'null';
+  if (allowedOrigin && !validOrigin) {
+    try { validOrigin = new URL(allowedOrigin).origin === allowedOrigin; } catch { /* Reject invalid origins below. */ }
+  }
+  requireValue(validOrigin, 'Missing or invalid CORS allowed origin');
+  const tokens = name => new Set((headers.get(name) ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+  const methods = tokens('access-control-allow-methods');
+  requireValue(methods.size === 2 && methods.has('post') && methods.has('options'), 'Unexpected AI CORS allowed methods');
+  const allowedHeaders = tokens('access-control-allow-headers');
+  requireValue(['authorization', 'x-client-info', 'apikey', 'content-type'].every(name => allowedHeaders.has(name)),
+    'Missing required AI CORS allowed headers');
+  requireValue((headers.get('x-content-type-options') ?? '').trim().toLowerCase() === 'nosniff', 'Missing CORS nosniff protection');
+}
+
 /** Pin unauthenticated route probes to the configured production project. */
 export function configuration(env) {
   requireValue(shaPattern.test(env.GITHUB_SHA ?? ''), 'Missing tested Git SHA');
@@ -34,6 +50,7 @@ async function probe(url, method, fetchImpl) {
     requireValue(!response.redirected && (!response.url || response.url === url), 'Unexpected effective URL');
     requireValue(httpStatus === (method === 'OPTIONS' ? 204 : 401),
       method === 'OPTIONS' ? 'Expected HTTP 204 OPTIONS' : 'Expected HTTP 401 unauthenticated POST');
+    if (method === 'OPTIONS') validateCors(response.headers);
     if (method === 'POST') {
       const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
       requireValue(type === 'application/json', 'Expected application JSON unauthorized response');
