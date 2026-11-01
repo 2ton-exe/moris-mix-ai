@@ -100,6 +100,51 @@ begin
 end;
 $$;
 
+do $restore$
+begin
+  if to_regprocedure('public.match_ingredients_rank(jsonb,text)') is null then
+    execute $function$
+create function public.match_ingredients_rank(ingredients jsonb, query text)
+returns int
+language plpgsql
+immutable
+as $$
+declare
+  q_norm text := lower(trim(query));
+  ing jsonb;
+  name_text text;
+  best_rank int := null;
+  cur_rank int;
+begin
+  if q_norm = '' or jsonb_typeof(ingredients) <> 'array' then return null; end if;
+
+  for ing in select * from jsonb_array_elements(ingredients) loop
+    if jsonb_typeof(ing) = 'object' then
+      name_text := lower(trim(coalesce(ing->>'name', '')));
+    elsif jsonb_typeof(ing) = 'string' then
+      name_text := lower(trim(ing #>> '{}'));
+    else
+      name_text := '';
+    end if;
+    if name_text <> '' then
+      cur_rank := public.match_text_rank(name_text, q_norm);
+      if cur_rank is not null then
+        if best_rank is null or cur_rank < best_rank then
+          best_rank := cur_rank;
+          if best_rank = 1 then return 1; end if;
+        end if;
+      end if;
+    end if;
+  end loop;
+
+  return best_rank;
+end;
+$$;
+    $function$;
+  end if;
+end
+$restore$;
+
 create or replace function public.search_recipes(
   p_search text default null,
   p_title text default null,
@@ -228,14 +273,24 @@ begin
 end;
 $$;
 
-revoke execute on function public.damerau_levenshtein(text, text) from anon, public;
-grant execute on function public.damerau_levenshtein(text, text) to authenticated;
+revoke execute on function public.damerau_levenshtein(text, text) from public;
+revoke execute on function public.match_text_rank(text, text) from public;
+revoke execute on function public.match_ingredients_rank(jsonb, text) from public;
+revoke execute on function public.search_recipes(text, text, text, text, int, int, int, timestamptz, smallint, uuid) from public;
 
-revoke execute on function public.match_text_rank(text, text) from anon, public;
-grant execute on function public.match_text_rank(text, text) to authenticated;
-
-revoke execute on function public.match_ingredients_rank(jsonb, text) from anon, public;
-grant execute on function public.match_ingredients_rank(jsonb, text) to authenticated;
-
-revoke execute on function public.search_recipes(text, text, text, text, int, int, int, timestamptz, smallint, uuid) from anon, public;
-grant execute on function public.search_recipes(text, text, text, text, int, int, int, timestamptz, smallint, uuid) to authenticated;
+do $$
+begin
+  if exists (select from pg_roles where rolname = 'anon') then
+    revoke execute on function public.damerau_levenshtein(text, text) from anon;
+    revoke execute on function public.match_text_rank(text, text) from anon;
+    revoke execute on function public.match_ingredients_rank(jsonb, text) from anon;
+    revoke execute on function public.search_recipes(text, text, text, text, int, int, int, timestamptz, smallint, uuid) from anon;
+  end if;
+  if exists (select from pg_roles where rolname = 'authenticated') then
+    grant execute on function public.damerau_levenshtein(text, text) to authenticated;
+    grant execute on function public.match_text_rank(text, text) to authenticated;
+    grant execute on function public.match_ingredients_rank(jsonb, text) to authenticated;
+    grant execute on function public.search_recipes(text, text, text, text, int, int, int, timestamptz, smallint, uuid) to authenticated;
+  end if;
+end
+$$;
