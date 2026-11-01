@@ -457,6 +457,28 @@ const require = createRequire(import.meta.url);
 const { load } = createRequire(require.resolve('eslint', { paths: ['./frontend'] }))('js-yaml');
 const source = readFileSync('.github/workflows/project-sync.yml', 'utf8');
 const workflow = load(source);
+test('PR and main Frontend checks run blocking offline project-sync regressions after dependencies', () => {
+  const reusable = load(readFileSync('.github/workflows/reusable-frontend.yml', 'utf8'));
+  const frontend = reusable.jobs.frontend;
+  const installIndex = frontend.steps.findIndex(s => s.name === 'Install dependencies');
+  const regressionIndex = frontend.steps.findIndex(s => s.name === 'Test project board synchronizer (offline)');
+  assert.ok(installIndex >= 0 && regressionIndex > installIndex);
+  assert.equal(frontend.steps[installIndex].run, 'pnpm install --frozen-lockfile');
+  assert.equal(frontend.steps[installIndex]['working-directory'], 'frontend');
+  const regression = frontend.steps[regressionIndex];
+  assert.equal(regression.run, 'node --test scripts/project-sync.test.mjs');
+  assert.equal(regression['working-directory'], '.');
+  assert.equal(regression.if, "steps.frontend.outputs.exists == 'true' && hashFiles('scripts/project-sync.test.mjs') != ''");
+  assert.equal(regression['continue-on-error'], undefined);
+  assert.equal(regression.env, undefined, 'offline tests require no credential environment');
+  assert.equal(frontend.name, 'Frontend Checks');
+  assert.equal(frontend.if, undefined);
+  assert.equal(frontend['continue-on-error'], undefined);
+  for (const caller of ['modular-pr-validation', 'modular-main']) {
+    const definition = load(readFileSync(`.github/workflows/${caller}.yml`, 'utf8'));
+    assert.equal(definition.jobs.frontend.uses, './.github/workflows/reusable-frontend.yml');
+  }
+});
 test('workflow YAML parses with exactly the specified lifecycle events and dispatch choices', () => {
   assert.deepEqual(Object.keys(workflow.on), ['issues', 'pull_request_target', 'workflow_dispatch', 'schedule']);
   assert.deepEqual(workflow.on.issues.types, ['opened', 'reopened', 'closed']);

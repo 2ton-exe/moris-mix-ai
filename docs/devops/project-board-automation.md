@@ -248,6 +248,21 @@ pure functions. Native `fetch` and Node built-ins avoid executing dependencies
 from PR contents. Static regression tests check the checkout, action list,
 commands, permissions, secret references and activation guard.
 
+## Actions event-policy check before activation
+
+This repository is public. The synchronizer intentionally uses
+`pull_request_target` for trusted-base PR lifecycle metadata, and GitHub's
+public-repository default Actions event policy can block that event. Before
+setting `PROJECT_AUTOMATION_ENABLED=true`, inspect the applicable repository,
+organization, and enterprise Actions policies. If this workflow must continue
+using `pull_request_target`, confirm that an applicable event policy explicitly
+permits it and record evidence of the live policy check. See GitHub's official
+[pull_request_target security guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
+and [Actions policy documentation](https://docs.github.com/en/actions/concepts/about-actions-policies).
+This change does not inspect, configure, or claim that the live event policy is
+already permitted. This prerequisite is separate from the Project built-in
+workflow conflict review below; both checks are required before activation.
+
 ## Built-in workflow conflict review before activation
 
 The following built-ins were reported enabled in the agreed baseline:
