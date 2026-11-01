@@ -100,8 +100,26 @@ The adapter also paginates GitHub-native `closingIssuesReferences` for every
 current open PR. Native references are accepted only for this repository.
 GitHub does not expose every informal link through that connection; supported
 body syntax remains the compatibility path. A recognized same-repository
-reference that cannot resolve to an accessible issue fails the whole plan
-before mutations; fix the number or access rather than silently moving cards.
+reference that cannot resolve to an accessible issue quarantines that PR's
+entire relationship evidence. The structured plan/result returns operations and
+`rejectedRelationships` diagnostics; logs emit a concise warning with the PR
+number and rejected issue reference (or a fixed invalid-number diagnostic),
+never the complete PR body or sensitive text. Unrelated repository content
+continues reconciling, and the rejected PR's own draft/ready lifecycle remains
+independent of its relationships.
+
+Resolvable open issues referenced by a quarantined PR have uncertain
+relationship-derived state. Without an independent valid open PR for an affected
+issue, no add/status/archive-state operation is inferred for that issue; an
+existing card is preserved. Another open PR with complete, valid relationships
+can still establish In Progress. Closed issue completion/archive state remains
+authoritative. Once the malformed PR relationship is corrected, the next full
+reconciliation calculates ordinary issue state again. Correct the reference or
+access rather than treating rejected evidence as complete. Missing/malformed
+API/native-link evidence, authentication/API errors, invalid Project metadata,
+pagination errors, duplicate cards and mutation failures still fail visibly;
+they are not converted to relationship warnings. These are locally tested
+semantics, not hosted runtime verification.
 
 **Part of #123** contributes to an issue without promising whole-issue
 completion. **Closes #123** is appropriate only when merging legitimately
@@ -160,9 +178,13 @@ Only `addProjectV2ItemById`, `updateProjectV2ItemFieldValue`,
 Mutation payloads must confirm the affected item ID. Duplicate event delivery
 and repeated stable reconciliation produce zero extra mutations.
 
-One repository-level concurrency group serializes workflow runs without
-cancelling partially applied work. GitHub Actions can replace pending runs;
-full reconciliation plus the schedule repairs coalesced events. The API does
+One repository-level concurrency group serializes workflow runs with
+`cancel-in-progress: false` and `queue: max`, preserving running synchronization
+and retaining pending lifecycle events instead of replacing the single pending
+event. [GitHub supports up to 100 pending runs in this mode](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency);
+additional runs are canceled when that queue is full. Scheduled reconciliation still repairs drift,
+but cannot recreate every missed event-specific historical addition. Queue
+configuration is not runtime verification. The API does
 not provide a transaction spanning the snapshot and mutations. External edits
 or built-in automations can still race; conflict review and subsequent
 reconciliation remain necessary. A mutation failure stops the run with failure;

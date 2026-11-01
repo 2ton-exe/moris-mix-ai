@@ -13,7 +13,7 @@ const one = (values, description) => {
 const id = value => typeof value === 'string' && value.length > 0;
 
 // Parse body text only. Comments and code examples are not relationships.
-export function relationships(body, native = []) {
+export function relationships(body, native = [], rejected = null) {
   requireValue(typeof body === 'string' && Array.isArray(native), 'Incomplete relationship evidence');
   const numbers = new Set();
   const add = text => {
@@ -25,8 +25,12 @@ export function relationships(body, native = []) {
       const repository = match[1] ?? match[3];
       if (!repository || repository.toLowerCase() === CONFIG.repository.toLowerCase()) {
         const number = Number(match[2] ?? match[4] ?? match[5]);
-        requireValue(Number.isSafeInteger(number) && number > 0, 'Invalid issue relationship number');
-        numbers.add(number);
+        if (Number.isSafeInteger(number) && number > 0) numbers.add(number);
+        else {
+          // Standalone parsing stays strict; planning can quarantine this PR.
+          requireValue(Array.isArray(rejected), 'Invalid issue relationship number');
+          rejected.push({ issueNumber: null, reason: 'invalid issue relationship number' });
+        }
       }
       remaining = remaining.slice(match[0].length);
       const separator = remaining.match(/^\s*(?:,|;|and\b|&)\s*/i);
@@ -129,13 +133,20 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
     byNumber.set(content.number, content);
   }
   const activeIssues = new Set();
+  const uncertainIssues = new Set();
+  const rejectedRelationships = [];
   for (const pr of prs.filter(p => p.state === 'OPEN')) {
     requireValue(Array.isArray(pr.nativeIssues), `Incomplete native relationship evidence for PR #${pr.number}`);
-    for (const number of relationships(pr.body, pr.nativeIssues)) {
+    const rejected = [];
+    const resolved = [];
+    for (const number of relationships(pr.body, pr.nativeIssues, rejected)) {
       const issue = byNumber.get(number);
-      requireValue(issue?.__typename === 'Issue', `Unresolvable issue relationship #${number} from PR #${pr.number}`);
-      activeIssues.add(issue.id);
+      if (issue?.__typename === 'Issue') resolved.push(issue.id);
+      else rejected.push({ issueNumber: number, reason: 'unresolvable issue relationship' });
     }
+    const target = rejected.length ? uncertainIssues : activeIssues;
+    for (const issueId of resolved) target.add(issueId);
+    rejectedRelationships.push(...rejected.map(rejection => ({ prNumber: pr.number, ...rejection })));
   }
   for (const item of byContent.values()) {
     if (item.content.repository.nameWithOwner === CONFIG.repository) {
@@ -146,6 +157,8 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
   for (const content of [...contents.values()].sort((a, b) => a.number - b.number)) {
     const item = byContent.get(content.id);
     if (!item && content.state !== 'OPEN' && content.id !== eventContentId) continue;
+    if (content.__typename === 'Issue' && content.state === 'OPEN' &&
+        uncertainIssues.has(content.id) && !activeIssues.has(content.id)) continue;
     const desired = desiredState(content, activeIssues.has(content.id));
     if (!item && desired.archive) continue;
     const base = { contentId: content.id, number: content.number };
@@ -160,7 +173,7 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
       operations.push({ ...base, kind: 'status', status: desired.status });
     }
   }
-  return operations;
+  return { operations, rejectedRelationships };
 }
 
 // Every connection has count and cursor validation: truncated, repeated or
@@ -308,7 +321,11 @@ export async function reconcile(client, { mode, enabled, event = {}, log = conso
     return { disabled: true, proposed: 0, applied: 0 };
   }
   const metadata = await client.metadata();
-  const operations = plan(await client.snapshot(metadata.projectId, event), metadata);
+  const { operations, rejectedRelationships } = plan(await client.snapshot(metadata.projectId, event), metadata);
+  for (const rejection of rejectedRelationships) {
+    const reference = rejection.issueNumber === null ? 'invalid issue number' : `#${rejection.issueNumber}`;
+    log(`::warning::PR #${rejection.prNumber}: rejected ${reference} (${rejection.reason}); relationship evidence quarantined.`);
+  }
   // Plans contain only numeric references, node IDs, fixed verbs and statuses.
   for (const operation of operations) log(JSON.stringify(operation));
   let applied = 0;
@@ -326,8 +343,8 @@ export async function reconcile(client, { mode, enabled, event = {}, log = conso
       applied++;
     }
   }
-  log(`${mode}: ${operations.length} proposed, ${applied} applied. Configuration is not runtime proof.`);
-  return { proposed: operations.length, applied };
+  log(`${mode}: ${operations.length} proposed, ${applied} applied, ${rejectedRelationships.length} rejected relationships. Configuration is not runtime proof.`);
+  return { proposed: operations.length, applied, rejectedRelationships };
 }
 
 export async function main(env = process.env) {

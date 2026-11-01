@@ -23,6 +23,7 @@ permissions:
 concurrency:
   group: development-board-${{ github.repository }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   disabled:
