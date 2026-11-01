@@ -1,0 +1,88 @@
+name: Development Board synchronization
+
+on:
+  issues:
+    types: [opened, reopened, closed]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, converted_to_draft, edited, closed]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Calculate only, or apply reconciliation when explicitly enabled
+        type: choice
+        options: [dry-run, reconcile]
+        default: dry-run
+        required: true
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+# Serialize all writers for this repository; never cancel a partially applied run.
+concurrency:
+  group: development-board-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  disabled:
+    if: vars.PROJECT_AUTOMATION_ENABLED != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Project synchronization is disabled. Set PROJECT_AUTOMATION_ENABLED to exactly true after configuration and conflict review.'
+
+  synchronize:
+    # Dispatch is restricted to the default branch as well as trusted checkout.
+    if: >-
+      github.repository == '2ton-exe/moris-mix-ai' &&
+      (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) &&
+      (vars.PROJECT_AUTOMATION_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Require exact activation before write token
+        if: github.event_name != 'workflow_dispatch' || inputs.mode != 'dry-run'
+        shell: bash
+        env:
+          ENABLED: ${{ vars.PROJECT_AUTOMATION_ENABLED }}
+        run: |
+          if [ "$ENABLED" != 'true' ]; then
+            echo '::error::PROJECT_AUTOMATION_ENABLED must be exactly true before minting a write token.'
+            exit 1
+          fi
+      - name: Check credential configuration
+        env:
+          APP_CLIENT_ID: ${{ vars.PROJECT_AUTOMATION_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_CLIENT_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo '::error::Configure PROJECT_AUTOMATION_APP_CLIENT_ID and PROJECT_AUTOMATION_APP_PRIVATE_KEY before requesting synchronization.'
+            exit 1
+          fi
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          client-id: ${{ vars.PROJECT_AUTOMATION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: 2ton-exe
+          repositories: moris-mix-ai
+          permission-organization-projects: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run' && 'read' || 'write' }}
+          permission-issues: read
+          permission-pull-requests: read
+          permission-metadata: read
+      - name: Reconcile repository metadata
+        run: node scripts/project-sync.mjs
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PROJECT_AUTOMATION_ENABLED: ${{ vars.PROJECT_AUTOMATION_ENABLED }}
+          PROJECT_SYNC_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'reconcile' }}
