@@ -350,11 +350,13 @@ locked tooling through the normal repository setup if needed. Runtime script
 execution itself has no third-party dependencies. Run `actionlint` when available
 and report its absence honestly.
 
-Branch validation on November 1: 189 project-sync tests passed; existing
-production-workflow (8), PR Secretary (123) and runtime-smoke (35) tests passed,
-with no failures or skips. Workflow YAML parsing, both new script syntax checks
-and working/staged whitespace checks passed. `actionlint` was unavailable.
-A separate read-only adapter check through the existing authenticated CLI
+Local branch validation on November 2: 276 project-sync tests passed; classifier
+(42), production-workflow (11), PR Secretary (125) and runtime-smoke (35) tests
+passed, with no failures or skips. All 13 workflow YAML files parsed; both
+project-sync script syntax checks and working/staged whitespace checks passed.
+`actionlint` was unavailable. Hosted CI for this comment-parser correction is
+pending; these local results do not establish hosted or App runtime verification.
+An earlier separate read-only adapter check through the existing authenticated CLI
 retrieved 73 issues (25 open), 74 PRs (3 open), and 98 Project items including
 archived items; it proposed zero mutations and made no writes. This used the
 existing user's CLI authentication, **not** the future App or Actions workflow,

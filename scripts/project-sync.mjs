@@ -40,30 +40,57 @@ export function relationships(body, native = [], rejected = null) {
   };
   let relatedLevel = null;
   let fence = null;
-  for (let line of body.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)) {
-    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (marker) {
-      if (!fence) fence = marker[1];
-      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length &&
-          /^[ \t]*$/.test(line.slice(marker[0].length))) fence = null;
+  let comment = false;
+  for (const rawLine of body.split(/\r?\n/)) {
+    const marker = rawLine.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fence) {
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length &&
+          /^[ \t]*$/.test(rawLine.slice(marker[0].length))) fence = null;
+      continue; // Comment markers inside fenced code are literal text.
+    }
+    if (!comment && marker) {
+      fence = marker[1];
       continue;
     }
-    if (fence || /^(?: {4}|\t|\s*>)/.test(line)) continue;
-    const heading = line.match(/^\s{0,3}(#{1,6})(?:\s+(\S.*)?)?$/);
-    if (heading) {
-      const level = heading[1].length;
-      const content = (heading[2] ?? '').trimEnd();
-      let end = content.length;
-      while (end > 0 && content[end - 1] === '#') end--;
-      const title = content.slice(0, end).trimEnd();
-      if (relatedLevel !== null && level <= relatedLevel) relatedLevel = null;
-      if (/^Related (?:GitHub )?Issues?$/i.test(title)) relatedLevel = level;
-      continue;
+    // Keep visible fragments separate: removing a comment must not create syntax.
+    const visible = [];
+    let cursor = 0;
+    while (cursor < rawLine.length) {
+      if (comment) {
+        const end = rawLine.indexOf('-->', cursor);
+        if (end === -1) break;
+        comment = false;
+        cursor = end + 3;
+      } else {
+        const start = rawLine.indexOf('<!--', cursor);
+        if (start === -1) {
+          visible.push(rawLine.slice(cursor));
+          break;
+        }
+        visible.push(rawLine.slice(cursor, start));
+        comment = true;
+        cursor = start + 4;
+      }
     }
-    line = line.trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)\s*(?:\[[ xX]\]\s*)?/, '');
-    const explicit = line.match(/^(?:Part\s+of|Refs?|Related\s+to|Closes?|Fix(?:es)?|Resolves?)\s*:?\s+(.+)$/i);
-    if (explicit) add(explicit[1]);
-    else if (relatedLevel !== null && /^(?:#\d+|https:\/\/github\.com\/|[\w.-]+\/[\w.-]+#)/i.test(line)) add(line);
+    if (/^(?: {4}|\t|\s*>)/.test(rawLine)) continue;
+    for (let line of visible) {
+      if (/^(?: {4}|\t|\s*>)/.test(line)) continue;
+      const heading = line.match(/^\s{0,3}(#{1,6})(?:\s+(\S.*)?)?$/);
+      if (heading) {
+        const level = heading[1].length;
+        const content = (heading[2] ?? '').trimEnd();
+        let end = content.length;
+        while (end > 0 && content[end - 1] === '#') end--;
+        const title = content.slice(0, end).trimEnd();
+        if (relatedLevel !== null && level <= relatedLevel) relatedLevel = null;
+        if (/^Related (?:GitHub )?Issues?$/i.test(title)) relatedLevel = level;
+        continue;
+      }
+      line = line.trim().replace(/^(?:[-*+]\s+|\d+[.)]\s+)\s*(?:\[[ xX]\]\s*)?/, '');
+      const explicit = line.match(/^(?:Part\s+of|Refs?|Related\s+to|Closes?|Fix(?:es)?|Resolves?)\s*:?\s+(.+)$/i);
+      if (explicit) add(explicit[1]);
+      else if (relatedLevel !== null && /^(?:#\d+|https:\/\/github\.com\/|[\w.-]+\/[\w.-]+#)/i.test(line)) add(line);
+    }
   }
   for (const issue of native) {
     requireValue(issue && Number.isSafeInteger(issue.number) && id(issue.repository?.nameWithOwner), 'Malformed native issue relationship');

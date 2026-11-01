@@ -198,6 +198,50 @@ test('long false closing fences remain bounded and do not expose code-block rela
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [[147], [147]]);
 });
+
+for (const [name, body, expected] of [
+  ['unclosed multiline comment', '<!--\nPart of #147', []],
+  ['closed multiline comment', '<!--\nPart of #999\n-->\nPart of #147', [147]],
+  ['same-line comment', '<!-- Part of #999 -->\nPart of #147', [147]],
+  ['all relationship verbs inside comment', 'before\n<!--\nRefs #147, #148\nCloses #149\n-->\nafter', []],
+  ['visible relationship after same-line comment', '<!-- hidden --> Part of #147', [147]],
+  ['visible relationship before comment', 'Part of #147 <!-- Refs #999 -->', [147]],
+  ['comment cannot join verb fragments', 'Part <!-- hidden --> of #147', []],
+  ['comment cannot join reference fragments', 'Part of #<!-- hidden -->147', []],
+  ['multiple comments retain independent visible syntax', '<!-- first --><!-- second --> Refs #147', [147]],
+  ['unclosed comment after visible relationship', 'Part of #147 <!--\nPart of #999', [147]],
+  ['comments cannot expose indented or quoted examples', '    <!-- hidden -->Part of #147\n> <!-- hidden -->Refs #148', []],
+]) test(`HTML comments: ${name}`, () => {
+  assert.deepEqual(relationships(body), expected);
+});
+
+for (const character of ['`', '~']) {
+  const marker = character.repeat(3);
+  test(`${character} fence treats comment markers as literal code`, () => {
+    assert.deepEqual(relationships([marker + 'md', '<!--', 'Part of #999', '-->', marker, 'Part of #147'].join('\n')), [147]);
+    // The comment-looking text cannot hide the actual closing fence or outside relationship.
+    assert.deepEqual(relationships([marker + 'md', '<!--', marker, 'Part of #147', '-->'].join('\n')), [147]);
+    assert.deepEqual(relationships([marker + 'md', '-->', '<!--', marker, 'Part of #147'].join('\n')), [147]);
+  });
+  test(`${character} fence-looking text inside comments cannot change fence state`, () => {
+    assert.deepEqual(relationships(['<!--', marker + 'md', 'Part of #999', marker, '-->', 'Part of #147'].join('\n')), [147]);
+    assert.deepEqual(relationships(['<!--', marker + 'md', '-->', 'Part of #147'].join('\n')), [147]);
+  });
+}
+
+test('large unclosed comment stays ignored through EOF and completes promptly', () => {
+  const moduleURL = new URL('./project-sync.mjs', import.meta.url).href;
+  const script = `import { relationships } from ${JSON.stringify(moduleURL)};
+    const body = '<!--\\n' + 'x'.repeat(50000) + '\\n' + 'Refs #147, #148\\nCloses #149\\n'.repeat(2000);
+    process.stdout.write(JSON.stringify(relationships(body)));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.error, undefined, 'comment parsing must finish within five seconds');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), []);
+});
+
 test('cross-repository references are rejected, including URL and PR links', () => {
   assert.deepEqual(relationships('Part of other/repo#123\nCloses https://github.com/other/repo/issues/124\nRef https://github.com/2ton-exe/moris-mix-ai/pull/125'), []);
 });
