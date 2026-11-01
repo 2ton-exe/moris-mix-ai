@@ -555,6 +555,8 @@ Deno.test("extractRecipe maps a blocked response from response.text() to provide
   assertEquals(error.code, "provider_rejected");
   assertEquals(error.retryable, false);
   assertEquals(calls, 1, "a safety block must not consume the bounded retry");
+  assertEquals(error.nonConsuming, false);
+  assertEquals(error.attempts, [{ code: "provider_rejected", nonConsuming: false }]);
 });
 
 Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even when text() is empty", async () => {
@@ -606,6 +608,8 @@ Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even
     assertEquals(error.code, "provider_rejected", operation.label);
     assertEquals(error.retryable, false, operation.label);
     assertEquals(calls, 1, `${operation.label}: a blocked candidate must not be retried`);
+    assertEquals(error.nonConsuming, false, operation.label);
+    assertEquals(error.attempts, [{ code: "provider_rejected", nonConsuming: false }], operation.label);
     assertEquals(
       textCalls,
       0,
@@ -945,4 +949,109 @@ Deno.test("an injected generator does not require an API key", () => {
   const adapter = new GeminiAdapter({ generateText: async () => "{}" });
 
   assertEquals(adapter instanceof GeminiAdapter, true);
+});
+
+Deno.test("HTTP 500 and 503 provider errors classify as provider_unavailable with nonConsuming: false", async () => {
+  for (const status of [500, 503]) {
+    let calls = 0;
+    const adapter = new GeminiAdapter({
+      generateText: () => {
+        calls++;
+        throw Object.assign(new Error("Provider error"), { status });
+      },
+      sleep: () => Promise.resolve(),
+    });
+
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
+
+    assertEquals(calls, 2);
+    assertEquals(error.code, "provider_unavailable");
+    assertEquals(error.nonConsuming, false);
+    assertEquals(error.attempts.length, 2);
+    assertEquals(error.attempts[0].code, "provider_unavailable");
+    assertEquals(error.attempts[0].nonConsuming, false);
+    assertEquals(error.attempts[1].code, "provider_unavailable");
+    assertEquals(error.attempts[1].nonConsuming, false);
+  }
+});
+
+Deno.test("Mixed retries with 429 followed by 503 accumulate nonConsuming: false", async () => {
+  let calls = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      calls++;
+      if (calls === 1) {
+        throw Object.assign(new Error("Rate limited"), { status: 429 });
+      }
+      throw Object.assign(new Error("Service unavailable"), { status: 503 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const error = await assertRejects(
+    () => adapter.extractRecipe({ rawText: NOTES }),
+    AIError,
+  );
+
+  assertEquals(calls, 2);
+  assertEquals(error.code, "provider_unavailable");
+  assertEquals(error.nonConsuming, false);
+  assertEquals(error.attempts.length, 2);
+  assertEquals(error.attempts[0].code, "rate_limited");
+  assertEquals(error.attempts[0].nonConsuming, true);
+  assertEquals(error.attempts[1].code, "provider_unavailable");
+  assertEquals(error.attempts[1].nonConsuming, false);
+});
+
+Deno.test("Mixed retries with 503 followed by 429 accumulate nonConsuming: false", async () => {
+  let calls = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      calls++;
+      if (calls === 1) {
+        throw Object.assign(new Error("Service unavailable"), { status: 503 });
+      }
+      throw Object.assign(new Error("Rate limited"), { status: 429 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const error = await assertRejects(
+    () => adapter.extractRecipe({ rawText: NOTES }),
+    AIError,
+  );
+
+  assertEquals(calls, 2);
+  assertEquals(error.code, "rate_limited");
+  assertEquals(error.nonConsuming, false);
+  assertEquals(error.attempts.length, 2);
+  assertEquals(error.attempts[0].code, "provider_unavailable");
+  assertEquals(error.attempts[0].nonConsuming, false);
+  assertEquals(error.attempts[1].code, "rate_limited");
+  assertEquals(error.attempts[1].nonConsuming, true);
+});
+
+Deno.test("HTTP 429 rate limit exhaustion classifies as rate_limited with nonConsuming: true", async () => {
+  let calls = 0;
+  const adapter = new GeminiAdapter({
+    generateText: () => {
+      calls++;
+      throw Object.assign(new Error("Rate limited"), { status: 429 });
+    },
+    sleep: () => Promise.resolve(),
+  });
+
+  const error = await assertRejects(
+    () => adapter.extractRecipe({ rawText: NOTES }),
+    AIError,
+  );
+
+  assertEquals(calls, 2);
+  assertEquals(error.code, "rate_limited");
+  assertEquals(error.nonConsuming, true);
+  assertEquals(error.attempts.length, 2);
+  assertEquals(error.attempts.every((a) => a.nonConsuming), true);
 });
