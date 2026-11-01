@@ -16,6 +16,7 @@ for (const [name, input, expected, count = 1] of [
   ['function', 'M\0supabase/functions/recipes/index.ts\0', false],
   ['migration', 'A\0supabase/migrations/new.sql\0', false],
   ['workflow', 'M\0.github/workflows/modular-main.yml\0', false],
+  ['PR workflow self-change', 'M\0.github/workflows/modular-pr-validation.yml\0', false],
   ['GitHub markdown', 'M\0.github/production-cutover.md\0', false],
   ['script', 'M\0scripts/pr-secretary.mjs\0', false],
   ['classifier self-change requires full validation', 'M\0scripts/ci-path-classifier.mjs\0', false],
@@ -50,9 +51,8 @@ for (const [name, input, expected, count = 1] of [
   const decision = classifyComplete(input, count);
   assert.equal(decision.docs_only, String(expected));
   for (const gate of ['frontend', 'database', 'edge_api']) assert.equal(decision[gate], expected ? 'noop' : 'run');
-  // Stage A deliberately leaves E2E/staging behavior and reporting unchanged.
-  assert.equal(decision.e2e, 'run');
-  assert.equal(decision.staging, 'run');
+  assert.equal(decision.e2e, expected ? 'skip' : 'run');
+  assert.equal(decision.staging, expected ? 'skip' : 'run');
   assert.match(decision.reason, /^[A-Za-z -]+$/);
 });
 
@@ -60,7 +60,10 @@ test('incomplete evidence never yields a no-op', () => {
   const diff = 'M\0docs/example.md\0';
   for (const options of [{}, { complete: false, expectedCount: 1 }, { complete: true },
     { complete: true, expectedCount: 2 }, { complete: true, expectedCount: 0 }]) {
-    assert.equal(classify(diff, options).docs_only, 'false');
+    const decision = classify(diff, options);
+    assert.equal(decision.docs_only, 'false');
+    assert.equal(decision.e2e, 'run');
+    assert.equal(decision.staging, 'run');
   }
   assert.match(outputLines(classify(diff)), /^docs_only=false\nfrontend=run\ndatabase=run\nedge_api=run\n/);
   assert.equal(classify(diff, null).docs_only, 'false');
@@ -96,10 +99,13 @@ test('Git collection uses the PR merge base and fails closed on incomplete evide
       cwd, encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output, GITHUB_EVENT_NAME: 'pull_request' },
     });
     assert.equal(cli.status, 0, cli.stderr);
-    assert.match(readFileSync(output, 'utf8'), /^docs_only=true\n/);
+    assert.match(readFileSync(output, 'utf8'), /^docs_only=true\nfrontend=noop\ndatabase=noop\nedge_api=noop\ne2e=skip\nstaging=skip\n/);
     for (const patch of [{ expectedCount: 2 }, { base: 'f'.repeat(40) }, { base: '--all' },
       { eventName: 'push' }, { head: base }, { cwd: join(cwd, 'missing') }]) {
-      assert.equal(classifyGit({ ...input, ...patch }).docs_only, 'false');
+      const decision = classifyGit({ ...input, ...patch });
+      assert.equal(decision.docs_only, 'false');
+      assert.equal(decision.e2e, 'run');
+      assert.equal(decision.staging, 'run');
     }
     // A changed mode is not confidently regular prose, even with an .md suffix.
     git('update-index', '--chmod=+x', 'docs/example.md');
@@ -123,7 +129,7 @@ test('CLI missing/malformed event writes full validation to GITHUB_OUTPUT withou
         GITHUB_EVENT_NAME: 'pull_request', GH_TOKEN: 'must-not-appear' },
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(readFileSync(output, 'utf8'), /^docs_only=false\n/);
+    assert.match(readFileSync(output, 'utf8'), /^docs_only=false\nfrontend=run\ndatabase=run\nedge_api=run\ne2e=run\nstaging=run\n/);
     assert.doesNotMatch(result.stdout + result.stderr, /must-not-appear/);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });

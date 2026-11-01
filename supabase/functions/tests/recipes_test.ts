@@ -6805,3 +6805,4 @@ Deno.test("Authenticated GET /recipes search handles whitespace-only terms and r
   const bodyForeign = await resForeign.json();
   assertEquals(bodyForeign.error?.code, "INTERNAL_ERROR");
 });
+

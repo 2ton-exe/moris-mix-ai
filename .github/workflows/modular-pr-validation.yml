@@ -15,6 +15,8 @@ jobs:
       contents: read
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
+      e2e: ${{ steps.classify.outputs.e2e }}
+      staging: ${{ steps.classify.outputs.staging }}
       reason: ${{ steps.classify.outputs.reason }}
     steps:
       - name: Checkout real PR head with full history
@@ -30,6 +32,10 @@ jobs:
       - name: Classify complete PR diff
         id: classify
         run: node scripts/ci-path-classifier.mjs
+      # The Jobs API exposes step conclusions, but not classifier outputs.
+      - name: Record documentation-only E2E/staging skips
+        if: steps.classify.outputs.docs_only == 'true' && steps.classify.outputs.e2e == 'skip' && steps.classify.outputs.staging == 'skip'
+        run: echo "Verified documentation-only decision; E2E and staging will not execute."
 
   frontend:
     name: Modular Frontend
@@ -70,11 +76,17 @@ jobs:
   staging:
     name: Modular Staging
     needs:
+      - classify
       - frontend
       - test-db
       - test-edge-api
 
     if: >
+      !cancelled() &&
+      needs.frontend.result == 'success' &&
+      needs.test-db.result == 'success' &&
+      needs.test-edge-api.result == 'success' &&
+      !(needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' && needs.classify.outputs.staging == 'skip') &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
 
@@ -84,4 +96,6 @@ jobs:
       STAGING_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.STAGING_CLOUDFLARE_ACCOUNT_ID }}
   test-e2e:
     name: Modular E2E
+    needs: classify
+    if: ${{ !cancelled() && !(needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' && needs.classify.outputs.e2e == 'skip') }}
     uses: ./.github/workflows/reusable-e2e.yml

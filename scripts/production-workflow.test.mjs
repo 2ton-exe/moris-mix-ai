@@ -27,6 +27,7 @@ function condition(expression, overrides = {}) {
   };
   const source = expression.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
     .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
+    .replace(/needs\.(test-db|test-edge-api)/g, 'needs["$1"]')
     .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
     .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]');
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
@@ -331,10 +332,48 @@ test('docs-only paths execute successful core jobs; main and hosted RLS cannot n
   assert.equal(workflow('reusable-database').jobs['test-db'].services.postgres.image, 'postgres:16');
   assert.equal(main.jobs['test-edge-api'].with['require-hosted-rls'], true);
   assert.doesNotMatch(edge.jobs['test-hosted-rls'].if, /docs-only|DOCS_ONLY/);
+});
+
+test('E2E and staging skip only on successful explicit docs-only decisions', () => {
   const pr = workflow('modular-pr-validation');
-  assert.equal(pr.jobs['test-e2e'].needs, undefined);
-  assert.deepEqual(pr.jobs.staging.needs, ['frontend', 'test-db', 'test-edge-api']);
-  assert.doesNotMatch(pr.jobs.staging.if, /docs.only|classify/);
+  assert.equal(pr.jobs['test-e2e'].needs, 'classify');
+  assert.deepEqual(pr.jobs.staging.needs, ['classify', 'frontend', 'test-db', 'test-edge-api']);
+  for (const output of ['e2e', 'staging']) {
+    assert.equal(pr.jobs.classify.outputs[output], '${{ steps.classify.outputs.' + output + ' }}');
+  }
+  const marker = step(pr.jobs.classify, 'Record documentation-only E2E/staging skips');
+  for (const result of ['success', 'failure', 'skipped', 'cancelled', undefined]) {
+    for (const docs_only of ['true', 'false', '', undefined]) {
+      for (const decision of ['skip', 'run', '', 'malformed', undefined]) {
+        const outputs = { docs_only, e2e: decision, staging: decision };
+        const needs = { classify: { result, outputs }, frontend: { result: 'success' },
+          'test-db': { result: 'success' }, 'test-edge-api': { result: 'success' } };
+        const overrides = { needs, cancelled: () => false, success: () => false,
+          github: { repository: '2ton-exe/moris-mix-ai', event: { pull_request: {
+            draft: false, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } },
+          } } } };
+        const skip = result === 'success' && docs_only === 'true' && decision === 'skip';
+        for (const id of ['test-e2e', 'staging']) {
+          assert.equal(condition(pr.jobs[id].if, overrides), !skip, `${id}: ${result}/${docs_only}/${decision}`);
+          assert.equal(condition(pr.jobs[id].if, { ...overrides, cancelled: () => true }), false);
+        }
+        assert.equal(condition(marker.if, { steps: { classify: { outputs } } }), docs_only === 'true' && decision === 'skip');
+        for (const dependency of ['frontend', 'test-db', 'test-edge-api']) {
+          for (const coreResult of ['failure', 'skipped', 'cancelled', undefined]) {
+            assert.equal(condition(pr.jobs.staging.if, { ...overrides,
+              needs: { ...needs, [dependency]: { result: coreResult } } }), false);
+          }
+        }
+        for (const pull_request of [{ draft: true, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } } },
+          { draft: false, head: { repo: { full_name: 'fork/repo' } } }]) {
+          assert.equal(condition(pr.jobs.staging.if, { ...overrides,
+            github: { repository: '2ton-exe/moris-mix-ai', event: { pull_request } } }), false);
+        }
+      }
+    }
+  }
+  assert.equal(main.jobs['test-e2e'].needs, undefined);
+  assert.equal(main.jobs['test-e2e'].if, undefined);
 });
 
 test('cutover files contain no literal credential patterns', () => {

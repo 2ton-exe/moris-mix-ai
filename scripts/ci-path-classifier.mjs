@@ -35,7 +35,7 @@ export function classify(input, options = {}) {
     if (changes.some(change => change.status === 'D')) return full('Deletion requires full validation');
     if (!allPaths.every(prose)) return full('Changed paths are outside the Stage A prose allowlist');
     return { ...full('Complete documentation-only PR diff'), docs_only: 'true',
-      frontend: 'noop', database: 'noop', edge_api: 'noop' };
+      frontend: 'noop', database: 'noop', edge_api: 'noop', e2e: 'skip', staging: 'skip' };
   } catch {
     return full('Invalid changed-file evidence');
   }

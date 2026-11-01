@@ -73,7 +73,9 @@ boundary. Under the intended classifier policy, workflow and classifier changes
 are outside the docs-only allowlist and receive full validation. Pull-request
 workflow and classifier code is still part of the proposed revision, so required
 human review remains the trust control against deliberate validation-policy
-tampering. Workflow and classifier changes still require review. After merge,
+tampering. The CODEOWNERS policy inherited from PR #146 is now on main, and
+code-owner review enforcement protects workflow and classifier policy changes.
+Workflow and classifier changes still require review. After merge,
 `main` runs the complete validation path again; docs-only mode is never enabled
 for main production validation.
 
@@ -122,14 +124,31 @@ docs-only mode to PR events. Explicit log steps identify the lighter paths.
 | Frontend Checks | Keeps checkout, frontend detection/`exists` output, Node/pnpm setup, locked frontend dependency installation, Secretary regressions, runtime-smoke tests, production-workflow safety tests, and classifier tests. Skips only application lint, unit tests and build. |
 | Database Tests | Keeps the job/check and PostgreSQL service; checkout and an explicit successful no-op step run. Skips tooling install, readiness command, migrations, lifecycle and RLS commands. Service startup can still fail the job. |
 | Edge/API Tests | Keeps the job/check, checkout and explicit successful no-op step. Skips Deno/tooling setup, type-checks, deterministic tests and optional hosted work. Main still requires its nested Hosted RLS job; a required-hosted-RLS input also disables docs-only mode. |
-| E2E and staging | Remain unchanged in Stage A, including staging eligibility, deployment and smoke. No new skips or Secretary/reporting semantics are introduced. PR workflows still cannot call production. |
+| E2E | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `e2e=skip`. Failure, missing/malformed output or uncertainty runs normal E2E; cancellation prevents execution. E2E remains non-required. |
+| Staging | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `staging=skip`. Otherwise it still requires successful frontend, database and Edge/API validation, a non-draft same-repository PR, and no cancellation. Deployment and smoke implementation are unchanged. PR workflows still cannot call production. |
+
+Verified docs-only decisions emit `frontend=noop`, `database=noop`,
+`edge_api=noop`, `e2e=skip`, and `staging=skip`. Full-validation decisions emit
+`docs_only=false` and `run` for all five paths. Classifier failure or uncertain
+evidence therefore falls back to full validation, including E2E and eligible
+staging. All three required core contexts remain present and must succeed;
+they are never skipped at the caller level.
+
+Secretary uses the successful classifier job's explicit documentation-only
+marker step from the same workflow run to report observed E2E/staging skips as
+`SKIPPED — EXPECTED`, never as passed executions. Missing or unsuccessful marker
+evidence does not excuse an otherwise unexpected skip. The marker and job
+metadata are already available from the Jobs API; no extra permissions or
+deployment behavior are introduced.
 
 ### Limitations and measurement plan
 
 Frontend dependencies remain necessary because workflow YAML safety tests use the
 parser bundled with locked frontend ESLint tooling. PostgreSQL still starts at
-job level. The classifier adds checkout/history and scheduling overhead. E2E and
-eligible staging work remain, so workflow duration may show little or no gain.
+job level. The classifier adds checkout/history and scheduling overhead. Verified
+docs-only PRs skip E2E and staging, but retained work and queue time still affect
+workflow duration. This remains an experiment until hosted before/after evidence
+is collected; no optimization result or timing improvement is claimed.
 No database startup optimization or measured improvement is claimed.
 
 Collect GitHub run URLs, head/merge SHAs, path decisions/reasons, composed check
@@ -139,8 +158,8 @@ mixed/code PRs as full-path controls. Verify missing/failing classification fall
 back to full validation and all three contexts remain present/successful on the
 lighter path. Observe an unchanged full main run with mandatory Hosted RLS and
 normal production gating separately. Separate classifier overhead, retained
-frontend install/database startup, and unchanged E2E/staging costs from skipped
-commands; do not equate fewer commands with a proven end-to-end improvement.
+frontend install/database startup, and intentionally skipped E2E/staging work;
+do not equate fewer commands with a proven end-to-end improvement.
 
 ## Historical migration record (superseded operational guidance)
 
