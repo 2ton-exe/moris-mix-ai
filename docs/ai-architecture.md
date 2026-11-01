@@ -150,7 +150,8 @@ Output validation (`GeneratedRecipeSchema`):
 
 Generation runs before the child recipe exists, so the save endpoint cannot ask
 the database which parents the model was allowed to propose. Instead
-`POST /generate-recipe` returns a short-lived signed `candidate_token`:
+`POST /generate-recipe` returns a short-lived signed `candidate_token` when
+`parents` is non-empty, and `candidate_token: null` otherwise:
 
 - Claims: `jti` (generation identifier), `sub` (authenticated user), `aud`,
   `iat`, `exp` (15-minute TTL) and the canonical allowed `parent_recipe_ids` —
