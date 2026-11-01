@@ -9,11 +9,12 @@ export const TEAM = Object.freeze({
   kleinrheepagulongsioson: { name: 'Sioson', role: 'AI' },
   myntchoc: { name: 'Belen', role: 'Integration / Full-stack' },
 });
-// Fallback for main only. Source: docs/devops/deployment-runbook.md, ruleset evidence.
-export const PROJECT_REQUIRED = Object.freeze(['Frontend Checks', 'Database Tests', 'Edge/API Tests']
+// Intended modular-only fallback for main; live branch rules take precedence.
+// Source: docs/devops/modular-workflows.md; this does not assert policy handoff.
+export const PROJECT_REQUIRED = Object.freeze(['Modular Frontend / Frontend Checks', 'Modular Database / Database Tests', 'Modular Edge/API / Edge/API Tests']
   .map(context => Object.freeze({ context, integrationId: null, integrationUnverified: true })));
 const AREA_ORDER = ['Frontend', 'Backend/API', 'AI', 'Database', 'DevOps', 'Integration'];
-const WORKFLOWS = ['CI', 'Modular PR Validation'];
+const WORKFLOWS = ['Modular PR Validation'];
 const sorted = values => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'en'));
 const areas = values => AREA_ORDER.filter(a => values.includes(a));
 const human = user => user && user.type !== 'Bot' && !user.login?.endsWith('[bot]');
@@ -78,24 +79,19 @@ export function normalizeRequired(requirement, checks) {
 }
 
 export const GATES = [
-  ['Frontend', 'CI', 'Frontend Checks'],
-  ['Database', 'CI', 'Database Tests'],
-  ['Edge/API', 'CI', 'Edge/API Tests'],
-  ['Hosted RLS', 'CI', 'Hosted RLS Integration'],
-  ['E2E (non-gating)', 'CI', 'Playwright E2E (Non-gating) / Playwright E2E Tests'],
-  ['Modular Frontend', 'Modular PR Validation', 'Modular Frontend / Frontend Checks'],
-  ['Modular Database', 'Modular PR Validation', 'Modular Database / Database Tests'],
-  ['Modular Edge/API', 'Modular PR Validation', 'Modular Edge/API / Edge/API Tests'],
-  ['Modular E2E (non-gating)', 'Modular PR Validation', 'Modular E2E / Playwright E2E Tests'],
+  ['Frontend', 'Modular PR Validation', 'Modular Frontend / Frontend Checks'],
+  ['Database', 'Modular PR Validation', 'Modular Database / Database Tests'],
+  ['Edge/API', 'Modular PR Validation', 'Modular Edge/API / Edge/API Tests'],
+  ['Hosted RLS', 'Modular PR Validation', 'Modular Edge/API / Hosted RLS Integration'],
+  ['E2E (non-gating)', 'Modular PR Validation', 'Modular E2E / Playwright E2E Tests'],
   ['Staging deploy', 'Modular PR Validation', 'Modular Staging / Staging Deploy'],
   ['Staging smoke', 'Modular PR Validation', 'Modular Staging / Staging Smoke'],
-  ['Production deploy', 'CI', 'Deploy to Cloudflare'],
+  ['Production deploy', 'Modular Main Validation', 'Modular Main Production / Deploy to Supabase and Cloudflare'],
 ];
 
 function gateChecks(checks, workflow, name) {
   const aliases = [name];
   if (name.startsWith('Modular Staging / ')) aliases.push('Modular Staging');
-  if (name.startsWith('Playwright E2E (Non-gating) / ')) aliases.push('Playwright E2E (Non-gating)');
   return checks.filter(c => aliases.includes(c.name) && (!c.workflow || c.workflow === workflow) &&
     (!c.app || c.app.slug === 'github-actions') && !c.context);
 }
@@ -175,7 +171,7 @@ export function summarize(data) {
     const check = unexpectedProduction ?? evidence[0];
     const staging = label.startsWith('Staging');
     const expectedSkip = label === 'Production deploy' || (staging && !stagingEligible(pr, repository)) ||
-      (label === 'Hosted RLS' && pr.head.repo?.full_name !== repository);
+      label === 'Hosted RLS';
     const applicable = pr.base.ref === 'main';
     const state = normalize(check, { expectedSkip, applicable });
     if (state === 'SKIPPED — INVESTIGATE') attention.push(`${label}: unexpected skip${staging ? ' (check upstream validation and staging eligibility)' : ''}`);
@@ -407,7 +403,7 @@ export async function collect(api, number, repository) {
   ]);
   if (files.length !== pr.changed_files) throw new Error('Changed-file listing is incomplete or PR changed during collection; retry');
   // Prefer jobs in the newest run, not old successful checks during a rerun.
-  const workflowPaths = { CI: '.github/workflows/ci.yml', 'Modular PR Validation': '.github/workflows/modular-pr-validation.yml' };
+  const workflowPaths = { 'Modular PR Validation': '.github/workflows/modular-pr-validation.yml' };
   const relevant = runs.filter(r => workflowPathMatches(r.path, workflowPaths[r.name]) && r.head_sha === pr.head.sha &&
     (r.pull_requests?.some(p => p.number === number) ||
      (r.head_repository?.full_name === pr.head.repo?.full_name && r.head_branch === pr.head.ref)));
@@ -420,7 +416,6 @@ export async function collect(api, number, repository) {
     return Promise.all(jobs.map(async job => ({ ...job, workflow: run.name, app: await jobApp(api, job, checkRuns) })));
   }))).flat();
   const namesForActiveRuns = new Set(GATES.filter(g => newest.some(r => r.name === g[1])).map(g => g[2]));
-  if (newest.some(r => r.name === 'CI')) namesForActiveRuns.add('Playwright E2E (Non-gating)');
   if (newest.some(r => r.name === 'Modular PR Validation')) namesForActiveRuns.add('Modular Staging');
   const checks = [...runChecks, ...checkRuns.filter(c => !namesForActiveRuns.has(c.name)),
     ...statuses.filter((c, i, all) => all.findIndex(s => s.context === c.context) === i).map(c => ({ ...c, name: c.context }))];

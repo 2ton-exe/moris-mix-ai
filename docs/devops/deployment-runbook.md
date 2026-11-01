@@ -6,6 +6,52 @@
 **Sprint:** 1–2\
 **Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
+## Issue #73 final cleanup proposal (2026-10-31)
+
+Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
+This branch proposes repository cleanup; it is not merged-main verification and
+issue #73 is not complete. No GitHub settings are changed here.
+
+Operator-provided evidence at that main SHA already proves both ownership modes:
+
+| Experiment | Variable | Legacy production | Modular Main Production |
+| --- | --- | --- | --- |
+| Cutover | exact `true` | skipped | successful |
+| Rollback | `false` | successful | skipped |
+
+The modular release passed recipes deployment, Cloudflare deployment, production
+URL verification, runtime smoke, and artifact preservation. The variable was
+subsequently restored to exact `true`; this cleanup does not change it. These are
+operator-confirmed outcomes supplied for this cleanup, not new runs performed by
+this branch; run IDs were not supplied. Earlier run links below remain historical
+evidence for their own revisions.
+
+### Proposed permanent architecture and remaining handoff
+
+PRs use `modular-pr-validation.yml`; main uses `modular-main.yml`, the sole
+production caller. This branch removes `ci.yml`, the production owner selector,
+owner input/preflight and inert shadow gate. It removes runtime reads of
+`MODULAR_PRODUCTION_ENABLED` without changing the repository variable.
+Successful frontend/database/Edge validation, mandatory hosted RLS on main,
+frontend existence, exact caller identity, main push/manual-only restrictions,
+explicit production secrets, recipes-only targeting, URL verification, runtime
+smoke/evidence, and serialized production concurrency remain. E2E is non-gating.
+
+The six-context overlap remains unchanged until a separate GitHub handoff after
+healthy PR checks. Intended final contexts are `Modular Frontend / Frontend Checks`,
+`Modular Database / Database Tests`, and `Modular Edge/API / Edge/API Tests`.
+Legacy requirements may remain pending after their producer is removed; coordinate
+the handoff without a protection gap. PR Secretary uses modular runs and an
+explicitly unconfirmed intended-policy fallback; live rules take precedence.
+
+The [full cleanup contract and GitHub handoff](../../.github/production-cutover.md#issue-73-final-cleanup-proposal-2026-10-31)
+records production targets, release safeguards, and outstanding verification.
+After an authorized merge, observe the new main SHA's modular-only release,
+mandatory hosted RLS, deployment/smoke/artifact outcomes, and Secretary refresh.
+No modular-only post-merge verification or issue #73 completion is claimed.
+After retirement, a variable flip cannot restore legacy production; rollback
+requires a reviewed repository change. Do not rerun stale production revisions.
+
 ## 1. Purpose
 
 This document describes the continuous integration and continuous deployment (CI/CD) pipeline, production hosting configuration, deployment verification procedures, and basic recovery steps for Mori's Scraps.
@@ -36,11 +82,11 @@ Developer feature branch
 ↓\
 Pull request targeting `main`  
 ↓\
-GitHub Actions — `ci.yml`\
+GitHub Actions - `modular-pr-validation.yml`\
 ↓\
-`Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` run before deployment; Playwright E2E is non-gating\
+Modular frontend, database and Edge/API validations run; Playwright E2E is non-gating\
 ↓\
-Required checks: `Frontend Checks`, `Database Tests`, and `Edge/API Tests`; production deployment is skipped on PR runs and main deployment requires all deploy dependencies to succeed\
+Six-check overlap remains until separate GitHub handoff; intended final policy uses the three modular contexts above. PRs cannot deploy production\
 ↓\
 At least one teammate approval and resolved review conversations\
 ↓\
@@ -50,19 +96,19 @@ Merge into `main`
 
 Approved merge into `main` produces a push event; permitted `workflow_dispatch` on `main` is an alternative\
 ↓\
-GitHub Actions — `ci.yml`\
+GitHub Actions - `modular-main.yml`\
 ↓\
-`Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` complete\
+Modular main frontend/database/Edge validation completes, including mandatory hosted RLS\
 ↓\
 All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Deploy to Supabase and Cloudflare` (`deploy`): validate target, build frontend, deploy only `recipes`, then deploy Cloudflare assets\
+`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy only `recipes`, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
 Automated runtime smoke verifies HTML, the referenced JavaScript asset, and the public demo database response; retain manual verification for broader journeys
 
-The temporary frontend-existence mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
+The frontend-existence safety mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
 
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
 
@@ -379,13 +425,14 @@ this does not assert issue closure or full authenticated recipe CRUD verificatio
 The backend source revision remains **operator-attested; not observed from runtime**,
 and successful Gemini generation is not established. This run is deployment/runtime
 evidence, not another optimization sample or a merge-to-live measurement. The
-#73 modular production ownership cutover remains separate; `ci.yml` stays active.
+#73 ownership evidence has since advanced; see the proposal above for cutover and rollback results.
 
 ## 4. Repository Structure
 
 The relevant DevOps files are organized as follows:
 
-- `.github/workflows/ci.yml` — Frontend, database, Edge/API, and Hosted RLS validation plus gated `recipes` and Cloudflare production deployment
+- `.github/workflows/modular-main.yml` - Main validation and sole production caller in this proposal
+- `.github/workflows/reusable-production.yml` - Guarded recipes/Cloudflare deployment and runtime evidence
 - `.github/workflows/modular-pr-validation.yml` — Modular PR validation and trusted PR staging gate introduced by PR #81
 - `.github/workflows/reusable-staging.yml` — Serialized staging frontend deployment, smoke, and revision summaries
 - `wrangler.jsonc` — Cloudflare Worker configuration
@@ -398,7 +445,10 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-The unified CI workflow runs through GitHub Actions when a pull request targets `main`, on any push to `main`, or through manual dispatch. PR runs execute the validation jobs and skip the production `Deploy to Supabase and Cloudflare` job; the separate modular PR staging path is described in section 3. Main pushes and permitted manual main runs deploy only after every `deploy.needs` job succeeds and the frontend-existence output is true. Playwright E2E remains non-gating.
+The modular PR workflow validates PRs targeting main and handles eligible staging.
+The modular main workflow validates main pushes and manual dispatches; its production
+caller waits for successful frontend/database/Edge validation, mandatory hosted RLS
+inside Edge/API, and frontend existence. E2E is independent and non-gating.
 
 Its frontend validation stages are:
 
@@ -412,7 +462,7 @@ Its frontend validation stages are:
 
 In parallel, `Database Tests` validates migrations, migration lifecycle behavior, and RLS against a PostgreSQL service container. `Edge/API Tests` type-checks and tests recipe CRUD, demo, and AI schemas and handlers; when configured, it also applies pending migrations to and runs RLS integration tests against a dedicated hosted non-production database. These validation jobs do not deploy production functions or change the production database.
 
-**Required PR status checks:** `Frontend Checks`, `Database Tests`, and `Edge/API Tests`, as confirmed by the verified current GitHub ruleset evidence.
+**Required PR status checks:** the six-context overlap remains until the separate GitHub handoff. The three intended final modular contexts are listed above; this branch changes no ruleset.
 
 The frontend build command currently performs TypeScript validation before the Vite production build:
 
@@ -440,16 +490,16 @@ This establishes that the frontend CI path is now executing meaningful applicati
 
 The default branch, `main`, is protected through a GitHub repository ruleset.
 
-The verified current GitHub ruleset requirements include:
+The recorded GitHub ruleset requirements, with the six-context overlap still in place, include:
 
 - Changes must be submitted through pull requests.
 - One approving teammate review is required.
-- The `Frontend Checks`, `Database Tests`, and `Edge/API Tests` status checks must pass.
+- The legacy core contexts and three composed modular core contexts must pass until the separately authorized policy handoff.
 - Review conversations must be resolved.
 - Force pushes are blocked.
 - Branch deletion is restricted.
 
-The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. All three required PR validation jobs are also dependencies of production deployment in the subsequent main run, alongside `test-hosted-rls`; the current production gate requires `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`.
+The ruleset was previously observed blocking a pull request that passed CI but had not yet received the required approval. The proposed main production gate requires `frontend`, `test-db`, and `test-edge-api`; mandatory hosted RLS is nested inside the aggregate Edge/API reusable workflow.
 
 Development should take place on feature branches. Approved changes are merged into `main` through GitHub's pull request interface.
 
@@ -497,23 +547,30 @@ The Cloudflare API token is restricted to the intended Cloudflare account.
 
 ## 9. Automated Deployment Procedure
 
-Production deployment is the `deploy` job inside `.github/workflows/ci.yml`. An approved merge into `main` produces the push event that starts CI; deployment follows successful `Frontend Checks`, `Database Tests`, `Edge/API Tests`, and `Hosted RLS Integration` jobs in the same run. Permitted `workflow_dispatch` runs on `main` use the same gate. PR runs skip production deployment.
-
-The job declares `needs: [frontend, test-db, test-edge-api, test-hosted-rls]` and uses this condition:
+In this proposal `production` in `.github/workflows/modular-main.yml` calls the
+`deploy` job in `reusable-production.yml`. Main push or permitted manual dispatch
+requires `needs: [frontend, test-db, test-edge-api]` and this caller condition:
 
 ```text
-needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+success() && needs.frontend.outputs.exists == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
 ```
 
-The `deploy.needs` configuration and normal GitHub Actions dependency semantics prevent deployment when a dependency fails, is cancelled, or is skipped. Failed-dependency blocking is verified by the controlled non-production equivalent dependency-gate experiment in PR #68 / run `39279387584`. Run #90 verifies successful production ordering separately.
+Hosted RLS is mandatory within Edge/API. Failed, cancelled or skipped gating
+validation blocks production. `modular-main.yml` gates successful frontend,
+database and Edge/API validation and frontend existence before calling production.
+The callee independently checks the exact modular-main caller identity,
+`refs/heads/main`, push/workflow_dispatch event and supplied frontend-existence
+input; it does not independently re-evaluate upstream validation results. PRs have no
+production caller. Earlier run #90 and PR #68 remain historical gate evidence;
+operator-confirmed cutover/rollback evidence and post-merge obligations are above.
 
 The workflow currently has no push path filter: docs-only main pushes can also proceed through deployment. Evaluating trigger scope is possible future efficiency work, not a correctness failure or a proven optimization opportunity.
 
 ### Deployment Steps
 
-1. Changes are reviewed and merged into `main`; the resulting push event triggers the unified CI workflow. Alternatively, use a permitted `workflow_dispatch` run on `main`.
+1. Changes are reviewed and merged into `main`; the resulting push event triggers Modular Main Validation. Alternatively, use a permitted `workflow_dispatch` run on `main`.
 2. Frontend, database, Edge/API, and hosted RLS validation run; Playwright E2E runs separately and is non-gating.
-3. Confirm every `deploy.needs` job succeeded and the frontend-existence output is true.
+3. Confirm every `production.needs` job succeeded and the frontend-existence output is true.
 4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
 5. Supabase CLI deploys only `recipes` with gateway JWT verification disabled, matching `supabase/config.toml` so the handler enforces authentication.
 6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
@@ -593,7 +650,7 @@ Draft PR #68, `[DEVOPS-06] Verify failed validation blocks deployment`, executed
 | Gate Test - Intentional Database Failure | Failure by design |
 | Gate Test - Would Deploy | Skipped |
 
-The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the historical production deploy gate's three-dependency structure in effect when PR #68 ran. The current production gate has four dependencies: `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls`. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
+The inert downstream job declared `needs: [frontend, test-db, test-edge-api]`, matching the historical production deploy gate's three-dependency structure in effect when PR #68 ran. The current modular production caller has three direct dependencies: `frontend`, `test-db`, and `test-edge-api`. Mandatory Hosted RLS is enforced inside the aggregate Edge/API workflow on main; a failed Hosted RLS integration fails the aggregate `test-edge-api` result and blocks production. This controlled non-production equivalent dependency-gate experiment verifies GitHub Actions failure propagation: when one required dependency fails and `always()` is not used, the downstream deployment-shaped job is skipped. It used no production credentials, repository secrets, Cloudflare/Supabase deployment commands, or application deployment. Production main was not intentionally failed, and no failed production deployment occurred in this experiment.
 
 The historical evidence chain is the production configuration in effect for the PR #68 experiment (`deploy.needs: [frontend, test-db, test-edge-api]`), successful production ordering (main run #90), and safe verification of the failed-dependency blocking mechanism (PR #68 / experimental run `39279387584`). The experiment is separate from run #90's successful production-main evidence.
 
@@ -667,9 +724,9 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 ### GitHub Actions Is Green but the Website Has Not Changed
 
-- Confirm the actual deployment step executed rather than being skipped.
+- Confirm `Modular Main Production / Deploy to Supabase and Cloudflare` actually executed rather than being skipped.
 - Confirm `frontend/package.json` exists on `main`.
-- Confirm the unified CI workflow ran for the expected commit, the `frontend`, `test-db`, `test-edge-api`, and `test-hosted-rls` jobs all succeeded, and the frontend-existence output is true.
+- Confirm `Modular Main Validation` ran for the expected `main` commit, `frontend`, `test-db`, and `test-edge-api` succeeded, the main Edge/API path executed its mandatory Hosted RLS integration successfully, and the frontend-existence output was true.
 - Inspect the Wrangler deployment output.
 - Inspect the latest Cloudflare Worker deployment.
 - Check the production URL independently.
@@ -724,7 +781,7 @@ No optimization should be claimed until a baseline exists and a before-versus-af
 
 The following limitations or pending items remain:
 
-- The unified CI workflow retains the temporary frontend-existence check and exposes the result as a job output required by deployment.
+- `modular-main.yml` requires the reusable frontend validation's `exists` output to be true before calling production; frontend absence currently causes the production path to skip.
 - Since the frontend is now required on `main`, the temporary skip behavior should be removed or converted into a failing validation when appropriate.
 - TypeScript checking currently occurs inside `pnpm build` instead of being exposed as a separately named CI step.
 - Frontend CI has been verified against the real FE-01 application.
@@ -737,18 +794,18 @@ The following limitations or pending items remain:
 - The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
 - On 2026-10-30, production `demo-recipe` preflight was reconciled separately: only `demo-recipe` was targeted for deployment to project `gtbwblxskctpsqhbpebg` from reviewed source `d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` using the repository-pinned Supabase CLI 2.122.0 and the explicit production project reference. Supabase subsequently reported the function as ACTIVE version 2 with `verify_jwt=false`; the deployed bundle contains the reviewed `.eq("is_public", true)` boundary, and a post-deployment GET returned HTTP 200 for recipe `11111111-1111-1111-1111-111111111111` (`Classic Tomato Scraps Pasta`). Repository variables `PRODUCTION_FRONTEND_URL=https://moris-mix-ai.diofelgwenharesco.workers.dev` and `PRODUCTION_DEMO_RECIPE_REVISION=d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` are operator-confirmed configured, not independently API-observed through the GitHub connector. The backend revision remains operator-attested rather than runtime-observed; this is production preflight evidence, not PR #88 production runtime-smoke evidence.
 - A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
-- Production rollback and recovery procedures have not yet been tested.
+- Production ownership rollback was operator-confirmed at the baseline SHA above. Application/data recovery and the modular-only post-merge architecture remain separately unverified.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
 - Docs-only main pushes can currently proceed through the gated deployment job. Evaluate trigger scope later as a possible efficiency improvement; this is not a correctness failure or a proven optimization opportunity.
 
-## 15. Sprint 1 Completion Criteria
+## 15. Historical Sprint 1 Completion Criteria
 
 The Sprint 1 DevOps delivery setup currently has the following evidence:
 
 - [x] Initial CI workflow is merged.
 - [x] Branch protection ruleset is active.
-- [x] Frontend Checks, Database Tests, and Edge/API Tests are required by the verified current GitHub ruleset.
+- [x] Historical legacy core required-check enforcement was verified; the current cleanup handoff is tracked above.
 - [x] Teammate approval is required before merge.
 - [x] Unified validation/deployment workflow and Cloudflare configuration are merged.
 - [x] Historical frontend-only deployment gate was verified by main run #48.

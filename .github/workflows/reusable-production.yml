@@ -3,10 +3,6 @@ name: Reusable Production Release
 on:
   workflow_call:
     inputs:
-      owner:
-        description: legacy (ci.yml) or modular (modular-main.yml)
-        required: true
-        type: string
       frontend-exists:
         description: Frontend existence only; caller must gate on successful validations
         required: true
@@ -29,11 +25,7 @@ jobs:
       success() && inputs.frontend-exists &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main' &&
-      (
-        (inputs.owner == 'legacy' && github.workflow_ref == format('{0}/.github/workflows/ci.yml@refs/heads/main', github.repository)) ||
-        (inputs.owner == 'modular' &&
-         github.workflow_ref == format('{0}/.github/workflows/modular-main.yml@refs/heads/main', github.repository))
-      )
+      github.workflow_ref == format('{0}/.github/workflows/modular-main.yml@refs/heads/main', github.repository)
     runs-on: ubuntu-latest
 
     concurrency:
@@ -57,21 +49,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # Repeat the exact-string check before any configuration/build/deploy work.
-      - name: Verify production ownership
-        env:
-          MODULAR_PRODUCTION_ENABLED: ${{ vars.MODULAR_PRODUCTION_ENABLED }}
-          DECLARED_OWNER: ${{ inputs.owner }}
-        shell: bash
-        run: |
-          node --input-type=module -e '
-            const owner = process.env.MODULAR_PRODUCTION_ENABLED === "true" ? "modular" : "legacy";
-            if (process.env.DECLARED_OWNER !== owner) {
-              console.error("Production blocked: declared owner does not match MODULAR_PRODUCTION_ENABLED.");
-              process.exit(1);
-            }
-          '
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

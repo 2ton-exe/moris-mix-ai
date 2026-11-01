@@ -19,6 +19,10 @@ import {
 import { consumeDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
 import { buildChefRecipeContext } from "../_shared/ai/recipeContext.ts";
 import {
+  resolveCandidateTokenSecret,
+  signCandidateToken,
+} from "../_shared/ai/candidateToken.ts";
+import {
   GenerateRecipeRequestSchema,
   GenerateRecipeResponseSchema,
   GeneratedRecipeSchema,
@@ -35,6 +39,8 @@ export type GenerateRecipeDeps = AuthDeps & {
     auth: AuthContext,
     input: GenerateRecipeInput,
   ) => Promise<ChefRecipeContextResult>;
+  /** Override for tests/DI; production reads `AI_CANDIDATE_TOKEN_SECRET`. */
+  candidateTokenSecret?: string;
 };
 
 const ALLOWED_METHODS = AI_ALLOWED_METHODS;
@@ -214,6 +220,14 @@ export async function handler(
         : { preferences: validation.data.preferences }),
     };
 
+    let candidateTokenSecret: string;
+    try {
+      candidateTokenSecret = resolveCandidateTokenSecret(deps.candidateTokenSecret);
+    } catch {
+      console.error("AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing generation.");
+      return errorResponse("INTERNAL_ERROR", "Internal server error.", 500);
+    }
+
     const quota = await (deps.quotaCheck ?? consumeDailyQuota)(user.id, supabase, {
       supabaseUrl: deps.supabaseUrl,
       supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
@@ -251,10 +265,20 @@ export async function handler(
         throw new AIError("invalid_output", "generate", "Generation failed schema validation.", undefined, undefined, false);
       }
 
+      const parents = resolveParents(revalidated.data.parentRecipeIds, context);
+      const candidateToken = parents.length === 0
+        ? null
+        : await signCandidateToken({
+          userId: user.id,
+          parentRecipeIds: parents.map((parent) => parent.id),
+          secret: candidateTokenSecret,
+        });
+
       const response: GenerateRecipeResponse = {
         recipe: revalidated.data.recipe,
         substitutions: revalidated.data.substitutions,
-        parents: resolveParents(revalidated.data.parentRecipeIds, context),
+        parents,
+        candidate_token: candidateToken,
         context: {
           status: context.status,
           matchedCandidateCount: context.matchedCandidateCount,

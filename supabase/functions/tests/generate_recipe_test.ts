@@ -34,6 +34,12 @@ import {
   reconcileUnconfirmedReservation,
   type QuotaCheckDeps,
 } from "../_shared/ai/quota.ts";
+import {
+  CANDIDATE_TOKEN_AUDIENCE,
+  verifyCandidateToken,
+} from "../_shared/ai/candidateToken.ts";
+
+const TEST_CANDIDATE_TOKEN_SECRET = "test-candidate-token-secret-0123456789abcdef";
 
 const VALID_TEST_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTk5OTk5OS05OTk5LTk5OTktOTk5OS05OTk5OTk5OTk5OTkiLCJlbWFpbCI6InZlcmlmaWVkQG1vcmlzc2NyYXBzLmxvY2FsIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ.signature_segment_ok";
@@ -55,6 +61,7 @@ async function handler(...args: Parameters<typeof generateRecipeHandler>): Promi
   const mergedDeps: Parameters<typeof generateRecipeHandler>[1] = {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+    candidateTokenSecret: TEST_CANDIDATE_TOKEN_SECRET,
     ...args[1],
   };
   const previous = Deno.env.get(GENERATE_ENABLED_ENV);
@@ -708,6 +715,7 @@ Deno.test("Generation defaults off and requires a valid operator opt-in before r
         supabaseUrl: TEST_SUPABASE_URL,
         supabaseAnonKey: TEST_ANON_KEY,
         supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+        candidateTokenSecret: TEST_CANDIDATE_TOKEN_SECRET,
         fetch: fetchImpl,
         provider: providerReturning(COLD_START_GENERATED),
         buildContext: contextReturning(COLD_START_CONTEXT),
@@ -1055,6 +1063,99 @@ Deno.test("Successful generation returns the validated preview, resolves parents
   }
 });
 
+Deno.test("AI-07: generation returns a candidate token bound to the resolved parents", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  const res = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    provider: providerReturning(MOCK_GENERATED_RECIPE),
+    buildContext: contextReturning(MATCHED_CONTEXT),
+  });
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(typeof body.candidate_token, "string");
+
+  const verified = await verifyCandidateToken(body.candidate_token, {
+    userId: VERIFIED_USER_ID,
+    secret: TEST_CANDIDATE_TOKEN_SECRET,
+  });
+  assertEquals(verified.ok, true);
+  if (!verified.ok) return;
+  assertEquals(verified.claims.sub, VERIFIED_USER_ID);
+  assertEquals(verified.claims.aud, CANDIDATE_TOKEN_AUDIENCE);
+  assertEquals(verified.claims.parent_recipe_ids, [PARENT_ID]);
+  const ttlSeconds = verified.claims.exp - verified.claims.iat;
+  assertEquals(ttlSeconds > 0 && ttlSeconds <= 3600, true);
+  assertNoRecipeOrLineageWrites(requests);
+});
+
+Deno.test("AI-07: generation fails closed before quota or provider when the candidate token secret is missing", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  let quotaCalls = 0;
+  let providerCalls = 0;
+
+  const res = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    candidateTokenSecret: "",
+    quotaCheck: () => {
+      quotaCalls += 1;
+      return Promise.resolve({ status: "allowed", limit: 20, used: 0 });
+    },
+    provider: providerReturning(MOCK_GENERATED_RECIPE, () => {
+      providerCalls += 1;
+    }),
+    buildContext: contextReturning(MATCHED_CONTEXT),
+  });
+
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error?.code, "INTERNAL_ERROR");
+  assertEquals(quotaCalls, 0);
+  assertEquals(providerCalls, 0);
+  assertEquals(requests.map((request) => request.path), ["/auth/v1/user"]);
+});
+
+Deno.test("Candidate-token signing failure after generation confirms the reservation without refunding it", async () => {
+  const consumed: string[] = [];
+  const confirmed: string[] = [];
+  const refunded: string[] = [];
+  let providerCalls = 0;
+  let signingCalls = 0;
+  const { fetchImpl } = createFetchMock({
+    onConsume: (body) => consumed.push((body as { p_reservation_id: string }).p_reservation_id),
+    onConfirm: (body) => confirmed.push((body as { p_reservation_id: string }).p_reservation_id),
+    onReconcile: (body) => refunded.push((body as { p_reservation_id: string }).p_reservation_id),
+  });
+  const originalSign = crypto.subtle.sign;
+  try {
+    crypto.subtle.sign = () => {
+      signingCalls++;
+      return Promise.reject(new Error("Token signing failed"));
+    };
+    const res = await handler(generateRequest(validBody()), {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: providerReturning(MOCK_GENERATED_RECIPE, () => providerCalls++),
+      buildContext: contextReturning(MATCHED_CONTEXT),
+    });
+    assertEquals(res.status, 500);
+    const body = await res.json();
+    assertEquals(body.error?.code, "INTERNAL_ERROR");
+    assertEquals(JSON.stringify(body).includes("Token signing failed"), false);
+    assertEquals(providerCalls, 1);
+    assertEquals(signingCalls, 1);
+    assertEquals(consumed.length, 1);
+    assertEquals(confirmed, consumed);
+    assertEquals(refunded, []);
+  } finally {
+    crypto.subtle.sign = originalSign;
+  }
+});
+
 Deno.test("The endpoint passes the authenticated user and trimmed input to retrieval, and returns its MATCHED context", async () => {
   const { fetchImpl, requests } = createFetchMock();
   const seen: Array<{ user: string; input: GenerateRecipeInput }> = [];
@@ -1095,6 +1196,7 @@ Deno.test("Cold start with no saved recipes still generates an unsaved preview w
   const body = await res.json();
   assertEquals(GenerateRecipeResponseSchema.safeParse(body).success, true);
   assertEquals(body.parents, []);
+  assertEquals(body.candidate_token, null);
   assertEquals(body.context, {
     status: "NO_SAVED_RECIPES",
     matchedCandidateCount: 0,
