@@ -236,19 +236,31 @@ The [AI-09 report](ai-evaluation-report.md) records the end-to-end evidence.
 
 ### Quota (AI-17)
 
-The endpoints check a per-user daily allowance before calling the provider:
-`AI_DAILY_LIMIT` (default **20**, shared by extraction and generation). The
-current gate is read-only — it reads the caller's `ai_usage_daily` row through
-the user-scoped client and fails closed with `503 QUOTA_UNAVAILABLE` on a read
-failure or a malformed counter. Exhaustion returns `429 QUOTA_EXCEEDED` with
+Quota is reserved **before** the provider call: both endpoints call
+`consumeDailyQuota`, which reserves one slot atomically via `consume_ai_quota`
+through a backend service-role client. The procedure creates the UTC day's
+usage row if needed, locks it, and atomically checks and increments its counter
+while creating a reservation. The caller-scoped client keeps RLS restrictions
+and cannot mutate quota records. The limit is `AI_DAILY_LIMIT` (default **20**,
+shared by extraction and generation; blank, non-numeric, unsafe integer, or
+`< 1` values fall back to 20). Exhaustion returns `429 QUOTA_EXCEEDED` with
 `Retry-After` set to the real seconds until 00:00 UTC (up to 86,400), unlike
-provider cooldowns which are capped at 3,600 seconds.
+provider cooldowns which are capped at 3,600 seconds. Unavailable quota
+configuration, failed consumption, or a replayed reservation fails closed with
+`503 QUOTA_UNAVAILABLE`.
 
-> **Landing note.** BE-12 (PR #136) replaces the read-only gate with atomic
-> reservations in `ai_usage_daily` + `ai_quota_reservations`, refunds
-> definitively non-consuming failures, and charges ambiguous ones. The
-> reservation design is documented in the PR; this section will be updated when
-> it merges.
+Settlement follows what the provider may have consumed:
+
+- If pre-provider work fails, or every retry attempt was definitively
+  non-consuming (`429` rate limiting or a provider `4xx` rejection), the
+  reservation is rolled back and refunded (`reconcile_ai_quota`).
+- If the provider may have consumed resources (`5xx`, transport disconnects,
+  timeouts, mixed failures, invalid model output, or a safety block), the
+  reservation is confirmed and charged (`confirm_ai_quota`), so failures cannot
+  leak unmetered usage.
+
+Stale reservations can be resolved administratively with
+`reconcile_unconfirmed_reservation`.
 
 ### Failure drills (demo only)
 
@@ -346,8 +358,8 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 - **Output validation.** Responses are Zod-validated before they leave the
   backend; errors never echo prompts, recipes or provider payloads. The schemas
   validate shape, not size: no output-token or array-size cap is enforced today.
-- **Abuse controls.** A recorded-usage quota gate plus operator opt-ins and kill
-  switches; atomic metering arrives with BE-12.
+- **Abuse controls.** Atomic reservation-based daily quota plus operator opt-ins
+  and kill switches.
 
 ## 10. Limitations and non-claims
 
@@ -376,9 +388,9 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   percentiles are benchmarked.
 - **Token replay.** A candidate token can be replayed by the same user with the
   same allowed parent set inside its 15-minute TTL by design.
-- **Read-only quota today.** The gate enforces usage already recorded in
-  `ai_usage_daily` (it rejects at the limit) but cannot meter new calls by
-  itself; atomic reservation accounting arrives with BE-12.
+- **Settlement is not automatic after a crash.** If the function instance dies
+  between reserving and settling, the row stays `reserved` until an operator
+  resolves it; there is no automatic sweeper.
 
 ## 11. Operations quick reference
 
