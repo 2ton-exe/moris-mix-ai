@@ -1,12 +1,15 @@
 # AI Integration Contracts
 
-Status: **AI-06 (Sprint 3)**. Both AI endpoints are implemented and tested:
-`POST /extract-recipe` (AI-05) and `POST /generate-recipe` (AI-06).
+Status: **AI-07 (Sprint 3)**. Both AI endpoints are implemented and tested:
+`POST /extract-recipe` (AI-05) and `POST /generate-recipe` (AI-06), which also
+issues the save-time candidate token (AI-07).
 
 - Provider/model come from environment settings; clients never choose a model (AI-02/AI-03).
 - All AI output is Zod-validated before it leaves the backend (AI-10).
 - Both endpoints **never persist**. They return validated previews; saving is a separate,
   explicit `POST /recipes` call made only after the user confirms.
+- Generation returns a short-lived `candidate_token` (AI-07). Saving lineage with
+  `POST /recipes/:id/lineage` requires it and rejects any parent the preview did not show.
 
 ## Endpoint summary
 
@@ -188,6 +191,7 @@ recipe constraints (dietary needs, exclusions, taste, time), never as instructio
   "parents": [
     { "id": "123e4567-e89b-12d3-a456-426614174000", "title": "Garlic Fried Rice", "star_rating": 5 }
   ],
+  "candidate_token": "v1.eyJqdGkiOiI...signature",
   "context": { "status": "MATCHED", "matchedCandidateCount": 2, "totalCandidateCount": 14 }
 }
 ```
@@ -199,6 +203,10 @@ recipe constraints (dietary needs, exclusions, taste, time), never as instructio
   never a preview with an unmatched substitution.
 - `parents` are **resolved summaries** of the model's `parentRecipeIds`, so the frontend
   never needs a recipe lookup. They are always inside the backend-supplied candidate set.
+- `candidate_token` is a short-lived HMAC token (default TTL **15 minutes**) bound to
+  the authenticated user and exactly the IDs in `parents`. `POST /recipes/:id/lineage`
+  requires it. When `parents` is `[]` it is `null`. It is opaque: store it and send it
+  back on save; do not parse it client-side.
 - `context.status` is one of `MATCHED`, `NO_PANTRY_OVERLAP` (saved recipes exist but none
   match the pantry) or `NO_SAVED_RECIPES` (cold start). In the two cold-start statuses
   `parents` is `[]` and the recipe comes from the pantry alone. `EMPTY_PANTRY` cannot
@@ -214,6 +222,7 @@ unchanged, with these generation-specific notes:
 | HTTP | `error.code` | When |
 | ---- | ------------ | ---- |
 | 400  | `VALIDATION_ERROR` | Pantry missing/empty/oversized, too many items, or preferences too long |
+| 500  | `INTERNAL_ERROR` | `AI_CANDIDATE_TOKEN_SECRET` is missing or shorter than 32 characters, so no candidate token can be issued |
 | 502  | `AI_OUTPUT_INVALID` | Output failed Zod validation, **a `parentRecipeIds` entry was not in the supplied candidate set** (AI-07 generation boundary), or a substitution's `original` names no generated ingredient |
 | 503  | `AI_DISABLED` | Generation is not enabled, or the operator kill switch is on |
 
@@ -236,6 +245,32 @@ gate cannot meter calls until BE-12 (#100) adds atomic accounting.
 
 Quota (AI-17), `Retry-After` semantics, and the `QUOTA_UNAVAILABLE` fail-closed behavior
 are identical to extraction.
+
+## Save-time candidate membership (AI-07)
+
+`POST /generate-recipe` returns `candidate_token`; `POST /recipes/:id/lineage`
+requires it as `candidate_token` in the request body.
+
+- Claims: `jti` (generation identifier), `sub` (authenticated user), `aud`
+  (`recipe-lineage`), `iat`, `exp`, and the canonical allowed `parent_recipe_ids`.
+- Format `v1.<base64url(claims)>.<base64url(HMAC-SHA256)>`, signed with
+  `AI_CANDIDATE_TOKEN_SECRET` (server-side only, at least 32 characters).
+- The save endpoint verifies signature, user, expiry and that every selected parent is
+  inside the token's allowed set **before inserting any row**. The user may save a
+  subset (deselect parents), but can never add a parent the preview did not show.
+- Invalid, expired or wrong-user tokens return `403 FORBIDDEN` with
+  `details[0].code` of `invalid_token`, `expired_token` or `wrong_user`. A selected
+  parent outside the allowed set returns `403 FORBIDDEN` with `not_a_candidate`.
+- A missing or too-short secret fails closed: generation returns `500` before quota or
+  the provider, and lineage saves return `500` before any database work.
+- `GET /recipes/:id/lineage`, BE-11 ownership checks and PostgreSQL RLS are unchanged.
+- The token is stateless. Within its TTL the same user can replay it with the same
+  allowed parent set (for example, attach the same suggested parents to a second saved
+  recipe). It cannot be replayed for another user, another parent set, or after expiry.
+
+| Env var | Role |
+| ------- | ---- |
+| `AI_CANDIDATE_TOKEN_SECRET` | HMAC key for candidate tokens. Required when `AI_GENERATE_ENABLED` is on; at least 32 characters. Generate with `openssl rand -base64 48`. |
 
 ## Failure drills (demo only)
 
