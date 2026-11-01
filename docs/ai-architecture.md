@@ -154,8 +154,9 @@ the database which parents the model was allowed to propose. Instead
 `parents` is non-empty, and `candidate_token: null` otherwise:
 
 - Claims: `jti` (generation identifier), `sub` (authenticated user), `aud`,
-  `iat`, `exp` (15-minute TTL) and the canonical allowed `parent_recipe_ids` —
-  exactly the parents shown in the preview.
+  `iat`, `exp` (15-minute TTL) and the allowed `parent_recipe_ids` in canonical
+  form (lowercased, deduplicated, sorted) — the same set of parents shown in
+  the preview.
 - Format `v1.<base64url(claims)>.<base64url(HMAC-SHA256)>`; the signature covers
   the exact issued bytes, and verification requires the canonical encoding.
 - `POST /recipes/:id/lineage` requires the token. Signature, user and expiry are
@@ -176,7 +177,9 @@ the same user can replay it with the same allowed parent set.
 - **JSON mode is not a security boundary.** The prompt asks for JSON, but the
   adapter parses and Zod-validates every response regardless (AI-10).
 - **Two validation layers.** The adapter parses model output; the endpoint
-  re-validates it. Either layer can reject; neither silently repairs.
+  re-validates it. Either layer can reject invalid output; the schemas also
+  normalize accepted input (an omitted `quantity` or `unit` becomes `null`,
+  `inferred` defaults to `false`) but never repair invalid output.
 - **Prompt-injection posture.** Retrieved titles and instructions are user data
   inside a delimited CONTEXT block; the model is told to treat it as data.
   Candidate-ID enforcement is the backstop: even a successful injection cannot
@@ -216,10 +219,11 @@ Details:
 
 Gemini can block a prompt or candidate. The adapter detects both shapes:
 
-- the SDK's thrown `GoogleGenerativeAIResponseError`, and
-- blocked finish reasons that the pinned SDK returns as empty text:
-  `SAFETY`, `RECITATION`, `LANGUAGE`, `BLOCKLIST`, `PROHIBITED_CONTENT`,
-  `SPII`, `IMAGE_SAFETY`, `ESCALATION`, `PUP_LIMITED_DISABLED`.
+- SDK 0.21.0 throws `GoogleGenerativeAIResponseError` for `SAFETY`,
+  `RECITATION` and `LANGUAGE`, and
+- newer blocked finish reasons can instead arrive as empty text:
+  `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `IMAGE_SAFETY`, `ESCALATION`,
+  `PUP_LIMITED_DISABLED`.
 
 Both map to `502 AI_PROVIDER_REJECTED`, are never retried, and persist nothing.
 The [AI-09 report](ai-evaluation-report.md) records the end-to-end evidence.
