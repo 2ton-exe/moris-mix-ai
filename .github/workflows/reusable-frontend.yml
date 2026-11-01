@@ -65,7 +65,7 @@ jobs:
         run: node --test scripts/runtime-smoke.test.mjs
 
       - name: Test production workflow safety (offline)
-        run: node --test scripts/production-workflow.test.mjs
+        run: node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs
 
       - name: Run lint
         if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
