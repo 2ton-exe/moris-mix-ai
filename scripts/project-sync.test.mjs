@@ -142,6 +142,62 @@ test('arbitrary mentions, testing, changelog, comments, blockquotes and code exa
   assert.deepEqual(relationships('Mention #123\n## Testing\n- testing #124\n## Changelog\n- resolved a bug #125\n#126\n<!-- Closes #127 -->\n```md\nCloses #128\n```\n> Ref #129\n    Part of #130'), []);
   assert.deepEqual(relationships('Part of #123; tested with #456\nRefs #123 and #124, #125'), [123, 124, 125]);
 });
+
+for (const [name, character] of [['backtick', '`'], ['tilde', '~']]) {
+  const marker = character.repeat(3);
+  test(`${name} fence ignores false closing markers with trailing text`, () => {
+    for (const invalid of [marker + 'not-a-close', character.repeat(4) + 'javascript']) {
+      assert.deepEqual(relationships([marker + 'md', invalid, 'Part of #147', marker].join('\n')), []);
+      assert.deepEqual(relationships([marker + 'md', invalid, 'Part of #999', marker, 'Part of #147'].join('\n')), [147]);
+    }
+  });
+  test(`${name} valid closing fence permits outside relationships and trailing spaces/tabs`, () => {
+    for (const suffix of ['', '   ', '\t', ' \t ']) {
+      assert.deepEqual(relationships([marker + 'md', 'Part of #999', marker + suffix, 'Part of #147'].join('\n')), [147]);
+    }
+  });
+  test(`${name} shorter marker cannot close a four-character fence`, () => {
+    const opening = character.repeat(4);
+    assert.deepEqual(relationships([opening + 'md', marker, 'Part of #147', opening].join('\n')), []);
+  });
+  test(`${name} longer closing marker remains valid`, () => {
+    assert.deepEqual(relationships([marker + 'md', 'Part of #999', character.repeat(5), 'Part of #147'].join('\n')), [147]);
+  });
+  test(`${name} fences allow zero through three leading spaces independently`, () => {
+    for (let openingIndent = 0; openingIndent <= 3; openingIndent++) {
+      for (let closingIndent = 0; closingIndent <= 3; closingIndent++) {
+        assert.deepEqual(relationships([' '.repeat(openingIndent) + marker + 'md', 'Part of #999',
+          ' '.repeat(closingIndent) + marker + ' \t', 'Part of #147'].join('\n')), [147]);
+      }
+    }
+  });
+  test(`${name} four-space and tab-indented pseudo-fences cannot open or close a block`, () => {
+    for (const indent of ['    ', '\t']) {
+      assert.deepEqual(relationships([indent + marker + 'md', 'Part of #147', indent + marker, 'Part of #148'].join('\n')), [147, 148]);
+      assert.deepEqual(relationships([marker + 'md', indent + marker, 'Part of #999', marker, 'Part of #147'].join('\n')), [147]);
+    }
+  });
+  test(`${name} fence cannot close with the other fence character`, () => {
+    const mismatched = (character === '`' ? '~' : '`').repeat(4);
+    assert.deepEqual(relationships([marker + 'md', mismatched, 'Part of #999', marker, 'Part of #147'].join('\n')), [147]);
+  });
+}
+
+test('long false closing fences remain bounded and do not expose code-block relationships', () => {
+  const moduleURL = new URL('./project-sync.mjs', import.meta.url).href;
+  const script = `import { relationships } from ${JSON.stringify(moduleURL)};
+    const results = [String.fromCharCode(96), '~'].map(character => relationships([
+      character.repeat(3) + 'md', character.repeat(50000) + 'not-a-close', 'Part of #999',
+      '    ' + character.repeat(50000), 'Part of #888', character.repeat(50001) + ' \\t', 'Part of #147',
+    ].join('\\n')));
+    process.stdout.write(JSON.stringify(results));`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.error, undefined, 'fence parsing must finish within five seconds');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [[147], [147]]);
+});
 test('cross-repository references are rejected, including URL and PR links', () => {
   assert.deepEqual(relationships('Part of other/repo#123\nCloses https://github.com/other/repo/issues/124\nRef https://github.com/2ton-exe/moris-mix-ai/pull/125'), []);
 });
