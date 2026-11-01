@@ -186,8 +186,11 @@ export type RecipeSortMode = z.infer<typeof RecipeSortModeSchema>;
 
 export const RecipeCursorSchema = z.object({
   sort: RecipeSortModeSchema,
+  search: z.string().optional(),
+  searchMode: z.enum(["title", "ingredients", "both"]).optional(),
   title: z.string().optional(),
   ingredient: z.string().optional(),
+  rank: z.number().int().min(1).max(3).optional(),
   id: z.string().uuid(),
   createdAt: z.string().datetime({ offset: true }),
   starRating: z.number().int().min(1).max(5).nullable().optional(),
