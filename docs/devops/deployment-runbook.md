@@ -72,7 +72,10 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Supabase CLI and Wrangler             |
 
-The validated-main deployment job sends the `recipes` Edge Function to the configured Supabase project, then deploys the frontend to Cloudflare. Production database migrations remain a separate process and are not applied by CI.
+The validated-main deployment job sends the three explicit Edge Function targets
+`recipes`, `extract-recipe`, and `generate-recipe` to the configured production
+Supabase project, in that order, then deploys the frontend to Cloudflare.
+Production database migrations remain a separate process and are not applied by CI.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -102,15 +105,111 @@ Modular main frontend/database/Edge validation completes, including mandatory ho
 ↓\
 All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy only `recipes`, then deploy Cloudflare assets\
+`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy `recipes`, `extract-recipe`, and `generate-recipe`, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
-Automated runtime smoke verifies HTML, the referenced JavaScript asset, and the public demo database response; retain manual verification for broader journeys
+Verify the production deployment URL, verify unauthenticated AI routes, then run existing runtime smoke for HTML, the referenced JavaScript asset, and the public demo database response; broader journeys require separate verification
 
 The frontend-existence safety mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
 
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
+
+### DEVOPS-10 / #130: AI function delivery without AI enablement
+
+`modular-main.yml` remains the sole production caller. Successful core validation,
+mandatory main Hosted RLS, frontend existence, the main-only caller guards, and
+the existing `cloudflare-production` concurrency lock remain unchanged. This
+section describes the implementation; it does not claim a hosted #130 release
+or route-smoke result before a reviewed merge and observed main run.
+
+The production release order is:
+
+1. Validate production deployment configuration.
+2. Install frontend dependencies using the frozen lockfile.
+3. Build the frontend.
+4. Deploy `recipes` (`deploy-recipes`).
+5. Deploy `extract-recipe` (`deploy-extract-recipe`).
+6. Deploy `generate-recipe` (`deploy-generate-recipe`).
+7. Deploy Cloudflare Workers assets.
+8. Verify the production deployment URL.
+9. Verify deployed AI routes (`ai-route-smoke`).
+10. Run the existing production runtime smoke (`runtime-smoke`).
+11. Record each deployment, URL verification, AI route smoke, and runtime smoke
+    outcome independently, including failures or skipped downstream steps.
+12. Preserve the separate runtime and AI route evidence artifacts.
+
+Each Supabase deployment is a separate explicit target using the repository-pinned
+CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
+`SUPABASE_PROJECT_REF` scope and `--project-ref "$SUPABASE_PROJECT_REF"`,
+`--no-verify-jwt`, `--use-api`, and `--yes`. There is no broad deploy-all command
+or production database migration automation. Partial release is possible if a
+later target fails after an earlier deployment succeeds. Any failed deployment
+or route check fails the release; later normal steps do not run. The summary and
+artifact steps retain their `always()` behavior without turning the release green.
+
+`scripts/ai-route-smoke.mjs` pins its HTTPS origin to the production project in
+`supabase/config.toml` and checks both `/functions/v1/extract-recipe` and
+`/functions/v1/generate-recipe`. The required `AI_ROUTE_SMOKE_FRONTEND_URL` comes
+from `PRODUCTION_FRONTEND_URL` and must be a bare HTTPS origin. OPTIONS simulates
+the production browser preflight: it sends that Origin, requests POST and the
+four shared request headers, and must return HTTP 204 with
+an allowed origin of `*` or exactly the production frontend origin, exactly
+POST/OPTIONS allowed methods, all four
+shared allowed headers (`authorization`, `x-client-info`, `apikey`, `content-type`),
+and `X-Content-Type-Options: nosniff`. POST sends the same production frontend
+Origin without Authorization and must return HTTP 401 with JSON content type,
+the application's exact `UNAUTHORIZED` response and
+`Missing or invalid Authorization header.` message. Its allowed origin must also
+be `*` or exactly the production frontend origin so the browser can observe the
+401. Both requests send `Cache-Control: no-cache`; `null` and unrelated origins
+fail either response check.
+A missing-route 404, unexpected 2xx, gateway-shaped 401, malformed error body,
+redirect, network error, or timeout fails verification. Each of the four probes
+has a 10-second timeout; there are no retries or authenticated probes.
+
+These probes send no Authorization, API key, cookies, or request payload. The
+handlers answer OPTIONS and reject missing Authorization before enablement,
+quota accounting, retrieval, and provider execution. Route smoke therefore does
+not invoke Gemini or consume AI quota. It proves route availability and the
+missing-auth contract, not successful extraction/generation, authenticated
+authorization, quota/concurrency acceptance, or runtime source provenance.
+
+AI route results are written to `ai-route-smoke.json` and preserved as
+`production-ai-route-smoke-${{ github.run_id }}-${{ github.run_attempt }}`.
+The existing `runtime-smoke.json` schema and
+`production-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}` artifact
+remain unchanged. If a prior deployment fails, the summary records the skipped
+smoke; no missing artifact is represented as a successful check.
+
+**Before this branch is authorized to merge into `main`, an authorized operator
+must verify the current production Supabase Edge Function secret/configuration
+state without exposing values.** Merge to main automatically invokes production
+delivery, so this verification must precede merge. The required conditions are:
+
+- `AI_EXTRACT_ENABLED` is not truthy, OR `AI_EXTRACT_DISABLED` is truthy.
+- `AI_GENERATE_ENABLED` is not truthy, OR `AI_GENERATE_DISABLED` is truthy.
+
+Truthy follows the handlers' current switch semantics: trimmed, case-insensitive
+`1`, `true`, `yes`, or `on`. Prefer both opt-ins to remain unset/false for this
+deployment. Record only the verification result/status and timestamp in release
+evidence, never secret values. This is an operational prerequisite, not a new
+GitHub variable or permanent workflow gate.
+
+**Deployed route does not mean enabled AI execution.** This workflow does not set
+or modify these flags or Supabase secrets/settings. Existing secret values are
+operational state rather than repository state: the workflow cannot infer that
+AI is disabled merely because this branch does not set the opt-ins. Actual AI
+enablement remains separately reviewed. `AI_CANDIDATE_TOKEN_SECRET` is required
+before actual Chef generation is enabled; `GEMINI_API_KEY` is required when the
+provider is actually reached. Those prerequisites require separate operational
+review, not values copied into workflow logs or this document.
+
+BE-12 implementation is merged, but the current mandatory main Hosted RLS job
+does not execute the BE-12 hosted quota tests. Its success must not be described
+as full hosted quota/concurrency acceptance. Separate evidence for that behavior
+and any required production database migrations must precede real AI enablement.
+Production database migrations remain separately reviewed and operated.
 
 ### PR Staging Delivery (PR #81 / #76)
 
@@ -274,8 +373,9 @@ checks do not establish that backend code matches the PR merge SHA, prove all
 backend functions, or cryptographically identify served frontend bytes. The
 frontend SHA records the checked-out build/deployment input; the smoke verifies
 the deployed origin and referenced bundle. Production smoke stays inside the
-`cloudflare-production` deployment lock, after both deployment commands and URL
-verification succeed. Staging keeps the existing workflow-wide lock and trust gate.
+`cloudflare-production` deployment lock, after all three Supabase deployments,
+Cloudflare deployment, URL verification, and AI route smoke succeed. Staging
+keeps the existing workflow-wide lock and trust gate.
 
 ### Manual staging backend evidence (2026-10-28)
 
@@ -568,14 +668,22 @@ The workflow currently has no push path filter: docs-only main pushes can also p
 
 ### Deployment Steps
 
-1. Changes are reviewed and merged into `main`; the resulting push event triggers Modular Main Validation. Alternatively, use a permitted `workflow_dispatch` run on `main`.
-2. Frontend, database, Edge/API, and hosted RLS validation run; Playwright E2E runs separately and is non-gating.
-3. Confirm every `production.needs` job succeeded and the frontend-existence output is true.
-4. The deployment job validates the Supabase token and project reference, then installs frontend dependencies and builds the site.
-5. Supabase CLI deploys only `recipes` with gateway JWT verification disabled, matching `supabase/config.toml` so the handler enforces authentication.
-6. Wrangler deploys the static assets to Cloudflare after the function deployment succeeds.
-7. Confirm both deployment steps executed. The workflow then checks the Wrangler deployment URL against `PRODUCTION_FRONTEND_URL` and runs the shared runtime verifier. Deployment-command outcomes and runtime smoke are separate summary entries; a smoke failure fails the delivery job after deployment and does not roll it back.
-8. Retain the runtime JSON artifact and summary for [DEVOPS-08](https://github.com/2ton-exe/moris-mix-ai/issues/61). This public demo check does not verify authenticated recipe CRUD.
+Before merge, complete the DEVOPS-10 AI-disabled operator verification above.
+Reviewed changes merged into `main` trigger Modular Main Validation; permitted
+manual dispatch on `main` follows the same production path:
+
+1. Run required frontend, database, Edge/API, and mandatory Hosted RLS validation. Confirm every `production.needs` job succeeded and frontend existence is true. Playwright E2E runs separately and is non-gating.
+2. Validate production deployment configuration, including the Supabase token and project reference.
+3. Install frontend dependencies and build the frontend.
+4. Deploy the explicit `recipes` Edge Function target.
+5. Deploy the explicit `extract-recipe` Edge Function target.
+6. Deploy the explicit `generate-recipe` Edge Function target. All three targets use the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; handlers enforce authentication.
+7. Deploy to Cloudflare only after all three function deployments succeed.
+8. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
+9. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
+10. Run the existing production runtime smoke. Its public demo check does not verify authenticated recipe CRUD.
+11. Inspect the production summary's separate outcomes for recipes, extract-recipe, generate-recipe, Cloudflare, URL verification, AI route smoke, and existing runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
+12. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 

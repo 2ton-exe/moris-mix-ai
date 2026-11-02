@@ -147,16 +147,19 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
-    'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Production runtime smoke'];
+    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
+    'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
+    'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
-  for (const name of ordered) {
+  for (const name of ordered.slice(0, -3)) {
     assert.equal(step(release, name).if, undefined);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe']);
   assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
+  assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
   assert.deepEqual(configuration.env, {
     SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
@@ -172,13 +175,18 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const build = step(release, 'Build frontend');
   assert.equal(build['working-directory'], 'frontend');
   assert.equal(build.run, 'pnpm build');
-  const recipes = step(release, 'Deploy recipes Edge Function');
-  assert.equal(recipes.id, 'deploy-recipes');
-  assert.equal(recipes['working-directory'], 'frontend');
-  assert.deepEqual(recipes.env, configuration.env);
-  assert.match(recipes.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipes/);
-  assert.match(recipes.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
-  assert.match(recipes.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
+  assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
+  for (const target of ['recipes', 'extract-recipe', 'generate-recipe']) {
+    const deploy = step(release, `Deploy ${target} Edge Function`);
+    assert.equal(deploy.id, `deploy-${target}`);
+    assert.equal(deploy['working-directory'], 'frontend');
+    assert.deepEqual(deploy.env, configuration.env);
+    assert.ok(deploy.run.includes(`pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy ${target}`));
+    assert.match(deploy.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
+    assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+    assert.doesNotMatch(deploy.run, /--prune|--all|latest|npx/);
+  }
   assert.equal(step(release, 'Deploy to Cloudflare Workers').id, 'deploy-cloudflare');
   assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@v3');
   assert.equal(step(release, 'Deploy to Cloudflare Workers').with.command, 'deploy --config wrangler.jsonc');
@@ -186,16 +194,28 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(verify.id, 'verify-deployment');
   assert.equal(verify.env.DEPLOYMENT_URL, '${{ steps.deploy-cloudflare.outputs.deployment-url }}');
   assert.match(verify.run, /"\$\{DEPLOYMENT_URL%\/\}" != "\$\{SMOKE_FRONTEND_URL%\/\}"/);
+  const aiSmoke = step(release, 'Verify deployed AI routes');
+  assert.equal(aiSmoke.id, 'ai-route-smoke');
+  assert.equal(aiSmoke.run, 'node scripts/ai-route-smoke.mjs');
+  assert.deepEqual(aiSmoke.env, {
+    AI_ROUTE_SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
+    AI_ROUTE_SMOKE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+    AI_ROUTE_SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
+  });
   assert.equal(step(release, 'Production runtime smoke').id, 'runtime-smoke');
   assert.equal(step(release, 'Production runtime smoke').run, 'node scripts/runtime-smoke.mjs');
   assert.equal(step(release, 'Production runtime smoke').env.SMOKE_DEPLOYMENT_OUTCOME, '${{ steps.deploy-cloudflare.outcome }}');
-  for (const name of ['Record production deployment and runtime outcomes', 'Preserve production runtime evidence']) {
+  for (const name of ordered.slice(-3)) {
     assert.equal(step(release, name).if, 'always()');
+    assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
+    GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
     CLOUDFLARE_OUTCOME: '${{ steps.deploy-cloudflare.outcome }}',
     URL_OUTCOME: '${{ steps.verify-deployment.outcome }}',
+    AI_ROUTE_SMOKE_OUTCOME: '${{ steps.ai-route-smoke.outcome }}',
     SMOKE_OUTCOME: '${{ steps.runtime-smoke.outcome }}',
   });
   const artifact = step(release, 'Preserve production runtime evidence');
@@ -203,6 +223,13 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(artifact.with.path, 'runtime-smoke.json');
   assert.equal(artifact.with.name, 'production-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}');
   assert.equal(artifact.with['if-no-files-found'], 'warn');
+  const aiArtifact = step(release, 'Preserve production AI route evidence');
+  assert.equal(aiArtifact.uses, 'actions/upload-artifact@v4');
+  assert.equal(aiArtifact.with.path, 'ai-route-smoke.json');
+  assert.equal(aiArtifact.with.name, 'production-ai-route-smoke-${{ github.run_id }}-${{ github.run_attempt }}');
+  assert.equal(aiArtifact.with['if-no-files-found'], 'warn');
+  const summary = step(release, 'Record production deployment and runtime outcomes');
+  for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false });
   assert.deepEqual(release.permissions, { contents: 'read' });
   for (const caller of [main.jobs.production]) {
@@ -249,7 +276,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
   assert.equal(step(workflow('reusable-frontend').jobs.frontend, 'Test runtime smoke verifier (offline)').run,
     'node --test scripts/runtime-smoke.test.mjs');
   assert.equal(step(workflow('reusable-frontend').jobs.frontend, 'Test production workflow safety (offline)').run,
-    'node --test scripts/production-workflow.test.mjs');
+    'node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs');
 });
 
 test('Stage A keeps required workflows unfiltered and classifier failure runs core validation', () => {
@@ -386,6 +413,8 @@ test('cutover files contain no literal credential patterns', () => {
     '.github/workflows/reusable-frontend.yml',
     '.github/workflows/reusable-production.yml',
     'scripts/production-workflow.test.mjs',
+    'scripts/ai-route-smoke.mjs',
+    'scripts/ai-route-smoke.test.mjs',
     'scripts/pr-secretary.mjs',
     'scripts/pr-secretary.test.mjs',
     'scripts/ci-path-classifier.mjs',
