@@ -22,6 +22,19 @@ vi.mock('../api/demoRecipe', async (importOriginal) => {
   const original = await importOriginal<typeof import('../api/demoRecipe')>()
   return { ...original, getDemoRecipe: vi.fn() }
 })
+vi.mock('../recipes/source', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../recipes/source')>()
+  return {
+    ...original,
+    // Auth-flow tests should measure AuthProvider session restoration only.
+    // A configured live recipe source also calls getSession for its API token.
+    defaultRecipeSource: {
+      mode: 'unavailable',
+      list: async () => [],
+      detail: async () => { throw new Error('Recipe details are not used in auth-flow tests.') },
+    },
+  }
+})
 
 const listeners = new Set<(event: AuthChangeEvent, session: Session | null) => void>()
 const unsubscribe = vi.fn()
