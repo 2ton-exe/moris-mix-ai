@@ -116,6 +116,92 @@ Reject/revert if later evidence shows introduced launch/E2E failures, intermitte
 - Relevant jobs: `Playwright E2E (Non-gating) / Playwright E2E Tests`; steps `Install Chromium` and `Run Playwright E2E against local Supabase`; production deploy skipped in the PR attempts.
 - Reconciliation provenance: issue/PR records supply historical attempt timings. Read-only connector inspection confirmed matching workflow IDs, CI success and latest-attempt E2E success/production skip; its job response did not include timing timestamps or all historical attempts. Independently verified exact GitHub timestamps supplied for this cleanup confirm attempt 1 at 90s and its installation at 12s. Other attempts were not independently retimed during this documentation task.
 
+## Experiment 2 — Conservative documentation-only CI path selection
+
+**Sprint:** 3\
+**Issue:** [#124 / DEVOPS-08 (S3)](https://github.com/2ton-exe/moris-mix-ai/issues/124)\
+**Implementation PR:** [#144](https://github.com/2ton-exe/moris-mix-ai/pull/144)\
+**Evidence/documentation PR:** [#150](https://github.com/2ton-exe/moris-mix-ai/pull/150)\
+**Implementation squash merge:** [`c425a30e0ec4e20dac289acb8eb5b0c894630903`](https://github.com/2ton-exe/moris-mix-ai/commit/c425a30e0ec4e20dac289acb8eb5b0c894630903)\
+**Evidence/documentation squash merge:** [`b2f77b8802675429091a0b4f98f27be60617f900`](https://github.com/2ton-exe/moris-mix-ai/commit/b2f77b8802675429091a0b4f98f27be60617f900)\
+**State:** Stage A implemented, merged and measured on controlled documentation-only PRs; merged evidence verified on main with full validation.
+
+### Problem / observed bottleneck
+
+The controlled documentation-only PR workload still paid for full expensive application validation even though those approved prose changes did not affect application/runtime behavior. This observation concerns the narrow tested documentation workload, not arbitrary documentation or every repository change.
+
+### Baseline
+
+| Revision context | Hosted run | Wall-clock duration |
+| --- | --- | ---: |
+| PR #145, pre-change documentation-only baseline | [Modular PR Validation #191 / 41277951140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41277951140) | 91 s |
+
+The completed #124 baseline is one comparable pre-change documentation-only run. The [existing hosted measurement record](modular-workflows.md#measured-hosted-stage-a-result) records its start at `2026-11-01T05:42:17Z` and finish at `2026-11-01T05:43:48Z`.
+
+### Hypothesis
+
+A conservative, fail-closed documentation-only classifier could avoid unnecessary expensive work for the approved prose path while preserving all required check contexts, falling back to full validation for uncertain or significant changes, and keeping main on full validation.
+
+### Controlled change
+
+This was **Stage A only**: a narrow approved documentation-only path, implemented in PR #144. The prose allowlist covers eligible added/modified `README.md` and plain Markdown under `docs/`, with restricted path syntax, regular file modes and complete Git evidence; eligible prose-only renames must satisfy the policy for both paths. The [Stage A matrix](modular-workflows.md#stage-a-matrix) records the precise policy.
+
+It did not implement general component filtering: frontend-only changes do not skip backend validation, API-only changes do not skip frontend validation, and AI-only changes do not skip unrelated validation through this experiment.
+
+The following intentionally retain full validation: application/code changes; UI changes; API/auth changes; AI changes; migrations; shared schema changes; workflow files; configuration; lockfiles; scripts; deleted files; mixed changes; unknown paths; malformed classifier output; incomplete Git history; and classifier failure. This entry reconciles completed evidence; it introduces no new optimization experiment or implementation change.
+
+### Safety / variables held constant
+
+- Required check contexts remain present: `Modular Frontend / Frontend Checks`, `Modular Database / Database Tests`, and `Modular Edge/API / Edge/API Tests`. All must succeed; the callers are not skipped.
+- Main never uses docs-only mode and retains full validation.
+- Unknown, mixed, code and configuration cases fail closed to full validation. Missing, malformed or failed classification does not authorize the lighter path.
+- Actual validation failures or cancellations cannot be converted into successful no-op results. Cancellation prevents execution rather than manufacturing success.
+- Non-required E2E and staging skip only after successful explicit documentation-only classification with the corresponding skip output. Their observed results are intentional skips, not passed E2E, deployment or smoke executions; staging otherwise retains its existing eligibility and validation requirements.
+- The documentation-only frontend path retains dependency installation and policy/safety regression checks. Database and Edge/API retain their required jobs and explicit documentation-only steps; retained setup can still fail.
+- Classifier/workflow policy files are covered by CODEOWNERS and review policy. Required human review is the trust control against deliberate policy tampering; the classifier alone is not protection against all malicious insiders, and CODEOWNERS does not make bypass impossible.
+
+### After-runs
+
+| Revision context | Hosted run | Wall-clock duration |
+| --- | --- | ---: |
+| PR #149, controlled post-change evidence | [Modular PR Validation #200 / 41316881204](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41316881204) | 37 s |
+| PR #149, controlled post-change evidence | [Modular PR Validation #201 / 41317009174](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41317009174) | 37 s |
+| PR #150, evidence/documentation PR | [Modular PR Validation #204 / 41318752140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41318752140) | 37 s |
+
+These are three controlled documentation-only after-runs across two PRs. The required core contexts succeeded through their lightweight paths; E2E and staging were intentionally skipped. A successful workflow result does not mean those skipped validations executed and passed.
+
+### Comparison
+
+| Metric | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| Controlled conservative documentation-only PR wall-clock duration | 91 s | 37 s in each after-run | 54 s, approximately 59.3% |
+
+Arithmetic: `91 - 37 = 54 s`; `54 / 91 × 100 ≈ 59.3%`. This result applies **only to the controlled conservative documentation-only workload**. It does not establish faster code PRs, faster validation on main, a pipeline-wide speedup, or a general reliability improvement.
+
+### Conclusion
+
+**Improved — substantial measured reduction for the controlled conservative documentation-only path.**
+
+Limitations: one baseline run and three after-runs across two documentation-only PRs; GitHub-hosted runner/network variance; no statistical proof of a stable long-term reduction. Code, configuration, migration, workflow, lockfile, mixed and unknown changes retain full validation. Broader component filtering was not implemented or measured by this experiment.
+
+[Modular Main Validation #35 / 41323141459](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41323141459) completed successfully on evidence/documentation squash merge `b2f77b8802675429091a0b4f98f27be60617f900`. This verifies the merged evidence on main, which intentionally uses full validation. It is separate post-merge execution evidence, not a documentation-only after-run or part of the 37 s comparison.
+
+### What we learned
+
+- A narrow approved prose path can reduce unnecessary work while retaining required check contexts and explicit fallback behavior.
+- Intentional E2E/staging skips must remain distinct from passed executions.
+- The measured workload and review trust boundary limit the conclusion; this evidence does not establish a broader optimization or reliability gain.
+
+### Evidence
+
+- Issue: [#124 / DEVOPS-08 (S3)](https://github.com/2ton-exe/moris-mix-ai/issues/124).
+- Implementation: [PR #144](https://github.com/2ton-exe/moris-mix-ai/pull/144), squash merge [`c425a30e0ec4e20dac289acb8eb5b0c894630903`](https://github.com/2ton-exe/moris-mix-ai/commit/c425a30e0ec4e20dac289acb8eb5b0c894630903).
+- Evidence/documentation: [PR #150](https://github.com/2ton-exe/moris-mix-ai/pull/150), squash merge [`b2f77b8802675429091a0b4f98f27be60617f900`](https://github.com/2ton-exe/moris-mix-ai/commit/b2f77b8802675429091a0b4f98f27be60617f900).
+- Baseline: PR #145, [Modular PR Validation #191 / 41277951140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41277951140), 91 s.
+- Controlled after-runs: PR #149, [#200 / 41316881204](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41316881204) and [#201 / 41317009174](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41317009174); PR #150, [#204 / 41318752140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41318752140); each 37 s.
+- Main verification: [Modular Main Validation #35 / 41323141459](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41323141459), successful on the evidence/documentation merge SHA with full validation.
+- Provenance: [existing Stage A implementation, policy and hosted measurement record](modular-workflows.md#issue-124-stage-a-conservative-pr-path-selection) supplies the baseline and runs #200/#201. PR #150 records run #204 at 37 s; its GitHub run metadata confirms success and intentional E2E/staging skips. Run #35 metadata confirms successful execution on the exact evidence/documentation merge SHA. No new timing experiment was run for this entry.
+
 ## Reusable entry template
 
 Copy this template for the next experiment; keep actual entries chronological.
