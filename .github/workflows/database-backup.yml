@@ -201,7 +201,15 @@ jobs:
             echo "::error::Supabase migration-history schema changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
-          if ! cmp -s <(normalize_history_data_dump "$backup_dir/history-data.sql") <(normalize_history_data_dump "$consistency_dir/history-data-after.sql"); then
+
+          # Materialize normalized history dumps as checked top-level commands.
+          # Process-substitution exit statuses are not reliably observed by cmp.
+          history_before_normalized="$consistency_dir/history-data-before-normalized.sql"
+          history_after_normalized="$consistency_dir/history-data-after-normalized.sql"
+          normalize_history_data_dump "$backup_dir/history-data.sql" > "$history_before_normalized"
+          normalize_history_data_dump "$consistency_dir/history-data-after.sql" > "$history_after_normalized"
+
+          if ! cmp -s "$history_before_normalized" "$history_after_normalized"; then
             echo "::error::Supabase migration ledger changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
