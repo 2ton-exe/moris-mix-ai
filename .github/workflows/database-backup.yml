@@ -156,19 +156,26 @@ jobs:
             --use-copy \
             --data-only
 
-          if ! cmp -s "$backup_dir/roles.sql" "$consistency_dir/roles-after.sql"; then
+          normalize_dump() {
+            # PostgreSQL plain-text dumps generate a random psql restrict key.
+            # Remove only those generated guard lines so unchanged dumps remain
+            # comparable without fixing or weakening the restore-time key.
+            sed -E '/^\\(un)?restrict [[:alnum:]]+$/d' "$1"
+          }
+
+          if ! cmp -s <(normalize_dump "$backup_dir/roles.sql") <(normalize_dump "$consistency_dir/roles-after.sql"); then
             echo "::error::Production role definitions changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
-          if ! cmp -s "$backup_dir/schema.sql" "$consistency_dir/schema-after.sql"; then
+          if ! cmp -s <(normalize_dump "$backup_dir/schema.sql") <(normalize_dump "$consistency_dir/schema-after.sql"); then
             echo "::error::Production schema changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
-          if ! cmp -s "$backup_dir/history-schema.sql" "$consistency_dir/history-schema-after.sql"; then
+          if ! cmp -s <(normalize_dump "$backup_dir/history-schema.sql") <(normalize_dump "$consistency_dir/history-schema-after.sql"); then
             echo "::error::Supabase migration-history schema changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
-          if ! cmp -s "$backup_dir/history-data.sql" "$consistency_dir/history-data-after.sql"; then
+          if ! cmp -s <(normalize_dump "$backup_dir/history-data.sql") <(normalize_dump "$consistency_dir/history-data-after.sql"); then
             echo "::error::Supabase migration ledger changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
