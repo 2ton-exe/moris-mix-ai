@@ -104,12 +104,11 @@ and blockquotes are ignored. Reference lists stop at explanatory prose, so a
 later number in testing text is not promoted to a relationship. General prose,
 testing/changelog mentions and issue numbers in titles are not parsed.
 
-The adapter also paginates GitHub-native `closingIssuesReferences` for every
-current open PR. Native references are accepted only for this repository.
-MERGED PRs use supported explicit body relationships already fetched in the
-repository snapshot. Their native closing relationships are not queried: body
-evidence satisfies implementation tracking without extra per-PR historical
-queries. CLOSED-unmerged PR relationships are ignored entirely, including
+The adapter paginates GitHub-native `closingIssuesReferences` for every OPEN or
+MERGED PR. Both states use supported body relationships and native linked-issue
+evidence, so a native-only relationship continues to establish implementation
+progress after merge. Native references are accepted only for this repository.
+CLOSED-unmerged PR relationships are ignored entirely, including
 malformed text; they neither establish progress nor quarantine issues.
 GitHub does not expose every informal link through that connection; supported
 body syntax remains the compatibility path. A recognized same-repository
@@ -135,6 +134,7 @@ pagination errors, duplicate cards and mutation failures still fail visibly;
 they are not converted to relationship warnings. These are locally tested
 semantics, not hosted runtime verification.
 
+Explicit body relationships are the most auditable team convention for new PRs.
 **Part of #123** contributes to / implements work for an issue; merging does not
 close it. **Refs #123** provides a non-closing reference when appropriate.
 Repository issues are closed explicitly only after their own completion and
@@ -159,7 +159,7 @@ Every supported event performs full repository reconciliation. This deliberately
 avoids a second targeted update path. Editing a body therefore recalculates all
 current/prior related issues, even if `changes.body.from` is missing or partial.
 Removed links cannot silently leave an issue In Progress. Previous event bodies
-are not authoritative; current PR bodies and open PR native closing links are
+are not authoritative; current PR bodies and OPEN/MERGED native closing links are
 read from GitHub. Events that race with repository changes are repaired by the next
 successful reconciliation.
 
@@ -171,7 +171,7 @@ matching titles, missing/ambiguous metadata or unexpected options fail closed.
 
 Repository issues and PRs are fetched across **all states**. This includes all
 current open content and permits authoritative resolution of represented closed
-history and relationship targets. Only open PRs require native relationship
+history and relationship targets. OPEN and MERGED PRs require native relationship
 queries. Project items explicitly request both `ARCHIVED` and `NOT_ARCHIVED`.
 All relevant GraphQL connections (Projects, fields, issues, PRs, native links,
 Project items, and per-content project memberships) use cursor pagination at up
@@ -345,6 +345,13 @@ can still create transient inconsistency even without count changes; eventual
 reconciliation repairs it. Unsupported relationship formats should be rewritten
 using the documented syntax rather than guessed.
 
+A November 2 read-only repository inventory found 67 merged PRs. Including their
+native links adds approximately 67 queries per full reconciliation, plus extra
+pages for any PR with more than 100 links. This scale does not establish a need
+for optimization; complete paginated evidence takes priority over caching,
+historical windows, or heuristic filtering. This inventory is not live Project
+or App-authenticated runtime verification.
+
 ## Local checks
 
 ```text
@@ -362,9 +369,9 @@ locked tooling through the normal repository setup if needed. Runtime script
 execution itself has no third-party dependencies. Run `actionlint` when available
 and report its absence honestly.
 
-Local branch validation on November 2 for preserved issue progress: 303
-project-sync tests passed (the existing 291 retained, with revised merged-evidence
-expectations and 12 added regressions); classifier
+Local branch validation on November 2 for preserved native links after merge: 314
+project-sync tests passed (the existing 303 retained, with revised native-fetch
+expectations and 11 added regressions); classifier
 (42), production-workflow (11), PR Secretary (125) and runtime-smoke (35) tests
 passed, with no failures or skips. All 13 workflow YAML files parsed; both
 project-sync script syntax checks and working/staged whitespace checks passed.

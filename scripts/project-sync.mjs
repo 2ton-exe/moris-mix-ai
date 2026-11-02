@@ -168,9 +168,9 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
   const uncertainIssues = new Set();
   const rejectedRelationships = [];
   for (const pr of prs.filter(p => ['OPEN', 'MERGED'].includes(p.state))) {
-    // Native links are fetched only for OPEN PRs. MERGED PRs use explicit body
-    // relationships already in the snapshot, avoiding per-PR history queries.
-    const native = pr.state === 'OPEN' ? pr.nativeIssues : [];
+    // Implementation evidence persists across OPEN -> MERGED, including native
+    // links. CLOSED-unmerged PRs do not participate in resolution or quarantine.
+    const native = pr.nativeIssues;
     requireValue(Array.isArray(native), `Incomplete native relationship evidence for PR #${pr.number}`);
     const rejected = [];
     const resolved = [];
@@ -292,7 +292,7 @@ export function adapter(api) {
         repository(owner:"${CONFIG.owner}",name:"${CONFIG.repo}") {
           pullRequests(first:100,after:$after) { ${PAGE} nodes { __typename ${CONTENT} isDraft body } }
         } }`, { after })).repository?.pullRequests);
-      for (const pr of prs.filter(p => p.state === 'OPEN')) {
+      for (const pr of prs.filter(p => ['OPEN', 'MERGED'].includes(p.state))) {
         pr.nativeIssues = await paginate(async after => (await api(`query($id:ID!,$after:String) {
           node(id:$id) { ... on PullRequest { closingIssuesReferences(first:100,after:$after) {
             ${PAGE} nodes { id number repository { nameWithOwner } }
