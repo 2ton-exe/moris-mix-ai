@@ -117,6 +117,32 @@ jobs:
             --use-api \
             --yes
 
+      - name: Deploy extract-recipe Edge Function
+        id: deploy-extract-recipe
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy extract-recipe \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
+      - name: Deploy generate-recipe Edge Function
+        id: deploy-generate-recipe
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy generate-recipe \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
       - name: Deploy recipe image upload cleanup Edge Function
         id: deploy-recipe-image-cleanup
         working-directory: frontend
@@ -150,6 +176,14 @@ jobs:
             exit 1
           fi
 
+      - name: Verify deployed AI routes
+        id: ai-route-smoke
+        env:
+          AI_ROUTE_SMOKE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          AI_ROUTE_SMOKE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          AI_ROUTE_SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+        run: node scripts/ai-route-smoke.mjs
+
       # Kept inside the deployment job so cloudflare-production covers smoke too.
       # Normal success semantics ensure no runtime smoke after a failed deploy.
       - name: Production runtime smoke
@@ -163,8 +197,11 @@ jobs:
         env:
           RECIPES_OUTCOME: ${{ steps.deploy-recipes.outcome }}
           IMAGE_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-cleanup.outcome }}
+          EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
+          GENERATE_RECIPE_OUTCOME: ${{ steps.deploy-generate-recipe.outcome }}
           CLOUDFLARE_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
           URL_OUTCOME: ${{ steps.verify-deployment.outcome }}
+          AI_ROUTE_SMOKE_OUTCOME: ${{ steps.ai-route-smoke.outcome }}
           SMOKE_OUTCOME: ${{ steps.runtime-smoke.outcome }}
         shell: bash
         run: |
@@ -173,8 +210,11 @@ jobs:
             echo "- Source revision: ${GITHUB_SHA}"
             echo "- recipes deployment command: ${RECIPES_OUTCOME}"
             echo "- recipe image cleanup deployment command: ${IMAGE_CLEANUP_OUTCOME}"
+            echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
+            echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"
             echo "- Cloudflare deployment command: ${CLOUDFLARE_OUTCOME}"
             echo "- Deployment URL verification: ${URL_OUTCOME}"
+            echo "- AI route smoke: ${AI_ROUTE_SMOKE_OUTCOME}"
             echo "- Runtime smoke: ${SMOKE_OUTCOME}"
             echo "- demo-recipe is operator-managed; source attestation is in runtime smoke evidence."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -185,4 +225,12 @@ jobs:
         with:
           name: production-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: runtime-smoke.json
+          if-no-files-found: warn
+
+      - name: Preserve production AI route evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-ai-route-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ai-route-smoke.json
           if-no-files-found: warn
