@@ -100,6 +100,9 @@ describe('Quick AI Entry', () => {
 
     view.rerender(<AuthContext.Provider value={{ ...state, user: null, isAuthenticated: false }}><RouterProvider router={router} /></AuthContext.Provider>)
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeTruthy()
+    const loginUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(loginUnload)
+    expect(loginUnload.defaultPrevented).toBe(true)
 
     view.rerender(<AuthContext.Provider value={authState('cook-b')}><RouterProvider router={router} /></AuthContext.Provider>)
     await act(() => router.navigate('/app/quick-entry'))
@@ -107,6 +110,12 @@ describe('Quick AI Entry', () => {
     view.rerender(<AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider>)
     expect(notesField().value).toBe('Notes that must survive expiry')
     expect(screen.getByRole('alert').textContent).toContain("couldn't")
+    vi.restoreAllMocks()
+    fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    const savedUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(savedUnload)
+    expect(savedUnload.defaultPrevented).toBe(false)
   })
   it('validates empty notes accessibly without making a request', async () => {
     const { extract } = renderEntry()
