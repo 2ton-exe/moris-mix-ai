@@ -107,6 +107,15 @@ function runDiscoveryAndIntegrityUnitTests() {
   assert.match(stagingConflictCorrectionSql, /on conflict on constraint recipe_image_staging_reconciliation_objects_pkey do update/i);
   assert.doesNotMatch(stagingConflictCorrectionSql, /on conflict\s*\(\s*staging_key\s*\)/i);
   assert.match(stagingConflictCorrectionSql, /where existing\.status = 'complete'/i);
+  const abandonedClaimMigration = migrations.find((migration) => migration.version === '20261102000014');
+  assert.equal(abandonedClaimMigration?.file, '20261102000014_recipe_image_staging_abandoned_claims.sql');
+  const abandonedClaimSql = fs.readFileSync(abandonedClaimMigration.filePath, 'utf8');
+  const abandonedClaimUpdate = abandonedClaimSql.match(/update public\.recipe_image_staging_reconciliation_objects as abandoned[\s\S]*?;/i)?.[0];
+  assert.ok(abandonedClaimUpdate);
+  assert.match(abandonedClaimUpdate, /abandoned\.status = 'claimed'/i);
+  assert.match(abandonedClaimUpdate, /abandoned\.lease_until <= now\(\)/i);
+  assert.match(abandonedClaimUpdate, /abandoned\.attempts >= 8/i);
+  assert.doesNotMatch(abandonedClaimUpdate, /p_staging_keys|abandoned\.staging_key/i);
   assert.match(lifecycleSql, /check \(state in \('pending', 'finalizing', 'attached', 'expired'\)\)/);
   assert.match(lifecycleSql, /state = 'attached' and cleanup_status in \('waiting', 'complete'\)/);
   assert.match(lifecycleSql, /pg_advisory_xact_lock\(hashtext\('recipe-image-upload:' \|\| p_user_id::text\)\)/);
@@ -350,6 +359,65 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       'SELECT public.finish_recipe_image_staging_reconciliation_page($1::uuid, null, false, null) AS status',
       [pageLeaseThree]
     )).rows[0].status, 'complete');
+
+    const abandonedClaimKey = `recipe-images/staging/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    const unexpiredClaimKey = `recipe-images/staging/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    const retryDueKey = `recipe-images/staging/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    const retryFutureKey = `recipe-images/staging/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    await client.query(
+      "INSERT INTO public.recipe_image_staging_reconciliation_objects (staging_key, status, attempts, lease_id, lease_until, updated_at, last_error) VALUES ($1::text, 'claimed', 8, $2::uuid, now() - interval '1 minute', now() - interval '1 minute', 'network')",
+      [abandonedClaimKey, crypto.randomUUID()]
+    );
+    await client.query(
+      "INSERT INTO public.recipe_image_staging_reconciliation_objects (staging_key, status, attempts, lease_id, lease_until, updated_at) VALUES ($1::text, 'claimed', 8, $2::uuid, now() + interval '10 minutes', now())",
+      [unexpiredClaimKey, crypto.randomUUID()]
+    );
+    await client.query(
+      "INSERT INTO public.recipe_image_staging_reconciliation_objects (staging_key, status, attempts, next_attempt_at, updated_at, last_error) VALUES ($1::text, 'retry', 4, now() - interval '1 minute', now() - interval '1 minute', 'network')",
+      [retryDueKey]
+    );
+    await client.query(
+      "INSERT INTO public.recipe_image_staging_reconciliation_objects (staging_key, status, attempts, next_attempt_at, updated_at, last_error) VALUES ($1::text, 'retry', 4, now() + interval '1 hour', now(), 'network')",
+      [retryFutureKey]
+    );
+    const pageLeaseFour = crypto.randomUUID();
+    assert.deepEqual((await client.query('SELECT * FROM public.claim_recipe_image_staging_reconciliation_page($1::uuid)', [pageLeaseFour])).rows, [{ continuation_token: null }]);
+    const recoveredClaims = await client.query(
+      'SELECT * FROM public.claim_recipe_image_staging_reconciliation_objects($1::uuid, $2::text[])',
+      [pageLeaseFour, []]
+    );
+    assert.deepEqual(recoveredClaims.rows.map((row) => row.staging_key), [retryDueKey]);
+    assert.deepEqual((await client.query(
+      'SELECT status, attempts, lease_id FROM public.recipe_image_staging_reconciliation_objects WHERE staging_key = $1::text',
+      [abandonedClaimKey]
+    )).rows[0], { status: 'failed', attempts: 8, lease_id: null });
+    assert.deepEqual((await client.query(
+      'SELECT status, attempts FROM public.recipe_image_staging_reconciliation_objects WHERE staging_key = $1::text',
+      [unexpiredClaimKey]
+    )).rows[0], { status: 'claimed', attempts: 8 });
+    assert.deepEqual((await client.query(
+      'SELECT status, attempts, lease_id FROM public.recipe_image_staging_reconciliation_objects WHERE staging_key = $1::text',
+      [retryDueKey]
+    )).rows[0], { status: 'claimed', attempts: 5, lease_id: pageLeaseFour });
+    assert.deepEqual((await client.query(
+      'SELECT status, attempts FROM public.recipe_image_staging_reconciliation_objects WHERE staging_key = $1::text',
+      [retryFutureKey]
+    )).rows[0], { status: 'retry', attempts: 4 });
+    assert.deepEqual((await client.query(
+      'SELECT public.recipe_image_staging_reconciliation_health() AS health'
+    )).rows[0].health, { pending: 0, failed: 1 });
+    assert.equal((await client.query(
+      'SELECT public.finish_recipe_image_staging_reconciliation_object($1::uuid, $2::text, true, null) AS status',
+      [pageLeaseFour, retryDueKey]
+    )).rows[0].status, 'complete');
+    assert.equal((await client.query(
+      'SELECT public.finish_recipe_image_staging_reconciliation_page($1::uuid, null, false, null) AS status',
+      [pageLeaseFour]
+    )).rows[0].status, 'complete');
+    await client.query(
+      'DELETE FROM public.recipe_image_staging_reconciliation_objects WHERE staging_key = ANY($1::text[])',
+      [[abandonedClaimKey, unexpiredClaimKey, retryDueKey, retryFutureKey]]
+    );
 
     const concurrentCleanup = await createIntent(client, crypto.randomUUID(), new Date(Date.now() - 11 * 60 * 1000));
     await client.query('BEGIN');
