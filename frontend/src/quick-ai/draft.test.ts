@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { readQuickAiEntryDraft, readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from './draft'
 
 describe('Quick AI Entry session draft storage', () => {
-  beforeEach(() => sessionStorage.clear())
+  beforeEach(() => {
+    writeQuickAiEntryDraft('cook-a', { notes: '', blockedUntil: null, blockedReason: null, handoff: null })
+    sessionStorage.clear()
+  })
 
   it('preserves exact source notes and cooldown state for the same account', () => {
     const draft = {

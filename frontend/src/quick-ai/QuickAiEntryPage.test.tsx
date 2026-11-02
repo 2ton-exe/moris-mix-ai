@@ -5,11 +5,12 @@ import { createMemoryRouter, Link, Outlet, RouterProvider, useLocation } from 'r
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
+import { ProtectedRoute } from '../auth/AuthRoutes'
 import type { AuthState } from '../auth/context'
 import { JournalShell } from '../journal/JournalShell'
 import { InvalidExtractionResponse } from './extractRecipe'
 import type { QuickAiEntryHandoff } from './extractRecipe'
-import { readQuickAiEntryDraft } from './draft'
+import { readQuickAiEntryDraft, writeQuickAiEntryDraft } from './draft'
 import { QuickAiEntryPage } from './QuickAiEntryPage'
 
 const NativeRequest = globalThis.Request
@@ -79,9 +80,34 @@ beforeEach(() => {
   })
   sessionStorage.clear()
 })
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear() })
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  writeQuickAiEntryDraft('cook-a', { notes: '', blockedUntil: null, blockedReason: null, handoff: null })
+  sessionStorage.clear()
+})
 
 describe('Quick AI Entry', () => {
+  it('restores an unsaved draft after session expiry and sign-in when storage fails', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError') })
+    const router = createMemoryRouter([
+      { element: <ProtectedRoute />, children: [{ path: '/app/quick-entry', element: <QuickAiEntryPage /> }] },
+      { path: '/login', element: <h1>Sign in</h1> },
+    ], { initialEntries: ['/app/quick-entry'] })
+    const state = authState()
+    const view = render(<AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider>)
+    enterNotes('Notes that must survive expiry')
+
+    view.rerender(<AuthContext.Provider value={{ ...state, user: null, isAuthenticated: false }}><RouterProvider router={router} /></AuthContext.Provider>)
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeTruthy()
+
+    view.rerender(<AuthContext.Provider value={authState('cook-b')}><RouterProvider router={router} /></AuthContext.Provider>)
+    await act(() => router.navigate('/app/quick-entry'))
+    expect(notesField().value).toBe('')
+    view.rerender(<AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider>)
+    expect(notesField().value).toBe('Notes that must survive expiry')
+    expect(screen.getByRole('alert').textContent).toContain("couldn't")
+  })
   it('validates empty notes accessibly without making a request', async () => {
     const { extract } = renderEntry()
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
@@ -512,7 +538,8 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('link', { name: 'My recipes' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Keep Editing' }))
     expect(notesField().value).toBe(currentNotes)
-    expect(readQuickAiEntryDraft('cook-a').notes).toBe('older saved notes')
+    expect(readQuickAiEntryDraft('cook-a').notes).toBe(currentNotes)
+    expect(sessionStorage.getItem('moris-mix:quick-ai-entry:v1:cook-a')).toContain('older saved notes')
   })
 
   it('does not expose failed-write notes after switching to a different account', () => {

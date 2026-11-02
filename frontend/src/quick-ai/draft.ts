@@ -11,6 +11,7 @@ export interface QuickAiEntryDraft {
 }
 
 const EMPTY_DRAFT: QuickAiEntryDraft = { notes: '', blockedUntil: null, blockedReason: null, handoff: null }
+const memoryDrafts = new Map<string, QuickAiEntryDraft>()
 const storageKey = (userId: string) => `moris-mix:quick-ai-entry:v1:${encodeURIComponent(userId)}`
 
 export type QuickAiDraftReadStatus = 'available' | 'unavailable' | 'read-failed'
@@ -34,6 +35,8 @@ function resolveStorage(storage?: Storage): Storage | null {
 }
 
 export function readQuickAiEntryDraftResult(userId: string, storage?: Storage): QuickAiEntryDraftReadResult {
+  const memoryDraft = memoryDrafts.get(userId)
+  if (memoryDraft) return { draft: memoryDraft, status: 'read-failed' }
   const target = resolveStorage(storage)
   if (!target || !userId) return { draft: { ...EMPTY_DRAFT }, status: 'unavailable' }
 
@@ -83,6 +86,7 @@ export function readQuickAiEntryDraft(userId: string, storage?: Storage): QuickA
 }
 
 export function writeQuickAiEntryDraft(userId: string, draft: QuickAiEntryDraft, storage?: Storage): QuickAiDraftWriteResult {
+  if (userId) memoryDrafts.set(userId, draft)
   const target = resolveStorage(storage)
   if (!target || !userId) return { persisted: false, reason: 'unavailable' }
 
@@ -99,5 +103,6 @@ export function writeQuickAiEntryDraft(userId: string, draft: QuickAiEntryDraft,
   } catch {
     return { persisted: false, reason: 'verification-failed' }
   }
+  memoryDrafts.delete(userId)
   return { persisted: true }
 }
