@@ -72,10 +72,12 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Supabase CLI and Wrangler             |
 
-The validated-main deployment job sends the three explicit Edge Function targets
-`recipes`, `extract-recipe`, and `generate-recipe` to the configured production
-Supabase project, in that order, then deploys the frontend to Cloudflare.
-Production database migrations remain a separate process and are not applied by CI.
+The validated-main deployment job previews and applies pending Supabase migrations
+to the configured production project, then sends the three explicit Edge Function
+targets `recipes`, `extract-recipe`, and `generate-recipe` in that order and
+deploys the frontend to Cloudflare. The migration step requires the GitHub Actions
+secret `SUPABASE_DB_PASSWORD`; existing `SUPABASE_ACCESS_TOKEN` and
+`SUPABASE_PROJECT_REF` settings authorize and identify the target.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -105,7 +107,7 @@ Modular main frontend/database/Edge validation completes, including mandatory ho
 ↓\
 All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy `recipes`, `extract-recipe`, and `generate-recipe`, then deploy Cloudflare assets\
+`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, preview/apply database migrations, deploy `recipes`, `extract-recipe`, and `generate-recipe`, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
@@ -128,25 +130,31 @@ The production release order is:
 1. Validate production deployment configuration.
 2. Install frontend dependencies using the frozen lockfile.
 3. Build the frontend.
-4. Deploy `recipes` (`deploy-recipes`).
-5. Deploy `extract-recipe` (`deploy-extract-recipe`).
-6. Deploy `generate-recipe` (`deploy-generate-recipe`).
-7. Deploy Cloudflare Workers assets.
-8. Verify the production deployment URL.
-9. Verify deployed AI routes (`ai-route-smoke`).
-10. Run the existing production runtime smoke (`runtime-smoke`).
-11. Record each deployment, URL verification, AI route smoke, and runtime smoke
+4. Preview pending database migrations (`preview-migrations`).
+5. Apply pending database migrations (`deploy-migrations`).
+6. Deploy `recipes` (`deploy-recipes`).
+7. Deploy `extract-recipe` (`deploy-extract-recipe`).
+8. Deploy `generate-recipe` (`deploy-generate-recipe`).
+9. Deploy Cloudflare Workers assets.
+10. Verify the production deployment URL.
+11. Verify deployed AI routes (`ai-route-smoke`).
+12. Run the existing production runtime smoke (`runtime-smoke`).
+13. Record each migration, deployment, URL verification, AI route smoke, and runtime smoke
     outcome independently, including failures or skipped downstream steps.
-12. Preserve the separate runtime and AI route evidence artifacts.
+14. Preserve the separate runtime and AI route evidence artifacts.
 
 Each Supabase deployment is a separate explicit target using the repository-pinned
 CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
 `SUPABASE_PROJECT_REF` scope and `--project-ref "$SUPABASE_PROJECT_REF"`,
 `--no-verify-jwt`, `--use-api`, and `--yes`. There is no broad deploy-all command
-or production database migration automation. Partial release is possible if a
-later target fails after an earlier deployment succeeds. Any failed deployment
-or route check fails the release; later normal steps do not run. The summary and
-artifact steps retain their `always()` behavior without turning the release green.
+or Vault update. The migration preview and apply use the same pinned CLI with
+`SUPABASE_DB_PASSWORD`, the explicit project reference, and `--skip-vault`.
+Migrations run after all validation and the frontend build, before functions, so a
+failure blocks application deployment. A successful migration remains applied if
+a later function or frontend deployment fails; keep migrations backward-compatible
+with the currently deployed code. Any failed migration, deployment, or route check
+fails the release; later normal steps do not run. The summary and artifact steps
+retain their `always()` behavior without turning the release green.
 
 `scripts/ai-route-smoke.mjs` pins its HTTPS origin to the production project in
 `supabase/config.toml` and checks both `/functions/v1/extract-recipe` and
@@ -208,8 +216,9 @@ review, not values copied into workflow logs or this document.
 BE-12 implementation is merged, but the current mandatory main Hosted RLS job
 does not execute the BE-12 hosted quota tests. Its success must not be described
 as full hosted quota/concurrency acceptance. Separate evidence for that behavior
-and any required production database migrations must precede real AI enablement.
-Production database migrations remain separately reviewed and operated.
+and a successful production migration run must precede real AI enablement.
+Production migrations are reviewed with their changes and automatically applied
+by the validated main release before application code deploys.
 
 ### PR Staging Delivery (PR #81 / #76)
 
@@ -326,8 +335,9 @@ The new variables are non-secret configuration. Existing staging variables and
 Cloudflare staging secrets above remain required and must be environment-scoped.
 Production continues using its existing repository `VITE_SUPABASE_URL`,
 `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`),
-`SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, and
-`CLOUDFLARE_ACCOUNT_ID`. No new GitHub secrets are required. The verifier pins
+`SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
+`CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`. Set `SUPABASE_DB_PASSWORD`
+as a GitHub Actions repository secret before the production workflow runs. The verifier pins
 staging to `pjeykhjzqhryjwuoizgh` and production to `config.toml`'s project,
 `gtbwblxskctpsqhbpebg`. Missing revision/origin configuration fails preflight
 before deployment; there is no production fallback for staging.
@@ -634,6 +644,7 @@ GitHub Actions uses the following repository secrets:
 | `CLOUDFLARE_API_TOKEN`  | Authorizes Cloudflare Worker deployment  |
 | `CLOUDFLARE_ACCOUNT_ID` | Identifies the target Cloudflare account |
 | `SUPABASE_ACCESS_TOKEN` | Authorizes Supabase CLI deployment        |
+| `SUPABASE_DB_PASSWORD`  | Authorizes production database migrations |
 
 The `SUPABASE_PROJECT_REF` repository variable identifies the Supabase target and must match `project_id` in `supabase/config.toml`. CI also checks that `VITE_SUPABASE_URL` targets the same project before deploying.
 
@@ -647,7 +658,7 @@ The Cloudflare API token is restricted to the intended Cloudflare account.
 
 ## 9. Automated Deployment Procedure
 
-In this proposal `production` in `.github/workflows/modular-main.yml` calls the
+`production` in `.github/workflows/modular-main.yml` calls the
 `deploy` job in `reusable-production.yml`. Main push or permitted manual dispatch
 requires `needs: [frontend, test-db, test-edge-api]` and this caller condition:
 
@@ -673,19 +684,19 @@ Reviewed changes merged into `main` trigger Modular Main Validation; permitted
 manual dispatch on `main` follows the same production path:
 
 1. Run required frontend, database, Edge/API, and mandatory Hosted RLS validation. Confirm every `production.needs` job succeeded and frontend existence is true. Playwright E2E runs separately and is non-gating.
-2. Validate production deployment configuration, including the Supabase token and project reference.
+2. Validate production deployment configuration, including the Supabase access token, database password, and project reference.
 3. Install frontend dependencies and build the frontend.
-4. Deploy the explicit `recipes` Edge Function target.
-5. Deploy the explicit `extract-recipe` Edge Function target.
-6. Deploy the explicit `generate-recipe` Edge Function target. All three targets use the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; handlers enforce authentication.
-7. Deploy to Cloudflare only after all three function deployments succeed.
+4. Preview pending migrations with the pinned Supabase CLI. The preview uses the configured project reference and skips Vault changes.
+5. Apply pending migrations with the same target and Vault setting. A migration failure stops the release before application code deploys.
+6. Deploy the explicit `recipes`, `extract-recipe`, and `generate-recipe` Edge Function targets. Each uses the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; handlers enforce authentication.
+7. Deploy to Cloudflare only after the function deployments succeed.
 8. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
 9. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
 10. Run the existing production runtime smoke. Its public demo check does not verify authenticated recipe CRUD.
-11. Inspect the production summary's separate outcomes for recipes, extract-recipe, generate-recipe, Cloudflare, URL verification, AI route smoke, and existing runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
+11. Inspect the production summary's separate migration preview/apply, function, Cloudflare, URL verification, AI route smoke, and runtime smoke outcomes. A failed deployment or smoke fails delivery; it does not roll back earlier deployments or migrations.
 12. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 
-The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
+The validated main deployment previews and applies pending database migrations before deploying application code. Before relying on recipe CRUD, verify the successful migration step and the production migration ledger in that release run.
 
 ### Historical FE-01 Deployment
 
@@ -901,7 +912,7 @@ The following limitations or pending items remain:
 - The linked repository Projects page has no project board, so board status could not be verified.
 - The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
 - On 2026-10-30, production `demo-recipe` preflight was reconciled separately: only `demo-recipe` was targeted for deployment to project `gtbwblxskctpsqhbpebg` from reviewed source `d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` using the repository-pinned Supabase CLI 2.122.0 and the explicit production project reference. Supabase subsequently reported the function as ACTIVE version 2 with `verify_jwt=false`; the deployed bundle contains the reviewed `.eq("is_public", true)` boundary, and a post-deployment GET returned HTTP 200 for recipe `11111111-1111-1111-1111-111111111111` (`Classic Tomato Scraps Pasta`). Repository variables `PRODUCTION_FRONTEND_URL=https://moris-mix-ai.diofelgwenharesco.workers.dev` and `PRODUCTION_DEMO_RECIPE_REVISION=d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` are operator-confirmed configured, not independently API-observed through the GitHub connector. The backend revision remains operator-attested rather than runtime-observed; this is production preflight evidence, not PR #88 production runtime-smoke evidence.
-- A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
+- A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. At that time, CI did not apply production migrations; the validated main release now does so after its checks.
 - Production ownership rollback was operator-confirmed at the baseline SHA above. Application/data recovery and the modular-only post-merge architecture remain separately unverified.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
