@@ -193,6 +193,81 @@ try {
   await expect(page.getByRole('link', { name: 'Back to journal' })).toBeVisible()
   await expect(page.locator('.mm-quick-ai-intro .mm-mori')).toBeVisible()
 
+  extractionMode = 'provider'
+  const storageFailurePage = await context.newPage()
+  storageFailurePage.on('pageerror', (error) => errors.push(error.message))
+  await storageFailurePage.addInitScript(() => {
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      get() { throw new Error('blocked') },
+    })
+  })
+  await storageFailurePage.goto(`${origin}app`)
+  await storageFailurePage.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
+  const storageFailureNotes = storageFailurePage.getByRole('textbox', { name: 'Cooking notes' })
+  const lostNotes = 'notes stay in the editor when session storage is blocked'
+  await storageFailureNotes.fill(lostNotes)
+  const storageWarning = storageFailurePage.locator('.mm-quick-ai__storage-warning')
+  await expect(storageWarning).toContainText('signing out, or reloading may erase them')
+  await storageFailurePage.getByRole('button', { name: 'Organize my notes' }).click()
+  await expect(storageFailurePage.locator('.mm-quick-ai__error')).toContainText('Mori could not organize those notes just now')
+  await expect(storageFailureNotes).toHaveValue(lostNotes)
+
+  const logoutCountBeforeWarning = requests.filter((request) => request.path === '/auth/v1/logout').length
+  await storageFailurePage.getByRole('button', { name: 'Log out' }).click()
+  const logoutDialog = storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })
+  await expect(logoutDialog).toBeVisible()
+  await expect(logoutDialog).toContainText('Copy your notes before leaving')
+  assert.equal(requests.filter((request) => request.path === '/auth/v1/logout').length, logoutCountBeforeWarning, 'Log out ran before the user confirmed leaving')
+  await logoutDialog.getByRole('button', { name: 'Keep Editing' }).click()
+  await expect(storageFailureNotes).toHaveValue(lostNotes)
+
+  for (const width of [1440, 375, 320]) {
+    await storageFailurePage.setViewportSize({ width, height: 900 })
+    await expect(storageWarning).toBeVisible()
+    assert.equal(await storageFailurePage.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Storage warning overflow at ${width}px`)
+    assert.equal(await storageWarning.evaluate((element) => element.getBoundingClientRect().right <= globalThis.innerWidth), true, `Storage warning extends beyond ${width}px viewport`)
+    await storageFailurePage.getByRole('link', { name: 'Back to journal' }).click()
+    const warningDialog = storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })
+    await expect(warningDialog).toBeVisible()
+    assert.equal(await warningDialog.evaluate((element) => {
+      const { left, right } = element.getBoundingClientRect()
+      return left >= 0 && right <= globalThis.innerWidth
+    }), true, `Navigation dialog extends beyond ${width}px viewport`)
+    await warningDialog.getByRole('button', { name: 'Keep Editing' }).click()
+    await expect(storageFailureNotes).toHaveValue(lostNotes)
+  }
+
+  const unloadDialogs = []
+  storageFailurePage.on('dialog', async (dialog) => {
+    unloadDialogs.push(dialog.type())
+    await dialog.dismiss()
+  })
+  await storageFailurePage.reload({ timeout: 2000 }).catch((error) => {
+    if (!error.message.includes('Timeout')) throw error
+  })
+  assert.deepEqual(unloadDialogs, ['beforeunload'], 'Expected native beforeunload protection after failed persistence')
+  await expect(storageFailureNotes).toHaveValue(lostNotes)
+
+  await storageFailurePage.goBack()
+  const leaveDialog = storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })
+  await expect(leaveDialog).toBeVisible()
+  await expect(leaveDialog.getByRole('button', { name: 'Keep Editing' })).toBeFocused()
+  await leaveDialog.getByRole('button', { name: 'Keep Editing' }).click()
+  await expect(storageFailureNotes).toHaveValue(lostNotes)
+
+  await storageFailurePage.getByRole('link', { name: 'Back to journal' }).click()
+  await expect(storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })).toBeVisible()
+  await storageFailurePage.keyboard.press('Escape')
+  await expect(storageFailureNotes).toHaveValue(lostNotes)
+
+  await storageFailurePage.getByRole('link', { name: 'My recipes' }).click()
+  await expect(storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })).toBeVisible()
+  await storageFailurePage.getByRole('button', { name: 'Leave Anyway' }).click()
+  await expect(storageFailurePage).toHaveURL(`${origin}app/recipes`)
+  await storageFailurePage.close()
+  extractionMode = 'success'
+
   const sourceNotes = 'rice, two eggs\nsoy sauce and garlic; fry the eggs first'
   await notes.fill(sourceNotes)
   await notes.press('End')
@@ -206,7 +281,7 @@ try {
   await expect(page.getByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeVisible()
   await expect(page.locator('blockquote')).toHaveText(sourceNotes)
   assert.ok(requests.some((request) => request.path === '/functions/v1/extract-recipe' && request.authorization === 'Bearer quick-ai-test-access'))
-  assert.deepEqual(requests.find((request) => request.path === '/functions/v1/extract-recipe')?.body, { notes: sourceNotes })
+  assert.deepEqual(requests.find((request) => request.path === '/functions/v1/extract-recipe' && request.body?.notes === sourceNotes)?.body, { notes: sourceNotes })
   assert.equal(requests.filter((request) => request.path === '/functions/v1/recipes' && request.method !== 'GET').length, 0)
   await page.screenshot({ path: path.join(outputDir, 'desktop-unsaved-preview.png'), fullPage: true })
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { readQuickAiEntryDraft, writeQuickAiEntryDraft } from './draft'
+import { readQuickAiEntryDraft, readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from './draft'
 
 describe('Quick AI Entry session draft storage', () => {
   beforeEach(() => sessionStorage.clear())
@@ -61,6 +61,42 @@ describe('Quick AI Entry session draft storage', () => {
     } as unknown as Storage
 
     expect(readQuickAiEntryDraft('cook-a', unavailable).notes).toBe('')
-    expect(() => writeQuickAiEntryDraft('cook-a', { notes: 'kept in component state', blockedUntil: null, blockedReason: null, handoff: null }, unavailable)).not.toThrow()
+    expect(readQuickAiEntryDraftResult('cook-a', unavailable)).toMatchObject({ status: 'read-failed' })
+    expect(writeQuickAiEntryDraft('cook-a', { notes: 'kept in component state', blockedUntil: null, blockedReason: null, handoff: null }, unavailable))
+      .toEqual({ persisted: false, reason: 'write-failed' })
+  })
+
+  it('distinguishes a genuinely empty draft from an unavailable store or a failed read', () => {
+    expect(readQuickAiEntryDraftResult('cook-a')).toMatchObject({ status: 'available', draft: { notes: '' } })
+
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage')
+    try {
+      Object.defineProperty(window, 'sessionStorage', { configurable: true, get: () => { throw new DOMException('blocked', 'SecurityError') } })
+      expect(readQuickAiEntryDraftResult('cook-a')).toMatchObject({ status: 'unavailable', draft: { notes: '' } })
+      expect(writeQuickAiEntryDraft('cook-a', { notes: 'draft', blockedUntil: null, blockedReason: null, handoff: null }))
+        .toEqual({ persisted: false, reason: 'unavailable' })
+    } finally {
+      if (descriptor) Object.defineProperty(window, 'sessionStorage', descriptor)
+    }
+  })
+
+  it('reports malformed stored data as a read failure instead of an empty draft', () => {
+    sessionStorage.setItem('moris-mix:quick-ai-entry:v1:cook-a', '{not-json')
+    expect(readQuickAiEntryDraftResult('cook-a')).toMatchObject({ status: 'read-failed', draft: { notes: '' } })
+  })
+
+  it('reports quota failures and verifies that a successful write can be read back', () => {
+    const quotaStorage = {
+      getItem: () => null,
+      setItem: () => { throw new DOMException('full', 'QuotaExceededError') },
+    } as unknown as Storage
+    const draft = { notes: 'kept in component state', blockedUntil: null, blockedReason: null, handoff: null }
+
+    expect(writeQuickAiEntryDraft('cook-a', draft, quotaStorage)).toEqual({ persisted: false, reason: 'write-failed' })
+
+    const silentStorage = { getItem: () => null, setItem: () => {} } as unknown as Storage
+    expect(writeQuickAiEntryDraft('cook-a', draft, silentStorage)).toEqual({ persisted: false, reason: 'verification-failed' })
+
+    expect(writeQuickAiEntryDraft('cook-a', draft)).toEqual({ persisted: true })
   })
 })

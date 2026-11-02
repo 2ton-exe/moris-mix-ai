@@ -3,9 +3,18 @@ import { createPortal } from 'react-dom'
 import { Mori } from '../journal/Mori'
 import { PaperCard } from '../journal/Scrapbook'
 
-export function UnsavedChangesDialog({ onKeepEditing, onDiscardChanges }: {
+export function UnsavedChangesDialog({
+  onKeepEditing,
+  onDiscardChanges,
+  title = 'Leave without saving?',
+  message = 'You have unsaved changes. Leave this page without saving?',
+  discardLabel = 'Discard Changes',
+}: {
   onKeepEditing: () => void
   onDiscardChanges: () => void
+  title?: string
+  message?: string
+  discardLabel?: string
 }) {
   const titleId = useId()
   const descriptionId = useId()
@@ -66,15 +75,15 @@ export function UnsavedChangesDialog({ onKeepEditing, onDiscardChanges }: {
         <Mori mood="worried" size={62} label="Mori is concerned about your unsaved recipe" />
         <div>
           <p className="mm-recipe-index__eyebrow">A note before you go</p>
-          <h2 id={titleId}>Leave without saving?</h2>
+          <h2 id={titleId}>{title}</h2>
         </div>
       </div>
       <p id={descriptionId} className="mm-recipe-navigation-dialog__message">
-        You have unsaved changes. Leave this page without saving?
+        {message}
       </p>
       <div className="mm-recipe-navigation-dialog__actions">
         <button ref={keepEditingRef} className="button button-primary" type="button" onClick={onKeepEditing}>Keep Editing</button>
-        <button ref={discardRef} className="button button-danger" type="button" onClick={onDiscardChanges}>Discard Changes</button>
+        <button ref={discardRef} className="button button-danger" type="button" onClick={onDiscardChanges}>{discardLabel}</button>
       </div>
     </PaperCard>
   </div>, document.getElementById('journal-overlays') ?? document.body)

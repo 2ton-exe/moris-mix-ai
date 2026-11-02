@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ComponentProps, ReactNode } from 'react'
+import type { ComponentProps } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { Link, MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router'
+import { createMemoryRouter, Link, Outlet, RouterProvider, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
@@ -12,6 +12,7 @@ import type { QuickAiEntryHandoff } from './extractRecipe'
 import { readQuickAiEntryDraft } from './draft'
 import { QuickAiEntryPage } from './QuickAiEntryPage'
 
+const NativeRequest = globalThis.Request
 const recipe = {
   title: 'Garlic soy chicken',
   ingredients: [{ name: 'chicken', quantity: null, unit: null, quantityText: 'some', inferred: true }],
@@ -42,16 +43,6 @@ function JournalIndex() {
   </section>
 }
 
-function AppRoutes({ children }: { children: ReactNode }) {
-  return <Routes>
-    <Route element={<JournalLayout />}>
-      <Route path="/app/quick-entry" element={children} />
-      <Route path="/app/recipes" element={<JournalIndex />} />
-    </Route>
-    <Route path="/login" element={<h1>Sign in</h1>} />
-  </Routes>
-}
-
 function renderEntry({
   extract = vi.fn<Extract>().mockResolvedValue(recipe),
   onExtracted,
@@ -63,19 +54,32 @@ function renderEntry({
   state?: AuthState
   initialEntry?: string
 } = {}) {
-  const view = render(<MemoryRouter initialEntries={[initialEntry]}>
-    <AuthContext.Provider value={state}>
-      <AppRoutes><QuickAiEntryPage extract={extract} onExtracted={onExtracted} /></AppRoutes>
-    </AuthContext.Provider>
-  </MemoryRouter>)
-  return { ...view, extract }
+  const router = createMemoryRouter([
+    {
+      element: <JournalLayout />,
+      children: [
+        { path: '/app/quick-entry', element: <QuickAiEntryPage extract={extract} onExtracted={onExtracted} /> },
+        { path: '/app/recipes', element: <JournalIndex /> },
+      ],
+    },
+    { path: '/login', element: <h1>Sign in</h1> },
+  ], { initialEntries: [initialEntry] })
+  const view = render(<AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider>)
+  return { ...view, extract, router }
 }
 
 const notesField = () => screen.getByRole('textbox', { name: 'Cooking notes' }) as HTMLTextAreaElement
 const enterNotes = (notes: string) => fireEvent.change(notesField(), { target: { value: notes } })
 
-beforeEach(() => sessionStorage.clear())
-afterEach(() => { sessionStorage.clear(); vi.restoreAllMocks() })
+beforeEach(() => {
+  vi.stubGlobal('Request', class TestRequest extends NativeRequest {
+    constructor(input: RequestInfo | URL, init?: RequestInit) {
+      super(input, init ? { ...init, signal: undefined } : undefined)
+    }
+  })
+  sessionStorage.clear()
+})
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear() })
 
 describe('Quick AI Entry', () => {
   it('validates empty notes accessibly without making a request', async () => {
@@ -86,6 +90,143 @@ describe('Quick AI Entry', () => {
     expect(notesField().getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(notesField())
     expect(extract).not.toHaveBeenCalled()
+  })
+
+  it('announces unavailable session storage on initial load and keeps new notes editable', () => {
+    vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError') })
+    renderEntry()
+
+    expect(screen.getByRole('alert').textContent).toContain('couldn\'t access session storage')
+    expect(screen.getByText(/Your notes stay on this page while it is open/)).toBeTruthy()
+    expect(screen.queryByText(/saved in this browser session as you type/)).toBeNull()
+
+    enterNotes('new notes remain editable in React state')
+    expect(notesField().value).toBe('new notes remain editable in React state')
+    expect(screen.getByRole('alert').textContent).toContain('signing out, or reloading may erase them')
+  })
+
+  it('surfaces storage read failures separately from an empty draft', () => {
+    const getItem = Storage.prototype.getItem
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('blocked', 'SecurityError')
+      return getItem.call(this, key)
+    })
+    renderEntry()
+
+    expect(screen.getByRole('alert').textContent).toContain('couldn\'t access session storage')
+    expect(screen.queryByText(/saved in this browser session as you type/)).toBeNull()
+    enterNotes('the editor remains usable after a read failure')
+    expect(notesField().value).toBe('the editor remains usable after a read failure')
+    expect(screen.getByRole('alert').textContent).toContain('signing out, or reloading may erase them')
+  })
+
+  it('reproduces Belen\'s failed-write and extraction-error navigation scenario', async () => {
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('network', 'private network detail'))
+    renderEntry({ extract })
+    const sourceNotes = 'rice, eggs, garlic, and soy sauce; fry the eggs first'
+    enterNotes(sourceNotes)
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+
+    expect((await screen.findByText(/Mori could not reach the kitchen/)).textContent).toContain('Your notes are still here')
+    expect(notesField().value).toBe(sourceNotes)
+    expect(screen.getByRole('button', { name: 'Copy Notes' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Try saving again' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('link', { name: /Back to journal/ }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Leave without saving your notes?' })
+    expect(dialog.textContent).toContain('Leaving now may lose them')
+    expect(screen.getByRole('button', { name: 'Keep Editing' })).toBe(document.activeElement)
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(notesField().value).toBe(sourceNotes)
+
+    fireEvent.click(screen.getByRole('link', { name: 'My recipes' }))
+    expect(await screen.findByRole('alertdialog', { name: 'Leave without saving your notes?' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Leave Anyway' }))
+    expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
+  })
+
+  it('protects browser Back while a draft cannot be persisted and preserves notes on cancel', async () => {
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    const { router } = renderEntry({ initialEntry: '/app/recipes' })
+    fireEvent.click(screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" }))
+    const sourceNotes = 'notes before browser back'
+    enterNotes(sourceNotes)
+
+    await act(async () => { await router.navigate(-1) })
+    expect(await screen.findByRole('alertdialog', { name: 'Leave without saving your notes?' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
+    expect(notesField().value).toBe(sourceNotes)
+    expect(router.state.location.pathname).toBe('/app/quick-entry')
+  })
+
+  it('warns before page reload only while notes are not persisted', () => {
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    renderEntry()
+    enterNotes('unsaved notes')
+    const blockedUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(blockedUnload)
+    expect(blockedUnload.defaultPrevented).toBe(true)
+
+    const setItemMock = vi.mocked(Storage.prototype.setItem)
+    setItemMock.mockRestore()
+    fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    const persisted = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(persisted)
+    expect(persisted.defaultPrevented).toBe(false)
+  })
+
+  it('clears the warning after recovered storage verifies the latest notes', async () => {
+    let refuseWrites = true
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (refuseWrites && key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    const first = renderEntry()
+    const sourceNotes = 'the latest notes survive recovery'
+    enterNotes(sourceNotes)
+    expect(screen.getByRole('alert').textContent).toContain('couldn\'t save these notes')
+
+    refuseWrites = false
+    fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    first.unmount()
+
+    renderEntry()
+    expect(notesField().value).toBe(sourceNotes)
+  })
+
+  it('copies notes from the storage warning when clipboard access succeeds', async () => {
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    renderEntry()
+    const sourceNotes = 'copy this note before leaving'
+    enterNotes(sourceNotes)
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Notes' }))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(sourceNotes))
+    expect(await screen.findByRole('status')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('Notes copied')
   })
 
   it('enforces the confirmed 10,000 character limit before submitting', async () => {
@@ -342,6 +483,51 @@ describe('Quick AI Entry', () => {
 
     renderEntry({ state: authState('cook-b') })
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', '')
+  })
+
+  it('does not block navigation when the latest session draft is verified', async () => {
+    renderEntry()
+    enterNotes('notes that were persisted successfully')
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    fireEvent.click(screen.getByRole('link', { name: 'My recipes' }))
+    expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it('keeps newly edited notes in memory instead of replacing them with a stale stored draft', async () => {
+    sessionStorage.setItem('moris-mix:quick-ai-entry:v1:cook-a', JSON.stringify({
+      notes: 'older saved notes', blockedUntil: null, blockedReason: null, handoff: null,
+    }))
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    renderEntry()
+    expect(notesField().value).toBe('older saved notes')
+
+    const currentNotes = 'new edits that could not replace the older saved draft'
+    enterNotes(currentNotes)
+    fireEvent.click(screen.getByRole('link', { name: 'My recipes' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep Editing' }))
+    expect(notesField().value).toBe(currentNotes)
+    expect(readQuickAiEntryDraft('cook-a').notes).toBe('older saved notes')
+  })
+
+  it('does not expose failed-write notes after switching to a different account', () => {
+    const setItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    const first = renderEntry({ state: authState('cook-a') })
+    enterNotes('private unsaved notes for cook A')
+    first.unmount()
+
+    renderEntry({ state: authState('cook-b') })
+    expect(notesField().value).toBe('')
+    expect(screen.queryByText('private unsaved notes for cook A')).toBeNull()
   })
 
   it('aborts on navigation and ignores a late response without discarding the source draft', async () => {

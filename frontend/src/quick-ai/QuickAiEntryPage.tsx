@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { HttpError } from '../api/http'
@@ -6,10 +6,13 @@ import { useAuth } from '../auth/context'
 import { Mori } from '../journal/Mori'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
+import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { journalReturnTo } from '../journal/indexNavigation'
+import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
+import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
 import { InvalidExtractionResponse, extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from './extractRecipe'
 import type { ExtractedRecipe, QuickAiEntryHandoff } from './extractRecipe'
-import { readQuickAiEntryDraft, writeQuickAiEntryDraft } from './draft'
+import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from './draft'
 import type { QuickAiBlockReason, QuickAiEntryDraft } from './draft'
 import './quickAiEntry.css'
 
@@ -64,9 +67,9 @@ function describeExtractionError(error: unknown): EntryError {
     case 'QUOTA_EXCEEDED':
       return { code, message: "You've reached today's AI organizing limit. Keep editing your notes and return after the daily limit resets.", retryable: false, blockReason: 'quota', retryAfterSeconds: retryAfterSeconds(error, secondsUntilUtcReset()) }
     case 'AI_RATE_LIMITED':
-      return { code, message: 'Mori is temporarily busy. Your notes are safe; wait for the provider cooldown before retrying.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
+      return { code, message: 'Mori is temporarily busy. Your notes remain in the editor; wait for the provider cooldown before retrying.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
     case 'AUTH_SERVICE_RATE_LIMITED':
-      return { code, message: 'Mori could not verify your session just now. Your notes are safe; please try again when authentication is available.', retryable: true, blockReason: 'auth-service-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
+      return { code, message: 'Mori could not verify your session just now. Your notes remain in the editor; please try again when authentication is available.', retryable: true, blockReason: 'auth-service-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
     case 'AI_OUTPUT_INVALID':
     case 'INVALID_EXTRACTION_RESPONSE':
       return { code, message: "Mori couldn't validate the recipe it returned. Your notes are still here; you can edit them or retry.", retryable: true }
@@ -141,22 +144,48 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const location = useLocation()
   const navigate = useNavigate()
   const { logout } = useAuth()
-  const [draft, setDraft] = useState<QuickAiEntryDraft>(() => readQuickAiEntryDraft(userId))
+  const registerLogoutGuard = useContext(JournalLogoutGuardContext)
+  const [initialRead] = useState(() => readQuickAiEntryDraftResult(userId))
+  const [draft, setDraft] = useState<QuickAiEntryDraft>(initialRead.draft)
   const [loading, setLoading] = useState(false)
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [error, setError] = useState<EntryError | null>(null)
-  const [handoff, setHandoff] = useState<QuickAiEntryHandoff | null>(() => draft.handoff)
+  const [handoff, setHandoff] = useState<QuickAiEntryHandoff | null>(initialRead.draft.handoff)
+  const [persistenceFailed, setPersistenceFailed] = useState(initialRead.status !== 'available')
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false)
+  const [logoutPending, setLogoutPending] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const notesId = useId()
   const helpId = useId()
   const countId = useId()
   const validationId = useId()
+  const persistenceWarningId = useId()
   const notesRef = useRef<HTMLTextAreaElement>(null)
   const requestRef = useRef<AbortController | null>(null)
   const requestNumber = useRef(0)
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const retryWait = draft.blockedUntil === null ? 0 : Math.max(0, Math.ceil((draft.blockedUntil - now) / 1000))
+  const hasUnsavedContent = draft.notes.trim().length > 0 || handoff !== null
+  const navigationConfirmation = useUnsavedChangesGuard(persistenceFailed && hasUnsavedContent, { warnOnUnload: true })
+
+  const persistDraft = useCallback((nextDraft: QuickAiEntryDraft) => {
+    const result = writeQuickAiEntryDraft(userId, nextDraft)
+    setPersistenceFailed(!result.persisted)
+    return result
+  }, [userId])
+
+  const requestLogout = useCallback(() => {
+    if (!persistenceFailed || !hasUnsavedContent) return true
+    setLogoutConfirmationOpen(true)
+    return false
+  }, [hasUnsavedContent, persistenceFailed])
+
+  useEffect(() => {
+    if (!registerLogoutGuard) return
+    return registerLogoutGuard(requestLogout)
+  }, [registerLogoutGuard, requestLogout])
 
   useEffect(() => {
     mounted.current = true
@@ -174,21 +203,32 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     if (draft.blockedUntil <= now) {
       const nextDraft = { ...draft, blockedUntil: null, blockedReason: null }
       setDraft(nextDraft)
-      writeQuickAiEntryDraft(userId, nextDraft)
+      persistDraft(nextDraft)
       if (error?.code === 'QUOTA_EXCEEDED' || error?.code === 'AI_RATE_LIMITED') setError(null)
       return
     }
     const timeout = window.setTimeout(() => setNow(Date.now()), Math.min(1000, draft.blockedUntil! - now))
     return () => window.clearTimeout(timeout)
-  }, [draft, error?.code, now, userId])
+  }, [draft, error?.code, now, persistDraft, userId])
 
   function updateNotes(notes: string) {
     const nextDraft = { ...draft, notes, handoff: null }
     setDraft(nextDraft)
-    writeQuickAiEntryDraft(userId, nextDraft)
+    persistDraft(nextDraft)
     setValidationMessage(null)
     setError(null)
     setHandoff(null)
+    setCopyStatus(null)
+  }
+
+  async function copyNotes() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.')
+      await navigator.clipboard.writeText(draft.notes)
+      setCopyStatus('Notes copied to the clipboard.')
+    } catch {
+      setCopyStatus('Copy is unavailable. Select your notes in the editor and copy them before leaving.')
+    }
   }
 
   async function submitNotes() {
@@ -218,7 +258,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setValidationMessage(null)
     const pendingDraft = { ...draft, handoff: null }
     setDraft(pendingDraft)
-    writeQuickAiEntryDraft(userId, pendingDraft)
+    persistDraft(pendingDraft)
     setHandoff(null)
     try {
       const recipe = await extract(sourceNotes, { userId, signal: controller.signal })
@@ -226,7 +266,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       const nextHandoff: QuickAiEntryHandoff = { sourceNotes, recipe, saved: false }
       const completedDraft = { ...pendingDraft, handoff: nextHandoff }
       setDraft(completedDraft)
-      writeQuickAiEntryDraft(userId, completedDraft)
+      persistDraft(completedDraft)
       setHandoff(nextHandoff)
       onExtracted?.(nextHandoff)
     } catch (requestError) {
@@ -240,7 +280,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
           blockedReason: nextError.blockReason,
         }
         setDraft(blockedDraft)
-        writeQuickAiEntryDraft(userId, blockedDraft)
+        persistDraft(blockedDraft)
         setNow(Date.now())
       }
     } finally {
@@ -257,7 +297,31 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     void submitNotes()
   }
 
+  function keepEditing() {
+    if (logoutConfirmationOpen) setLogoutConfirmationOpen(false)
+    else navigationConfirmation.keepEditing()
+  }
+
+  async function leaveWithoutSaving() {
+    if (!logoutConfirmationOpen) {
+      navigationConfirmation.discardChanges()
+      return
+    }
+
+    setLogoutPending(true)
+    try {
+      await logout()
+      setLogoutConfirmationOpen(false)
+    } catch {
+      setError({ code: 'LOGOUT_FAILED', message: 'Your notes are still in this page. Sign out again when you are ready to leave them.', retryable: false })
+      setLogoutConfirmationOpen(false)
+    } finally {
+      setLogoutPending(false)
+    }
+  }
+
   async function signInAgain() {
+    if (!requestLogout()) return
     try {
       await logout()
       navigate('/login', { replace: true, state: { from: '/app/quick-entry' } })
@@ -266,8 +330,15 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     }
   }
 
-  const describedBy = [helpId, countId, validationMessage ? validationId : null].filter(Boolean).join(' ')
+  const describedBy = [helpId, countId, validationMessage ? validationId : null, persistenceFailed ? persistenceWarningId : null].filter(Boolean).join(' ')
   return <>
+    {(navigationConfirmation.open || logoutConfirmationOpen) && <UnsavedChangesDialog
+      onKeepEditing={keepEditing}
+      onDiscardChanges={() => { void leaveWithoutSaving() }}
+      title="Leave without saving your notes?"
+      message="Your browser couldn't save these notes. Leaving now may lose them. Copy your notes before leaving, or choose Keep Editing."
+      discardLabel={logoutPending ? 'Leaving…' : 'Leave Anyway'}
+    />}
     <JournalFacingPage className="mm-facing-content--quick-ai">
       <header className="mm-quick-ai-intro">
         <div>
@@ -306,8 +377,20 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               placeholder="e.g. leftover rice, two eggs, a splash of soy sauce and garlic. Fry the eggs first, then toss everything together; add scallions if we have them."
               onChange={(event) => updateNotes(event.currentTarget.value)}
             />
+            {persistenceFailed && <div className="mm-quick-ai__storage-warning" id={persistenceWarningId} role="alert" aria-atomic="true">
+              <p>{draft.notes.trim()
+                ? "Your browser couldn't save these notes for later. They're still available on this page, but leaving, signing out, or reloading may erase them. Copy your notes before leaving."
+                : "Your browser couldn't access session storage. Notes you add will stay on this page while it is open, but leaving, signing out, or reloading may erase them."}</p>
+              <div className="mm-quick-ai__storage-actions">
+                {hasUnsavedContent && <button className="button button-secondary mm-button--small" type="button" onClick={() => persistDraft(draft)}>Try saving again</button>}
+                {draft.notes.length > 0 && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void copyNotes() }}>Copy Notes</button>}
+              </div>
+              {copyStatus && <p className="mm-quick-ai__copy-status" role="status" aria-live="polite">{copyStatus}</p>}
+            </div>}
             <div className="mm-quick-ai__field-meta">
-              <p className="mm-quick-ai__helper" id={helpId}>Your notes stay in this browser session so you can come back to them. Maximum {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.</p>
+              <p className="mm-quick-ai__helper" id={helpId}>{persistenceFailed
+                ? `Your notes stay on this page while it is open. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`
+                : `Your notes are saved in this browser session as you type. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`}</p>
               <p className="mm-quick-ai__count" id={countId} aria-live="off">{draft.notes.length.toLocaleString()} / {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()}</p>
             </div>
             {validationMessage && <p className="mm-quick-ai__validation" id={validationId} role="alert">{validationMessage}</p>}
@@ -321,7 +404,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
           <p className="mm-quick-ai__preservation">Your original notes stay separate from the recipe and are never cleared when you submit.</p>
         </form>
 
-        {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite"><Mori mood="stir" size={40} animated /> Mori is organizing your notes. Keep this page open, or come back to your saved-in-session draft.</p>}
+        {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite"><Mori mood="stir" size={40} animated /> Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
         {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="status" aria-live="polite">
           {draft.blockedReason === 'quota'
             ? `Today's AI limit is still in effect. You can organize notes again in ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'}.`
