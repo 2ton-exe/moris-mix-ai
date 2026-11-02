@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
@@ -12,6 +13,30 @@ const production = workflow('reusable-production');
 const release = production.jobs.deploy;
 const edge = workflow('reusable-edge-api');
 const step = (job, name) => job.steps.find(s => s.name === name);
+
+const migrationStateFixtures = {
+  matching: { migrations: [
+    { local: '20261017000001', remote: '20261017000001', time: '2026-10-17 00:00:01' },
+    { local: '20261023000002', remote: '20261023000002', time: '2026-10-23 00:00:02' },
+  ] },
+  localPending: { migrations: [
+    { local: '20261017000001', remote: '20261017000001', time: '2026-10-17 00:00:01' },
+    { local: '20261023000002', remote: '', time: '2026-10-23 00:00:02' },
+  ] },
+  remoteOnly: { migrations: [
+    { local: '20261017000001', remote: '20261017000001', time: '2026-10-17 00:00:01' },
+    { local: '', remote: '20261023000002', time: '2026-10-23 00:00:02' },
+  ] },
+};
+
+test('production migration-state verifier accepts matching history and rejects pending versions', () => {
+  const verify = fixture => spawnSync(process.execPath, ['scripts/verify-production-migration-state.mjs'], {
+    input: JSON.stringify(fixture), encoding: 'utf8',
+  });
+  assert.equal(verify(migrationStateFixtures.matching).status, 0);
+  assert.equal(verify(migrationStateFixtures.localPending).status, 1);
+  assert.equal(verify(migrationStateFixtures.remoteOnly).status, 1);
+});
 
 // These conditions use only this small subset of Actions expressions. Execute the
 // actual YAML expressions against fixtures so changes to the gate affect tests.
@@ -150,7 +175,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   });
   const ordered = ['Validate production deployment configuration', 'Prepare production database CA certificate',
     'Install frontend dependencies', 'Build frontend',
-    'Preview production database migrations', 'Apply production database migrations', 'Deploy recipes Edge Function',
+    'Preview production database migrations', 'Apply production database migrations',
+    'Verify production database migration state', 'Deploy recipes Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
     'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
@@ -204,6 +230,12 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(applyMigrations['working-directory'], 'frontend');
   assert.deepEqual(applyMigrations.env, migrationEnv);
   assert.match(applyMigrations.run, /db push[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--skip-vault[\s\S]*--yes/);
+  const verifyMigrations = step(release, 'Verify production database migration state');
+  assert.equal(verifyMigrations.id, 'verify-migrations');
+  assert.equal(verifyMigrations['working-directory'], 'frontend');
+  assert.deepEqual(verifyMigrations.env, migrationEnv);
+  assert.match(verifyMigrations.run, /migration list[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--output-format json/);
+  assert.match(verifyMigrations.run, /node "\$GITHUB_WORKSPACE\/scripts\/verify-production-migration-state\.mjs"/);
   const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
   assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
   for (const target of ['recipes', 'extract-recipe', 'generate-recipe']) {

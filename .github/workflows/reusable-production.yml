@@ -170,18 +170,10 @@ jobs:
         run: |
           set -euo pipefail
           migration_state="$(pnpm exec supabase --workdir "$GITHUB_WORKSPACE" migration list \
-            --project-ref "$SUPABASE_PROJECT_REF")"
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --output-format json)"
           printf '%s\n' "$migration_state"
-          if ! printf '%s\n' "$migration_state" | awk -F'[|]' '
-            /^[|]`[0-9]{14}`[|]/ || /^[|]` `[|]`[0-9]{14}`[|]/ {
-              rows++
-              if ($2 !~ /^`[0-9]{14}`$/ || $2 != $3) pending = 1
-            }
-            END { exit rows == 0 || pending }
-          '; then
-            echo "::error::Production migration history does not match local migrations."
-            exit 1
-          fi
+          printf '%s\n' "$migration_state" | node "$GITHUB_WORKSPACE/scripts/verify-production-migration-state.mjs"
 
       - name: Deploy recipes Edge Function
         id: deploy-recipes
