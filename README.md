@@ -1,4 +1,4 @@
-# Mori's Scraps
+# Mori's Mix
 
 An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton.exe. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
 
