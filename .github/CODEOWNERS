@@ -2,8 +2,8 @@
 # GitHub evaluates CODEOWNERS from the pull request base branch.
 /.github/CODEOWNERS @DaeSaster @myntchoc
 /.github/workflows/** @DaeSaster @myntchoc
-/.github/workflows/modular-main.yml @Haresco
-/.github/workflows/reusable-production.yml @Haresco
+/.github/workflows/modular-main.yml @DaeSaster
+/.github/workflows/reusable-production.yml @DaeSaster
 /scripts/ci-path-classifier.mjs @DaeSaster @myntchoc
 /scripts/ci-path-classifier.test.mjs @DaeSaster @myntchoc
 
