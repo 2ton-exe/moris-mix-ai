@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { Link, MemoryRouter, Route, Routes } from 'react-router'
+import { Link, MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
+import { JournalShell } from '../journal/JournalShell'
 import { InvalidExtractionResponse } from './extractRecipe'
 import type { QuickAiEntryHandoff } from './extractRecipe'
 import { readQuickAiEntryDraft } from './draft'
@@ -27,10 +28,26 @@ function authState(userId = 'cook-a', logout = vi.fn(async () => {})): AuthState
   }
 }
 
+function JournalLayout() {
+  return <JournalShell><Outlet /></JournalShell>
+}
+
+function JournalIndex() {
+  const location = useLocation()
+  const returnTo = `${location.pathname}${location.search}${location.hash}`
+  return <section>
+    <h1>Your journal</h1>
+    <output data-testid="journal-location">{returnTo}</output>
+    <Link to="/app/quick-entry" state={{ journalReturn: returnTo }}>Return to Quick AI Entry</Link>
+  </section>
+}
+
 function AppRoutes({ children }: { children: ReactNode }) {
   return <Routes>
-    <Route path="/app/quick-entry" element={children} />
-    <Route path="/app/recipes" element={<main><h1>Your journal</h1><Link to="/app/quick-entry">Return to Quick AI Entry</Link></main>} />
+    <Route element={<JournalLayout />}>
+      <Route path="/app/quick-entry" element={children} />
+      <Route path="/app/recipes" element={<JournalIndex />} />
+    </Route>
     <Route path="/login" element={<h1>Sign in</h1>} />
   </Routes>
 }
@@ -115,6 +132,41 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()
     restored.unmount()
+  })
+
+  it('opens from the Mori bookmark, returns to the exact journal location, and restores the unsaved preview', async () => {
+    const journalLocation = '/app/recipes?q=rice&sort=rating&leaf=2#collection-heading'
+    const extract = vi.fn<Extract>().mockResolvedValue(recipe)
+    renderEntry({ extract, initialEntry: journalLocation })
+
+    const bookmarks = screen.getByRole('navigation', { name: 'Journal sections' })
+    const recipesBookmark = screen.getByRole('link', { name: 'My recipes' })
+    const moriBookmark = screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" })
+    expect(recipesBookmark.getAttribute('aria-current')).toBe('page')
+    expect(moriBookmark.getAttribute('href')).toBe('/app/quick-entry')
+    moriBookmark.focus()
+    expect(document.activeElement).toBe(moriBookmark)
+    fireEvent.click(moriBookmark)
+
+    expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBeNull()
+    expect(bookmarks).toBeTruthy()
+
+    const sourceNotes = 'rice, egg, soy sauce; fry egg first'
+    enterNotes(sourceNotes)
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(extract).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
+    expect((await screen.findByTestId('journal-location')).textContent).toBe(journalLocation)
+    expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
+
+    fireEvent.click(screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" }))
+    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
+    expect(extract).toHaveBeenCalledOnce()
   })
 
   it('clears a previous preview when notes change and does not restore it after a later failure', async () => {

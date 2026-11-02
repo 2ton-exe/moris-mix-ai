@@ -61,9 +61,12 @@ try {
     }, { userId })
 
     const bookmarks = page.getByRole('navigation', { name: 'Journal sections' })
+    const moriBookmark = bookmarks.getByRole('link', { name: "Mori's notes, Quick AI Entry" })
     async function checkShell(label) {
       await expect(page.getByRole('main')).toHaveCount(1)
       await expect(bookmarks).toBeVisible()
+      await expect(bookmarks.getByRole('link')).toHaveCount(3)
+      await expect(moriBookmark).toHaveAttribute('href', '/app/quick-entry')
       const overflow = await page.evaluate(() => ({
         viewport: globalThis.innerWidth, document: globalThis.document.documentElement.scrollWidth,
         outside: [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 12).map((element) => ({ className: String(element.className), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width })),
@@ -99,6 +102,28 @@ try {
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     await expect(page).toHaveURL(`${origin}app/recipes/${recipe.id}`)
     await checkShell('detail')
+    await expect(bookmarks.getByRole('link', { name: 'My recipes' })).toHaveAttribute('aria-current', 'page')
+    await moriBookmark.click()
+    await expect(page).toHaveURL(`${origin}app/quick-entry`)
+    await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
+    await expect(moriBookmark).toHaveAttribute('aria-current', 'page')
+    await expect(bookmarks.getByRole('link', { name: 'My recipes' })).not.toHaveAttribute('aria-current', 'page')
+    await checkShell('quick-entry')
+    const sourceNotes = 'notes from the recipe detail page'
+    await page.getByRole('textbox', { name: 'Cooking notes' }).fill(sourceNotes)
+    await page.getByRole('link', { name: 'Back to journal' }).click()
+    await expect(page).toHaveURL(`${origin}app/recipes/${recipe.id}`)
+    await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
+    await moriBookmark.click()
+    await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue(sourceNotes)
+    await expect(moriBookmark).toHaveAttribute('aria-current', 'page')
+    await page.getByRole('link', { name: 'Back to journal' }).click()
+    await expect(page).toHaveURL(`${origin}app/recipes/${recipe.id}`)
+    // Start a fresh history segment for the existing dashboard/detail Back/Forward assertions.
+    await page.goto(`${origin}app`)
+    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await page.getByRole('link').filter({ has: page.getByRole('heading', { name: recipe.title, exact: true }) }).click()
+    await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     // Physical layers and containment must not trap a fixed confirmation dialog.
     const deleteButton = page.getByRole('button', { name: 'Delete recipe', exact: true })
     await deleteButton.click()
@@ -117,7 +142,7 @@ try {
     await page.reload()
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
 
-    // Direct edit loading and new bookmark links retain the editor's dirty guard.
+    // Direct edit loading and journal bookmarks retain the editor's dirty guard.
     await page.goto(`${origin}app/recipes/${recipe.id}/edit`)
     await expect(page.getByLabel('Recipe title')).toHaveValue(recipe.title)
     await expect(bookmarks.locator('[aria-current]')).toHaveCount(0)
@@ -126,7 +151,7 @@ try {
     await expect(page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
     await expect(bookmarks.getByRole('link', { name: 'New recipe' })).toHaveAttribute('aria-current', 'page')
     await page.getByLabel('Recipe title').fill('Unsaved shell test')
-    await bookmarks.getByRole('link', { name: 'My recipes' }).click()
+    await moriBookmark.click()
     const leaveNote = page.getByRole('alertdialog', { name: 'Leave without saving?' })
     await expect(leaveNote).toBeVisible()
     const keepEditing = leaveNote.getByRole('button', { name: 'Keep Editing' })
@@ -136,15 +161,18 @@ try {
     await expect(discardChanges).toBeFocused()
     await keepEditing.click()
     await expect(page.getByLabel('Recipe title')).toHaveValue('Unsaved shell test')
-    await bookmarks.getByRole('link', { name: 'My recipes' }).click()
+    await moriBookmark.click()
     await expect(leaveNote).toBeVisible()
     await leaveNote.getByRole('button', { name: 'Keep Editing' }).click()
     await expect(page.getByLabel('Recipe title')).toHaveValue('Unsaved shell test')
-    await bookmarks.getByRole('link', { name: 'My recipes' }).click()
+    await moriBookmark.click()
     await expect(page.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeVisible()
     await page.getByRole('button', { name: 'Discard Changes' }).click()
-    await expect(page).toHaveURL(`${origin}app/recipes`)
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page).toHaveURL(`${origin}app/quick-entry`)
+    await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
+    await page.getByRole('link', { name: 'Back to journal' }).click()
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
 
     await page.goto(`${origin}app/recipes/new`)
     await checkShell('create')

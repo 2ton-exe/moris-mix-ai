@@ -291,7 +291,7 @@
 @media (max-width: 399.98px) {
   .mm-bookmark > svg { display: none; }
   .mm-bookmarks { gap: 4px; }
-  .mm-bookmark { padding-inline: 10px; }
+  .mm-bookmark { padding-inline: 8px; font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .mm-bookmark { transition: none; } }
 @media (forced-colors: active) {

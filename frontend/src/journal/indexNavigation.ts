@@ -2,10 +2,19 @@ import type { RecipeDiscoveryCriteria, RecipeDiscoverySource } from '../recipes/
 
 export const journalEntriesPerPage = 2
 
+const JOURNAL_RETURN_PATH = /^\/app(?:\/recipes(?:\/new|\/(?!\.{1,2}(?:\/|$))[^/?#]+(?:\/edit)?)?)?\/?(?:\?[^#]*)?(?:#[^\s]*)?$/
+const QUICK_AI_ENTRY_PATH = /^\/app\/quick-entry\/?$/
+
 export function journalReturnTo(state: unknown, fallback = '/app/recipes') {
   if (typeof state === 'object' && state !== null && 'journalReturn' in state &&
-    typeof state.journalReturn === 'string' && /^\/app(?:\/recipes)?(?:\?|$)/.test(state.journalReturn)) return state.journalReturn
+    typeof state.journalReturn === 'string' && JOURNAL_RETURN_PATH.test(state.journalReturn)) return state.journalReturn
   return fallback
+}
+
+/** Preserve the current journal page when opening Quick AI Entry from its bookmark. */
+export function journalReturnFromLocation(location: { pathname: string; search: string; hash?: string; state: unknown }, fallback = '/app/recipes') {
+  if (QUICK_AI_ENTRY_PATH.test(location.pathname)) return journalReturnTo(location.state, fallback)
+  return journalReturnTo({ journalReturn: `${location.pathname}${location.search}${location.hash ?? ''}` }, fallback)
 }
 
 // Presentation parameters only; BE-08 continuations remain owned by its adapter.
