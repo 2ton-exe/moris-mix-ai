@@ -134,7 +134,7 @@ jobs:
           year="$(date -u +'%Y')"
           month="$(date -u +'%m')"
           day="$(date -u +'%d')"
-          backup_id="${timestamp}-${short_sha}"
+          backup_id="${timestamp}-${short_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           backup_dir="$RUNNER_TEMP/moris-mix-db-backup-${backup_id}"
           consistency_dir="$RUNNER_TEMP/moris-mix-db-consistency-${backup_id}"
           archive="$RUNNER_TEMP/moris-mix-postgres-${backup_id}.tar.gz"
@@ -215,6 +215,8 @@ jobs:
             "generated_at_utc": "$generated_at",
             "source_repository": "$GITHUB_REPOSITORY",
             "source_revision": "$GITHUB_SHA",
+            "workflow_run_id": "$GITHUB_RUN_ID",
+            "workflow_run_attempt": "$GITHUB_RUN_ATTEMPT",
             "source_project_ref": "$SUPABASE_PROJECT_REF",
             "supabase_cli_version": "$(supabase --version | tr -d '\r\n')",
             "consistency_check": "production release serialized; roles, schema, and migration history stable across data dump",
@@ -236,6 +238,8 @@ jobs:
             "generated_at_utc": "$generated_at",
             "source_repository": "$GITHUB_REPOSITORY",
             "source_revision": "$GITHUB_SHA",
+            "workflow_run_id": "$GITHUB_RUN_ID",
+            "workflow_run_attempt": "$GITHUB_RUN_ATTEMPT",
             "source_project_ref": "$SUPABASE_PROJECT_REF",
             "object_key": "$object_key",
             "archive_size_bytes": $archive_size_bytes,
@@ -291,6 +295,7 @@ jobs:
           EXPECTED_SHA256: ${{ steps.bundle.outputs.archive_sha256 }}
         run: |
           set -euo pipefail
+          umask 077
 
           remote_size="$(aws s3api head-object \
             --bucket "$R2_BACKUP_BUCKET" \
