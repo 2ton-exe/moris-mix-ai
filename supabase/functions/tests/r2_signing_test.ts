@@ -9,6 +9,7 @@ import {
   type R2Config,
   resolveR2Config,
   signRecipeImageStagingDelete,
+  signRecipeImageStagingList,
   signRecipeImageUpload,
 } from "../_shared/recipe-images/r2.ts";
 import {
@@ -107,6 +108,32 @@ function referenceSignature(
     `AWS4-HMAC-SHA256\n${params.get("X-Amz-Date")}\n${
       scope.join("/")
     }\n${hash}`,
+  ).digest("hex");
+}
+
+function referenceListSignature(url: URL): string {
+  const params = new URLSearchParams(url.search);
+  params.delete("X-Amz-Signature");
+  const canonicalQuery = Array.from(params)
+    .map(([key, value]) =>
+      `${encodeURIComponent(key)}=${
+        encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+          `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+      }`
+    )
+    .sort()
+    .join("&");
+  const request =
+    `GET\n${url.pathname}\n${canonicalQuery}\nhost:${url.host}\n\nhost\nUNSIGNED-PAYLOAD`;
+  let key: Uint8Array = new TextEncoder().encode(
+    `AWS4${config.secretAccessKey}`,
+  );
+  for (const component of ["20261102", "auto", "s3", "aws4_request"]) {
+    key = createHmac("sha256", key).update(component).digest();
+  }
+  const hash = createHash("sha256").update(request).digest("hex");
+  return createHmac("sha256", key).update(
+    `AWS4-HMAC-SHA256\n20261102T000000Z\n20261102/auto/s3/aws4_request\n${hash}`,
   ).digest("hex");
 }
 
@@ -269,6 +296,28 @@ Deno.test("staging cleanup DELETE is object-scoped, short-lived, and independent
   );
   await assertRejects(() =>
     signRecipeImageStagingDelete("recipe-images/staging/not-a-key", config, now)
+  );
+});
+
+Deno.test("staging reconciliation listing is prefix-scoped, paginated, and signed", async () => {
+  const cursor = "opaque+/=cursor%value";
+  const url = new URL(await signRecipeImageStagingList(cursor, config, now));
+  const signature = url.searchParams.get("X-Amz-Signature");
+  assertEquals(referenceListSignature(url), signature);
+  assertEquals(url.protocol, "https:");
+  assertEquals(url.pathname, `/${config.bucketName}`);
+  assertEquals(url.searchParams.get("list-type"), "2");
+  assertEquals(url.searchParams.get("max-keys"), "25");
+  assertEquals(url.searchParams.get("prefix"), "recipe-images/staging/");
+  assertEquals(url.searchParams.get("continuation-token"), cursor);
+  assertEquals(url.searchParams.get("X-Amz-Expires"), "60");
+  assertEquals(url.searchParams.get("X-Amz-SignedHeaders"), "host");
+  assertEquals(url.href.includes(config.secretAccessKey), false);
+  const changed = new URL(url);
+  changed.searchParams.set("prefix", "recipe-images/final/");
+  assertNotEquals(referenceListSignature(changed), signature);
+  await assertRejects(() =>
+    signRecipeImageStagingList("x".repeat(4097), config, now)
   );
 });
 

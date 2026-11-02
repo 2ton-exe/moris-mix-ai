@@ -259,9 +259,12 @@ test('recipe image cleanup is scheduled only on main and uses protected invocati
     SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     RECIPE_IMAGE_CLEANUP_TOKEN: '${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}',
   });
-  assert.ok(cleanup.steps[0].run.includes('if [[ "${SUPABASE_URL,,}" != https://* ]]'));
-  assert.match(cleanup.steps[0].run, /curl --fail --silent --show-error/);
-  assert.ok(cleanup.steps[0].run.indexOf('must use HTTPS') < cleanup.steps[0].run.indexOf('curl --fail'));
+  const cleanupCommand = cleanup.steps[0].run;
+  const httpsGuardIndex = cleanupCommand.indexOf('if [[ "${SUPABASE_URL,,}" != https://* ]]');
+  const curlIndex = cleanupCommand.indexOf('curl --fail --silent --show-error');
+  assert.notEqual(httpsGuardIndex, -1);
+  assert.notEqual(curlIndex, -1);
+  assert.ok(httpsGuardIndex < curlIndex);
   assert.match(cleanup.steps[0].run, /functions\/v1\/recipe-image-upload-cleanup/);
   assert.doesNotMatch(cleanup.steps[0].run, /R2_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY/);
 });
