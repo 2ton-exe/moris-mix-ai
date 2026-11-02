@@ -18,15 +18,34 @@ async function waitForCollection(page) {
   ).toBeVisible({ timeout: 30_000 })
 }
 
+async function navigateToRecipeSection(page, sectionName) {
+  const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
+  const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
+  const nextPage = pageNavigation.getByRole('button', { name: /^Next Pages?$/ })
+  const pagePosition = pageNavigation.getByText(/of \d+$/)
+
+  while (!(await section.isVisible())) {
+    await expect(nextPage).toBeEnabled()
+    const currentPosition = await pagePosition.innerText()
+    await nextPage.click()
+    await expect(pagePosition).not.toHaveText(currentPosition)
+  }
+
+  await expect(section).toBeVisible()
+  return section
+}
+
 async function createRecipe(page, recipeTitle) {
   await page.getByRole('link', { name: 'Start a recipe' }).click()
   await page.getByLabel('Recipe title').fill(recipeTitle)
-  await page.getByRole('button', { name: 'Add ingredient' }).click()
-  await page.getByLabel('Ingredient 1 name').fill('olive oil')
-  await page.getByLabel('Ingredient 1 quantity').fill('2')
-  await page.getByLabel('Ingredient 1 unit').fill('tablespoons')
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
-  await page.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
+  const ingredients = await navigateToRecipeSection(page, 'Ingredients')
+  await ingredients.getByRole('button', { name: 'Add ingredient' }).click()
+  await ingredients.getByLabel('Ingredient 1 name').fill('olive oil')
+  await ingredients.getByLabel('Ingredient 1 quantity').fill('2')
+  await ingredients.getByLabel('Ingredient 1 unit').fill('tablespoons')
+  const cookingMethod = await navigateToRecipeSection(page, 'Cooking method')
+  await cookingMethod.getByRole('button', { name: 'Add cooking step' }).click()
+  await cookingMethod.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 }
