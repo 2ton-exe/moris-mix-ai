@@ -40,6 +40,7 @@ test('all workflow YAML parses, including the reusable production contract', () 
   assert.deepEqual(Object.keys(production.on), ['workflow_call']);
   assert.deepEqual(production.permissions, { contents: 'read' });
   assert.equal(production.on.workflow_call.secrets.SUPABASE_DB_PASSWORD.required, true);
+  assert.equal(production.on.workflow_call.secrets.SUPABASE_DB_ROOT_CERT.required, true);
 });
 
 test('legacy CI is intentionally absent; modular main is the only production caller', () => {
@@ -147,7 +148,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_PUBLIC_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}',
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
-  const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend',
+  const ordered = ['Validate production deployment configuration', 'Prepare production database CA certificate',
+    'Install frontend dependencies', 'Build frontend',
     'Preview production database migrations', 'Apply production database migrations', 'Deploy recipes Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
     'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
@@ -167,11 +169,12 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.deepEqual(configuration.env, {
     SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
     SUPABASE_DB_PASSWORD: '${{ secrets.SUPABASE_DB_PASSWORD }}',
+    SUPABASE_DB_ROOT_CERT: '${{ secrets.SUPABASE_DB_ROOT_CERT }}',
     SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
   });
   assert.match(configuration.run, /configuration\(process\.env\)/);
   for (const guard of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
-    'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_PROJECT_REF', 'supabase/config.toml',
+    'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT', 'SUPABASE_PROJECT_REF', 'supabase/config.toml',
     'https://${SUPABASE_PROJECT_REF}.supabase.co']) assert.ok(configuration.run.includes(guard), guard);
   const install = step(release, 'Install frontend dependencies');
   assert.equal(install['working-directory'], 'frontend');
@@ -179,9 +182,16 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const build = step(release, 'Build frontend');
   assert.equal(build['working-directory'], 'frontend');
   assert.equal(build.run, 'pnpm build');
+  const prepareDbCa = step(release, 'Prepare production database CA certificate');
+  assert.deepEqual(prepareDbCa.env, {
+    SUPABASE_DB_ROOT_CERT: '${{ secrets.SUPABASE_DB_ROOT_CERT }}',
+  });
+  assert.match(prepareDbCa.run, /umask 077[\s\S]*openssl x509[\s\S]*-noout/);
   const migrationEnv = {
     SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
     SUPABASE_DB_PASSWORD: '${{ secrets.SUPABASE_DB_PASSWORD }}',
+    PGSSLMODE: 'verify-full',
+    PGSSLROOTCERT: '${{ runner.temp }}/supabase-db-root.crt',
     SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
   };
   const previewMigrations = step(release, 'Preview production database migrations');
@@ -257,7 +267,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false });
   assert.deepEqual(release.permissions, { contents: 'read' });
   for (const caller of [main.jobs.production]) {
-    assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD']);
+    assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
   }
 });

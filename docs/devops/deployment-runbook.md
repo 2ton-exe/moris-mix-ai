@@ -76,8 +76,10 @@ The validated-main deployment job previews and applies pending Supabase migratio
 to the configured production project, then sends the three explicit Edge Function
 targets `recipes`, `extract-recipe`, and `generate-recipe` in that order and
 deploys the frontend to Cloudflare. The migration step requires the GitHub Actions
-secret `SUPABASE_DB_PASSWORD`; existing `SUPABASE_ACCESS_TOKEN` and
-`SUPABASE_PROJECT_REF` settings authorize and identify the target.
+secrets `SUPABASE_DB_PASSWORD` and `SUPABASE_DB_ROOT_CERT`; the latter is the
+project CA certificate from Database Settings → SSL Configuration. Existing
+`SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` settings authorize and identify
+the target. Both migration connections verify TLS with `PGSSLMODE=verify-full`.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -148,7 +150,8 @@ CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
 `SUPABASE_PROJECT_REF` scope and `--project-ref "$SUPABASE_PROJECT_REF"`,
 `--no-verify-jwt`, `--use-api`, and `--yes`. There is no broad deploy-all command
 or Vault update. The migration preview and apply use the same pinned CLI with
-`SUPABASE_DB_PASSWORD`, the explicit project reference, and `--skip-vault`.
+`SUPABASE_DB_PASSWORD`, `PGSSLMODE=verify-full`, the trusted CA in
+`PGSSLROOTCERT`, the explicit project reference, and `--skip-vault`.
 Migrations run after all validation and the frontend build, before functions, so a
 failure blocks application deployment. A successful migration remains applied if
 a later function or frontend deployment fails; keep migrations backward-compatible
@@ -336,8 +339,10 @@ Cloudflare staging secrets above remain required and must be environment-scoped.
 Production continues using its existing repository `VITE_SUPABASE_URL`,
 `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY`),
 `SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
-`CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`. Set `SUPABASE_DB_PASSWORD`
-as a GitHub Actions repository secret before the production workflow runs. The verifier pins
+`SUPABASE_DB_ROOT_CERT`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`.
+Set `SUPABASE_DB_PASSWORD` and the project CA certificate from Database Settings
+→ SSL Configuration as GitHub Actions repository secrets before the production
+workflow runs. The verifier pins
 staging to `pjeykhjzqhryjwuoizgh` and production to `config.toml`'s project,
 `gtbwblxskctpsqhbpebg`. Missing revision/origin configuration fails preflight
 before deployment; there is no production fallback for staging.
@@ -645,6 +650,7 @@ GitHub Actions uses the following repository secrets:
 | `CLOUDFLARE_ACCOUNT_ID` | Identifies the target Cloudflare account |
 | `SUPABASE_ACCESS_TOKEN` | Authorizes Supabase CLI deployment        |
 | `SUPABASE_DB_PASSWORD`  | Authorizes production database migrations |
+| `SUPABASE_DB_ROOT_CERT` | Verifies the production database TLS certificate |
 
 The `SUPABASE_PROJECT_REF` repository variable identifies the Supabase target and must match `project_id` in `supabase/config.toml`. CI also checks that `VITE_SUPABASE_URL` targets the same project before deploying.
 
