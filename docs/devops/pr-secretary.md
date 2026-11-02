@@ -1,6 +1,6 @@
 # PR Secretary v1
 
-PR Secretary is a deterministic PR operations view for Mori's Scraps (#86).
+PR Secretary is a deterministic PR operations view for Mori's Mix (#86).
 It reports changed areas, requested reviewers, affected ownership, delivery
 evidence, human reviews, and optional CodeRabbit activity in one PR conversation
 comment. It uses Node 24 built-ins, with no LLM, runtime package installation,

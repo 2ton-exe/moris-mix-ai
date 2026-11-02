@@ -1,6 +1,6 @@
 # Deployment Runbook and CI/CD Pipeline
 
-**Project:** Mori's Scraps  
+**Project:** Mori's Mix\
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
@@ -54,7 +54,7 @@ requires a reviewed repository change. Do not rerun stale production revisions.
 
 ## 1. Purpose
 
-This document describes the continuous integration and continuous deployment (CI/CD) pipeline, production hosting configuration, deployment verification procedures, and basic recovery steps for Mori's Scraps.
+This document describes the continuous integration and continuous deployment (CI/CD) pipeline, production hosting configuration, deployment verification procedures, and basic recovery steps for Mori's Mix.
 
 It serves as a reference for team members maintaining the application and as supporting evidence for Sprint 1 DevOps activities.
 
@@ -609,7 +609,7 @@ Under the previous standalone deployment workflow, a manual run from a feature b
 
 **Cloudflare Worker:** `moris-mix-ai`
 
-**Production URL:** [Mori's Scraps — Production](https://moris-mix-ai.diofelgwenharesco.workers.dev)
+**Production URL:** [Mori's Mix — Production](https://moris-mix-ai.diofelgwenharesco.workers.dev)
 
 Cloudflare Workers hosts the frontend through Static Assets. Wrangler reads the repository's `wrangler.jsonc` configuration and publishes the generated files from `frontend/dist/`.
 
@@ -619,7 +619,7 @@ The configuration supports single-page application routing.
 
 The React/Vite frontend is deployed through GitHub Actions to Cloudflare Workers and is accessible at the production URL.
 
-The production root route was verified to serve the Mori's Scraps React application.
+The production root route was verified to serve the Mori's Mix React application.
 
 The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully. On 2026-10-17, the production UI loaded the demo recipe through the Supabase Edge Function, and a direct endpoint request returned the seeded PostgreSQL row with `200 OK`. Full response and qualification notes are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
