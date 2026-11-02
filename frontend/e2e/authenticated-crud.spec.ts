@@ -35,6 +35,15 @@ async function navigateToRecipeSection(page, sectionName) {
   return section
 }
 
+async function expectRecipeContents(page) {
+  await expect(
+    page.getByRole('region', { name: 'Ingredients', exact: true }).getByRole('listitem'),
+  ).toHaveText('2 tablespoons olive oil')
+  await expect(
+    page.getByRole('region', { name: 'In the kitchen', exact: true }).getByRole('listitem'),
+  ).toContainText('Warm the oil and fold in the herbs.')
+}
+
 async function createRecipe(page, recipeTitle) {
   await page.getByRole('link', { name: 'Start a recipe' }).click()
   await page.getByLabel('Recipe title').fill(recipeTitle)
@@ -74,12 +83,11 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(recipeCard).toBeVisible()
     await recipeCard.click()
     await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
-    await expect(page.getByText(/olive oil/)).toBeVisible()
-    await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
+    await expectRecipeContents(page)
 
     await page.reload()
     await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
-    await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
+    await expectRecipeContents(page)
   })
 
   await test.step('edit and rate the persisted recipe', async () => {
@@ -164,8 +172,7 @@ test('a signed-in cook cannot view, update, or delete another cook’s recipe', 
   await signIn(page, localE2eOtherUser)
   await page.goto(recipeUrl)
   await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
-  await expect(page.getByText(/olive oil/)).toBeVisible()
-  await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
+  await expectRecipeContents(page)
   await page.getByRole('button', { name: 'Delete recipe' }).click()
   const dialog = page.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Delete recipe' }).click()
