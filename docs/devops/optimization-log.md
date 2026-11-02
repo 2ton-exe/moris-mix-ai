@@ -118,6 +118,7 @@ Reject/revert if later evidence shows introduced launch/E2E failures, intermitte
 
 ## Experiment 2 — Conservative documentation-only CI path selection
 
+**Date:** 2026-11-01\
 **Sprint:** 3\
 **Issue:** [#124 / DEVOPS-08 (S3)](https://github.com/2ton-exe/moris-mix-ai/issues/124)\
 **Implementation PR:** [#144](https://github.com/2ton-exe/moris-mix-ai/pull/144)\
