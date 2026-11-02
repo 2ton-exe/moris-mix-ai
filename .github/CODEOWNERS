@@ -8,4 +8,4 @@
 /scripts/ci-path-classifier.test.mjs @DaeSaster @myntchoc
 
 # Backend owner reviews production schema changes.
-/supabase/migrations/ @DanielRamos1186
+/supabase/migrations/ @DanielRamos1186 @myntchoc
