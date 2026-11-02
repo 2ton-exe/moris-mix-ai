@@ -61,9 +61,10 @@ provider detail, stack traces or file paths.
 
 The successful paths are also checked: extraction and generation return a
 validated preview and write no recipe or lineage row. At the AI-09 baseline
-(`0aeaaea`) that also meant no usage row; since BE-12 the endpoints record
-quota usage and confirm the reservation on success. Generation is a stateless
-preview; saving remains an explicit later call.
+(`0aeaaea`) that also meant no usage row. BE-12 later added quota reservations
+and usage counters, but the AI-09 suite does not exercise settlement — it
+asserts preview behavior only. Generation is a stateless preview; saving
+remains an explicit later call.
 
 ## Versioned dataset results
 
@@ -146,9 +147,11 @@ This matches the historical 3/3 note in the adapter's model-selection comment.
   error shapes can differ.
 - **No latency benchmark.** The suite asserts behavior and error codes, not
   response-time percentiles.
-- **Quota accounting was out of scope.** At the baseline the quota gate was
-  read-only; BE-12 later added atomic reservations and usage counters, covered
-  by its own hosted tests. This report makes no claims about quota settlement.
+- **Quota accounting is out of scope.** The AI-09 suite does not cover
+  reservations or settlement; BE-12's atomic reservations and usage counters are
+  covered by its own hosted tests. At runtime the endpoints attempt confirmation
+  after a successful or provider-consumed outcome and roll back on non-consuming
+  failures; settlement is best-effort (see `docs/ai-architecture.md` §6).
 
 ## Reproduction
 
