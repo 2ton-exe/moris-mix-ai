@@ -182,6 +182,13 @@ jobs:
             sed -E '/^\\(un)?restrict [[:alnum:]]+$/d' "$1"
           }
 
+          normalize_history_data_dump() {
+            # pg_dump emits COPY data in heap order, which can vary even when
+            # the logical migration ledger is unchanged. Sort only COPY rows for
+            # comparison; the actual history-data backup remains untouched.
+            normalize_dump "$1" | python3 scripts/normalize-pg-copy.py
+          }
+
           if ! cmp -s <(normalize_dump "$backup_dir/roles.sql") <(normalize_dump "$consistency_dir/roles-after.sql"); then
             echo "::error::Production role definitions changed during backup capture; refusing to package or upload the bundle."
             exit 1
@@ -194,7 +201,7 @@ jobs:
             echo "::error::Supabase migration-history schema changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
-          if ! cmp -s <(normalize_dump "$backup_dir/history-data.sql") <(normalize_dump "$consistency_dir/history-data-after.sql"); then
+          if ! cmp -s <(normalize_history_data_dump "$backup_dir/history-data.sql") <(normalize_history_data_dump "$consistency_dir/history-data-after.sql"); then
             echo "::error::Supabase migration ledger changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
@@ -219,7 +226,7 @@ jobs:
             "workflow_run_attempt": "$GITHUB_RUN_ATTEMPT",
             "source_project_ref": "$SUPABASE_PROJECT_REF",
             "supabase_cli_version": "$(supabase --version | tr -d '\r\n')",
-            "consistency_check": "production release serialized; roles, schema, and migration history stable across data dump",
+            "consistency_check": "production release serialized; roles and schema stable; migration history stable after deterministic COPY-row comparison",
             "backup_scope": "Supabase-filtered PostgreSQL logical dump: roles, application schema/data, and supabase_migrations history",
             "known_exclusions": [
               "Supabase-managed/internal schema recovery is not claimed until restore verification proves it",
