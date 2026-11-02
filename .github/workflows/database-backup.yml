@@ -41,14 +41,11 @@ jobs:
         with:
           version: 2.122.0
 
-      - name: Validate backup configuration
+      - name: Validate Supabase backup configuration
         shell: bash
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          R2_BACKUP_ENDPOINT: ${{ secrets.R2_BACKUP_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
 
@@ -56,16 +53,12 @@ jobs:
             SUPABASE_ACCESS_TOKEN
             SUPABASE_DB_PASSWORD
             SUPABASE_PROJECT_REF
-            R2_BACKUP_ENDPOINT
-            R2_BACKUP_BUCKET
-            AWS_ACCESS_KEY_ID
-            AWS_SECRET_ACCESS_KEY
           )
 
           for name in "${required_values[@]}"; do
             value="${!name:-}"
             if [[ -z "${value//[[:space:]]/}" ]]; then
-              echo "::error::Required backup configuration is missing: ${name}"
+              echo "::error::Required Supabase backup configuration is missing: ${name}"
               exit 1
             fi
           done
@@ -75,6 +68,33 @@ jobs:
             echo "::error::SUPABASE_PROJECT_REF must match project_id in supabase/config.toml."
             exit 1
           fi
+
+          supabase --version
+          docker --version
+
+      - name: Validate R2 backup configuration
+        shell: bash
+        env:
+          R2_BACKUP_ENDPOINT: ${{ secrets.R2_BACKUP_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+
+          required_values=(
+            R2_BACKUP_ENDPOINT
+            R2_BACKUP_BUCKET
+            AWS_ACCESS_KEY_ID
+            AWS_SECRET_ACCESS_KEY
+          )
+
+          for name in "${required_values[@]}"; do
+            value="${!name:-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::Required R2 backup configuration is missing: ${name}"
+              exit 1
+            fi
+          done
 
           if [[ ! "$R2_BACKUP_ENDPOINT" =~ ^https://[^/]+\.r2\.cloudflarestorage\.com/?$ ]]; then
             echo "::error::R2_BACKUP_ENDPOINT must be the Cloudflare R2 S3 endpoint."
@@ -86,9 +106,7 @@ jobs:
             exit 1
           fi
 
-          supabase --version
           aws --version
-          docker --version
 
       - name: Link production Supabase project
         shell: bash
