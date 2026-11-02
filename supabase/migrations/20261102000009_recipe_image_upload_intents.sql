@@ -17,8 +17,22 @@ create table public.recipe_image_upload_intents (
 alter table public.recipe_image_upload_intents enable row level security;
 alter table public.recipe_image_upload_intents force row level security;
 
-revoke all on table public.recipe_image_upload_intents from public, anon, authenticated, service_role;
-grant select, insert on table public.recipe_image_upload_intents to service_role;
+revoke all on table public.recipe_image_upload_intents from public;
+
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+        execute 'revoke all on table public.recipe_image_upload_intents from anon';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+        execute 'revoke all on table public.recipe_image_upload_intents from authenticated';
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+        execute 'revoke all on table public.recipe_image_upload_intents from service_role';
+        execute 'grant select, insert on table public.recipe_image_upload_intents to service_role';
+    end if;
+end;
+$$;
 
 create index recipe_image_upload_intents_expiry_idx
     on public.recipe_image_upload_intents (expires_at);

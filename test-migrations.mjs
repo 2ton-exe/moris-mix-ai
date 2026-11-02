@@ -47,8 +47,21 @@ function runDiscoveryAndIntegrityUnitTests() {
   const uploadSql = fs.readFileSync(uploadMigration.filePath, 'utf8');
   assert.match(uploadSql, /alter table public\.recipe_image_upload_intents enable row level security;/);
   assert.match(uploadSql, /alter table public\.recipe_image_upload_intents force row level security;/);
-  assert.match(uploadSql, /revoke all on table public\.recipe_image_upload_intents from public, anon, authenticated, service_role;/);
-  assert.match(uploadSql, /grant select, insert on table public\.recipe_image_upload_intents to service_role;/);
+  assert.match(uploadSql, /revoke all on table public\.recipe_image_upload_intents from public;/);
+  const uploadPermissions = uploadSql.slice(uploadSql.indexOf('do $$'));
+  for (const role of ['anon', 'authenticated', 'service_role']) {
+    const roleBlock = uploadPermissions.match(
+      new RegExp(
+        `if exists \\(select 1 from pg_roles where rolname = '${role}'\\) then([\\s\\S]*?)end if;`
+      )
+    );
+    assert.ok(roleBlock, `${role} permissions must be guarded by role existence`);
+    assert.ok(roleBlock[1].includes(`execute 'revoke all on table public.recipe_image_upload_intents from ${role}'`));
+  }
+  const serviceRoleBlock = uploadPermissions.match(/if exists \(select 1 from pg_roles where rolname = 'service_role'\) then([\s\S]*?)end if;/);
+  assert.ok(serviceRoleBlock, 'service_role grants must be guarded by role existence');
+  assert.ok(serviceRoleBlock[1].includes("execute 'grant select, insert on table public.recipe_image_upload_intents to service_role'"));
+  assert.doesNotMatch(uploadSql, /^\s*(?:revoke|grant)\b[^;]*\b(?:anon|authenticated|service_role)\b[^;]*;/im);
   assert.doesNotMatch(uploadSql, /create\s+policy|security\s+definer|grant[^;]+to\s+(?:public|anon|authenticated)\b/i);
   assert.match(uploadSql, /byte_size between 1 and 10485760/);
   assert.match(uploadSql, /expires_at = created_at \+ interval '10 minutes'/);
