@@ -158,6 +158,31 @@ jobs:
             --skip-vault \
             --yes
 
+      - name: Verify production database migration state
+        id: verify-migrations
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PGSSLMODE: verify-full
+          PGSSLROOTCERT: ${{ runner.temp }}/supabase-db-root.crt
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          migration_state="$(pnpm exec supabase --workdir "$GITHUB_WORKSPACE" migration list \
+            --project-ref "$SUPABASE_PROJECT_REF")"
+          printf '%s\n' "$migration_state"
+          if ! printf '%s\n' "$migration_state" | awk -F'[|]' '
+            /^[|]`[0-9]{14}`[|]/ || /^[|]` `[|]`[0-9]{14}`[|]/ {
+              rows++
+              if ($2 !~ /^`[0-9]{14}`$/ || $2 != $3) pending = 1
+            }
+            END { exit rows == 0 || pending }
+          '; then
+            echo "::error::Production migration history does not match local migrations."
+            exit 1
+          fi
+
       - name: Deploy recipes Edge Function
         id: deploy-recipes
         working-directory: frontend
@@ -239,6 +264,7 @@ jobs:
           RECIPES_OUTCOME: ${{ steps.deploy-recipes.outcome }}
           MIGRATIONS_PREVIEW_OUTCOME: ${{ steps.preview-migrations.outcome }}
           MIGRATIONS_OUTCOME: ${{ steps.deploy-migrations.outcome }}
+          MIGRATIONS_VERIFY_OUTCOME: ${{ steps.verify-migrations.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
           GENERATE_RECIPE_OUTCOME: ${{ steps.deploy-generate-recipe.outcome }}
           CLOUDFLARE_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
@@ -252,6 +278,7 @@ jobs:
             echo "- Source revision: ${GITHUB_SHA}"
             echo "- Database migration preview: ${MIGRATIONS_PREVIEW_OUTCOME}"
             echo "- Database migrations: ${MIGRATIONS_OUTCOME}"
+            echo "- Database migration state verification: ${MIGRATIONS_VERIFY_OUTCOME}"
             echo "- recipes deployment command: ${RECIPES_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
             echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"

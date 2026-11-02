@@ -245,6 +245,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
     MIGRATIONS_PREVIEW_OUTCOME: '${{ steps.preview-migrations.outcome }}',
     MIGRATIONS_OUTCOME: '${{ steps.deploy-migrations.outcome }}',
+    MIGRATIONS_VERIFY_OUTCOME: '${{ steps.verify-migrations.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
     CLOUDFLARE_OUTCOME: '${{ steps.deploy-cloudflare.outcome }}',

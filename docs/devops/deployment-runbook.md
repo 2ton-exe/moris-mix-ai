@@ -109,7 +109,7 @@ Modular main frontend/database/Edge validation completes, including mandatory ho
 ↓\
 All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, preview/apply database migrations, deploy `recipes`, `extract-recipe`, and `generate-recipe`, then deploy Cloudflare assets\
+`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, prepare the production database CA certificate, install dependencies and build the frontend, preview/apply migrations, verify the read-only migration ledger, deploy `recipes`, `extract-recipe`, and `generate-recipe`, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
@@ -130,20 +130,23 @@ or route-smoke result before a reviewed merge and observed main run.
 The production release order is:
 
 1. Validate production deployment configuration.
-2. Install frontend dependencies using the frozen lockfile.
-3. Build the frontend.
-4. Preview pending database migrations (`preview-migrations`).
-5. Apply pending database migrations (`deploy-migrations`).
-6. Deploy `recipes` (`deploy-recipes`).
-7. Deploy `extract-recipe` (`deploy-extract-recipe`).
-8. Deploy `generate-recipe` (`deploy-generate-recipe`).
-9. Deploy Cloudflare Workers assets.
-10. Verify the production deployment URL.
-11. Verify deployed AI routes (`ai-route-smoke`).
-12. Run the existing production runtime smoke (`runtime-smoke`).
-13. Record each migration, deployment, URL verification, AI route smoke, and runtime smoke
-    outcome independently, including failures or skipped downstream steps.
-14. Preserve the separate runtime and AI route evidence artifacts.
+2. Prepare and validate the production database CA certificate.
+3. Install frontend dependencies using the frozen lockfile.
+4. Build the frontend.
+5. Preview pending database migrations (`preview-migrations`).
+6. Apply pending database migrations (`deploy-migrations`).
+7. Read the production migration ledger and fail if it differs from the local migration files (`verify-migrations`).
+8. Deploy `recipes` (`deploy-recipes`).
+9. Deploy `extract-recipe` (`deploy-extract-recipe`).
+10. Deploy `generate-recipe` (`deploy-generate-recipe`).
+11. Deploy Cloudflare Workers assets.
+12. Verify the production deployment URL.
+13. Verify deployed AI routes (`ai-route-smoke`).
+14. Run the existing production runtime smoke (`runtime-smoke`).
+15. Record migration preview, apply, and state-verification outcomes separately, along
+    with each deployment, URL verification, AI route smoke, and runtime smoke outcome,
+    including failures or skipped downstream steps.
+16. Preserve the separate runtime and AI route evidence artifacts.
 
 Each Supabase deployment is a separate explicit target using the repository-pinned
 CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
@@ -152,12 +155,16 @@ CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
 or Vault update. The migration preview and apply use the same pinned CLI with
 `SUPABASE_DB_PASSWORD`, `PGSSLMODE=verify-full`, the trusted CA in
 `PGSSLROOTCERT`, the explicit project reference, and `--skip-vault`.
+After apply, the read-only `supabase migration list` check compares every local
+migration version with the remote ledger and fails if any version is missing or
+extra. It uses the same project reference, password, and verified TLS settings.
 Migrations run after all validation and the frontend build, before functions, so a
 failure blocks application deployment. A successful migration remains applied if
 a later function or frontend deployment fails; keep migrations backward-compatible
-with the currently deployed code. Any failed migration, deployment, or route check
-fails the release; later normal steps do not run. The summary and artifact steps
-retain their `always()` behavior without turning the release green.
+with the currently deployed code. Any failed migration, state verification,
+deployment, or route check fails the release; later normal steps do not run. The
+summary and artifact steps retain their `always()` behavior without turning the
+release green.
 
 `scripts/ai-route-smoke.mjs` pins its HTTPS origin to the production project in
 `supabase/config.toml` and checks both `/functions/v1/extract-recipe` and
@@ -691,18 +698,20 @@ manual dispatch on `main` follows the same production path:
 
 1. Run required frontend, database, Edge/API, and mandatory Hosted RLS validation. Confirm every `production.needs` job succeeded and frontend existence is true. Playwright E2E runs separately and is non-gating.
 2. Validate production deployment configuration, including the Supabase access token, database password, and project reference.
-3. Install frontend dependencies and build the frontend.
-4. Preview pending migrations with the pinned Supabase CLI. The preview uses the configured project reference and skips Vault changes.
-5. Apply pending migrations with the same target and Vault setting. A migration failure stops the release before application code deploys.
-6. Deploy the explicit `recipes`, `extract-recipe`, and `generate-recipe` Edge Function targets. Each uses the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; handlers enforce authentication.
-7. Deploy to Cloudflare only after the function deployments succeed.
-8. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
-9. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
-10. Run the existing production runtime smoke. Its public demo check does not verify authenticated recipe CRUD.
-11. Inspect the production summary's separate migration preview/apply, function, Cloudflare, URL verification, AI route smoke, and runtime smoke outcomes. A failed deployment or smoke fails delivery; it does not roll back earlier deployments or migrations.
-12. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
+3. Prepare and validate the production database CA certificate.
+4. Install frontend dependencies and build the frontend.
+5. Preview pending migrations with the pinned Supabase CLI. The preview uses the configured project reference and skips Vault changes.
+6. Apply pending migrations with the same target and Vault setting. A migration failure stops the release before application code deploys.
+7. Read the remote migration ledger with the pinned CLI and verify that it exactly matches the local migration versions. A mismatch stops the release before application code deploys.
+8. Deploy the explicit `recipes`, `extract-recipe`, and `generate-recipe` Edge Function targets. Each uses the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; handlers enforce authentication.
+9. Deploy to Cloudflare only after the function deployments succeed.
+10. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
+11. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
+12. Run the existing production runtime smoke. Its public demo check does not verify authenticated recipe CRUD.
+13. Inspect the production summary's separate migration preview/apply/verification, function, Cloudflare, URL verification, AI route smoke, and runtime smoke outcomes. A failed deployment or smoke fails delivery; it does not roll back earlier deployments or migrations.
+14. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 
-The validated main deployment previews and applies pending database migrations before deploying application code. Before relying on recipe CRUD, verify the successful migration step and the production migration ledger in that release run.
+The validated main deployment previews, applies, and verifies pending database migrations before deploying application code. Before relying on recipe CRUD, verify the successful migration steps and production migration ledger in that release run.
 
 ### Historical FE-01 Deployment
 
@@ -866,7 +875,7 @@ If a production deployment fails or introduces a defect:
 1. Identify the affected commit and deployment.
 2. Inspect GitHub Actions and Cloudflare logs.
 3. Determine whether the issue involves application code, build configuration, credentials, or hosting.
-4. If necessary, prepare a corrective or revert pull request targeting `main`.
+4. If necessary, prepare a corrective or revert pull request targeting `main`. When production schema migrations have already applied, use an application change compatible with the newer schema or a forward migration; do not roll back the schema automatically.
 5. Obtain the required approval and CI validation.
 6. Merge the corrective change to trigger the unified CI workflow and gated deployment after successful validation.
 7. Verify the restored application at the production URL.
@@ -877,6 +886,25 @@ Cloudflare deployment history may provide an alternative rollback mechanism, but
 **Recovery status:** Documented procedure only. No production rollback or recovery drill has been successfully tested yet.
 
 A rollback procedure must not be described as verified until an actual rollback or recovery exercise has been completed.
+
+### Production database migration recovery
+
+If migrations succeed but a later function or Cloudflare deployment fails, treat the
+database schema as advanced. Keep the old application compatible with that schema,
+then deploy a reviewed forward fix. Do not automatically reverse applied migrations.
+
+If a migration command fails or is interrupted, stop subsequent production releases
+until an operator checks the workflow output, the remote migration ledger, and the
+actual schema for partial effects. Do not blindly rerun the migration or mark it
+applied in the ledger. Reconcile the database state first, then use a reviewed
+forward migration or an explicitly planned repair and record the evidence.
+
+The workflow does not rely on backup or point-in-time recovery. The [2026-10-24
+observability audit](observability-audit.md#supabase-visibility) reported that no
+backups were shown in the dashboard; it did not verify a restore or establish that
+PITR is available. Confirm the current production plan/settings and restore
+capability before relying on one. Until verified, recovery depends on compatible
+migrations and forward fixes, with no established database restore path.
 
 ## 13. Pipeline Metrics
 
