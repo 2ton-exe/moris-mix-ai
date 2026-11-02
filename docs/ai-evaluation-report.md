@@ -60,11 +60,15 @@ permanent failures never do. Error bodies contain no prompt text, recipe text,
 provider detail, stack traces or file paths.
 
 The successful paths are also checked: extraction and generation return a
-validated preview and write no recipe or lineage row. At the AI-09 baseline
-(`0aeaaea`) that also meant no usage row. BE-12 later added quota reservations
-and usage counters, but the AI-09 suite does not exercise settlement — it
-asserts preview behavior only. Generation is a stateless preview; saving
-remains an explicit later call.
+validated preview and write no recipe or lineage row. The AI-09 baseline
+(`0aeaaea`) predated BE-12, so it made no quota claims and recorded no usage
+row. The endpoint tests added with BE-12 do exercise settlement orchestration
+against a mocked PostgREST transport: the reservation is confirmed and charged
+on success or provider-consumed failure, refunded on definite non-consuming
+failures, and a failed confirm call still returns the preview. Those mocks
+cannot prove hosted-database atomicity, concurrency or role enforcement; that
+is BE-12's own hosted database suite. Generation is a stateless preview;
+saving remains an explicit later call.
 
 ## Versioned dataset results
 
@@ -147,11 +151,12 @@ This matches the historical 3/3 note in the adapter's model-selection comment.
   error shapes can differ.
 - **No latency benchmark.** The suite asserts behavior and error codes, not
   response-time percentiles.
-- **Quota accounting is out of scope.** The AI-09 suite does not cover
-  reservations or settlement; BE-12's atomic reservations and usage counters are
-  covered by its own hosted tests. At runtime the endpoints attempt confirmation
-  after a successful or provider-consumed outcome and roll back on non-consuming
-  failures; settlement is best-effort (see `docs/ai-architecture.md` §6).
+- **Quota settlement coverage is split.** The AI-09 baseline predated BE-12 and
+  made no quota claims. BE-12's endpoint tests exercise handler-level
+  confirmation and rollback against a mocked PostgREST transport; they do not
+  prove hosted-database atomicity, concurrency or role enforcement, which
+  BE-12's hosted database tests cover. At runtime settlement is best-effort
+  (see `docs/ai-architecture.md` §6).
 
 ## Reproduction
 
