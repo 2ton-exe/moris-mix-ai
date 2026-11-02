@@ -12,6 +12,7 @@ import sys
 
 
 def main() -> int:
+    """Sort rows inside complete COPY blocks and reject malformed input."""
     in_copy = False
     rows: list[str] = []
 
