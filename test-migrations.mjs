@@ -230,6 +230,7 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       () => client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)'),
       (error) => error.code === '42501'
     );
+    await setServiceRole(client);
     const concurrentUser = crypto.randomUUID();
     assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
     assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
