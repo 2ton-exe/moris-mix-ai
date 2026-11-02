@@ -76,7 +76,7 @@ During capture, the workflow:
 1. holds the same repository concurrency lock used by the production release job;
 2. captures roles, schema, migration history, and the logical data dump;
 3. re-dumps roles, schema, and migration history after the data dump;
-4. compares the pre/post outputs byte-for-byte;
+4. compares normalized pre/post outputs, ignoring only PostgreSQL's generated `\restrict`/`\unrestrict` guard-key lines so random per-dump keys do not create false drift;
 5. refuses to package or upload the archive if any compared component changed.
 
 This is a fail-closed drift check around Supabase's supported multi-file backup flow. It prevents a detected production migration or out-of-band DDL/role change from silently producing an accepted bundle. It is not described as PostgreSQL `--snapshot` synchronization across the separate CLI commands.
@@ -114,7 +114,7 @@ After the workflow is merged to `main` and all required secrets/variables are co
 2. Manually dispatch **Production Database Backup** from `main`.
 3. Confirm the workflow identifies the intended production project without printing credentials.
 4. Confirm the shared production concurrency boundary is active and no repository-managed production release/migration overlaps the capture.
-5. Confirm the role/schema/migration-history pre/post consistency comparisons pass.
+5. Confirm the normalized role/schema/migration-history pre/post consistency comparisons pass.
 6. Confirm the archive and evidence JSON upload to `moris-mix-db-backups-prod`.
 7. Confirm the remote object size equals the local archive size and the re-downloaded archive SHA-256 equals the locally recorded SHA-256.
 8. Record the workflow run ID, source SHA, timestamp, R2 object key, archive size, and SHA-256 in #159.
