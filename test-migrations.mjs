@@ -42,6 +42,18 @@ const silentLogger = {
 
 function runDiscoveryAndIntegrityUnitTests() {
   const migrations = discoverMigrations(path.join(__dirname, 'supabase/migrations'));
+  const uploadMigration = migrations.find((migration) => migration.file.endsWith('_recipe_image_upload_intents.sql'));
+  assert.equal(uploadMigration?.version, '20261102000009');
+  const uploadSql = fs.readFileSync(uploadMigration.filePath, 'utf8');
+  assert.match(uploadSql, /alter table public\.recipe_image_upload_intents enable row level security;/);
+  assert.match(uploadSql, /alter table public\.recipe_image_upload_intents force row level security;/);
+  assert.match(uploadSql, /revoke all on table public\.recipe_image_upload_intents from public, anon, authenticated, service_role;/);
+  assert.match(uploadSql, /grant select, insert on table public\.recipe_image_upload_intents to service_role;/);
+  assert.doesNotMatch(uploadSql, /create\s+policy|security\s+definer|grant[^;]+to\s+(?:public|anon|authenticated)\b/i);
+  assert.match(uploadSql, /byte_size between 1 and 10485760/);
+  assert.match(uploadSql, /expires_at = created_at \+ interval '10 minutes'/);
+  assert.match(uploadSql, /check \(state = 'pending'\)/);
+  assert.doesNotMatch(uploadSql, /references|on delete|update public\.recipes|delete from/i);
   const quotaMigration = migrations.find((migration) => migration.file.endsWith('_ai_quota_enforcement.sql'));
   assert.equal(quotaMigration?.version, '20261031000007');
   const quotaSql = fs.readFileSync(quotaMigration.filePath, 'utf8');
