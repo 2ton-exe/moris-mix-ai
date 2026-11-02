@@ -8,9 +8,11 @@ import { fileURLToPath, pathToFileURL, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
+import { assertReferencePrerequisites } from './reference-prerequisites.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const referenceRoot = path.resolve(root, '../../figma-make-reference')
+await assertReferencePrerequisites(referenceRoot)
 const output = path.join(root, 'test-results/ui01-step4')
 const videoDir = path.join(output, 'video')
 await mkdir(output, { recursive: true })
@@ -104,7 +106,7 @@ async function addReferenceMocks(context, appOrigin, referenceOrigin) {
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
     if ([new URL(appOrigin).origin, new URL(referenceOrigin).origin].includes(url.origin)) return route.continue()
-    if (url.hostname === 'fonts.googleapis.com') return route.fulfill({ contentType: 'text/css', body: ['Figtree', 'Fraunces', 'Caveat'].map((family) => `@font-face{font-family:'${family}';font-weight:300 800;src:url('${appOrigin}src/assets/journal/fonts/${family.toLowerCase()}-latin.woff2') format('woff2')`).join('\n') })
+    if (url.hostname === 'fonts.googleapis.com') return route.fulfill({ contentType: 'text/css', body: ['Figtree', 'Fraunces', 'Caveat'].map((family) => `@font-face{font-family:'${family}';font-weight:300 800;src:url('${appOrigin}src/assets/journal/fonts/${family.toLowerCase()}-latin.woff2') format('woff2')}`).join('\n') })
     return route.abort()
   })
   await context.addInitScript(({ user, recipes }) => {
@@ -189,6 +191,14 @@ try {
   await expect(appPage.getByRole('link', { name: /Previous page/ })).toHaveCount(0, 'Collection cannot turn before its first available page')
   await expect(appPage.getByRole('link', { name: /Next page/ })).toBeEnabled()
   await Promise.all([appPage.evaluate(() => globalThis.document.fonts.ready), referencePage.evaluate(() => globalThis.document.fonts.ready)])
+  const referenceFonts = await referencePage.evaluate(async () => {
+    return Promise.all(['Figtree', 'Fraunces', 'Caveat'].map(async (family) => {
+      const faces = await globalThis.document.fonts.load(`400 16px "${family}"`)
+      return { family, loaded: faces.length > 0 && faces.every((face) => face.status === 'loaded') }
+    }))
+  })
+  assert.ok(referenceFonts.every((font) => font.loaded), `Reference fonts must load without fallback: ${JSON.stringify(referenceFonts)}`)
+  process.stdout.write(`Reference fonts loaded: ${referenceFonts.map((font) => font.family).join(', ')}.\n`)
 
   await snapshot(appPage, 'current-1440-before-forward')
   await snapshot(referencePage, 'reference-1440-before-forward')

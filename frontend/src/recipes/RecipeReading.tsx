@@ -102,8 +102,13 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
       const target = event.target as HTMLElement
       if (!target.closest('.mm-journal-spread') || target.closest('input, textarea, select, button, a, [contenteditable="true"], .mm-unit-content')) return
-      if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); turn(requestedPage.current + 1) }
-      if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turn(requestedPage.current - 1) }
+      const delta = event.key === 'ArrowRight' || event.key === 'PageDown' ? 1
+        : event.key === 'ArrowLeft' || event.key === 'PageUp' ? -1 : 0
+      const index = requestedPage.current + delta
+      if (delta !== 0 && index >= 0 && index < spreads.length && !isTurning) {
+        event.preventDefault()
+        turn(index)
+      }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)

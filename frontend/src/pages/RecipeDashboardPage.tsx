@@ -237,7 +237,7 @@ export default function RecipeDashboardPage() {
         {rightPage > 1 && <Link className="button mm-button--page-turn" to={viewLink('index')} state={{ journalAccount: user?.id }}>Search &amp; index</Link>}
       </>}
     />
-    {recipes !== undefined && <JournalCompanion><MoriDialogueLauncher
+    {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <JournalCompanion><MoriDialogueLauncher
       lines={moriLines} completionText="Whenever you are ready, your journal is here."
       onChoice={(choice) => { if (choice.id === 'clear-search') controls.reset() }}
     /></JournalCompanion>}

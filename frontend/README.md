@@ -116,6 +116,16 @@ pnpm build
 The test and build scripts use Vite's runner config loader because the default
 bundled loader cannot resolve config paths in this Windows workspace sandbox.
 
+The optional Figma comparison harnesses (`node e2e/journal-step1.browser.mjs`,
+`node e2e/journal-step2.browser.mjs`, and `node e2e/journal-step4.browser.mjs`)
+require the original reference app in `../figma-make-reference`, a sibling of
+this repository (not inside `frontend`). Restore that checkout and run
+`pnpm install` there first; its Vite, `@vitejs/plugin-react`, and
+`@tailwindcss/vite` dependencies must be installed. These harnesses check the
+prerequisites before importing reference dependencies and write comparisons
+under `frontend/test-results`. The reference checkout is not required for
+production builds, normal CI, or the isolated browser acceptance suites.
+
 ## Production verification still needed
 
 For the production workflow, configure these GitHub Actions repository variables

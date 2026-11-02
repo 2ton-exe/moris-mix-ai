@@ -12,9 +12,11 @@ import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { assertJournalGeometry, settleJournalLayout } from './journal-geometry.mjs'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
+import { assertReferencePrerequisites } from './reference-prerequisites.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const referenceRoot = path.resolve(root, '../../figma-make-reference')
+await assertReferencePrerequisites(referenceRoot)
 const phase = process.argv[2] ?? 'after'
 assert.ok(['before', 'after'].includes(phase))
 const output = path.join(root, 'test-results/ui01-step1')

@@ -312,7 +312,7 @@ try {
   await page.goto(detailUrl(initialRecipe.id))
   await expect(page.getByRole('heading', { name: 'A favorite revisited', level: 1 })).toBeVisible()
   await page.getByRole('link', { name: 'Edit recipe' }).click()
-  await page.getByRole('button', { name: 'Back to journal' }).click()
+  await page.getByRole('link', { name: 'Back to journal', exact: true }).click()
   await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
 

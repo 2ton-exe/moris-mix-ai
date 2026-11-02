@@ -157,7 +157,11 @@ export function MoriDialogue({
     if (!line || !onChoice) return
     onChoice(choice, line)
     const nextLine = choice.nextLineId ? lines.find((item) => item.id === choice.nextLineId) : undefined
-    if (nextLine) setFlow({ lineKey, lineId: nextLine.id, complete: false, typedCount: 0 })
+    if (nextLine) {
+      // The reply button may disappear on this line; move focus before removal.
+      continueRef.current?.focus()
+      setFlow({ lineKey, lineId: nextLine.id, complete: false, typedCount: 0 })
+    }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -234,6 +238,9 @@ export function MoriDialogueLauncher({
   const wasOpen = useRef(false)
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
+  // Keep the current conversation intact while its choices update the page.
+  // Newly supplied notes take effect the next time the launcher is opened.
+  const [activeLines, setActiveLines] = useState(lines)
 
   useLayoutEffect(() => {
     if (wasOpen.current && !open) triggerRef.current?.focus()
@@ -265,6 +272,7 @@ export function MoriDialogueLauncher({
   function toggle() {
     if (open) requestClose()
     else {
+      setActiveLines(lines)
       setClosing(false)
       setOpen(true)
     }
@@ -299,8 +307,7 @@ export function MoriDialogueLauncher({
       </button>
       {open && <MoriDialogue
         id={panelId}
-        key={JSON.stringify(lines.map(({ id, text }) => [id, text]))}
-        lines={lines}
+        lines={activeLines}
         completionText={completionText}
         typewriterSpeedMs={typewriterSpeedMs}
         closing={closing}

@@ -6,11 +6,11 @@ import { JournalShell } from '../journal/JournalShell'
 import { RecipeReading } from './RecipeReading'
 import type { RecipeDetail } from './types'
 
-const measured = vi.hoisted(() => ({ single: false, pages: [['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1', 'note-0', 'note-1', 'flavors']] }))
+const measured = vi.hoisted(() => ({ single: false, fallback: false, pages: [['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1', 'note-0', 'note-1', 'flavors']] }))
 vi.mock('../journal/useJournalMedia', () => ({ useJournalMedia: () => measured.single }))
 vi.mock('./useReadingPagination', () => ({ useReadingPagination: () => ({
-  bodyRef: createRef(), leftRef: createRef(), bankRef: createRef(), measurable: false,
-  layout: { pages: measured.pages, capacity: 400, oversized: ['instruction-1'] },
+  bodyRef: createRef(), leftRef: createRef(), bankRef: createRef(), measurable: false, ready: true,
+  layout: measured.fallback ? null : { pages: measured.pages, capacity: 400, oversized: ['instruction-1'] },
 }) }))
 
 const recipe: RecipeDetail = {
@@ -32,7 +32,32 @@ function RouteView({ data = recipe }: { data?: RecipeDetail }) {
   </>
 }
 
-beforeEach(() => { measured.single = false })
+beforeEach(() => { measured.single = false; measured.fallback = false })
+
+it('leaves boundary PageUp/PageDown actions available and only cancels valid page turns', async () => {
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
+  const region = () => screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
+  expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(true)
+  expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+  expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(false)
+  await screen.findByText('Page 2 of 2')
+  expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(true)
+  expect(screen.getByText('Page 2 of 2')).toBeTruthy()
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull(), { timeout: 2000 })
+  expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(false)
+  await screen.findByText('Page 1 of 2')
+})
+
+it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallback spread', (key) => {
+  measured.fallback = true
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
+  const region = screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
+  region.focus()
+  expect(fireEvent.keyDown(region, { key })).toBe(true)
+  expect(document.activeElement).toBe(region)
+  expect(screen.getByText('Page 1 of 1')).toBeTruthy()
+  expect(screen.getByText('Page space is limited. Scroll this paper to continue reading.')).toBeTruthy()
+})
 
 it('turns through facing leaves with live announcements and preserves route return state', async () => {
   render(<MemoryRouter initialEntries={[{ pathname: '/app/recipes/reading-test', search: '?keep=value', state: { journalReturn: '/app/recipes?entry=6' } }]}><RouteView /></MemoryRouter>)

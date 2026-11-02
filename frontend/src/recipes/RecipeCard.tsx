@@ -23,7 +23,8 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
   const number = String(folio).padStart(2, '0')
   const returnParams = new URLSearchParams(location.search)
   if (indexCard || folio > 1 || returnParams.has('entry')) returnParams.set('entry', String(folio - 1))
-  const journalReturn = location.pathname + (returnParams.size ? `?${returnParams}` : '')
+  const returnSearch = returnParams.toString()
+  const journalReturn = location.pathname + (returnSearch ? `?${returnSearch}` : '')
   return (
     <li className="mm-recipe-card-slot">
       <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}`} onClick={(event) => {

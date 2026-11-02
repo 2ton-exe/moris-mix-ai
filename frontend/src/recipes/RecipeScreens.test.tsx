@@ -76,6 +76,26 @@ it('reserves a card grid while loading, then renders collection metadata and det
   expect(within(other).queryByText('Rating')).toBeNull()
 })
 
+it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }])('preserves collection return parameters and entry $entry without URLSearchParams.size', async ({ leaf, entry }) => {
+  const size = vi.spyOn(URLSearchParams.prototype, 'size', 'get').mockReturnValue(undefined as unknown as number)
+  try {
+    const entries = Array.from({ length: 6 }, (_, index) => ({ ...previewRecipes[0], id: `compat-${index}`, title: `Compatible recipe ${index + 1}` }))
+    vi.mocked(source.list).mockResolvedValue(entries)
+    vi.mocked(source.detail).mockImplementation(async (id) => entries.find((recipe) => recipe.id === id)!)
+    const search = `view=collection&leaf=${leaf}&entry=${entry}&keep=one&keep=two`
+    render(tree(`/app/recipes?${search}`))
+    const name = `Open recipe ${entries[entry].title}`
+    fireEvent.click(await screen.findByRole('link', { name }))
+    const back = await screen.findByRole('link', { name: 'Back to recipes' })
+    expect(back.getAttribute('href')).toBe(`/app/recipes?${search}`)
+    fireEvent.click(back)
+    await screen.findByRole('link', { name })
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('link', { name })))
+  } finally {
+    size.mockRestore()
+  }
+})
+
 it('opens the collection against the inside cover, then fills both pages through server cursors', async () => {
   const entries = Array.from({ length: 6 }, (_, i) => ({ ...previewRecipes[i % 2], id: `entry-${i}`, title: `Saved recipe ${i + 1}` }))
   const fetchPage = vi.fn().mockImplementation(({ continuation }) => Promise.resolve(continuation === null

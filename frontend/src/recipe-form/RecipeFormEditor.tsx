@@ -451,7 +451,7 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
       {saved && <p className="recipe-save-success" role="status">Recipe saved.</p>}
       {pending && <p role="status">Saving your recipe…</p>}
       {notice}
-      {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + ' pages have errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
+      {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + (otherErrorLeafIndices.length === 1 ? ' other page has' : ' other pages have') + ' errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
       <RecipeWritingTurns page={position.page} total={position.total} text={position.text} single={single} onTurn={turnToPage} />
       <div className="actions recipe-form-actions">
         <button className="button button-primary" type="submit" disabled={pending || saved}>{pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? 'Save recipe' : 'Save changes'}</button>

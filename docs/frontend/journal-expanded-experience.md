@@ -1,5 +1,13 @@
 # UI-01: journal composition and expanded sheets
 
+> **Historical implementation report — superseded.** The detached expanded
+> sheets and non-scrolling sheet contracts described below are no longer the
+> application's current architecture. See [journal-physical-ux.md](journal-physical-ux.md)
+> and the later UI-01 implementation handoffs:
+> [Step 1](journal-ui01-step1.md), [Step 2](journal-ui01-step2.md),
+> [Step 3A](journal-ui01-step3a.md), [Step 3B](journal-ui01-step3b.md),
+> [Step 4](journal-ui01-step4.md), and [Step 6A](journal-ui01-step6a.md).
+
 November 1, 2026 · `feat/UI-01-journal-redesign` · uncommitted work.
 
 ## 1. Root cause

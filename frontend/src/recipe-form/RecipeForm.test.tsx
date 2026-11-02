@@ -167,11 +167,26 @@ it('turns to the first invalid leaf and announces errors on additional pages', (
   expect(document.activeElement).toBe(first)
   const otherPage = screen.getByRole('button', { name: /another recipe page with errors/i })
   expect(otherPage.textContent).toContain('1 other page has errors')
+  expect(otherPage.getAttribute('aria-label')).toBe('Go to another recipe page with errors. 1 other page has errors.')
   fireEvent.click(otherPage)
   const second = screen.getByLabelText('Ingredient 3 quantity')
   expect(second.getAttribute('aria-invalid')).toBe('true')
   expect(document.activeElement).toBe(second)
   expect(submit).not.toHaveBeenCalled()
+})
+
+it('uses plural grammar in both descriptions when multiple other pages have errors', () => {
+  const multiPage = { ...editable, ingredients: Array.from({ length: 6 }, (_, index) => ({
+    name: 'Ingredient ' + (index + 1), quantity: 1, unit: 'cup', inferred: false,
+  })) }
+  render(<RecipeForm mode="edit" initialValues={multiPage} onSubmit={vi.fn()} />)
+  fill('Recipe title', '')
+  nextPages()
+  fill('Ingredient 3 quantity', 'some')
+  fill('Ingredient 5 quantity', 'some')
+  click('Save changes')
+  const otherPages = screen.getByRole('button', { name: 'Go to another recipe page with errors. 2 other pages have errors.' })
+  expect(otherPages.textContent).toBe('2 other pages have errors')
 })
 
 it('validates the required trimmed title, links its error, and focuses the field', async () => {
