@@ -28,6 +28,10 @@ jobs:
             echo "::error::Configure VITE_SUPABASE_URL and RECIPE_IMAGE_CLEANUP_TOKEN before enabling cleanup."
             exit 1
           fi
+          if [[ "${SUPABASE_URL,,}" != https://* ]]; then
+            echo "::error::VITE_SUPABASE_URL must use HTTPS."
+            exit 1
+          fi
           curl --fail --silent --show-error \
             --max-time 90 \
             --request POST \

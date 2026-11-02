@@ -70,6 +70,15 @@ function runDiscoveryAndIntegrityUnitTests() {
   const lifecycleMigration = migrations.find((migration) => migration.version === '20261102000010');
   assert.equal(lifecycleMigration?.file, '20261102000010_recipe_image_upload_lifecycle.sql');
   const lifecycleSql = fs.readFileSync(lifecycleMigration.filePath, 'utf8');
+  const lifecycleCorrection = migrations.find((migration) => migration.version === '20261102000011');
+  assert.equal(lifecycleCorrection?.file, '20261102000011_recipe_image_upload_cleanup_claim_qualification.sql');
+  const lifecycleCorrectionSql = fs.readFileSync(lifecycleCorrection.filePath, 'utf8');
+  const retentionDelete = lifecycleCorrectionSql.match(/delete from public\.recipe_image_upload_intents as retained[\s\S]*?limit 500\s*\n\s*\);/i)?.[0];
+  assert.ok(retentionDelete);
+  assert.match(retentionDelete, /retained\.id in \([\s\S]*select candidate\.id/i);
+  assert.match(retentionDelete, /order by candidate\.cleanup_completed_at, candidate\.id/i);
+  assert.doesNotMatch(retentionDelete, /(?:where|select|order by)\s+id\b/i);
+  assert.match(lifecycleCorrectionSql, /cleanup_status in \('queued', 'retry'\)[\s\S]*cleanup_next_attempt_at < now\(\) - interval '1 hour'[\s\S]*cleanup_status = 'claimed'[\s\S]*cleanup_lease_until < now\(\)/);
   assert.match(lifecycleSql, /check \(state in \('pending', 'finalizing', 'attached', 'expired'\)\)/);
   assert.match(lifecycleSql, /state = 'attached' and cleanup_status in \('waiting', 'complete'\)/);
   assert.match(lifecycleSql, /pg_advisory_xact_lock\(hashtext\('recipe-image-upload:' \|\| p_user_id::text\)\)/);
@@ -189,8 +198,18 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
   };
 
   try {
+    const retentionEligible = await createIntent(client, crypto.randomUUID());
+    const retentionIneligible = await createIntent(client, crypto.randomUUID());
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() - interval '31 days' WHERE id = $1::uuid", [retentionEligible.id]);
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() - interval '29 days' WHERE id = $1::uuid", [retentionIneligible.id]);
+    await client.query("SELECT set_config('request.jwt.claim.role', 'authenticated', false)");
+    await assert.rejects(
+      () => client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)'),
+      (error) => error.code === '42501'
+    );
     await setServiceRole(client);
     await setServiceRole(competing);
+
     const concurrentUser = crypto.randomUUID();
     assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
     assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
@@ -221,12 +240,16 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     const claimed = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
     assert.deepEqual(claimed.rows.map((row) => row.id), [stale.id]);
     assert.equal(claimed.rows[0].staging_key.includes(stale.id), true);
+    assert.equal((await client.query('SELECT id FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [retentionEligible.id])).rowCount, 0);
+    assert.equal((await client.query('SELECT id FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [retentionIneligible.id])).rowCount, 1);
     assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [active.id])).rows[0].state, 'pending');
     assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [finalizing.id])).rows[0].state, 'finalizing');
     assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [attached.id])).rows[0].state, 'attached');
     assert.equal((await client.query("SELECT public.finish_recipe_image_upload_cleanup($1::uuid, false, 'network') AS status", [stale.id])).rows[0].status, 'retry');
     assert.deepEqual((await client.query('SELECT cleanup_status, cleanup_attempts FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [stale.id])).rows[0], { cleanup_status: 'retry', cleanup_attempts: 1 });
-    await client.query("UPDATE public.recipe_image_upload_intents SET cleanup_next_attempt_at = now() - interval '1 second' WHERE id = $1::uuid", [stale.id]);
+    assert.deepEqual((await client.query('SELECT public.recipe_image_upload_cleanup_health() AS health')).rows[0].health, { pending: 0, failed: 0 });
+    await client.query("UPDATE public.recipe_image_upload_intents SET cleanup_next_attempt_at = now() - interval '61 minutes' WHERE id = $1::uuid", [stale.id]);
+    assert.deepEqual((await client.query('SELECT public.recipe_image_upload_cleanup_health() AS health')).rows[0].health, { pending: 1, failed: 0 });
     const reclaimed = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
     assert.deepEqual(reclaimed.rows.map((row) => row.id), [stale.id]);
     assert.equal((await client.query('SELECT public.finish_recipe_image_upload_cleanup($1::uuid, true, null) AS status', [stale.id])).rows[0].status, 'complete');

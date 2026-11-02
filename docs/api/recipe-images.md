@@ -191,7 +191,7 @@ $env:RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION = 'false'
 deno test --cached-only --frozen-lockfile --node-modules-dir=manual --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/candidate_token_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts supabase/functions/tests/recipe_image_schemas_test.ts supabase/functions/tests/gemini_adapter_test.ts supabase/functions/tests/extract_recipe_test.ts supabase/functions/tests/generate_recipe_test.ts supabase/functions/tests/recipe_context_test.ts supabase/functions/tests/r2_signing_test.ts supabase/functions/tests/recipe_image_upload_url_test.ts supabase/functions/tests/recipe_image_upload_cleanup_test.ts
 ```
 
-The following checks passed for the five new TypeScript files, along with `git diff --check`:
+The following checks passed for the listed TypeScript files, along with `git diff --check`:
 
 ```powershell
 $be13Files = @('supabase/functions/_shared/recipe-images/r2.ts', 'supabase/functions/_shared/recipe-images/uploadIntents.ts', 'supabase/functions/_shared/recipe-images/uploadCleanup.ts', 'supabase/functions/recipe-image-upload-url/index.ts', 'supabase/functions/recipe-image-upload-cleanup/index.ts', 'supabase/functions/tests/r2_signing_test.ts', 'supabase/functions/tests/recipe_image_upload_url_test.ts', 'supabase/functions/tests/recipe_image_upload_cleanup_test.ts')
