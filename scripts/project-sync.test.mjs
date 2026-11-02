@@ -27,9 +27,13 @@ for (const [name, prs, expected] of [
   ['draft implementation', [pr(148, { isDraft: true })], 'In Progress'],
   ['ready implementation', [pr()], 'In Progress'],
   ['multiple open PRs', [pr(), pr(149)], 'In Progress'],
-  ['merged partial only', [pr(148, { state: 'MERGED' })], 'Todo'],
+  ['merged partial only', [pr(148, { state: 'MERGED', nativeIssues: undefined })], 'In Progress'],
+  ['merged final awaiting verification', [pr(148, { state: 'MERGED' })], 'In Progress'],
   ['closed unmerged only', [pr(148, { state: 'CLOSED' })], 'Todo'],
   ['merged and current PR', [pr(148, { state: 'MERGED' }), pr(149)], 'In Progress'],
+  ['multiple merged partial PRs', [pr(148, { state: 'MERGED' }), pr(149, { state: 'MERGED' })], 'In Progress'],
+  ['merged and closed unmerged', [pr(148, { state: 'MERGED' }), pr(149, { state: 'CLOSED' })], 'In Progress'],
+  ['only closed unmerged PRs', [pr(148, { state: 'CLOSED' }), pr(149, { state: 'CLOSED' })], 'Todo'],
 ]) test(`issues: ${name}`, () => {
   const operations = operationsFor(snapshot({ prs }));
   assert.equal(operations.find(o => o.contentId === 'I_147' && o.kind === 'status').status, expected);
@@ -54,6 +58,80 @@ test('unknown closed issue reason and malformed state fail safely', () => {
   assert.throws(() => desiredState(issue(1, { state: 'CLOSED' })), /Unclassified/);
   assert.throws(() => desiredState(pr(1, { state: 'UNKNOWN' })), /Invalid PR/);
   assert.throws(() => desiredState(pr(1, { isDraft: null })), /Invalid PR/);
+});
+
+for (const state of ['OPEN', 'MERGED']) {
+  test(`${state} implementation uncertainty quarantines only affected issues`, () => {
+    for (const body of ['Refs #147, #999999', 'Refs #147, #0', `Refs #147, #${'9'.repeat(100)}`]) {
+      const malformed = pr(148, { state, body });
+      const result = plan(snapshot({ issues: [issue(), issue(2)], prs: [malformed] }));
+      assert.equal(result.rejectedRelationships.length, 1);
+      assert.ok(!result.operations.some(o => o.contentId === 'I_147'));
+      assert.ok(result.operations.some(o => o.number === 2 && o.status === 'Todo'));
+      for (const otherState of ['OPEN', 'MERGED']) {
+        const valid = pr(149, { state: otherState });
+        for (const prs of [[malformed, valid], [valid, malformed]]) {
+          assert.ok(operationsFor(snapshot({ prs })).some(o => o.number === 147 && o.status === 'In Progress'));
+        }
+      }
+    }
+    assert.throws(() => plan(snapshot({ prs: [pr(148, { state, body: null })] })), /Incomplete/);
+  });
+}
+
+test('closed-unmerged malformed relationships neither participate nor quarantine', () => {
+  for (const body of ['Refs #147, #999999', 'Refs #147, #0', null]) {
+    const result = plan(snapshot({ prs: [pr(148, { state: 'CLOSED', body, nativeIssues: [{}] })] }));
+    assert.deepEqual(result.rejectedRelationships, []);
+    assert.equal(result.operations.find(o => o.number === 147 && o.kind === 'status').status, 'Todo');
+  }
+});
+
+test('merged evidence respects explicit completed and not-planned issue state', () => {
+  for (const stateReason of ['COMPLETED', 'NOT_PLANNED']) {
+    const content = issue(147, { state: 'CLOSED', stateReason });
+    const operations = operationsFor(snapshot({ issues: [content], prs: [pr(148, { state: 'MERGED' })],
+      items: [card(content, 'In Progress')] })).filter(o => o.contentId === content.id);
+    assert.deepEqual(operations.map(o => [o.kind, o.status]), stateReason === 'COMPLETED'
+      ? [['status', 'Done']] : [['clear-status', undefined], ['archive', undefined]]);
+  }
+});
+
+test('reopened issue with merged implementation history unarchives deterministically', () => {
+  const content = issue(147, { stateReason: 'REOPENED' });
+  const operations = operationsFor(snapshot({ issues: [content], prs: [pr(148, { state: 'MERGED' })],
+    items: [card(content, 'Done', true)] })).filter(o => o.contentId === content.id);
+  assert.deepEqual(operations.map(o => [o.kind, o.status]), [['unarchive', undefined], ['status', 'In Progress']]);
+});
+
+test('merged evidence repairs any Project status and converges without status memory', () => {
+  for (const status of [null, 'Todo', 'In Progress', 'In Review', 'Done']) {
+    const data = snapshot({ prs: [pr(148, { state: 'MERGED' })], items: [card(issue(), status)] });
+    assert.deepEqual(operationsFor(data, metadata()).filter(o => o.contentId === 'I_147').map(o => o.status),
+      status === 'In Progress' ? [] : ['In Progress']);
+    assert.equal(operationsFor({ ...data, prs: [] }).find(o => o.kind === 'status')?.status,
+      status === 'Todo' ? undefined : 'Todo');
+  }
+});
+
+test('issue checklist and comments do not establish implementation or completion', () => {
+  const content = issue(147, { body: '- [x] all verified\nready to close', comments: ['ready to close'], assignees: ['AI'] });
+  for (const prs of [[], [pr(148, { state: 'MERGED' })]]) {
+    assert.equal(operationsFor(snapshot({ issues: [content], prs })).find(o => o.number === 147 && o.kind === 'status').status,
+      prs.length ? 'In Progress' : 'Todo');
+  }
+});
+
+test('merged implementation never closes repository issues and second reconciliation is a no-op', async () => {
+  const client = fakeClient(snapshot({ prs: [pr(148, { state: 'MERGED' })] }));
+  await reconcile(client, options);
+  assert.equal(client.data.issues[0].state, 'OPEN');
+  assert.equal(client.data.items[0].fieldValueByName.name, 'In Progress');
+  assert.ok(client.mutations.every(o => ['add', 'status', 'clear-status', 'archive', 'unarchive'].includes(o.kind)));
+  assert.equal((await reconcile(client, options)).applied, 0);
+  await assert.rejects(() => adapter(async () => { throw Error('API must not be called'); })
+    .mutate({ kind: 'close-issue' }, metadata(), card(issue())), /Unknown mutation/);
+  assert.doesNotMatch(readFileSync('scripts/project-sync.mjs', 'utf8'), /\b(?:closeIssue|updateIssue|reopenIssue)\s*\(/);
 });
 
 for (const verb of ['Part of', 'Ref', 'Refs', 'Related to', 'Closes', 'Close', 'Fixes', 'Fix', 'Resolves', 'Resolve']) {
@@ -342,7 +420,7 @@ test('November 1 baseline issue and PR fixtures', () => {
   const operations = operationsFor({ issues, prs, items: [card(prs[3], 'In Review')] });
   assert.deepEqual(operations.filter(o => o.kind === 'status').map(o => [o.number, o.status]),
     [[100, 'In Progress'], [116, 'In Progress'], [124, 'In Progress'], [130, 'Todo'],
-      [136, 'In Review'], [144, 'In Review'], [145, 'In Review'], [146, 'Done'], [147, 'Todo']]);
+      [136, 'In Review'], [144, 'In Review'], [145, 'In Review'], [146, 'Done'], [147, 'In Progress']]);
 });
 for (const number of [6, 20, 24, 26, 29, 68, 119, 139, 141]) {
   test(`historical closed unmerged #${number} is archived when present, never bulk-added/Done`, () => {
@@ -623,7 +701,9 @@ test('adapter requests archived items, native links and validates mutation paylo
     if (query.includes('organization(login:')) return { organization: { projectsV2: page(projects()) } };
     if (query.includes('fields(first:')) return { node: { fields: page(fields()) } };
     if (query.includes('issues(first:')) return { repository: { issues: page([issue()]) } };
-    if (query.includes('pullRequests(first:')) return { repository: { pullRequests: page([pr()]) } };
+    if (query.includes('pullRequests(first:')) return { repository: { pullRequests: page([
+      pr(), pr(149, { state: 'MERGED', nativeIssues: undefined }), pr(150, { state: 'CLOSED', nativeIssues: undefined }),
+    ]) } };
     if (query.includes('closingIssuesReferences(first:')) return { node: { closingIssuesReferences: page([{ id: 'I_147', number: 147, repository }]) } };
     if (query.includes('items(first:')) return { node: { items: page([card(issue())]) } };
     if (query.includes('projectItems(first:')) return { node: { projectItems: page([{ ...card(issue()), project: { id: 'PROJECT' } }]) } };
@@ -632,6 +712,8 @@ test('adapter requests archived items, native links and validates mutation paylo
   assert.equal((await client.metadata()).projectId, 'PROJECT');
   const data = await client.snapshot('PROJECT');
   assert.equal(data.prs[0].nativeIssues[0].number, 147);
+  assert.deepEqual(calls.filter(c => c.query.includes('closingIssuesReferences(first:')).map(c => c.variables.id), ['PR_148']);
+  assert.ok(operationsFor(data).some(o => o.number === 147 && o.status === 'In Progress'));
   assert.equal((await client.itemFor('I_147', 'PROJECT')).id, 'ITEM_I_147');
   assert.ok(calls.some(c => c.query.includes('archivedStates:[ARCHIVED,NOT_ARCHIVED]')));
   assert.ok(calls.some(c => c.query.includes('includeArchived:true')));

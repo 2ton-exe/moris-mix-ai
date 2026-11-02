@@ -36,8 +36,8 @@ branch, comment, or arbitrary number mention implies implementation state.
 
 | Content and observable state | Desired result |
 | --- | --- |
-| Open issue, at least one recognized **currently open** PR | In Progress |
-| Open issue, no recognized currently open PR | Todo |
+| Open issue with recognized OPEN or MERGED implementation PR evidence | In Progress |
+| Open issue with no recognized OPEN/MERGED implementation evidence | Todo |
 | Issue closed with `COMPLETED` state reason | Done |
 | Issue closed with `NOT_PLANNED` state reason | Clear Status, then archive if represented |
 | Open draft PR | In Progress |
@@ -45,10 +45,16 @@ branch, comment, or arbitrary number mention implies implementation state.
 | Merged PR | Done |
 | Closed-unmerged PR | Clear Status, then archive if represented |
 
-An open issue with only merged/closed implementation PRs resolves to Todo. Draft
-PRs count as active implementation. Multiple PRs per issue and several issues per
-PR are supported. Reopened/open content is unarchived and recalculated. Unknown
-closed issue reasons fail visibly rather than inventing completion.
+A merged partial PR proves implementation has started but does not complete the
+issue. After the last implementation PR merges, an open issue stays In Progress
+during final verification. Done requires the repository issue itself to be
+explicitly closed as completed. The synchronizer never closes repository issues;
+issue checklists and comments are intentionally outside its decision logic.
+Closed-unmerged PRs do not count as implementation evidence. Draft OPEN PRs do.
+Multiple PRs per issue and several issues per PR are supported. Reopened/open
+content is unarchived and recalculated from repository evidence, including merged
+implementation history, without using Project Status as memory. Unknown closed
+issue reasons fail visibly rather than inventing completion.
 
 Archiving preserves history without deleting content. Excluded closed-unmerged
 PRs and `NOT_PLANNED` issues have any Project Status cleared before archival;
@@ -73,14 +79,12 @@ Part of: #123
 Ref #123
 Refs: #123
 Related to #123
-Closes #123
-Close: #123
-Fixes #123
-Fix: #123
-Resolves #123
-Resolve: #123
 Refs #123, #124 and #125
 ```
+
+For historical compatibility, the parser also recognizes `Close` / `Closes`,
+`Fix` / `Fixes`, and `Resolve` / `Resolves` with the same optional colon and
+reference forms. These closing keywords are not recommended for new PRs.
 
 Bare references are recognized only in clearly named `Related Issue` or
 `Related GitHub Issue` Markdown sections (plural headings also work). For example:
@@ -102,6 +106,11 @@ testing/changelog mentions and issue numbers in titles are not parsed.
 
 The adapter also paginates GitHub-native `closingIssuesReferences` for every
 current open PR. Native references are accepted only for this repository.
+MERGED PRs use supported explicit body relationships already fetched in the
+repository snapshot. Their native closing relationships are not queried: body
+evidence satisfies implementation tracking without extra per-PR historical
+queries. CLOSED-unmerged PR relationships are ignored entirely, including
+malformed text; they neither establish progress nor quarantine issues.
 GitHub does not expose every informal link through that connection; supported
 body syntax remains the compatibility path. A recognized same-repository
 reference that cannot resolve to an accessible issue quarantines that PR's
@@ -110,13 +119,14 @@ entire relationship evidence. The structured plan/result returns operations and
 number and rejected issue reference (or a fixed invalid-number diagnostic),
 never the complete PR body or sensitive text. Unrelated repository content
 continues reconciling, and the rejected PR's own draft/ready lifecycle remains
-independent of its relationships.
+independent of its relationships (as does a merged PR's own Done state).
 
 Resolvable open issues referenced by a quarantined PR have uncertain
-relationship-derived state. Without an independent valid open PR for an affected
-issue, no add/status/archive-state operation is inferred for that issue; an
-existing card is preserved. Another open PR with complete, valid relationships
-can still establish In Progress. Closed issue completion/archive state remains
+relationship-derived state. This quarantine applies to participating OPEN and
+MERGED PR evidence equally. Without an independent valid OPEN or MERGED PR for
+an affected issue, no add/status/archive-state operation is inferred for that
+issue; an existing card is preserved. Another OPEN or MERGED PR with complete,
+valid relationships can still establish In Progress. Closed issue completion/archive state remains
 authoritative. Once the malformed PR relationship is corrected, the next full
 reconciliation calculates ordinary issue state again. Correct the reference or
 access rather than treating rejected evidence as complete. Missing/malformed
@@ -125,11 +135,13 @@ pagination errors, duplicate cards and mutation failures still fail visibly;
 they are not converted to relationship warnings. These are locally tested
 semantics, not hosted runtime verification.
 
-**Part of #123** contributes to an issue without promising whole-issue
-completion. **Closes #123** is appropriate only when merging legitimately
-completes the whole issue (GitHub may close that issue itself). Synchronization
-still reads the issue's actual state; a merge alone never sets an open issue to
-Done. The PR template's relationship section is optional; maintenance and
+**Part of #123** contributes to / implements work for an issue; merging does not
+close it. **Refs #123** provides a non-closing reference when appropriate.
+Repository issues are closed explicitly only after their own completion and
+verification criteria are satisfied. A teammate or AI may separately inspect
+that evidence and explicitly close the issue; synchronization only observes the
+actual repository state. A merge alone never sets an open issue to Done.
+The PR template's relationship section is optional; maintenance and
 controlled experiments may stand alone. Examples are in comments so an untouched
 template does not create a false relationship.
 
@@ -147,8 +159,8 @@ Every supported event performs full repository reconciliation. This deliberately
 avoids a second targeted update path. Editing a body therefore recalculates all
 current/prior related issues, even if `changes.body.from` is missing or partial.
 Removed links cannot silently leave an issue In Progress. Previous event bodies
-are not authoritative; all current bodies and native closing links are read
-from GitHub. Events that race with repository changes are repaired by the next
+are not authoritative; current PR bodies and open PR native closing links are
+read from GitHub. Events that race with repository changes are repaired by the next
 successful reconciliation.
 
 The adapter first enumerates all organization Projects and all target fields,
@@ -350,7 +362,9 @@ locked tooling through the normal repository setup if needed. Runtime script
 execution itself has no third-party dependencies. Run `actionlint` when available
 and report its absence honestly.
 
-Local branch validation on November 2: 291 project-sync tests passed; classifier
+Local branch validation on November 2 for preserved issue progress: 303
+project-sync tests passed (the existing 291 retained, with revised merged-evidence
+expectations and 12 added regressions); classifier
 (42), production-workflow (11), PR Secretary (125) and runtime-smoke (35) tests
 passed, with no failures or skips. All 13 workflow YAML files parsed; both
 project-sync script syntax checks and working/staged whitespace checks passed.
@@ -376,9 +390,10 @@ and proves neither App configuration nor live mutation/lifecycle behavior.
 - [ ] Use controlled fixtures to verify new issue Todo; draft PR In Progress;
   issue In Progress; ready PR In Review; converted draft In Progress.
 - [ ] Edit/remove relationships with and without prior-body evidence; verify prior
-  issues return to Todo, multiple links/PRs remain correct, unrelated mentions do nothing.
-- [ ] Merge a partial PR and verify PR Done while the open issue remains Todo
-  or In Progress according to remaining current PRs.
+  issues return to Todo only without other valid OPEN/MERGED evidence; multiple
+  links/PRs remain correct and unrelated mentions do nothing.
+- [ ] Merge partial/final implementation PRs and verify PR Done while the open
+  issue remains In Progress through verification until explicitly closed completed.
 - [ ] Complete an issue and verify Done; close not-planned and verify archive.
 - [ ] Close an unmerged PR and verify archive, never a new Done transition.
 - [ ] Reopen issue/PR fixtures and verify unarchive plus recalculated status.

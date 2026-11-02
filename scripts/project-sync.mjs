@@ -103,9 +103,9 @@ export function relationships(body, native = [], rejected = null) {
   return [...numbers].sort((a, b) => a - b);
 }
 
-export function desiredState(content, active = false) {
+export function desiredState(content, implementation = false) {
   if (content.__typename === 'Issue') {
-    if (content.state === 'OPEN') return { status: active ? 'In Progress' : 'Todo', archive: false };
+    if (content.state === 'OPEN') return { status: implementation ? 'In Progress' : 'Todo', archive: false };
     requireValue(content.state === 'CLOSED', `Invalid issue state for #${content.number}`);
     if (content.stateReason === 'COMPLETED') return { status: 'Done' };
     if (content.stateReason === 'NOT_PLANNED') return { archive: true };
@@ -164,19 +164,22 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
     contents.set(content.id, content);
     byNumber.set(content.number, content);
   }
-  const activeIssues = new Set();
+  const implementationIssues = new Set();
   const uncertainIssues = new Set();
   const rejectedRelationships = [];
-  for (const pr of prs.filter(p => p.state === 'OPEN')) {
-    requireValue(Array.isArray(pr.nativeIssues), `Incomplete native relationship evidence for PR #${pr.number}`);
+  for (const pr of prs.filter(p => ['OPEN', 'MERGED'].includes(p.state))) {
+    // Native links are fetched only for OPEN PRs. MERGED PRs use explicit body
+    // relationships already in the snapshot, avoiding per-PR history queries.
+    const native = pr.state === 'OPEN' ? pr.nativeIssues : [];
+    requireValue(Array.isArray(native), `Incomplete native relationship evidence for PR #${pr.number}`);
     const rejected = [];
     const resolved = [];
-    for (const number of relationships(pr.body, pr.nativeIssues, rejected)) {
+    for (const number of relationships(pr.body, native, rejected)) {
       const issue = byNumber.get(number);
       if (issue?.__typename === 'Issue') resolved.push(issue.id);
       else rejected.push({ issueNumber: number, reason: 'unresolvable issue relationship' });
     }
-    const target = rejected.length ? uncertainIssues : activeIssues;
+    const target = rejected.length ? uncertainIssues : implementationIssues;
     for (const issueId of resolved) target.add(issueId);
     rejectedRelationships.push(...rejected.map(rejection => ({ prNumber: pr.number, ...rejection })));
   }
@@ -190,8 +193,8 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
     const item = byContent.get(content.id);
     if (!item && content.state !== 'OPEN' && content.id !== eventContentId) continue;
     if (content.__typename === 'Issue' && content.state === 'OPEN' &&
-        uncertainIssues.has(content.id) && !activeIssues.has(content.id)) continue;
-    const desired = desiredState(content, activeIssues.has(content.id));
+        uncertainIssues.has(content.id) && !implementationIssues.has(content.id)) continue;
+    const desired = desiredState(content, implementationIssues.has(content.id));
     if (!item && desired.archive) continue;
     const base = { contentId: content.id, number: content.number };
     if (!item) operations.push({ ...base, kind: 'add' });
