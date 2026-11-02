@@ -100,6 +100,13 @@ function runDiscoveryAndIntegrityUnitTests() {
   assert.match(stagingReconciliationSql, /alter table public\.recipe_image_staging_reconciliation_objects force row level security/);
   assert.match(stagingReconciliationSql, /if exists \(select 1 from pg_roles where rolname = 'service_role'\) then/);
   assert.doesNotMatch(stagingReconciliationSql, /^\s*grant\b[^;]*\b(?:public|anon|authenticated)\b[^;]*;/im);
+  const stagingConflictCorrection = migrations.find((migration) => migration.version === '20261102000013');
+  assert.equal(stagingConflictCorrection?.file, '20261102000013_recipe_image_staging_reconciliation_conflict_target.sql');
+  const stagingConflictCorrectionSql = fs.readFileSync(stagingConflictCorrection.filePath, 'utf8');
+  assert.match(stagingConflictCorrectionSql, /create or replace function public\.claim_recipe_image_staging_reconciliation_objects\([\s\S]*?returns table \(staging_key text, intent_id uuid\)/i);
+  assert.match(stagingConflictCorrectionSql, /on conflict on constraint recipe_image_staging_reconciliation_objects_pkey do update/i);
+  assert.doesNotMatch(stagingConflictCorrectionSql, /on conflict\s*\(\s*staging_key\s*\)/i);
+  assert.match(stagingConflictCorrectionSql, /where existing\.status = 'complete'/i);
   assert.match(lifecycleSql, /check \(state in \('pending', 'finalizing', 'attached', 'expired'\)\)/);
   assert.match(lifecycleSql, /state = 'attached' and cleanup_status in \('waiting', 'complete'\)/);
   assert.match(lifecycleSql, /pg_advisory_xact_lock\(hashtext\('recipe-image-upload:' \|\| p_user_id::text\)\)/);
@@ -312,6 +319,7 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       'SELECT * FROM public.claim_recipe_image_staging_reconciliation_objects($1::uuid, $2::text[])',
       [pageLeaseTwo, reconciliationKeys]
     );
+    assert.equal(latePutClaim.rowCount, 2);
     assert.deepEqual(latePutClaim.rows.map((row) => row.staging_key).sort(), [orphanKey, stale.stagingKey].sort());
     assert.equal((await client.query(
       "SELECT public.finish_recipe_image_staging_reconciliation_object($1::uuid, $2::text, false, 'network') AS status",
