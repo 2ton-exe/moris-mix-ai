@@ -119,3 +119,53 @@ export async function signRecipeImageUpload(
     expires_at: intent.expires_at,
   };
 }
+
+export async function signRecipeImageStagingDelete(
+  stagingKey: string,
+  configuration: R2Config,
+  now: Date = new Date(),
+): Promise<string> {
+  const keyPattern =
+    /^recipe-images\/staging\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if (!keyPattern.test(stagingKey)) {
+    throw new Error("Invalid staging object key.");
+  }
+  const config = resolveR2Config(configuration);
+  const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "");
+  const date = timestamp.slice(0, 8);
+  const scope = `${date}/auto/s3/aws4_request`;
+  const host = `${config.accountId}.r2.cloudflarestorage.com`;
+  const path = `/${config.bucketName}/${
+    stagingKey.split("/").map(encode).join("/")
+  }`;
+  const signedHeaders = "host";
+  const query = Object.entries({
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": `${config.accessKeyId}/${scope}`,
+    "X-Amz-Date": timestamp,
+    "X-Amz-Expires": "60",
+    "X-Amz-SignedHeaders": signedHeaders,
+  }).map(([key, value]) => `${encode(key)}=${encode(value)}`).sort().join("&");
+  const canonicalRequest = [
+    "DELETE",
+    path,
+    query,
+    `host:${host}\n`,
+    signedHeaders,
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+  const requestHash = hex(
+    await crypto.subtle.digest("SHA-256", encoder.encode(canonicalRequest)),
+  );
+  const stringToSign =
+    `AWS4-HMAC-SHA256\n${timestamp}\n${scope}\n${requestHash}`;
+  let signingKey = await hmac(
+    encoder.encode(`AWS4${config.secretAccessKey}`),
+    date,
+  );
+  for (const component of ["auto", "s3", "aws4_request"]) {
+    signingKey = await hmac(signingKey, component);
+  }
+  const signature = hex((await hmac(signingKey, stringToSign)).buffer);
+  return `https://${host}${path}?${query}&X-Amz-Signature=${signature}`;
+}

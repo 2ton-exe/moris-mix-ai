@@ -67,6 +67,26 @@ function runDiscoveryAndIntegrityUnitTests() {
   assert.match(uploadSql, /expires_at = created_at \+ interval '10 minutes'/);
   assert.match(uploadSql, /check \(state = 'pending'\)/);
   assert.doesNotMatch(uploadSql, /references|on delete|update public\.recipes|delete from/i);
+  const lifecycleMigration = migrations.find((migration) => migration.version === '20261102000010');
+  assert.equal(lifecycleMigration?.file, '20261102000010_recipe_image_upload_lifecycle.sql');
+  const lifecycleSql = fs.readFileSync(lifecycleMigration.filePath, 'utf8');
+  assert.match(lifecycleSql, /check \(state in \('pending', 'finalizing', 'attached', 'expired'\)\)/);
+  assert.match(lifecycleSql, /state = 'attached' and cleanup_status in \('waiting', 'complete'\)/);
+  assert.match(lifecycleSql, /pg_advisory_xact_lock\(hashtext\('recipe-image-upload:' \|\| p_user_id::text\)\)/);
+  assert.match(lifecycleSql, /v_hourly_count >= 10/);
+  assert.match(lifecycleSql, /v_outstanding_count >= 3/);
+  assert.match(lifecycleSql, /for update skip locked/i);
+  assert.match(lifecycleSql, /i\.state = 'pending'[\s\S]*?i\.expires_at <= now\(\)/);
+  assert.match(lifecycleSql, /cleanup_attempts = i\.cleanup_attempts \+ 1/);
+  assert.match(lifecycleSql, /when v_attempts >= 8 then 'failed'/);
+  assert.match(lifecycleSql, /cleanup_completed_at < now\(\) - interval '30 days'/);
+  assert.match(lifecycleSql, /revoke all on table public\.recipe_image_upload_intents from service_role/);
+  assert.match(lifecycleSql, /grant execute on function public\.claim_expired_recipe_image_uploads\(integer\) to service_role/);
+  assert.match(lifecycleSql, /grant execute on function public\.finish_recipe_image_upload_cleanup\(uuid, boolean, text\) to service_role/);
+  assert.match(lifecycleSql, /if exists \(select 1 from pg_roles where rolname = 'anon'\) then/);
+  assert.match(lifecycleSql, /if exists \(select 1 from pg_roles where rolname = 'authenticated'\) then/);
+  assert.doesNotMatch(lifecycleSql, /^\s*grant\b[^;]*\b(?:public|anon|authenticated)\b[^;]*;/im);
+  assert.doesNotMatch(lifecycleSql, /grant\s+(?:select,\s*)?insert\s+on table public\.recipe_image_upload_intents to service_role/i);
   const quotaMigration = migrations.find((migration) => migration.file.endsWith('_ai_quota_enforcement.sql'));
   assert.equal(quotaMigration?.version, '20261031000007');
   const quotaSql = fs.readFileSync(quotaMigration.filePath, 'utf8');
@@ -150,6 +170,80 @@ async function runQuotaAuthorizationDatabaseTests(client) {
     await client.query('ROLLBACK');
   }
   console.log('PASS: All four quota RPCs reject null and non-service role claims; service-role settlement contracts remain unchanged.');
+}
+
+async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ssl) {
+  const competing = new Client({ connectionString, ssl });
+  await competing.connect();
+  const setServiceRole = (target) => target.query("SELECT set_config('request.jwt.claim.role', 'service_role', false)");
+  const createIntent = async (target, userId, createdAt = new Date()) => {
+    const id = crypto.randomUUID();
+    const recipeId = crypto.randomUUID();
+    const created = new Date(Math.floor(createdAt.getTime() / 1000) * 1000);
+    const suffix = `${userId}/${recipeId}/${id}`;
+    const result = await target.query(
+      'SELECT public.create_recipe_image_upload_intent($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz) AS status',
+      [id, userId, recipeId, `recipe-images/staging/${suffix}`, `recipe-images/final/${suffix}/${crypto.randomUUID()}`, 'image/jpeg', 1024, created.toISOString(), new Date(created.getTime() + 600000).toISOString()]
+    );
+    return { id, status: result.rows[0].status };
+  };
+
+  try {
+    await setServiceRole(client);
+    await setServiceRole(competing);
+    const concurrentUser = crypto.randomUUID();
+    assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
+    assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
+    const concurrent = await Promise.all([
+      createIntent(client, concurrentUser),
+      createIntent(competing, concurrentUser)
+    ]);
+    assert.deepEqual(concurrent.map((result) => result.status).sort(), ['allowed', 'pending_limit']);
+
+    const rateLimitUser = crypto.randomUUID();
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const result = await createIntent(client, rateLimitUser);
+      assert.equal(result.status, 'allowed');
+      await client.query(
+        "UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() WHERE id = $1::uuid",
+        [result.id]
+      );
+    }
+    assert.equal((await createIntent(client, rateLimitUser)).status, 'rate_limited');
+
+    const staleUser = crypto.randomUUID();
+    const stale = await createIntent(client, staleUser, new Date(Date.now() - 11 * 60 * 1000));
+    const active = await createIntent(client, crypto.randomUUID());
+    const finalizing = await createIntent(client, crypto.randomUUID());
+    const attached = await createIntent(client, crypto.randomUUID());
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'finalizing' WHERE id = $1::uuid", [finalizing.id]);
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'attached' WHERE id = $1::uuid", [attached.id]);
+    const claimed = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.deepEqual(claimed.rows.map((row) => row.id), [stale.id]);
+    assert.equal(claimed.rows[0].staging_key.includes(stale.id), true);
+    assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [active.id])).rows[0].state, 'pending');
+    assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [finalizing.id])).rows[0].state, 'finalizing');
+    assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [attached.id])).rows[0].state, 'attached');
+    assert.equal((await client.query("SELECT public.finish_recipe_image_upload_cleanup($1::uuid, false, 'network') AS status", [stale.id])).rows[0].status, 'retry');
+    assert.deepEqual((await client.query('SELECT cleanup_status, cleanup_attempts FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [stale.id])).rows[0], { cleanup_status: 'retry', cleanup_attempts: 1 });
+    await client.query("UPDATE public.recipe_image_upload_intents SET cleanup_next_attempt_at = now() - interval '1 second' WHERE id = $1::uuid", [stale.id]);
+    const reclaimed = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.deepEqual(reclaimed.rows.map((row) => row.id), [stale.id]);
+    assert.equal((await client.query('SELECT public.finish_recipe_image_upload_cleanup($1::uuid, true, null) AS status', [stale.id])).rows[0].status, 'complete');
+
+    const concurrentCleanup = await createIntent(client, crypto.randomUUID(), new Date(Date.now() - 11 * 60 * 1000));
+    await client.query('BEGIN');
+    const firstClaim = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.equal(firstClaim.rows.some((row) => row.id === concurrentCleanup.id), true);
+    const secondClaim = await competing.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.equal(secondClaim.rows.some((row) => row.id === concurrentCleanup.id), false);
+    await client.query('ROLLBACK');
+    console.log('PASS: Recipe-image quotas serialize concurrent signing, cleanup claims are exclusive, and expiry/retry state fences hold in PostgreSQL.');
+  } finally {
+    try { await client.query('ROLLBACK'); } catch {}
+    try { await client.query("SELECT set_config('request.jwt.claim.role', '', false)"); } catch {}
+    await competing.end();
+  }
 }
 
 async function runRecipeSearchMigrationUnitTests() {
@@ -821,6 +915,7 @@ async function runDatabaseLifecycleIntegrationTests() {
     assert.equal(freshResult.appliedMigrations.length, expectedMigrationVersions.length);
     assert.deepEqual(freshResult.appliedMigrations, expectedMigrationFiles);
     await runQuotaAuthorizationDatabaseTests(testClient);
+    await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeSearchMigrationDatabaseTests(testClient);
     assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());
 

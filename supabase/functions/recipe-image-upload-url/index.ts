@@ -118,7 +118,21 @@ export async function handler(
       intent,
       config,
     );
-    await persistUploadIntent(intent, deps);
+    const quota = await persistUploadIntent(intent, deps);
+    if (quota === "rate_limited") {
+      return error(
+        "UPLOAD_RATE_LIMITED",
+        "Upload signing limit reached. Please try again later.",
+        429,
+      );
+    }
+    if (quota === "pending_limit") {
+      return error(
+        "UPLOAD_QUOTA_EXCEEDED",
+        "Too many image uploads are pending. Please try again later.",
+        429,
+      );
+    }
     return respond({ upload }, 200);
   } catch {
     console.error("Recipe image upload signing failed");

@@ -64,6 +64,7 @@ function mock(
     dbFailure?: boolean;
     persistenceFailure?: boolean;
     networkFailure?: boolean;
+    quota?: "allowed" | "rate_limited" | "pending_limit";
   } = {},
 ) {
   const calls: { url: URL; method: string; headers: Headers }[] = [];
@@ -132,17 +133,29 @@ function mock(
             },
           );
         }
-        if (url.pathname === "/rest/v1/recipe_image_upload_intents") {
+        if (url.pathname === "/rest/v1/rpc/create_recipe_image_upload_intent") {
           assertEquals(method, "POST");
           assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
           assertEquals(headers.get("apikey"), SERVICE_KEY);
-          intents.push(JSON.parse(String(init?.body)));
+          const args = JSON.parse(String(init?.body));
+          intents.push({
+            id: args.p_id,
+            user_id: args.p_user_id,
+            recipe_id: args.p_recipe_id,
+            staging_key: args.p_staging_key,
+            final_key: args.p_final_key,
+            content_type: args.p_content_type,
+            byte_size: args.p_byte_size,
+            created_at: args.p_created_at,
+            expires_at: args.p_expires_at,
+            state: "pending",
+          });
           if (options.persistenceFailure) {
             return Response.json({ message: "private storage information" }, {
               status: 500,
             });
           }
-          return new Response(null, { status: 201 });
+          return Response.json(options.quota ?? "allowed");
         }
         throw new Error("Unexpected network request");
       }),
@@ -253,6 +266,23 @@ Deno.test("each signing request creates a fresh staging capability without modif
     ) => call.method === "GET"),
     true,
   );
+});
+
+Deno.test("signing quotas reject without returning a capability", async () => {
+  for (
+    const [quota, code] of [
+      ["rate_limited", "UPLOAD_RATE_LIMITED"],
+      ["pending_limit", "UPLOAD_QUOTA_EXCEEDED"],
+    ] as const
+  ) {
+    const { deps, intents } = mock({ quota });
+    await expectError(
+      await handler(request(), deps),
+      429,
+      code,
+    );
+    assertEquals(intents.length, 1);
+  }
 });
 
 Deno.test("missing and malformed authentication cannot reach ownership or signing", async () => {

@@ -11,6 +11,7 @@ const main = workflow('modular-main');
 const production = workflow('reusable-production');
 const release = production.jobs.deploy;
 const edge = workflow('reusable-edge-api');
+const scheduledCleanup = workflow('recipe-image-upload-cleanup');
 const step = (job, name) => job.steps.find(s => s.name === name);
 
 // These conditions use only this small subset of Actions expressions. Execute the
@@ -146,7 +147,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_PUBLIC_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}',
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
-  const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
+  const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function', 'Deploy recipe image upload cleanup Edge Function',
     'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Production runtime smoke'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
@@ -155,7 +156,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'recipe-image-upload-cleanup']);
   assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
   const configuration = step(release, 'Validate production deployment configuration');
   assert.deepEqual(configuration.env, {
@@ -179,6 +180,13 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.match(recipes.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipes/);
   assert.match(recipes.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(recipes.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  const cleanup = step(release, 'Deploy recipe image upload cleanup Edge Function');
+  assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
+  assert.equal(cleanup['working-directory'], 'frontend');
+  assert.deepEqual(cleanup.env, configuration.env);
+  assert.match(cleanup.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipe-image-upload-cleanup/);
+  assert.match(cleanup.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
+  assert.match(cleanup.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
   assert.equal(step(release, 'Deploy to Cloudflare Workers').id, 'deploy-cloudflare');
   assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@v3');
   assert.equal(step(release, 'Deploy to Cloudflare Workers').with.command, 'deploy --config wrangler.jsonc');
@@ -194,6 +202,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     CLOUDFLARE_OUTCOME: '${{ steps.deploy-cloudflare.outcome }}',
     URL_OUTCOME: '${{ steps.verify-deployment.outcome }}',
     SMOKE_OUTCOME: '${{ steps.runtime-smoke.outcome }}',
@@ -211,6 +220,22 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
 });
 
+test('recipe image cleanup is scheduled only on main and uses protected invocation credentials', () => {
+  assert.deepEqual(scheduledCleanup.on.schedule, [{ cron: '*/15 * * * *' }]);
+  assert.equal('workflow_dispatch' in scheduledCleanup.on, true);
+  assert.deepEqual(scheduledCleanup.permissions, { contents: 'read' });
+  const cleanup = scheduledCleanup.jobs.cleanup;
+  assert.equal(cleanup.if, "github.ref == 'refs/heads/main'");
+  assert.equal(cleanup.steps.length, 1);
+  assert.deepEqual(cleanup.steps[0].env, {
+    SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
+    RECIPE_IMAGE_CLEANUP_TOKEN: '${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}',
+  });
+  assert.match(cleanup.steps[0].run, /curl --fail --silent --show-error/);
+  assert.match(cleanup.steps[0].run, /functions\/v1\/recipe-image-upload-cleanup/);
+  assert.doesNotMatch(cleanup.steps[0].run, /R2_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY/);
+});
+
 test('main validation covers current authoritative Edge/API targets and mandatory hosted RLS', () => {
   assert.equal(main.jobs['test-edge-api'].with['require-hosted-rls'], true);
   assert.equal(edge.on.workflow_call.inputs['require-hosted-rls'].default, false);
@@ -220,13 +245,14 @@ test('main validation covers current authoritative Edge/API targets and mandator
     // current recipe, auth, AI and recipe-image targets independently asserted.
     const targets = step(edge.jobs['test-edge-api'], name).run.split(/\s+/).filter(s => s.startsWith('supabase/'));
     const tests = ['demo_recipe', 'auth', 'recipes', 'ai_contracts', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
-      'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
+      'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
       .map(name => `supabase/functions/tests/${name}_test.ts`);
     const expected = name.startsWith('Type-check') ? [
       'supabase/functions/_shared/auth.ts', 'supabase/functions/_shared/ai/recipeContext.ts',
       'supabase/functions/_shared/recipe-images/schemas.ts', 'supabase/functions/_shared/recipe-images/r2.ts',
       'supabase/functions/_shared/recipe-images/uploadIntents.ts',
-      ...['demo-recipe', 'auth-session', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url'].map(name => `supabase/functions/${name}/index.ts`),
+      'supabase/functions/_shared/recipe-images/uploadCleanup.ts',
+      ...['demo-recipe', 'auth-session', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
       'supabase/functions/tests/auth_rls_integration_test.ts', ...tests,
     ] : tests;
     assert.deepEqual(targets.sort(), expected.sort());

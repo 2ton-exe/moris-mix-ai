@@ -8,6 +8,7 @@ import { createHash, createHmac } from "node:crypto";
 import {
   type R2Config,
   resolveR2Config,
+  signRecipeImageStagingDelete,
   signRecipeImageUpload,
 } from "../_shared/recipe-images/r2.ts";
 import {
@@ -247,6 +248,28 @@ Deno.test("R2 signer rejects invalid configuration and altered upload intents", 
       signRecipeImageUpload({ ...intent(), ...change } as UploadIntent, config)
     );
   }
+});
+
+Deno.test("staging cleanup DELETE is object-scoped, short-lived, and independently signed", async () => {
+  const stagingKey = intent().staging_key;
+  const url = new URL(
+    await signRecipeImageStagingDelete(stagingKey, config, now),
+  );
+  const signature = url.searchParams.get("X-Amz-Signature");
+  assertEquals(url.pathname, `/${config.bucketName}/${stagingKey}`);
+  assertEquals(url.searchParams.get("X-Amz-Expires"), "60");
+  assertEquals(url.searchParams.get("X-Amz-SignedHeaders"), "host");
+  assertEquals(
+    referenceSignature(url, "DELETE", new Headers()),
+    signature,
+  );
+  assertNotEquals(referenceSignature(url, "PUT", new Headers()), signature);
+  await assertRejects(() =>
+    signRecipeImageStagingDelete(intent().final_key, config, now)
+  );
+  await assertRejects(() =>
+    signRecipeImageStagingDelete("recipe-images/staging/not-a-key", config, now)
+  );
 });
 
 Deno.test("upload intent normalizes UUIDs, truncates milliseconds, and generates fresh keys", () => {

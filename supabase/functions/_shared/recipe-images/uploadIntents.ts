@@ -17,6 +17,11 @@ export type UploadIntent = RecipeImageUploadRequest & {
   state: "pending";
 };
 
+export type UploadIntentQuotaResult =
+  | "allowed"
+  | "rate_limited"
+  | "pending_limit";
+
 export function createUploadIntent(
   request: RecipeImageUploadRequest,
   userId: string,
@@ -71,7 +76,7 @@ export async function persistUploadIntent(
     supabaseServiceRoleKey?: string;
     fetch?: typeof fetch;
   } = {},
-): Promise<void> {
+): Promise<UploadIntentQuotaResult> {
   validateUploadIntent(intent);
   const url = deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
   const key = deps.supabaseServiceRoleKey ??
@@ -87,10 +92,27 @@ export async function persistUploadIntent(
     },
     global: { ...(deps.fetch ? { fetch: deps.fetch } : {}) },
   });
-  const { error } = await client.from("recipe_image_upload_intents").insert(
-    intent,
+  const { data, error } = await client.rpc(
+    "create_recipe_image_upload_intent",
+    {
+      p_id: intent.id,
+      p_user_id: intent.user_id,
+      p_recipe_id: intent.recipe_id,
+      p_staging_key: intent.staging_key,
+      p_final_key: intent.final_key,
+      p_content_type: intent.content_type,
+      p_byte_size: intent.byte_size,
+      p_created_at: intent.created_at,
+      p_expires_at: intent.expires_at,
+    },
   );
   if (error) {
     throw new Error("Upload intent persistence failed.");
   }
+  if (
+    data !== "allowed" && data !== "rate_limited" && data !== "pending_limit"
+  ) {
+    throw new Error("Upload intent persistence failed.");
+  }
+  return data;
 }
