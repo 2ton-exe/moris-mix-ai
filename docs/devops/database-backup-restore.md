@@ -12,8 +12,11 @@ As of 2026-11-02:
 - A bucket-scoped R2 Account API token is configured with Object Read & Write access only to that bucket.
 - The GitHub Environment `production-backup` contains the R2 backup credentials and bucket variable.
 - The production Supabase organization is on the Free plan, so provider-managed daily-backup retention and PITR are not established as the project's recovery path.
-- `.github/workflows/database-backup.yml` configures a manual and weekly logical-backup job.
-- **No successful backup run is claimed until a merged-main/manual workflow run actually creates, uploads, and verifies a private R2 object.**
+- `.github/workflows/database-backup.yml` configures a main-only manual and weekly logical-backup job.
+- The backup job shares the production release concurrency group so repository-managed production deployment/migration work cannot execute at the same time as a backup capture.
+- The backup fails before upload if a pre/post comparison detects changes to role definitions, application schema, or the `supabase_migrations` ledger during the dump window.
+- R2 verification re-downloads the uploaded archive and compares SHA-256, in addition to checking object size.
+- **No successful backup run is claimed until a merged-main/manual workflow run actually creates, uploads, re-downloads, and verifies a private R2 object.**
 - **No restore capability is claimed until a selected backup is restored and verified in an isolated safe target.**
 
 ## Backup trigger and ownership
@@ -23,7 +26,11 @@ The workflow supports:
 - manual `workflow_dispatch`, used for the first controlled backup and later operator checks;
 - weekly schedule at Sunday 18:00 UTC / Monday 02:00 PHT.
 
-The job runs through the `production-backup` GitHub Environment and has repository `contents: read` permission only.
+The backup job has a source-controlled `github.ref == 'refs/heads/main'` guard, so a manual run selected from another ref does not receive or use the production-backup job path. The job also runs through the `production-backup` GitHub Environment and has repository `contents: read` permission only.
+
+The backup uses the same `cloudflare-production` concurrency group as the existing production release job. This intentionally serializes backup capture with the repository-managed production deployment path. If production database migrations are added to that release job, they inherit the same serialization boundary without creating a second migration/backup lock.
+
+GitHub Environment deployment-branch restrictions are a separate live repository setting. The source-controlled main guard is present in the workflow; the Environment restriction should also be checked by the operator before the first production backup. Do not claim that live Environment policy as independently verified unless it is actually inspected.
 
 DevOps owns the schedule, workflow, secret/environment integration, R2 storage boundary, evidence, and restore drill. Backend owns production schema/data semantics. Restore acceptance that depends on application schema behavior should be reviewed with the backend owner rather than changing database behavior solely to make the recovery test pass.
 
@@ -48,9 +55,13 @@ The production migration path may also require `SUPABASE_DB_ROOT_CERT`. DEVOPS-1
 
 The R2 credentials are separate from recipe-image R2 credentials and are scoped to the database-backup bucket.
 
-## Backup contents
+Sensitive values are injected only into the individual steps that need them. Checkout and CLI setup do not receive production database or R2 credentials. Supabase credentials are limited to configuration/link/dump steps; R2 credentials are limited to configuration/upload/verification steps.
 
-The workflow uses Supabase CLI `db dump`, which runs PostgreSQL dump tooling with Supabase-specific filtering. The bundle contains:
+## Backup contents and consistency gate
+
+The workflow uses Supabase CLI `db dump`, which runs PostgreSQL dump tooling with Supabase-specific filtering. Supabase's supported logical-backup procedure uses separate role, schema, and data dumps rather than one all-inclusive CLI dump. Because separate PostgreSQL dump invocations do not share a synchronized snapshot automatically, the workflow does not treat command success alone as proof of a coherent bundle.
+
+The bundle contains:
 
 - `roles.sql` — CLI-filtered custom-role dump;
 - `schema.sql` — CLI-filtered application schema dump;
@@ -58,9 +69,21 @@ The workflow uses Supabase CLI `db dump`, which runs PostgreSQL dump tooling wit
 - `history-schema.sql` — `supabase_migrations` schema needed to preserve migration history;
 - `history-data.sql` — `supabase_migrations` data;
 - `component-checksums.sha256`;
-- `backup-metadata.json` with source revision/project/timestamp/scope only.
+- `backup-metadata.json` with source revision/project/timestamp/scope and the consistency-gate result.
+
+During capture, the workflow:
+
+1. holds the same repository concurrency lock used by the production release job;
+2. captures roles, schema, migration history, and the logical data dump;
+3. re-dumps roles, schema, and migration history after the data dump;
+4. compares the pre/post outputs byte-for-byte;
+5. refuses to package or upload the archive if any compared component changed.
+
+This is a fail-closed drift check around Supabase's supported multi-file backup flow. It prevents a detected production migration or out-of-band DDL/role change from silently producing an accepted bundle. It is not described as PostgreSQL `--snapshot` synchronization across the separate CLI commands.
 
 The resulting archive is uploaded to a date- and revision-qualified R2 key. A separate JSON evidence object records the archive size and SHA-256 checksum without containing database rows or credentials.
+
+After upload, the workflow checks the remote object size, downloads the archive back from private R2, recomputes SHA-256, and requires it to match the locally created archive. The evidence JSON object's existence is also checked.
 
 Production SQL dumps and the archive are **not** uploaded as normal GitHub Actions artifacts.
 
@@ -87,15 +110,17 @@ Recipe-image storage and database-backup storage remain separate recovery concer
 
 After the workflow is merged to `main` and all required secrets/variables are confirmed by name:
 
-1. Manually dispatch **Production Database Backup** from `main`.
-2. Confirm the workflow identifies the intended production project without printing credentials.
-3. Confirm all logical dump steps succeed.
-4. Confirm the archive and evidence JSON upload to `moris-mix-db-backups-prod`.
-5. Confirm the R2 `head-object` size equals the local archive size reported by the workflow.
-6. Record the workflow run ID, source SHA, timestamp, R2 object key, archive size, and SHA-256 in #159.
-7. Do not post SQL contents, archive contents, passwords, tokens, user rows, or auth data as evidence.
+1. Verify the `production-backup` Environment's deployment-branch policy is restricted appropriately; do not record secret values.
+2. Manually dispatch **Production Database Backup** from `main`.
+3. Confirm the workflow identifies the intended production project without printing credentials.
+4. Confirm the shared production concurrency boundary is active and no repository-managed production release/migration overlaps the capture.
+5. Confirm the role/schema/migration-history pre/post consistency comparisons pass.
+6. Confirm the archive and evidence JSON upload to `moris-mix-db-backups-prod`.
+7. Confirm the remote object size equals the local archive size and the re-downloaded archive SHA-256 equals the locally recorded SHA-256.
+8. Record the workflow run ID, source SHA, timestamp, R2 object key, archive size, and SHA-256 in #159.
+9. Do not post SQL contents, archive contents, passwords, tokens, user rows, or auth data as evidence.
 
-A configured workflow is not a backup. Completion of these steps proves only backup creation/upload/metadata verification.
+A configured workflow is not a backup. Completion of these steps proves only backup creation/upload/round-trip integrity verification.
 
 ## Restore drill — pending execution
 
@@ -121,6 +146,6 @@ A backup upload is not restore proof. DEVOPS-10 remains open until this drill su
 
 ## Failure handling
 
-If backup creation fails, no backup should be reported for that run. If upload fails, the job fails visibly and the runner cleanup step removes the local dump files. If remote-object verification fails, treat the uploaded object as unverified and investigate before using it for recovery.
+If configuration is missing or the workflow is dispatched from a non-main ref, production backup execution is blocked. If role/schema/migration-history drift is detected during capture, bundle creation fails before packaging/upload. If backup creation fails, no backup should be reported for that run. If upload fails, the job fails visibly and the runner cleanup step removes the local dump files. If remote size or re-downloaded SHA-256 verification fails, treat the uploaded object as unverified and investigate before using it for recovery.
 
-Do not weaken database TLS, expose dump contents, make the bucket public, reuse recipe-image credentials, or restore into a shared/production database to make the task pass.
+Do not weaken database TLS, expose dump contents, make the bucket public, reuse recipe-image credentials, bypass the consistency gate, or restore into a shared/production database to make the task pass.
