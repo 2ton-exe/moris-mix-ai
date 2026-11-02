@@ -104,6 +104,9 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       if (!target.closest('.mm-journal-spread') || target.closest('input, textarea, select, button, a, [contenteditable="true"], .mm-unit-content')) return
       const delta = event.key === 'ArrowRight' || event.key === 'PageDown' ? 1
         : event.key === 'ArrowLeft' || event.key === 'PageUp' ? -1 : 0
+      const scrollRegion = target.closest<HTMLElement>('.mm-continuation-body')
+      if (event.key === 'PageDown' && scrollRegion && scrollRegion.scrollTop < scrollRegion.scrollHeight - scrollRegion.clientHeight) return
+      if (event.key === 'PageUp' && scrollRegion && scrollRegion.scrollTop > 0) return
       const index = requestedPage.current + delta
       if (delta !== 0 && index >= 0 && index < spreads.length && !isTurning) {
         event.preventDefault()
