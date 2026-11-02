@@ -105,7 +105,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       const delta = event.key === 'ArrowRight' || event.key === 'PageDown' ? 1
         : event.key === 'ArrowLeft' || event.key === 'PageUp' ? -1 : 0
       const scrollRegion = target.closest<HTMLElement>('.mm-continuation-body')
-      if (event.key === 'PageDown' && scrollRegion && scrollRegion.scrollTop < scrollRegion.scrollHeight - scrollRegion.clientHeight) return
+      if (event.key === 'PageDown' && scrollRegion && scrollRegion.scrollHeight - scrollRegion.clientHeight - scrollRegion.scrollTop > 1) return
       if (event.key === 'PageUp' && scrollRegion && scrollRegion.scrollTop > 0) return
       const index = requestedPage.current + delta
       if (delta !== 0 && index >= 0 && index < spreads.length && !isTurning) {
