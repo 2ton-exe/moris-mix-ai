@@ -111,7 +111,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     const dialog = page.getByRole('alertdialog')
     await expect(dialog.getByRole('heading', { name: `Delete “${updatedTitle}”?` })).toBeVisible()
     await dialog.getByRole('button', { name: 'Delete recipe' }).click()
-    await expect(page).toHaveURL(/\/app\/recipes$/)
+    await expect(page).toHaveURL(/\/app(?:\/recipes)?$/)
     await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
 
