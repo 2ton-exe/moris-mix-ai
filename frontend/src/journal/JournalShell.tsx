@@ -5,6 +5,7 @@ import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
 import { JournalSurface, PaperCard } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
+import { journalReturnFromLocation } from './indexNavigation'
 import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
 import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, useJournalPageTurnManager } from './JournalPageTurn'
 import type { JournalTurnDirection } from './JournalPageTurn'
@@ -26,9 +27,11 @@ export function JournalPageContainer({ className = '', children, ...props }: Com
 }
 
 function JournalBookmarks({ publicNavigation = false }: { publicNavigation?: boolean }) {
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
   const creating = pathname === '/app/recipes/new'
   const editing = /^\/app\/recipes\/[^/]+\/edit\/?$/.test(pathname)
+  const quickEntry = /^\/app\/quick-entry\/?$/.test(pathname)
   const className = 'mm-bookmarks'
   if (publicNavigation) return <nav className={className} aria-label="Journal sections">
     <Link className="mm-bookmark" to="/home" aria-current={pathname === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
@@ -36,7 +39,10 @@ function JournalBookmarks({ publicNavigation = false }: { publicNavigation?: boo
     <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={pathname === '/demo-recipe' ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />Demo recipe</Link>
   </nav>
   return <nav className={className} aria-label="Journal sections">
-    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !editing ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
+    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !editing && !quickEntry ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
+    <Link className="mm-bookmark mm-bookmark--cream" to="/app/quick-entry" state={{ journalReturn: journalReturnFromLocation(location) }} aria-current={quickEntry ? 'page' : undefined} aria-label="Mori's notes, Quick AI Entry">
+      <MoriEmblem size={16} />Mori notes
+    </Link>
     <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
   </nav>
 }

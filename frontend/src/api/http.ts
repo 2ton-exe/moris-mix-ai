@@ -7,14 +7,16 @@ export class HttpError extends Error {
   readonly kind: HttpErrorKind
   readonly status?: number
   readonly payload?: unknown
+  readonly retryAfter?: string
   readonly retryable: boolean
 
-  constructor(kind: HttpErrorKind, message: string, status?: number, payload?: unknown) {
+  constructor(kind: HttpErrorKind, message: string, status?: number, payload?: unknown, retryAfter?: string) {
     super(message)
     this.name = 'HttpError'
     this.kind = kind
     this.status = status
     this.payload = payload
+    this.retryAfter = retryAfter
     this.retryable = kind === 'network' || (kind === 'http' && (
       status === 408 || status === 429 || (status !== undefined && status >= 500 && status < 600)
     ))
@@ -102,7 +104,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
       // Preserve HTTP status even when a failed response contains HTML or no body.
     }
     if (!response.ok) {
-      throw new HttpError('http', 'The server could not complete the request.', response.status, payload)
+      throw new HttpError('http', 'The server could not complete the request.', response.status, payload, response.headers.get('Retry-After') ?? undefined)
     }
     if (expectedStatus !== undefined && response.status !== expectedStatus) {
       throw new HttpError('http', 'The server could not confirm the operation.', response.status, payload)

@@ -110,9 +110,17 @@ it.each([
   ['/app/recipes/new', '/app/recipes/new'],
   ['/app/recipes/recipe-a/edit', '/app/recipes/:recipeId/edit'],
   ['/app/recipes', 'recipes'],
+  ['/app/quick-entry', 'quick-entry'],
 ])('keeps the production data-router route tree matching %s', (path, expectedRoute) => {
   const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), path)
   expect(matches?.at(-1)?.route.path).toBe(expectedRoute)
+})
+
+it('keeps Quick AI Entry under the protected app routes and account-scoped query provider', () => {
+  const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry')
+  expect(matches?.at(-1)?.route.path).toBe('quick-entry')
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
 })
 
 it.each(['/app/recipes/new', '/app/recipes/recipe-a/edit', '/app/recipes/recipe-a'])(

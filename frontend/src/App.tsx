@@ -9,6 +9,7 @@ import CreateRecipePage from './pages/CreateRecipePage'
 import EditRecipePage from './pages/EditRecipePage'
 import RecipeDashboardPage from './pages/RecipeDashboardPage'
 import RecipeDetailPage from './pages/RecipeDetailPage'
+import { QuickAiEntryPage } from './quick-ai/QuickAiEntryPage'
 import { HomePage, AboutPage, NotFoundPage } from './pages/PublicJournalPages'
 import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
@@ -36,6 +37,7 @@ export const createAppRouteElements = () => (
                 <Route index element={<RecipeDashboardPage />} />
                 <Route path="recipes" element={<RecipeDashboardPage />} />
                 <Route path="recipes/:recipeId" element={<RecipeDetailPage />} />
+                <Route path="quick-entry" element={<QuickAiEntryPage />} />
               </Route>
             </Route>
             <Route path="/app/*" element={<NotFoundPage />} />
