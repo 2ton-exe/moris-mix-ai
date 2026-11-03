@@ -6,7 +6,7 @@
 
 ## Scope
 
-This October 24, 2026 audit records what operators can currently observe for Mori's Scraps. It documents existing visibility and supplied, verified manual production observations; it does not implement new monitoring or rerun those checks.
+This October 24, 2026 audit records what operators can currently observe for Mori's Mix. It documents existing visibility and supplied, verified manual production observations; it does not implement new monitoring or rerun those checks.
 
 Evidence levels are distinct: **configured** means present in repository configuration; **deployed** means observed in production; **manually verified** means an operator observed the stated behavior; **automated** means an implemented workflow performs that specific activity. CI tests and automated deployment do not establish automated production runtime verification.
 

@@ -297,7 +297,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(aiArtifact.with['if-no-files-found'], 'warn');
   const summary = step(release, 'Record production deployment and runtime outcomes');
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
-  assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false });
+  assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
   assert.deepEqual(release.permissions, { contents: 'read' });
   for (const caller of [main.jobs.production]) {
     assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT']);

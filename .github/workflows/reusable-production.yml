@@ -35,6 +35,7 @@ jobs:
     concurrency:
       group: cloudflare-production
       cancel-in-progress: false
+      queue: max
 
     permissions:
       contents: read
@@ -142,6 +143,18 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF" \
             --skip-vault \
             --dry-run
+
+      - name: Reject stale production revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if [[ "$current_sha" != "$GITHUB_SHA" ]]; then
+            echo "::error::Current main is ${current_sha}; refusing to deploy stale revision ${GITHUB_SHA}."
+            exit 1
+          fi
 
       - name: Apply production database migrations
         id: deploy-migrations
