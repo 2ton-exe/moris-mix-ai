@@ -7,11 +7,6 @@ on:
         description: Frontend existence only; caller must gate on successful validations
         required: true
         type: boolean
-      deploy-upload-signing:
-        description: Explicitly request the protected upload-signing deployment
-        required: false
-        default: false
-        type: boolean
     secrets:
       SUPABASE_ACCESS_TOKEN:
         required: true
@@ -253,78 +248,3 @@ jobs:
           name: production-ai-route-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: ai-route-smoke.json
           if-no-files-found: warn
-
-  deploy-upload-signing:
-    name: Deploy protected upload-signing function
-    needs: deploy
-    if: >-
-      success() && inputs.deploy-upload-signing &&
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      github.workflow_ref == format('{0}/.github/workflows/modular-main.yml@refs/heads/main', github.repository)
-    runs-on: ubuntu-latest
-    environment: recipe-image-upload-production
-    concurrency:
-      group: recipe-image-upload-production
-      cancel-in-progress: false
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify upload-signing production readiness
-        id: upload-signing-readiness
-        env:
-          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-          SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          ALLOWED_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_URL }}
-          UPLOAD_SIGNING_READINESS_ATTESTATION: ${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}
-        run: node scripts/verify-upload-signing-readiness.mjs
-
-      - name: Deploy recipe image upload URL Edge Function
-        id: deploy-recipe-image-upload-url
-        if: steps.upload-signing-readiness.outcome == 'success'
-        working-directory: frontend
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: |
-          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy recipe-image-upload-url \
-            --project-ref "$SUPABASE_PROJECT_REF" \
-            --no-verify-jwt \
-            --use-api \
-            --yes
-
-      - name: Record upload-signing deployment outcome
-        if: always()
-        env:
-          READINESS_OUTCOME: ${{ steps.upload-signing-readiness.outcome }}
-          DEPLOYMENT_OUTCOME: ${{ steps.deploy-recipe-image-upload-url.outcome }}
-        run: |
-          {
-            echo "### Upload-signing production deployment"
-            echo "- Readiness verification: ${READINESS_OUTCOME}"
-            echo "- Deployment command: ${DEPLOYMENT_OUTCOME}"
-          } >> "$GITHUB_STEP_SUMMARY"

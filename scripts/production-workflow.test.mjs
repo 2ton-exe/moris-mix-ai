@@ -5,6 +5,7 @@ import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -49,6 +50,35 @@ test('all workflow YAML parses, including the reusable production contract', () 
   }
   assert.deepEqual(Object.keys(production.on), ['workflow_call']);
   assert.deepEqual(production.permissions, { contents: 'read' });
+});
+
+test('Supabase database targets accept only the direct endpoint or project-bound session pooler', () => {
+  const projectRef = 'gtbwblxskctpsqhbpebg';
+  const direct = getSupabaseDatabaseConnection(
+    `postgresql://postgres:local-password@db.${projectRef}.supabase.co:5432/postgres?sslmode=require`,
+    projectRef,
+  );
+  assert.equal(direct.host, `db.${projectRef}.supabase.co`);
+  assert.equal(direct.port, 5432);
+  assert.equal(direct.user, 'postgres');
+  const pooled = getSupabaseDatabaseConnection(
+    `postgresql://postgres.${projectRef}:local-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require`,
+    projectRef,
+  );
+  assert.equal(pooled.host, 'aws-0-ap-southeast-1.pooler.supabase.com');
+  assert.equal(pooled.port, 5432);
+  assert.equal(pooled.user, `postgres.${projectRef}`);
+
+  for (const target of [
+    `postgresql://postgres:local-password@db.otherproject.supabase.co:5432/postgres`,
+    `postgresql://postgres.${projectRef}:local-password@attacker.pooler.supabase.com:5432/postgres`,
+    `postgresql://postgres.otherproject:local-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres`,
+    `postgresql://postgres.${projectRef}:local-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres`,
+    `postgresql://postgres:local-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres`,
+    `postgresql://postgres:local-password@db.${projectRef}.supabase.co:5433/postgres`,
+    `postgresql://postgres:local-password@db.${projectRef}.supabase.co/postgres`,
+    `postgresql://postgres:local-password@db.${projectRef}.supabase.co:5432/postgres?sslmode=disable`,
+  ]) assert.throws(() => getSupabaseDatabaseConnection(target, projectRef));
 });
 
 test('legacy CI is intentionally absent; modular main is the only production caller', () => {
@@ -106,7 +136,6 @@ test('actual modular caller and callee guards reject PRs, other refs and failed 
   assert.equal(main.jobs.production.uses, './.github/workflows/reusable-production.yml');
   assert.deepEqual(main.jobs.production.with, {
     'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
-    'deploy-upload-signing': '${{ inputs.deploy-upload-signing }}',
   });
   for (const expression of [main.jobs.production.if, release.if]) {
     assert.equal(condition(expression), true);
@@ -267,25 +296,35 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
 });
 
-test('upload signing uses a manually requested protected production deployment job', () => {
-  const job = production.jobs['deploy-upload-signing'];
-  assert.deepEqual(job.needs, 'deploy');
+test('upload signing runs as a separate manually requested protected production job', () => {
+  const job = main.jobs['deploy-upload-signing'];
+  assert.deepEqual(job.needs, 'production');
   assert.equal(job.environment, 'recipe-image-upload-production');
   assert.match(job.if, /inputs\.deploy-upload-signing/);
-  assert.doesNotMatch(job.if, /vars\./);
+  assert.match(job.if, /\|\| false/);
   assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
   assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
-  assert.match(job.if, /modular-main\.yml@refs\/heads\/main/);
+  const rootInstall = step(job, 'Install root dependencies');
+  assert.equal(rootInstall.run, 'pnpm install --frozen-lockfile');
+  assert.ok(JSON.parse(readFileSync('package.json', 'utf8')).devDependencies.pg);
+  assert.equal(existsSync('pnpm-lock.yaml'), true);
+  const frontendInstall = step(job, 'Install frontend dependencies');
+  assert.equal(frontendInstall['working-directory'], 'frontend');
+  assert.equal(frontendInstall.run, 'pnpm install --frozen-lockfile');
+  assert.ok(JSON.parse(readFileSync('frontend/package.json', 'utf8')).devDependencies.supabase);
+  assert.equal(existsSync('frontend/pnpm-lock.yaml'), true);
   const readiness = step(job, 'Verify upload-signing production readiness');
   assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
-  assert.ok(readiness.env.SUPABASE_DATABASE_URL);
-  assert.ok(readiness.env.UPLOAD_SIGNING_READINESS_ATTESTATION);
+  assert.equal(readiness.env.SUPABASE_DATABASE_URL, '${{ secrets.SUPABASE_DATABASE_URL }}');
+  assert.equal(readiness.env.UPLOAD_SIGNING_READINESS_ATTESTATION, '${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}');
   const deploy = step(job, 'Deploy recipe image upload URL Edge Function');
-  assert.equal(deploy.if, "steps.upload-signing-readiness.outcome == 'success'");
+  assert.equal(deploy.if, "success() && steps.upload-signing-readiness.outcome == 'success'");
   assert.equal(deploy.id, 'deploy-recipe-image-upload-url');
+  assert.equal(deploy['working-directory'], 'frontend');
   assert.match(deploy.run, /functions deploy recipe-image-upload-url/);
   assert.match(deploy.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  assert.equal(deploy.env.SUPABASE_ACCESS_TOKEN, '${{ secrets.SUPABASE_ACCESS_TOKEN }}');
   assert.equal(step(job, 'Record upload-signing deployment outcome').if, 'always()');
 });
 
@@ -540,14 +579,14 @@ test('cleanup workflow paths contain no variable-based activation bypass', () =>
 });
 
 test('upload signing requires an explicit request and successful protected readiness preflight', () => {
-  const job = production.jobs['deploy-upload-signing'];
+  const job = main.jobs['deploy-upload-signing'];
   assert.equal(job.environment, 'recipe-image-upload-production');
-  assert.equal(job.needs, 'deploy');
+  assert.equal(job.needs, 'production');
   assert.match(job.if, /inputs\.deploy-upload-signing/);
+  assert.match(job.if, /\|\| false/);
   assert.doesNotMatch(job.if, /vars\./);
   assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
   assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
-  assert.match(job.if, /modular-main\.yml@refs\/heads\/main/);
   const readiness = step(job, 'Verify upload-signing production readiness');
   assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
   for (const name of [
@@ -556,23 +595,43 @@ test('upload signing requires an explicit request and successful protected readi
     'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
     'ALLOWED_ORIGIN', 'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.ok(Object.hasOwn(readiness.env, name), name);
+  for (const name of [
+    'SUPABASE_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID',
+    'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+    'UPLOAD_SIGNING_READINESS_ATTESTATION',
+  ]) assert.equal(readiness.env[name], '${{ secrets.' + name + ' }}', name);
+  assert.equal(readiness.env.SUPABASE_URL, '${{ vars.VITE_SUPABASE_URL }}');
+  assert.equal(readiness.env.SUPABASE_PROJECT_REF, '${{ vars.SUPABASE_PROJECT_REF }}');
+  assert.deepEqual(Object.keys(main.jobs.production.secrets).sort(), [
+    'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN',
+  ]);
+  assert.deepEqual(Object.keys(production.on.workflow_call.secrets).sort(), [
+    'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN',
+  ]);
   const verifier = readFileSync('scripts/verify-upload-signing-readiness.mjs', 'utf8');
   for (const prerequisite of [
     '20261102000009', '20261102000010', 'recipe_image_upload_intents',
     'relforcerowsecurity', 'create_recipe_image_upload_intent',
     'has_table_privilege', 'has_function_privilege',
   ]) assert.ok(verifier.includes(prerequisite), prerequisite);
+  assert.match(verifier, /getSupabaseDatabaseConnection/);
   assert.match(verifier, /UPLOAD_SIGNING_READINESS_ATTESTATION !== 'verified'/);
   assert.match(verifier, /\/auth\/v1\/settings/);
   assert.match(verifier, /\/rest\/v1\/recipe_image_upload_intents\?select=id&limit=0/);
   assert.match(verifier, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(verifier, /await import\('pg'\)/);
+  assert.match(verifier, /ssl:\s*\{\s*rejectUnauthorized:\s*true\s*\}/);
+  assert.doesNotMatch(verifier, /connectionString:/);
   assert.doesNotMatch(verifier, /\b(insert|update|delete|alter|create)\s+(into|table|function|policy)/i);
   const baseEnv = { PATH: process.env.PATH ?? '', SystemRoot: process.env.SystemRoot ?? '' };
   const isolatedDirectory = mkdtempSync(join(tmpdir(), 'upload-readiness-'));
   try {
     const isolatedVerifier = join(isolatedDirectory, 'verify-upload-signing-readiness.mjs');
     writeFileSync(isolatedVerifier, verifier);
+    writeFileSync(
+      join(isolatedDirectory, 'supabase-database-target.mjs'),
+      readFileSync('scripts/supabase-database-target.mjs', 'utf8'),
+    );
     const missing = spawnSync(process.execPath, [isolatedVerifier], {
       cwd: isolatedDirectory, encoding: 'utf8', env: baseEnv, windowsHide: true,
     });
@@ -603,41 +662,40 @@ test('upload signing requires an explicit request and successful protected readi
     rmSync(isolatedDirectory, { recursive: true, force: true });
   }
   const deployment = step(job, 'Deploy recipe image upload URL Edge Function');
-  assert.equal(deployment.if, "steps.upload-signing-readiness.outcome == 'success'");
+  assert.equal(deployment.if, "success() && steps.upload-signing-readiness.outcome == 'success'");
   assert.equal(deployment.id, 'deploy-recipe-image-upload-url');
   assert.equal(deployment['working-directory'], 'frontend');
   assert.match(deployment.run, /functions deploy recipe-image-upload-url/);
   assert.match(deployment.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(deployment.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
   assert.equal(step(job, 'Record upload-signing deployment outcome').if, 'always()');
-  for (const value of [undefined, '', 'false']) {
-    const inputs = value === undefined ? { 'deploy-upload-signing': false } : { 'deploy-upload-signing': value === 'true' };
+  const stale = step(job, 'Reject stale upload-signing revision');
+  const staleIndex = job.steps.indexOf(stale);
+  const deploymentIndex = job.steps.indexOf(deployment);
+  assert.equal(staleIndex, deploymentIndex - 1);
+  assert.ok(job.steps.indexOf(readiness) < staleIndex);
+  assert.equal(stale.if, undefined);
+  assert.equal(stale.env.GH_TOKEN, '${{ github.token }}');
+  assert.match(stale.run, /set -euo pipefail/);
+  assert.match(stale.run, /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/main"/);
+  assert.match(stale.run, /"\$current_sha" != "\$GITHUB_SHA"/);
+  for (const github of [
+    { event_name: 'push', ref: 'refs/heads/main' },
+    { event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
+    { event_name: 'workflow_dispatch', ref: 'refs/heads/feature' },
+    { event_name: 'pull_request', ref: 'refs/heads/main' },
+  ]) {
+    assert.equal(condition(job.if, { inputs: {}, github }), false);
     assert.equal(condition(job.if, {
-      inputs: { ...inputs, 'frontend-exists': true },
-      github: {
-        event_name: 'workflow_dispatch',
-        ref: 'refs/heads/main',
-        repository: '2ton-exe/moris-mix-ai',
-        workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main',
-      },
+      inputs: { 'deploy-upload-signing': false }, github,
     }), false);
+    assert.equal(condition(job.if, {
+      inputs: { 'deploy-upload-signing': true }, github,
+    }), github.event_name === 'workflow_dispatch' && github.ref === 'refs/heads/main');
   }
   assert.equal(condition(job.if, {
-    inputs: { 'frontend-exists': true, 'deploy-upload-signing': true },
-    github: {
-      event_name: 'push',
-      ref: 'refs/heads/main',
-      repository: '2ton-exe/moris-mix-ai',
-      workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main',
-    },
+    success: () => false,
+    inputs: { 'deploy-upload-signing': true },
+    github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
   }), false);
-  assert.equal(condition(job.if, {
-    inputs: { 'frontend-exists': true, 'deploy-upload-signing': true },
-    github: {
-      event_name: 'workflow_dispatch',
-      ref: 'refs/heads/main',
-      repository: '2ton-exe/moris-mix-ai',
-      workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main',
-    },
-  }), true);
 });

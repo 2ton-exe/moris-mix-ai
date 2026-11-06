@@ -1,5 +1,7 @@
 ﻿import { readFileSync } from 'node:fs';
 
+import { getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
+
 const required = [
   'SUPABASE_DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
   'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID', 'R2_BUCKET_NAME',
@@ -19,9 +21,8 @@ const projectRef = process.env.SUPABASE_PROJECT_REF;
 const configRef = readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([^"]+)"$/m)?.[1];
 if (!configRef || projectRef !== configRef) throw new Error('Project reference does not match supabase/config.toml.');
 const supabaseUrl = new URL(process.env.SUPABASE_URL);
-const databaseUrl = new URL(process.env.SUPABASE_DATABASE_URL);
+const databaseConnection = getSupabaseDatabaseConnection(process.env.SUPABASE_DATABASE_URL, projectRef);
 if (supabaseUrl.origin !== `https://${projectRef}.supabase.co`) throw new Error('SUPABASE_URL targets a different project.');
-if (databaseUrl.hostname !== `db.${projectRef}.supabase.co`) throw new Error('Database URL targets a different project.');
 if (new URL(process.env.ALLOWED_ORIGIN).protocol !== 'https:') throw new Error('ALLOWED_ORIGIN must use HTTPS.');
 
 const publicKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.SUPABASE_PUBLISHABLE_KEY.trim();
@@ -47,7 +48,7 @@ await serviceRoleCheck.body?.cancel();
 const { default: pg } = await import('pg');
 const { Client } = pg;
 const client = new Client({
-  connectionString: process.env.SUPABASE_DATABASE_URL,
+  ...databaseConnection,
   ssl: { rejectUnauthorized: true },
   application_name: 'recipe-image-upload-readiness',
   connectionTimeoutMillis: 10000,
