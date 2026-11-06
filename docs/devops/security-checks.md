@@ -97,13 +97,29 @@ Frontend returned these package/advisory entries (counts can reflect dependency 
 
 Deno returned Zod / GHSA-mrhx-c7xc-m3w5 (high); `deno.lock` resolves Zod 3.22.4. Frontend/component owners should assess reachability, supported upgrades and regressions; the backend owner should triage locked Deno Zod usage. Build/test-tool findings remain relevant to CI supply-chain risk even when not production runtime dependencies. This slice leaves all manifests and lockfiles intact.
 
+## Hosted execution evidence — November 2026
+
+The first hosted execution, [Security Audit #1](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41469565159), ran on PR #167 head `55e3f5bb19fcd6f1d0c73c353428e20ddba96562` (November 2). The three **observation jobs completed successfully**, but their underlying audit steps reported: root pnpm exit 0/no advisories, frontend pnpm exit 1 (6 moderate, 1 high, 2 critical), and Deno exit 1 (1 high). This demonstrates why job-level green is not a clean audit.
+
+The second hosted execution, [Security Audit #2](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42179871388), ran on PR #167 repair head `67f79eaf4c0a8f3527e6e4696d8011fdbf45b8ba` (November 6). All three observation jobs again completed successfully:
+
+| Ecosystem | Observed result from audit output | Interpretation |
+| --- | --- | --- |
+| Root pnpm | Audit exit 0; no advisories returned | No findings in that registry response, not repo-wide security certification |
+| Frontend pnpm | Audit exit 1; 5 moderate, 1 high, 2 critical | Findings remain open for frontend/build-tool owner triage; counts differ from the November 2 registry response |
+| Deno | Log reported Zod advisory GHSA-mrhx-c7xc-m3w5; audit step marked success | Advisory is still present despite a green step; do not use exit status alone to claim clean Deno coverage or promote it to a required check |
+
+Both hosted runs are **observation evidence only**. The tool's report or advisory database may change without repository changes. Neither run validates source/history secret scanning, runtime exploitability, or release-grade gating.
+
+[Modular PR Validation #286](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42179871714) was triggered on the same November 6 repair head. Its required Frontend safety-regression path initially failed on the old PR head because a test applied the no-path-filters invariant to every workflow, including this optional audit. The repair scopes that invariant to the required modular PR/main entrypoints while explicitly checking the audit's read-only, path-scoped, non-push observation status. Do not mark this validation completed until its entire current-head run finishes.
+
 ## Secret scanning strategy
 
 Native scanning is explicitly reported disabled, so adequate active native coverage is not established. No additional secret-scanning product is introduced merely for tool count. A later #163 slice must decide between native feature configuration and a justified scanner with PR/history coverage, based on access, coverage and operating requirements. No successful source/history scan is claimed. Settings changes and credential investigation/rotation require their own authorized work; this inventory contains no credential values.
 
 ## Deno dependency coverage
 
-Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` explicitly documents lockfile auditing, and `deno audit --lock=deno.lock` successfully queried advisory data and reported the Zod finding. That validates the command for inclusion; it does not establish exhaustive advisory coverage of all JSR, npm or remote modules. No `--fix`, ignored advisory, severity exclusion, registry-error suppression or lockfile rewrite is used. Dependency integrity locks and advisory auditing provide different controls. Hosted Deno execution remains unproven until Actions runs this workflow.
+Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` explicitly documents lockfile auditing, and `deno audit --lock=deno.lock` successfully queried advisory data and reported the Zod finding. That validates the command for inclusion; it does not establish exhaustive advisory coverage of all JSR, npm or remote modules. No `--fix`, ignored advisory, severity exclusion, registry-error suppression or lockfile rewrite is used. Dependency integrity locks and advisory auditing provide different controls. Hosted Deno audit execution is recorded below. Advisory output and step exit state must be interpreted separately; a successful observation job does not establish zero vulnerabilities.
 
 ## Deferred hardening work
 
@@ -121,4 +137,4 @@ Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` e
 - Repository evidence: root/frontend manifests and locks, `deno.lock`, frontend workspace policy and all 13 existing `.github/workflows/*.yml`; search found no existing dependency-audit/secret-scanner/code-scanning workflow.
 - Local command evidence: Node/Deno versions, `npx --yes pnpm@10 --version`, pnpm audit help, `deno help audit`, and the three audits above. Advisory identifiers are registry-reported findings, not independently reproduced exploits.
 - Action provenance: read-only `releases/latest` and `git/ref/tags/<release>` APIs for [checkout](https://github.com/actions/checkout/releases/tag/v7.0.1), [setup-node](https://github.com/actions/setup-node/releases/tag/v7.1.0), and [setup-deno](https://github.com/denoland/setup-deno/releases/tag/v2.0.5).
-- Local static validation passed with the existing frontend ESLint installation's `js-yaml` parser, as existing workflow tests use. Embedded shell blocks passed `bash -n`; summary handling was checked for clean, finding, error and malformed reports. Permissions, SHA pins, secret references and the two-file scope were checked. `git diff --check` passed; `actionlint` was not installed. Local checks cannot prove hosted workflow execution. No hosted Security Audit result is claimed by this document.
+- Local static validation passed with the existing frontend ESLint installation's `js-yaml` parser, as existing workflow tests use. Embedded shell blocks passed `bash -n`; summary handling was checked for clean, finding, error and malformed reports. Permissions, SHA pins, secret references and the two-file scope were checked. `git diff --check` passed; `actionlint` was not installed. Local checks cannot prove hosted workflow execution. Hosted Security Audit evidence is recorded below. Job success is **not** interpreted as an all-clear.
