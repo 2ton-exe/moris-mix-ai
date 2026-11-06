@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
@@ -7,6 +8,15 @@ const require = createRequire(import.meta.url);
 const { load } = createRequire(require.resolve('eslint', { paths: ['./frontend'] }))('js-yaml');
 const workflow = name => load(readFileSync(`.github/workflows/${name}.yml`, 'utf8'));
 const step = (job, name) => job.steps.find(candidate => candidate.name === name);
+const runNormalizeCopy = input => spawnSync('python3', ['scripts/normalize-pg-copy.py'], {
+  input,
+  encoding: 'utf8',
+});
+const normalizeCopy = input => {
+  const result = runNormalizeCopy(input);
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+};
 
 const production = workflow('reusable-production').jobs.deploy;
 const backup = workflow('database-backup').jobs.backup;
@@ -44,4 +54,35 @@ test('backup queue preserves unique run attempts and private local verification 
   assert.match(bundle.run, /"workflow_run_id": "\$GITHUB_RUN_ID"/);
   assert.match(bundle.run, /"workflow_run_attempt": "\$GITHUB_RUN_ATTEMPT"/);
   assert.match(verify.run, /umask 077/);
+});
+
+test('backup migration-ledger comparison ignores COPY row order but detects content changes', () => {
+  const bundle = step(backup, 'Create Supabase logical backup bundle');
+  assert.ok(bundle, 'backup bundle step must exist');
+  assert.match(bundle.run, /normalize_history_data_dump\(\)/);
+  assert.match(bundle.run, /python3 scripts\/normalize-pg-copy\.py/);
+  assert.match(bundle.run, /history_before_normalized="\$consistency_dir\/history-data-before-normalized\.sql"/);
+  assert.match(bundle.run, /history_after_normalized="\$consistency_dir\/history-data-after-normalized\.sql"/);
+  assert.match(bundle.run, /normalize_history_data_dump "\$backup_dir\/history-data\.sql" > "\$history_before_normalized"/);
+  assert.match(bundle.run, /normalize_history_data_dump "\$consistency_dir\/history-data-after\.sql" > "\$history_after_normalized"/);
+  assert.match(bundle.run, /cmp -s "\$history_before_normalized" "\$history_after_normalized"/);
+
+  const prefix = [
+    '-- PostgreSQL database dump',
+    'COPY supabase_migrations.schema_migrations (version, statements, name) FROM stdin;',
+    '',
+  ].join('\n');
+  const suffix = '\\.\n-- PostgreSQL database dump complete\n';
+
+  const first = `${prefix}20261101000008\t{statement-b}\tharden\n20261031000007\t{statement-a}\tquota\n${suffix}`;
+  const reordered = `${prefix}20261031000007\t{statement-a}\tquota\n20261101000008\t{statement-b}\tharden\n${suffix}`;
+  const changed = `${prefix}20261031000007\t{statement-changed}\tquota\n20261101000008\t{statement-b}\tharden\n${suffix}`;
+
+  assert.equal(normalizeCopy(first), normalizeCopy(reordered));
+  assert.notEqual(normalizeCopy(first), normalizeCopy(changed));
+
+  const malformed = `${prefix}20261101000008\t{statement-b}\tharden\n`;
+  const malformedResult = runNormalizeCopy(malformed);
+  assert.notEqual(malformedResult.status, 0);
+  assert.match(malformedResult.stderr, /unterminated pg_dump COPY block/);
 });
