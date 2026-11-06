@@ -566,32 +566,42 @@ test('upload signing requires an explicit request and successful protected readi
   assert.match(verifier, /\/auth\/v1\/settings/);
   assert.match(verifier, /\/rest\/v1\/recipe_image_upload_intents\?select=id&limit=0/);
   assert.match(verifier, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(verifier, /await import\('pg'\)/);
   assert.doesNotMatch(verifier, /\b(insert|update|delete|alter|create)\s+(into|table|function|policy)/i);
   const baseEnv = { PATH: process.env.PATH ?? '', SystemRoot: process.env.SystemRoot ?? '' };
-  const missing = spawnSync(process.execPath, ['scripts/verify-upload-signing-readiness.mjs'], {
-    encoding: 'utf8', env: baseEnv, windowsHide: true,
-  });
-  assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /Missing required protected configuration: SUPABASE_DATABASE_URL/);
-  const configured = {
-    ...baseEnv,
-    SUPABASE_DATABASE_URL: 'postgresql://placeholder:placeholder@db.invalid.supabase.co/postgres',
-    SUPABASE_URL: 'https://invalid.supabase.co',
-    SUPABASE_PROJECT_REF: 'invalid',
-    SUPABASE_SERVICE_ROLE_KEY: 'placeholder',
-    SUPABASE_ANON_KEY: 'placeholder',
-    R2_ACCOUNT_ID: 'placeholder',
-    R2_BUCKET_NAME: 'placeholder',
-    R2_ACCESS_KEY_ID: 'placeholder',
-    R2_SECRET_ACCESS_KEY: 'placeholder',
-    ALLOWED_ORIGIN: 'https://example.invalid',
-    UPLOAD_SIGNING_READINESS_ATTESTATION: 'unverified',
-  };
-  const unverified = spawnSync(process.execPath, ['scripts/verify-upload-signing-readiness.mjs'], {
-    encoding: 'utf8', env: configured, windowsHide: true,
-  });
-  assert.notEqual(unverified.status, 0);
-  assert.match(unverified.stderr, /readiness attestation is missing or invalid/);
+  const isolatedDirectory = mkdtempSync(join(tmpdir(), 'upload-readiness-'));
+  try {
+    const isolatedVerifier = join(isolatedDirectory, 'verify-upload-signing-readiness.mjs');
+    writeFileSync(isolatedVerifier, verifier);
+    const missing = spawnSync(process.execPath, [isolatedVerifier], {
+      cwd: isolatedDirectory, encoding: 'utf8', env: baseEnv, windowsHide: true,
+    });
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /Missing required protected configuration: SUPABASE_DATABASE_URL/);
+    assert.doesNotMatch(missing.stderr, /ERR_MODULE_NOT_FOUND/);
+    const configured = {
+      ...baseEnv,
+      SUPABASE_DATABASE_URL: 'postgresql://placeholder:placeholder@db.invalid.supabase.co/postgres',
+      SUPABASE_URL: 'https://invalid.supabase.co',
+      SUPABASE_PROJECT_REF: 'invalid',
+      SUPABASE_SERVICE_ROLE_KEY: 'placeholder',
+      SUPABASE_ANON_KEY: 'placeholder',
+      R2_ACCOUNT_ID: 'placeholder',
+      R2_BUCKET_NAME: 'placeholder',
+      R2_ACCESS_KEY_ID: 'placeholder',
+      R2_SECRET_ACCESS_KEY: 'placeholder',
+      ALLOWED_ORIGIN: 'https://example.invalid',
+      UPLOAD_SIGNING_READINESS_ATTESTATION: 'unverified',
+    };
+    const unverified = spawnSync(process.execPath, [isolatedVerifier], {
+      cwd: isolatedDirectory, encoding: 'utf8', env: configured, windowsHide: true,
+    });
+    assert.notEqual(unverified.status, 0);
+    assert.match(unverified.stderr, /readiness attestation is missing or invalid/);
+    assert.doesNotMatch(unverified.stderr, /ERR_MODULE_NOT_FOUND/);
+  } finally {
+    rmSync(isolatedDirectory, { recursive: true, force: true });
+  }
   const deployment = step(job, 'Deploy recipe image upload URL Edge Function');
   assert.equal(deployment.if, "steps.upload-signing-readiness.outcome == 'success'");
   assert.equal(deployment.id, 'deploy-recipe-image-upload-url');

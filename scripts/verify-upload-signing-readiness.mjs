@@ -1,5 +1,4 @@
 ﻿import { readFileSync } from 'node:fs';
-import pg from 'pg';
 
 const required = [
   'SUPABASE_DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
@@ -45,6 +44,7 @@ const serviceRoleCheck = await fetch(new URL('/rest/v1/recipe_image_upload_inten
 if (!serviceRoleCheck.ok) throw new Error('The service-role credential was rejected for the configured project or table.');
 await serviceRoleCheck.body?.cancel();
 
+const { default: pg } = await import('pg');
 const { Client } = pg;
 const client = new Client({
   connectionString: process.env.SUPABASE_DATABASE_URL,
