@@ -156,17 +156,17 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
-    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
+    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe image upload URL Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
-  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function')) {
+  for (const name of ordered.slice(0, -3).filter(name => !['Deploy recipe image upload URL Edge Function', 'Deploy recipe image upload cleanup Edge Function'].includes(name))) {
     assert.equal(step(release, name).if, undefined);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-cleanup']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup']);
   assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
   assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
@@ -196,6 +196,15 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
     assert.doesNotMatch(deploy.run, /--prune|--all|latest|npx/);
   }
+  const uploadUrl = step(release, 'Deploy recipe image upload URL Edge Function');
+  assert.equal(uploadUrl.id, 'deploy-recipe-image-upload-url');
+  assert.equal(uploadUrl.if, false);
+  assert.equal(uploadUrl['working-directory'], 'frontend');
+  assert.deepEqual(uploadUrl.env, configuration.env);
+  assert.match(uploadUrl.run, /functions deploy recipe-image-upload-url/);
+  assert.match(uploadUrl.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
+  assert.match(uploadUrl.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  assert.doesNotMatch(uploadUrl.run, /--prune|--all|latest|npx/);
   const cleanup = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(cleanup.if, false);
   assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
@@ -229,6 +238,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    IMAGE_UPLOAD_URL_OUTCOME: '${{ steps.deploy-recipe-image-upload-url.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
@@ -504,5 +514,17 @@ test('cleanup workflow paths contain no variable-based activation bypass', () =>
   for (const target of [deployment, invocation]) {
     assert.equal(target.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
     assert.doesNotMatch(target.run, /RECIPE_IMAGE_CLEANUP_ENABLED/);
+  }
+});
+
+test('upload signing deployment remains disabled until protected readiness approval exists', () => {
+  const deployment = step(release, 'Deploy recipe image upload URL Edge Function');
+  assert.equal(deployment.if, false);
+  for (const value of [undefined, '', 'false', 'true']) {
+    const vars = value === undefined ? {} : { UPLOAD_SIGNING_DEPLOYMENT_ENABLED: value };
+    assert.equal(condition(deployment.if, {
+      vars,
+      github: { event_name: 'push', ref: 'refs/heads/main' },
+    }), false);
   }
 });
