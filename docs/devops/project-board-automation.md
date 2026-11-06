@@ -6,11 +6,12 @@ repository `2ton-exe/moris-mix-ai`.
 
 ## Delivery and evidence boundary
 
-This implementation ships **disabled by default**. Configuration is NOT runtime
-proof. Local deterministic tests do not prove installation permissions, Actions
-delivery, built-in workflow compatibility, or live mutation behavior. Do not
-close #147 or describe this automation as operational until controlled post-merge
-runtime evidence has been recorded. This workflow is not a required merge check.
+This implementation **initially shipped disabled by default**; that is its original
+deployment safeguard, not the current operational setting. Configuration and local
+tests alone never proved live mutation behavior. As the dated checkpoint below
+shows, the synchronizer was activated and exercised on November 6, 2026. Do not
+close #147 or claim complete verification until its remaining acceptance evidence
+is recorded. This workflow is not a required merge check.
 
 The November 1 preflight observed remote main
 `bd192be90428da62d00d2d1cae6f22c529c8740e`, #147 OPEN / Todo, and 98 current
@@ -33,6 +34,7 @@ The operator configured the dedicated `2ton Dev Board Sync` GitHub App owned by 
 | [First write reconciliation #133](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42191091843) | Success; **24 proposed, 24 applied, 0 rejected** (7 add and 17 status operations) |
 | [Event run #134](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42191735611) | Success; **0 proposed / 0 applied** |
 | [Event run #135](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42192406990) | Success; **0 proposed / 0 applied** |
+| [Pre-activation event runs #130](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42186240868) and [#131](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42186904635) | `disabled` job succeeded, while `synchronize` was skipped; this proves the disabled event path before activation, not disabled schedule or malformed-value pre-token guards |
 
 After activation, the operator visually checked representative Project cards and their expected statuses. The complete snapshot/reconciliation logic rejects duplicate items and requires current open repository content, but a green run alone is not an independent manual inspection of every card.
 
@@ -40,9 +42,6 @@ After activation, the operator visually checked representative Project cards and
 
 Isolated [test issue #170](https://github.com/2ton-exe/moris-mix-ai/issues/170) and [test PR #171](https://github.com/2ton-exe/moris-mix-ai/pull/171) were used. The PR contained only a temporary documentation file on `test/170-development-board-lifecycle` and was **closed without merging**. None of that fixture PR's changes reached `main`.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:9d120a80054b58ccdb2f59f7e13f581b587a5abf0d727458cc265d67b00a6742 -->
 
 | Lifecycle action | Evidence | Applied Project result |
 | --- | --- | --- |
@@ -61,14 +60,13 @@ These outcomes are supported by successful jobs and acknowledged Project GraphQL
 Runs #139 and #143 reconciled unchanged board state after distinct PR events; they do not demonstrate duplicate-event delivery. Live duplicate-event verification remains pending.
 
 
-<!-- /coderabbit-ai-generated:v1 -->
 ### Timing, known limits, and next actions
 
 From the GitHub Actions REST `created_at` and `updated_at` timestamps (run-level elapsed time, including scheduling and setup, **not** a per-API latency metric), #132 took approximately **36 s**, #133 **73 s**, #134 **33 s**, #135 **44 s**, #143 **86 s**, and #148 **37 s**. These runs are observations with different workloads, **not** comparable optimization evidence. Exact GraphQL request counts, remaining rate-limit budget and long-term reliability have **not** been independently measured.
 
 Known nonblocking warning: `actions/checkout@v4` / `actions/setup-node@v4` emitted a Node.js 20 deprecation warning under the runtime; the documented runs succeeded. Do not treat this as a successful compatibility upgrade. The configured synchronization timeout remains 30 minutes, and GitHub schedule executions can be delayed.
 
-Before closing #147: confirm fixture #170's final `Done` status in the Project UI; review the remaining issue acceptance checkboxes against run and board evidence; obtain independent review and main-branch verification for this documentation update; verify the merged-PR/issue-separation behavior through an appropriate **real** PR merge when available; assess API workload if needed; and ensure test branch `test/170-development-board-lifecycle` is cleaned up without merging its contents.
+Before closing #147: confirm fixture #170's final `Done` status in the Project UI; review the remaining issue acceptance checkboxes against run and board evidence; obtain independent review and main-branch verification for this documentation update; verify the merged-PR/issue-separation behavior through an appropriate **real** PR merge when available; **measure and record GraphQL request counts, rate-limit budget and run duration** for an authenticated reconciliation; and ensure test branch `test/170-development-board-lifecycle` is cleaned up without merging its contents.
 
 ---
 
@@ -265,8 +263,11 @@ earlier successful writes are preserved and the next run repairs partial work.
 
 ## Authentication and activation contract
 
-Do not configure credentials as part of implementing this branch. After merge,
-use a dedicated App installed in `2ton-exe`, scoped to this repository.
+The following setup contract is retained for **initial installation, key rotation,
+and recovery**, not a request to reconfigure the active installation. It was
+originally implemented without storing credentials in the branch; credentials
+were configured separately after merge. Use a dedicated App installed in
+`2ton-exe`, scoped to this repository.
 
 Minimum App permissions:
 
@@ -321,7 +322,7 @@ pure functions. Native `fetch` and Node built-ins avoid executing dependencies
 from PR contents. Static regression tests check the checkout, action list,
 commands, permissions, secret references and activation guard.
 
-## Actions event-policy check before activation
+## Actions event-policy prerequisite (initial activation)
 
 This repository is public. The synchronizer intentionally uses
 `pull_request_target` for trusted-base PR lifecycle metadata, and GitHub's
@@ -332,13 +333,14 @@ using `pull_request_target`, confirm that an applicable event policy explicitly
 permits it and record evidence of the live policy check. See GitHub's official
 [pull_request_target security guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 and [Actions policy documentation](https://docs.github.com/en/actions/concepts/about-actions-policies).
-This change does not inspect, configure, or claim that the live event policy is
-already permitted. This prerequisite is separate from the Project built-in
-workflow conflict review below; both checks are required before activation.
+At implementation time the workflow did not itself configure or prove the live
+event policy. The operator later verified the active allowed-event policy before
+enabling writes on November 6, as recorded above. Recheck it after policy changes.
+This prerequisite is separate from the Project built-in conflict review below.
 
-## Built-in workflow conflict review before activation
+## Built-in workflow conflict review (initial activation)
 
-The following built-ins were reported enabled in the agreed baseline:
+The following built-ins were reported enabled in the original baseline:
 
 1. Item closed
 2. Pull request merged
@@ -348,9 +350,10 @@ The following built-ins were reported enabled in the agreed baseline:
 6. Item added to project
 7. Auto-add to project
 
-This branch does not change them. Before setting the activation variable, audit
-their live behavior in the Project UI and perform a one-time reviewed disable
-or conflict-resolution step. In particular, automatic issue closure and generic
+The code does not change these settings. On November 6 the operator confirmed
+they were all **Off** before the first write-capable reconciliation. For a new
+installation, audit the live settings and perform a reviewed disable or conflict-
+resolution step before activation; do not re-enable conflicting writers. In particular, automatic issue closure and generic
 closed-item completion conflict with truthful issue/closed-unmerged semantics;
 automatic additions/status defaults can race with custom reconciliation. The
 custom system is intended to be the authoritative lifecycle synchronizer.
@@ -358,16 +361,18 @@ Do not call undocumented/private Project-workflow mutation endpoints.
 
 ## Operating commands and troubleshooting
 
-After merge and App configuration, with activation still disabled, use Actions
-→ Development Board synchronization → Run workflow → default branch →
-`mode: dry-run`. This discovers live metadata, calculates and reports proposed
-operations, and performs **zero Project mutations**. Dry-run is protected both
-by a read-only API adapter and a downscoped Projects-read token. It still needs
-valid metadata/Project read access; it cannot preview without credentials.
+For the **currently active** installation, run Actions → Development Board
+synchronization → Run workflow → default branch → `mode: dry-run` to preview
+without changing the activation variable. Dry-run discovers metadata and reports
+a plan with **zero Project mutations**, using a read-only API adapter and
+downscoped Projects-read token; valid App/Project read access is still required.
 
-Only after configuration, conflict review and explicit approval, set activation
-to exactly `true`. Use the same dispatch form with `mode: reconcile` to apply.
-Hourly reconciliation then uses the same implementation as lifecycle events.
+For a **new installation or recovery after a deliberate pause**, complete App
+configuration, conflict review, and dry-run before explicitly approving
+`PROJECT_AUTOMATION_ENABLED=true`. With activation enabled, manual
+`mode: reconcile` writes to the Project; issue/PR events and hourly reconciliation
+can also write. Never disable a working installation solely to re-run initial
+setup verification.
 Unset activation (or set it to `false`) to disable subsequent automatic runs;
 stop an already running job separately if needed. Setting the variable never
 rolls back earlier writes.
@@ -380,7 +385,7 @@ converted to a successful no-op.
 
 | Symptom | Check and repair |
 | --- | --- |
-| Disabled message | Activation absent/nonexact; this is expected before approval |
+| Disabled message | Activation absent/nonexact; expected when intentionally disabled (event runs #130/#131 observed this); investigate if unexpected in active mode |
 | Credential configuration error | Setting names, org visibility, App installation |
 | HTTP/auth/GraphQL failure | Installation, Projects and repository permissions, rate limits, API availability; never print the token |
 | Project/field/option identity error | Project 2/title, open state, one Status field and four exact options |
@@ -438,13 +443,6 @@ archived items; it proposed zero mutations and made no writes. This used the
 existing user's CLI authentication, **not** the future App or Actions workflow,
 and proves neither App configuration nor live mutation/lifecycle behavior.
 
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:d46f2ec80a4e7d8a32982532a36d626c047ef4d1ba3abb05ba8db9495212fff8 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:8cd474434fbcbe283193f9b0992cc85deadb137efb58086cd4024fdeb91deb28 -->
 
 ## Activation checkpoint and remaining runtime verification
 
@@ -469,8 +467,11 @@ the remaining evidence before closing #147.
   relationships and plans; execution success alone does not record those reviews.
 - [ ] Confirm merged default-branch implementation and code-owner approval;
   obtain independent review and main-branch verification of this documentation.
-- [ ] Verify disabled event/scheduled paths visibly skip and hosted pre-token
-  activation guards behave correctly in an appropriate controlled verification.
+- [x] Verify disabled event-triggered path: runs #130/#131 completed the `disabled`
+  job and skipped `synchronize` before activation.
+- [ ] Document or execute a safe controlled verification of the disabled scheduled
+  path and hosted malformed-value pre-token guards, without unnecessarily
+  interrupting the active board; record any justified deferral.
 - [ ] Inspect fixture #170's final Done status independently in the Project UI.
 - [ ] Verify converted-draft PR In Progress and reopened PR unarchive/recalculation.
 - [ ] Edit/remove relationships with and without prior-body evidence; verify prior
@@ -483,15 +484,15 @@ the remaining evidence before closing #147.
   independently inspect item uniqueness; zero-operation runs alone do not prove it.
 - [ ] Exercise >100-item pagination, scheduled drift repair, API/permission failure
   visibility and safe recovery with no credentials in logs.
+- [ ] Measure and document authenticated GraphQL request counts, pagination
+  workload, available rate-limit budget and run duration for an ordinary full
+  reconciliation; assess headroom against the 30-minute job timeout.
 - [ ] Review remaining #147 acceptance checkboxes against run and board evidence;
-  record remaining transitions, failures, limitations and API workload if needed.
+  record remaining transitions, failures and limitations before issue closure.
 - [ ] Ensure test branch `test/170-development-board-lifecycle` is cleaned up
   without merging its contents. Preserve completed issues as historical evidence.
 
-<!-- /coderabbit-ai-generated:v1 -->
 
-
-<!-- /coderabbit-ai-generated:v1 -->
 Reference API contracts: [Project GraphQL types and mutations](https://docs.github.com/en/graphql/reference/projects),
 [Issues GraphQL types](https://docs.github.com/en/graphql/reference/issues),
 and [create-github-app-token inputs](https://github.com/actions/create-github-app-token/blob/v3/action.yml).
