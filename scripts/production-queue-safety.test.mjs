@@ -122,3 +122,35 @@ test('backup drift diagnostics classify differences without emitting SQL or row 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('backup diagnostics report later COPY differences after header differences', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'backup-diff-multiregion-'));
+  try {
+    const before = join(dir, 'before.sql');
+    const after = join(dir, 'after.sql');
+    writeFileSync(before, [
+      '-- PRIVATE_HEADER_ONE',
+      'COPY supabase_migrations.schema_migrations (version, statements, name) FROM stdin;',
+      '1\tPRIVATE_STATEMENT_ONE\tfirst',
+      '\\.',
+      '',
+    ].join('\n'));
+    writeFileSync(after, [
+      '-- PRIVATE_HEADER_TWO',
+      'COPY supabase_migrations.schema_migrations (version, statements, name) FROM stdin;',
+      '1\tPRIVATE_STATEMENT_TWO\tfirst',
+      '\\.',
+      '',
+    ].join('\n'));
+    const result = spawnSync('python3', ['scripts/describe-pg-dump-diff.py', before, after], {
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /first differing line=1; before category=outside-copy/);
+    assert.match(result.stdout, /all differing line categories=copy-row->copy-row,outside-copy->outside-copy/);
+    assert.doesNotMatch(result.stdout, /PRIVATE_HEADER|PRIVATE_STATEMENT|schema_migrations/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
