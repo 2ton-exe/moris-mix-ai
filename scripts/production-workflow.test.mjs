@@ -17,8 +17,10 @@ const step = (job, name) => job.steps.find(s => s.name === name);
 // These conditions use only this small subset of Actions expressions. Execute the
 // actual YAML expressions against fixtures so changes to the gate affect tests.
 function condition(expression, overrides = {}) {
+  if (typeof expression === 'boolean') return expression;
   const context = {
     success: () => true,
+    vars: {},
     inputs: { 'frontend-exists': true },
     needs: { frontend: { outputs: { exists: 'true' } } },
     github: { event_name: 'push', ref: 'refs/heads/main', repository: '2ton-exe/moris-mix-ai',
@@ -466,4 +468,17 @@ test('cutover files contain no literal credential patterns', () => {
   const contents = cutoverPaths.map(path => readFileSync(path, 'utf8')).join('\n');
   assert.doesNotMatch(contents,
     /(?:sb_secret_|sbp_|gh[pousr]_|github_pat_)[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
+});
+
+test('cleanup deployment and invocation stay disabled regardless of configuration', () => {
+  const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
+  assert.equal(deployment.if, false);
+  for (const event_name of ['push', 'schedule', 'workflow_dispatch']) {
+    for (const value of [undefined, '', 'false', 'TRUE', 'true']) {
+      const vars = value === undefined ? {} : { RECIPE_IMAGE_CLEANUP_ENABLED: value };
+      const github = { event_name, ref: 'refs/heads/main' };
+      assert.equal(condition(deployment.if, { vars, github }), false);
+      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), false);
+    }
+  }
 });
