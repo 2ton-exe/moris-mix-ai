@@ -19,6 +19,7 @@ const step = (job, name) => job.steps.find(s => s.name === name);
 function condition(expression, overrides = {}) {
   const context = {
     success: () => true,
+    vars: {},
     inputs: { 'frontend-exists': true },
     needs: { frontend: { outputs: { exists: 'true' } } },
     github: { event_name: 'push', ref: 'refs/heads/main', repository: '2ton-exe/moris-mix-ai',
@@ -154,7 +155,9 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
   for (const name of ordered.slice(0, -3)) {
-    assert.equal(step(release, name).if, undefined);
+    if (name !== 'Deploy recipe image upload cleanup Edge Function') {
+      assert.equal(step(release, name).if, undefined);
+    }
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
@@ -253,7 +256,7 @@ test('recipe image cleanup is scheduled only on main and uses protected invocati
   assert.equal('workflow_dispatch' in scheduledCleanup.on, true);
   assert.deepEqual(scheduledCleanup.permissions, { contents: 'read' });
   const cleanup = scheduledCleanup.jobs.cleanup;
-  assert.equal(cleanup.if, "github.ref == 'refs/heads/main'");
+  assert.equal(cleanup.if, "github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'");
   assert.equal(cleanup.steps.length, 1);
   assert.deepEqual(cleanup.steps[0].env, {
     SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
@@ -464,4 +467,21 @@ test('cutover files contain no literal credential patterns', () => {
   const contents = cutoverPaths.map(path => readFileSync(path, 'utf8')).join('\n');
   assert.doesNotMatch(contents,
     /(?:sb_secret_|sbp_|gh[pousr]_|github_pat_)[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
+});
+
+// Evaluate the actual workflow expressions for both automatic and manual paths.
+test('cleanup deployment and invocation remain off until explicit production opt-in', () => {
+  const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
+  assert.equal(deployment.if, "vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'");
+  for (const event_name of ['push', 'schedule', 'workflow_dispatch']) {
+    for (const value of [undefined, '', 'false', 'TRUE', 'true']) {
+      const vars = value === undefined ? {} : { RECIPE_IMAGE_CLEANUP_ENABLED: value };
+      const github = { event_name, ref: 'refs/heads/main' };
+      assert.equal(condition(deployment.if, { vars, github }), value === 'true');
+      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), value === 'true');
+      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, {
+        vars, github: { event_name, ref: 'refs/heads/feature' },
+      }), false);
+    }
+  }
 });

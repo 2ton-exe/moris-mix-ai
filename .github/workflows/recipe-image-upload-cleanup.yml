@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   cleanup:
-    if: github.ref == 'refs/heads/main'
+    # Opt in only after production migrations and cleanup prerequisites are verified.
+    if: github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Invoke recipe image cleanup
