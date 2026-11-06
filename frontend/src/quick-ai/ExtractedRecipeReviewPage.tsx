@@ -54,6 +54,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   const recipeSave = useRecipeSave(save)
   const returnState = { journalReturn: sourceNotesReturn(location.state) }
   const guardDirty = dirty || (consumed && storageIssue === 'saved-clear-failed')
+  const volatilePostSaveEdits = consumed && dirty
   const navigationConfirmation = useUnsavedChangesGuard(guardDirty, { warnOnUnload: storageIssue !== null })
 
   function updateStoredReviewDraft(state: RecipeEditorState | null) {
@@ -92,10 +93,10 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   }
 
   const requestLogout = useCallback(() => {
-    if (storageIssue === null || !guardDirty) return true
+    if (!guardDirty || (storageIssue === null && !volatilePostSaveEdits)) return true
     setLogoutConfirmationOpen(true)
     return false
-  }, [guardDirty, storageIssue])
+  }, [guardDirty, storageIssue, volatilePostSaveEdits])
 
   useEffect(() => {
     if (!registerLogoutGuard) return
@@ -158,8 +159,10 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
     {logoutConfirmationOpen && <UnsavedChangesDialog
       onKeepEditing={keepEditing}
       onDiscardChanges={() => { void leaveWithoutSaving() }}
-      title="Leave without saving your review?"
-      message="Your browser could not save this extracted recipe draft. Signing out now may lose recent edits. Choose Keep Editing to retry storage or Save the recipe first."
+      title={volatilePostSaveEdits ? 'Leave without saving your changes?' : 'Leave without saving your review?'}
+      message={volatilePostSaveEdits
+        ? 'Your recipe is saved, but these newer edits are not. Signing out now will discard them. Choose Keep Editing or save your changes first.'
+        : 'Your browser could not save this extracted recipe draft. Signing out now may lose recent edits. Choose Keep Editing to retry storage or Save the recipe first.'}
       discardLabel={logoutPending ? 'Signing out…' : 'Sign out anyway'}
     />}
     <RecipeForm key={userId} mode="create"

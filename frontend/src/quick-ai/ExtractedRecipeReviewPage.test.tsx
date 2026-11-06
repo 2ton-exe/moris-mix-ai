@@ -219,6 +219,19 @@ it('uses the authenticated existing save hook only on explicit Save and consumes
   expect(readQuickAiEntryDraft('cook-a').notes).toBe(sourceNotes)
 })
 
+it('confirms logout when the saved recipe has newer unsaved edits', async () => {
+  const { logoutGuard } = renderReview()
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  await screen.findByText('Recipe saved.')
+
+  fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'A newer title' } })
+  act(() => { expect(logoutGuard.current?.()).toBe(false) })
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving your changes?' }).textContent)
+    .toContain('Signing out now will discard them')
+  fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
+  expect(screen.getByDisplayValue('A newer title')).toBeTruthy()
+})
+
 it('blocks leaving even before the user edits AI-prefilled values and keeps notes on return', async () => {
   renderReview()
   fireEvent.click(screen.getByRole('link', { name: 'Back to Mori notes' }))
