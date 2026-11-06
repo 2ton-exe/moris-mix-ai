@@ -19,6 +19,51 @@ CODEOWNERS covered `.github/workflows/**`; `Protect main` required code-owner
 review. The implementation does not change either policy, existing modular
 validation, Hosted RLS, deployments, or #124 path-selection behavior.
 
+## Live activation and runtime verification — 2026-11-06
+
+**Status at this checkpoint:** The previously disabled-by-default synchronizer is now **enabled and has executed successfully** through both manual and event-driven Actions runs. This is observed runtime operation, not a guarantee about future availability or every untested scenario. The tracking issue [#147](https://github.com/2ton-exe/moris-mix-ai/issues/147) stays open until the remaining review, documentation, and lifecycle requirements are satisfied.
+
+The operator configured the dedicated `2ton Dev Board Sync` GitHub App owned by `2ton-exe` and installed only on `moris-mix-ai`. Its repository Issues, Pull requests and Metadata permissions are **read**, with organization Projects **read/write**; the workflow downscopes the Projects token to **read** for manual dry-run. The client ID is held in `PROJECT_AUTOMATION_APP_CLIENT_ID`, the PEM key in the Actions secret `PROJECT_AUTOMATION_APP_PRIVATE_KEY`, and the activation variable is `PROJECT_AUTOMATION_ENABLED=true` in verified reconcile runs. This record does **not** include or disclose credential values. The operator reconfirmed that built-in Project workflows and repository linked-PR auto-close were disabled, and the applicable Actions event policy explicitly allows `issues`, `pull_request_target`, `workflow_dispatch`, and `schedule`.
+
+### First activation and steady-state checks
+
+| Evidence | Result |
+| --- | --- |
+| [Manual dry-run #132](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42188916117) | Success; **24 proposed, 0 applied, 0 rejected relationships** |
+| [First write reconciliation #133](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42191091843) | Success; **24 proposed, 24 applied, 0 rejected** (7 add and 17 status operations) |
+| [Event run #134](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42191735611) | Success; **0 proposed / 0 applied** |
+| [Event run #135](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42192406990) | Success; **0 proposed / 0 applied** |
+
+After activation, the operator visually checked representative Project cards and their expected statuses. The complete snapshot/reconciliation logic rejects duplicate items and requires current open repository content, but a green run alone is not an independent manual inspection of every card.
+
+### Controlled event-driven lifecycle fixture
+
+Isolated [test issue #170](https://github.com/2ton-exe/moris-mix-ai/issues/170) and [test PR #171](https://github.com/2ton-exe/moris-mix-ai/pull/171) were used. The PR contained only a temporary documentation file on `test/170-development-board-lifecycle` and was **closed without merging**. None of that fixture PR's changes reached `main`.
+
+| Lifecycle action | Evidence | Applied Project result |
+| --- | --- | --- |
+| Create issue | [#136](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195384559) | Issue #170 added and set `Todo` |
+| Open linked draft PR | [#137](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195577547) | Issue #170 `In Progress`; draft PR #171 added as `In Progress` |
+| Mark PR ready | [#138](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195702904) | PR #171 `In Review` |
+| Repeat event | [#139](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195861424) | 0 proposed / 0 applied |
+| Close PR **without merge** | [#140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196070305) | Issue #170 restored to `Todo` while remaining **open**; PR Status cleared and card archived |
+| Close issue `Not planned` | [#141](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196223676) | Issue Status cleared and card archived; not `Done` |
+| Reopen issue | [#142](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196374646) | Issue #170 unarchived and restored to `Todo`; this full-board run also added unrelated PR #172 |
+| Repeat event | [#143](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196389258) | 0 proposed / 0 applied |
+| Explicitly close issue `Completed` | [#148](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42203724235) | Issue #170 set to `Done` (**1 proposed / 1 applied / 0 rejected**) |
+
+These outcomes are supported by successful jobs and acknowledged Project GraphQL mutations. A separate manual Project UI check of final fixture #170 `Done` is still pending in this record. The issue was closed **by a person**, then the synchronizer changed the Project status: the App has repository Issues **read-only** permission and cannot close issues. The fixture did **not** test merging a new PR; merged historical PRs and linked open issues were covered by earlier reconciliation, unit tests, and representative board inspection. A reviewed production-scope/documentation PR can supply a natural future merge-event observation without merging the fixture.
+
+### Timing, known limits, and next actions
+
+From the GitHub Actions REST `created_at` and `updated_at` timestamps (run-level elapsed time, including scheduling and setup, **not** a per-API latency metric), #132 took approximately **36 s**, #133 **73 s**, #134 **33 s**, #135 **44 s**, #143 **86 s**, and #148 **37 s**. These runs are observations with different workloads, **not** comparable optimization evidence. Exact GraphQL request counts, remaining rate-limit budget and long-term reliability have **not** been independently measured.
+
+Known nonblocking warning: `actions/checkout@v4` / `actions/setup-node@v4` emitted a Node.js 20 deprecation warning under the runtime; the documented runs succeeded. Do not treat this as a successful compatibility upgrade. The configured synchronization timeout remains 30 minutes, and GitHub schedule executions can be delayed.
+
+Before closing #147: confirm fixture #170's final `Done` status in the Project UI; review the remaining issue acceptance checkboxes against run and board evidence; obtain independent review and main-branch verification for this documentation update; verify the merged-PR/issue-separation behavior through an appropriate **real** PR merge when available; assess API workload if needed; and ensure test branch `test/170-development-board-lifecycle` is cleaned up without merging its contents.
+
+---
+
 ## Objective and architecture
 
 Normal issue/PR lifecycle events should maintain truthful board state without
