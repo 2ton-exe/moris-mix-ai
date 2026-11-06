@@ -108,6 +108,7 @@ function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe t
 
 it.each([
   ['/app/recipes/new', '/app/recipes/new'],
+  ['/app/quick-entry/review', '/app/quick-entry/review'],
   ['/app/recipes/recipe-a/edit', '/app/recipes/:recipeId/edit'],
   ['/app/recipes', 'recipes'],
   ['/app/quick-entry', 'quick-entry'],
@@ -119,6 +120,13 @@ it.each([
 it('keeps Quick AI Entry under the protected app routes and account-scoped query provider', () => {
   const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry')
   expect(matches?.at(-1)?.route.path).toBe('quick-entry')
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
+})
+
+it('keeps the extracted recipe review route protected and under the recipe query provider', () => {
+  const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry/review')
+  expect(matches?.at(-1)?.route.path).toBe('/app/quick-entry/review')
   expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
   expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
 })

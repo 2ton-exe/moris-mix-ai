@@ -39,6 +39,7 @@ export function parseSupabaseStatus(output) {
 
 const safeProcessEnvironmentKeys = [
   'PATH',
+  ...(process.platform === 'win32' ? ['SystemRoot', 'ComSpec', 'PATHEXT'] : []),
   'HOME',
   'TMPDIR',
   'TMP',
@@ -64,6 +65,7 @@ export function createPlaywrightEnvironment(apiUrl, publicKey, source = process.
 export function createSupabaseCliEnvironment(source = process.env) {
   const allowedKeys = [
     'PATH',
+    ...(process.platform === 'win32' ? ['SystemRoot', 'ComSpec', 'PATHEXT'] : []),
     'HOME',
     'TMPDIR',
     'TMP',

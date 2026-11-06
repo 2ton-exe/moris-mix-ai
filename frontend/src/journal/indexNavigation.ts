@@ -7,7 +7,8 @@ const QUICK_AI_ENTRY_PATH = /^\/app\/quick-entry\/?$/
 
 export function journalReturnTo(state: unknown, fallback = '/app/recipes') {
   if (typeof state === 'object' && state !== null && 'journalReturn' in state &&
-    typeof state.journalReturn === 'string' && JOURNAL_RETURN_PATH.test(state.journalReturn)) return state.journalReturn
+    typeof state.journalReturn === 'string' &&
+    (JOURNAL_RETURN_PATH.test(state.journalReturn) || QUICK_AI_ENTRY_PATH.test(state.journalReturn))) return state.journalReturn
   return fallback
 }
 

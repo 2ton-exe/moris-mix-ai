@@ -99,7 +99,7 @@ function renderIngredient(ingredient: ExtractedRecipe['ingredients'][number]) {
   return [amount, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
 }
 
-function RecipePreview({ handoff }: { handoff: QuickAiEntryHandoff }) {
+function RecipePreview({ handoff, reviewState }: { handoff: QuickAiEntryHandoff; reviewState: { journalReturn: string; sourceJournalReturn: string } }) {
   return <section className="mm-quick-ai__preview" aria-labelledby="quick-ai-preview-title">
     <div className="mm-quick-ai__preview-header">
       <div>
@@ -123,6 +123,9 @@ function RecipePreview({ handoff }: { handoff: QuickAiEntryHandoff }) {
       <summary>View original notes</summary>
       <blockquote>{handoff.sourceNotes}</blockquote>
     </details>
+    <div className="mm-quick-ai__preview-actions">
+      <Link className="button button-primary" to="/app/quick-entry/review" state={reviewState}>Review &amp; Edit Recipe</Link>
+    </div>
   </section>
 }
 
@@ -212,7 +215,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   }, [draft, error?.code, now, persistDraft, userId])
 
   function updateNotes(notes: string) {
-    const nextDraft = { ...draft, notes, handoff: null }
+    const nextDraft = { ...draft, notes, handoff: null, reviewDraft: null }
     setDraft(nextDraft)
     persistDraft(nextDraft)
     setValidationMessage(null)
@@ -256,7 +259,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setLoading(true)
     setError(null)
     setValidationMessage(null)
-    const pendingDraft = { ...draft, handoff: null }
+    const pendingDraft = { ...draft, handoff: null, reviewDraft: null }
     setDraft(pendingDraft)
     persistDraft(pendingDraft)
     setHandoff(null)
@@ -379,8 +382,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             />
             {persistenceFailed && <div className="mm-quick-ai__storage-warning" id={persistenceWarningId} role="alert" aria-atomic="true">
               <p>{draft.notes.trim()
-                ? "Your browser couldn't save these notes for later. They're still available on this page, but leaving, signing out, or reloading may erase them. Copy your notes before leaving."
-                : "Your browser couldn't access session storage. Notes you add will stay on this page while it is open, but leaving, signing out, or reloading may erase them."}</p>
+                ? "Your browser couldn't save these notes in session storage. They're preserved in memory for this account while this app stays open, but a reload or closing the tab may erase them."
+                : "Your browser couldn't access session storage. Notes you add are held in memory for this account while this app stays open, but a reload or closing the tab may erase them."}</p>
               <div className="mm-quick-ai__storage-actions">
                 {hasUnsavedContent && <button className="button button-secondary mm-button--small" type="button" onClick={() => persistDraft(draft)}>Try saving again</button>}
                 {draft.notes.length > 0 && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void copyNotes() }}>Copy Notes</button>}
@@ -389,7 +392,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             </div>}
             <div className="mm-quick-ai__field-meta">
               <p className="mm-quick-ai__helper" id={helpId}>{persistenceFailed
-                ? `Your notes stay on this page while it is open. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`
+                ? `Your notes stay available in this app while it is open. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`
                 : `Your notes are saved in this browser session as you type. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`}</p>
               <p className="mm-quick-ai__count" id={countId} aria-live="off">{draft.notes.length.toLocaleString()} / {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()}</p>
             </div>
@@ -421,7 +424,10 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         </div>}
       </PaperCard>
 
-      {handoff && <RecipePreview handoff={handoff} />}
+      {handoff && <RecipePreview handoff={handoff} reviewState={{
+        journalReturn: '/app/quick-entry',
+        sourceJournalReturn: journalReturnTo(location.state),
+      }} />}
     </section>
   </>
 }

@@ -46,15 +46,25 @@ describe('Quick AI Entry session draft storage', () => {
       blockedUntil: null,
       blockedReason: null,
       handoff,
+      reviewDraft: {
+        title: 'Garlic soy rice',
+        ingredients: [{ key: 'row-1', name: 'rice', quantity: '2', unit: 'cups', quantityText: '', inferred: false }],
+        instructions: [{ key: 'step-1', text: 'Warm the rice.' }],
+        rating: '',
+        cookedDate: '',
+        notes: '',
+      },
     })
 
     expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+    expect(readQuickAiEntryDraft('cook-a').reviewDraft?.ingredients[0].quantity).toBe('2')
 
     sessionStorage.setItem('moris-mix:quick-ai-entry:v1:cook-a', JSON.stringify({
       notes: handoff.sourceNotes,
       handoff: { ...handoff, saved: true },
     }))
     expect(readQuickAiEntryDraft('cook-a').handoff).toBeNull()
+    expect(readQuickAiEntryDraft('cook-a').reviewDraft).toBeUndefined()
   })
 
   it('fails safely when session storage is unavailable', () => {
@@ -101,5 +111,59 @@ describe('Quick AI Entry session draft storage', () => {
     expect(writeQuickAiEntryDraft('cook-a', draft, silentStorage)).toEqual({ persisted: false, reason: 'verification-failed' })
 
     expect(writeQuickAiEntryDraft('cook-a', draft)).toEqual({ persisted: true })
+  })
+
+  it('keeps failed FE-09 review writes account-scoped in memory and warns until storage recovers', () => {
+    const failingStorage = {
+      getItem: () => null,
+      setItem: () => { throw new DOMException('full', 'QuotaExceededError') },
+    } as unknown as Storage
+    const handoff = {
+      sourceNotes: 'rice and eggs',
+      recipe: { title: 'Egg rice', ingredients: [], instructions: [] },
+      saved: false as const,
+    }
+    const draft = {
+      notes: handoff.sourceNotes, blockedUntil: null, blockedReason: null, handoff,
+      reviewDraft: { title: 'Corrected rice', ingredients: [], instructions: [], rating: '', cookedDate: '', notes: '' },
+    }
+
+    expect(writeQuickAiEntryDraft('cook-a', draft, failingStorage)).toEqual({ persisted: false, reason: 'write-failed' })
+    expect(readQuickAiEntryDraftResult('cook-a')).toMatchObject({ status: 'memory', draft: { reviewDraft: { title: 'Corrected rice' } } })
+    expect(readQuickAiEntryDraftResult('cook-b')).toMatchObject({ status: 'available', draft: { notes: '', handoff: null } })
+
+    const volatileUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(volatileUnload)
+    expect(volatileUnload.defaultPrevented).toBe(true)
+
+    expect(writeQuickAiEntryDraft('cook-b', { notes: '', blockedUntil: null, blockedReason: null, handoff: null }).persisted).toBe(true)
+    const otherAccountUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(otherAccountUnload)
+    expect(otherAccountUnload.defaultPrevented).toBe(true)
+
+    expect(writeQuickAiEntryDraft('cook-a', draft)).toEqual({ persisted: true })
+    const persistedUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(persistedUnload)
+    expect(persistedUnload.defaultPrevented).toBe(false)
+  })
+
+  it('keeps corrected review drafts account-scoped and drops malformed editor state', () => {
+    const handoff = {
+      sourceNotes: 'rice and eggs',
+      recipe: { title: 'Egg rice', ingredients: [], instructions: [] },
+      saved: false as const,
+    }
+    const reviewDraft = {
+      title: 'My corrected rice', ingredients: [], instructions: [], rating: '', cookedDate: '', notes: '',
+    }
+    writeQuickAiEntryDraft('cook-a', { notes: handoff.sourceNotes, blockedUntil: null, blockedReason: null, handoff, reviewDraft })
+    expect(readQuickAiEntryDraft('cook-a').reviewDraft).toEqual(reviewDraft)
+    expect(readQuickAiEntryDraft('cook-b').reviewDraft).toBeUndefined()
+
+    sessionStorage.setItem('moris-mix:quick-ai-entry:v1:cook-a', JSON.stringify({
+      notes: handoff.sourceNotes, handoff, reviewDraft: { title: 12 },
+    }))
+    expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+    expect(readQuickAiEntryDraft('cook-a').reviewDraft).toBeNull()
   })
 })

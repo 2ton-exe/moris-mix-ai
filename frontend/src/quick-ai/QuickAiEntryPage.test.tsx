@@ -132,12 +132,12 @@ describe('Quick AI Entry', () => {
     renderEntry()
 
     expect(screen.getByRole('alert').textContent).toContain('couldn\'t access session storage')
-    expect(screen.getByText(/Your notes stay on this page while it is open/)).toBeTruthy()
+    expect(screen.getByText(/Your notes stay available in this app while it is open/)).toBeTruthy()
     expect(screen.queryByText(/saved in this browser session as you type/)).toBeNull()
 
     enterNotes('new notes remain editable in React state')
     expect(notesField().value).toBe('new notes remain editable in React state')
-    expect(screen.getByRole('alert').textContent).toContain('signing out, or reloading may erase them')
+    expect(screen.getByRole('alert').textContent).toContain('reload or closing the tab may erase them')
   })
 
   it('surfaces storage read failures separately from an empty draft', () => {
@@ -152,7 +152,7 @@ describe('Quick AI Entry', () => {
     expect(screen.queryByText(/saved in this browser session as you type/)).toBeNull()
     enterNotes('the editor remains usable after a read failure')
     expect(notesField().value).toBe('the editor remains usable after a read failure')
-    expect(screen.getByRole('alert').textContent).toContain('signing out, or reloading may erase them')
+    expect(screen.getByRole('alert').textContent).toContain('reload or closing the tab may erase them')
   })
 
   it('reproduces Belen\'s failed-write and extraction-error navigation scenario', async () => {
@@ -283,10 +283,31 @@ describe('Quick AI Entry', () => {
 
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
     expect((await screen.findByText(/only a preview/i)).textContent).toContain('Nothing has been saved')
+    expect(screen.getByRole('link', { name: 'Review & Edit Recipe' }).getAttribute('href')).toBe('/app/quick-entry/review')
     expect(notesField().value).toBe(sourceNotes)
     expect(document.querySelector('blockquote')?.textContent).toBe(sourceNotes)
     expect(extract).toHaveBeenCalledWith(sourceNotes, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
     expect(onExtracted).toHaveBeenCalledWith({ sourceNotes, recipe, saved: false })
+  })
+
+  it('keeps a failed-write extraction available for review from the in-memory fallback', async () => {
+    const setItem = Storage.prototype.setItem
+    let failWrites = true
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (failWrites && key.startsWith('moris-mix:quick-ai-entry:')) throw new DOMException('full', 'QuotaExceededError')
+      return setItem.call(this, key, value)
+    })
+    renderEntry()
+    enterNotes('rice, eggs, and garlic')
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+    expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
+    expect(await screen.findByRole('link', { name: 'Review & Edit Recipe' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('preserved in memory for this account')
+    expect(readQuickAiEntryDraft('cook-a').handoff?.recipe.title).toBe('Garlic soy chicken')
+
+    failWrites = false
+    fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
+    expect(await screen.findByRole('link', { name: 'Review & Edit Recipe' })).toHaveProperty('href', expect.stringContaining('/app/quick-entry/review'))
   })
 
   it('restores the validated unsaved handoff after route navigation and a page remount', async () => {
