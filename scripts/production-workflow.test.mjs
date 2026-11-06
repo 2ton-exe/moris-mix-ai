@@ -45,6 +45,7 @@ function condition(expression, overrides = {}) {
     success: () => true,
     inputs: { 'frontend-exists': true },
     needs: { frontend: { outputs: { exists: 'true' } } },
+    vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: 'true' },
     github: { event_name: 'push', ref: 'refs/heads/main', repository: '2ton-exe/moris-mix-ai',
       workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main' },
     format: (template, value) => template.replace('{0}', value),
@@ -86,6 +87,19 @@ test('legacy CI is intentionally absent; modular main is the only production cal
     }
   }
   assert.deepEqual(callers, ['modular-main.yml']);
+});
+
+test('production migrations and application deployment stay gated on recorded recovery readiness', () => {
+  assert.equal(condition(release.if, { vars: {} }), false);
+  assert.equal(condition(release.if, { vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: 'false' } }), false);
+  assert.equal(condition(release.if, { vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: 'true' } }), true);
+});
+
+test('production schema changes require backend-only code ownership', () => {
+  const owners = readFileSync('.github/CODEOWNERS', 'utf8')
+    .split(/\r?\n/)
+    .find(line => line.startsWith('/supabase/migrations/'));
+  assert.equal(owners, '/supabase/migrations/ @DanielRamos1186');
 });
 
 test('modular PR remains PR-only, with staging and no production call or credentials', () => {

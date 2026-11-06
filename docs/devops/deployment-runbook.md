@@ -80,6 +80,11 @@ secrets `SUPABASE_DB_PASSWORD` and `SUPABASE_DB_ROOT_CERT`; the latter is the
 project CA certificate from Database Settings → SSL Configuration. Existing
 `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` settings authorize and identify
 the target. Both migration connections verify TLS with `PGSSLMODE=verify-full`.
+The production job is skipped unless the repository variable
+`PRODUCTION_MIGRATION_RECOVERY_VERIFIED` is set to `true`. Keep it unset until
+the backup round-trip and isolated restore evidence are recorded in issues #155
+and #159. The gate covers the full release so application code cannot deploy
+without its schema transition.
 
 ## 3. CI/CD Pipeline Architecture
 

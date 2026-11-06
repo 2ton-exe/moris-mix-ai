@@ -27,6 +27,7 @@ jobs:
     name: Deploy to Supabase and Cloudflare
     if: >-
       success() && inputs.frontend-exists &&
+      vars.PRODUCTION_MIGRATION_RECOVERY_VERIFIED == 'true' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main' &&
       github.workflow_ref == format('{0}/.github/workflows/modular-main.yml@refs/heads/main', github.repository)
