@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 
@@ -85,4 +87,38 @@ test('backup migration-ledger comparison ignores COPY row order but detects cont
   const malformedResult = runNormalizeCopy(malformed);
   assert.notEqual(malformedResult.status, 0);
   assert.match(malformedResult.stderr, /unterminated pg_dump COPY block/);
+});
+
+test('backup drift diagnostics classify differences without emitting SQL or row contents', () => {
+  const bundle = step(backup, 'Create Supabase logical backup bundle');
+  assert.match(bundle.run, /python3 scripts\/describe-pg-dump-diff\.py/);
+
+  const dir = mkdtempSync(join(tmpdir(), 'backup-diff-test-'));
+  try {
+    const before = join(dir, 'before.sql');
+    const after = join(dir, 'after.sql');
+    writeFileSync(before, [
+      '-- synthetic pg_dump header',
+      'COPY supabase_migrations.schema_migrations (version, statements, name) FROM stdin;',
+      '1\tPRIVATE_SQL_MARKER\tfirst',
+      '\\.',
+      '',
+    ].join('\n'));
+    writeFileSync(after, [
+      '-- synthetic pg_dump header',
+      'COPY supabase_migrations.schema_migrations (version, statements, name) FROM stdin;',
+      '1\tDIFFERENT_PRIVATE_SQL_MARKER\tfirst',
+      '\\.',
+      '',
+    ].join('\n'));
+    const result = spawnSync('python3', ['scripts/describe-pg-dump-diff.py', before, after], {
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /before category=copy-row; after category=copy-row/);
+    assert.match(result.stdout, /before COPY blocks=1; after COPY blocks=1/);
+    assert.doesNotMatch(result.stdout, /PRIVATE_SQL_MARKER|DIFFERENT_PRIVATE_SQL_MARKER|supabase_migrations\.schema_migrations/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
