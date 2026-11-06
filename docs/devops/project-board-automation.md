@@ -60,6 +60,31 @@ These outcomes are supported by successful jobs and acknowledged Project GraphQL
 Runs #139 and #143 reconciled unchanged board state after distinct PR events; they do not demonstrate duplicate-event delivery. Live duplicate-event verification remains pending.
 
 
+
+### GraphQL workload telemetry (implementation pending hosted verification)
+
+The synchronizer records an aggregate `GraphQL workload` JSON summary at the end
+of each authenticated dry-run or reconciliation, including failure paths.
+`requests` counts attempted HTTP GraphQL calls; `reads`, `mutations`, and
+`attemptedRequestsByCategory` separate the request types and pagination
+connection pages. `cumulativeApiMs` sums individual request time, while
+`reconciliationMs` measures script reconciliation time, excluding Actions
+queue, checkout, and setup overhead. It is not an optimization claim.
+
+The `rateLimit` field contains only the first observed `x-ratelimit-used`
+value and the most recent available limit/used/remaining/reset headers.
+Missing headers are recorded as null; no extra rate-limit query is issued.
+These primary-limit snapshots are **not exact per-query GraphQL point costs**:
+concurrent API activity and reset-window changes can affect differences.
+The `result` field is `incomplete` when reconciliation fails, even when
+some requests or Project mutations succeeded. Telemetry does not record
+credentials, request variables, raw GraphQL errors, PR bodies, or API responses.
+
+Before checking the runtime-measurement acceptance item, verify the hosted PR
+regression and main-branch run, then capture an authenticated run's summary,
+link the Action evidence, assess the measured 30-minute timeout headroom, and
+record missing cost precision or scheduled-run limitations explicitly.
+
 ### Timing, known limits, and next actions
 
 From the GitHub Actions REST `created_at` and `updated_at` timestamps (run-level elapsed time, including scheduling and setup, **not** a per-API latency metric), #132 took approximately **36 s**, #133 **73 s**, #134 **33 s**, #135 **44 s**, #143 **86 s**, and #148 **37 s**. These runs are observations with different workloads, **not** comparable optimization evidence. Exact GraphQL request counts, remaining rate-limit budget and long-term reliability have **not** been independently measured.
