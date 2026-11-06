@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
+import { getCACertificates } from 'node:tls';
+import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -79,6 +80,16 @@ test('Supabase database targets accept only the direct endpoint or project-bound
     `postgresql://postgres:local-password@db.${projectRef}.supabase.co/postgres`,
     `postgresql://postgres:local-password@db.${projectRef}.supabase.co:5432/postgres?sslmode=disable`,
   ]) assert.throws(() => getSupabaseDatabaseConnection(target, projectRef));
+});
+
+test('Supabase database TLS requires a valid CA and retains Node trusted roots', () => {
+  const trustedCertificates = getCACertificates('default');
+  const caCertificates = getSupabaseDatabaseCaCertificates(trustedCertificates[0]);
+  assert.ok(caCertificates.length > trustedCertificates.length);
+  assert.equal(caCertificates.at(-1), trustedCertificates[0]);
+  for (const invalid of [undefined, '', 'not a PEM certificate', '-----BEGIN CERTIFICATE-----invalid-----END CERTIFICATE-----']) {
+    assert.throws(() => getSupabaseDatabaseCaCertificates(invalid), /CA certificate is missing or invalid/);
+  }
 });
 
 test('legacy CI is intentionally absent; modular main is the only production caller', () => {
@@ -316,7 +327,11 @@ test('upload signing runs as a separate manually requested protected production 
   const readiness = step(job, 'Verify upload-signing production readiness');
   assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
   assert.equal(readiness.env.SUPABASE_DATABASE_URL, '${{ secrets.SUPABASE_DATABASE_URL }}');
+  assert.equal(readiness.env.SUPABASE_DATABASE_CA_CERT, '${{ secrets.SUPABASE_DATABASE_CA_CERT }}');
   assert.equal(readiness.env.UPLOAD_SIGNING_READINESS_ATTESTATION, '${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}');
+  const checkout = step(job, 'Checkout repository');
+  assert.equal(checkout.uses, 'actions/checkout@v4');
+  assert.deepEqual(checkout.with, { 'persist-credentials': false });
   const deploy = step(job, 'Deploy recipe image upload URL Edge Function');
   assert.equal(deploy.if, "success() && steps.upload-signing-readiness.outcome == 'success'");
   assert.equal(deploy.id, 'deploy-recipe-image-upload-url');
@@ -590,13 +605,13 @@ test('upload signing requires an explicit request and successful protected readi
   const readiness = step(job, 'Verify upload-signing production readiness');
   assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
   for (const name of [
-    'SUPABASE_DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
+    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
     'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY',
     'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
     'ALLOWED_ORIGIN', 'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.ok(Object.hasOwn(readiness.env, name), name);
   for (const name of [
-    'SUPABASE_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID',
+    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID',
     'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
     'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.equal(readiness.env[name], '${{ secrets.' + name + ' }}', name);
@@ -620,7 +635,8 @@ test('upload signing requires an explicit request and successful protected readi
   assert.match(verifier, /\/rest\/v1\/recipe_image_upload_intents\?select=id&limit=0/);
   assert.match(verifier, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(verifier, /await import\('pg'\)/);
-  assert.match(verifier, /ssl:\s*\{\s*rejectUnauthorized:\s*true\s*\}/);
+  assert.match(verifier, /getSupabaseDatabaseCaCertificates/);
+  assert.match(verifier, /ssl:\s*\{\s*ca:\s*databaseCa,\s*rejectUnauthorized:\s*true\s*\}/);
   assert.doesNotMatch(verifier, /connectionString:/);
   assert.doesNotMatch(verifier, /\b(insert|update|delete|alter|create)\s+(into|table|function|policy)/i);
   const baseEnv = { PATH: process.env.PATH ?? '', SystemRoot: process.env.SystemRoot ?? '' };
@@ -641,6 +657,7 @@ test('upload signing requires an explicit request and successful protected readi
     const configured = {
       ...baseEnv,
       SUPABASE_DATABASE_URL: 'postgresql://placeholder:placeholder@db.invalid.supabase.co/postgres',
+      SUPABASE_DATABASE_CA_CERT: getCACertificates('default')[0],
       SUPABASE_URL: 'https://invalid.supabase.co',
       SUPABASE_PROJECT_REF: 'invalid',
       SUPABASE_SERVICE_ROLE_KEY: 'placeholder',
@@ -652,12 +669,37 @@ test('upload signing requires an explicit request and successful protected readi
       ALLOWED_ORIGIN: 'https://example.invalid',
       UPLOAD_SIGNING_READINESS_ATTESTATION: 'unverified',
     };
+    const missingCa = { ...configured, UPLOAD_SIGNING_READINESS_ATTESTATION: 'verified' };
+    delete missingCa.SUPABASE_DATABASE_CA_CERT;
+    const missingCaResult = spawnSync(process.execPath, [isolatedVerifier], {
+      cwd: isolatedDirectory, encoding: 'utf8', env: missingCa, windowsHide: true,
+    });
+    assert.notEqual(missingCaResult.status, 0);
+    assert.match(missingCaResult.stderr, /Missing required protected configuration: SUPABASE_DATABASE_CA_CERT/);
+    assert.doesNotMatch(missingCaResult.stderr, /ERR_MODULE_NOT_FOUND/);
     const unverified = spawnSync(process.execPath, [isolatedVerifier], {
       cwd: isolatedDirectory, encoding: 'utf8', env: configured, windowsHide: true,
     });
     assert.notEqual(unverified.status, 0);
     assert.match(unverified.stderr, /readiness attestation is missing or invalid/);
     assert.doesNotMatch(unverified.stderr, /ERR_MODULE_NOT_FOUND/);
+    const projectRef = readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([^"]+)"$/m)?.[1];
+    const invalidCa = {
+      ...configured,
+      SUPABASE_DATABASE_CA_CERT: 'invalid certificate',
+      SUPABASE_DATABASE_URL: `postgresql://postgres:placeholder@db.${projectRef}.supabase.co:5432/postgres`,
+      SUPABASE_URL: `https://${projectRef}.supabase.co`,
+      SUPABASE_PROJECT_REF: projectRef,
+      UPLOAD_SIGNING_READINESS_ATTESTATION: 'verified',
+    };
+    mkdirSync(join(isolatedDirectory, 'supabase'));
+    writeFileSync(join(isolatedDirectory, 'supabase', 'config.toml'), `project_id = "${projectRef}"\n`);
+    const invalidCaResult = spawnSync(process.execPath, [isolatedVerifier], {
+      cwd: isolatedDirectory, encoding: 'utf8', env: invalidCa, windowsHide: true,
+    });
+    assert.notEqual(invalidCaResult.status, 0);
+    assert.match(invalidCaResult.stderr, /CA certificate is missing or invalid/);
+    assert.doesNotMatch(invalidCaResult.stderr, /ERR_MODULE_NOT_FOUND|fetch failed/);
   } finally {
     rmSync(isolatedDirectory, { recursive: true, force: true });
   }
