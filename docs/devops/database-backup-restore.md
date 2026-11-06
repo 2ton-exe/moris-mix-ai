@@ -149,3 +149,24 @@ A backup upload is not restore proof. DEVOPS-10 remains open until this drill su
 If configuration is missing or the workflow is dispatched from a non-main ref, production backup execution is blocked. If role/schema/migration-history drift is detected during capture, bundle creation fails before packaging/upload. If backup creation fails, no backup should be reported for that run. If upload fails, the job fails visibly and the runner cleanup step removes the local dump files. If remote size or re-downloaded SHA-256 verification fails, treat the uploaded object as unverified and investigate before using it for recovery.
 
 Do not weaken database TLS, expose dump contents, make the bucket public, reuse recipe-image credentials, bypass the consistency gate, or restore into a shared/production database to make the task pass.
+
+## Migration-history consistency comparison
+
+The first three real private-backup runs failed before R2 upload. Run #3
+([Actions evidence](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42194021625))
+reported that the pre/post history dumps had 9 COPY rows and one COPY block
+each; all differences were outside COPY rows. This establishes a mismatch
+in non-row dump output, not the specific text responsible for it.
+
+The history comparator now sorts COPY rows and excludes only non-executable
+full-line SQL comments, blank lines, and correctly paired generated psql
+restrict guards. Executable statements, COPY table/column headers, row
+contents, multiplicity, and terminators remain compared. Malformed COPY
+or restrict guards fail closed. Role and schema drift comparisons remain
+unchanged. These transformations run only on temporary comparison streams:
+the original data/role/schema dumps used for restoration are never rewritten.
+
+Offline regression tests run in the existing Frontend Checks CI context.
+The change is **not** backup or restore proof: after review, merge, and a
+successful production workflow run, verify the R2 round trip and then perform
+the isolated restore drill before closing #159 or unblocking #154.
