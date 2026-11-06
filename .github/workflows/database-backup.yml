@@ -210,6 +210,11 @@ jobs:
           normalize_history_data_dump "$consistency_dir/history-data-after.sql" > "$history_after_normalized"
 
           if ! cmp -s "$history_before_normalized" "$history_after_normalized"; then
+            # Keep the mismatch fail-closed. Report structural classifications
+            # only; never emit SQL lines, migration statements or dump hashes.
+            python3 scripts/describe-pg-dump-diff.py \
+              "$history_before_normalized" "$history_after_normalized" || \
+              echo "::notice::Sanitized dump classification unavailable."
             echo "::error::Supabase migration ledger changed during backup capture; refusing to package or upload the bundle."
             exit 1
           fi
