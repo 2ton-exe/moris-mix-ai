@@ -43,10 +43,17 @@ def main() -> int:
     left, left_kinds, left_blocks, left_rows, left_unclosed = classify(sys.argv[1])
     right, right_kinds, right_blocks, right_rows, right_unclosed = classify(sys.argv[2])
 
-    first = next(
-        (i for i, (a, b) in enumerate(zip_longest(left, right)) if a != b),
-        None,
-    )
+    first: int | None = None
+    mismatch_categories: set[str] = set()
+    for index, (before_line, after_line) in enumerate(zip_longest(left, right)):
+        if before_line == after_line:
+            continue
+        if first is None:
+            first = index
+        before_kind = left_kinds[index] if index < len(left_kinds) else "missing"
+        after_kind = right_kinds[index] if index < len(right_kinds) else "missing"
+        mismatch_categories.add(f"{before_kind}->{after_kind}")
+
     if first is None:
         print("::notice::Normalized migration dumps match exactly; no difference to classify.")
         return 0
@@ -57,6 +64,7 @@ def main() -> int:
         "::notice::Sanitized migration dump mismatch: "
         f"first differing line={first + 1}; "
         f"before category={left_kind}; after category={right_kind}; "
+        f"all differing line categories={','.join(sorted(mismatch_categories))}; "
         f"before lines={len(left)}; after lines={len(right)}; "
         f"before COPY blocks={left_blocks}; after COPY blocks={right_blocks}; "
         f"before COPY rows={left_rows}; after COPY rows={right_rows}; "
