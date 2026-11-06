@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy-upload-signing:
+        description: Deploy the upload-signing function after production readiness review
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -50,6 +56,7 @@ jobs:
       contents: read
     with:
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
+      deploy-upload-signing: ${{ inputs.deploy-upload-signing }}
     secrets:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

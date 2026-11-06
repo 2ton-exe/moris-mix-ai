@@ -36,6 +36,7 @@ function condition(expression, overrides = {}) {
     .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
     .replace(/needs\.(test-db|test-edge-api)/g, 'needs["$1"]')
     .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
+    .replace(/inputs\.deploy-upload-signing/g, 'inputs["deploy-upload-signing"]')
     .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]')
     // Actions compares strings without case sensitivity (unlike JavaScript).
     .replace(/(vars\.RECIPE_IMAGE_CLEANUP_ENABLED) == ('true')/g, 'actionsStringEqual($1, $2)');
@@ -54,6 +55,12 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.equal(existsSync('.github/workflows/ci.yml'), false);
   assert.deepEqual(Object.keys(main.on), ['push', 'workflow_dispatch']);
   assert.deepEqual(main.on.push.branches, ['main']);
+  assert.deepEqual(main.on.workflow_dispatch.inputs['deploy-upload-signing'], {
+    description: 'Deploy the upload-signing function after production readiness review',
+    required: false,
+    default: false,
+    type: 'boolean',
+  });
   assert.deepEqual(main.permissions, { contents: 'read' });
   assert.deepEqual(main.jobs.production.permissions, { contents: 'read' });
   assert.equal(main.jobs['production-ownership'], undefined);
@@ -97,7 +104,10 @@ test('modular PR remains PR-only, with staging and no production call or credent
 test('actual modular caller and callee guards reject PRs, other refs and failed validation', () => {
   assert.deepEqual(main.jobs.production.needs, ['frontend', 'test-db', 'test-edge-api']);
   assert.equal(main.jobs.production.uses, './.github/workflows/reusable-production.yml');
-  assert.deepEqual(main.jobs.production.with, { 'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}" });
+  assert.deepEqual(main.jobs.production.with, {
+    'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
+    'deploy-upload-signing': '${{ inputs.deploy-upload-signing }}',
+  });
   for (const expression of [main.jobs.production.if, release.if]) {
     assert.equal(condition(expression), true);
     assert.equal(condition(expression, { success: () => false }), false);
@@ -156,17 +166,17 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
-    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe image upload URL Edge Function',
+    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
-  for (const name of ordered.slice(0, -3).filter(name => !['Deploy recipe image upload URL Edge Function', 'Deploy recipe image upload cleanup Edge Function'].includes(name))) {
+  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function')) {
     assert.equal(step(release, name).if, undefined);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-cleanup']);
   assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
   assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
@@ -196,15 +206,6 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
     assert.doesNotMatch(deploy.run, /--prune|--all|latest|npx/);
   }
-  const uploadUrl = step(release, 'Deploy recipe image upload URL Edge Function');
-  assert.equal(uploadUrl.id, 'deploy-recipe-image-upload-url');
-  assert.equal(uploadUrl.if, false);
-  assert.equal(uploadUrl['working-directory'], 'frontend');
-  assert.deepEqual(uploadUrl.env, configuration.env);
-  assert.match(uploadUrl.run, /functions deploy recipe-image-upload-url/);
-  assert.match(uploadUrl.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
-  assert.match(uploadUrl.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
-  assert.doesNotMatch(uploadUrl.run, /--prune|--all|latest|npx/);
   const cleanup = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(cleanup.if, false);
   assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
@@ -238,7 +239,6 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
-    IMAGE_UPLOAD_URL_OUTCOME: '${{ steps.deploy-recipe-image-upload-url.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
@@ -265,6 +265,28 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
   }
+});
+
+test('upload signing uses a manually requested protected production deployment job', () => {
+  const job = production.jobs['deploy-upload-signing'];
+  assert.deepEqual(job.needs, 'deploy');
+  assert.equal(job.environment, 'recipe-image-upload-production');
+  assert.match(job.if, /inputs\.deploy-upload-signing/);
+  assert.doesNotMatch(job.if, /vars\./);
+  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(job.if, /modular-main\.yml@refs\/heads\/main/);
+  const readiness = step(job, 'Verify upload-signing production readiness');
+  assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
+  assert.ok(readiness.env.SUPABASE_DATABASE_URL);
+  assert.ok(readiness.env.UPLOAD_SIGNING_READINESS_ATTESTATION);
+  const deploy = step(job, 'Deploy recipe image upload URL Edge Function');
+  assert.equal(deploy.if, "steps.upload-signing-readiness.outcome == 'success'");
+  assert.equal(deploy.id, 'deploy-recipe-image-upload-url');
+  assert.match(deploy.run, /functions deploy recipe-image-upload-url/);
+  assert.match(deploy.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
+  assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  assert.equal(step(job, 'Record upload-signing deployment outcome').if, 'always()');
 });
 
 test('recipe image cleanup is explicitly disabled for scheduled and manual invocation', () => {
@@ -517,14 +539,95 @@ test('cleanup workflow paths contain no variable-based activation bypass', () =>
   }
 });
 
-test('upload signing deployment remains disabled until protected readiness approval exists', () => {
-  const deployment = step(release, 'Deploy recipe image upload URL Edge Function');
-  assert.equal(deployment.if, false);
-  for (const value of [undefined, '', 'false', 'true']) {
-    const vars = value === undefined ? {} : { UPLOAD_SIGNING_DEPLOYMENT_ENABLED: value };
-    assert.equal(condition(deployment.if, {
-      vars,
-      github: { event_name: 'push', ref: 'refs/heads/main' },
+test('upload signing requires an explicit request and successful protected readiness preflight', () => {
+  const job = production.jobs['deploy-upload-signing'];
+  assert.equal(job.environment, 'recipe-image-upload-production');
+  assert.equal(job.needs, 'deploy');
+  assert.match(job.if, /inputs\.deploy-upload-signing/);
+  assert.doesNotMatch(job.if, /vars\./);
+  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(job.if, /modular-main\.yml@refs\/heads\/main/);
+  const readiness = step(job, 'Verify upload-signing production readiness');
+  assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
+  for (const name of [
+    'SUPABASE_DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
+    'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY',
+    'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+    'ALLOWED_ORIGIN', 'UPLOAD_SIGNING_READINESS_ATTESTATION',
+  ]) assert.ok(Object.hasOwn(readiness.env, name), name);
+  const verifier = readFileSync('scripts/verify-upload-signing-readiness.mjs', 'utf8');
+  for (const prerequisite of [
+    '20261102000009', '20261102000010', 'recipe_image_upload_intents',
+    'relforcerowsecurity', 'create_recipe_image_upload_intent',
+    'has_table_privilege', 'has_function_privilege',
+  ]) assert.ok(verifier.includes(prerequisite), prerequisite);
+  assert.match(verifier, /UPLOAD_SIGNING_READINESS_ATTESTATION !== 'verified'/);
+  assert.match(verifier, /\/auth\/v1\/settings/);
+  assert.match(verifier, /\/rest\/v1\/recipe_image_upload_intents\?select=id&limit=0/);
+  assert.match(verifier, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(verifier, /\b(insert|update|delete|alter|create)\s+(into|table|function|policy)/i);
+  const baseEnv = { PATH: process.env.PATH ?? '', SystemRoot: process.env.SystemRoot ?? '' };
+  const missing = spawnSync(process.execPath, ['scripts/verify-upload-signing-readiness.mjs'], {
+    encoding: 'utf8', env: baseEnv, windowsHide: true,
+  });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /Missing required protected configuration: SUPABASE_DATABASE_URL/);
+  const configured = {
+    ...baseEnv,
+    SUPABASE_DATABASE_URL: 'postgresql://placeholder:placeholder@db.invalid.supabase.co/postgres',
+    SUPABASE_URL: 'https://invalid.supabase.co',
+    SUPABASE_PROJECT_REF: 'invalid',
+    SUPABASE_SERVICE_ROLE_KEY: 'placeholder',
+    SUPABASE_ANON_KEY: 'placeholder',
+    R2_ACCOUNT_ID: 'placeholder',
+    R2_BUCKET_NAME: 'placeholder',
+    R2_ACCESS_KEY_ID: 'placeholder',
+    R2_SECRET_ACCESS_KEY: 'placeholder',
+    ALLOWED_ORIGIN: 'https://example.invalid',
+    UPLOAD_SIGNING_READINESS_ATTESTATION: 'unverified',
+  };
+  const unverified = spawnSync(process.execPath, ['scripts/verify-upload-signing-readiness.mjs'], {
+    encoding: 'utf8', env: configured, windowsHide: true,
+  });
+  assert.notEqual(unverified.status, 0);
+  assert.match(unverified.stderr, /readiness attestation is missing or invalid/);
+  const deployment = step(job, 'Deploy recipe image upload URL Edge Function');
+  assert.equal(deployment.if, "steps.upload-signing-readiness.outcome == 'success'");
+  assert.equal(deployment.id, 'deploy-recipe-image-upload-url');
+  assert.equal(deployment['working-directory'], 'frontend');
+  assert.match(deployment.run, /functions deploy recipe-image-upload-url/);
+  assert.match(deployment.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
+  assert.match(deployment.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  assert.equal(step(job, 'Record upload-signing deployment outcome').if, 'always()');
+  for (const value of [undefined, '', 'false']) {
+    const inputs = value === undefined ? { 'deploy-upload-signing': false } : { 'deploy-upload-signing': value === 'true' };
+    assert.equal(condition(job.if, {
+      inputs: { ...inputs, 'frontend-exists': true },
+      github: {
+        event_name: 'workflow_dispatch',
+        ref: 'refs/heads/main',
+        repository: '2ton-exe/moris-mix-ai',
+        workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main',
+      },
     }), false);
   }
+  assert.equal(condition(job.if, {
+    inputs: { 'frontend-exists': true, 'deploy-upload-signing': true },
+    github: {
+      event_name: 'push',
+      ref: 'refs/heads/main',
+      repository: '2ton-exe/moris-mix-ai',
+      workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main',
+    },
+  }), false);
+  assert.equal(condition(job.if, {
+    inputs: { 'frontend-exists': true, 'deploy-upload-signing': true },
+    github: {
+      event_name: 'workflow_dispatch',
+      ref: 'refs/heads/main',
+      repository: '2ton-exe/moris-mix-ai',
+      workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main',
+    },
+  }), true);
 });
