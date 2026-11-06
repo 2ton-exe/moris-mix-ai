@@ -6,11 +6,12 @@ repository `2ton-exe/moris-mix-ai`.
 
 ## Delivery and evidence boundary
 
-This implementation ships **disabled by default**. Configuration is NOT runtime
-proof. Local deterministic tests do not prove installation permissions, Actions
-delivery, built-in workflow compatibility, or live mutation behavior. Do not
-close #147 or describe this automation as operational until controlled post-merge
-runtime evidence has been recorded. This workflow is not a required merge check.
+This implementation **initially shipped disabled by default**; that is its original
+deployment safeguard, not the current operational setting. Configuration and local
+tests alone never proved live mutation behavior. As the dated checkpoint below
+shows, the synchronizer was activated and exercised on November 6, 2026. Do not
+close #147 or claim complete verification until its remaining acceptance evidence
+is recorded. This workflow is not a required merge check.
 
 The November 1 preflight observed remote main
 `bd192be90428da62d00d2d1cae6f22c529c8740e`, #147 OPEN / Todo, and 98 current
@@ -18,6 +19,56 @@ Project items. These observations are historical, not runtime configuration.
 CODEOWNERS covered `.github/workflows/**`; `Protect main` required code-owner
 review. The implementation does not change either policy, existing modular
 validation, Hosted RLS, deployments, or #124 path-selection behavior.
+
+## Live activation and runtime verification — 2026-11-06
+
+**Status at this checkpoint:** The previously disabled-by-default synchronizer is now **enabled and has executed successfully** through both manual and event-driven Actions runs. This is observed runtime operation, not a guarantee about future availability or every untested scenario. The tracking issue [#147](https://github.com/2ton-exe/moris-mix-ai/issues/147) stays open until the remaining review, documentation, and lifecycle requirements are satisfied.
+
+The operator configured the dedicated `2ton Dev Board Sync` GitHub App owned by `2ton-exe` and installed only on `moris-mix-ai`. Its repository Issues, Pull requests and Metadata permissions are **read**, with organization Projects **read/write**; the workflow downscopes the Projects token to **read** for manual dry-run. The client ID is held in `PROJECT_AUTOMATION_APP_CLIENT_ID`, the PEM key in the Actions secret `PROJECT_AUTOMATION_APP_PRIVATE_KEY`, and the activation variable is `PROJECT_AUTOMATION_ENABLED=true` in verified reconcile runs. This record does **not** include or disclose credential values. The operator reconfirmed that built-in Project workflows and repository linked-PR auto-close were disabled, and the applicable Actions event policy explicitly allows `issues`, `pull_request_target`, `workflow_dispatch`, and `schedule`.
+
+### First activation and steady-state checks
+
+| Evidence | Result |
+| --- | --- |
+| [Manual dry-run #132](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42188916117) | Success; **24 proposed, 0 applied, 0 rejected relationships** |
+| [First write reconciliation #133](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42191091843) | Success; **24 proposed, 24 applied, 0 rejected** (7 add and 17 status operations) |
+| [Event run #134](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42191735611) | Success; **0 proposed / 0 applied** |
+| [Event run #135](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42192406990) | Success; **0 proposed / 0 applied** |
+| [Pre-activation event runs #130](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42186240868) and [#131](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42186904635) | `disabled` job succeeded, while `synchronize` was skipped; this proves the disabled event path before activation, not disabled schedule or malformed-value pre-token guards |
+
+After activation, the operator visually checked representative Project cards and their expected statuses. The complete snapshot/reconciliation logic rejects duplicate items and requires current open repository content, but a green run alone is not an independent manual inspection of every card.
+
+### Controlled event-driven lifecycle fixture
+
+Isolated [test issue #170](https://github.com/2ton-exe/moris-mix-ai/issues/170) and [test PR #171](https://github.com/2ton-exe/moris-mix-ai/pull/171) were used. The PR contained only a temporary documentation file on `test/170-development-board-lifecycle` and was **closed without merging**. None of that fixture PR's changes reached `main`.
+
+
+| Lifecycle action | Evidence | Applied Project result |
+| --- | --- | --- |
+| Create issue | [#136](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195384559) | Issue #170 added and set `Todo` |
+| Open linked draft PR | [#137](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195577547) | Issue #170 `In Progress`; draft PR #171 added as `In Progress` |
+| Mark PR ready | [#138](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195702904) | PR #171 `In Review` |
+| Edit PR #171 | [#139](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195861424) | Zero-operation reconciliation: 0 proposed / 0 applied |
+| Close PR **without merge** | [#140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196070305) | Issue #170 restored to `Todo` while remaining **open**; PR Status cleared and card archived |
+| Close issue `Not planned` | [#141](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196223676) | Issue Status cleared and card archived; not `Done` |
+| Reopen issue | [#142](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196374646) | Issue #170 unarchived and restored to `Todo`; this full-board run also added unrelated PR #172 |
+| Open PR #172 | [#143](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196389258) | Zero-operation reconciliation: 0 proposed / 0 applied |
+| Explicitly close issue `Completed` | [#148](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42203724235) | Issue #170 set to `Done` (**1 proposed / 1 applied / 0 rejected**) |
+
+These outcomes are supported by successful jobs and acknowledged Project GraphQL mutations. A separate manual Project UI check of final fixture #170 `Done` is still pending in this record. The issue was closed **by a person**, then the synchronizer changed the Project status: the App has repository Issues **read-only** permission and cannot close issues. The fixture did **not** test merging a new PR; merged historical PRs and linked open issues were covered by earlier reconciliation, unit tests, and representative board inspection. A reviewed production-scope/documentation PR can supply a natural future merge-event observation without merging the fixture.
+
+Runs #139 and #143 reconciled unchanged board state after distinct PR events; they do not demonstrate duplicate-event delivery. Live duplicate-event verification remains pending.
+
+
+### Timing, known limits, and next actions
+
+From the GitHub Actions REST `created_at` and `updated_at` timestamps (run-level elapsed time, including scheduling and setup, **not** a per-API latency metric), #132 took approximately **36 s**, #133 **73 s**, #134 **33 s**, #135 **44 s**, #143 **86 s**, and #148 **37 s**. These runs are observations with different workloads, **not** comparable optimization evidence. Exact GraphQL request counts, remaining rate-limit budget and long-term reliability have **not** been independently measured.
+
+Known nonblocking warning: `actions/checkout@v4` / `actions/setup-node@v4` emitted a Node.js 20 deprecation warning under the runtime; the documented runs succeeded. Do not treat this as a successful compatibility upgrade. The configured synchronization timeout remains 30 minutes, and GitHub schedule executions can be delayed.
+
+Before closing #147: confirm fixture #170's final `Done` status in the Project UI; review the remaining issue acceptance checkboxes against run and board evidence; obtain independent review and main-branch verification for this documentation update; verify the merged-PR/issue-separation behavior through an appropriate **real** PR merge when available; **measure and record GraphQL request counts, rate-limit budget and run duration** for an authenticated reconciliation; and ensure test branch `test/170-development-board-lifecycle` is cleaned up without merging its contents.
+
+---
 
 ## Objective and architecture
 
@@ -36,8 +87,8 @@ branch, comment, or arbitrary number mention implies implementation state.
 
 | Content and observable state | Desired result |
 | --- | --- |
-| Open issue, at least one recognized **currently open** PR | In Progress |
-| Open issue, no recognized currently open PR | Todo |
+| Open issue with recognized OPEN or MERGED implementation PR evidence | In Progress |
+| Open issue with no recognized OPEN/MERGED implementation evidence | Todo |
 | Issue closed with `COMPLETED` state reason | Done |
 | Issue closed with `NOT_PLANNED` state reason | Clear Status, then archive if represented |
 | Open draft PR | In Progress |
@@ -45,10 +96,16 @@ branch, comment, or arbitrary number mention implies implementation state.
 | Merged PR | Done |
 | Closed-unmerged PR | Clear Status, then archive if represented |
 
-An open issue with only merged/closed implementation PRs resolves to Todo. Draft
-PRs count as active implementation. Multiple PRs per issue and several issues per
-PR are supported. Reopened/open content is unarchived and recalculated. Unknown
-closed issue reasons fail visibly rather than inventing completion.
+A merged partial PR proves implementation has started but does not complete the
+issue. After the last implementation PR merges, an open issue stays In Progress
+during final verification. Done requires the repository issue itself to be
+explicitly closed as completed. The synchronizer never closes repository issues;
+issue checklists and comments are intentionally outside its decision logic.
+Closed-unmerged PRs do not count as implementation evidence. Draft OPEN PRs do.
+Multiple PRs per issue and several issues per PR are supported. Reopened/open
+content is unarchived and recalculated from repository evidence, including merged
+implementation history, without using Project Status as memory. Unknown closed
+issue reasons fail visibly rather than inventing completion.
 
 Archiving preserves history without deleting content. Excluded closed-unmerged
 PRs and `NOT_PLANNED` issues have any Project Status cleared before archival;
@@ -73,14 +130,12 @@ Part of: #123
 Ref #123
 Refs: #123
 Related to #123
-Closes #123
-Close: #123
-Fixes #123
-Fix: #123
-Resolves #123
-Resolve: #123
 Refs #123, #124 and #125
 ```
+
+For historical compatibility, the parser also recognizes `Close` / `Closes`,
+`Fix` / `Fixes`, and `Resolve` / `Resolves` with the same optional colon and
+reference forms. These closing keywords are not recommended for new PRs.
 
 Bare references are recognized only in clearly named `Related Issue` or
 `Related GitHub Issue` Markdown sections (plural headings also work). For example:
@@ -100,8 +155,12 @@ and blockquotes are ignored. Reference lists stop at explanatory prose, so a
 later number in testing text is not promoted to a relationship. General prose,
 testing/changelog mentions and issue numbers in titles are not parsed.
 
-The adapter also paginates GitHub-native `closingIssuesReferences` for every
-current open PR. Native references are accepted only for this repository.
+The adapter paginates GitHub-native `closingIssuesReferences` for every OPEN or
+MERGED PR. Both states use supported body relationships and native linked-issue
+evidence, so a native-only relationship continues to establish implementation
+progress after merge. Native references are accepted only for this repository.
+CLOSED-unmerged PR relationships are ignored entirely, including
+malformed text; they neither establish progress nor quarantine issues.
 GitHub does not expose every informal link through that connection; supported
 body syntax remains the compatibility path. A recognized same-repository
 reference that cannot resolve to an accessible issue quarantines that PR's
@@ -110,13 +169,14 @@ entire relationship evidence. The structured plan/result returns operations and
 number and rejected issue reference (or a fixed invalid-number diagnostic),
 never the complete PR body or sensitive text. Unrelated repository content
 continues reconciling, and the rejected PR's own draft/ready lifecycle remains
-independent of its relationships.
+independent of its relationships (as does a merged PR's own Done state).
 
 Resolvable open issues referenced by a quarantined PR have uncertain
-relationship-derived state. Without an independent valid open PR for an affected
-issue, no add/status/archive-state operation is inferred for that issue; an
-existing card is preserved. Another open PR with complete, valid relationships
-can still establish In Progress. Closed issue completion/archive state remains
+relationship-derived state. This quarantine applies to participating OPEN and
+MERGED PR evidence equally. Without an independent valid OPEN or MERGED PR for
+an affected issue, no add/status/archive-state operation is inferred for that
+issue; an existing card is preserved. Another OPEN or MERGED PR with complete,
+valid relationships can still establish In Progress. Closed issue completion/archive state remains
 authoritative. Once the malformed PR relationship is corrected, the next full
 reconciliation calculates ordinary issue state again. Correct the reference or
 access rather than treating rejected evidence as complete. Missing/malformed
@@ -125,11 +185,14 @@ pagination errors, duplicate cards and mutation failures still fail visibly;
 they are not converted to relationship warnings. These are locally tested
 semantics, not hosted runtime verification.
 
-**Part of #123** contributes to an issue without promising whole-issue
-completion. **Closes #123** is appropriate only when merging legitimately
-completes the whole issue (GitHub may close that issue itself). Synchronization
-still reads the issue's actual state; a merge alone never sets an open issue to
-Done. The PR template's relationship section is optional; maintenance and
+Explicit body relationships are the most auditable team convention for new PRs.
+**Part of #123** contributes to / implements work for an issue; merging does not
+close it. **Refs #123** provides a non-closing reference when appropriate.
+Repository issues are closed explicitly only after their own completion and
+verification criteria are satisfied. A teammate or AI may separately inspect
+that evidence and explicitly close the issue; synchronization only observes the
+actual repository state. A merge alone never sets an open issue to Done.
+The PR template's relationship section is optional; maintenance and
 controlled experiments may stand alone. Examples are in comments so an untouched
 template does not create a false relationship.
 
@@ -147,8 +210,8 @@ Every supported event performs full repository reconciliation. This deliberately
 avoids a second targeted update path. Editing a body therefore recalculates all
 current/prior related issues, even if `changes.body.from` is missing or partial.
 Removed links cannot silently leave an issue In Progress. Previous event bodies
-are not authoritative; all current bodies and native closing links are read
-from GitHub. Events that race with repository changes are repaired by the next
+are not authoritative; current PR bodies and OPEN/MERGED native closing links are
+read from GitHub. Events that race with repository changes are repaired by the next
 successful reconciliation.
 
 The adapter first enumerates all organization Projects and all target fields,
@@ -159,7 +222,7 @@ matching titles, missing/ambiguous metadata or unexpected options fail closed.
 
 Repository issues and PRs are fetched across **all states**. This includes all
 current open content and permits authoritative resolution of represented closed
-history and relationship targets. Only open PRs require native relationship
+history and relationship targets. OPEN and MERGED PRs require native relationship
 queries. Project items explicitly request both `ARCHIVED` and `NOT_ARCHIVED`.
 All relevant GraphQL connections (Projects, fields, issues, PRs, native links,
 Project items, and per-content project memberships) use cursor pagination at up
@@ -200,8 +263,11 @@ earlier successful writes are preserved and the next run repairs partial work.
 
 ## Authentication and activation contract
 
-Do not configure credentials as part of implementing this branch. After merge,
-use a dedicated App installed in `2ton-exe`, scoped to this repository.
+The following setup contract is retained for **initial installation, key rotation,
+and recovery**, not a request to reconfigure the active installation. It was
+originally implemented without storing credentials in the branch; credentials
+were configured separately after merge. Use a dedicated App installed in
+`2ton-exe`, scoped to this repository.
 
 Minimum App permissions:
 
@@ -256,7 +322,7 @@ pure functions. Native `fetch` and Node built-ins avoid executing dependencies
 from PR contents. Static regression tests check the checkout, action list,
 commands, permissions, secret references and activation guard.
 
-## Actions event-policy check before activation
+## Actions event-policy prerequisite (initial activation)
 
 This repository is public. The synchronizer intentionally uses
 `pull_request_target` for trusted-base PR lifecycle metadata, and GitHub's
@@ -267,13 +333,14 @@ using `pull_request_target`, confirm that an applicable event policy explicitly
 permits it and record evidence of the live policy check. See GitHub's official
 [pull_request_target security guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)
 and [Actions policy documentation](https://docs.github.com/en/actions/concepts/about-actions-policies).
-This change does not inspect, configure, or claim that the live event policy is
-already permitted. This prerequisite is separate from the Project built-in
-workflow conflict review below; both checks are required before activation.
+At implementation time the workflow did not itself configure or prove the live
+event policy. The operator later verified the active allowed-event policy before
+enabling writes on November 6, as recorded above. Recheck it after policy changes.
+This prerequisite is separate from the Project built-in conflict review below.
 
-## Built-in workflow conflict review before activation
+## Built-in workflow conflict review (initial activation)
 
-The following built-ins were reported enabled in the agreed baseline:
+The following built-ins were reported enabled in the original baseline:
 
 1. Item closed
 2. Pull request merged
@@ -283,9 +350,10 @@ The following built-ins were reported enabled in the agreed baseline:
 6. Item added to project
 7. Auto-add to project
 
-This branch does not change them. Before setting the activation variable, audit
-their live behavior in the Project UI and perform a one-time reviewed disable
-or conflict-resolution step. In particular, automatic issue closure and generic
+The code does not change these settings. On November 6 the operator confirmed
+they were all **Off** before the first write-capable reconciliation. For a new
+installation, audit the live settings and perform a reviewed disable or conflict-
+resolution step before activation; do not re-enable conflicting writers. In particular, automatic issue closure and generic
 closed-item completion conflict with truthful issue/closed-unmerged semantics;
 automatic additions/status defaults can race with custom reconciliation. The
 custom system is intended to be the authoritative lifecycle synchronizer.
@@ -293,16 +361,18 @@ Do not call undocumented/private Project-workflow mutation endpoints.
 
 ## Operating commands and troubleshooting
 
-After merge and App configuration, with activation still disabled, use Actions
-→ Development Board synchronization → Run workflow → default branch →
-`mode: dry-run`. This discovers live metadata, calculates and reports proposed
-operations, and performs **zero Project mutations**. Dry-run is protected both
-by a read-only API adapter and a downscoped Projects-read token. It still needs
-valid metadata/Project read access; it cannot preview without credentials.
+For the **currently active** installation, run Actions → Development Board
+synchronization → Run workflow → default branch → `mode: dry-run` to preview
+without changing the activation variable. Dry-run discovers metadata and reports
+a plan with **zero Project mutations**, using a read-only API adapter and
+downscoped Projects-read token; valid App/Project read access is still required.
 
-Only after configuration, conflict review and explicit approval, set activation
-to exactly `true`. Use the same dispatch form with `mode: reconcile` to apply.
-Hourly reconciliation then uses the same implementation as lifecycle events.
+For a **new installation or recovery after a deliberate pause**, complete App
+configuration, conflict review, and dry-run before explicitly approving
+`PROJECT_AUTOMATION_ENABLED=true`. With activation enabled, manual
+`mode: reconcile` writes to the Project; issue/PR events and hourly reconciliation
+can also write. Never disable a working installation solely to re-run initial
+setup verification.
 Unset activation (or set it to `false`) to disable subsequent automatic runs;
 stop an already running job separately if needed. Setting the variable never
 rolls back earlier writes.
@@ -315,7 +385,7 @@ converted to a successful no-op.
 
 | Symptom | Check and repair |
 | --- | --- |
-| Disabled message | Activation absent/nonexact; this is expected before approval |
+| Disabled message | Activation absent/nonexact; expected when intentionally disabled (event runs #130/#131 observed this); investigate if unexpected in active mode |
 | Credential configuration error | Setting names, org visibility, App installation |
 | HTTP/auth/GraphQL failure | Installation, Projects and repository permissions, rate limits, API availability; never print the token |
 | Project/field/option identity error | Project 2/title, open state, one Status field and four exact options |
@@ -332,6 +402,13 @@ a separately tested incremental strategy. Repository edits during a snapshot
 can still create transient inconsistency even without count changes; eventual
 reconciliation repairs it. Unsupported relationship formats should be rewritten
 using the documented syntax rather than guessed.
+
+A November 2 read-only repository inventory found 67 merged PRs. Including their
+native links adds approximately 67 queries per full reconciliation, plus extra
+pages for any PR with more than 100 links. This scale does not establish a need
+for optimization; complete paginated evidence takes priority over caching,
+historical windows, or heuristic filtering. This inventory is not live Project
+or App-authenticated runtime verification.
 
 ## Local checks
 
@@ -350,7 +427,9 @@ locked tooling through the normal repository setup if needed. Runtime script
 execution itself has no third-party dependencies. Run `actionlint` when available
 and report its absence honestly.
 
-Local branch validation on November 2: 291 project-sync tests passed; classifier
+Local branch validation on November 2 for preserved native links after merge: 314
+project-sync tests passed (the existing 303 retained, with revised native-fetch
+expectations and 11 added regressions); classifier
 (42), production-workflow (11), PR Secretary (125) and runtime-smoke (35) tests
 passed, with no failures or skips. All 13 workflow YAML files parsed; both
 project-sync script syntax checks and working/staged whitespace checks passed.
@@ -364,29 +443,55 @@ archived items; it proposed zero mutations and made no writes. This used the
 existing user's CLI authentication, **not** the future App or Actions workflow,
 and proves neither App configuration nor live mutation/lifecycle behavior.
 
-## Post-merge configuration and runtime verification still required
 
-- [ ] Review merged default-branch implementation and code-owner approval.
-- [ ] Create/configure the minimum-permission App and installation separately.
-- [ ] Configure the client ID variable and private-key secret without disclosure.
-- [ ] Keep activation disabled; verify disabled event/scheduled paths visibly skip.
-- [ ] Audit all seven built-ins live; resolve conflicts through reviewed UI changes.
-- [ ] Run App-authenticated dry-run, review metadata/relationships/plans and confirm zero writes.
-- [ ] Explicitly approve enabling `PROJECT_AUTOMATION_ENABLED=true`.
-- [ ] Use controlled fixtures to verify new issue Todo; draft PR In Progress;
-  issue In Progress; ready PR In Review; converted draft In Progress.
+## Activation checkpoint and remaining runtime verification
+
+The 2026-11-06 checkpoint above records completed activation steps and observed
+transitions. The synchronizer is active; do not repeat initial setup or disable
+activation to complete this checklist. Keep unverified checks open and attach
+the remaining evidence before closing #147.
+
+- [x] Configure the dedicated minimum-permission App and repository installation,
+  client ID variable and private-key secret (see activation checkpoint).
+- [x] Record built-in workflow conflict resolution, linked-PR auto-close disabled,
+  and the applicable Actions event policy permitting the required events.
+- [x] Run App-authenticated dry-run with zero applied writes (#132), enable
+  activation, and observe successful write reconciliation (#133).
+- [x] Observe new issue Todo, linked draft PR and issue In Progress, and ready PR
+  In Review (#136–#138).
+- [x] Observe completed issue Done (#148), not-planned issue archive (#141),
+  closed-unmerged PR archive (#140), and reopened issue unarchive/Todo (#142).
+- [x] Observe repeated steady-state reconciliation with zero additional mutations
+  (#134, #135, #139, #143); duplicate-event delivery remains unverified.
+- [ ] Confirm explicit activation approval and review of dry-run metadata,
+  relationships and plans; execution success alone does not record those reviews.
+- [ ] Confirm merged default-branch implementation and code-owner approval;
+  obtain independent review and main-branch verification of this documentation.
+- [x] Verify disabled event-triggered path: runs #130/#131 completed the `disabled`
+  job and skipped `synchronize` before activation.
+- [ ] Document or execute a safe controlled verification of the disabled scheduled
+  path and hosted malformed-value pre-token guards, without unnecessarily
+  interrupting the active board; record any justified deferral.
+- [ ] Inspect fixture #170's final Done status independently in the Project UI.
+- [ ] Verify converted-draft PR In Progress and reopened PR unarchive/recalculation.
 - [ ] Edit/remove relationships with and without prior-body evidence; verify prior
-  issues return to Todo, multiple links/PRs remain correct, unrelated mentions do nothing.
-- [ ] Merge a partial PR and verify PR Done while the open issue remains Todo
-  or In Progress according to remaining current PRs.
-- [ ] Complete an issue and verify Done; close not-planned and verify archive.
-- [ ] Close an unmerged PR and verify archive, never a new Done transition.
-- [ ] Reopen issue/PR fixtures and verify unarchive plus recalculated status.
-- [ ] Repeat reconcile and duplicate events; confirm zero additional mutations/cards.
+  issues return to Todo only without other valid OPEN/MERGED evidence; multiple
+  links/PRs remain correct and unrelated mentions do nothing.
+- [ ] Observe appropriate real partial/final implementation PR merges and verify PR Done while
+  the open issue remains In Progress until explicitly closed completed. The
+  closed-unmerged fixture does not verify this transition.
+- [ ] Verify duplicate-event delivery causes zero additional mutations/cards and
+  independently inspect item uniqueness; zero-operation runs alone do not prove it.
 - [ ] Exercise >100-item pagination, scheduled drift repair, API/permission failure
   visibility and safe recovery with no credentials in logs.
-- [ ] Record run URLs, observed transitions, counts, failures and limitations on #147
-  before claiming acceptance. Preserve completed issues as historical evidence.
+- [ ] Measure and document authenticated GraphQL request counts, pagination
+  workload, available rate-limit budget and run duration for an ordinary full
+  reconciliation; assess headroom against the 30-minute job timeout.
+- [ ] Review remaining #147 acceptance checkboxes against run and board evidence;
+  record remaining transitions, failures and limitations before issue closure.
+- [ ] Ensure test branch `test/170-development-board-lifecycle` is cleaned up
+  without merging its contents. Preserve completed issues as historical evidence.
+
 
 Reference API contracts: [Project GraphQL types and mutations](https://docs.github.com/en/graphql/reference/projects),
 [Issues GraphQL types](https://docs.github.com/en/graphql/reference/issues),

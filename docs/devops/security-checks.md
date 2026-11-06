@@ -107,11 +107,13 @@ The second hosted execution, [Security Audit #2](https://github.com/2ton-exe/mor
 | --- | --- | --- |
 | Root pnpm | Audit exit 0; no advisories returned | No findings in that registry response, not repo-wide security certification |
 | Frontend pnpm | Audit exit 1; 5 moderate, 1 high, 2 critical | Findings remain open for frontend/build-tool owner triage; counts differ from the November 2 registry response |
-| Deno | Log reported Zod advisory GHSA-mrhx-c7xc-m3w5; audit step marked success | Advisory is still present despite a green step; do not use exit status alone to claim clean Deno coverage or promote it to a required check |
+| Deno | Underlying audit exited 1 and reported one high-severity Zod advisory (GHSA-mrhx-c7xc-m3w5); observation job completed successfully because the audit step is allowed to fail | Job success is not a clean dependency-audit result |
 
-Both hosted runs are **observation evidence only**. The tool's report or advisory database may change without repository changes. Neither run validates source/history secret scanning, runtime exploitability, or release-grade gating.
+The third hosted execution, [Security Audit #3](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42180130293), ran on PR head `956df55f91d8636d4c07369460d16a3f76c463e0` (November 6). Root pnpm returned exit 0/no advisories; frontend pnpm returned exit 1 with 5 moderate, 1 high and 2 critical findings; Deno audit returned exit 1 with one high Zod finding. All three **observation jobs** completed successfully, but this does not clear the findings.
 
-[Modular PR Validation #286](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42179871714) was triggered on the same November 6 repair head. Its required Frontend safety-regression path initially failed on the old PR head because a test applied the no-path-filters invariant to every workflow, including this optional audit. The repair scopes that invariant to the required modular PR/main entrypoints while explicitly checking the audit's read-only, path-scoped, non-push observation status. Do not mark this validation completed until its entire current-head run finishes.
+All hosted runs are **observation evidence only**. The tool's report or advisory database may change without repository changes. None validates source/history secret scanning, runtime exploitability, or release-grade gating.
+
+Initial [Modular PR Validation #263](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41469565206) failed the Frontend workflow-safety regression because it incorrectly applied the no-path-filters invariant to this optional audit. Commit `67f79ea` narrowed that invariant to required PR/main entrypoints, while explicitly asserting the audit remains read-only, path-scoped and non-push. [Modular PR Validation #287](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42180130098) then **completed successfully** on PR head `956df55f91d8636d4c07369460d16a3f76c463e0`: Frontend, Database, Edge/API, Playwright E2E, Staging Deploy and Staging Smoke passed; main-only Hosted RLS Integration was intentionally skipped. A future integrated-head run is separate evidence and must be recorded separately.
 
 ## Secret scanning strategy
 
@@ -119,7 +121,7 @@ Native scanning is explicitly reported disabled, so adequate active native cover
 
 ## Deno dependency coverage
 
-Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` explicitly documents lockfile auditing, and `deno audit --lock=deno.lock` successfully queried advisory data and reported the Zod finding. That validates the command for inclusion; it does not establish exhaustive advisory coverage of all JSR, npm or remote modules. No `--fix`, ignored advisory, severity exclusion, registry-error suppression or lockfile rewrite is used. Dependency integrity locks and advisory auditing provide different controls. Hosted Deno audit execution is recorded below. Advisory output and step exit state must be interpreted separately; a successful observation job does not establish zero vulnerabilities.
+Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` explicitly documents lockfile auditing, and `deno audit --lock=deno.lock` successfully queried advisory data and reported the Zod finding. That validates the command for inclusion; it does not establish exhaustive advisory coverage of all JSR, npm or remote modules. No `--fix`, ignored advisory, severity exclusion, registry-error suppression or lockfile rewrite is used. Dependency integrity locks and advisory auditing provide different controls. Hosted Deno audit execution is recorded in the evidence section above. Advisory output and step exit state must be interpreted separately; a successful observation job does not establish zero vulnerabilities.
 
 ## Deferred hardening work
 

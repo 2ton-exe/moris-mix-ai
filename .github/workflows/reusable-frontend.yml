@@ -72,6 +72,9 @@ jobs:
       - name: Test production workflow safety (offline)
         run: node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs
 
+      - name: Test production queue safety (offline)
+        run: node --test scripts/production-queue-safety.test.mjs
+
       - name: Run lint
         if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
         working-directory: frontend
