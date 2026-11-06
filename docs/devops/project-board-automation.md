@@ -40,20 +40,28 @@ After activation, the operator visually checked representative Project cards and
 
 Isolated [test issue #170](https://github.com/2ton-exe/moris-mix-ai/issues/170) and [test PR #171](https://github.com/2ton-exe/moris-mix-ai/pull/171) were used. The PR contained only a temporary documentation file on `test/170-development-board-lifecycle` and was **closed without merging**. None of that fixture PR's changes reached `main`.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:9d120a80054b58ccdb2f59f7e13f581b587a5abf0d727458cc265d67b00a6742 -->
+
 | Lifecycle action | Evidence | Applied Project result |
 | --- | --- | --- |
 | Create issue | [#136](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195384559) | Issue #170 added and set `Todo` |
 | Open linked draft PR | [#137](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195577547) | Issue #170 `In Progress`; draft PR #171 added as `In Progress` |
 | Mark PR ready | [#138](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195702904) | PR #171 `In Review` |
-| Repeat event | [#139](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195861424) | 0 proposed / 0 applied |
+| Edit PR #171 | [#139](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42195861424) | Zero-operation reconciliation: 0 proposed / 0 applied |
 | Close PR **without merge** | [#140](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196070305) | Issue #170 restored to `Todo` while remaining **open**; PR Status cleared and card archived |
 | Close issue `Not planned` | [#141](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196223676) | Issue Status cleared and card archived; not `Done` |
 | Reopen issue | [#142](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196374646) | Issue #170 unarchived and restored to `Todo`; this full-board run also added unrelated PR #172 |
-| Repeat event | [#143](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196389258) | 0 proposed / 0 applied |
+| Open PR #172 | [#143](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42196389258) | Zero-operation reconciliation: 0 proposed / 0 applied |
 | Explicitly close issue `Completed` | [#148](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42203724235) | Issue #170 set to `Done` (**1 proposed / 1 applied / 0 rejected**) |
 
 These outcomes are supported by successful jobs and acknowledged Project GraphQL mutations. A separate manual Project UI check of final fixture #170 `Done` is still pending in this record. The issue was closed **by a person**, then the synchronizer changed the Project status: the App has repository Issues **read-only** permission and cannot close issues. The fixture did **not** test merging a new PR; merged historical PRs and linked open issues were covered by earlier reconciliation, unit tests, and representative board inspection. A reviewed production-scope/documentation PR can supply a natural future merge-event observation without merging the fixture.
 
+Runs #139 and #143 reconciled unchanged board state after distinct PR events; they do not demonstrate duplicate-event delivery. Live duplicate-event verification remains pending.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 ### Timing, known limits, and next actions
 
 From the GitHub Actions REST `created_at` and `updated_at` timestamps (run-level elapsed time, including scheduling and setup, **not** a per-API latency metric), #132 took approximately **36 s**, #133 **73 s**, #134 **33 s**, #135 **44 s**, #143 **86 s**, and #148 **37 s**. These runs are observations with different workloads, **not** comparable optimization evidence. Exact GraphQL request counts, remaining rate-limit budget and long-term reliability have **not** been independently measured.
@@ -430,31 +438,60 @@ archived items; it proposed zero mutations and made no writes. This used the
 existing user's CLI authentication, **not** the future App or Actions workflow,
 and proves neither App configuration nor live mutation/lifecycle behavior.
 
-## Post-merge configuration and runtime verification still required
+<!-- coderabbit-ai-generated:v1 -->
 
-- [ ] Review merged default-branch implementation and code-owner approval.
-- [ ] Create/configure the minimum-permission App and installation separately.
-- [ ] Configure the client ID variable and private-key secret without disclosure.
-- [ ] Keep activation disabled; verify disabled event/scheduled paths visibly skip.
-- [ ] Audit all seven built-ins live; resolve conflicts through reviewed UI changes.
-- [ ] Run App-authenticated dry-run, review metadata/relationships/plans and confirm zero writes.
-- [ ] Explicitly approve enabling `PROJECT_AUTOMATION_ENABLED=true`.
-- [ ] Use controlled fixtures to verify new issue Todo; draft PR In Progress;
-  issue In Progress; ready PR In Review; converted draft In Progress.
+<!-- coderabbit-ai-generated-section:v1:d46f2ec80a4e7d8a32982532a36d626c047ef4d1ba3abb05ba8db9495212fff8 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8cd474434fbcbe283193f9b0992cc85deadb137efb58086cd4024fdeb91deb28 -->
+
+## Activation checkpoint and remaining runtime verification
+
+The 2026-11-06 checkpoint above records completed activation steps and observed
+transitions. The synchronizer is active; do not repeat initial setup or disable
+activation to complete this checklist. Keep unverified checks open and attach
+the remaining evidence before closing #147.
+
+- [x] Configure the dedicated minimum-permission App and repository installation,
+  client ID variable and private-key secret (see activation checkpoint).
+- [x] Record built-in workflow conflict resolution, linked-PR auto-close disabled,
+  and the applicable Actions event policy permitting the required events.
+- [x] Run App-authenticated dry-run with zero applied writes (#132), enable
+  activation, and observe successful write reconciliation (#133).
+- [x] Observe new issue Todo, linked draft PR and issue In Progress, and ready PR
+  In Review (#136–#138).
+- [x] Observe completed issue Done (#148), not-planned issue archive (#141),
+  closed-unmerged PR archive (#140), and reopened issue unarchive/Todo (#142).
+- [x] Observe repeated steady-state reconciliation with zero additional mutations
+  (#134, #135, #139, #143); duplicate-event delivery remains unverified.
+- [ ] Confirm explicit activation approval and review of dry-run metadata,
+  relationships and plans; execution success alone does not record those reviews.
+- [ ] Confirm merged default-branch implementation and code-owner approval;
+  obtain independent review and main-branch verification of this documentation.
+- [ ] Verify disabled event/scheduled paths visibly skip and hosted pre-token
+  activation guards behave correctly in an appropriate controlled verification.
+- [ ] Inspect fixture #170's final Done status independently in the Project UI.
+- [ ] Verify converted-draft PR In Progress and reopened PR unarchive/recalculation.
 - [ ] Edit/remove relationships with and without prior-body evidence; verify prior
   issues return to Todo only without other valid OPEN/MERGED evidence; multiple
   links/PRs remain correct and unrelated mentions do nothing.
-- [ ] Merge partial/final implementation PRs and verify PR Done while the open
-  issue remains In Progress through verification until explicitly closed completed.
-- [ ] Complete an issue and verify Done; close not-planned and verify archive.
-- [ ] Close an unmerged PR and verify archive, never a new Done transition.
-- [ ] Reopen issue/PR fixtures and verify unarchive plus recalculated status.
-- [ ] Repeat reconcile and duplicate events; confirm zero additional mutations/cards.
+- [ ] Observe appropriate real partial/final implementation PR merges and verify PR Done while
+  the open issue remains In Progress until explicitly closed completed. The
+  closed-unmerged fixture does not verify this transition.
+- [ ] Verify duplicate-event delivery causes zero additional mutations/cards and
+  independently inspect item uniqueness; zero-operation runs alone do not prove it.
 - [ ] Exercise >100-item pagination, scheduled drift repair, API/permission failure
   visibility and safe recovery with no credentials in logs.
-- [ ] Record run URLs, observed transitions, counts, failures and limitations on #147
-  before claiming acceptance. Preserve completed issues as historical evidence.
+- [ ] Review remaining #147 acceptance checkboxes against run and board evidence;
+  record remaining transitions, failures, limitations and API workload if needed.
+- [ ] Ensure test branch `test/170-development-board-lifecycle` is cleaned up
+  without merging its contents. Preserve completed issues as historical evidence.
 
+<!-- /coderabbit-ai-generated:v1 -->
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 Reference API contracts: [Project GraphQL types and mutations](https://docs.github.com/en/graphql/reference/projects),
 [Issues GraphQL types](https://docs.github.com/en/graphql/reference/issues),
 and [create-github-app-token inputs](https://github.com/actions/create-github-app-token/blob/v3/action.yml).
