@@ -149,9 +149,17 @@ jobs:
         if: vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
         working-directory: frontend
         env:
+          RECIPE_IMAGE_CLEANUP_ENABLED: ${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        shell: bash
         run: |
+          set -euo pipefail
+          # Actions string comparisons ignore case; enforce the exact opt-in here.
+          if [[ "${RECIPE_IMAGE_CLEANUP_ENABLED:-}" != "true" ]]; then
+            echo "Recipe image cleanup requires the exact opt-in value true; skipping."
+            exit 0
+          fi
           pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy recipe-image-upload-cleanup \
             --project-ref "$SUPABASE_PROJECT_REF" \
             --no-verify-jwt \

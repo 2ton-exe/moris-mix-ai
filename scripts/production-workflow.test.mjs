@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -18,6 +21,7 @@ const step = (job, name) => job.steps.find(s => s.name === name);
 // actual YAML expressions against fixtures so changes to the gate affect tests.
 function condition(expression, overrides = {}) {
   const context = {
+    actionsStringEqual: (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase(),
     success: () => true,
     vars: {},
     inputs: { 'frontend-exists': true },
@@ -31,7 +35,9 @@ function condition(expression, overrides = {}) {
     .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
     .replace(/needs\.(test-db|test-edge-api)/g, 'needs["$1"]')
     .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
-    .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]');
+    .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]')
+    // Actions compares strings without case sensitivity (unlike JavaScript).
+    .replace(/(vars\.RECIPE_IMAGE_CLEANUP_ENABLED) == ('true')/g, 'actionsStringEqual($1, $2)');
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
 
@@ -194,7 +200,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const cleanup = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
   assert.equal(cleanup['working-directory'], 'frontend');
-  assert.deepEqual(cleanup.env, configuration.env);
+  assert.deepEqual(cleanup.env, { ...configuration.env,
+    RECIPE_IMAGE_CLEANUP_ENABLED: '${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED }}' });
   assert.match(cleanup.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipe-image-upload-cleanup/);
   assert.match(cleanup.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(cleanup.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
@@ -259,6 +266,7 @@ test('recipe image cleanup is scheduled only on main and uses protected invocati
   assert.equal(cleanup.if, "github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'");
   assert.equal(cleanup.steps.length, 1);
   assert.deepEqual(cleanup.steps[0].env, {
+    RECIPE_IMAGE_CLEANUP_ENABLED: '${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED }}',
     SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     RECIPE_IMAGE_CLEANUP_TOKEN: '${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}',
   });
@@ -474,14 +482,42 @@ test('cleanup deployment and invocation remain off until explicit production opt
   const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(deployment.if, "vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'");
   for (const event_name of ['push', 'schedule', 'workflow_dispatch']) {
-    for (const value of [undefined, '', 'false', 'TRUE', 'true']) {
+    for (const value of [undefined, '', 'false', 'TRUE', 'True', ' true', 'true ', 'true']) {
       const vars = value === undefined ? {} : { RECIPE_IMAGE_CLEANUP_ENABLED: value };
       const github = { event_name, ref: 'refs/heads/main' };
-      assert.equal(condition(deployment.if, { vars, github }), value === 'true');
-      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), value === 'true');
+      assert.equal(condition(deployment.if, { vars, github }), value?.toLowerCase() === 'true');
+      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), value?.toLowerCase() === 'true');
       assert.equal(condition(scheduledCleanup.jobs.cleanup.if, {
         vars, github: { event_name, ref: 'refs/heads/feature' },
       }), false);
     }
+  }
+});
+
+test('cleanup privileged commands require the exact opt-in even when Actions admits mixed case', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'cleanup-opt-in-'));
+  try {
+    for (const command of ['curl', 'pnpm']) {
+      const path = join(directory, command);
+      writeFileSync(path, '#!/bin/bash\necho privileged-command\n');
+      chmodSync(path, 0o755);
+    }
+    for (const target of [step(release, 'Deploy recipe image upload cleanup Edge Function'),
+      step(scheduledCleanup.jobs.cleanup, 'Invoke recipe image cleanup')]) {
+      assert.equal(target.env.RECIPE_IMAGE_CLEANUP_ENABLED, '${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED }}');
+      assert.equal(target.shell, 'bash');
+      for (const value of ['', 'false', 'TRUE', 'True', ' true', 'true ', 'true']) {
+        const result = spawnSync('bash', ['-c', target.run], {
+          encoding: 'utf8',
+          env: { PATH: `${directory}:${process.env.PATH}`, RECIPE_IMAGE_CLEANUP_ENABLED: value,
+            SUPABASE_URL: 'https://example.invalid', RECIPE_IMAGE_CLEANUP_TOKEN: 'synthetic-token',
+            GITHUB_WORKSPACE: '.', SUPABASE_PROJECT_REF: 'synthetic-project' },
+        });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stdout.includes('privileged-command'), value === 'true', value);
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });

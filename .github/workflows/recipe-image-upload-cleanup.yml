@@ -20,11 +20,17 @@ jobs:
     steps:
       - name: Invoke recipe image cleanup
         env:
+          RECIPE_IMAGE_CLEANUP_ENABLED: ${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED }}
           SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           RECIPE_IMAGE_CLEANUP_TOKEN: ${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          # Actions string comparisons ignore case; enforce the exact opt-in here.
+          if [[ "${RECIPE_IMAGE_CLEANUP_ENABLED:-}" != "true" ]]; then
+            echo "Recipe image cleanup requires the exact opt-in value true; skipping."
+            exit 0
+          fi
           if [[ -z "${SUPABASE_URL//[[:space:]]/}" || -z "${RECIPE_IMAGE_CLEANUP_TOKEN//[[:space:]]/}" ]]; then
             echo "::error::Configure VITE_SUPABASE_URL and RECIPE_IMAGE_CLEANUP_TOKEN before enabling cleanup."
             exit 1
