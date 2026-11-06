@@ -6,7 +6,24 @@ First independently reviewable slice of [#163 / DEVOPS-09 (S4)](https://github.c
 
 Inventory observed on 2026-11-02 against main `d1dbba6c001c39c65d74d6856a83058f750a93ff`. Configuration, local execution and future hosted execution are distinguished below. API results and advisory databases can change.
 
-## Current repository security inventory
+**Reading this document:** The 2026-11-02 inventory is retained below as a historical baseline; it is *not* the current native-control state. The 2026-11-06 operator walkthrough supersedes it for GitHub security settings. Source-code/workflow facts are independently inspected at `main` commit `f051d52f8c7b19a4f837794b1d26720dc78219ae`; UI-only settings are reported explicitly as operator-confirmed.
+
+## GitHub-native security controls — 2026-11-06
+
+| Control | Observed status | Evidence boundary |
+| --- | --- | --- |
+| Secret Protection / secret scanning | **On** (operator-confirmed in repository Settings) | GitHub Security and quality → Secret scanning showed **0 open / 0 closed** alert records at the time inspected; no claim of universal secret absence |
+| Repository Push protection | **On** (operator-confirmed by repository administrator) | Blocks supported secret patterns on eligible pushes; no live push-block test, bypass event or override attempted |
+| Dependency graph | **On** (operator settings + subsequent Dependabot alert results) | GitHub resolved dependency paths from checked-in manifest/lockfiles |
+| Dependabot alerts | **On** (observed 10 open alert records after enablement) | Alert records include duplicate advisory/path occurrences; not necessarily 10 unique vulnerabilities |
+| Dependabot automated security updates | Not confirmed enabled; manual Tinypool repair was attempted | The manual attempt failed because `vitest@3.2.7` keeps transitive `tinypool@1.1.1`; separate frontend fix [#180](https://github.com/2ton-exe/moris-mix-ai/issues/180) assigned |
+| CodeQL / code scanning | Not configured in the inspected Security settings | Separate SAST work should be risk- and time-justified, not inferred from the zero secret-alert count |
+
+Security settings are *operator-observed*, not validated with an authenticated administrative API call. They are not a claim that secret detection blocked a representative credential. Do **not** push real or fake-valid credentials just to test coverage.
+
+
+
+## Historical repository security inventory (2026-11-02)
 
 ### Dependency ecosystems
 
@@ -49,6 +66,18 @@ Confirmed hardening opportunities: `modular-pr-validation.yml` has no workflow-l
 All external action references in the existing 13 workflow files use mutable version tags, rather than immutable SHAs. Observed families: `actions/checkout@v4`, `actions/setup-node@v4`, `actions/upload-artifact@v4`, `pnpm/action-setup@v4`, `denoland/setup-deno@v2`, `cloudflare/wrangler-action@v3`/`@v4`, and `actions/create-github-app-token@v3`. Local reusable workflow paths are a different reference class. Mutable tags are a confirmed hardening opportunity, not evidence of compromise.
 
 The new workflow uses only SHA-pinned checkout, setup-node and setup-deno actions, with release comments. GitHub release/ref APIs resolved checkout v7.0.1 to `3d3c42e5aac5ba805825da76410c181273ba90b1`, setup-node v7.1.0 to `949feb2413d6458794dcd2491c4babbbce0c15c1`, and setup-deno v2.0.5 to `22d081ff2d3a40755e97629de92e3bcbfa7cf2ed`. pnpm is requested at exact registry version 10.34.9 through npx; it is not a SHA-pinned action. Runner images and Node 24 remain moving platform inputs. Pinning reduces action-reference drift, not all supply-chain risk.
+
+## GitHub Actions permissions and action-source follow-up — 2026-11-06
+
+A read-only reinspection of the **15** checked-in workflow YAML files on `main` `f051d52f8c7b19a4f837794b1d26720dc78219ae` identified the following. These findings are a *configuration audit*, not a successful hardened-workflow execution:
+
+- `modular-main.yml`, `database-backup.yml`, `project-sync.yml` and `security-audit.yml` declare explicit workflow-level `contents: read`. The `modular-pr-validation.yml` entrypoint has **job-scoped** read permission for its classifier, but no workflow-level baseline. Reusable `frontend` and `database` jobs also rely on inherited/default permissions; the November 2 repository settings observation reported read-only default. **Re-verify** the active default in GitHub Settings → Actions → General before declaring least privilege fully established.
+- `pr-secretary.yml` grants `pull-requests: write` to its narrow comment-writing job and read permissions to its reader; `project-sync.yml` mints a GitHub App token only in a guarded privileged path. These writes are intentional and should not be removed without regression testing.
+- `database-backup.yml` and `security-audit.yml` use full-length SHA-pinned action references. Several existing frontend, database, E2E, staging and production workflows still reference mutable action tags (`actions/checkout@v4`, `actions/setup-node@v4`, `pnpm/action-setup@v4`, `cloudflare/wrangler-action@v3/v4`, among others). This is a supply-chain hardening opportunity, not proof of compromise.
+- Several validation and deployment checkouts still use the default credential-persistence behavior. In a focused later hardening PR, evaluate `persist-credentials: false` where subsequent steps do not require authenticated Git operations; verify Cloudflare/Supabase deployment and CI before changing production workflows.
+- `database-backup.yml` declares the `production-backup` environment; its main-only branch restriction was operator-confirmed earlier in DEVOPS-10. `reusable-staging.yml` declares staging environments. Other environment approval/actor restrictions, App scopes, deployment-token privileges and provider settings were **not** independently audited from these YAML files.
+
+**Decision:** preserve current required validation, deployment and production smoke. Audit findings justify a **separate** small hardening PR with current-head CI, independent review and main verification. Do not promote advisory-only audit jobs to required contexts while path-filtered and non-blocking. GitHub's native Push protection is an enforcement mechanism for supported secrets, not a required PR status check.
 
 ## Automated dependency audit — observation phase
 
@@ -115,9 +144,21 @@ All hosted runs are **observation evidence only**. The tool's report or advisory
 
 Initial [Modular PR Validation #263](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41469565206) failed the Frontend workflow-safety regression because it incorrectly applied the no-path-filters invariant to this optional audit. Commit `67f79ea` narrowed that invariant to required PR/main entrypoints, while explicitly asserting the audit remains read-only, path-scoped and non-push. [Modular PR Validation #287](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42180130098) then **completed successfully** on PR head `956df55f91d8636d4c07369460d16a3f76c463e0`: Frontend, Database, Edge/API, Playwright E2E, Staging Deploy and Staging Smoke passed; main-only Hosted RLS Integration was intentionally skipped. A future integrated-head run is separate evidence and must be recorded separately.
 
-## Secret scanning strategy
+## Secret scanning coverage and credential-response procedure — 2026-11-06
 
-Native scanning is explicitly reported disabled, so adequate active native coverage is not established. No additional secret-scanning product is introduced merely for tool count. A later #163 slice must decide between native feature configuration and a justified scanner with PR/history coverage, based on access, coverage and operating requirements. No successful source/history scan is claimed. Settings changes and credential investigation/rotation require their own authorized work; this inventory contains no credential values.
+**Current choice:** use GitHub-native Secret Protection plus repository Push protection for supported patterns. GitHub states that native secret scanning examines **Git history across branches** and rescans as patterns are added. That is our default *history strategy*; no separate scanner is installed without identifying a concrete coverage gap. The operator saw 0 open and 0 closed alerts when inspecting GitHub Security and quality → Secret scanning. No scanner can certify that unsupported credentials, logs, archived artifacts, forks or out-of-band exposures are absent.
+
+**On an alert or blocked push:**
+
+1. **Do not paste the secret** into a PR, issue, CI log, screenshot, discussion or test fixture. Share the alert URL/number, provider or secret *type*, source location only if safe, and response status with authorized maintainers.
+2. If a push is blocked, remove the credential from **all commits being pushed** and retry. Do not bypass simply to make CI green; routine test fixtures should use clearly invalid, non-secret placeholders.
+3. For a real or potentially live credential, contact the service/project owner, **rotate or revoke promptly**, assess scope and exposure, then clean the repository/history with coordinated maintainer approval if necessary. Deleting a file alone does not invalidate a leaked credential.
+4. For a false positive, maintainers should review the detection and document a reason before any approved bypass/dismissal. Repository push-protection bypasses may create alerts, including closed false-positive/test alerts and open deferral alerts; examine **both open and closed** states, and use `bypassed:true` when checking for bypass records. Prefer no bypass for real credentials.
+5. Recheck the alert state after action and record only sanitized outcome, owner, date, rotation/revocation status and any follow-up incident ticket. Do not close an incident as verified just because an alert was dismissed.
+
+**Verification boundary:** GitHub settings and the zero-alert view were operator-observed; repository Push protection is **configured/confirmed On**, but a real push rejection was *not* exercised. Native coverage is limited to supported patterns and eligible pushes; a no-alert result is not a history-wide guarantee. The current dependency audit remains advisory-only and cannot substitute for secret scanning.
+
+References: [GitHub secret scanning](https://docs.github.com/en/code-security/concepts/secret-security/secret-scanning), [Push protection](https://docs.github.com/en/code-security/concepts/secret-security/push-protection), [Detection scope](https://docs.github.com/en/code-security/reference/secret-security/secret-scanning-scope).
 
 ## Deno dependency coverage
 
@@ -126,7 +167,7 @@ Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` e
 ## Deferred hardening work
 
 - Triage current frontend high/critical and Deno findings with component owners; do not silently upgrade application dependencies here.
-- Decide secret-scanning coverage and dependency-alert/security-update configuration in a later authorized slice. No native setting was changed.
+- Native Secret Protection, repository Push protection, Dependency graph and Dependabot alerts are now operator-confirmed enabled (November 6). Dependency alert remediation, optional updates, bypass governance and any justified supplemental secret scanning remain separate follow-ups.
 - Review inherited permissions, persisted checkout credentials, privileged secret jobs and existing mutable action tags after inventory review. API/environment protections and secret configuration not inspected here remain unknown.
 - Coordinate active owners: PR #154 owns production migration/main/CODEOWNERS/deployment documentation; #160 owns Edge/API/production/backend changes; #161 owns backup/Cloudflare/production changes; #156 owns Project synchronization/template work; #166 owns the optimization log. None of these files is changed here.
 - Open PRs #152 and #153 also change frontend/UI areas; #152 changes the frontend manifest/lockfile. Local counts reflect current main, not those unmerged dependencies. Re-audit the eventual merged state.
