@@ -27,7 +27,6 @@ jobs:
     name: Deploy to Supabase and Cloudflare
     if: >-
       success() && inputs.frontend-exists &&
-      vars.PRODUCTION_MIGRATION_RECOVERY_VERIFIED == 'true' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main' &&
       github.workflow_ref == format('{0}/.github/workflows/modular-main.yml@refs/heads/main', github.repository)
@@ -40,6 +39,7 @@ jobs:
 
     permissions:
       contents: read
+      deployments: write
 
     env:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -156,6 +156,13 @@ jobs:
             echo "::error::Current main is ${current_sha}; refusing to deploy stale revision ${GITHUB_SHA}."
             exit 1
           fi
+
+      - name: Acquire production recovery hold
+        id: recovery-hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_VERIFIED: ${{ vars.PRODUCTION_MIGRATION_RECOVERY_VERIFIED }}
+        run: node scripts/production-recovery-hold.mjs acquire
 
       - name: Apply production database migrations
         id: deploy-migrations
@@ -310,3 +317,10 @@ jobs:
           name: production-ai-route-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           path: ai-route-smoke.json
           if-no-files-found: warn
+
+      # Success-only: every failure or interruption leaves the durable hold closed.
+      - name: Release production recovery hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOLD_ID: ${{ steps.recovery-hold.outputs.hold-id }}
+        run: node scripts/production-recovery-hold.mjs release

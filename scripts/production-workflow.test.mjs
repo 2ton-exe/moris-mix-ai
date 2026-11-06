@@ -74,7 +74,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(Object.keys(main.on), ['push', 'workflow_dispatch']);
   assert.deepEqual(main.on.push.branches, ['main']);
   assert.deepEqual(main.permissions, { contents: 'read' });
-  assert.deepEqual(main.jobs.production.permissions, { contents: 'read' });
+  assert.deepEqual(main.jobs.production.permissions, { contents: 'read', deployments: 'write' });
   assert.equal(main.jobs['production-ownership'], undefined);
   assert.equal(main.jobs['gate-evidence'], undefined);
   assert.equal(production.on.workflow_call.inputs.owner, undefined);
@@ -89,10 +89,19 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(callers, ['modular-main.yml']);
 });
 
-test('production migrations and application deployment stay gated on recorded recovery readiness', () => {
-  assert.equal(condition(release.if, { vars: {} }), false);
-  assert.equal(condition(release.if, { vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: 'false' } }), false);
-  assert.equal(condition(release.if, { vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: 'true' } }), true);
+test('recovery hold fails explicitly instead of skipping the production job', () => {
+  for (const value of ['', 'false', 'true']) {
+    assert.equal(condition(release.if, { vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: value } }), true);
+  }
+  const acquire = step(release, 'Acquire production recovery hold');
+  assert.equal(acquire.env.RECOVERY_VERIFIED, '${{ vars.PRODUCTION_MIGRATION_RECOVERY_VERIFIED }}');
+  assert.equal(acquire.run, 'node scripts/production-recovery-hold.mjs acquire');
+  assert.ok(release.steps.indexOf(acquire) < release.steps.indexOf(step(release, 'Apply production database migrations')));
+  const complete = step(release, 'Release production recovery hold');
+  assert.equal(complete.if, undefined);
+  assert.equal(complete.run, 'node scripts/production-recovery-hold.mjs release');
+  assert.equal(complete.env.HOLD_ID, '${{ steps.recovery-hold.outputs.hold-id }}');
+  assert.equal(release.steps.at(-1), complete);
 });
 
 test('production schema changes require backend-only code ownership', () => {
@@ -312,7 +321,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const summary = step(release, 'Record production deployment and runtime outcomes');
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
-  assert.deepEqual(release.permissions, { contents: 'read' });
+  assert.deepEqual(release.permissions, { contents: 'read', deployments: 'write' });
   for (const caller of [main.jobs.production]) {
     assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');

@@ -21,12 +21,18 @@ As of 2026-11-02:
 
 ## Production release gate
 
-The reusable production workflow skips the full release unless the repository
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f80187d8135bf05d16d5ace4c98f7f68b0a0738e6800926e5c30c2ddbb5d6f2d -->
+
+The reusable production workflow fails the release explicitly unless the repository
 variable `PRODUCTION_MIGRATION_RECOVERY_VERIFIED` is set to `true`. Leave it
 unset until issue #155 records the recovery readiness decision and issue #159
 records a successful private-backup round-trip and isolated restore drill,
 including observed recovery exclusions. PR CI does not set this repository
 variable or execute the production migration path.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Backup trigger and ownership
 

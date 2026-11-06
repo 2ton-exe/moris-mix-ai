@@ -80,11 +80,17 @@ secrets `SUPABASE_DB_PASSWORD` and `SUPABASE_DB_ROOT_CERT`; the latter is the
 project CA certificate from Database Settings → SSL Configuration. Existing
 `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` settings authorize and identify
 the target. Both migration connections verify TLS with `PGSSLMODE=verify-full`.
-The production job is skipped unless the repository variable
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7ac101b9c8e92f1c147cd2766f3fb4d8cab430818ba793d59e40ba2e1b6934a0 -->
+
+The production job fails with an error and summary unless the repository variable
 `PRODUCTION_MIGRATION_RECOVERY_VERIFIED` is set to `true`. Keep it unset until
 the backup round-trip and isolated restore evidence are recorded in issues #155
 and #159. The gate covers the full release so application code cannot deploy
 without its schema transition.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -892,7 +898,34 @@ Cloudflare deployment history may provide an alternative rollback mechanism, but
 
 A rollback procedure must not be described as verified until an actual rollback or recovery exercise has been completed.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:38c32be9c9256f585b69b5170f63b6825f47bb908ecb2a08d91cb49fa377b00f -->
+
 ### Production database migration recovery
+
+The workflow creates a durable GitHub deployment in the dedicated
+`production-migration-recovery` environment before applying migrations. Under the
+shared `cloudflare-production` concurrency lock, every previous record must have
+an explicit latest `success` status before a new hold is created. API failures,
+missing statuses, failed migrations, cancelled runners, and later application or
+smoke failures leave production held. The static readiness variable cannot clear
+this hold. Only completion of the entire release records success automatically.
+The production caller and job require `deployments: write`; contents remain read-only.
+Do not use this dedicated environment for unrelated deployments or delete its records.
+
+To recover, an operator must inspect the held deployment's source revision and run,
+the actual schema and migration ledger, application compatibility, and backup/restore
+evidence in #155/#159. Record the approved repair and verification evidence before
+posting a `success` deployment status to
+`POST /repos/{owner}/{repo}/deployments/{deployment_id}/statuses` with
+`auto_inactive: false` and a `log_url` linking that evidence. This status acknowledges
+recovery readiness; it does not assert the failed run deployed successfully. Every
+held record must be reconciled. Then dispatch main validation at current main.
+Never automatically clear a hold in cancellation or failure cleanup.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 If migrations succeed but a later function or Cloudflare deployment fails, treat the
 database schema as advanced. Keep the old application compatible with that schema,

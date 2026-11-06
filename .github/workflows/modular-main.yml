@@ -48,6 +48,7 @@ jobs:
     uses: ./.github/workflows/reusable-production.yml
     permissions:
       contents: read
+      deployments: write
     with:
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
     secrets:
