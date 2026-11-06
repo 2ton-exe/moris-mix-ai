@@ -6,6 +6,11 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Explicit least-privilege baseline for the classifier and called validation workflows.
+# Job-level permissions can narrow or deliberately override this as needed.
+permissions:
+  contents: read
+
 jobs:
   classify:
     name: Classify PR paths
