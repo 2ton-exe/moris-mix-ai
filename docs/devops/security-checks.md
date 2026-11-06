@@ -2,7 +2,7 @@
 
 ## Scope
 
-First independently reviewable slice of [#163 / DEVOPS-09 (S4)](https://github.com/2ton-exe/moris-mix-ai/issues/163): inventory and standalone dependency-audit observation. This is not the complete security/release implementation or a new merge/release gate. No settings, required checks, dependencies, existing delivery workflows or deployment behavior are changed.
+The initial [#163 / DEVOPS-09 (S4)](https://github.com/2ton-exe/moris-mix-ai/issues/163) slice documented the dependency-audit observation and did not change GitHub settings, required checks, application dependencies or deployment behavior. This document also records later dated GitHub UI configuration and workflow-review evidence. The dependency audit is still observation-only, no new merge/release gate is established here, and #163 is not complete.
 
 Inventory observed on 2026-11-02 against main `d1dbba6c001c39c65d74d6856a83058f750a93ff`. Configuration, local execution and future hosted execution are distinguished below. API results and advisory databases can change.
 
@@ -20,8 +20,6 @@ Inventory observed on 2026-11-02 against main `d1dbba6c001c39c65d74d6856a83058f7
 | CodeQL / code scanning | Not configured in the inspected Security settings | Separate SAST work should be risk- and time-justified, not inferred from the zero secret-alert count |
 
 Security settings are *operator-observed*, not validated with an authenticated administrative API call. They are not a claim that secret detection blocked a representative credential. Do **not** push real or fake-valid credentials just to test coverage.
-
-
 
 ## Historical repository security inventory (2026-11-02)
 
@@ -169,13 +167,13 @@ Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` e
 - Triage current frontend high/critical and Deno findings with component owners; do not silently upgrade application dependencies here.
 - Native Secret Protection, repository Push protection, Dependency graph and Dependabot alerts are now operator-confirmed enabled (November 6). Dependency alert remediation, optional updates, bypass governance and any justified supplemental secret scanning remain separate follow-ups.
 - Review inherited permissions, persisted checkout credentials, privileged secret jobs and existing mutable action tags after inventory review. API/environment protections and secret configuration not inspected here remain unknown.
-- Coordinate active owners: PR #154 owns production migration/main/CODEOWNERS/deployment documentation; #160 owns Edge/API/production/backend changes; #161 owns backup/Cloudflare/production changes; #156 owns Project synchronization/template work; #166 owns the optimization log. None of these files is changed here.
-- Open PRs #152 and #153 also change frontend/UI areas; #152 changes the frontend manifest/lockfile. Local counts reflect current main, not those unmerged dependencies. Re-audit the eventual merged state.
+- Historical coordination note (November 2): PRs #154, #160, #161, #156 and #166 represented overlapping delivery, backend, backup, Project automation and metrics work at the initial audit baseline. Their later merge/closure state must be checked live; this documentation-only follow-up does not modify their files.
+- At the initial audit baseline, PRs #152 and #153 also changed frontend/UI areas; #152 changed the frontend manifest/lockfile. Initial dependency counts reflect that recorded `main` snapshot, not unmerged PR contents. Re-audit after dependency changes merge.
 - Establish hosted execution evidence before proposing any required merge/release security threshold or broader hardening. This does not complete #163.
 
 ## Evidence
 
-- Git baseline: main SHA above, synchronized with origin/main; clean working tree before branching. Open PR file lists checked via `gh pr list` and `gh pr view --json files`: #152, #153, #154, #156, #160, #161, #166. None edits either new file.
+- Initial-audit Git baseline: `main` at `d1dbba6c001c39c65d74d6856a83058f750a93ff`, synchronized with origin/main; working tree was recorded clean before branching. Open PR files were checked at that time via `gh pr list` / `gh pr view --json files` for #152, #153, #154, #156, #160, #161 and #166. That list is historical, not a current PR-status report.
 - Read-only API paths under `repos/2ton-exe/moris-mix-ai`: repository metadata, `vulnerability-alerts`, `dependabot/alerts`, `secret-scanning/alerts`, `code-scanning/alerts`, `actions/permissions/workflow`. Only feature state and sanitized alert metadata were requested; no secret values were requested.
 - Repository evidence: root/frontend manifests and locks, `deno.lock`, frontend workspace policy and all 13 existing `.github/workflows/*.yml`; search found no existing dependency-audit/secret-scanner/code-scanning workflow.
 - Local command evidence: Node/Deno versions, `npx --yes pnpm@10 --version`, pnpm audit help, `deno help audit`, and the three audits above. Advisory identifiers are registry-reported findings, not independently reproduced exploits.
