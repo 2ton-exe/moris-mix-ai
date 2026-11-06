@@ -324,13 +324,20 @@ test('main validation covers current authoritative Edge/API targets and mandator
 
 test('Stage A keeps required workflows unfiltered and classifier failure runs core validation', () => {
   const pr = workflow('modular-pr-validation');
-  for (const name of readdirSync('.github/workflows').filter(n => /\.ya?ml$/.test(n))) {
+  // Required validation entrypoints must never disappear because of a path
+  // filter. Optional, non-required observation workflows may be path-scoped.
+  for (const name of ['modular-pr-validation.yml', 'modular-main.yml']) {
     const triggers = load(readFileSync(`.github/workflows/${name}`, 'utf8')).on;
     for (const event of ['pull_request', 'push']) {
       assert.equal(triggers[event]?.paths, undefined, name);
       assert.equal(triggers[event]?.['paths-ignore'], undefined, name);
     }
   }
+  const audit = workflow('security-audit');
+  assert.ok(Array.isArray(audit.on.pull_request.paths));
+  assert.ok(audit.on.pull_request.paths.includes('.github/workflows/security-audit.yml'));
+  assert.equal(audit.on.push, undefined, 'observation workflow must not gate production push');
+  assert.deepEqual(audit.permissions, { contents: 'read' });
   const classifier = pr.jobs.classify;
   assert.deepEqual(classifier.permissions, { contents: 'read' });
   assert.equal(classifier.secrets, undefined);
