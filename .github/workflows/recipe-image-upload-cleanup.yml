@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   cleanup:
-    if: github.ref == 'refs/heads/main'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Invoke recipe image cleanup

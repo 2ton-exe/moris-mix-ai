@@ -158,6 +158,7 @@ jobs:
 
       - name: Deploy recipe image upload cleanup Edge Function
         id: deploy-recipe-image-cleanup
+        if: false
         working-directory: frontend
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

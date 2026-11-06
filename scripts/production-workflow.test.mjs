@@ -153,7 +153,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
-  for (const name of ordered.slice(0, -3)) {
+  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function')) {
     assert.equal(step(release, name).if, undefined);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
@@ -189,6 +189,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.doesNotMatch(deploy.run, /--prune|--all|latest|npx/);
   }
   const cleanup = step(release, 'Deploy recipe image upload cleanup Edge Function');
+  assert.equal(cleanup.if, false);
   assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
   assert.equal(cleanup['working-directory'], 'frontend');
   assert.deepEqual(cleanup.env, configuration.env);
@@ -248,18 +249,19 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
 });
 
-test('recipe image cleanup is scheduled only on main and uses protected invocation credentials', () => {
+test('recipe image cleanup is explicitly disabled for scheduled and manual invocation', () => {
   assert.deepEqual(scheduledCleanup.on.schedule, [{ cron: '*/15 * * * *' }]);
   assert.equal('workflow_dispatch' in scheduledCleanup.on, true);
   assert.deepEqual(scheduledCleanup.permissions, { contents: 'read' });
   const cleanup = scheduledCleanup.jobs.cleanup;
-  assert.equal(cleanup.if, "github.ref == 'refs/heads/main'");
+  assert.equal(cleanup.if, false);
   assert.equal(cleanup.steps.length, 1);
   assert.deepEqual(cleanup.steps[0].env, {
     SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     RECIPE_IMAGE_CLEANUP_TOKEN: '${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}',
   });
   const cleanupCommand = cleanup.steps[0].run;
+  assert.doesNotMatch(cleanupCommand, /BE13_CLEANUP|BE-13/);
   const httpsGuardIndex = cleanupCommand.indexOf('if [[ "${SUPABASE_URL,,}" != https://* ]]');
   const curlIndex = cleanupCommand.indexOf('curl --fail --silent --show-error');
   assert.notEqual(httpsGuardIndex, -1);
