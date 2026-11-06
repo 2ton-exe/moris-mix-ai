@@ -16,6 +16,7 @@ _GUARD = re.compile(r"^\\(un)?restrict ([A-Za-z0-9]+)$")
 
 
 def main() -> int:
+    """Write a comparison stream from stdin; return 1 for invalid COPY or guards."""
     in_copy = False
     rows: list[str] = []
     guard_key: str | None = None

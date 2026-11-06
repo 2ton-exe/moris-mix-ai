@@ -12,6 +12,7 @@ SCRIPT = Path(__file__).with_name("normalize-pg-copy.py")
 
 
 def fixture(*, key="Test123", version="17.11", comments="sample", rows=("20261101\tA", "20261013\tB"), sql="SELECT pg_catalog.setval('migration_seq', 2, true);", table="supabase_migrations.schema_migrations"):
+    """Build a synthetic dump with configurable metadata, COPY rows, and SQL."""
     return (f"-- PostgreSQL database dump\n-- {comments}\n\n"
             f"\\restrict {key}\n\n-- Dumped from database version {version}\n"
             f"-- Dumped by pg_dump version {version}\n\nSET client_encoding = 'UTF8';\n"
@@ -22,6 +23,7 @@ def fixture(*, key="Test123", version="17.11", comments="sample", rows=("2026110
 
 
 def normalize(source: str) -> subprocess.CompletedProcess[str]:
+    """Run the comparator offline and capture its stream, diagnostics, and status."""
     return subprocess.run([sys.executable, str(SCRIPT)], input=source, text=True,
                           capture_output=True, check=False)
 
@@ -43,6 +45,7 @@ class NormalizeCopyTests(unittest.TestCase):
                             normalize(fixture(rows=("20261101\tALTERED", "20261013\tB"))).stdout)
 
     def test_added_or_removed_migration_row_fails_comparison(self):
+        """Ensure both row additions and deletions remain visible after sorting."""
         base = normalize(fixture()).stdout
         for rows in [("20261101\tA",), ("20261101\tA", "20261013\tB", "new\tC")]:
             with self.subTest(rows=rows):
