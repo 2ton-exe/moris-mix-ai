@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -19,6 +22,7 @@ const step = (job, name) => job.steps.find(s => s.name === name);
 function condition(expression, overrides = {}) {
   if (typeof expression === 'boolean') return expression;
   const context = {
+    actionsStringEqual: (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase(),
     success: () => true,
     vars: {},
     inputs: { 'frontend-exists': true },
@@ -32,7 +36,9 @@ function condition(expression, overrides = {}) {
     .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
     .replace(/needs\.(test-db|test-edge-api)/g, 'needs["$1"]')
     .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
-    .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]');
+    .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]')
+    // Actions compares strings without case sensitivity (unlike JavaScript).
+    .replace(/(vars\.RECIPE_IMAGE_CLEANUP_ENABLED) == ('true')/g, 'actionsStringEqual($1, $2)');
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
 
@@ -474,11 +480,22 @@ test('cleanup deployment and invocation stay disabled regardless of configuratio
   const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(deployment.if, false);
   for (const event_name of ['push', 'schedule', 'workflow_dispatch']) {
-    for (const value of [undefined, '', 'false', 'TRUE', 'true']) {
+    for (const value of [undefined, '', 'false', 'TRUE', 'True', ' true', 'true ', 'true']) {
       const vars = value === undefined ? {} : { RECIPE_IMAGE_CLEANUP_ENABLED: value };
       const github = { event_name, ref: 'refs/heads/main' };
       assert.equal(condition(deployment.if, { vars, github }), false);
       assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), false);
     }
+  }
+});
+
+test('cleanup workflow paths contain no variable-based activation bypass', () => {
+  const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
+  const invocation = step(scheduledCleanup.jobs.cleanup, 'Invoke recipe image cleanup');
+  assert.equal(deployment.if, false);
+  assert.equal(scheduledCleanup.jobs.cleanup.if, false);
+  for (const target of [deployment, invocation]) {
+    assert.equal(target.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
+    assert.doesNotMatch(target.run, /RECIPE_IMAGE_CLEANUP_ENABLED/);
   }
 });
