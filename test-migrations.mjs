@@ -426,6 +426,79 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     const secondClaim = await competing.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
     assert.equal(secondClaim.rows.some((row) => row.id === concurrentCleanup.id), false);
     await client.query('ROLLBACK');
+    // Three attachments continue to consume quota until post-expiry staging deletion succeeds.
+    const attachedUser = crypto.randomUUID();
+    const attachments = [];
+    for (let index = 0; index < 3; index++) {
+      const intent = await createIntent(client, attachedUser);
+      attachments.push(intent);
+      await client.query("UPDATE public.recipe_image_upload_intents SET state = 'attached' WHERE id = $1", [intent.id]);
+    }
+    assert.equal((await createIntent(client, attachedUser)).status, 'pending_limit');
+    const beforeExpiry = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.equal(beforeExpiry.rows.some(row => attachments.some(intent => intent.id === row.id)), false);
+    await client.query("UPDATE public.recipe_image_upload_intents SET created_at = now() - interval '11 minutes', expires_at = now() - interval '1 minute' WHERE id = ANY($1::uuid[])", [attachments.map(intent => intent.id)]);
+    const beforeCleanup = (await client.query('SELECT id, final_key FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[]) ORDER BY id', [attachments.map(intent => intent.id)])).rows;
+    const afterExpiry = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    for (const intent of attachments) {
+      assert.deepEqual(afterExpiry.rows.find(row => row.id === intent.id), { id: intent.id, staging_key: intent.stagingKey });
+    }
+    assert.equal((await competing.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)')).rows.some(row => attachments.some(intent => intent.id === row.id)), false);
+    const retry = attachments[0];
+    assert.equal((await client.query("SELECT public.finish_recipe_image_upload_cleanup($1, false, 'network') AS status", [retry.id])).rows[0].status, 'retry');
+    assert.equal((await createIntent(client, attachedUser)).status, 'pending_limit');
+    await client.query("UPDATE public.recipe_image_upload_intents SET cleanup_next_attempt_at = now() - interval '61 minutes' WHERE id = $1", [retry.id]);
+    assert.ok((await client.query('SELECT public.recipe_image_upload_cleanup_health() AS health')).rows[0].health.pending >= 1);
+    assert.ok((await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)')).rows.some(row => row.id === retry.id));
+    for (const intent of attachments) {
+      assert.equal((await client.query('SELECT public.finish_recipe_image_upload_cleanup($1, true, null) AS status', [intent.id])).rows[0].status, 'complete');
+    }
+    assert.equal((await createIntent(client, attachedUser)).status, 'allowed');
+    assert.deepEqual((await client.query('SELECT id, final_key FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[]) ORDER BY id', [attachments.map(intent => intent.id)])).rows, beforeCleanup);
+    assert.deepEqual((await client.query('SELECT DISTINCT state, cleanup_status FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[])', [attachments.map(intent => intent.id)])).rows, [{ state: 'attached', cleanup_status: 'complete' }]);
+    // Completed attached intents are retained for idempotent attachment replay.
+    await client.query("UPDATE public.recipe_image_upload_intents SET cleanup_completed_at = now() - interval '31 days' WHERE id = $1", [retry.id]);
+    await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.equal((await client.query('SELECT state FROM public.recipe_image_upload_intents WHERE id = $1', [retry.id])).rows[0].state, 'attached');
+    const attachedPage = crypto.randomUUID();
+    await client.query('SELECT * FROM public.claim_recipe_image_staging_reconciliation_page($1)', [attachedPage]);
+    const lateAttachedPut = await client.query('SELECT * FROM public.claim_recipe_image_staging_reconciliation_objects($1, $2)', [attachedPage, [retry.stagingKey]]);
+    assert.ok(lateAttachedPut.rows.some(row => row.staging_key === retry.stagingKey));
+    // Attached abandoned claims share the bounded retry and failure health path.
+    const failedAttached = attachments[1];
+    await client.query("UPDATE public.recipe_image_upload_intents SET cleanup_status = 'claimed', cleanup_completed_at = null, cleanup_attempts = 8, cleanup_lease_until = now() - interval '1 minute' WHERE id = $1", [failedAttached.id]);
+    await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.deepEqual((await client.query('SELECT state, cleanup_status FROM public.recipe_image_upload_intents WHERE id = $1', [failedAttached.id])).rows[0], { state: 'attached', cleanup_status: 'failed' });
+    assert.ok((await client.query('SELECT public.recipe_image_upload_cleanup_health() AS health')).rows[0].health.failed >= 1);
+    for (const role of ['', 'anon', 'authenticated']) {
+      await client.query("SELECT set_config('request.jwt.claim.role', $1, false)", [role]);
+      for (const [sql, params] of [
+        ['SELECT * FROM public.claim_expired_recipe_image_uploads(50)', []],
+        ['SELECT public.finish_recipe_image_upload_cleanup($1, true, null)', [retry.id]],
+        ['SELECT public.recipe_image_upload_cleanup_health()', []],
+        ['SELECT * FROM public.claim_recipe_image_staging_reconciliation_objects($1, $2)', [attachedPage, [retry.stagingKey]]]
+      ]) {
+        await assert.rejects(() => client.query(sql, params), error => error.code === '42501');
+      }
+    }
+    await setServiceRole(client);
+    const permissions = await client.query(`SELECT p.proname,
+      has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
+      has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated,
+      CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
+        THEN has_function_privilege('service_role', p.oid, 'EXECUTE') END AS service
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = ANY($1::text[])`, [[
+        'claim_expired_recipe_image_uploads', 'finish_recipe_image_upload_cleanup',
+        'recipe_image_upload_cleanup_health', 'claim_recipe_image_staging_reconciliation_objects'
+      ]]);
+    assert.equal(permissions.rowCount, 4);
+    for (const permission of permissions.rows) {
+      assert.equal(permission.anon, false);
+      assert.equal(permission.authenticated, false);
+      if (permission.service !== null) assert.equal(permission.service, true);
+    }
+    console.log('PASS: Attached staging cleanup waits for expiry, retries exclusively, releases quota, preserves attached results/final keys, and reconciles late PUTs.');
     console.log('PASS: Recipe-image quotas serialize concurrent signing, cleanup claims are exclusive, and expiry/retry state fences hold in PostgreSQL.');
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
@@ -1102,6 +1175,10 @@ async function runDatabaseLifecycleIntegrationTests() {
 
     assert.equal(freshResult.appliedMigrations.length, expectedMigrationVersions.length);
     assert.deepEqual(freshResult.appliedMigrations, expectedMigrationFiles);
+    if (process.argv.includes('--recipe-images-only')) {
+      await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
+      return;
+    }
     await runQuotaAuthorizationDatabaseTests(testClient);
     await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeSearchMigrationDatabaseTests(testClient);
@@ -2035,6 +2112,10 @@ async function runForeignKeyCascadeUnitTests() {
 }
 
 async function main() {
+  if (process.argv.includes('--recipe-images-only')) {
+    await runDatabaseLifecycleIntegrationTests();
+    return;
+  }
   console.log('Starting migration runner test suite...');
   runDiscoveryAndIntegrityUnitTests();
   await runRecipeSearchMigrationUnitTests();
