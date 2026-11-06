@@ -256,7 +256,7 @@ export function createTelemetry(clock = () => performance.now()) {
   let lastRateLimit = null;
   let rateLimitSamples = 0;
   const categoryOf = query => {
-    if (/^\\s*mutation\\b/.test(query)) return 'mutations';
+    if (/^\s*mutation\b/.test(query)) return 'mutations';
     if (query.includes('closingIssuesReferences(')) return 'nativeLinks';
     if (query.includes('projectItems(')) return 'projectMembership';
     if (query.includes('items(first:')) return 'projectItems';
@@ -268,7 +268,7 @@ export function createTelemetry(clock = () => performance.now()) {
   };
   const headerNumber = (headers, name) => {
     const value = headers?.get?.(name);
-    if (typeof value !== 'string' || !/^\\d+$/.test(value)) return null;
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
     const number = Number(value);
     return Number.isSafeInteger(number) ? number : null;
   };
