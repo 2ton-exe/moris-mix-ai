@@ -1,5 +1,7 @@
 import { extractRecipeResponseSchema } from './extractRecipe'
 import type { QuickAiEntryHandoff } from './extractRecipe'
+import { recipeEditorStateSchema } from '../recipe-form/draft'
+import type { RecipeEditorState } from '../recipe-form/draft'
 
 export type QuickAiBlockReason = 'quota' | 'provider-rate-limit' | 'auth-service-rate-limit'
 
@@ -8,6 +10,8 @@ export interface QuickAiEntryDraft {
   blockedUntil: number | null
   blockedReason: QuickAiBlockReason | null
   handoff: QuickAiEntryHandoff | null
+  /** Present only for an editable FE-09 draft paired with a validated handoff. */
+  reviewDraft?: RecipeEditorState | null
 }
 
 const EMPTY_DRAFT: QuickAiEntryDraft = { notes: '', blockedUntil: null, blockedReason: null, handoff: null }
@@ -22,12 +26,12 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
 function updateUnloadWarning() {
   if (typeof window === 'undefined') return
   window.removeEventListener('beforeunload', warnBeforeUnload)
-  if ([...memoryDrafts.values()].some((draft) => draft.notes.trim().length > 0 || draft.handoff !== null)) {
+  if ([...memoryDrafts.values()].some((draft) => draft.notes.length > 0 || draft.handoff !== null || draft.reviewDraft != null)) {
     window.addEventListener('beforeunload', warnBeforeUnload)
   }
 }
 
-export type QuickAiDraftReadStatus = 'available' | 'unavailable' | 'read-failed'
+export type QuickAiDraftReadStatus = 'available' | 'unavailable' | 'read-failed' | 'memory'
 
 export interface QuickAiEntryDraftReadResult {
   draft: QuickAiEntryDraft
@@ -49,7 +53,7 @@ function resolveStorage(storage?: Storage): Storage | null {
 
 export function readQuickAiEntryDraftResult(userId: string, storage?: Storage): QuickAiEntryDraftReadResult {
   const memoryDraft = memoryDrafts.get(userId)
-  if (memoryDraft) return { draft: memoryDraft, status: 'read-failed' }
+  if (memoryDraft) return { draft: memoryDraft, status: 'memory' }
   const target = resolveStorage(storage)
   if (!target || !userId) return { draft: { ...EMPTY_DRAFT }, status: 'unavailable' }
 
@@ -79,18 +83,22 @@ export function readQuickAiEntryDraftResult(userId: string, storage?: Storage): 
     ? value.blockedReason
     : null
   let handoff: QuickAiEntryHandoff | null = null
+  let reviewDraft: RecipeEditorState | null | undefined
   if ('handoff' in value && typeof value.handoff === 'object' && value.handoff !== null && !Array.isArray(value.handoff)) {
     const candidate = value.handoff as Record<string, unknown>
     const parsed = extractRecipeResponseSchema.safeParse({ recipe: candidate.recipe })
     if (candidate.saved === false && candidate.sourceNotes === value.notes && parsed.success) {
       handoff = { sourceNotes: value.notes, recipe: parsed.data.recipe, saved: false }
+      if ('reviewDraft' in value) {
+        const parsedReviewDraft = recipeEditorStateSchema.safeParse(value.reviewDraft)
+        reviewDraft = parsedReviewDraft.success ? parsedReviewDraft.data : null
+      }
     }
   }
 
-  return {
-    draft: { notes: value.notes, blockedUntil: blockedReason ? blockedUntil : null, blockedReason, handoff },
-    status: 'available',
-  }
+  const draft: QuickAiEntryDraft = { notes: value.notes, blockedUntil: blockedReason ? blockedUntil : null, blockedReason, handoff }
+  if (reviewDraft !== undefined) draft.reviewDraft = reviewDraft
+  return { draft, status: 'available' }
 }
 
 /** Reads a draft without changing the existing consumer-facing return type. */

@@ -10,6 +10,7 @@ import EditRecipePage from './pages/EditRecipePage'
 import RecipeDashboardPage from './pages/RecipeDashboardPage'
 import RecipeDetailPage from './pages/RecipeDetailPage'
 import { QuickAiEntryPage } from './quick-ai/QuickAiEntryPage'
+import { ExtractedRecipeReviewPage } from './quick-ai/ExtractedRecipeReviewPage'
 import { HomePage, AboutPage, NotFoundPage } from './pages/PublicJournalPages'
 import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
@@ -32,6 +33,7 @@ export const createAppRouteElements = () => (
           <Route element={<ProtectedRoute />}>
             <Route element={<RecipeQueryProvider><Outlet /></RecipeQueryProvider>}>
               <Route path="/app/recipes/new" element={<CreateRecipePage />} />
+              <Route path="/app/quick-entry/review" element={<ExtractedRecipeReviewPage />} />
               <Route path="/app/recipes/:recipeId/edit" element={<EditRecipePage />} />
               <Route path="/app" element={<JournalPage />}>
                 <Route index element={<RecipeDashboardPage />} />

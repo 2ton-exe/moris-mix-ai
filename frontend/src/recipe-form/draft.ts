@@ -49,6 +49,17 @@ export interface RecipeEditorState {
   notes: string
 }
 
+export const recipeEditorStateSchema = z.object({
+  title: z.string(),
+  ingredients: z.array(z.object({
+    key: z.string().min(1), name: z.string(), quantity: z.string(), unit: z.string(), quantityText: z.string(), inferred: z.boolean(),
+  })),
+  instructions: z.array(z.object({ key: z.string().min(1), text: z.string() })),
+  rating: z.string(),
+  cookedDate: z.string(),
+  notes: z.string(),
+}) satisfies z.ZodType<RecipeEditorState, z.ZodTypeDef, unknown>
+
 export const emptyRecipeDraft = (): RecipeDraft => ({
   title: '', ingredients: [], instructions: [], star_rating: null, cooked_at: null, notes: '',
 })

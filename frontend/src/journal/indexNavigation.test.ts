@@ -34,6 +34,7 @@ it('keeps the journal return local and retains its search, sort and leaf', () =>
   for (const target of ['/app', '/app/recipes/new', '/app/recipes/recipe-17', '/app/recipes/recipe-17/edit']) {
     expect(journalReturnTo({ journalReturn: target })).toBe(target)
   }
+  expect(journalReturnTo({ journalReturn: '/app/quick-entry' })).toBe('/app/quick-entry')
 })
 
 it('returns from Quick AI Entry to its journal source without replacing it with the Quick AI route', () => {
