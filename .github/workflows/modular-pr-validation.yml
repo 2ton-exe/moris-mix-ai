@@ -6,8 +6,9 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
 
-# Explicit least-privilege baseline for the classifier and called validation workflows.
-# Job-level permissions can narrow or deliberately override this as needed.
+# Explicit least-privilege GITHUB_TOKEN baseline for PR validation.
+# Called reusable workflows cannot elevate token permissions above the caller;
+# caller jobs may declare justified job-specific scopes where allowed.
 permissions:
   contents: read
 
