@@ -211,6 +211,7 @@
 .mm-bookmark > svg { flex: none; }
 .mm-bookmark--cream { color: var(--mm-color-burgundy-800); background-color: #f3e6cd; }
 .mm-bookmark--mustard { color: var(--mm-color-mustard-800); background-color: var(--mm-color-mustard-300); }
+.mm-bookmark--button { appearance: none; border: 0; cursor: pointer; text-align: left; }
 .mm-bookmark:hover { transform: translateX(-6px); }
 .mm-bookmark[aria-current='page'] { transform: translateX(0); box-shadow: 2px 3px 6px rgb(0 0 0 / .32), inset 0 1px 0 rgb(255 255 255 / .4); }
 .mm-desk :where(a, button, input, textarea, select, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }

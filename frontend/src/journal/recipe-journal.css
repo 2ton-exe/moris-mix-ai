@@ -222,6 +222,25 @@
 .mm-mori-dialogue__state[role='alert'] { padding: 11px 13px; border-left: 3px solid var(--mm-color-burgundy-700); background: var(--mm-color-rose-100, #f5e2dc); }
 .mm-mori-dialogue__state[role='alert'] p { margin: 0 0 10px; }
 .mm-mori-dialogue--closing { animation: mm-mori-note-out 180ms ease-in both; pointer-events: none; }
+.mm-mori-dialogue-modal {
+  position: fixed;
+  inset: 0;
+  width: min(860px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+.mm-mori-dialogue-modal::backdrop { background: rgb(35 23 18 / .54); }
+.mm-mori-dialogue-modal > .mm-mori-dialogue { box-sizing: border-box; width: 100%; margin: 0; }
+.mm-mori-dialogue__choices--numbered { display: grid; grid-template-columns: minmax(0, 1fr); }
+.mm-mori-dialogue__choices--numbered > .button { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; justify-content: start; gap: 10px; text-align: left; }
+.mm-mori-dialogue__choice-number { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid currentColor; border-radius: 50%; font: 650 13px/1 var(--mm-font-sans); }
 .mm-mori-companion :focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
 @keyframes mm-mori-note-in { from { transform: translateY(7px) rotate(-.25deg); } to { transform: translateY(0) rotate(0); } }
 @keyframes mm-mori-note-out { to { opacity: 0; transform: translateY(4px) rotate(.2deg); } }
@@ -236,6 +255,9 @@
   .mm-mori-dialogue__text { padding: 10px; font-size: 15px; }
   .mm-mori-dialogue__choices, .mm-mori-dialogue__actions { align-items: stretch; }
   .mm-mori-dialogue__choices .button, .mm-mori-dialogue__actions .button { flex: 1 1 130px; }
+}
+@media (max-width: 350px) {
+  .mm-mori-dialogue-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); }
 }
 @media (max-width: 350px) {
   .mm-mori-dialogue { grid-template-columns: minmax(0, 1fr); }
