@@ -85,14 +85,17 @@ def make_archive(root, extra=None, invalid_checksum=False):
 class StageBOfflineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        """Compile the actual workflow's Python rather than a test duplicate."""
         cls.verify_archive, cls.configure_db, cls.verify_counts = programs()
 
     def run_archive_check(self, archive, evidence, env, dest):
+        """Run the verifier with a disposable synthetic archive."""
         return subprocess.run([sys.executable, "-", str(archive), str(evidence),
                                str(dest)], input=self.verify_archive, text=True,
                               capture_output=True, env=env, check=False)
 
     def test_valid_archive(self):
+        """An allowlisted, internally consistent fixture must be accepted."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             archive, evidence, env = make_archive(root)
@@ -102,6 +105,7 @@ class StageBOfflineTests(unittest.TestCase):
             self.assertEqual({p.name for p in target.iterdir()}, set(SQL))
 
     def test_reject_corrupt_component(self):
+        """The verifier must reject an invalid SQL component digest."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             archive, evidence, env = make_archive(root, invalid_checksum=True)
@@ -110,21 +114,27 @@ class StageBOfflineTests(unittest.TestCase):
             self.assertFalse((root / "verified").exists())
 
     def test_reject_unexpected_tar_member(self):
+        """Unexpected files must be rejected without extraction."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             archive, evidence, env = make_archive(root, extra="../unexpected")
             response = self.run_archive_check(archive, evidence, env, root / "verified")
             self.assertNotEqual(response.returncode, 0)
+            self.assertIn("unexpected archive entry or size", response.stderr)
+            self.assertFalse((root / "verified").exists())
 
     def test_reject_mismatched_backup_sha(self):
+        """A pinned archive digest mismatch must fail before SQL extraction."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             archive, evidence, env = make_archive(root)
             env["BACKUP_SHA256"] = "f" * 64
             response = self.run_archive_check(archive, evidence, env, root / "verified")
             self.assertNotEqual(response.returncode, 0)
+            self.assertIn("SHA-256 mismatch", response.stderr)
 
     def test_reject_changed_source_identity(self):
+        """R2 evidence for another source revision must be rejected."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             archive, evidence, env = make_archive(root)
@@ -133,8 +143,10 @@ class StageBOfflineTests(unittest.TestCase):
             evidence.write_text(json.dumps(contents))
             response = self.run_archive_check(archive, evidence, env, root / "verified")
             self.assertNotEqual(response.returncode, 0)
+            self.assertIn("evidence identity source_revision", response.stderr)
 
     def test_count_and_migration_match(self):
+        """Confirm counts and migration versions, rejecting independent mismatches."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             data, history = root / "data.sql", root / "history.sql"
@@ -152,9 +164,33 @@ class StageBOfflineTests(unittest.TestCase):
                 [sys.executable, "-", str(data), str(history), mismatch],
                 input=self.verify_counts, text=True, capture_output=True, check=False)
             self.assertNotEqual(response.returncode, 0)
+            self.assertIn("Restored row counts do not match backup", response.stderr)
+
+            wrong_digest = f"0|2|0|0|0|1|{'f' * 32}"
+            response = subprocess.run(
+                [sys.executable, "-", str(data), str(history), wrong_digest],
+                input=self.verify_counts, text=True, capture_output=True, check=False)
+            self.assertNotEqual(response.returncode, 0)
+            self.assertIn("Restored migration version set does not match backup", response.stderr)
+
+            history.write_text(
+                "COPY supabase_migrations.schema_migrations (version, name) FROM stdin;\\n"
+                "20261013000000\\tinitial\\n"
+                "20261013000000\\tduplicate\\n"
+                "\\\\.\\n"
+            )
+            duplicate_digest = hashlib.md5(
+                b"20261013000000,20261013000000").hexdigest()
+            response = subprocess.run(
+                [sys.executable, "-", str(data), str(history),
+                 f"0|2|0|0|0|2|{duplicate_digest}"],
+                input=self.verify_counts, text=True, capture_output=True, check=False)
+            self.assertNotEqual(response.returncode, 0)
+            self.assertIn("Restored migration version set does not match backup", response.stderr)
 
 
     def test_quoted_copy_identifiers_and_versions(self):
+        """Accept quoted schema, table, and migration column identifiers."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             data, history = root / "data.sql", root / "history.sql"
