@@ -592,8 +592,12 @@ the remaining evidence before closing #147.
   is deferred pending a separately approved safe test plan.
 - [x] Operator confirmed fixture #170 had one unarchived Done card after
   explicitly closing it Completed; run #148 separately applied that status.
-- [x] Verify converted-draft PR and reopened PR: #169 and #175 respectively,
-  with #170/#171 covering initial issue and draft/ready transitions.
+- [x] Verify fixture PR #177 converted back to draft in
+  [workflow run #169](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42228500830)
+  and was reopened/unarchived in
+  [workflow run #175](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42229292762).
+  Fixture issue #170 and PR #171 cover initial issue creation and draft/ready
+  transitions (workflow runs #136–#138).
 - [x] Verify live explicit relationship reassignment/multiple issue links/
   removal: fixture PR #177, runs #171–#173. Prior-body-independent full
   reconciliation, multiple PR precedence, and arbitrary mention exclusion
