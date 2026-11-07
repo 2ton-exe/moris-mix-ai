@@ -6,11 +6,15 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      deploy-upload-signing:
-        description: Reserved upload-signing deployment request; the production job is hard-disabled
+      apply-image-migrations:
+        description: Apply the approved image-upload migrations without deploying Edge Functions
         required: false
         default: false
         type: boolean
+      restore-drill-run-id:
+        description: Successful main-branch Stage B restore-drill run from the last 24 hours
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -49,7 +53,8 @@ jobs:
     if: >-
       success() &&
       needs.frontend.outputs.exists == 'true' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.apply-image-migrations != true)) &&
       github.ref == 'refs/heads/main'
     uses: ./.github/workflows/reusable-production.yml
     permissions:
@@ -61,16 +66,21 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  deploy-upload-signing:
-    name: Deploy protected upload-signing function
-    needs: production
-    if: false
+  apply-image-migrations:
+    name: Apply protected image-upload migrations
+    needs: [frontend, test-db, test-edge-api]
+    if: >-
+      success() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.apply-image-migrations == true
     runs-on: ubuntu-latest
     environment: recipe-image-upload-production
     concurrency:
-      group: recipe-image-upload-production
+      group: production-database-migrations
       cancel-in-progress: false
     permissions:
+      actions: read
       contents: read
     steps:
       - name: Checkout repository
@@ -88,28 +98,60 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install root dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Verify upload-signing production readiness
-        id: upload-signing-readiness
+      - name: Validate production migration target and credentials
         env:
-          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          SUPABASE_DATABASE_CA_CERT: ${{ secrets.SUPABASE_DATABASE_CA_CERT }}
-          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-          SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ALLOWED_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_URL }}
-          UPLOAD_SIGNING_READINESS_ATTESTATION: ${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}
-        run: node scripts/verify-upload-signing-readiness.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_project_ref="$(sed -n 's/^project_id = \"\(.*\)\"/\1/p' supabase/config.toml)"
+          if [[ "$SUPABASE_PROJECT_REF" != "$config_project_ref" ]]; then
+            echo "::error::SUPABASE_PROJECT_REF must match supabase/config.toml."
+            exit 1
+          fi
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD; do
+            value="${!name:-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::Missing protected migration configuration: ${name}"
+              exit 1
+            fi
+          done
 
-      - name: Reject stale upload-signing revision
+      - name: Verify recent isolated restore drill
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESTORE_DRILL_RUN_ID: ${{ inputs.restore-drill-run-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RESTORE_DRILL_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Provide a successful Stage B restore-drill run ID."
+            exit 1
+          fi
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RESTORE_DRILL_RUN_ID}")"
+          workflow_path="$(jq -r '.path // empty' <<< "$run_json")"
+          head_branch="$(jq -r '.head_branch // empty' <<< "$run_json")"
+          event_name="$(jq -r '.event // empty' <<< "$run_json")"
+          status="$(jq -r '.status // empty' <<< "$run_json")"
+          conclusion="$(jq -r '.conclusion // empty' <<< "$run_json")"
+          created_at="$(jq -r '.created_at // empty' <<< "$run_json")"
+          created_epoch="$(date -u -d "$created_at" +%s)"
+          now_epoch="$(date -u +%s)"
+          if [[ "$workflow_path" != ".github/workflows/database-restore-stage-b.yml" ||
+                "$head_branch" != "main" || "$event_name" != "workflow_dispatch" ||
+                "$status" != "completed" || "$conclusion" != "success" ||
+                $((now_epoch - created_epoch)) -gt 86400 ]]; then
+            echo "::error::A successful main-branch Stage B restore drill completed within the last 24 hours is required."
+            exit 1
+          fi
+
+      - name: Reject stale revision before production migrations
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -117,13 +159,88 @@ jobs:
           set -euo pipefail
           current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
           if [[ "$current_sha" != "$GITHUB_SHA" ]]; then
-            echo "::error::Current main is ${current_sha}; refusing to deploy stale revision ${GITHUB_SHA}."
+            echo "::error::Current main is ${current_sha}; refusing production migrations from stale revision ${GITHUB_SHA}."
             exit 1
           fi
 
+      - name: Verify exact production migration plan
+        id: migration-plan
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: >-
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" migration list
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --output-format json
+          | node "$GITHUB_WORKSPACE/scripts/production-image-migration-plan.mjs" before
+
+      - name: Preview production migrations
+        if: steps.migration-plan.outputs.action == 'apply'
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: >-
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" db push
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --dry-run
+
+      - name: Apply exact image-upload migrations
+        id: apply-image-migrations
+        if: steps.migration-plan.outputs.action == 'apply'
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: >-
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" db push
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --password "$SUPABASE_DB_PASSWORD"
+          --yes
+
+      - name: Verify production migration completion
+        id: migration-completion
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: >-
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" migration list
+          --project-ref "$SUPABASE_PROJECT_REF"
+          --output-format json
+          | node "$GITHUB_WORKSPACE/scripts/production-image-migration-plan.mjs" after
+
+      - name: Record migration outcome
+        if: always()
+        env:
+          PLAN_OUTCOME: ${{ steps.migration-plan.outcome }}
+          APPLY_OUTCOME: ${{ steps.apply-image-migrations.outcome }}
+          COMPLETION_OUTCOME: ${{ steps.migration-completion.outcome }}
+        run: |
+          {
+            echo "### Production image-upload migrations"
+            echo "- Migration plan: ${PLAN_OUTCOME}"
+            echo "- Migration apply: ${APPLY_OUTCOME}"
+            echo "- Migration completion: ${COMPLETION_OUTCOME}"
+            echo "- Edge Function deployments: not part of this operation"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-upload-signing:
+    name: Deploy protected upload-signing function
+    needs: production
+    if: false
+    runs-on: ubuntu-latest
+    environment: recipe-image-upload-production
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
       - name: Deploy recipe image upload URL Edge Function
-        id: deploy-recipe-image-upload-url
-        if: success() && steps.upload-signing-readiness.outcome == 'success'
+        if: false
         working-directory: frontend
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -134,15 +251,3 @@ jobs:
             --no-verify-jwt \
             --use-api \
             --yes
-
-      - name: Record upload-signing deployment outcome
-        if: always()
-        env:
-          READINESS_OUTCOME: ${{ steps.upload-signing-readiness.outcome }}
-          DEPLOYMENT_OUTCOME: ${{ steps.deploy-recipe-image-upload-url.outcome }}
-        run: |
-          {
-            echo "### Upload-signing production deployment"
-            echo "- Readiness verification: ${READINESS_OUTCOME}"
-            echo "- Deployment command: ${DEPLOYMENT_OUTCOME}"
-          } >> "$GITHUB_STEP_SUMMARY"

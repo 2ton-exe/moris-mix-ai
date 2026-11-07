@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getCACertificates } from 'node:tls';
 import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
+import { imageMigrations, validateProductionImageMigrationState } from './production-image-migration-plan.mjs';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -38,7 +39,7 @@ function condition(expression, overrides = {}) {
     .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
     .replace(/needs\.(test-db|test-edge-api)/g, 'needs["$1"]')
     .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
-    .replace(/inputs\.deploy-upload-signing/g, 'inputs["deploy-upload-signing"]')
+    .replace(/inputs\.apply-image-migrations/g, 'inputs["apply-image-migrations"]')
     .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]')
     // Actions compares strings without case sensitivity (unlike JavaScript).
     .replace(/(vars\.RECIPE_IMAGE_CLEANUP_ENABLED) == ('true')/g, 'actionsStringEqual($1, $2)');
@@ -96,12 +97,13 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.equal(existsSync('.github/workflows/ci.yml'), false);
   assert.deepEqual(Object.keys(main.on), ['push', 'workflow_dispatch']);
   assert.deepEqual(main.on.push.branches, ['main']);
-  assert.deepEqual(main.on.workflow_dispatch.inputs['deploy-upload-signing'], {
-    description: 'Reserved upload-signing deployment request; the production job is hard-disabled',
+  assert.deepEqual(main.on.workflow_dispatch.inputs['apply-image-migrations'], {
+    description: 'Apply the approved image-upload migrations without deploying Edge Functions',
     required: false,
     default: false,
     type: 'boolean',
   });
+  assert.equal(main.on.workflow_dispatch.inputs['restore-drill-run-id'].required, false);
   assert.deepEqual(main.permissions, { contents: 'read' });
   assert.deepEqual(main.jobs.production.permissions, { contents: 'read' });
   assert.equal(main.jobs['production-ownership'], undefined);
@@ -307,37 +309,29 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
 });
 
-test('upload signing keeps its protected deployment job and frozen dependency setup', () => {
+test('upload signing stays hard-disabled independently of migration dispatch', () => {
   const job = main.jobs['deploy-upload-signing'];
   assert.deepEqual(job.needs, 'production');
   assert.equal(job.environment, 'recipe-image-upload-production');
   assert.equal(job.if, false);
-  const rootInstall = step(job, 'Install root dependencies');
-  assert.equal(rootInstall.run, 'pnpm install --frozen-lockfile');
-  assert.ok(JSON.parse(readFileSync('package.json', 'utf8')).devDependencies.pg);
-  assert.equal(existsSync('pnpm-lock.yaml'), true);
-  const frontendInstall = step(job, 'Install frontend dependencies');
-  assert.equal(frontendInstall['working-directory'], 'frontend');
-  assert.equal(frontendInstall.run, 'pnpm install --frozen-lockfile');
-  assert.ok(JSON.parse(readFileSync('frontend/package.json', 'utf8')).devDependencies.supabase);
-  assert.equal(existsSync('frontend/pnpm-lock.yaml'), true);
-  const readiness = step(job, 'Verify upload-signing production readiness');
-  assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
-  assert.equal(readiness.env.SUPABASE_DATABASE_URL, '${{ secrets.SUPABASE_DATABASE_URL }}');
-  assert.equal(readiness.env.SUPABASE_DATABASE_CA_CERT, '${{ secrets.SUPABASE_DATABASE_CA_CERT }}');
-  assert.equal(readiness.env.UPLOAD_SIGNING_READINESS_ATTESTATION, '${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}');
-  const checkout = step(job, 'Checkout repository');
-  assert.equal(checkout.uses, 'actions/checkout@v4');
-  assert.deepEqual(checkout.with, { 'persist-credentials': false });
   const deploy = step(job, 'Deploy recipe image upload URL Edge Function');
-  assert.equal(deploy.if, "success() && steps.upload-signing-readiness.outcome == 'success'");
-  assert.equal(deploy.id, 'deploy-recipe-image-upload-url');
+  assert.equal(deploy.if, false);
   assert.equal(deploy['working-directory'], 'frontend');
   assert.match(deploy.run, /functions deploy recipe-image-upload-url/);
   assert.match(deploy.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
   assert.equal(deploy.env.SUPABASE_ACCESS_TOKEN, '${{ secrets.SUPABASE_ACCESS_TOKEN }}');
-  assert.equal(step(job, 'Record upload-signing deployment outcome').if, 'always()');
+  assert.equal(main.jobs['apply-image-migrations'].needs.includes('deploy-upload-signing'), false);
+  for (const event_name of ['push', 'workflow_dispatch', 'pull_request']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
+      for (const migrationsRequested of [undefined, false, true]) {
+        assert.equal(condition(job.if, {
+          inputs: { 'apply-image-migrations': migrationsRequested },
+          github: { event_name, ref },
+        }), false);
+      }
+    }
+  }
 });
 
 test('recipe image cleanup is explicitly disabled for scheduled and manual invocation', () => {
@@ -592,35 +586,90 @@ test('cleanup workflow paths contain no variable-based activation bypass', () =>
   }
 });
 
-test('upload signing remains disabled until ingress and cleanup readiness are addressed', () => {
-  const job = main.jobs['deploy-upload-signing'];
-  assert.equal(job.if, false);
+test('migration-only dispatch requires production authorization and cannot deploy an Edge Function', () => {
+  const job = main.jobs['apply-image-migrations'];
+  assert.deepEqual(job.needs, ['frontend', 'test-db', 'test-edge-api']);
   assert.equal(job.environment, 'recipe-image-upload-production');
-  assert.equal(job.needs, 'production');
-  assert.doesNotMatch(JSON.stringify(job.if), /vars\.|inputs\./);
-  const readiness = step(job, 'Verify upload-signing production readiness');
-  assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
-  for (const name of [
-    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
-    'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY',
-    'ALLOWED_ORIGIN', 'UPLOAD_SIGNING_READINESS_ATTESTATION',
-  ]) assert.ok(Object.hasOwn(readiness.env, name), name);
-  for (const name of [
-    'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
-    'R2_IMAGE_ENDPOINT', 'R2_IMAGE_BUCKET', 'R2_IMAGE_ACCESS_KEY_ID', 'R2_IMAGE_SECRET_ACCESS_KEY',
-  ]) assert.equal(Object.hasOwn(readiness.env, name), false, name);
-  for (const name of [
-    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_SERVICE_ROLE_KEY',
-    'UPLOAD_SIGNING_READINESS_ATTESTATION',
-  ]) assert.equal(readiness.env[name], '${{ secrets.' + name + ' }}', name);
-  assert.equal(readiness.env.SUPABASE_URL, '${{ vars.VITE_SUPABASE_URL }}');
-  assert.equal(readiness.env.SUPABASE_PROJECT_REF, '${{ vars.SUPABASE_PROJECT_REF }}');
-  assert.deepEqual(Object.keys(main.jobs.production.secrets).sort(), [
-    'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN',
-  ]);
-  assert.deepEqual(Object.keys(production.on.workflow_call.secrets).sort(), [
-    'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN',
-  ]);
+  assert.deepEqual(job.concurrency, { group: 'production-database-migrations', 'cancel-in-progress': false });
+  assert.deepEqual(job.permissions, { actions: 'read', contents: 'read' });
+  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(job.if, /inputs\.apply-image-migrations == true/);
+
+  const checkout = step(job, 'Checkout repository');
+  assert.deepEqual(checkout.with, { 'persist-credentials': false });
+  assert.equal(step(job, 'Install frontend dependencies').run, 'pnpm install --frozen-lockfile');
+  const target = step(job, 'Validate production migration target and credentials');
+  assert.deepEqual(target.env, {
+    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_DB_PASSWORD: '${{ secrets.SUPABASE_DB_PASSWORD }}',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+  });
+  assert.match(target.run, /SUPABASE_PROJECT_REF.*config_project_ref/);
+  assert.match(target.run, /Missing protected migration configuration/);
+
+  const recovery = step(job, 'Verify recent isolated restore drill');
+  assert.equal(recovery.env.RESTORE_DRILL_RUN_ID, '${{ inputs.restore-drill-run-id }}');
+  assert.match(recovery.run, /database-restore-stage-b\.yml/);
+  assert.match(recovery.run, /conclusion/);
+  assert.match(recovery.run, /86400/);
+  const stale = step(job, 'Reject stale revision before production migrations');
+  assert.match(stale.run, /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/main"/);
+  assert.match(stale.run, /"\$current_sha" != "\$GITHUB_SHA"/);
+  const migrationPlan = step(job, 'Verify exact production migration plan');
+  const migrationPreview = step(job, 'Preview production migrations');
+  const migrationApply = step(job, 'Apply exact image-upload migrations');
+  const migrationVerify = step(job, 'Verify production migration completion');
+  assert.match(migrationPlan.run, /migration list/);
+  assert.match(migrationPreview.run, /db push[\s\S]*--dry-run/);
+  assert.match(migrationApply.run, /db push[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--password "\$SUPABASE_DB_PASSWORD"[\s\S]*--yes/);
+  assert.equal(migrationApply.if, "steps.migration-plan.outputs.action == 'apply'");
+  assert.match(migrationVerify.run, /production-image-migration-plan\.mjs" after/);
+  assert.ok(job.steps.indexOf(recovery) < job.steps.indexOf(stale));
+  assert.ok(job.steps.indexOf(stale) < job.steps.indexOf(migrationPlan));
+  assert.ok(job.steps.indexOf(migrationPlan) < job.steps.indexOf(migrationPreview));
+  assert.ok(job.steps.indexOf(migrationApply) < job.steps.indexOf(migrationVerify));
+  assert.doesNotMatch(job.steps.map(item => item.run ?? '').join('\n'), /functions deploy/);
+  assert.match(step(job, 'Record migration outcome').run, /Edge Function deployments: not part of this operation/);
+
+  const productionCondition = main.jobs.production.if;
+  assert.match(productionCondition, /inputs\.apply-image-migrations != true/);
+  for (const event_name of ['push', 'pull_request', 'workflow_dispatch']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
+      for (const migrationsRequested of [undefined, false, true]) {
+        const inputs = { 'apply-image-migrations': migrationsRequested };
+        const context = { github: { event_name, ref }, inputs };
+        const migrationRuns = condition(job.if, context);
+        const normalProductionRuns = condition(productionCondition, context);
+        assert.equal(migrationRuns, event_name === 'workflow_dispatch' && ref === 'refs/heads/main' && migrationsRequested === true);
+        if (migrationRuns) assert.equal(normalProductionRuns, false);
+      }
+    }
+  }
+});
+
+test('upload-signing activation remains independently hard-disabled', () => {
+  const signing = main.jobs['deploy-upload-signing'];
+  assert.equal(signing.if, false);
+  assert.equal(signing.environment, 'recipe-image-upload-production');
+  assert.equal(signing.needs, 'production');
+  assert.equal(main.jobs['apply-image-migrations'].needs.includes('deploy-upload-signing'), false);
+  const deployment = step(signing, 'Deploy recipe image upload URL Edge Function');
+  assert.equal(deployment.if, false);
+  assert.match(deployment.run, /functions deploy recipe-image-upload-url/);
+  assert.match(deployment.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
+  assert.doesNotMatch(JSON.stringify(main.on.workflow_dispatch.inputs), /deploy-upload-signing|accept-upload-signing-limitations/);
+  for (const event_name of ['push', 'workflow_dispatch', 'pull_request']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
+      assert.equal(condition(signing.if, {
+        inputs: { 'apply-image-migrations': true },
+        github: { event_name, ref },
+      }), false);
+    }
+  }
+});
+
+test('upload-signing readiness verifier keeps strict read-only schema and credential checks', () => {
   const verifier = readFileSync('scripts/verify-upload-signing-readiness.mjs', 'utf8');
   for (const prerequisite of [
     '20261102000009', '20261102000010', 'recipe_image_upload_intents',
@@ -643,10 +692,8 @@ test('upload signing remains disabled until ingress and cleanup readiness are ad
   try {
     const isolatedVerifier = join(isolatedDirectory, 'verify-upload-signing-readiness.mjs');
     writeFileSync(isolatedVerifier, verifier);
-    writeFileSync(
-      join(isolatedDirectory, 'supabase-database-target.mjs'),
-      readFileSync('scripts/supabase-database-target.mjs', 'utf8'),
-    );
+    writeFileSync(join(isolatedDirectory, 'supabase-database-target.mjs'),
+      readFileSync('scripts/supabase-database-target.mjs', 'utf8'));
     const missing = spawnSync(process.execPath, [isolatedVerifier], {
       cwd: isolatedDirectory, encoding: 'utf8', env: baseEnv, windowsHide: true,
     });
@@ -698,36 +745,41 @@ test('upload signing remains disabled until ingress and cleanup readiness are ad
   } finally {
     rmSync(isolatedDirectory, { recursive: true, force: true });
   }
-  const deployment = step(job, 'Deploy recipe image upload URL Edge Function');
-  assert.equal(deployment.if, "success() && steps.upload-signing-readiness.outcome == 'success'");
-  assert.equal(deployment.id, 'deploy-recipe-image-upload-url');
-  assert.equal(deployment['working-directory'], 'frontend');
-  assert.match(deployment.run, /functions deploy recipe-image-upload-url/);
-  assert.match(deployment.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
-  assert.match(deployment.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
-  assert.equal(step(job, 'Record upload-signing deployment outcome').if, 'always()');
-  const stale = step(job, 'Reject stale upload-signing revision');
-  const staleIndex = job.steps.indexOf(stale);
-  const deploymentIndex = job.steps.indexOf(deployment);
-  assert.equal(staleIndex, deploymentIndex - 1);
-  assert.ok(job.steps.indexOf(readiness) < staleIndex);
-  assert.equal(stale.if, undefined);
-  assert.equal(stale.env.GH_TOKEN, '${{ github.token }}');
-  assert.match(stale.run, /set -euo pipefail/);
-  assert.match(stale.run, /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/main"/);
-  assert.match(stale.run, /"\$current_sha" != "\$GITHUB_SHA"/);
-  for (const event_name of ['push', 'workflow_dispatch', 'pull_request']) {
-    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
-      for (const deployRequest of [undefined, false, true]) {
-        for (const readiness of [undefined, 'verified']) {
-          assert.equal(condition(job.if, {
-            inputs: { 'deploy-upload-signing': deployRequest },
-            vars: { UPLOAD_SIGNING_ENABLED: 'true' },
-            secrets: { UPLOAD_SIGNING_READINESS_ATTESTATION: readiness },
-            github: { event_name, ref },
-          }), false);
-        }
-      }
-    }
-  }
+});
+test('production migration plan accepts only all seven expected migrations pending or already applied', () => {
+  assert.deepEqual(imageMigrations, [
+    '20261102000009',
+    '20261102000010',
+    '20261102000011',
+    '20261102000012',
+    '20261102000013',
+    '20261102000014',
+    '20261106000015',
+  ]);
+  const prior = [
+    '20261013000000', '20261017000001', '20261023000002', '20261026000003',
+    '20261026000004', '20261031000005', '20261031000006', '20261031000007', '20261101000008',
+  ];
+  const rows = versions => versions.map(version => ({ local: version, remote: version }));
+  const pendingState = {
+    migrations: [
+      ...rows(prior),
+      ...imageMigrations.map(local => ({ local, remote: '' })),
+    ],
+  };
+  const appliedState = { migrations: rows([...prior, ...imageMigrations]) };
+  assert.equal(validateProductionImageMigrationState(pendingState, 'before'), 'apply');
+  assert.equal(validateProductionImageMigrationState(appliedState, 'before'), 'already-applied');
+  assert.equal(validateProductionImageMigrationState(appliedState, 'after'), 'ready');
+  assert.throws(() => validateProductionImageMigrationState({
+    migrations: [...rows(prior), ...imageMigrations.slice(0, -1).map(local => ({ local, remote: '' })),
+      { local: imageMigrations.at(-1), remote: imageMigrations.at(-1) }],
+  }, 'before'), /partial BE-13 migration state/);
+  assert.throws(() => validateProductionImageMigrationState({
+    migrations: [...pendingState.migrations, { local: '20261107000016', remote: '' }],
+  }, 'before'), /Unexpected production migration is pending/);
+  assert.throws(() => validateProductionImageMigrationState({
+    migrations: [...pendingState.migrations, { local: '', remote: '20261107000016' }],
+  }, 'before'), /unknown migration version/);
+  assert.throws(() => validateProductionImageMigrationState(pendingState, 'after'), /not applied/);
 });
