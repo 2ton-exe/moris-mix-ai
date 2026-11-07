@@ -245,8 +245,7 @@ Deno.test("reconciliation parses a bounded S3 listing and deletes only listed st
   const deps: UploadCleanupDeps = {
     cleanupToken: TOKEN,
     r2Config: {
-      endpoint:
-        "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+      accountId: "0123456789abcdef0123456789abcdef",
       bucketName: "moris-mix-ai-images-staging",
       accessKeyId: "syntheticaccesskey",
       secretAccessKey: "syntheticsecretaccesskey",

@@ -5,24 +5,30 @@ import {
   validateUploadIntent,
 } from "./uploadIntents.ts";
 
+const R2_ACCOUNT_ID_PATTERN = /^[a-f0-9]{32}$/;
 const R2_ENDPOINT_HOST_PATTERN = /^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/;
 
-function isApprovedR2Endpoint(value: string): boolean {
-  try {
-    const endpoint = new URL(value);
-    return endpoint.protocol === "https:" &&
-      R2_ENDPOINT_HOST_PATTERN.test(endpoint.hostname) &&
-      endpoint.username === "" && endpoint.password === "" &&
-      endpoint.port === "" && endpoint.pathname === "/" &&
-      endpoint.search === "" && endpoint.hash === "" &&
-      endpoint.origin === value;
-  } catch {
-    return false;
+function r2Endpoint(accountId: string): URL {
+  if (!R2_ACCOUNT_ID_PATTERN.test(accountId)) {
+    throw new Error("Invalid image storage configuration.");
   }
+  const endpoint = new URL(
+    `https://${accountId}.r2.cloudflarestorage.com`,
+  );
+  if (
+    endpoint.protocol !== "https:" ||
+    !R2_ENDPOINT_HOST_PATTERN.test(endpoint.hostname) ||
+    endpoint.username !== "" || endpoint.password !== "" ||
+    endpoint.port !== "" || endpoint.pathname !== "/" ||
+    endpoint.search !== "" || endpoint.hash !== ""
+  ) {
+    throw new Error("Invalid image storage configuration.");
+  }
+  return endpoint;
 }
 
 const R2ConfigSchema = z.object({
-  endpoint: z.string().refine(isApprovedR2Endpoint),
+  accountId: z.string().regex(R2_ACCOUNT_ID_PATTERN),
   bucketName: z.string().min(3).max(63).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
   accessKeyId: z.string().min(1).max(128).regex(/^[A-Za-z0-9]+$/),
   secretAccessKey: z.string().min(1).max(256).regex(/^[\x21-\x7e]+$/),
@@ -41,10 +47,10 @@ export type SignedUpload = {
 export function resolveR2Config(explicit?: R2Config): R2Config {
   const result = R2ConfigSchema.safeParse(
     explicit ?? {
-      endpoint: Deno.env.get("R2_IMAGE_ENDPOINT"),
-      bucketName: Deno.env.get("R2_IMAGE_BUCKET"),
-      accessKeyId: Deno.env.get("R2_IMAGE_ACCESS_KEY_ID"),
-      secretAccessKey: Deno.env.get("R2_IMAGE_SECRET_ACCESS_KEY"),
+      accountId: Deno.env.get("R2_ACCOUNT_ID"),
+      bucketName: Deno.env.get("R2_BUCKET_NAME"),
+      accessKeyId: Deno.env.get("R2_ACCESS_KEY_ID"),
+      secretAccessKey: Deno.env.get("R2_SECRET_ACCESS_KEY"),
     },
   );
   if (!result.success) {
@@ -91,10 +97,11 @@ export async function signRecipeImageUpload(
 ): Promise<SignedUpload> {
   validateUploadIntent(intent);
   const config = resolveR2Config(configuration);
+  const endpoint = r2Endpoint(config.accountId);
   const timestamp = intent.created_at.replace(/[-:]|\.\d{3}/g, "");
   const date = timestamp.slice(0, 8);
   const scope = `${date}/auto/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
+  const host = endpoint.host;
   const path = `/${config.bucketName}/${
     intent.staging_key.split("/").map(encode).join("/")
   }`;
@@ -129,7 +136,7 @@ export async function signRecipeImageUpload(
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
   return {
     id: intent.id,
-    url: `${config.endpoint}${path}?${query}&X-Amz-Signature=${signature}`,
+    url: `${endpoint.origin}${path}?${query}&X-Amz-Signature=${signature}`,
     method: "PUT",
     headers: { "Content-Type": intent.content_type },
     expires_at: intent.expires_at,
@@ -147,10 +154,11 @@ export async function signRecipeImageStagingDelete(
     throw new Error("Invalid staging object key.");
   }
   const config = resolveR2Config(configuration);
+  const endpoint = r2Endpoint(config.accountId);
   const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "");
   const date = timestamp.slice(0, 8);
   const scope = `${date}/auto/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
+  const host = endpoint.host;
   const path = `/${config.bucketName}/${
     stagingKey.split("/").map(encode).join("/")
   }`;
@@ -183,7 +191,7 @@ export async function signRecipeImageStagingDelete(
     signingKey = await hmac(signingKey, component);
   }
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
-  return `${config.endpoint}${path}?${query}&X-Amz-Signature=${signature}`;
+  return `${endpoint.origin}${path}?${query}&X-Amz-Signature=${signature}`;
 }
 
 export async function signRecipeImageStagingList(
@@ -198,10 +206,11 @@ export async function signRecipeImageStagingList(
     throw new Error("Invalid staging listing cursor.");
   }
   const config = resolveR2Config(configuration);
+  const endpoint = r2Endpoint(config.accountId);
   const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "");
   const date = timestamp.slice(0, 8);
   const scope = `${date}/auto/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
+  const host = endpoint.host;
   const path = `/${config.bucketName}`;
   const queryEntries: [string, string][] = [
     ["list-type", "2"],
@@ -246,5 +255,5 @@ export async function signRecipeImageStagingList(
     signingKey = await hmac(signingKey, component);
   }
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
-  return `${config.endpoint}${path}?${query}&X-Amz-Signature=${signature}`;
+  return `${endpoint.origin}${path}?${query}&X-Amz-Signature=${signature}`;
 }

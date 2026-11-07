@@ -362,7 +362,7 @@ test('recipe image cleanup is explicitly disabled for scheduled and manual invoc
   assert.notEqual(curlIndex, -1);
   assert.ok(httpsGuardIndex < curlIndex);
   assert.match(cleanup.steps[0].run, /functions\/v1\/recipe-image-upload-cleanup/);
-  assert.doesNotMatch(cleanup.steps[0].run, /R2_IMAGE_SECRET_ACCESS_KEY|R2_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(cleanup.steps[0].run, /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test('main validation covers current authoritative Edge/API targets and mandatory hosted RLS', () => {
