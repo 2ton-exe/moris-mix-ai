@@ -183,10 +183,10 @@ jobs:
           }
 
           normalize_history_data_dump() {
-            # pg_dump emits COPY data in heap order, which can vary even when
-            # the logical migration ledger is unchanged. Sort only COPY rows for
-            # comparison; the actual history-data backup remains untouched.
-            normalize_dump "$1" | python3 scripts/normalize-pg-copy.py
+            # Compare executable SQL and sorted COPY rows; ignore non-executable
+            # dump comments, blank lines, and checked random psql restrict guards.
+            # The original history-data.sql in the restore archive is untouched.
+            python3 scripts/normalize-pg-copy.py < "$1"
           }
 
           if ! cmp -s <(normalize_dump "$backup_dir/roles.sql") <(normalize_dump "$consistency_dir/roles-after.sql"); then

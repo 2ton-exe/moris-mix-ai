@@ -69,6 +69,9 @@ jobs:
       - name: Test runtime smoke verifier (offline)
         run: node --test scripts/runtime-smoke.test.mjs
 
+      - name: Test PostgreSQL backup comparison (offline)
+        run: python3 -m unittest discover -s scripts -p 'test_normalize_pg_copy.py'
+
       - name: Test production workflow safety (offline)
         run: node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs
 
