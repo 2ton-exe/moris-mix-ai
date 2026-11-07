@@ -154,5 +154,26 @@ class StageBOfflineTests(unittest.TestCase):
             self.assertNotEqual(response.returncode, 0)
 
 
+    def test_quoted_copy_identifiers_and_versions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data, history = root / "data.sql", root / "history.sql"
+            data.write_text(
+                'COPY "public"."recipes" ("id") FROM stdin;\n'
+                'a\nb\n\\\\.\n'
+            )
+            history.write_text(
+                'COPY "supabase_migrations"."schema_migrations" ("version", "name") FROM stdin;\n'
+                '20261013000000\\tinitial\n\\\\.\n'
+            )
+            digest = hashlib.md5(b"20261013000000").hexdigest()
+            response = subprocess.run(
+                [sys.executable, "-", str(data), str(history),
+                 f"0|2|0|0|0|1|{digest}"],
+                input=self.verify_counts, text=True, capture_output=True, check=False)
+            self.assertEqual(response.returncode, 0, response.stderr)
+
+
+
 if __name__ == "__main__":
     unittest.main()
