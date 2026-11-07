@@ -45,6 +45,9 @@ export function validateProductionImageMigrationState(payload, phase) {
   if (phase === 'before') {
     if (allImageMigrationsApplied) return 'already-applied';
     if (!allImageMigrationsPending) throw new Error('Production has a partial BE-13 migration state.');
+    if ([...remote].some(version => version > imageMigrations[0])) {
+      throw new Error('Production has a later migration applied before required BE-13 migrations.');
+    }
     return 'apply';
   }
 

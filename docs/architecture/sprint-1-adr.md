@@ -18,7 +18,7 @@ Browser (React/Vite/TypeScript app on Cloudflare Workers)
 │       ├── Use a user-scoped Supabase client → PostgreSQL with RLS
 │       ├── Call Gemini for extraction and Chef generation
 │       └── Authorize and verify private R2 image operations
-└── Image bytes → private R2 through a short-lived, backend-signed PUT URL
+└── Image bytes → authenticated Edge Function upload ingress → private R2
 ```
 
 The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 signing credentials stay on the server.
@@ -54,8 +54,8 @@ The reusable authentication contract and protected session endpoint are document
 
 ## Private recipe images
 
-- Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived, object-specific presigned `PUT`; the browser uploads bytes directly to R2 without receiving storage credentials.
-- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. Because `byte_size` is a client declaration and does not cap R2 ingress, enforce the 10 MiB cap before R2 accepts the `PUT` body or apply the contract's agreed quota or rate-limit mitigation with reliable cleanup of oversized or rejected staging objects.
+- Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived upload URL for its authenticated Edge Function. The browser sends bytes to that function; only the backend sends the bounded, create-only `PUT` to R2. The browser never receives storage credentials or an R2 object key.
+- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. The Edge Function must count the incoming bytes, enforce the 10 MiB limit and the declared size before contacting R2, and reject expired or reused upload intents. It must preserve safe cleanup of failed or abandoned staging objects.
 - Before attachment, verify the R2 object's stored content-type metadata and actual byte size against the upload intent and allowed limits, then recheck recipe ownership. Metadata alone does not validate image bytes; a trusted processing or rendering boundary must decode or normalize them.
 - Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged. After replacement commits, delete only the previous final key recorded by that transaction; after recipe deletion commits, delete only the current final key captured by that transaction. Cleanup of expired staging objects and orphan final keys follows the [image contract](../api/recipe-images.md).
 

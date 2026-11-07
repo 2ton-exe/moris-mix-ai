@@ -813,6 +813,9 @@ test('production migration plan accepts only all seven expected migrations pendi
     migrations: [...pendingState.migrations, { local: '20261107000016', remote: '' }],
   }, 'before'), /Unexpected production migration is pending/);
   assert.throws(() => validateProductionImageMigrationState({
+    migrations: [...pendingState.migrations, { local: '20261107000016', remote: '20261107000016' }],
+  }, 'before'), /later migration applied/);
+  assert.throws(() => validateProductionImageMigrationState({
     migrations: [...pendingState.migrations, { local: '', remote: '20261107000016' }],
   }, 'before'), /unknown migration version/);
   assert.throws(() => validateProductionImageMigrationState(pendingState, 'after'), /not applied/);
