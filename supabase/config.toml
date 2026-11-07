@@ -43,10 +43,22 @@ verify_jwt = false
 [functions.generate-recipe]
 verify_jwt = false
 
-# These future handlers must authenticate POST requests themselves and handle OPTIONS before authentication.
+# These handlers authenticate POST requests themselves and handle OPTIONS before authentication.
 [functions.recipe-image-upload-url]
 verify_jwt = false
 
+[functions.recipe-image-upload-cleanup]
+verify_jwt = false
+
 [functions.recipe-image-attach]
+verify_jwt = false
+
+[functions.recipe-image-download-url]
+verify_jwt = false
+
+[functions.recipe-image-delete]
+verify_jwt = false
+
+[functions.recipe-image-final-cleanup]
 verify_jwt = false
 
