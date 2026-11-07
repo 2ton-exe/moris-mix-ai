@@ -1,9 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, SyntheticEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { Mori } from './Mori'
 import type { MoriMood } from './Mori'
 import { PaperCard, Stamp } from './Scrapbook'
+import { useReducedMotionPreference } from './useReducedMotionPreference'
 
 export type MoriDialogueStatus = 'ready' | 'pending' | 'error' | 'complete'
 
@@ -25,6 +26,11 @@ export interface MoriDialogueLine {
 export interface MoriDialogueProps {
   id?: string
   lines: readonly MoriDialogueLine[]
+  modal?: boolean
+  numberedChoices?: boolean
+  showContinue?: boolean
+  eyebrow?: string
+  closeLabel?: string
   status?: MoriDialogueStatus
   pendingText?: string
   errorText?: string
@@ -46,29 +52,15 @@ interface DialogueFlow {
   typedCount: number
 }
 
-function prefersReducedMotion() {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-function useReducedMotionPreference() {
-  const [reduced, setReduced] = useState(prefersReducedMotion)
-
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = (event: MediaQueryListEvent) => setReduced(event.matches)
-    media.addEventListener?.('change', update)
-    return () => media.removeEventListener?.('change', update)
-  }, [])
-
-  return reduced
-}
-
 /** Reusable, non-modal dialogue surface. All copy and actions come from props. */
 export function MoriDialogue({
   id,
   lines,
+  modal = false,
+  numberedChoices = false,
+  showContinue = true,
+  eyebrow = 'A note from your journal',
+  closeLabel = "Close Mori's note",
   status = 'ready',
   pendingText = 'Mori is getting the next note ready...',
   errorText = 'Mori could not finish this note. You can retry or close it.',
@@ -98,11 +90,24 @@ export function MoriDialogue({
   const isTyping = status === 'ready' && !completed && !!currentLineId && typewriter && !reducedMotion && typedCount < characters.length
   const shownText = !typewriter || reducedMotion ? currentLineText : characters.slice(0, typedCount).join('')
   const regionRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const continueRef = useRef<HTMLButtonElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const previousLineId = useRef(currentLineId)
   const previousDisplayState = useRef(status)
+
+  useLayoutEffect(() => {
+    if (!modal) return
+    const dialog = dialogRef.current
+    if (!dialog || dialog.open) return
+    if (typeof dialog.showModal === 'function') dialog.showModal()
+    else dialog.setAttribute('open', '')
+    return () => {
+      if (dialog.open && typeof dialog.close === 'function') dialog.close()
+      else dialog.removeAttribute('open')
+    }
+  }, [modal])
 
   useLayoutEffect(() => {
     headingRef.current?.focus()
@@ -165,7 +170,21 @@ export function MoriDialogue({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
+    if (modal && event.key === 'Tab') {
+      const focusable = Array.from(regionRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? [])
+      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement)
+      if (event.shiftKey && activeIndex <= 0) {
+        event.preventDefault()
+        focusable.at(-1)?.focus()
+      } else if (!event.shiftKey && (activeIndex < 0 || activeIndex === focusable.length - 1)) {
+        event.preventDefault()
+        focusable[0]?.focus()
+      }
+      return
+    }
+    if (!modal && event.key === 'Escape') {
       event.preventDefault()
       event.stopPropagation()
       onClose()
@@ -175,10 +194,15 @@ export function MoriDialogue({
   const speaker = line?.speaker || 'Mori'
   const mood = line?.expression ?? 'wave'
 
-  return (
+  function handleCancel(event: SyntheticEvent<HTMLDialogElement>) {
+    event.preventDefault()
+    onClose()
+  }
+
+  const surface = (
     <PaperCard
       ref={regionRef}
-      id={id}
+      id={modal ? undefined : id}
       role="region"
       aria-labelledby={titleId}
       aria-hidden={closing || undefined}
@@ -195,7 +219,7 @@ export function MoriDialogue({
       <div className="mm-mori-dialogue__content">
         <header className="mm-mori-dialogue__heading">
           <div>
-            <Stamp tone="burgundy" className="mm-mori-dialogue__stamp">A note from your journal</Stamp>
+            <Stamp tone="burgundy" className="mm-mori-dialogue__stamp">{eyebrow}</Stamp>
             <h2 id={titleId} ref={headingRef} tabIndex={-1}>{speaker}</h2>
           </div>
         </header>
@@ -209,20 +233,35 @@ export function MoriDialogue({
           <p className="mm-mori-dialogue__text" aria-hidden="true">
             {shownText}{isTyping && <span className="mm-mori-dialogue__caret" />}
           </p>
-          {line.choices && line.choices.length > 0 && onChoice && <div className="mm-mori-dialogue__choices" role="group" aria-label="Choose a reply">
-            {line.choices.map((choice) => <button key={choice.id} className="button button-secondary" type="button" onClick={() => choose(choice)}>{choice.label}</button>)}
+          {line.choices && line.choices.length > 0 && onChoice && <div className={`mm-mori-dialogue__choices${numberedChoices ? ' mm-mori-dialogue__choices--numbered' : ''}`} role="group" aria-label="Choose a reply">
+            {line.choices.map((choice, index) => <button key={choice.id} className="button button-secondary" type="button" aria-label={numberedChoices ? `${index + 1}. ${choice.label}` : undefined} onClick={() => choose(choice)}>
+              {numberedChoices && <span className="mm-mori-dialogue__choice-number" aria-hidden="true">{index + 1}</span>}
+              <span>{choice.label}</span>
+            </button>)}
           </div>}
         </>}
 
         <div className="mm-mori-dialogue__actions">
-          {status === 'ready' && !completed && <button ref={continueRef} className="button button-primary" type="button" onClick={continueDialogue}>
+          {showContinue && status === 'ready' && !completed && <button ref={continueRef} className="button button-primary" type="button" onClick={continueDialogue}>
             {isTyping ? 'Show full message' : 'Continue'}
           </button>}
-          <button ref={closeRef} className="button button-secondary" type="button" onClick={onClose}>Close Mori's note</button>
+          <button ref={closeRef} className="button button-secondary" type="button" onClick={onClose}>{closeLabel}</button>
         </div>
       </div>
     </PaperCard>
   )
+
+  if (modal) {
+    return <dialog
+      ref={dialogRef}
+      id={id}
+      className="mm-mori-dialogue-modal"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      onCancel={handleCancel}
+    >{surface}</dialog>
+  }
+  return surface
 }
 
 export function MoriDialogueLauncher({
@@ -232,6 +271,7 @@ export function MoriDialogueLauncher({
   onChoice,
 }: Pick<MoriDialogueProps, 'lines' | 'completionText' | 'typewriterSpeedMs' | 'onChoice'>) {
   const navigate = useNavigate()
+  const reducedMotion = useReducedMotionPreference()
   const panelId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const closeTimer = useRef<number | null>(null)
@@ -261,7 +301,7 @@ export function MoriDialogueLauncher({
   function requestClose() {
     if (!open || closing) return
     triggerRef.current?.focus()
-    if (prefersReducedMotion()) {
+    if (reducedMotion) {
       finishClose()
       return
     }

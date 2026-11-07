@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "type-check": "tsc -p tsconfig.app.json --noEmit",
     "test": "vitest run --configLoader runner",
+    "test:e2e:ai-chef": "node e2e/ai-chef.browser.mjs",
     "test:e2e:local": "node e2e/run-local.mjs"
   },
   "dependencies": {

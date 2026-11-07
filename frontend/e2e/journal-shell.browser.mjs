@@ -61,29 +61,29 @@ try {
     }, { userId })
 
     const bookmarks = page.getByRole('navigation', { name: 'Journal sections' })
-    const moriBookmark = bookmarks.getByRole('link', { name: "Mori's notes, Quick AI Entry" })
+    const moriBookmark = bookmarks.getByRole('button', { name: 'Talk to Mori' })
     async function checkShell(label) {
       await expect(page.getByRole('main')).toHaveCount(1)
       await expect(bookmarks).toBeVisible()
-      await expect(bookmarks.getByRole('link')).toHaveCount(3)
-      await expect(moriBookmark).toHaveAttribute('href', '/app/quick-entry')
+      await expect(bookmarks.getByRole('link')).toHaveCount(2)
       const overflow = await page.evaluate(() => ({
         viewport: globalThis.innerWidth, document: globalThis.document.documentElement.scrollWidth,
         outside: [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 12).map((element) => ({ className: String(element.className), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width })),
       }))
       assert.ok(overflow.document <= overflow.viewport, `${label}: overflow at ${width}px: ${JSON.stringify(overflow)}`)
-      for (const link of await bookmarks.getByRole('link').all()) {
-        const box = await link.boundingBox()
+      const controls = [...await bookmarks.getByRole('link').all(), moriBookmark]
+      for (const control of controls) {
+        const box = await control.boundingBox()
         assert.ok(box && box.width >= 44 && box.height >= 44)
-        await link.focus()
+        await control.focus()
         await page.keyboard.press('Shift+Tab')
         await page.keyboard.press('Tab')
-        const focusState = await link.evaluate((element) => ({
+        const focusState = await control.evaluate((element) => ({
           focused: element === globalThis.document.activeElement,
           focusVisible: element.matches(':focus-visible'),
           outline: globalThis.getComputedStyle(element).outlineStyle,
         }))
-        assert.equal(focusState.focused && focusState.outline !== 'none', true, `${width}px ${label} bookmark ${await link.innerText()}: ${JSON.stringify(focusState)}`)
+        assert.equal(focusState.focused && focusState.outline !== 'none', true, `${width}px ${label} bookmark ${await control.innerText()}: ${JSON.stringify(focusState)}`)
       }
       await page.screenshot({ path: path.join(outputDir, `${width}-${label}.png`) })
     }
@@ -104,6 +104,7 @@ try {
     await checkShell('detail')
     await expect(bookmarks.getByRole('link', { name: 'My recipes' })).toHaveAttribute('aria-current', 'page')
     await moriBookmark.click()
+    await page.getByRole('button', { name: '1. Help me organize my cooking notes.' }).click()
     await expect(page).toHaveURL(`${origin}app/quick-entry`)
     await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
     await expect(moriBookmark).toHaveAttribute('aria-current', 'page')
@@ -115,6 +116,7 @@ try {
     await expect(page).toHaveURL(`${origin}app/recipes/${recipe.id}`)
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     await moriBookmark.click()
+    await page.getByRole('button', { name: '1. Help me organize my cooking notes.' }).click()
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue(sourceNotes)
     await expect(moriBookmark).toHaveAttribute('aria-current', 'page')
     await page.getByRole('link', { name: 'Back to journal' }).click()
@@ -152,6 +154,7 @@ try {
     await expect(bookmarks.getByRole('link', { name: 'New recipe' })).toHaveAttribute('aria-current', 'page')
     await page.getByLabel('Recipe title').fill('Unsaved shell test')
     await moriBookmark.click()
+    await page.getByRole('button', { name: '1. Help me organize my cooking notes.' }).click()
     const leaveNote = page.getByRole('alertdialog', { name: 'Leave without saving?' })
     await expect(leaveNote).toBeVisible()
     const keepEditing = leaveNote.getByRole('button', { name: 'Keep Editing' })
@@ -162,10 +165,12 @@ try {
     await keepEditing.click()
     await expect(page.getByLabel('Recipe title')).toHaveValue('Unsaved shell test')
     await moriBookmark.click()
+    await page.getByRole('button', { name: '1. Help me organize my cooking notes.' }).click()
     await expect(leaveNote).toBeVisible()
     await leaveNote.getByRole('button', { name: 'Keep Editing' }).click()
     await expect(page.getByLabel('Recipe title')).toHaveValue('Unsaved shell test')
     await moriBookmark.click()
+    await page.getByRole('button', { name: '1. Help me organize my cooking notes.' }).click()
     await expect(page.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeVisible()
     await page.getByRole('button', { name: 'Discard Changes' }).click()
     await expect(page).toHaveURL(`${origin}app/quick-entry`)
