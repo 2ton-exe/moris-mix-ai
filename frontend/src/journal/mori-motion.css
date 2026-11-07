@@ -1,0 +1,179 @@
+/* ============================================================
+   Mori + micro-interactions
+   ============================================================ */
+.mm-mori[data-animated='true'] .mori-eyes {
+  transform-box: fill-box;
+  transform-origin: 50% 55%;
+  animation: mm-mori-blink 5.2s infinite;
+}
+
+.mm-mori[data-animated='true'] .mori-ear-l {
+  transform-box: fill-box;
+  transform-origin: 80% 85%;
+  animation: mm-mori-ear 7s ease-in-out infinite;
+}
+
+.mm-mori[data-animated='true'] .mori-tail {
+  transform-box: fill-box;
+  transform-origin: 0% 90%;
+  animation: mm-mori-tail 3.2s ease-in-out infinite alternate;
+}
+
+.mm-mori[data-animated='true'][data-mood='wave'] .mori-arm-r {
+  transform-box: fill-box;
+  transform-origin: 12% 88%;
+  animation: mm-mori-wave 1.3s ease-in-out infinite;
+}
+
+.mm-mori[data-animated='true'][data-mood='cheer'] .mori-body-all {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: mm-mori-hop 900ms ease-in-out infinite;
+}
+
+.mm-mori[data-animated='true'][data-mood='stir'] .mori-spoon {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: mm-mori-stir 1.4s ease-in-out infinite;
+}
+
+.mm-mori[data-animated='true'] .mori-steam path {
+  animation: mm-mori-steam 2.4s ease-in-out infinite;
+}
+
+.mm-mori[data-animated='true'] .mori-steam path:nth-child(2) {
+  animation-delay: 0.8s;
+}
+
+.mm-mori[data-animated='true'] .mori-steam path:nth-child(3) {
+  animation-delay: 1.6s;
+}
+
+.mm-mori[data-animated='true'] .mori-z text {
+  animation: mm-mori-z 2.8s ease-in-out infinite;
+}
+
+.mm-mori[data-animated='true'] .mori-z text:nth-child(2) {
+  animation-delay: 1.4s;
+}
+
+.mm-mori[data-animated='true'][data-mood='worried'] .mori-sweat {
+  animation: mm-mori-sweat 2.4s ease-in infinite;
+}
+
+@keyframes mm-mori-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  95.5% {
+    transform: scaleY(0.08);
+  }
+}
+
+@keyframes mm-mori-ear {
+  0%,
+  86%,
+  100% {
+    transform: rotate(0deg);
+  }
+  89% {
+    transform: rotate(-9deg);
+  }
+  92% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes mm-mori-tail {
+  from {
+    transform: rotate(-5deg);
+  }
+  to {
+    transform: rotate(7deg);
+  }
+}
+
+@keyframes mm-mori-wave {
+  0%,
+  100% {
+    transform: rotate(-6deg);
+  }
+  50% {
+    transform: rotate(16deg);
+  }
+}
+
+@keyframes mm-mori-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  15% {
+    transform: translateY(0) scale(1.04, 0.95);
+  }
+  45% {
+    transform: translateY(-9%) scale(0.98, 1.03);
+  }
+  75% {
+    transform: translateY(0) scale(1.03, 0.97);
+  }
+}
+
+@keyframes mm-mori-stir {
+  0%,
+  100% {
+    transform: rotate(-14deg) translateX(-2px);
+  }
+  50% {
+    transform: rotate(12deg) translateX(3px);
+  }
+}
+
+@keyframes mm-mori-steam {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  30% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes mm-mori-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 4px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(8px, -16px);
+  }
+}
+
+@keyframes mm-mori-sweat {
+  0%,
+  40% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-mori[data-animated='true'] * { animation: none !important; }
+}

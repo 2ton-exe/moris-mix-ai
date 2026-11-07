@@ -18,15 +18,43 @@ async function waitForCollection(page) {
   ).toBeVisible({ timeout: 30_000 })
 }
 
+async function navigateToRecipeSection(page, sectionName) {
+  const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
+  const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
+  const nextPage = pageNavigation.getByRole('button', { name: /^Next Pages?$/ })
+  const pagePosition = pageNavigation.getByText(/of \d+$/)
+
+  while (!(await section.isVisible())) {
+    await expect(nextPage).toBeEnabled()
+    const currentPosition = await pagePosition.innerText()
+    await nextPage.click()
+    await expect(pagePosition).not.toHaveText(currentPosition)
+  }
+
+  await expect(section).toBeVisible()
+  return section
+}
+
+async function expectRecipeContents(page) {
+  await expect(
+    page.getByRole('region', { name: 'Ingredients', exact: true }).getByRole('listitem'),
+  ).toHaveText('2 tablespoons olive oil')
+  await expect(
+    page.getByRole('region', { name: 'In the kitchen', exact: true }).getByRole('listitem'),
+  ).toContainText('Warm the oil and fold in the herbs.')
+}
+
 async function createRecipe(page, recipeTitle) {
   await page.getByRole('link', { name: 'Start a recipe' }).click()
   await page.getByLabel('Recipe title').fill(recipeTitle)
-  await page.getByRole('button', { name: 'Add ingredient' }).click()
-  await page.getByLabel('Ingredient 1 name').fill('olive oil')
-  await page.getByLabel('Ingredient 1 quantity').fill('2')
-  await page.getByLabel('Ingredient 1 unit').fill('tablespoons')
-  await page.getByRole('button', { name: 'Add cooking step' }).click()
-  await page.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
+  const ingredients = await navigateToRecipeSection(page, 'Ingredients')
+  await ingredients.getByRole('button', { name: 'Add ingredient' }).click()
+  await ingredients.getByLabel('Ingredient 1 name').fill('olive oil')
+  await ingredients.getByLabel('Ingredient 1 quantity').fill('2')
+  await ingredients.getByLabel('Ingredient 1 unit').fill('tablespoons')
+  const cookingMethod = await navigateToRecipeSection(page, 'Cooking method')
+  await cookingMethod.getByRole('button', { name: 'Add cooking step' }).click()
+  await cookingMethod.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 }
@@ -55,12 +83,11 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(recipeCard).toBeVisible()
     await recipeCard.click()
     await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
-    await expect(page.getByText(/olive oil/)).toBeVisible()
-    await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
+    await expectRecipeContents(page)
 
     await page.reload()
     await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
-    await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
+    await expectRecipeContents(page)
   })
 
   await test.step('edit and rate the persisted recipe', async () => {
@@ -84,7 +111,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     const dialog = page.getByRole('alertdialog')
     await expect(dialog.getByRole('heading', { name: `Delete “${updatedTitle}”?` })).toBeVisible()
     await dialog.getByRole('button', { name: 'Delete recipe' }).click()
-    await expect(page).toHaveURL(/\/app\/recipes$/)
+    await expect(page).toHaveURL(/\/app(?:\/recipes)?$/)
     await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
 
@@ -145,8 +172,7 @@ test('a signed-in cook cannot view, update, or delete another cook’s recipe', 
   await signIn(page, localE2eOtherUser)
   await page.goto(recipeUrl)
   await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
-  await expect(page.getByText(/olive oil/)).toBeVisible()
-  await expect(page.getByText('Warm the oil and fold in the herbs.')).toBeVisible()
+  await expectRecipeContents(page)
   await page.getByRole('button', { name: 'Delete recipe' }).click()
   const dialog = page.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Delete recipe' }).click()

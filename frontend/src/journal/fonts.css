@@ -1,0 +1,24 @@
+/* Normal variable Latin faces; public/font-licenses ships their OFL licenses. */
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('../assets/journal/fonts/figtree-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url('../assets/journal/fonts/fraunces-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('../assets/journal/fonts/caveat-latin.woff2') format('woff2');
+}

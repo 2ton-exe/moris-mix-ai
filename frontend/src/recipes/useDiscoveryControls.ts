@@ -5,12 +5,15 @@ import { recipeKeys } from './queryOptions'
 import { initialDiscoveryCriteria } from './discoveryTypes'
 import type { RecipeDiscoveryCriteria, RecipeDiscoverySource } from './discoveryTypes'
 
-export function useDiscoveryControls(adapter?: RecipeDiscoverySource) {
+export function useDiscoveryControls(adapter?: RecipeDiscoverySource, persistence?: {
+  draft: RecipeDiscoveryCriteria; onChange: (criteria: RecipeDiscoveryCriteria) => void
+}) {
   const { user } = useAuth()
   const client = useQueryClient()
   const defaults = { ...initialDiscoveryCriteria, searchMode: adapter?.searchModes[0] ?? 'title' }
-  const [draft, setDraft] = useState<RecipeDiscoveryCriteria>(defaults)
-  const [search, setSearch] = useState('')
+  const [localDraft, setDraft] = useState<RecipeDiscoveryCriteria>(defaults)
+  const draft = persistence?.draft ?? localDraft
+  const [search, setSearch] = useState(() => draft.search.trim())
   const normalized = draft.search.trim()
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(normalized), 300)
@@ -19,7 +22,8 @@ export function useDiscoveryControls(adapter?: RecipeDiscoverySource) {
   const change = (criteria: RecipeDiscoveryCriteria) => {
     // Returning to a previous search starts at its first page, too.
     client.removeQueries({ queryKey: recipeKeys.lists(user?.id ?? null), type: 'inactive', predicate: (query) => query.queryKey[3] === 'discovery' })
-    setDraft(criteria)
+    if (persistence) persistence.onChange(criteria)
+    else setDraft(criteria)
   }
   const reset = () => { change(defaults); setSearch('') }
   return { draft, criteria: { ...draft, search }, waiting: normalized !== search, change, reset }
