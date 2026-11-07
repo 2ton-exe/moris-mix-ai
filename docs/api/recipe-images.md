@@ -1,8 +1,8 @@
 # Recipe image upload API contract
 
-This contract defines the authenticated request to authorize a direct Cloudflare R2 upload and the later request to verify and attach that upload to an owned recipe. BE-09 supplies the contract and shared validators. BE-13 implements upload signing, quota-controlled intent persistence, and expired staging-object cleanup. Attachment, private reads, and finalized-image deletion remain future work under BE-14 and its approved integration contracts.
+This contract defines authenticated upload authorization, verified attachment, private image reads, and finalized-image deletion. BE-09 supplies the upload and attachment schemas. BE-13 implements upload signing, quota-controlled intent persistence, and staging-object cleanup. BE-14 owns attachment, private GET signing, finalized-image deletion, and final-object cleanup.
 
-Production readiness remains **BLOCKED** until BE-14 verifies actual R2 object size before attachment and all required R2/Supabase configuration and migrations are deployed and verified. BE-13 applies a bounded-risk quota and cleanup mitigation; it does not cap bytes accepted by R2.
+Production readiness remains **BLOCKED** until the BE-14 migration, handlers, and required R2/Supabase configuration are deployed and verified in the intended environment. BE-13 applies a bounded-risk quota and cleanup mitigation; it does not cap bytes accepted by R2.
 
 ## Endpoint overview
 
@@ -10,15 +10,17 @@ Production readiness remains **BLOCKED** until BE-14 verifies actual R2 object s
 | --- | --- | --- | --- |
 | `POST` | `/functions/v1/recipe-image-upload-url` | Authorize one short-lived image upload for an owned recipe | `200 OK`, `{ "upload": ... }` |
 | `POST` | `/functions/v1/recipe-image-attach` | Verify an uploaded object and attach it to the recipe | `200 OK`, `{ "image": ... }` |
-| `OPTIONS` | Either path | CORS preflight | `204 No Content` |
+| `POST` | `/functions/v1/recipe-image-download-url` | Authorize a private read of the current finalized image | `200 OK`, `{ "url": ..., "expires_at": ... }` |
+| `POST` | `/functions/v1/recipe-image-delete` | Remove an owned recipe's current image association | `204 No Content` |
+| `OPTIONS` | Any image path | CORS preflight | `204 No Content` |
 
 ## Authentication and ownership
 
-- Both `POST` requests require `Authorization: Bearer <supabase-access-token>`, the Supabase project `apikey`, and a JSON body. The project key does not authenticate the user; the Bearer token is verified by the backend.
-- The upload handler uses the shared `authenticateRequest()` boundary and derives ownership from its verified user context. The future attach handler must do the same. Client-supplied `user_id` is never trusted.
+- All user-facing `POST` requests require `Authorization: Bearer <supabase-access-token>`, the Supabase project `apikey`, and a JSON body. The project key does not authenticate the user; the Bearer token is verified by the backend.
+- Each user-facing handler uses the shared `authenticateRequest()` boundary and derives ownership from its verified user context. Client-supplied `user_id` is never trusted.
 - The upload-signing request checks that `recipe_id` belongs to the authenticated user before authorizing a `PUT`. The attach request checks ownership again; signing does not authorize attachment by itself.
 - Missing and foreign recipes have the same `404 RECIPE_NOT_FOUND` result. Never reveal whether another user’s recipe exists.
-- `OPTIONS` is handled before authentication. The function entries in `supabase/config.toml` already set `verify_jwt = false` so unauthenticated preflight requests reach the handlers. This only disables gateway JWT validation; the upload handler calls `authenticateRequest()` for every `POST` before accessing user or storage data, and the future attach handler must do the same. The Edge Function CORS policy allows `POST, OPTIONS` and `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
+- `OPTIONS` is handled before authentication. The function entries in `supabase/config.toml` set `verify_jwt = false` so unauthenticated preflight requests reach the handlers. This only disables gateway JWT validation; user-facing handlers call `authenticateRequest()` for every `POST` before accessing user or storage data. The Edge Function CORS policy allows `POST, OPTIONS` and `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
 
 ## Request an upload URL
 
@@ -56,11 +58,11 @@ Returns `Cache-Control: no-store` and a JSON `upload` object:
 }
 ```
 
-The backend generates a fresh staging key and a distinct server-only final key, and binds both keys to the upload UUID, verified owner, recipe UUID, content type, declared size, and expiry. The signed URL authorizes a `PUT` only to the staging key for 10 minutes and requires the returned method and headers exactly. It uses the R2 S3 API endpoint. The final key is never returned or signed for client writes.
+The backend generates a fresh staging key and a server-only final namespace, and binds both to the upload UUID, verified owner, recipe UUID, content type, declared size, and expiry. Each attachment attempt gets a separate final object key beneath that namespace. The signed URL authorizes a `PUT` only to the staging key for 10 minutes and requires the returned method and headers exactly. It uses the R2 S3 API endpoint. Final keys are never returned or signed for client writes.
 
 The browser uploads the raw file bytes directly to `upload.url`; it does not send JSON or multipart form data to R2. A presigned URL is a temporary bearer capability: anyone who obtains it can reuse it until it expires. Attachment therefore never points `recipes.image_path` at the client-writable staging key. Do not log the URL, show it in UI errors, or treat it as a permanent image URL. The secret access key remains server-side. Standard S3 presigned URLs necessarily expose the account endpoint, bucket, staging object path, and access-key ID in `X-Amz-Credential`; these are not returned as separate response fields. The independently randomized final key is never returned or signed for client writes. Issue #104's credential/key acceptance criterion must be interpreted with this unavoidable protocol limitation.
 
-The signature binds `PUT`, the staging path, `host`, `Content-Type`, and a 600-second expiry using SigV4 with region `auto`, service `s3`, and `UNSIGNED-PAYLOAD`. It does not prove that the body is an image or bind its byte count. Unrelated transport headers can still be present; requiring the returned headers means the signed headers must match, not that all other HTTP headers are prohibited. URLs expire relative to the signing timestamp, rounded down to the second. Signing is entirely local and does not establish R2 availability; signing and configuration failures return a safe `500 INTERNAL_ERROR`. A `503 STORAGE_UNAVAILABLE` is reserved for future operations that actually contact R2.
+The signature binds `PUT`, the staging path, `host`, `Content-Type`, and a 600-second expiry using SigV4 with region `auto`, service `s3`, and `UNSIGNED-PAYLOAD`. It does not prove that the body is an image or bind its byte count. Unrelated transport headers can still be present; requiring the returned headers means the signed headers must match, not that all other HTTP headers are prohibited. URLs expire relative to the signing timestamp, rounded down to the second. Signing is entirely local and does not establish R2 availability; signing and configuration failures return a safe `500 INTERNAL_ERROR`. Operations that contact R2 return `503 STORAGE_UNAVAILABLE` when storage is unavailable.
 
 ## Verify and attach an upload
 
@@ -75,17 +77,17 @@ The signature binds `PUT`, the staging path, `host`, `Content-Type`, and a 600-s
 }
 ```
 
-The backend resolves the staging and final keys from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe. A pending intent may be claimed only before expiry; an already attached intent remains replayable after its upload URL expires and returns its stored result. A `finalizing` intent with a live lease returns `409 UPLOAD_NOT_READY`. A `finalizing` intent with an expired lease is reclaimable by a new attach request, which must atomically replace its attempt token and lease, even if the upload URL has since expired. The pointer commit must require the new token so the prior worker cannot commit. An expired pending or terminal intent returns `404 UPLOAD_NOT_FOUND`. Only the backend uses the final key during attachment.
+The backend resolves the staging and final namespace from the authenticated owner, recipe UUID, and upload intent. The request cannot provide an `object_key`, `image_path`, or `image_url`. The intent must belong to this owner and recipe. A pending intent may be claimed only before expiry; an already attached intent remains replayable after its upload URL expires and returns its stored result. A `finalizing` intent with a live lease returns `409 UPLOAD_NOT_READY`. A `finalizing` intent with an expired lease is reclaimable by a new attach request, which atomically replaces its attempt token and lease, even if the upload URL has since expired. The pointer commit requires the current token so the prior worker cannot commit. An expired pending or terminal intent returns `404 UPLOAD_NOT_FOUND`. Only the backend uses attempt-specific final keys during attachment.
 
-Before associating the image, the backend verifies that the staging object exists and that its stored content type and actual byte size match the upload intent and allowed limits. A content-type metadata value alone does not prove that the bytes decode as an image; a later read or processing boundary must validate or normalize the bytes before rendering them.
+Before associating the image, the backend verifies that the staging object exists and that its stored content type and streamed byte size match the upload intent and allowed limits. It checks JPEG start/frame/end markers, PNG chunk boundaries and CRCs including IHDR/IDAT/IEND, or WebP RIFF boundaries and image chunks. These structural checks reject common malformed or truncated inputs but do not decode pixels or prove that every supported image is safe to render. No full decoder is available within the current dependency/runtime constraints. Clients should rely on normal browser image decoding and safe image elements; SVG and script-capable formats are not accepted.
 
-Before any R2 operation, a database transaction must claim only an unexpired `pending` intent by changing it to `finalizing` and assigning a unique attempt token and lease. If another request already owns a live `finalizing` lease, return `409 UPLOAD_NOT_READY`; return `404 UPLOAD_NOT_FOUND` for an expired pending or terminal intent. The implementation must enforce a maximum copy duration and set the lease longer than that duration. Recovery may reclaim a `finalizing` intent only after its lease expires, atomically replacing its attempt token and lease so an earlier worker cannot commit.
+Before accessing R2, a database transaction claims an unexpired `pending` intent by changing it to `finalizing` and assigning a unique attempt token and lease. A live lease returns `409 UPLOAD_NOT_READY`; an expired pending or terminal intent returns `404 UPLOAD_NOT_FOUND`. A lease-expired `finalizing` intent can be reclaimed by atomically replacing its attempt token and lease so an earlier worker cannot commit.
 
-After claiming the intent, capture the staging object's ETag while verifying its type and size, then copy it to the intent's distinct final key with a source-match condition on that ETag. If the staging object changed, the conditional copy fails; do not attach it unless the current object is revalidated. Verify the finalized object's stored content type and byte size. The client has no signed write capability for the final key, so reuse of the staging URL cannot change an attached image.
+After claiming the intent, persist its attempt-specific final key and mark the copy as started before issuing the copy with a source-match condition on the staging object's verified ETag. If the staging object changed, the conditional copy fails; do not attach it unless the current object is revalidated. Verify the finalized object's stored content type and byte size. Each attempt writes to a different key, so a delayed copy from an expired attempt cannot overwrite the winning attempt's object. The database commit requires the current attempt token and verified attempt record. The client has no signed write capability for final keys, so reuse of the staging URL cannot change an attached image.
 
-Different upload intents for the same recipe may finalize concurrently, but their pointer swaps must serialize on the recipe row. In one database transaction, update the recipe image path only if the intent is still `finalizing` with the same attempt token, mark it `attached`, and record the previous final key for retryable cleanup. If that state fence fails, leave the recipe path unchanged. Delete only the recorded previous key after commit; never derive it from an earlier unlocked read. If finalization fails, return the intent to `pending` only while the same token owns it and it remains unexpired; otherwise leave it for lease recovery. Retrying uses the same final key. Clean up staging objects after the URL expires; deleting one earlier does not revoke the signed URL, which can recreate it until expiry.
+Different upload intents for the same recipe may finalize concurrently, but their pointer swaps serialize on the recipe row. In one database transaction, update the recipe image path only if the intent is still `finalizing` with the same attempt token and the attempt is verified, mark both records attached, and record the previous final key for retryable cleanup. If that state fence fails, leave the recipe path unchanged. Delete only the recorded previous key after commit; never derive it from an earlier unlocked read. If finalization fails, return the intent to `pending` only while the same token owns it and it remains unexpired; otherwise leave it for lease recovery. Replaying a completed upload returns its stored result without another copy or pointer change. Clean up staging objects after the URL expires; deleting one earlier does not revoke the signed URL, which can recreate it until expiry.
 
-Expired-intent cleanup transactionally changes an expired `pending` intent to terminal `expired` before deleting its staging object. It skips non-pending states. If a `finalizing` lease expires, recover it only after the enforced maximum copy duration, then re-evaluate whether it should return to `pending` or become `expired`. Retry object deletion from the terminal intent record if cleanup fails. BE-13 implements only the pending-to-expired staging cleanup path; BE-14 must preserve this state fence and add its finalization lease behavior in its own migration and handlers.
+Expired-intent cleanup transactionally changes an expired `pending` intent to terminal `expired` before deleting its staging object. It skips non-pending states. BE-13 owns this staging cleanup path and retains its existing state fence. BE-14 recovers expired finalization leases using attempt records; it does not assume a local timeout or aborted request cancels an R2 copy.
 
 ### Success (`200 OK`)
 
@@ -102,13 +104,31 @@ Returns a JSON `image` object. Its `byte_size` is the verified stored size and `
 }
 ```
 
-The response contains no standalone object key or URL. A future image-read contract defines image delivery separately. The temporary `PUT` URL is never stored in `recipes.image_url`; the finalized server-only object key is stored in the internal `recipes.image_path` field after verification and copy.
+The response contains no standalone object key or URL. The temporary `PUT` URL is never stored in `recipes.image_url`; the finalized server-only object key is stored in the internal `recipes.image_path` field after verification and copy.
+
+## Request a private image download URL
+
+`POST /functions/v1/recipe-image-download-url` accepts `{ "recipe_id": "<uuid>" }`. The authenticated caller must own the recipe. The server reads `recipes.image_path` internally and signs only a valid `recipe-images/final/` key; callers cannot select object keys. A recipe with no finalized image returns `404 IMAGE_NOT_FOUND`.
+
+The `200 OK` JSON response contains a presigned R2 `GET` URL and `expires_at`. It has `Cache-Control: no-store`; the URL expires after 60 seconds and pins the verified `Content-Type` and a generic inline filename in its signed response overrides. BE-14 owns private GET signing. An issued URL is a temporary bearer capability and remains usable until expiry, subject to the object still existing. Clearing or replacing the association does not revoke an issued URL. Signed URLs are never logged or included in recipe responses.
+
+## Delete a recipe image
+
+`POST /functions/v1/recipe-image-delete` accepts `{ "recipe_id": "<uuid>" }`. Only the recipe owner may delete its image. The transaction locks the recipe, clears `image_path`, and records the former final key in a durable cleanup queue. Deleting an already-empty association on an existing owned recipe is idempotent and returns `204 No Content`. A missing or foreign recipe returns `404 RECIPE_NOT_FOUND`. R2 deletion occurs after the transaction and cannot roll back the database change.
+
+Deleting a recipe through the existing `DELETE /recipes/:id` endpoint also records its current finalized key through a database delete trigger. The cleanup queue has no cascading recipe or user foreign key, so recipe and account deletion cannot erase the only cleanup record.
+
+## Finalized-object cleanup
+
+Replacement, explicit image deletion, and recipe deletion enqueue server-generated attempt keys in a separate BE-14 queue. Every copy attempt has a durable cleanup record before copy starts. A completed, non-ambiguous output uses bounded retries (up to eight attempts with exponential delay capped at one hour); terminal failures remain recorded for investigation. If a copy may still complete after its request ends, its cleanup record stays in `watching`: bounded batches retry at hourly intervals indefinitely, even when a delete reports the object missing. This avoids treating a local timeout or one successful delete as proof that no late object can appear. No broad final-prefix listing is used. Each claim checks that the key is not currently referenced by a recipe; direct browser writes to `image_path` are rejected by a database trigger. Cleanup cannot roll back an image association change.
+
+The BE-14 cleanup function uses a separate bearer token and is not scheduled or deployed by the BE-13 production workflows. Production cleanup remains disabled pending a separately reviewed activation change. Deterministic recovery uses persisted per-attempt keys and cleanup records; broad final-prefix reconciliation is not included. Deleting an upload intent also abandons and records any unfinished attempts before cascades can remove the intent lease used by recovery.
 
 The attach operation is idempotent for the same completed upload and recipe. After verifying that the caller owns the recipe and the intent belongs to that caller and recipe, replaying an already attached intent returns its stored result even after the upload URL expires; it does not copy the staging object again or change the recipe's current image path, so it cannot replace a newer image. First attachment updates the recipe image path and upload-intent state together. A failed or incomplete upload leaves the current image unchanged. If a new image replaces the current one, the database pointer changes only after verification and finalization; deleting the previous final object happens after commit and cannot undo the new association.
 
 ## Shared validation
 
-The shared backend schemas validate the upload request, attach request, and metadata response. Recipe and upload IDs are UUIDs; content type is the three-value allowlist above; `byte_size` is an integer from 1 through 10 MiB; `uploaded_at` is an ISO 8601 UTC timestamp. Request schemas reject unknown fields so callers cannot select ownership or storage paths.
+The shared backend schemas validate upload, attach, download, delete, and metadata contracts. Recipe and upload IDs are UUIDs; content type is the three-value allowlist above; `byte_size` is an integer from 1 through 10 MiB; `uploaded_at` and download `expires_at` are ISO 8601 UTC timestamps. Request schemas reject unknown fields so callers cannot select ownership or storage paths.
 
 The frontend-facing wire names are `recipe_id`, `content_type`, `byte_size`, `upload_id`, and `uploaded_at`. Browser code consumes this documented contract and does not import Deno-specific modules.
 
@@ -125,11 +145,12 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 | `429 Too Many Requests` | `UPLOAD_RATE_LIMITED` | `Upload signing limit reached. Please try again later.` | The user has requested 10 upload URLs within the last hour. |
 | `429 Too Many Requests` | `UPLOAD_QUOTA_EXCEEDED` | `Too many image uploads are pending. Please try again later.` | The per-user outstanding-intent cap is exhausted. |
 | `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown, expired while pending, or belongs to another owner or recipe. |
-| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only POST and OPTIONS methods are supported.` | Unsupported method on either endpoint. Includes `Allow: POST, OPTIONS`. |
-| `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed, or another request currently owns the intent's finalizing lease; retry later. |
-| `422 Unprocessable Content` | `INVALID_IMAGE` | `Uploaded image metadata is invalid.` | Actual object type or size does not match the intent and contract. |
+| `404 Not Found` | `IMAGE_NOT_FOUND` | `Recipe image not found.` | An owned recipe has no attached finalized image to read. |
+| `409 Conflict` | `UPLOAD_NOT_READY` | `Upload is not ready to attach.` | Another worker owns a live finalization lease, or a worker lost its attempt fence. |
+| `422 Unprocessable Entity` | `IMAGE_VERIFICATION_FAILED` | `Uploaded image could not be verified.` | Stored object metadata, size, structural checks, or source ETag condition failed verification. |
+| `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | `Image storage is temporarily unavailable.` | R2 could not be reached or complete an operation. |
+| `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only POST and OPTIONS methods are supported.` | Unsupported method. Includes `Allow: POST, OPTIONS`. |
 | `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Supabase Auth returns `429 Too Many Requests` during token verification. A validated `Retry-After` header is propagated when supplied; invalid or absent values are omitted. |
-| `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | `Image storage is temporarily unavailable.` | R2 is temporarily unreachable. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Other unexpected configuration, database, or storage failure. |
 
 ## CORS
@@ -141,21 +162,21 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 ## Storage and recipe association
 
 - One primary image is supported per recipe, matching the current recipe model. The stable recipe UUID, verified owner ID, and random upload UUID scope distinct staging and final keys; titles and filenames do not define storage identity.
-- The future implementation stores only the finalized key internally in `recipes.image_path`. It never stores the temporary `PUT` URL in `recipes.image_url` or returns a storage path as image metadata.
-- The future implementation binds each upload UUID server-side to its owner, recipe, staging key, final key, content type, declared size, expiry, state (`pending`, `finalizing`, `attached`, or terminal `expired`), and, while finalizing, an attempt token and lease. It uses the request-scoped RLS-aware Supabase client, not a service-role client, for user-owned recipe operations.
+- BE-14 stores only the finalized key internally in `recipes.image_path`. It never stores the temporary `PUT` URL in `recipes.image_url` or returns a storage path as image metadata.
+- BE-14 extends each upload intent with a finalization token and lease, and stores the verified attachment result for replay. Handlers use the caller-scoped Supabase client for recipe ownership and narrowly scoped service-role RPCs for protected lifecycle mutations.
 <!-- coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated-section:v1:bb8ad3b178b62e51aa7b49baaa1b75763023fe2031c50f77a10a4447175fa04e -->
 
-- BE-13 cleanup claims expired `pending` and `attached` intents transactionally, marks pending intents terminal `expired`, and preserves the attached state and replay result while deleting staging objects. Attached intents use the same cleanup retries and health reporting; successful deletion releases their outstanding-upload quota. It skips `finalizing` intents and all unexpired intents. Attached records are retained for replay. R2 deletion failures are retained with exponential backoff capped at one hour and eight attempts; terminal failures remain recorded and make scheduled runs fail until investigated. Delete the prior attached final key captured by the serialized recipe update; do not infer it from an earlier, unlocked read. BE-14 remains responsible for actual size and content-type verification before attachment, finalized-object lifecycle, and finalization lease recovery.
+- BE-13 cleanup claims expired `pending` and `attached` intents transactionally, marks pending intents terminal `expired`, and preserves the attached state and replay result while deleting staging objects. Attached intents use the same cleanup retries and health reporting; successful deletion releases their outstanding-upload quota. It skips `finalizing` intents and all unexpired intents. BE-14 keeps those staging operations separate and adds finalization lease recovery and finalized-object cleanup.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
 ## BE-13 implementation and deployment dependencies
 
-The upload function checks `recipes` through the verified user's request-scoped client, selecting only `id, user_id` and filtering both fields. It never updates the recipe image. After validation and ownership authorization, it generates the upload UUID, staging key, and a final key with a separate random UUID. It signs locally, atomically applies the per-user quotas and inserts the pending intent, then returns the capability only after persistence succeeds. Persistence failures return no capability.
+The upload function checks `recipes` through the verified user's request-scoped client, selecting only `id, user_id` and filtering both fields. It never updates the recipe image. After validation and ownership authorization, it generates the upload UUID, staging key, and final namespace with a separate random UUID. It signs locally, atomically applies the per-user quotas and inserts the pending intent, then returns the capability only after persistence succeeds. Persistence failures return no capability.
 
-`public.recipe_image_upload_intents` stores the upload UUID, owner and recipe UUIDs, both keys, content type, declared size, signing time, expiry, state, cleanup attempts, lease, and safe failure category. It has RLS enabled and forced, no browser policies, and all table privileges revoked from `PUBLIC`, `anon`, and `authenticated`. The backend service role can select rows and execute narrowly scoped security-definer RPCs for quota-controlled creation and cleanup; it cannot insert or update rows directly. It is never used for recipe ownership queries. SQL constraints validate types, declared sizes, key scoping, the ten-minute lifetime, and cleanup-state consistency. Records deliberately have no cascading recipe/user foreign keys: deleting a recipe or account must not erase the only record of uncollected R2 objects or change existing recipe deletion behavior. BE-14 must reauthorize attachment and extend the lifecycle state machine with finalization leases in its own migration and handlers.
+`public.recipe_image_upload_intents` stores the upload UUID, owner and recipe UUIDs, staging and final namespace, content type, declared size, signing time, expiry, state, cleanup attempts, finalization token/lease, verified result, and safe failure category. It has forced RLS, no browser policies, and no direct browser table privileges. The service role cannot directly insert or update it and uses narrowly scoped security-definer RPCs. `public.recipe_image_finalization_attempts` persists each unique destination key and copy lifecycle; its cleanup row is inserted before any copy starts. Recipe ownership is checked through the authenticated request client and lifecycle RPCs. `public.recipe_image_final_cleanup` is also forced-RLS and unavailable to browser roles. Final cleanup records have no cascading recipe/user foreign keys. Triggers reject browser-role changes to `recipes.image_path`, enqueue replaced/deleted final keys, and preserve unfinished attempt cleanup when upload intents are deleted.
 
 Required backend configuration:
 
@@ -168,12 +189,13 @@ Required backend configuration:
 | `R2_BUCKET_NAME` | Externally supplied private R2 bucket |
 | `R2_ACCESS_KEY_ID` | S3 access-key identifier for that bucket |
 | `R2_SECRET_ACCESS_KEY` | Server-only S3 signing secret |
+| `RECIPE_IMAGE_FINAL_CLEANUP_TOKEN` | Dedicated bearer token for the unactivated BE-14 finalized-object cleanup handler |
 | `ALLOWED_ORIGIN` | Deployed frontend origin for the existing Edge Function CORS helper |
 | `RECIPE_IMAGE_CLEANUP_TOKEN` | Dedicated server-only bearer token for scheduled cleanup invocation |
 
 Provision these through backend deployment secrets, never frontend environment variables. The implementation targets `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` and does not accept a caller-supplied endpoint. Keep public bucket access disabled and use credentials restricted to the intended bucket and required object operations. Configure bucket CORS for approved frontend origins, `PUT`, and `Content-Type`. CORS does not prevent use of a leaked capability outside a browser.
 
-Production cleanup deployment and invocation are explicitly disabled in the production workflows. This prevents the Edge Function from being deployed by the production release or called by its schedule before production prerequisites have been independently checked. GitHub Actions variables cannot enable either path; the workflow conditions are hard-disabled. The function remains available for non-production use.
+BE-13 production staging-cleanup deployment and invocation remain explicitly disabled in the production workflows. BE-14 finalized cleanup is separate and is not included in production deployment or invocation workflows. It can be used only in non-production until a separately reviewed activation change.
 
 Modular Main includes `recipe-image-upload-url` as a separate deployment job after the ordinary production release succeeds. It runs only when an authorized operator manually dispatches Modular Main on `main` and selects the upload-signing deployment input. The job waits for approval in the protected GitHub Environment `recipe-image-upload-production`, then runs read-only database preflight before deploying. Its environment secrets remain scoped to this job and are not passed through the reusable recipe/AI release. Automatic pushes and default manual runs do not request or execute this job. The staging workflow deploys only the Cloudflare Worker and does not deploy Supabase Edge Functions.
 
@@ -187,7 +209,9 @@ Production cleanup deployment and invocation remain disabled through hard-coded 
 
 Before any future activation, an authorized operator must verify migrations `20261102000009` through `20261102000014` and `20261106000015_recipe_image_attached_staging_cleanup.sql` in the intended production project. Verify all cleanup and reconciliation RPCs introduced or updated by those migrations, including `public.claim_expired_recipe_image_uploads`, `public.finish_recipe_image_upload_cleanup`, `public.recipe_image_upload_cleanup_health`, and `public.claim_recipe_image_staging_reconciliation_objects`. Migration 15 is required so expired attached intents become eligible for staging cleanup while preserving attached state and replay information, successful cleanup releases the corresponding upload quota, finalized objects remain protected, and staging objects are not deleted while their upload URLs remain valid. Independently verify grants/RLS deny browser-role access while granting only required `service_role` privileges. Confirm project identity and check the deployed function configuration, server-only cleanup token, and bucket-scoped R2 delete and `ListObjectsV2` permissions. Production cleanup must not be activated unless migration 15 and its RPC behavior have been independently verified in the intended production Supabase project. Repository migration files and CI results do not prove production readiness; automatic production migration delivery remains outstanding.
 
-After those checks are recorded, a separately reviewed workflow change may authorize deployment and invocation. Provision `RECIPE_IMAGE_CLEANUP_TOKEN` as a Supabase Edge Function secret and protected GitHub Actions secret. The cleanup function processes at most 40 deletions per invocation: up to 25 expired-intent objects plus 15 staging-reconciliation objects, with up to 5 concurrent deletes; failures retry with exponential delay capped at one hour for at most eight attempts. To disable cleanup, restore `if: false` on both production workflow paths. The current production schema, RPCs, grants, function deployment, cleanup secrets, and R2 permissions have not been independently verified. No production readiness is claimed.
+After those checks are recorded, a separately reviewed workflow change may authorize BE-13 staging cleanup deployment and invocation. Provision `RECIPE_IMAGE_CLEANUP_TOKEN` as a Supabase Edge Function secret and protected GitHub Actions secret. The cleanup function processes at most 40 deletions per invocation: up to 25 expired-intent objects plus 15 staging-reconciliation objects, with up to 5 concurrent deletes; failures retry with exponential delay capped at one hour for at most eight attempts. To disable cleanup, restore `if: false` on both production workflow paths. The current production schema, RPCs, grants, function deployment, cleanup secrets, and R2 permissions have not been independently verified. No production readiness is claimed.
+
+BE-14 production activation requires separate verification of migration `20261107000016_recipe_image_final_lifecycle.sql`, its service-role RPC grants and `image_path` trigger, private-read and deletion handlers, server-only R2 credentials, bucket privacy and finalized-object delete permissions, and the final-cleanup token. The existing BE-13 readiness script does not check those requirements. The BE-14 finalized cleanup handler is not part of any deployment schedule or workflow, and no production deployment or database application is performed here.
 
 
 
@@ -203,14 +227,14 @@ R2 listing capability has not been verified for the configured access key. Befor
 
 The production schema, RPCs, grants, function deployment, cleanup secrets, and bucket-scoped delete/list permissions have not been independently verified by this change. Cleanup remains disabled until the operator checks are recorded and a separately authorized workflow change activates it. No live infrastructure is modified here. Production readiness also remains blocked on BE-14 actual-object metadata verification before attachment. Client compression is not an enforcement control.
 
-Private-read signing is unresolved: Issues [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104) and [#105](https://github.com/2ton-exe/moris-mix-ai/issues/105) require an agreed endpoint split and delivery contract, and BE-09 leaves delivery separate. No download route or GET signing capability is implemented in BE-13.
+Private reads use the approved BE-14 `recipe-image-download-url` route with a 60-second signed GET capability. BE-13 continues to own PUT signing and staging cleanup only. BE-14 requires migration `20261107000016_recipe_image_final_lifecycle.sql` before deploying its attach, read, delete, or finalized-cleanup handlers. The existing BE-13 protected upload-signing readiness script does not verify BE-14's migration or handler readiness; this implementation does not deploy BE-14 to production.
 
 ## BE-13 verification
 
 Run focused offline tests using already available dependencies:
 
 ```powershell
-deno test --cached-only --frozen-lockfile --node-modules-dir=manual --allow-env supabase/functions/tests/r2_signing_test.ts supabase/functions/tests/recipe_image_upload_url_test.ts supabase/functions/tests/recipe_image_upload_cleanup_test.ts supabase/functions/tests/recipe_image_schemas_test.ts
+deno test --cached-only --frozen-lockfile --node-modules-dir=manual --allow-env supabase/functions/tests/r2_signing_test.ts supabase/functions/tests/recipe_image_upload_url_test.ts supabase/functions/tests/recipe_image_upload_cleanup_test.ts supabase/functions/tests/recipe_image_schemas_test.ts supabase/functions/tests/recipe_image_lifecycle_test.ts
 pnpm test:migrations
 ```
 

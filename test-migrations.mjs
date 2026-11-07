@@ -70,6 +70,42 @@ function runDiscoveryAndIntegrityUnitTests() {
   const lifecycleMigration = migrations.find((migration) => migration.version === '20261102000010');
   assert.equal(lifecycleMigration?.file, '20261102000010_recipe_image_upload_lifecycle.sql');
   const lifecycleSql = fs.readFileSync(lifecycleMigration.filePath, 'utf8');
+  const finalLifecycle = migrations.find((migration) => migration.version === '20261107000016');
+  assert.equal(finalLifecycle?.file, '20261107000016_recipe_image_final_lifecycle.sql');
+  const finalLifecycleSql = fs.readFileSync(finalLifecycle.filePath, 'utf8');
+  assert.match(finalLifecycleSql, /finalization_attempt_token uuid/);
+  assert.match(finalLifecycleSql, /finalization_lease_until timestamptz/);
+  assert.match(finalLifecycleSql, /state = 'finalizing'[\s\S]*finalization_attempt_token is not null[\s\S]*finalization_lease_until is not null/);
+  assert.match(finalLifecycleSql, /for update skip locked/i);
+  assert.match(finalLifecycleSql, /finalization_attempt_token is distinct from p_attempt_token/);
+  assert.match(finalLifecycleSql, /create table public\.recipe_image_finalization_attempts/);
+  assert.match(finalLifecycleSql, /update public\.recipes[\s\S]*set image_path = v_attempt\.object_key/);
+  assert.match(finalLifecycleSql, /create table public\.recipe_image_final_cleanup/);
+  assert.match(finalLifecycleSql, /alter table public\.recipe_image_final_cleanup enable row level security/);
+  assert.match(finalLifecycleSql, /alter table public\.recipe_image_final_cleanup force row level security/);
+  assert.match(finalLifecycleSql, /alter table public\.recipe_image_finalization_attempts enable row level security/);
+  assert.match(finalLifecycleSql, /alter table public\.recipe_image_finalization_attempts force row level security/);
+  assert.match(finalLifecycleSql, /create trigger tr_recipes_guard_image_path_write/);
+  assert.match(finalLifecycleSql, /current_user in \('anon', 'authenticated'\)/);
+  assert.match(finalLifecycleSql, /create trigger tr_recipes_enqueue_deleted_image/);
+  assert.match(finalLifecycleSql, /create trigger tr_recipe_image_enqueue_expired_final/);
+  assert.match(finalLifecycleSql, /create trigger tr_recipe_image_enqueue_deleted_finalization/);
+  assert.match(finalLifecycleSql, /select attempt\.content_type into v_content_type[\s\S]*attempt\.state = 'attached'/);
+  assert.match(finalLifecycleSql, /not exists \(select 1 from public\.recipes as recipe where recipe\.image_path = cleanup\.object_key\)/);
+  assert.match(finalLifecycleSql, /order by cleanup\.next_attempt_at, cleanup\.created_at, cleanup\.object_key/);
+  assert.match(finalLifecycleSql, /cleanup\.attempts < 8/);
+  assert.match(finalLifecycleSql, /interval '10 minutes'/);
+  assert.match(finalLifecycleSql, /least\(60, power\(2, least\(v_attempts, 6\)\)::integer\)/);
+  for (const role of ['anon', 'authenticated']) {
+    assert.match(finalLifecycleSql, new RegExp(`revoke all on function public\\.claim_recipe_image_finalization\\(uuid, uuid, uuid, uuid\\) from ${role}`));
+    assert.match(finalLifecycleSql, new RegExp(`revoke all on table public\\.recipe_image_final_cleanup from ${role}`));
+  }
+  assert.match(finalLifecycleSql, /grant execute on function public\.claim_recipe_image_finalization\(uuid, uuid, uuid, uuid\) to service_role/);
+  assert.match(finalLifecycleSql, /grant execute on function public\.start_recipe_image_final_copy\(uuid, uuid\) to service_role/);
+  assert.match(finalLifecycleSql, /grant execute on function public\.finish_recipe_image_final_copy\(uuid, uuid, text, integer\) to service_role/);
+  assert.match(finalLifecycleSql, /grant execute on function public\.delete_recipe_image_association\(uuid, uuid\) to service_role/);
+  assert.match(finalLifecycleSql, /grant execute on function public\.resolve_recipe_image_download\(uuid, uuid\) to service_role/);
+  assert.doesNotMatch(finalLifecycleSql, /^\s*grant\b[^;]*\b(?:public|anon|authenticated)\b[^;]*;/im);
   const lifecycleCorrection = migrations.find((migration) => migration.version === '20261102000011');
   assert.equal(lifecycleCorrection?.file, '20261102000011_recipe_image_upload_cleanup_claim_qualification.sql');
   const lifecycleCorrectionSql = fs.readFileSync(lifecycleCorrection.filePath, 'utf8');
@@ -221,10 +257,12 @@ async function runQuotaAuthorizationDatabaseTests(client) {
 async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ssl) {
   const competing = new Client({ connectionString, ssl });
   await competing.connect();
+  const seededUser = crypto.randomUUID();
+  const seededRecipe = crypto.randomUUID();
+  const deletedRecipe = crypto.randomUUID();
   const setServiceRole = (target) => target.query("SELECT set_config('request.jwt.claim.role', 'service_role', false)");
-  const createIntent = async (target, userId, createdAt = new Date()) => {
+  const createIntent = async (target, userId, createdAt = new Date(), recipeId = crypto.randomUUID()) => {
     const id = crypto.randomUUID();
-    const recipeId = crypto.randomUUID();
     const created = new Date(Math.floor(createdAt.getTime() / 1000) * 1000);
     const suffix = `${userId}/${recipeId}/${id}`;
     const result = await target.query(
@@ -237,6 +275,200 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
   try {
     await setServiceRole(client);
     await setServiceRole(competing);
+    await client.query(
+      'INSERT INTO auth.users (id, aud, role, email, encrypted_password, email_confirmed_at) VALUES ($1::uuid, $2, $3, $4, $5, now())',
+      [seededUser, 'authenticated', 'authenticated', `${seededUser}@migration-test.invalid`, '']
+    );
+    await client.query(
+      'INSERT INTO public.recipes (id, user_id, title) VALUES ($1::uuid, $2::uuid, $3)',
+      [seededRecipe, seededUser, 'recipe image lifecycle migration test']
+    );
+    await client.query('BEGIN');
+    try {
+      await client.query("SELECT set_config('request.jwt.claim.role', 'authenticated', true)");
+      await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [seededUser]);
+      await client.query('SET LOCAL ROLE authenticated');
+      await client.query('SAVEPOINT image_path_guard');
+      await assert.rejects(
+        () => client.query('UPDATE public.recipes SET image_path = $1 WHERE id = $2::uuid', [`recipe-images/final/${seededUser}/${seededRecipe}/${crypto.randomUUID()}/${crypto.randomUUID()}`, seededRecipe]),
+        (error) => error.code === '42501'
+      );
+      await client.query('ROLLBACK TO SAVEPOINT image_path_guard');
+      await client.query('RELEASE SAVEPOINT image_path_guard');
+      await client.query('RESET ROLE');
+    } finally {
+      await client.query('ROLLBACK');
+    }
+    await setServiceRole(client);
+
+    const firstFinalization = await createIntent(client, seededUser, new Date(), seededRecipe);
+    const firstToken = crypto.randomUUID();
+    const secondToken = crypto.randomUUID();
+    const claimSql = 'SELECT public.claim_recipe_image_finalization($1::uuid, $2::uuid, $3::uuid, $4::uuid) AS result';
+    const firstClaim = (await client.query(claimSql, [seededUser, seededRecipe, firstFinalization.id, firstToken])).rows[0].result;
+    assert.equal(firstClaim.status, 'claimed');
+    const startCopySql = 'SELECT public.start_recipe_image_final_copy($1::uuid, $2::uuid) AS status';
+    const finishCopySql = 'SELECT public.finish_recipe_image_final_copy($1::uuid, $2::uuid, $3::text, $4::integer) AS status';
+    assert.equal((await client.query(startCopySql, [firstFinalization.id, firstToken])).rows[0].status, 'started');
+    assert.equal((await competing.query(claimSql, [seededUser, seededRecipe, firstFinalization.id, secondToken])).rows[0].result.status, 'conflict');
+    await client.query('UPDATE public.recipe_image_upload_intents SET finalization_lease_until = now() - interval \'1 second\' WHERE id = $1::uuid', [firstFinalization.id]);
+    const secondClaim = (await client.query(claimSql, [seededUser, seededRecipe, firstFinalization.id, secondToken])).rows[0].result;
+    assert.equal(secondClaim.status, 'claimed');
+    assert.notEqual(secondClaim.object_key, firstClaim.object_key);
+    const finishSql = 'SELECT public.finish_recipe_image_finalization($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::integer) AS result';
+    assert.equal((await client.query(finishSql, [seededUser, seededRecipe, firstFinalization.id, firstToken, 'image/jpeg', 1024])).rows[0].result.status, 'stale');
+    assert.equal((await client.query('SELECT image_path FROM public.recipes WHERE id = $1::uuid', [seededRecipe])).rows[0].image_path, null);
+    assert.equal((await client.query(startCopySql, [firstFinalization.id, secondToken])).rows[0].status, 'started');
+    assert.equal((await client.query(finishCopySql, [firstFinalization.id, secondToken, 'image/jpeg', 1024])).rows[0].status, 'verified');
+    assert.equal((await client.query(finishSql, [seededUser, seededRecipe, firstFinalization.id, secondToken, 'image/jpeg', 1024])).rows[0].result.status, 'attached');
+    assert.equal((await client.query(claimSql, [seededUser, seededRecipe, firstFinalization.id, crypto.randomUUID()])).rows[0].result.status, 'attached');
+    const firstFinalKey = secondClaim.object_key;
+    assert.deepEqual((await client.query('SELECT public.resolve_recipe_image_download($1::uuid, $2::uuid) AS result', [seededUser, seededRecipe])).rows[0].result, { status: 'found', object_key: firstFinalKey, content_type: 'image/jpeg' });
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [firstFinalization.id]);
+    assert.deepEqual((await client.query('SELECT public.resolve_recipe_image_download($1::uuid, $2::uuid) AS result', [seededUser, seededRecipe])).rows[0].result, { status: 'found', object_key: firstFinalKey, content_type: 'image/jpeg' });
+    assert.equal((await client.query('SELECT state FROM public.recipe_image_finalization_attempts WHERE attempt_token = $1::uuid', [firstToken])).rows[0].state, 'abandoned');
+    assert.equal((await client.query('SELECT status FROM public.recipe_image_final_cleanup WHERE object_key = $1', [firstClaim.object_key])).rows[0].status, 'watching');
+
+    const secondFinalization = await createIntent(client, seededUser, new Date(), seededRecipe);
+    const thirdToken = crypto.randomUUID();
+    const thirdClaim = (await client.query(claimSql, [seededUser, seededRecipe, secondFinalization.id, thirdToken])).rows[0].result;
+    assert.equal(thirdClaim.status, 'claimed');
+    assert.equal((await client.query(startCopySql, [secondFinalization.id, thirdToken])).rows[0].status, 'started');
+    assert.equal((await client.query(finishCopySql, [secondFinalization.id, thirdToken, 'image/jpeg', 1024])).rows[0].status, 'verified');
+    assert.equal((await client.query(finishSql, [seededUser, seededRecipe, secondFinalization.id, thirdToken, 'image/jpeg', 1024])).rows[0].result.status, 'attached');
+    const secondFinalKey = thirdClaim.object_key;
+    assert.equal((await client.query('SELECT status FROM public.recipe_image_final_cleanup WHERE object_key = $1', [firstFinalKey])).rows[0].status, 'queued');
+    assert.equal((await client.query('SELECT image_path FROM public.recipes WHERE id = $1::uuid', [seededRecipe])).rows[0].image_path, secondFinalKey);
+
+    const cleanupClaims = await client.query('SELECT object_key FROM public.claim_recipe_image_final_cleanup(50)');
+    assert.equal(cleanupClaims.rows.some((row) => row.object_key === secondFinalKey), false);
+    assert.deepEqual(cleanupClaims.rows.map((row) => row.object_key).sort(), [firstClaim.object_key, firstFinalKey].sort());
+    for (const key of cleanupClaims.rows.map((row) => row.object_key)) {
+      const finishCleanupSql = 'SELECT public.finish_recipe_image_final_cleanup($1::text, $2::uuid, true, null) AS status';
+      const lease = (await client.query('SELECT lease_token FROM public.recipe_image_final_cleanup WHERE object_key = $1', [key])).rows[0].lease_token;
+      assert.equal((await client.query(finishCleanupSql, [key, lease])).rows[0].status, key === firstClaim.object_key ? 'watching' : 'complete');
+    }
+    await client.query("UPDATE public.recipe_image_final_cleanup SET next_attempt_at = now() - interval '1 second' WHERE object_key = $1", [firstClaim.object_key]);
+    const watcherRetry = await client.query('SELECT object_key FROM public.claim_recipe_image_final_cleanup(50)');
+    assert.deepEqual(watcherRetry.rows.map((row) => row.object_key), [firstClaim.object_key]);
+    const watcherLease = (await client.query('SELECT lease_token FROM public.recipe_image_final_cleanup WHERE object_key = $1', [firstClaim.object_key])).rows[0].lease_token;
+    assert.equal((await client.query('SELECT public.finish_recipe_image_final_cleanup($1::text, $2::uuid, true, null) AS status', [firstClaim.object_key, watcherLease])).rows[0].status, 'watching');
+    assert.equal((await client.query('SELECT public.delete_recipe_image_association($1::uuid, $2::uuid) AS status', [seededUser, seededRecipe])).rows[0].status, 'deleted');
+    assert.equal((await client.query('SELECT image_path FROM public.recipes WHERE id = $1::uuid', [seededRecipe])).rows[0].image_path, null);
+    assert.equal((await client.query('SELECT status FROM public.recipe_image_final_cleanup WHERE object_key = $1', [secondFinalKey])).rows[0].status, 'queued');
+    assert.equal((await client.query('SELECT public.delete_recipe_image_association($1::uuid, $2::uuid) AS status', [seededUser, seededRecipe])).rows[0].status, 'deleted');
+
+    const deletedIntent = await createIntent(client, seededUser, new Date(), seededRecipe);
+    const deletedAttemptToken = crypto.randomUUID();
+    const deletedAttempt = (await client.query(claimSql, [seededUser, seededRecipe, deletedIntent.id, deletedAttemptToken])).rows[0].result;
+    assert.equal((await client.query(startCopySql, [deletedIntent.id, deletedAttemptToken])).rows[0].status, 'started');
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [deletedIntent.id]);
+    assert.equal((await client.query('SELECT state FROM public.recipe_image_finalization_attempts WHERE attempt_token = $1::uuid', [deletedAttemptToken])).rows[0].state, 'abandoned');
+    assert.equal((await client.query('SELECT status FROM public.recipe_image_final_cleanup WHERE object_key = $1', [deletedAttempt.object_key])).rows[0].status, 'watching');
+
+    const watchKeys = [];
+    for (let index = 0; index < 60; index++) {
+      const key = `recipe-images/final/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+      watchKeys.push(key);
+      await client.query(
+        "INSERT INTO public.recipe_image_final_cleanup (object_key, recipe_id, status, next_attempt_at, created_at, watch_late_writes) VALUES ($1::text, $2::uuid, 'watching', now() - interval '3 days', now() - interval '30 days' + ($3::integer * interval '1 second'), true)",
+        [key, seededRecipe, index]
+      );
+    }
+    const retryFinalKey = `recipe-images/final/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    const expiredFinalLeaseKey = `recipe-images/final/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    const expiredFinalLeaseToken = crypto.randomUUID();
+    const ordinaryKeys = [retryFinalKey, expiredFinalLeaseKey];
+    for (let index = 0; index < 25; index++) {
+      ordinaryKeys.push(`recipe-images/final/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`);
+    }
+    for (const key of ordinaryKeys) {
+      if (key === retryFinalKey) {
+        await client.query(
+          "INSERT INTO public.recipe_image_final_cleanup (object_key, recipe_id, status, attempts, next_attempt_at, created_at, last_error) VALUES ($1::text, $2::uuid, 'retry', 1, now() - interval '2 days', now() - interval '29 days', 'network')",
+          [key, seededRecipe]
+        );
+      } else if (key === expiredFinalLeaseKey) {
+        await client.query(
+          "INSERT INTO public.recipe_image_final_cleanup (object_key, recipe_id, status, attempts, lease_token, lease_until, next_attempt_at, created_at) VALUES ($1::text, $2::uuid, 'claimed', 1, $3::uuid, now() - interval '1 minute', now() - interval '2 days', now() - interval '29 days')",
+          [key, seededRecipe, expiredFinalLeaseToken]
+        );
+      } else {
+        await client.query(
+          "INSERT INTO public.recipe_image_final_cleanup (object_key, recipe_id, status, next_attempt_at, created_at) VALUES ($1::text, $2::uuid, 'queued', now() - interval '2 days', now() - interval '29 days')",
+          [key, seededRecipe]
+        );
+      }
+    }
+    const protectedFinalKey = `recipe-images/final/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    await client.query(
+      "INSERT INTO public.recipe_image_final_cleanup (object_key, recipe_id, status, next_attempt_at, created_at) VALUES ($1::text, $2::uuid, 'queued', now() - interval '4 days', now() - interval '31 days')",
+      [protectedFinalKey, seededRecipe]
+    );
+    await client.query('UPDATE public.recipes SET image_path = $1::text WHERE id = $2::uuid', [protectedFinalKey, seededRecipe]);
+
+    const finishCleanup = async (target, rows, failKey = null) => {
+      for (const row of rows) {
+        const failed = row.object_key === failKey;
+        const result = await target.query(
+          'SELECT public.finish_recipe_image_final_cleanup($1::text, $2::uuid, $3::boolean, $4::text) AS status',
+          [row.object_key, row.lease_token, !failed, failed ? 'network' : null]
+        );
+        const expected = failed ? 'retry' : watchKeys.includes(row.object_key) ? 'watching' : 'complete';
+        assert.equal(result.rows[0].status, expected);
+      }
+    };
+
+    await client.query('BEGIN');
+    const firstFairBatch = await client.query('SELECT * FROM public.claim_recipe_image_final_cleanup(25)');
+    assert.equal(firstFairBatch.rows.length, 25);
+    assert.equal(firstFairBatch.rows.every((row) => watchKeys.includes(row.object_key)), true);
+    const secondFairBatch = await competing.query('SELECT * FROM public.claim_recipe_image_final_cleanup(25)');
+    assert.equal(secondFairBatch.rows.length, 25);
+    assert.equal(secondFairBatch.rows.every((row) => watchKeys.includes(row.object_key)), true);
+    assert.equal(secondFairBatch.rows.some((row) => firstFairBatch.rows.some((first) => first.object_key === row.object_key)), false);
+    await finishCleanup(client, firstFairBatch.rows);
+    await client.query('COMMIT');
+    await finishCleanup(competing, secondFairBatch.rows);
+    const firstFifty = [...firstFairBatch.rows, ...secondFairBatch.rows].map((row) => row.object_key);
+    await client.query('UPDATE public.recipe_image_final_cleanup SET next_attempt_at = now() - interval \'1 second\' WHERE object_key = ANY($1::text[])', [firstFifty]);
+
+    const thirdFairBatch = await client.query('SELECT * FROM public.claim_recipe_image_final_cleanup(25)');
+    assert.equal(thirdFairBatch.rows.length, 25);
+    const thirdKeys = thirdFairBatch.rows.map((row) => row.object_key);
+    const seenOrdinary = new Set(thirdKeys.filter((key) => ordinaryKeys.includes(key)));
+    assert.equal(watchKeys.filter((key) => !firstFifty.includes(key)).every((key) => thirdKeys.includes(key)), true);
+    assert.equal(thirdKeys.includes(protectedFinalKey), false);
+    assert.equal(thirdKeys.includes(retryFinalKey), true);
+    assert.equal(thirdKeys.includes(expiredFinalLeaseKey), true);
+    const recoveredFinalLease = thirdFairBatch.rows.find((row) => row.object_key === expiredFinalLeaseKey);
+    assert.notEqual(recoveredFinalLease.lease_token, expiredFinalLeaseToken);
+    await finishCleanup(client, thirdFairBatch.rows, retryFinalKey);
+    const seenWatching = [...firstFairBatch.rows, ...secondFairBatch.rows, ...thirdFairBatch.rows]
+      .map((row) => row.object_key).filter((key) => watchKeys.includes(key));
+    assert.equal(new Set(seenWatching).size, 60);
+    await client.query('UPDATE public.recipe_image_final_cleanup SET next_attempt_at = now() - interval \'1 second\' WHERE object_key = $1::text', [retryFinalKey]);
+    const fourthFairBatch = await client.query('SELECT * FROM public.claim_recipe_image_final_cleanup(25)');
+    fourthFairBatch.rows.filter((row) => ordinaryKeys.includes(row.object_key)).forEach((row) => seenOrdinary.add(row.object_key));
+    await finishCleanup(client, fourthFairBatch.rows);
+    let retryReclaimed = fourthFairBatch.rows.some((row) => row.object_key === retryFinalKey);
+    for (let invocation = 0; invocation < 4 && !retryReclaimed; invocation++) {
+      const laterFairBatch = await client.query('SELECT * FROM public.claim_recipe_image_final_cleanup(25)');
+      retryReclaimed = laterFairBatch.rows.some((row) => row.object_key === retryFinalKey);
+      laterFairBatch.rows.filter((row) => ordinaryKeys.includes(row.object_key)).forEach((row) => seenOrdinary.add(row.object_key));
+      await finishCleanup(client, laterFairBatch.rows);
+    }
+    assert.equal(retryReclaimed, true);
+    assert.equal(ordinaryKeys.every((key) => seenOrdinary.has(key)), true);
+    assert.equal((await client.query('SELECT status FROM public.recipe_image_final_cleanup WHERE object_key = $1::text', [retryFinalKey])).rows[0].status, 'complete');
+    await client.query('UPDATE public.recipes SET image_path = null WHERE id = $1::uuid', [seededRecipe]);
+    console.log('PASS: Final cleanup due-time scheduling advances ordinary work and all watches across bounded batches, with exclusive claims, retries, lease recovery, and active-reference protection.');
+
+    const deletedRecipeKey = `recipe-images/final/${seededUser}/${deletedRecipe}/${crypto.randomUUID()}/${crypto.randomUUID()}`;
+    await client.query('INSERT INTO public.recipes (id, user_id, title, image_path) VALUES ($1::uuid, $2::uuid, $3, $4)', [deletedRecipe, seededUser, 'final image deletion trigger test', deletedRecipeKey]);
+    await client.query('DELETE FROM public.recipes WHERE id = $1::uuid', [deletedRecipe]);
+    assert.equal((await client.query('SELECT recipe_id FROM public.recipe_image_final_cleanup WHERE object_key = $1', [deletedRecipeKey])).rows[0].recipe_id, deletedRecipe);
+
     const retentionEligible = await createIntent(client, crypto.randomUUID());
     const retentionIneligible = await createIntent(client, crypto.randomUUID());
     await client.query("UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() - interval '31 days' WHERE id = $1::uuid", [retentionEligible.id]);
@@ -272,7 +504,7 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     const active = await createIntent(client, crypto.randomUUID());
     const finalizing = await createIntent(client, crypto.randomUUID());
     const attached = await createIntent(client, crypto.randomUUID());
-    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'finalizing' WHERE id = $1::uuid", [finalizing.id]);
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'finalizing', finalization_attempt_token = $2::uuid, finalization_lease_until = now() + interval '2 minutes' WHERE id = $1::uuid", [finalizing.id, crypto.randomUUID()]);
     await client.query("UPDATE public.recipe_image_upload_intents SET state = 'attached' WHERE id = $1::uuid", [attached.id]);
     const claimed = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
     assert.deepEqual(claimed.rows.map((row) => row.id), [stale.id]);
@@ -421,10 +653,10 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
 
     const concurrentCleanup = await createIntent(client, crypto.randomUUID(), new Date(Date.now() - 11 * 60 * 1000));
     await client.query('BEGIN');
-    const firstClaim = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
-    assert.equal(firstClaim.rows.some((row) => row.id === concurrentCleanup.id), true);
-    const secondClaim = await competing.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
-    assert.equal(secondClaim.rows.some((row) => row.id === concurrentCleanup.id), false);
+    const firstStagingClaim = await client.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.equal(firstStagingClaim.rows.some((row) => row.id === concurrentCleanup.id), true);
+    const secondStagingClaim = await competing.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
+    assert.equal(secondStagingClaim.rows.some((row) => row.id === concurrentCleanup.id), false);
     await client.query('ROLLBACK');
     // Three attachments continue to consume quota until post-expiry staging deletion succeeds.
     const attachedUser = crypto.randomUUID();
@@ -499,9 +731,15 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       if (permission.service !== null) assert.equal(permission.service, true);
     }
     console.log('PASS: Attached staging cleanup waits for expiry, retries exclusively, releases quota, preserves attached results/final keys, and reconciles late PUTs.');
+    console.log('PASS: Recipe-image attempt outputs are isolated, stale copy attempts remain watched, active images are protected, and final cleanup is recoverable in PostgreSQL.');
     console.log('PASS: Recipe-image quotas serialize concurrent signing, cleanup claims are exclusive, and expiry/retry state fences hold in PostgreSQL.');
   } finally {
     try { await client.query('ROLLBACK'); } catch {}
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE user_id = $1::uuid', [seededUser]).catch(() => undefined);
+    await client.query('DELETE FROM public.recipes WHERE user_id = $1::uuid', [seededUser]).catch(() => undefined);
+    await client.query('DELETE FROM auth.users WHERE id = $1::uuid', [seededUser]).catch(() => undefined);
+    await client.query('DELETE FROM public.recipe_image_final_cleanup WHERE recipe_id = ANY($1::uuid[])', [[seededRecipe, deletedRecipe]]).catch(() => undefined);
+    await client.query('DELETE FROM public.recipe_image_finalization_attempts WHERE user_id = $1::uuid', [seededUser]).catch(() => undefined);
     try { await client.query("SELECT set_config('request.jwt.claim.role', '', false)"); } catch {}
     await competing.end();
   }
