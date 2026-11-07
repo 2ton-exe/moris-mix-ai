@@ -605,6 +605,10 @@ the remaining evidence before closing #147.
   independently live-tested.
 - [x] Observe real merged-PR handling: #174 and #178 became Done while
   still-open parent #147 was not automatically closed.
+- [ ] Verify that an open issue remains `In Progress` when its only recognized
+  implementation evidence is one or more merged PRs. Existing #174/#178
+  observations establish PR `Done` and no automatic issue closure, but do not
+  independently isolate this Project issue-status case.
 - [ ] Live duplicate-event delivery and independent full-board item-uniqueness
   inspection are not proven; zero-operation repeat runs and fail-closed
   duplicate validation establish narrower evidence.
