@@ -6,6 +6,12 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Explicit least-privilege GITHUB_TOKEN baseline for PR validation.
+# Called reusable workflows cannot elevate token permissions above the caller;
+# caller jobs may declare justified job-specific scopes where allowed.
+permissions:
+  contents: read
+
 jobs:
   classify:
     name: Classify PR paths
