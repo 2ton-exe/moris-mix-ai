@@ -914,14 +914,37 @@ this hold. Only completion of the entire release records success automatically.
 The production caller and job require `deployments: write`; contents remain read-only.
 Do not use this dedicated environment for unrelated deployments or delete its records.
 
-To recover, an operator must inspect the held deployment's source revision and run,
-the actual schema and migration ledger, application compatibility, and backup/restore
-evidence in #155/#159. Record the approved repair and verification evidence before
-posting a `success` deployment status to
-`POST /repos/{owner}/{repo}/deployments/{deployment_id}/statuses` with
-`auto_inactive: false` and a `log_url` linking that evidence. This status acknowledges
-recovery readiness; it does not assert the failed run deployed successfully. Every
-held record must be reconciled. Then dispatch main validation at current main.
+To recover, inspect the held deployment's source revision and run, local migration
+files, remote migration ledger, actual schema/data effects, compatibility with the
+last deployed application, and the backup/restore evidence and limitations recorded
+in #155/#159. Do not rerun a migration or repair the ledger until the partial effects
+are understood. The current database owner for `supabase/migrations/` (`@DanielRamos1186`)
+and release owner for `reusable-production.yml` (`@DaeSaster`) must both approve the
+reconciliation. Record their approvals, the repair decision, and verification evidence
+in #155 or the linked incident record before clearing each held deployment.
+
+Use the run ID and attempt in the failed workflow to find its deployment ID and verify
+the description and source revision:
+
+```sh
+gh api --paginate 'repos/2ton-exe/moris-mix-ai/deployments?environment=production-migration-recovery&per_page=100' \
+  --jq '.[] | select(.description | contains("run <run-id> attempt <attempt>")) | {id, ref, description}'
+```
+
+After both approvals and evidence are recorded, post the audited success status for
+that exact deployment. Set `log_url` to the approval/evidence record; the status
+acknowledges recovery readiness and does not claim the failed run deployed successfully.
+
+```sh
+gh api --method POST \
+  'repos/2ton-exe/moris-mix-ai/deployments/<deployment-id>/statuses' \
+  --field state=success \
+  --field auto_inactive=false \
+  --field log_url='https://github.com/2ton-exe/moris-mix-ai/issues/155#issuecomment-<evidence-id>' \
+  --field description='Recovery approved by database and release owners'
+```
+
+Reconcile every held record before dispatching main validation at current `main`.
 Never automatically clear a hold in cancellation or failure cleanup.
 
 
