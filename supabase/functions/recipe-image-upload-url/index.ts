@@ -71,18 +71,21 @@ async function readBoundedBody(
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!req.body) throw new UploadInputError("Missing upload body.");
   const reader = req.body.getReader();
-  const chunks: Uint8Array<ArrayBufferLike>[] = [];
+  const body = new Uint8Array(expectedSize);
   let total = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      total += value.byteLength;
-      if (total > MAX_RECIPE_IMAGE_BYTES || total > expectedSize) {
+      if (
+        total + value.byteLength > MAX_RECIPE_IMAGE_BYTES ||
+        total + value.byteLength > expectedSize
+      ) {
         await reader.cancel();
         throw new UploadInputError("Upload exceeds its declared size.");
       }
-      chunks.push(value);
+      body.set(value, total);
+      total += value.byteLength;
     }
   } catch (cause) {
     if (cause instanceof UploadInputError) throw cause;
@@ -92,12 +95,6 @@ async function readBoundedBody(
   }
   if (total !== expectedSize) {
     throw new UploadInputError("Upload size does not match its intent.");
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
   }
   return body;
 }

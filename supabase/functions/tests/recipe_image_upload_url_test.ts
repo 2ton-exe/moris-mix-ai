@@ -377,6 +377,50 @@ Deno.test("upload ingress accepts the exact limit and rejects oversize or mismat
   assertEquals(shortStored.length, 0);
 });
 
+Deno.test("upload ingress assembles streamed chunks in order and cancels oversized streams", async () => {
+  const { deps, stored } = mock();
+  const uploadId = await createUpload(deps, 4);
+  function streamedRequest(body: ReadableStream<Uint8Array>): Request {
+    return new Request(
+      `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/jpeg",
+        },
+        body,
+      },
+    );
+  }
+  const valid = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3, 4]));
+      controller.close();
+    },
+  });
+  assertEquals((await handler(streamedRequest(valid), deps)).status, 201);
+  assertEquals(stored[0], new Uint8Array([1, 2, 3, 4]));
+  let cancelled = false;
+  const oversized = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3, 4, 5]));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  await expectError(
+    await handler(streamedRequest(oversized), deps),
+    400,
+    "VALIDATION_ERROR",
+  );
+  assertEquals(cancelled, true);
+  assertEquals(stored.length, 1);
+});
+
 Deno.test("upload ingress rejects mismatched headers, expired intents, and cleanup-completed replay", async () => {
   const { deps, stored } = mock();
   const uploadId = await createUpload(deps);

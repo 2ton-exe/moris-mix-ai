@@ -110,7 +110,7 @@ export async function putRecipeImageStaging(
     "if-none-match:*",
     `x-amz-content-sha256:${payloadHash}`,
     `x-amz-date:${timestamp}`,
-  ].join("\n");
+  ].join("\n") + "\n";
   const canonicalRequest = [
     "PUT",
     path,

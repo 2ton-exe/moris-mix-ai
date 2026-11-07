@@ -200,7 +200,7 @@ function referencePutSignature(url: URL, init: RequestInit): string {
     `if-none-match:${headers.get("if-none-match")}`,
     `x-amz-content-sha256:${headers.get("x-amz-content-sha256")}`,
     `x-amz-date:${date}`,
-  ].join("\n");
+  ].join("\n") + "\n";
   const canonicalRequest =
     `PUT\n${url.pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
   let key: Uint8Array = new TextEncoder().encode(
@@ -256,6 +256,12 @@ Deno.test("backend PUT uses a payload-bound SigV4 signature and atomic create-on
     assertEquals(headers.get("x-amz-date"), "20261102T000000Z");
     assertEquals(authorization.includes("UNSIGNED-PAYLOAD"), false);
     assertEquals(signature, referencePutSignature(url, init!));
+    if (contentType === "image/jpeg") {
+      assertEquals(
+        signature,
+        "3f811924aa04c2dd4d5e032c5ce6a0b365a733e56b08dc432ad704e7eea97e74",
+      );
+    }
     assertEquals(init?.method, "PUT");
     assertEquals((init?.body as Uint8Array).byteLength, 1024);
   }
