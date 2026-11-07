@@ -10,11 +10,32 @@ const pantryInputSchema = z.object({
   preferences: z.string(),
 })
 
+const lineageStatusSchema = z.enum(['pending', 'expired', 'blocked', 'confirmed'])
+
 const reviewHandoffSchema = z.object({
   request: generateRecipeRequestSchema,
   response: generateRecipeResponseSchema,
   reviewDraft: recipeEditorStateSchema.nullable().optional(),
+  selectedParentIds: z.array(z.string().uuid()).max(10).default([]),
+  savedRecipeId: z.string().uuid().optional(),
+  lineageStatus: lineageStatusSchema.optional(),
   saved: z.literal(false),
+}).transform((value) => {
+  const candidates = new Set(value.response.parents.map((parent) => parent.id.toLowerCase()))
+  const seen = new Set<string>()
+  const selectedParentIds = value.selectedParentIds.filter((id) => {
+    const normalized = id.toLowerCase()
+    if (!candidates.has(normalized) || seen.has(normalized) || seen.size >= 10) return false
+    seen.add(normalized)
+    return true
+  })
+  return {
+    ...value,
+    selectedParentIds,
+    ...(value.savedRecipeId
+      ? { lineageStatus: value.lineageStatus ?? (selectedParentIds.length > 0 ? 'pending' : 'confirmed') }
+      : { lineageStatus: undefined }),
+  }
 })
 
 const chefDraftSchema = z.object({
@@ -32,6 +53,9 @@ export interface ChefReviewHandoff {
   request: GenerateRecipeRequest
   response: GenerateRecipeResponse
   reviewDraft?: RecipeEditorState | null
+  selectedParentIds: string[]
+  savedRecipeId?: string
+  lineageStatus?: z.infer<typeof lineageStatusSchema>
   saved: false
 }
 
@@ -81,7 +105,12 @@ function resolveStorage(storage?: Storage): Storage | null {
 
 export function readChefDraftResult(userId: string, storage?: Storage): ChefDraftReadResult {
   const memoryDraft = memoryDrafts.get(userId)
-  if (memoryDraft) return { draft: memoryDraft, status: 'memory' }
+  if (memoryDraft) {
+    const parsed = chefDraftSchema.safeParse(memoryDraft)
+    return parsed.success
+      ? { draft: parsed.data, status: 'memory' }
+      : { draft: emptyChefDraft(), status: 'read-failed' }
+  }
   const target = resolveStorage(storage)
   if (!target || !userId) return { draft: emptyChefDraft(), status: 'unavailable' }
 
@@ -103,8 +132,11 @@ export function readChefDraftResult(userId: string, storage?: Storage): ChefDraf
 }
 
 export function writeChefDraft(userId: string, draft: ChefDraft, storage?: Storage): ChefDraftWriteResult {
+  const parsed = chefDraftSchema.safeParse(draft)
+  if (!parsed.success) return { persisted: false, reason: 'write-failed' }
+  const safeDraft = parsed.data
   if (userId) {
-    memoryDrafts.set(userId, draft)
+    memoryDrafts.set(userId, safeDraft)
     updateUnloadWarning()
   }
   const target = resolveStorage(storage)
@@ -112,7 +144,7 @@ export function writeChefDraft(userId: string, draft: ChefDraft, storage?: Stora
 
   let serialized: string
   try {
-    serialized = JSON.stringify(draft)
+    serialized = JSON.stringify(safeDraft)
     target.setItem(storageKey(userId), serialized)
   } catch {
     return { persisted: false, reason: 'write-failed' }

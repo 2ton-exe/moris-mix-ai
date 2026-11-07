@@ -46,6 +46,20 @@
 .mm-ai-chef__suggestions ul { display: grid; gap: 7px; margin: 7px 0 0; padding-left: 20px; }
 .mm-ai-chef__suggestions li { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
 .mm-ai-chef__suggestions li p { margin: 3px 0 0; }
+.mm-ai-chef__parent-choices { padding: 0 !important; list-style: none; }
+.mm-ai-chef__parent-choices li { border: 1px solid rgb(128 92 59 / .24); background: rgb(255 252 243 / .48); }
+.mm-ai-chef__parent-choices li.is-selected { border-color: var(--mm-color-sage-600); background: rgb(224 235 216 / .56); }
+.mm-ai-chef__parent-choice { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 10px 12px; cursor: pointer; }
+.mm-ai-chef__parent-choice input { flex: 0 0 20px; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--mm-color-sage-700); }
+.mm-ai-chef__parent-choice input:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
+.mm-ai-chef__parent-choice input:disabled { cursor: not-allowed; }
+.mm-ai-chef__parent-choice-copy { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.mm-ai-chef__parent-choice-status { color: var(--mm-color-ink-soft); font-size: 13px; }
+.mm-ai-chef__selection-count { margin-top: 9px !important; color: var(--mm-color-burgundy-900) !important; font-weight: 650; }
+.mm-ai-chef__selection-feedback { margin-bottom: 0 !important; }
+.mm-ai-chef__lineage-recovery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; border-left: 3px solid var(--mm-color-burgundy-700); background: var(--mm-color-rose-100, #f5e2dc); }
+.mm-ai-chef__lineage-recovery p { flex: 1 1 100%; margin: 0; color: var(--mm-color-ink); line-height: 1.5; overflow-wrap: anywhere; }
+.mm-ai-chef__lineage-recovery .button { max-width: 100%; white-space: normal; }
 .mm-ai-chef__review-notice details > p { margin: 7px 0; line-height: 1.5; overflow-wrap: anywhere; }
 .mm-ai-chef__review-notice details > ul { margin: 7px 0; padding-left: 20px; }
 .mm-ai-chef :where(input, textarea, button, a):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }

@@ -15,13 +15,14 @@ import type { RecipeFormProps } from './RecipeForm'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
-export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, editorTitle, notesSupported = false, renderFrame, notice }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, editorTitle, notesSupported = false, renderFrame, notice }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
-  const [baseline, setBaseline] = useState<string | null>(() => initialValuesAreUnsaved ? null : JSON.stringify(state))
+  const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
-  const [hasConfirmedSave, setHasConfirmedSave] = useState(false)
+  const [hasConfirmedSave, setHasConfirmedSave] = useState(initialSaveConfirmation !== undefined)
+  const [confirmationMessage, setConfirmationMessage] = useState(initialSaveConfirmation?.statusMessage ?? 'Recipe saved.')
   const [pending, setPending] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [pageAnchor, setPageAnchor] = useState<string>('identity')
@@ -293,6 +294,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       setBaseline(JSON.stringify(state))
       onDirtyChange?.(false)
       setHasConfirmedSave(true)
+      setConfirmationMessage(confirmation.statusMessage ?? 'Recipe saved.')
     } catch (error) {
       if (lifetime.current !== startedAt || request.signal.aborted) return
       if (error instanceof RecipeSubmissionError && error.kind === 'validation') {
@@ -458,7 +460,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     </div>
     <JournalPageFooter><div className="mm-form-footer">
       {message && <p className="field-error" role="alert">{message}</p>}
-      {saved && <p className="recipe-save-success" role="status">Recipe saved.</p>}
+      {saved && <p className="recipe-save-success" role="status">{saveSuccessMessage ?? confirmationMessage}</p>}
       {pending && <p role="status">Saving your recipe…</p>}
       {notice}
       {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + (otherErrorLeafIndices.length === 1 ? ' other page has' : ' other pages have') + ' errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
