@@ -849,3 +849,56 @@ Deno.test("signing failures expose no credentials, keys, URLs or raw exceptions 
     console.error = original;
   }
 });
+
+Deno.test("upload URLs use the configured public origin while server requests stay internal", async () => {
+  const { deps, intents, calls } = mock();
+  deps.supabaseUrl = "http://kong:8000";
+  deps.uploadOrigin = "http://127.0.0.1:54321";
+  const response = await handler(
+    request({
+      recipe_id: RECIPE,
+      content_type: "image/png",
+      byte_size: 1024,
+    }),
+    deps,
+  );
+  assertEquals(response.status, 200);
+  const url = new URL((await response.json()).upload.url);
+  assertEquals(url.origin, "http://127.0.0.1:54321");
+  assertEquals(url.pathname, "/functions/v1/recipe-image-upload-url");
+  assertEquals(intents.length, 1);
+  assertEquals(
+    calls.every((call) => call.url.origin === "http://kong:8000"),
+    true,
+  );
+});
+
+Deno.test("invalid public upload origins fail before consuming intent quota", async () => {
+  for (
+    const origin of [
+      "http://kong:8000",
+      "https://user:password@example.com",
+      "https://example.com/path",
+      "https://example.com?query=1",
+      "https://example.com#fragment",
+      "ftp://example.com",
+      "invalid",
+    ]
+  ) {
+    const { deps, intents } = mock();
+    deps.uploadOrigin = origin;
+    await expectError(
+      await handler(
+        request({
+          recipe_id: RECIPE,
+          content_type: "image/png",
+          byte_size: 1024,
+        }),
+        deps,
+      ),
+      500,
+      "INTERNAL_ERROR",
+    );
+    assertEquals(intents.length, 0);
+  }
+});

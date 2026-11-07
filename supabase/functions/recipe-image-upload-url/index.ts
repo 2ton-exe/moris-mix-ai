@@ -22,6 +22,7 @@ const UPLOAD_FINISH_MARGIN_MS = 30_000;
 
 export type UploadHandlerDeps = AuthDeps & {
   r2Config?: R2Config;
+  uploadOrigin?: string;
   supabaseServiceRoleKey?: string;
   now?: () => Date;
   putUpload?: typeof putRecipeImageStaging;
@@ -354,6 +355,21 @@ export async function handler(
       return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     }
     resolveR2Config(deps.r2Config);
+    const origin = new URL(
+      deps.uploadOrigin ?? Deno.env.get("RECIPE_IMAGE_UPLOAD_ORIGIN") ??
+        deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL") ?? "",
+    );
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
+      origin.hostname,
+    );
+    if (
+      (origin.protocol !== "https:" &&
+        !(origin.protocol === "http:" && loopback)) ||
+      origin.username || origin.password || origin.pathname !== "/" ||
+      origin.search || origin.hash
+    ) {
+      throw new Error("Invalid public upload origin configuration.");
+    }
     const intent = createUploadIntent(request, user.id, deps.now?.());
     const quota = await persistUploadIntent(intent, deps);
     if (quota === "rate_limited") {
@@ -372,7 +388,7 @@ export async function handler(
     }
     const uploadUrl = new URL(
       "/functions/v1/recipe-image-upload-url",
-      deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL"),
+      origin.origin,
     );
     uploadUrl.searchParams.set("upload_id", intent.id);
     return respond({

@@ -34,6 +34,70 @@ const CONFIG: R2Config = {
 };
 const NOW = new Date("2026-11-07T10:00:00Z");
 
+Deno.test("lifecycle method errors advertise the allowed methods", async () => {
+  for (const handler of [attachHandler, downloadHandler, deleteHandler]) {
+    const response = await handler(
+      new Request("https://edge.invalid", { method: "DELETE" }),
+    );
+    assertEquals(response.status, 405);
+    assertEquals(response.headers.get("Allow"), "POST, OPTIONS");
+  }
+});
+
+Deno.test("attachment distinguishes retryable missing or changed objects from invalid images", async () => {
+  for (
+    const scenario of ["missing", "changed-read", "changed-copy", "invalid"]
+  ) {
+    const calls: string[] = [];
+    const normalFetch = metadataFetch();
+    const deps = handlerDeps({
+      rpc: (name) => {
+        calls.push(name);
+        return Promise.resolve({
+          error: null,
+          data: name === "claim_recipe_image_finalization"
+            ? {
+              status: "claimed",
+              staging_key: STAGING,
+              object_key: FINAL,
+              content_type: "image/png",
+              byte_size: pngBytes().byteLength,
+            }
+            : name === "start_recipe_image_final_copy"
+            ? "started"
+            : "pending",
+        });
+      },
+      r2Fetch: (input, init) => {
+        if (scenario === "missing") {
+          return Promise.resolve(new Response(null, { status: 404 }));
+        }
+        if (
+          (scenario === "changed-read" && init?.method === "GET") ||
+          (scenario === "changed-copy" && init?.method === "PUT")
+        ) return Promise.resolve(new Response(null, { status: 412 }));
+        if (scenario === "invalid") {
+          return metadataFetch(pngBytes(), "image/jpeg")(input, init);
+        }
+        return normalFetch(input, init);
+      },
+    });
+    const response = await attachHandler(
+      imageRequest("recipe-image-attach", {
+        recipe_id: RECIPE,
+        upload_id: UPLOAD,
+      }),
+      deps,
+    );
+    assertEquals(response.status, scenario === "invalid" ? 422 : 409);
+    assertEquals(
+      (await response.json()).error.code,
+      scenario === "invalid" ? "INVALID_IMAGE" : "UPLOAD_NOT_READY",
+    );
+    assertEquals(calls.at(-1), "release_recipe_image_finalization");
+  }
+});
+
 function pngBytes(): Uint8Array {
   const signature = [137, 80, 78, 71, 13, 10, 26, 10];
   const chunk = (type: string, data: number[]) => {

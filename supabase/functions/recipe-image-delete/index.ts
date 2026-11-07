@@ -14,7 +14,13 @@ const METHODS = "POST, OPTIONS";
 export type DeleteDeps = AuthDeps & LifecycleDeps;
 
 function respond(body: unknown, status: number): Response {
-  return jsonResponse(body, { status, headers: getCorsHeaders(METHODS) });
+  return jsonResponse(body, {
+    status,
+    headers: {
+      ...getCorsHeaders(METHODS),
+      ...(status === 405 ? { Allow: METHODS } : {}),
+    },
+  });
 }
 function failure(code: string, message: string, status: number): Response {
   return respond({ error: { code, message } }, status);

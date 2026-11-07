@@ -407,6 +407,7 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     );
     await client.query('UPDATE public.recipes SET image_path = $1::text WHERE id = $2::uuid', [protectedFinalKey, seededRecipe]);
 
+    const watcherKeys = new Set([...watchKeys, firstClaim.object_key, deletedAttempt.object_key]);
     const finishCleanup = async (target, rows, failKey = null) => {
       for (const row of rows) {
         const failed = row.object_key === failKey;
@@ -414,8 +415,8 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
           'SELECT public.finish_recipe_image_final_cleanup($1::text, $2::uuid, $3::boolean, $4::text) AS status',
           [row.object_key, row.lease_token, !failed, failed ? 'network' : null]
         );
-        const expected = failed ? 'retry' : watchKeys.includes(row.object_key) ? 'watching' : 'complete';
-        assert.equal(result.rows[0].status, expected);
+        const expected = failed ? 'retry' : watcherKeys.has(row.object_key) ? 'watching' : 'complete';
+        assert.equal(result.rows[0].status, expected, row.object_key);
       }
     };
 

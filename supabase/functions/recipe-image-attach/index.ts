@@ -30,7 +30,13 @@ export type AttachDeps = AuthDeps & LifecycleDeps & {
 };
 
 function respond(body: unknown, status: number): Response {
-  return jsonResponse(body, { status, headers: getCorsHeaders(METHODS) });
+  return jsonResponse(body, {
+    status,
+    headers: {
+      ...getCorsHeaders(METHODS),
+      ...(status === 405 ? { Allow: METHODS } : {}),
+    },
+  });
 }
 function failure(code: string, message: string, status: number): Response {
   return respond({ error: { code, message } }, status);
@@ -162,7 +168,11 @@ export async function handler(
       );
       if (!stored) {
         await release();
-        return failure("UPLOAD_NOT_FOUND", "Uploaded image not found.", 404);
+        return failure(
+          "UPLOAD_NOT_READY",
+          "Uploaded image is not ready for attachment.",
+          409,
+        );
       }
       const copyClaim = await rpc("start_recipe_image_final_copy", {
         p_upload_id: uploadId,
@@ -190,7 +200,7 @@ export async function handler(
       if (!copied) {
         await release();
         return failure(
-          "IMAGE_VERIFICATION_FAILED",
+          "INVALID_IMAGE",
           "Uploaded image could not be verified.",
           422,
         );
@@ -247,11 +257,21 @@ export async function handler(
       await release().catch(() => undefined);
       if (
         error instanceof Error &&
-        /does not match|structurally invalid|size is invalid|object changed|source changed/i
+        /object changed|source changed/i.test(error.message)
+      ) {
+        return failure(
+          "UPLOAD_NOT_READY",
+          "Uploaded image is not ready for attachment.",
+          409,
+        );
+      }
+      if (
+        error instanceof Error &&
+        /does not match|structurally invalid|size is invalid/i
           .test(error.message)
       ) {
         return failure(
-          "IMAGE_VERIFICATION_FAILED",
+          "INVALID_IMAGE",
           "Uploaded image could not be verified.",
           422,
         );
