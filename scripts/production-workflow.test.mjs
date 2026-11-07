@@ -424,6 +424,8 @@ test('Stage A keeps required workflows unfiltered and classifier failure runs co
   assert.ok(audit.on.pull_request.paths.includes('.github/workflows/security-audit.yml'));
   assert.equal(audit.on.push, undefined, 'observation workflow must not gate production push');
   assert.deepEqual(audit.permissions, { contents: 'read' });
+  // Caller-wide minimum must not depend on repository default token settings.
+  assert.deepEqual(pr.permissions, { contents: 'read' });
   const classifier = pr.jobs.classify;
   assert.deepEqual(classifier.permissions, { contents: 'read' });
   assert.equal(classifier.secrets, undefined);
