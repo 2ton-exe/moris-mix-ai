@@ -6,11 +6,11 @@ import {
 } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import { createHash, createHmac } from "node:crypto";
 import {
+  putRecipeImageStaging,
   type R2Config,
   resolveR2Config,
   signRecipeImageStagingDelete,
   signRecipeImageStagingList,
-  signRecipeImageUpload,
 } from "../_shared/recipe-images/r2.ts";
 import {
   createUploadIntent,
@@ -186,116 +186,111 @@ function referenceListSignature(url: URL): string {
   ).digest("hex");
 }
 
-for (
-  const [contentType, expected] of [
-    [
-      "image/jpeg",
-      "b3d07a86031871653d2dd509401259968a5f31efb86ca7c6f522ce049db280b8",
-    ],
-    [
-      "image/png",
-      "700bc07adbaedcf16a6b0899be9de7b6e452ebbd4131a25cdb25b19b61a87b9e",
-    ],
-    [
-      "image/webp",
-      "6264042592feb52bceedb12e52982d37725232fbcb3119bd5a1bcdd93b130292",
-    ],
-  ] as const
-) {
-  Deno.test(`R2 Web Crypto PUT matches independent Node crypto vector for ${contentType}`, async () => {
-    const upload = await signRecipeImageUpload(intent(contentType), config);
-    const url = new URL(upload.url);
-    assertEquals(url.searchParams.get("X-Amz-Signature"), expected);
-    assertEquals(
-      referenceSignature(url, "PUT", new Headers(upload.headers)),
-      expected,
-    );
-    assertEquals(url.protocol, "https:");
-    assertEquals(
-      url.host,
-      `${config.accountId}.r2.cloudflarestorage.com`,
-    );
-    assertEquals(url.pathname, `/${config.bucketName}/${intent().staging_key}`);
-    assertEquals(
-      url.searchParams.get("X-Amz-Credential"),
-      "TESTACCESSKEY/20261102/auto/s3/aws4_request",
-    );
-    assertEquals(url.searchParams.get("X-Amz-Date"), "20261102T000000Z");
-    assertEquals(url.searchParams.get("X-Amz-Expires"), "600");
-    assertEquals(
-      url.searchParams.get("X-Amz-SignedHeaders"),
-      "content-type;host",
-    );
-    assertEquals(upload.headers, { "Content-Type": contentType });
-    assertEquals(upload.method, "PUT");
-    assertEquals(Date.parse(upload.expires_at) - now.getTime(), 600_000);
-    assertEquals(upload.url.includes(config.secretAccessKey), false);
-    assertEquals(upload.url.includes(intent().final_key), false);
-    assertEquals(Array.from(url.searchParams.keys()).sort(), [
-      "X-Amz-Algorithm",
-      "X-Amz-Credential",
-      "X-Amz-Date",
-      "X-Amz-Expires",
-      "X-Amz-Signature",
-      "X-Amz-SignedHeaders",
-    ]);
-  });
+function referencePutSignature(url: URL, init: RequestInit): string {
+  const headers = new Headers(init.headers);
+  const body = init.body as Uint8Array;
+  const payloadHash = createHash("sha256").update(body).digest("hex");
+  const date = headers.get("x-amz-date")!;
+  const scope = `${date.slice(0, 8)}/auto/s3/aws4_request`;
+  const signedHeaders =
+    "content-type;host;if-none-match;x-amz-content-sha256;x-amz-date";
+  const canonicalHeaders = [
+    `content-type:${headers.get("content-type")}`,
+    `host:${url.host}`,
+    `if-none-match:${headers.get("if-none-match")}`,
+    `x-amz-content-sha256:${headers.get("x-amz-content-sha256")}`,
+    `x-amz-date:${date}`,
+  ].join("\n");
+  const canonicalRequest =
+    `PUT\n${url.pathname}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  let key: Uint8Array = new TextEncoder().encode(
+    `AWS4${config.secretAccessKey}`,
+  );
+  for (const part of [date.slice(0, 8), "auto", "s3", "aws4_request"]) {
+    key = createHmac("sha256", key).update(part).digest();
+  }
+  const requestHash = createHash("sha256").update(canonicalRequest).digest(
+    "hex",
+  );
+  return createHmac("sha256", key).update(
+    `AWS4-HMAC-SHA256\n${date}\n${scope}\n${requestHash}`,
+  ).digest("hex");
 }
 
-Deno.test("R2 signature binds HTTP method, object, host, content type, scope, and expiry", async () => {
-  const upload = await signRecipeImageUpload(intent(), config);
-  const url = new URL(upload.url);
-  const signature = url.searchParams.get("X-Amz-Signature");
-  for (const method of ["GET", "HEAD", "DELETE", "POST"]) {
-    assertNotEquals(
-      referenceSignature(url, method, new Headers(upload.headers)),
-      signature,
-    );
-  }
+Deno.test("backend PUT uses a payload-bound SigV4 signature and atomic create-only condition", async () => {
   for (
-    const headers of [
-      new Headers(),
-      new Headers({ "Content-Type": "image/png" }),
-    ]
+    const contentType of ["image/jpeg", "image/png", "image/webp"] as const
   ) {
-    assertNotEquals(referenceSignature(url, "PUT", headers), signature);
-  }
-  for (
-    const mutate of [
-      (changed: URL) => {
-        changed.pathname = `/${config.bucketName}/${intent().final_key}`;
+    const imageIntent = intent(contentType);
+    const body = new Uint8Array(1024).fill(7);
+    let target = "";
+    let init: RequestInit | undefined;
+    const result = await putRecipeImageStaging(
+      imageIntent,
+      config,
+      body,
+      (input, requestInit) => {
+        target = String(input);
+        init = requestInit;
+        return Promise.resolve(new Response(null, { status: 200 }));
       },
-      (changed: URL) => {
-        changed.pathname += "/other";
-      },
-      (changed: URL) => {
-        changed.hostname =
-          `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.r2.cloudflarestorage.com`;
-      },
-      (changed: URL) => {
-        changed.searchParams.set("X-Amz-Expires", "601");
-      },
-      (changed: URL) => {
-        changed.searchParams.set("X-Amz-Date", "20261103T000000Z");
-      },
-      (changed: URL) => {
-        changed.searchParams.set("X-Amz-SignedHeaders", "host");
-      },
-      (changed: URL) => {
-        changed.searchParams.set(
-          "X-Amz-Credential",
-          "TESTACCESSKEY/20261102/auto/s3/other",
-        );
-      },
-    ]
-  ) {
-    const changed = new URL(upload.url);
-    mutate(changed);
-    assertNotEquals(
-      referenceSignature(changed, "PUT", new Headers(upload.headers)),
-      signature,
+      now,
     );
+    const url = new URL(target);
+    const headers = new Headers(init?.headers);
+    const authorization = headers.get("authorization")!;
+    const signature = authorization.match(/Signature=([0-9a-f]{64})$/)?.[1];
+    assertEquals(result, "stored");
+    assertEquals(url.protocol, "https:");
+    assertEquals(url.host, `${config.accountId}.r2.cloudflarestorage.com`);
+    assertEquals(
+      url.pathname,
+      `/${config.bucketName}/${imageIntent.staging_key}`,
+    );
+    assertEquals(headers.get("if-none-match"), "*");
+    assertEquals(headers.get("content-type"), contentType);
+    assertEquals(
+      headers.get("x-amz-content-sha256"),
+      createHash("sha256").update(body).digest("hex"),
+    );
+    assertEquals(headers.get("x-amz-date"), "20261102T000000Z");
+    assertEquals(authorization.includes("UNSIGNED-PAYLOAD"), false);
+    assertEquals(signature, referencePutSignature(url, init!));
+    assertEquals(init?.method, "PUT");
+    assertEquals((init?.body as Uint8Array).byteLength, 1024);
   }
+});
+
+Deno.test("conditional R2 conflicts reject replay and payload mismatch fails before fetch", async () => {
+  const imageIntent = intent();
+  const body = new Uint8Array(1024);
+  let condition = "";
+  const replay = await putRecipeImageStaging(
+    imageIntent,
+    config,
+    body,
+    (_input, init) => {
+      condition = new Headers(init?.headers).get("if-none-match") ?? "";
+      return Promise.resolve(new Response(null, { status: 412 }));
+    },
+    now,
+  );
+  assertEquals(condition, "*");
+  assertEquals(replay, "already_exists");
+  let called = false;
+  await assertRejects(() =>
+    putRecipeImageStaging(
+      imageIntent,
+      config,
+      new Uint8Array(1023),
+      () => {
+        called = true;
+        return Promise.resolve(new Response(null, { status: 200 }));
+      },
+      now,
+    )
+  );
+  assertEquals(called, false);
 });
 
 Deno.test("R2 signer rejects invalid configuration and altered upload intents", async () => {
@@ -328,7 +323,13 @@ Deno.test("R2 signer rejects invalid configuration and altered upload intents", 
     ]
   ) {
     await assertRejects(() =>
-      signRecipeImageUpload({ ...intent(), ...change } as UploadIntent, config)
+      putRecipeImageStaging(
+        { ...intent(), ...change } as UploadIntent,
+        config,
+        new Uint8Array(1024),
+        () => Promise.resolve(new Response(null, { status: 200 })),
+        now,
+      )
     );
   }
 });

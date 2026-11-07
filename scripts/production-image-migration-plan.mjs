@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -67,7 +67,7 @@ function main() {
   }
   const action = validateProductionImageMigrationState(payload, phase);
   if (process.env.GITHUB_OUTPUT) {
-    process.stdout.write(`action=${action}\n`);
+    appendFileSync(process.env.GITHUB_OUTPUT, `action=${action}\n`, 'utf8');
     return;
   }
   process.stdout.write(`${action}\n`);

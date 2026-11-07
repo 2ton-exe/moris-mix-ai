@@ -590,7 +590,7 @@ test('migration-only dispatch requires production authorization and cannot deplo
   const job = main.jobs['apply-image-migrations'];
   assert.deepEqual(job.needs, ['frontend', 'test-db', 'test-edge-api']);
   assert.equal(job.environment, 'recipe-image-upload-production');
-  assert.deepEqual(job.concurrency, { group: 'production-database-migrations', 'cancel-in-progress': false });
+  assert.deepEqual(job.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false });
   assert.deepEqual(job.permissions, { actions: 'read', contents: 'read' });
   assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
   assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
@@ -620,6 +620,10 @@ test('migration-only dispatch requires production authorization and cannot deplo
   const migrationPreview = step(job, 'Preview production migrations');
   const migrationApply = step(job, 'Apply exact image-upload migrations');
   const migrationVerify = step(job, 'Verify production migration completion');
+  for (const operation of [migrationPlan, migrationPreview, migrationApply, migrationVerify]) {
+    assert.equal(operation.env.SUPABASE_DB_PASSWORD, '${{ secrets.SUPABASE_DB_PASSWORD }}');
+    assert.match(operation.run, /--password "\$SUPABASE_DB_PASSWORD"/);
+  }
   assert.match(migrationPlan.run, /migration list/);
   assert.match(migrationPreview.run, /db push[\s\S]*--dry-run/);
   assert.match(migrationApply.run, /db push[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--password "\$SUPABASE_DB_PASSWORD"[\s\S]*--yes/);
@@ -645,6 +649,36 @@ test('migration-only dispatch requires production authorization and cannot deplo
         if (migrationRuns) assert.equal(normalProductionRuns, false);
       }
     }
+  }
+});
+
+test('migration planner writes its action to the GitHub output file', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'image-migration-output-'));
+  try {
+    const outputPath = join(directory, 'github-output');
+    writeFileSync(outputPath, '');
+    const prior = [
+      '20261013000000', '20261017000001', '20261023000002', '20261026000003',
+      '20261026000004', '20261031000005', '20261031000006', '20261031000007', '20261101000008',
+    ];
+    const migrations = [
+      ...prior.map(local => ({ local, remote: local })),
+      ...imageMigrations.map(local => ({ local, remote: '' })),
+    ];
+    const result = spawnSync(process.execPath, [
+      'scripts/production-image-migration-plan.mjs', 'before',
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_OUTPUT: outputPath },
+      input: JSON.stringify({ migrations }),
+      windowsHide: true,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.equal(readFileSync(outputPath, 'utf8'), 'action=apply\n');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
