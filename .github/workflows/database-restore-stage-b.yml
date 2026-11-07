@@ -238,11 +238,17 @@ jobs:
                           versions.append(fields[version_index])
                       continue
                   if line.startswith('COPY '):
-                      match=re.fullmatch(r'COPY ([a-z0-9_]+\.[a-z0-9_]+) \(([^)]*)\) FROM stdin;',line)
+                      # pg_dump may quote either or both schema/table identifiers.
+                      # Match paired quotes, not arbitrary SQL names or expressions.
+                      identifier=r'(?:"([a-z0-9_]+)"|([a-z0-9_]+))'
+                      match=re.fullmatch(
+                          r'COPY '+identifier+r'\.'+identifier+r' \(([^)]*)\) FROM stdin;',line)
                       if match is None: raise SystemExit('Unsupported COPY format')
-                      active=match.group(1)
+                      schema=match.group(1) or match.group(2)
+                      table=match.group(3) or match.group(4)
+                      active=f'{schema}.{table}'
                       if active==ledger:
-                          columns=[x.strip(' "') for x in match.group(2).split(',')]
+                          columns=[x.strip(' "') for x in match.group(5).split(',')]
                           if 'version' not in columns: raise SystemExit('Migration version column missing')
                           version_index=columns.index('version')
               if active is not None: raise SystemExit('Unterminated COPY block')
