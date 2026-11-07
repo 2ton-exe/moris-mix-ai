@@ -174,10 +174,10 @@ class StageBOfflineTests(unittest.TestCase):
             self.assertIn("Restored migration version set does not match backup", response.stderr)
 
             history.write_text(
-                "COPY supabase_migrations.schema_migrations (version, name) FROM stdin;\\n"
-                "20261013000000\\tinitial\\n"
-                "20261013000000\\tduplicate\\n"
-                "\\\\.\\n"
+                "COPY supabase_migrations.schema_migrations (version, name) FROM stdin;\n"
+                "20261013000000\tinitial\n"
+                "20261013000000\tduplicate\n"
+                "\\.\n"
             )
             duplicate_digest = hashlib.md5(
                 b"20261013000000,20261013000000").hexdigest()
