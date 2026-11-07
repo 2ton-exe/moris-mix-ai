@@ -72,6 +72,9 @@ jobs:
       - name: Test PostgreSQL backup comparison (offline)
         run: python3 -m unittest discover -s scripts -p 'test_normalize_pg_copy.py'
 
+      - name: Test isolated backup restore verification (offline)
+        run: python3 -m unittest discover -s scripts -p 'test_database_restore_drill.py'
+
       - name: Test production workflow safety (offline)
         run: node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs
 
