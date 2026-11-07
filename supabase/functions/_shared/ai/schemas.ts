@@ -15,12 +15,12 @@ export const IngredientSchema = z.object({
   quantity: z.number().nonnegative().nullable().default(null),
   unit: z.string().nullable().default(null),
   quantityText: nullToUndefined(z.string().optional()),
-  inferred: z.boolean().default(false)
+  inferred: z.boolean().default(false),
 });
 
 export const InstructionSchema = z.object({
   step: z.number().int().positive(),
-  text: z.string().min(1)
+  text: z.string().min(1),
 });
 
 /**
@@ -48,7 +48,7 @@ export const FlavorScoreSchema = z.object({
   sour: z.number().min(0).max(5),
   bitter: z.number().min(0).max(5),
   umami: z.number().min(0).max(5),
-  spicy: z.number().min(0).max(5)
+  spicy: z.number().min(0).max(5),
 });
 
 // --- AI SCHEMAS (SPRINT 2) ---
@@ -58,7 +58,7 @@ export const ExtractedRecipeSchema = z.object({
   instructions: SequentialInstructionsSchema,
   // Models often send null for an optional field. Normalise that to absent
   // instead of failing an otherwise valid extraction.
-  flavor_scores: nullToUndefined(FlavorScoreSchema.optional())
+  flavor_scores: nullToUndefined(FlavorScoreSchema.optional()),
 });
 
 /**
@@ -70,24 +70,27 @@ export const ExtractedRecipeSchema = z.object({
 export const SubstitutionSchema = z.object({
   original: z.string().min(1),
   replacement: z.string().min(1),
-  reason: z.string().min(1).optional()
+  reason: z.string().min(1).optional(),
 });
 
 export const GeneratedRecipeSchema = z.object({
   recipe: ExtractedRecipeSchema,
   substitutions: z.array(SubstitutionSchema),
-  parentRecipeIds: z.array(z.string().uuid())
+  parentRecipeIds: z.array(z.string().uuid()),
 }).superRefine((value, ctx) => {
   // The prompt requires an exact match, and the UI renders a substitution
   // against its ingredient. Enforce it instead of trusting the model: an
   // orphan substitution is invalid output, not a preview the user can use.
-  const ingredientNames = new Set(value.recipe.ingredients.map((ingredient) => ingredient.name));
+  const ingredientNames = new Set(
+    value.recipe.ingredients.map((ingredient) => ingredient.name),
+  );
   value.substitutions.forEach((substitution, index) => {
     if (!ingredientNames.has(substitution.original)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["substitutions", index, "original"],
-        message: "Substitution.original must name an ingredient in the generated recipe."
+        message:
+          "Substitution.original must name an ingredient in the generated recipe.",
       });
     }
   });
@@ -108,11 +111,11 @@ export const MAX_EXTRACTION_INPUT_CHARS = 10_000;
  * `400 VALIDATION_ERROR`. The endpoint owns that size check.
  */
 export const ExtractRecipeRequestSchema = z.object({
-  notes: z.string().trim().min(1)
+  notes: z.string().trim().min(1),
 });
 
 export const ExtractRecipeResponseSchema = z.object({
-  recipe: ExtractedRecipeSchema
+  recipe: ExtractedRecipeSchema,
 });
 
 export type ExtractRecipeRequest = z.infer<typeof ExtractRecipeRequestSchema>;
@@ -126,11 +129,11 @@ export const DemoRecipeSchema = z.object({
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.nullable(),
   star_rating: z.number().int().min(1).max(5).nullable(),
-  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
 });
 
 export const DemoRecipeResponseSchema = z.object({
-  recipe: DemoRecipeSchema
+  recipe: DemoRecipeSchema,
 });
 
 export type DemoRecipe = z.infer<typeof DemoRecipeSchema>;
@@ -141,18 +144,26 @@ function isValidCalendarDate(value: string): boolean {
     return false;
   }
   const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+  return !Number.isNaN(date.valueOf()) &&
+    date.toISOString().slice(0, 10) === value;
 }
 
 export const CreateRecipeRequestSchema = z.object({
-  title: z.string().trim().min(1),
-  raw_input: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
-  ingredients: z.array(IngredientSchema),
-  instructions: z.array(InstructionSchema),
+  title: z.string().trim().min(1).max(200),
+  raw_input: z.string().max(20_000).nullable().optional(),
+  notes: z.string().max(20_000).nullable().optional(),
+  ingredients: z.array(IngredientSchema.extend({
+    name: z.string().min(1).max(200),
+    unit: z.string().max(100).nullable().default(null),
+    quantityText: nullToUndefined(z.string().max(200).optional()),
+  })).max(100),
+  instructions: z.array(
+    InstructionSchema.extend({ text: z.string().min(1).max(2_000) }),
+  ).max(100),
   flavor_scores: FlavorScoreSchema.nullable().optional(),
   star_rating: z.number().int().min(1).max(5).nullable().optional(),
-  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable().optional(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate)
+    .nullable().optional(),
 });
 
 export const RecipeSchema = z.object({
@@ -165,7 +176,8 @@ export const RecipeSchema = z.object({
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.nullable(),
   star_rating: z.number().int().min(1).max(5).nullable(),
-  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate)
+    .nullable(),
   image_url: z.string().nullable(),
   created_at: z.string().min(1),
   updated_at: z.string().min(1),
@@ -186,10 +198,10 @@ export type RecipeSortMode = z.infer<typeof RecipeSortModeSchema>;
 
 export const RecipeCursorSchema = z.object({
   sort: RecipeSortModeSchema,
-  search: z.string().optional(),
+  search: z.string().max(200).optional(),
   searchMode: z.enum(["title", "ingredients", "both"]).optional(),
-  title: z.string().optional(),
-  ingredient: z.string().optional(),
+  title: z.string().max(200).optional(),
+  ingredient: z.string().max(200).optional(),
   rank: z.number().int().min(1).max(3).optional(),
   id: z.string().uuid(),
   createdAt: z.string().datetime({ offset: true }),
@@ -204,14 +216,21 @@ export const RecipeListResponseSchema = z.object({
 });
 
 export const UpdateRecipeRequestSchema = z.object({
-  title: z.string().trim().min(1).optional(),
-  raw_input: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
-  ingredients: z.array(IngredientSchema).optional(),
-  instructions: z.array(InstructionSchema).optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+  raw_input: z.string().max(20_000).nullable().optional(),
+  notes: z.string().max(20_000).nullable().optional(),
+  ingredients: z.array(IngredientSchema.extend({
+    name: z.string().min(1).max(200),
+    unit: z.string().max(100).nullable().default(null),
+    quantityText: nullToUndefined(z.string().max(200).optional()),
+  })).max(100).optional(),
+  instructions: z.array(
+    InstructionSchema.extend({ text: z.string().min(1).max(2_000) }),
+  ).max(100).optional(),
   flavor_scores: FlavorScoreSchema.nullable().optional(),
   star_rating: z.number().int().min(1).max(5).nullable().optional(),
-  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate).nullable().optional(),
+  cooked_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidCalendarDate)
+    .nullable().optional(),
 }).strict().refine(
   (data) => Object.keys(data).length > 0,
   { message: "At least one field must be provided for update." },
@@ -237,7 +256,9 @@ export const CreateLineageRequestSchema = z.object({
   parent_recipe_ids: z
     .array(z.string().uuid())
     .min(1, { message: "At least one parent recipe ID must be provided." })
-    .max(MAX_PARENT_RECIPE_IDS, { message: "At most 10 parent recipe IDs may be provided." })
+    .max(MAX_PARENT_RECIPE_IDS, {
+      message: "At most 10 parent recipe IDs may be provided.",
+    })
     .refine(
       (ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
       { message: "Duplicate parent recipe ID in request." },
@@ -280,14 +301,18 @@ export const ChefTopKSchema = z
   .int()
   .min(1)
   .max(10)
-  .refine(Number.isFinite, { message: "topK must be a finite integer between 1 and 10." });
+  .refine(Number.isFinite, {
+    message: "topK must be a finite integer between 1 and 10.",
+  });
 
 export const ChefMaxCandidatesSchema = z
   .number()
   .int()
   .min(1)
   .max(1000)
-  .refine(Number.isFinite, { message: "maxCandidates must be a finite integer between 1 and 1000." });
+  .refine(Number.isFinite, {
+    message: "maxCandidates must be a finite integer between 1 and 1000.",
+  });
 
 export const ChefRecipeContextInputSchema = z.object({
   pantryItems: z.array(z.string().max(100)).max(100),
@@ -306,7 +331,8 @@ export const ChefContextCandidateSchema = z.object({
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.nullable(),
-  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite).nullable(),
+  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite)
+    .nullable(),
   created_at: ChefIsoTimestampSchema,
 });
 export type ChefContextCandidate = z.infer<typeof ChefContextCandidateSchema>;
@@ -317,20 +343,27 @@ export const RankedRecipeContextItemSchema = z.object({
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
   flavor_scores: FlavorScoreSchema.nullable(),
-  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite).nullable(),
+  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite)
+    .nullable(),
   created_at: ChefIsoTimestampSchema,
   overlap_ratio: z.number().gt(0).max(1).refine(Number.isFinite),
   matched_ingredients: z.array(z.string().min(1)).min(1),
 });
-export type RankedRecipeContextItem = z.infer<typeof RankedRecipeContextItemSchema>;
+export type RankedRecipeContextItem = z.infer<
+  typeof RankedRecipeContextItemSchema
+>;
 
 export const ChefRecipeContextResultSchema = z.object({
   status: ChefContextStatusSchema,
   pantryItems: z.array(z.string().min(1)),
   preferences: z.string().optional(),
   recipes: z.array(RankedRecipeContextItemSchema).max(10),
-  totalCandidateCount: z.number().int().min(0).max(1000).refine(Number.isFinite),
-  matchedCandidateCount: z.number().int().min(0).max(1000).refine(Number.isFinite),
+  totalCandidateCount: z.number().int().min(0).max(1000).refine(
+    Number.isFinite,
+  ),
+  matchedCandidateCount: z.number().int().min(0).max(1000).refine(
+    Number.isFinite,
+  ),
   truncated: z.boolean(),
 }).superRefine((data, ctx) => {
   if (data.matchedCandidateCount > data.totalCandidateCount) {
@@ -401,7 +434,8 @@ export const ChefRecipeContextResultSchema = z.object({
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["recipes"],
-          message: "EMPTY_PANTRY requires zero matched candidates and empty recipes.",
+          message:
+            "EMPTY_PANTRY requires zero matched candidates and empty recipes.",
         });
       }
       break;
@@ -425,7 +459,8 @@ export const ChefRecipeContextResultSchema = z.object({
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["recipes"],
-          message: "NO_PANTRY_OVERLAP requires zero matched candidates and empty recipes.",
+          message:
+            "NO_PANTRY_OVERLAP requires zero matched candidates and empty recipes.",
         });
       }
       break;
@@ -449,14 +484,17 @@ export const ChefRecipeContextResultSchema = z.object({
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["recipes"],
-          message: "MATCHED requires matchedCandidateCount >= 1 and non-empty recipes.",
+          message:
+            "MATCHED requires matchedCandidateCount >= 1 and non-empty recipes.",
         });
       }
       break;
     }
   }
 });
-export type ChefRecipeContextResult = z.infer<typeof ChefRecipeContextResultSchema>;
+export type ChefRecipeContextResult = z.infer<
+  typeof ChefRecipeContextResultSchema
+>;
 
 // --- CHEF GENERATION CONTRACT (AI-06) ---
 
@@ -470,24 +508,29 @@ export type ChefRecipeContextResult = z.infer<typeof ChefRecipeContextResultSche
  */
 export const GenerateRecipeRequestSchema = z.object({
   pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100),
-  preferences: z.string().trim().max(1000).optional()
+  preferences: z.string().trim().max(1000).optional(),
 });
 
 /** A proposed lineage parent, resolved from the retrieved candidate set. */
 export const SuggestedParentSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1),
-  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite).nullable()
+  star_rating: z.number().int().min(1).max(5).refine(Number.isFinite)
+    .nullable(),
 });
 
 /** Safe context metadata for the UI: why parents are (or are not) available. */
 export const GenerateRecipeContextSummarySchema = z.object({
   status: ChefContextStatusSchema,
-  matchedCandidateCount: z.number().int().min(0).max(1000).refine(Number.isFinite),
-  totalCandidateCount: z.number().int().min(0).max(1000).refine(Number.isFinite)
+  matchedCandidateCount: z.number().int().min(0).max(1000).refine(
+    Number.isFinite,
+  ),
+  totalCandidateCount: z.number().int().min(0).max(1000).refine(
+    Number.isFinite,
+  ),
 }).refine((value) => value.matchedCandidateCount <= value.totalCandidateCount, {
   path: ["matchedCandidateCount"],
-  message: "matchedCandidateCount cannot exceed totalCandidateCount."
+  message: "matchedCandidateCount cannot exceed totalCandidateCount.",
 });
 
 /**
@@ -505,7 +548,7 @@ export const GenerateRecipeResponseSchema = z.object({
    * token's allowed set. Null only when no parents were proposed.
    */
   candidate_token: z.string().min(1).nullable(),
-  context: GenerateRecipeContextSummarySchema
+  context: GenerateRecipeContextSummarySchema,
 }).superRefine((value, ctx) => {
   if (value.parents.length > 0 && value.candidate_token === null) {
     ctx.addIssue({
@@ -525,5 +568,9 @@ export const GenerateRecipeResponseSchema = z.object({
 
 export type GenerateRecipeRequest = z.infer<typeof GenerateRecipeRequestSchema>;
 export type SuggestedParent = z.infer<typeof SuggestedParentSchema>;
-export type GenerateRecipeContextSummary = z.infer<typeof GenerateRecipeContextSummarySchema>;
-export type GenerateRecipeResponse = z.infer<typeof GenerateRecipeResponseSchema>;
+export type GenerateRecipeContextSummary = z.infer<
+  typeof GenerateRecipeContextSummarySchema
+>;
+export type GenerateRecipeResponse = z.infer<
+  typeof GenerateRecipeResponseSchema
+>;

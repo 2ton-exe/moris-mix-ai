@@ -1,10 +1,15 @@
-export function getCorsHeaders(allowedMethods = "GET, OPTIONS"): Record<string, string> {
+export function getCorsHeaders(
+  allowedMethods = "GET, OPTIONS",
+): Record<string, string> {
   const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN");
-  const isCustomOrigin = typeof allowedOrigin === "string" && allowedOrigin.trim().length > 0;
+  const isCustomOrigin = typeof allowedOrigin === "string" &&
+    allowedOrigin.trim().length > 0;
   const headers: Record<string, string> = {
     "Access-Control-Allow-Origin": isCustomOrigin ? allowedOrigin.trim() : "*",
     "Access-Control-Allow-Methods": allowedMethods,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Expose-Headers": "X-Request-ID",
     "X-Content-Type-Options": "nosniff",
   };
   if (isCustomOrigin) {
@@ -16,7 +21,8 @@ export function getCorsHeaders(allowedMethods = "GET, OPTIONS"): Record<string, 
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "X-Content-Type-Options": "nosniff",
 };
 

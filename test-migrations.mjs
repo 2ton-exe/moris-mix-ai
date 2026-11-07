@@ -144,6 +144,19 @@ function runDiscoveryAndIntegrityUnitTests() {
     assert.match(definition, /begin\s+if auth\.role\(\) IS DISTINCT FROM 'service_role' then\s+raise exception 'Unauthorized quota operation' using errcode = '42501';/);
     assert.doesNotMatch(definition, /auth\.role\(\)\s*<>/);
   }
+  const shortWindowRateMigration = migrations.find((migration) => migration.version === '20261107000017');
+  assert.ok(shortWindowRateMigration, 'short-window AI rate-limit migration is present');
+  const shortWindowRateSql = fs.readFileSync(shortWindowRateMigration.filePath, 'utf8');
+  assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_started_at timestamptz/i);
+  assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_count integer not null default 0/i);
+  assert.match(shortWindowRateSql, /pg_advisory_xact_lock\(hashtext\('ai-rate:' \|\| p_user_id::text\)\)/i);
+  assert.match(shortWindowRateSql, /for update/i);
+  assert.match(shortWindowRateSql, /v_rate_window_count >= 5/i);
+  assert.match(shortWindowRateSql, /interval '60 seconds'/i);
+  assert.match(shortWindowRateSql, /'status', 'rate_limited'/i);
+  assert.match(shortWindowRateSql, /'retry_after_seconds', v_retry_after/i);
+  assert.match(shortWindowRateSql, /auth\.role\(\) IS DISTINCT FROM 'service_role'/i);
+  assert.doesNotMatch(shortWindowRateSql, /^\s*grant\b[^;]*\b(?:public|anon|authenticated)\b[^;]*;/im);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-unit-'));
   try {
     fs.writeFileSync(path.join(tempDir, '20261020000000_second.sql'), 'SELECT 2;');

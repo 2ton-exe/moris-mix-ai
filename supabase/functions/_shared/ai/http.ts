@@ -15,6 +15,9 @@ export type AIEndpointErrorCode =
   | "INVALID_JSON"
   | "VALIDATION_ERROR"
   | "INPUT_TOO_LARGE"
+  | "UNSUPPORTED_MEDIA_TYPE"
+  | "AI_REQUEST_RATE_LIMITED"
+  | "AI_CONTEXT_TOO_LARGE"
   | "METHOD_NOT_ALLOWED"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
@@ -55,12 +58,18 @@ const MAX_QUOTA_RETRY_AFTER_SECONDS = 24 * 60 * 60;
  */
 const AI_ERROR_RESPONSES: Record<
   AIErrorCode,
-  { status: number; code: AIEndpointErrorCode; message: string; retryAfter: boolean }
+  {
+    status: number;
+    code: AIEndpointErrorCode;
+    message: string;
+    retryAfter: boolean;
+  }
 > = {
   invalid_output: {
     status: 502,
     code: "AI_OUTPUT_INVALID",
-    message: "The AI returned a result that could not be validated. Please try again.",
+    message:
+      "The AI returned a result that could not be validated. Please try again.",
     retryAfter: false,
   },
   provider_rejected: {
@@ -78,7 +87,8 @@ const AI_ERROR_RESPONSES: Record<
   provider_unavailable: {
     status: 503,
     code: "AI_UNAVAILABLE",
-    message: "The AI service is temporarily unavailable. Please try again shortly.",
+    message:
+      "The AI service is temporarily unavailable. Please try again shortly.",
     retryAfter: false,
   },
   rate_limited: {
@@ -91,6 +101,13 @@ const AI_ERROR_RESPONSES: Record<
     status: 500,
     code: "INTERNAL_ERROR",
     message: "Internal server error.",
+    retryAfter: false,
+  },
+  context_too_large: {
+    status: 422,
+    code: "AI_CONTEXT_TOO_LARGE",
+    message:
+      "The saved recipe context is too large to process. Please reduce the size of saved recipes and try again.",
     retryAfter: false,
   },
 };
@@ -107,7 +124,10 @@ export function aiJsonResponse(
 }
 
 /** Keeps an auth helper's response shape but advertises this route's methods. */
-export function withAiCorsMethods(response: Response, allowedMethods: string): Response {
+export function withAiCorsMethods(
+  response: Response,
+  allowedMethods: string,
+): Response {
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Methods", allowedMethods);
   return new Response(response.body, {
@@ -125,11 +145,22 @@ export function aiErrorResponse(
   extraHeaders?: Record<string, string>,
   allowedMethods: string = AI_ALLOWED_METHODS,
 ): Response {
-  return aiJsonResponse({ error: { code, message } }, { status, headers: extraHeaders }, allowedMethods);
+  return aiJsonResponse({ error: { code, message } }, {
+    status,
+    headers: extraHeaders,
+  }, allowedMethods);
+}
+
+export function isJsonRequest(req: Request): boolean {
+  const contentType = req.headers.get("content-type");
+  return contentType === null ||
+    contentType.split(";", 1)[0].trim().toLowerCase() === "application/json";
 }
 
 /** Accepts a parsed JSON object while rejecting null, arrays and scalar values. */
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -152,13 +183,15 @@ export function isEnvEnabled(name: string): boolean {
 export async function readBodyWithinByteLimit(
   req: Request,
   maxBytes: number,
-): Promise<{ ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }> {
+): Promise<
+  { ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }
+> {
   if (!req.body) {
     return { ok: true, text: "" };
   }
 
   const reader = req.body.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
   let bytes = 0;
   let text = "";
 
@@ -189,7 +222,9 @@ export async function readBodyWithinByteLimit(
 }
 
 /** Rounds valid provider cooldowns up to seconds, caps them at one hour and defaults invalid values to 30. */
-export function normalizeProviderRetryAfterSeconds(value: number | undefined): number {
+export function normalizeProviderRetryAfterSeconds(
+  value: number | undefined,
+): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
     return DEFAULT_RATE_LIMIT_RETRY_AFTER_SECONDS;
   }
@@ -201,7 +236,9 @@ export function normalizeProviderRetryAfterSeconds(value: number | undefined): n
  * must not apply. Invalid injected values fall back to the real time until the
  * next UTC midnight; otherwise the wait is rounded up and capped at one day.
  */
-export function normalizeQuotaRetryAfterSeconds(value: number | undefined): number {
+export function normalizeQuotaRetryAfterSeconds(
+  value: number | undefined,
+): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
     return secondsUntilNextUtcDay();
   }
@@ -212,7 +249,17 @@ export function normalizeQuotaRetryAfterSeconds(value: number | undefined): numb
 export function mapAiError(error: AIError, allowedMethods: string): Response {
   const mapped = AI_ERROR_RESPONSES[error.code];
   const headers = mapped.retryAfter
-    ? { "Retry-After": String(normalizeProviderRetryAfterSeconds(error.retryAfterSeconds)) }
+    ? {
+      "Retry-After": String(
+        normalizeProviderRetryAfterSeconds(error.retryAfterSeconds),
+      ),
+    }
     : undefined;
-  return aiErrorResponse(mapped.code, mapped.message, mapped.status, headers, allowedMethods);
+  return aiErrorResponse(
+    mapped.code,
+    mapped.message,
+    mapped.status,
+    headers,
+    allowedMethods,
+  );
 }

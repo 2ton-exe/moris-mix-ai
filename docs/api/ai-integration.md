@@ -47,7 +47,7 @@ with `Allow: POST, OPTIONS`.
 | ------- | ------ | ----- |
 | `notes` | string | Required, non-empty after trimming, **≤ 10,000 characters** (AI-06). |
 
-The whole request body must be **≤ 128 KiB**. Unknown fields are ignored.
+The whole request body must be **≤ 128 KiB**. The endpoint streams the body and enforces the byte ceiling even when `Content-Length` is absent or inaccurate. `Content-Type: application/json` is recommended; if supplied, it must be JSON. Unknown fields are ignored. Every response includes a server-generated `X-Request-ID`; server failures log only the request ID, endpoint, and HTTP status.
 
 ### Success response — `200 OK`
 
@@ -83,7 +83,10 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 404  | `NOT_FOUND`            | Unknown path | no |
 | 405  | `METHOD_NOT_ALLOWED`   | Method other than `POST`/`OPTIONS` | no |
 | 413  | `INPUT_TOO_LARGE`      | `notes` > 10,000 chars, or body > 128 KiB | no |
+| 415  | `UNSUPPORTED_MEDIA_TYPE` | An explicit request content type is not `application/json` | no |
 | 429  | `QUOTA_EXCEEDED`       | Daily per-user AI limit reached (AI-17) | seconds until the UTC reset, up to `86400` |
+| 429  | `AI_REQUEST_RATE_LIMITED` | Five combined AI operations were already admitted in the current per-user 60-second window | seconds until that window resets, `1`–`60` |
+| 422  | `AI_CONTEXT_TOO_LARGE` | Assembled saved-recipe prompt context exceeds 64 KiB | no |
 | 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown (rounded up and clamped to 1–3,600 seconds), else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected or blocked the request (bad key/model, safety policy) | no |
@@ -105,6 +108,21 @@ The two `429`s have different horizons. `AI_RATE_LIMITED` is a provider cooldown
 capped at **3,600 seconds**. `QUOTA_EXCEEDED` is a daily reset and is **not** capped at an
 hour: it reports the real seconds until 00:00 UTC (up to `86400`). A client that retries a
 daily-quota `429` after an hour will simply be rejected again.
+
+The same locked per-user daily row also carries a five-request fixed window measured
+from the first admitted call, then reset after 60 seconds. The service-role RPC
+serializes reservations by user and preserves the active window when UTC usage rows roll over. A blocked request returns
+`429 AI_REQUEST_RATE_LIMITED` with a bounded `Retry-After`; unavailable quota state
+continues to fail closed. Short-window slots are not refunded on provider failures,
+while existing daily reservation rollback and confirmation rules remain unchanged.
+AI prompt input is capped at 64 KiB after server-side context assembly, and Gemini
+output is limited to 2,048 tokens. Oversized saved-recipe context is rejected before
+provider dispatch and rolls back the daily reservation.
+
+Apply migration `20261107000017_ai_short_window_rate_limit.sql` through the normal
+non-production validation and deployment workflow before deploying these handlers.
+The short-window guard requires no new environment setting; `AI_DAILY_LIMIT` retains
+its existing behavior.
 
 ### Quota (AI-17)
 
@@ -164,7 +182,7 @@ POST, OPTIONS`). Any other method → `405 METHOD_NOT_ALLOWED`.
 | `pantryItems` | string[] | Required, **1–100** items, each non-empty after trimming and **≤ 100 characters** |
 | `preferences` | string | Optional, trimmed, **≤ 1,000 characters** |
 
-The whole request body must be **≤ 128 KiB**. Unknown fields are ignored. Pantry items
+The whole request body must be **≤ 128 KiB**. The endpoint streams and enforces this cap, accepts an omitted content type for compatibility, rejects an explicit non-JSON content type, and returns `X-Request-ID`. Unknown fields are ignored. Pantry items
 are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval and the
 prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved
 recipes to retrieve**, not an empty request. Preferences are passed to the prompt as

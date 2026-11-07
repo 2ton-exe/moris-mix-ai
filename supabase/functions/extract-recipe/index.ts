@@ -1,8 +1,13 @@
-import { authenticateRequest, type AuthDeps } from "../_shared/auth.ts";
+import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
 import { handleCorsPreflight } from "../_shared/cors.ts";
 import {
-  ExtractRecipeRequestSchema,
+  createRequestId,
+  logRequestFailure,
+  withRequestId,
+} from "../_shared/requestId.ts";
+import {
   ExtractedRecipeSchema,
+  ExtractRecipeRequestSchema,
   MAX_EXTRACTION_INPUT_CHARS,
 } from "../_shared/schemas.ts";
 import type { AIProvider } from "../_shared/ai/AIProvider.ts";
@@ -16,6 +21,7 @@ import {
   aiErrorResponse,
   aiJsonResponse,
   isEnvEnabled,
+  isJsonRequest,
   isPlainObject,
   mapAiError,
   normalizeQuotaRetryAfterSeconds,
@@ -64,10 +70,11 @@ function shouldRefundQuota(error: unknown, providerStarted: boolean): boolean {
 }
 
 function resolveProvider(deps: ExtractRecipeDeps): AIProvider {
-  return deps.provider ?? createFailureDrillProvider("extract") ?? new GeminiAdapter();
+  return deps.provider ?? createFailureDrillProvider("extract") ??
+    new GeminiAdapter();
 }
 
-export async function handler(
+async function handleRequest(
   req: Request,
   deps: ExtractRecipeDeps = {},
 ): Promise<Response> {
@@ -100,7 +107,9 @@ export async function handler(
 
     const { user, supabase } = auth.context;
 
-    if (!isEnvEnabled(EXTRACT_ENABLED_ENV) || isEnvEnabled(EXTRACT_DISABLED_ENV)) {
+    if (
+      !isEnvEnabled(EXTRACT_ENABLED_ENV) || isEnvEnabled(EXTRACT_DISABLED_ENV)
+    ) {
       return errorResponse(
         "AI_DISABLED",
         "AI extraction is temporarily disabled.",
@@ -108,10 +117,20 @@ export async function handler(
       );
     }
 
+    if (!isJsonRequest(req)) {
+      return errorResponse(
+        "UNSUPPORTED_MEDIA_TYPE",
+        "Content-Type must be application/json.",
+        415,
+      );
+    }
+
     const declaredLength = req.headers.get("content-length");
     if (declaredLength !== null) {
       const declaredBytes = Number(declaredLength);
-      if (Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_REQUEST_BYTES) {
+      if (
+        Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_REQUEST_BYTES
+      ) {
         return errorResponse(
           "INPUT_TOO_LARGE",
           `Request body must be at most ${MAX_REQUEST_BYTES} bytes.`,
@@ -129,23 +148,39 @@ export async function handler(
           413,
         );
       }
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     const rawBody = read.text;
     if (!rawBody || rawBody.trim().length === 0) {
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     let parsedBody: unknown;
     try {
       parsedBody = JSON.parse(rawBody);
     } catch {
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     if (!isPlainObject(parsedBody)) {
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     const validation = ExtractRecipeRequestSchema.safeParse(parsedBody);
@@ -177,11 +212,15 @@ export async function handler(
       );
     }
 
-    const quota = await (deps.quotaCheck ?? consumeDailyQuota)(user.id, supabase, {
-      supabaseUrl: deps.supabaseUrl,
-      supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
-      fetch: deps.fetch,
-    });
+    const quota = await (deps.quotaCheck ?? consumeDailyQuota)(
+      user.id,
+      supabase,
+      {
+        supabaseUrl: deps.supabaseUrl,
+        supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
+        fetch: deps.fetch,
+      },
+    );
     if (quota.status === "unavailable") {
       return errorResponse(
         "QUOTA_UNAVAILABLE",
@@ -194,7 +233,19 @@ export async function handler(
         "QUOTA_EXCEEDED",
         "Daily AI usage limit reached. Please try again after the quota resets.",
         429,
-        { "Retry-After": String(normalizeQuotaRetryAfterSeconds(quota.retryAfterSeconds)) },
+        {
+          "Retry-After": String(
+            normalizeQuotaRetryAfterSeconds(quota.retryAfterSeconds),
+          ),
+        },
+      );
+    }
+    if (quota.status === "rate_limited") {
+      return errorResponse(
+        "AI_REQUEST_RATE_LIMITED",
+        "AI requests are temporarily limited. Please try again shortly.",
+        429,
+        { "Retry-After": String(quota.retryAfterSeconds) },
       );
     }
 
@@ -206,7 +257,14 @@ export async function handler(
 
       const revalidated = ExtractedRecipeSchema.safeParse(extracted);
       if (!revalidated.success) {
-        throw new AIError("invalid_output", "extract", "Extraction failed schema validation.", undefined, undefined, false);
+        throw new AIError(
+          "invalid_output",
+          "extract",
+          "Extraction failed schema validation.",
+          undefined,
+          undefined,
+          false,
+        );
       }
 
       try {
@@ -240,6 +298,18 @@ export async function handler(
     console.error("Unhandled exception in extract-recipe handler");
     return errorResponse("INTERNAL_ERROR", "Internal server error.", 500);
   }
+}
+
+export async function handler(
+  req: Request,
+  deps: ExtractRecipeDeps = {},
+): Promise<Response> {
+  const requestId = createRequestId();
+  const response = await handleRequest(req, deps);
+  if (response.status >= 500) {
+    logRequestFailure(requestId, "extract-recipe", response.status);
+  }
+  return withRequestId(response, requestId);
 }
 
 if (import.meta.main) {

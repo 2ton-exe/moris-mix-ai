@@ -1,7 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
-  GoogleGenerativeAIResponseError,
   type GoogleGenerativeAI,
+  GoogleGenerativeAIResponseError,
 } from "npm:@google/generative-ai@0.21.0";
 import {
   GENERATE_DISABLED_ENV,
@@ -15,31 +15,39 @@ import {
   SIMULATE_BAD_OUTPUT_ENV,
   SIMULATE_OUTAGE_ENV,
 } from "../_shared/ai/drills.ts";
-import { MOCK_EXTRACTED_RECIPE, MOCK_GENERATED_RECIPE } from "../_shared/ai/mocks.ts";
-import { AIError, GeminiAdapter, type AIErrorCode } from "../_shared/ai/GeminiAdapter.ts";
+import {
+  MOCK_EXTRACTED_RECIPE,
+  MOCK_GENERATED_RECIPE,
+} from "../_shared/ai/mocks.ts";
+import {
+  AIError,
+  type AIErrorCode,
+  GeminiAdapter,
+} from "../_shared/ai/GeminiAdapter.ts";
 import type {
   AIProvider,
+  GeneratedRecipe,
   GenerateRecipeContext,
   GenerateRecipeInput,
-  GeneratedRecipe,
 } from "../_shared/ai/AIProvider.ts";
 import type { AuthContext } from "../_shared/auth.ts";
 import type { ChefRecipeContextResult } from "../_shared/ai/schemas.ts";
 import { GenerateRecipeResponseSchema } from "../_shared/ai/schemas.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
 import {
-  DEFAULT_AI_DAILY_LIMIT,
   checkDailyQuota,
   consumeDailyQuota,
-  reconcileUnconfirmedReservation,
+  DEFAULT_AI_DAILY_LIMIT,
   type QuotaCheckDeps,
+  reconcileUnconfirmedReservation,
 } from "../_shared/ai/quota.ts";
 import {
   CANDIDATE_TOKEN_AUDIENCE,
   verifyCandidateToken,
 } from "../_shared/ai/candidateToken.ts";
 
-const TEST_CANDIDATE_TOKEN_SECRET = "test-candidate-token-secret-0123456789abcdef";
+const TEST_CANDIDATE_TOKEN_SECRET =
+  "test-candidate-token-secret-0123456789abcdef";
 
 const VALID_TEST_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTk5OTk5OS05OTk5LTk5OTktOTk5OS05OTk5OTk5OTk5OTkiLCJlbWFpbCI6InZlcmlmaWVkQG1vcmlzc2NyYXBzLmxvY2FsIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ.signature_segment_ok";
@@ -57,7 +65,9 @@ const PARENT_ID = "123e4567-e89b-12d3-a456-426614174000";
 const FOREIGN_PARENT_ID = "22222222-2222-4222-8222-222222222222";
 
 /** Existing endpoint contracts are exercised with the operator opt-in explicitly set. */
-async function handler(...args: Parameters<typeof generateRecipeHandler>): Promise<Response> {
+async function handler(
+  ...args: Parameters<typeof generateRecipeHandler>
+): Promise<Response> {
   const mergedDeps: Parameters<typeof generateRecipeHandler>[1] = {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
@@ -98,7 +108,7 @@ function createFetchMock(
     usageError?: boolean;
     usageRow?: unknown;
     recipes?: unknown;
-    quotaConsumeStatus?: "allowed" | "exceeded" | "conflict";
+    quotaConsumeStatus?: "allowed" | "exceeded" | "rate_limited" | "conflict";
     conflictReservations?: Set<string>;
     confirmError?: boolean;
     reconcileError?: boolean;
@@ -112,7 +122,11 @@ function createFetchMock(
 
   const fetchImpl: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
     const headers = new Headers(init?.headers);
 
@@ -179,7 +193,10 @@ function createFetchMock(
         ? [{ operation_count: count }]
         : [];
       return Promise.resolve(
-        new Response(JSON.stringify(payload), { status: 200, headers: jsonHeaders() }),
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: jsonHeaders(),
+        }),
       );
     }
 
@@ -209,7 +226,9 @@ function createFetchMock(
       } catch {
       }
 
-      const reservationId = typeof reqBody.p_reservation_id === "string" ? reqBody.p_reservation_id : "";
+      const reservationId = typeof reqBody.p_reservation_id === "string"
+        ? reqBody.p_reservation_id
+        : "";
       if (options.conflictReservations?.has(reservationId)) {
         return Promise.resolve(
           new Response(
@@ -238,7 +257,22 @@ function createFetchMock(
         );
       }
 
-      const limit = typeof reqBody.p_daily_limit === "number" ? reqBody.p_daily_limit : 20;
+      if (options.quotaConsumeStatus === "rate_limited") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              status: "rate_limited",
+              is_new: false,
+              retry_after_seconds: 41,
+            }),
+            { status: 200, headers: jsonHeaders() },
+          ),
+        );
+      }
+
+      const limit = typeof reqBody.p_daily_limit === "number"
+        ? reqBody.p_daily_limit
+        : 20;
       const current = options.usageCount ?? 0;
 
       if (options.quotaConsumeStatus === "exceeded" || current >= limit) {
@@ -328,7 +362,10 @@ function createFetchMock(
       if (options.unconfirmedReconcileError) {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ code: "PGRST500", message: "admin reconcile failed" }),
+            JSON.stringify({
+              code: "PGRST500",
+              message: "admin reconcile failed",
+            }),
             { status: 500, headers: jsonHeaders() },
           ),
         );
@@ -404,7 +441,10 @@ const COLD_START_GENERATED: GeneratedRecipe = {
 function contextReturning(
   context: ChefRecipeContextResult,
   onCall?: (auth: AuthContext, input: GenerateRecipeInput) => void,
-): (auth: AuthContext, input: GenerateRecipeInput) => Promise<ChefRecipeContextResult> {
+): (
+  auth: AuthContext,
+  input: GenerateRecipeInput,
+) => Promise<ChefRecipeContextResult> {
   return (auth, input) => {
     onCall?.(auth, input);
     return Promise.resolve(context);
@@ -416,23 +456,27 @@ function providerReturning(
   onCall?: (input: GenerateRecipeInput, context: GenerateRecipeContext) => void,
 ): AIProvider {
   return {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
+    extractRecipe: () =>
+      Promise.reject(new Error("extractRecipe is not used here")),
     generateRecipe: (input, context) => {
       onCall?.(input, context);
       return Promise.resolve(generated);
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+    testConnection: () =>
+      Promise.reject(new Error("testConnection is not used here")),
   };
 }
 
 function providerThrowing(error: unknown, onCall?: () => void): AIProvider {
   return {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
+    extractRecipe: () =>
+      Promise.reject(new Error("extractRecipe is not used here")),
     generateRecipe: () => {
       onCall?.();
       return Promise.reject(error);
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+    testConnection: () =>
+      Promise.reject(new Error("testConnection is not used here")),
   };
 }
 
@@ -443,7 +487,9 @@ function generateRequest(
   method = "POST",
   token: string | null = VALID_TEST_JWT,
 ): Request {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (token) headers.Authorization = `Bearer ${token}`;
   return new Request(`http://localhost${path}`, { method, headers, body });
 }
@@ -509,11 +555,16 @@ Deno.test("The generate contract defaults to 20 AI operations per day", () => {
 
 Deno.test("CORS OPTIONS preflight on /generate-recipe returns 204 without authentication and scopes ALLOWED_ORIGIN", async () => {
   const preflight = await handler(
-    new Request("http://localhost/functions/v1/generate-recipe", { method: "OPTIONS" }),
+    new Request("http://localhost/functions/v1/generate-recipe", {
+      method: "OPTIONS",
+    }),
   );
   assertEquals(preflight.status, 204);
   assertEquals(preflight.headers.get("access-control-allow-origin"), "*");
-  assertEquals(preflight.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+  assertEquals(
+    preflight.headers.get("access-control-allow-methods"),
+    "POST, OPTIONS",
+  );
   assertEquals(
     preflight.headers.get("access-control-allow-headers"),
     "authorization, x-client-info, apikey, content-type",
@@ -561,7 +612,10 @@ Deno.test("Unsupported methods return 405 with Allow: POST, OPTIONS and never au
 
     assertEquals(res.status, 405);
     assertEquals(res.headers.get("allow"), "POST, OPTIONS");
-    assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "POST, OPTIONS",
+    );
     assertEquals(res.headers.get("cache-control"), "no-store");
     const body = await res.json();
     assertEquals(body.error?.code, "METHOD_NOT_ALLOWED");
@@ -574,23 +628,35 @@ Deno.test("Unsupported methods return 405 with Allow: POST, OPTIONS and never au
 Deno.test("Unknown paths return 404 NOT_FOUND without authenticating", async () => {
   const { fetchImpl, requests } = createFetchMock();
 
-  for (const path of [
-    "/functions/v1/generate-recipe/extra",
-    "/generate-recipe/extra",
-    "/functions/v1/other",
-    "/",
-  ]) {
+  for (
+    const path of [
+      "/functions/v1/generate-recipe/extra",
+      "/generate-recipe/extra",
+      "/functions/v1/other",
+      "/",
+    ]
+  ) {
     const res = await handler(
       new Request(`http://localhost${path}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${VALID_TEST_JWT}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
         body: validBody(),
       }),
-      { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: fetchImpl },
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+      },
     );
 
     assertEquals(res.status, 404);
-    assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "POST, OPTIONS",
+    );
     assertEquals((await res.json()).error?.code, "NOT_FOUND");
   }
 
@@ -608,7 +674,12 @@ Deno.test("Unauthenticated requests return 401 UNAUTHORIZED before quota, retrie
       headers: { "Content-Type": "application/json" },
       body: validBody(),
     }),
-    generateRequest(validBody(), ENDPOINT_PATHS[0], "POST", "not-a-compact-jwt"),
+    generateRequest(
+      validBody(),
+      ENDPOINT_PATHS[0],
+      "POST",
+      "not-a-compact-jwt",
+    ),
     generateRequest(validBody(), ENDPOINT_PATHS[0], "POST", FORGED_TEST_JWT),
     generateRequest(validBody(), ENDPOINT_PATHS[0], "POST", EXPIRED_TEST_JWT),
   ];
@@ -627,17 +698,26 @@ Deno.test("Unauthenticated requests return 401 UNAUTHORIZED before quota, retrie
     });
 
     assertEquals(res.status, 401);
-    assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "POST, OPTIONS",
+    );
     assertEquals((await res.json()).error?.code, "UNAUTHORIZED");
   }
 
   assertEquals(providerCalled, false);
   assertEquals(contextCalled, false);
-  assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
+  assertEquals(
+    requests.every((request) => !request.path.startsWith("/rest/")),
+    true,
+  );
 });
 
 Deno.test("An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before retrieval or provider", async () => {
-  const { fetchImpl, requests } = createFetchMock({ auth: "rate_limited", authRetryAfter: "17" });
+  const { fetchImpl, requests } = createFetchMock({
+    auth: "rate_limited",
+    authRetryAfter: "17",
+  });
   let providerCalled = false;
 
   const res = await handler(generateRequest(validBody()), {
@@ -651,10 +731,16 @@ Deno.test("An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-
 
   assertEquals(res.status, 503);
   assertEquals(res.headers.get("retry-after"), "17");
-  assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+  assertEquals(
+    res.headers.get("access-control-allow-methods"),
+    "POST, OPTIONS",
+  );
   assertEquals((await res.json()).error?.code, "AUTH_SERVICE_RATE_LIMITED");
   assertEquals(providerCalled, false);
-  assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
+  assertEquals(
+    requests.every((request) => !request.path.startsWith("/rest/")),
+    true,
+  );
 });
 
 Deno.test("Generation defaults off and requires a valid operator opt-in before reading the body, quota or context", async () => {
@@ -687,7 +773,10 @@ Deno.test("Generation defaults off and requires a valid operator opt-in before r
           supabaseUrl: TEST_SUPABASE_URL,
           supabaseAnonKey: TEST_ANON_KEY,
           fetch: fetchImpl,
-          provider: providerReturning(MOCK_GENERATED_RECIPE, () => providerCalls++),
+          provider: providerReturning(
+            MOCK_GENERATED_RECIPE,
+            () => providerCalls++,
+          ),
           quotaCheck: () => {
             quotaCalls++;
             return Promise.resolve({ status: "allowed", limit: 20, used: 0 });
@@ -700,7 +789,10 @@ Deno.test("Generation defaults off and requires a valid operator opt-in before r
       assertEquals(res.status, 503);
       assertEquals((await res.json()).error?.code, "AI_DISABLED");
       assertEquals(res.headers.get("cache-control"), "no-store");
-      assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+      assertEquals(
+        res.headers.get("access-control-allow-methods"),
+        "POST, OPTIONS",
+      );
       assertEquals(bodyReads, 0);
       assertEquals(quotaCalls, 0);
       assertEquals(contextCalls, 0);
@@ -755,7 +847,10 @@ Deno.test("The operator kill switch overrides the generation opt-in before quota
     assertEquals((await res.json()).error?.code, "AI_DISABLED");
     assertEquals(providerCalled, false);
     assertEquals(contextCalled, false);
-    assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
+    assertEquals(
+      requests.every((request) => !request.path.startsWith("/rest/")),
+      true,
+    );
   } finally {
     if (previous === undefined) Deno.env.delete(GENERATE_DISABLED_ENV);
     else Deno.env.set(GENERATE_DISABLED_ENV, previous);
@@ -783,18 +878,20 @@ Deno.test("Malformed JSON bodies return 400 INVALID_JSON without calling quota, 
   let providerCalled = false;
   let contextCalled = false;
 
-  for (const rawBody of [
-    "",
-    "   ",
-    "{not-valid-json",
-    '{"pantryItems": ["Unclosed',
-    "null",
-    "true",
-    "123",
-    '"just a string"',
-    "[]",
-    '[{"pantryItems": ["array not object"]}]',
-  ]) {
+  for (
+    const rawBody of [
+      "",
+      "   ",
+      "{not-valid-json",
+      '{"pantryItems": ["Unclosed',
+      "null",
+      "true",
+      "123",
+      '"just a string"',
+      "[]",
+      '[{"pantryItems": ["array not object"]}]',
+    ]
+  ) {
     const res = await handler(generateRequest(rawBody), {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -814,7 +911,10 @@ Deno.test("Malformed JSON bodies return 400 INVALID_JSON without calling quota, 
 
   assertEquals(providerCalled, false);
   assertEquals(contextCalled, false);
-  assertEquals(requests.every((request) => !request.path.startsWith("/rest/")), true);
+  assertEquals(
+    requests.every((request) => !request.path.startsWith("/rest/")),
+    true,
+  );
 });
 
 Deno.test("Invalid payloads fail Zod validation with 400 VALIDATION_ERROR and never retrieve or call the provider", async () => {
@@ -870,23 +970,28 @@ Deno.test("An empty pantry is rejected as a client bug, so EMPTY_PANTRY is unrea
   let providerCalled = false;
   let contextCalled = false;
 
-  const res = await handler(generateRequest(JSON.stringify({ pantryItems: [] })), {
-    supabaseUrl: TEST_SUPABASE_URL,
-    supabaseAnonKey: TEST_ANON_KEY,
-    fetch: fetchImpl,
-    provider: providerThrowing(new Error("must not run"), () => {
-      providerCalled = true;
-    }),
-    buildContext: contextReturning(COLD_START_CONTEXT, () => {
-      contextCalled = true;
-    }),
-  });
+  const res = await handler(
+    generateRequest(JSON.stringify({ pantryItems: [] })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: fetchImpl,
+      provider: providerThrowing(new Error("must not run"), () => {
+        providerCalled = true;
+      }),
+      buildContext: contextReturning(COLD_START_CONTEXT, () => {
+        contextCalled = true;
+      }),
+    },
+  );
 
   assertEquals(res.status, 400);
   const body = await res.json();
   assertEquals(body.error?.code, "VALIDATION_ERROR");
   assertEquals(
-    body.error.details.some((issue: { path?: string }) => issue.path === "pantryItems"),
+    body.error.details.some((issue: { path?: string }) =>
+      issue.path === "pantryItems"
+    ),
     true,
   );
   assertEquals(providerCalled, false);
@@ -933,13 +1038,19 @@ Deno.test("Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval o
   assertEquals((await declared.json()).error?.code, "INPUT_TOO_LARGE");
 
   // Exactly at the cap is still allowed.
-  const atCap = await handler(generateRequest(bodyOfExactByteLength(MAX_REQUEST_BYTES)), {
-    ...deps,
-    provider: providerReturning(COLD_START_GENERATED),
-  });
+  const atCap = await handler(
+    generateRequest(bodyOfExactByteLength(MAX_REQUEST_BYTES)),
+    {
+      ...deps,
+      provider: providerReturning(COLD_START_GENERATED),
+    },
+  );
   assertEquals(atCap.status, 200);
 
-  const overCap = await handler(generateRequest(bodyOfExactByteLength(MAX_REQUEST_BYTES + 1)), deps);
+  const overCap = await handler(
+    generateRequest(bodyOfExactByteLength(MAX_REQUEST_BYTES + 1)),
+    deps,
+  );
   assertEquals(overCap.status, 413);
   assertEquals((await overCap.json()).error?.code, "INPUT_TOO_LARGE");
 
@@ -949,7 +1060,10 @@ Deno.test("Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval o
     pantryItems: ["é".repeat(100)],
     junk: "é".repeat(1_000),
   });
-  assertEquals(new TextEncoder().encode(multibyteOk).byteLength < MAX_REQUEST_BYTES, true);
+  assertEquals(
+    new TextEncoder().encode(multibyteOk).byteLength < MAX_REQUEST_BYTES,
+    true,
+  );
   const ok = await handler(generateRequest(multibyteOk), {
     ...deps,
     provider: providerReturning(COLD_START_GENERATED),
@@ -961,7 +1075,10 @@ Deno.test("Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval o
     junk: "\u{1F600}".repeat(40_000),
   });
   assertEquals(multibyteOver.length < MAX_REQUEST_BYTES, true);
-  assertEquals(new TextEncoder().encode(multibyteOver).byteLength > MAX_REQUEST_BYTES, true);
+  assertEquals(
+    new TextEncoder().encode(multibyteOver).byteLength > MAX_REQUEST_BYTES,
+    true,
+  );
   const over = await handler(generateRequest(multibyteOver), deps);
   assertEquals(over.status, 413);
   assertEquals((await over.json()).error?.code, "INPUT_TOO_LARGE");
@@ -971,7 +1088,14 @@ Deno.test("Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval o
 });
 
 Deno.test("Streaming byte enforcement cancels at the first over-limit chunk regardless of Content-Length", async () => {
-  for (const declaredLength of [undefined, "invalid", "1", String(MAX_REQUEST_BYTES + 1)]) {
+  for (
+    const declaredLength of [
+      undefined,
+      "invalid",
+      "1",
+      String(MAX_REQUEST_BYTES + 1),
+    ]
+  ) {
     const { fetchImpl, requests } = createFetchMock();
     let reads = 0;
     let cancelled = false;
@@ -979,25 +1103,38 @@ Deno.test("Streaming byte enforcement cancels at the first over-limit chunk rega
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
         reads++;
-        controller.enqueue(new Uint8Array(reads <= 2 ? MAX_REQUEST_BYTES / 2 : 1));
+        controller.enqueue(
+          new Uint8Array(reads <= 2 ? MAX_REQUEST_BYTES / 2 : 1),
+        );
       },
       cancel() {
         cancelled = true;
       },
     }, { highWaterMark: 0 });
-    const headers = new Headers({ Authorization: `Bearer ${VALID_TEST_JWT}` });
-    if (declaredLength !== undefined) headers.set("Content-Length", declaredLength);
-    const res = await handler(new Request(`http://localhost${ENDPOINT_PATHS[0]}`, {
-      method: "POST",
-      headers,
-      body,
-    }), {
-      supabaseUrl: TEST_SUPABASE_URL,
-      supabaseAnonKey: TEST_ANON_KEY,
-      fetch: fetchImpl,
-      provider: providerReturning(COLD_START_GENERATED, () => providerCalls++),
-      buildContext: contextReturning(COLD_START_CONTEXT),
+    const headers = new Headers({
+      Authorization: `Bearer ${VALID_TEST_JWT}`,
+      "Content-Type": "application/json",
     });
+    if (declaredLength !== undefined) {
+      headers.set("Content-Length", declaredLength);
+    }
+    const res = await handler(
+      new Request(`http://localhost${ENDPOINT_PATHS[0]}`, {
+        method: "POST",
+        headers,
+        body,
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(
+          COLD_START_GENERATED,
+          () => providerCalls++,
+        ),
+        buildContext: contextReturning(COLD_START_CONTEXT),
+      },
+    );
     assertEquals(res.status, 413);
     assertEquals((await res.json()).error?.code, "INPUT_TOO_LARGE");
     const fastRejected = declaredLength === String(MAX_REQUEST_BYTES + 1);
@@ -1016,14 +1153,20 @@ Deno.test("Successful generation returns the validated preview, resolves parents
 
     const res = await handler(
       generateRequest(
-        JSON.stringify({ pantryItems: ["  rice  ", "eggs"], preferences: "  quick  " }),
+        JSON.stringify({
+          pantryItems: ["  rice  ", "eggs"],
+          preferences: "  quick  ",
+        }),
         path,
       ),
       {
         supabaseUrl: TEST_SUPABASE_URL,
         supabaseAnonKey: TEST_ANON_KEY,
         fetch: fetchImpl,
-        provider: providerReturning(MOCK_GENERATED_RECIPE, (input) => seenInputs.push(input)),
+        provider: providerReturning(
+          MOCK_GENERATED_RECIPE,
+          (input) => seenInputs.push(input),
+        ),
         buildContext: contextReturning(MATCHED_CONTEXT),
       },
     );
@@ -1032,7 +1175,10 @@ Deno.test("Successful generation returns the validated preview, resolves parents
     assertEquals(res.headers.get("content-type"), "application/json");
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
-    assertEquals(res.headers.get("access-control-allow-methods"), "POST, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "POST, OPTIONS",
+    );
 
     const body = await res.json();
     assertEquals(GenerateRecipeResponseSchema.safeParse(body).success, true);
@@ -1051,9 +1197,14 @@ Deno.test("Successful generation returns the validated preview, resolves parents
 
     // The request is trimmed before it reaches retrieval and the provider.
     assertEquals(seenInputs.length, 1);
-    assertEquals(seenInputs[0], { pantryItems: ["rice", "eggs"], preferences: "quick" });
+    assertEquals(seenInputs[0], {
+      pantryItems: ["rice", "eggs"],
+      preferences: "quick",
+    });
 
-    const quotaOp = requests.find((request) => request.path === "/rest/v1/rpc/consume_ai_quota");
+    const quotaOp = requests.find((request) =>
+      request.path === "/rest/v1/rpc/consume_ai_quota"
+    );
     assertEquals(quotaOp?.method, "POST");
     assertEquals(quotaOp?.authorization, `Bearer ${TEST_SERVICE_ROLE_KEY}`);
     assertEquals(quotaOp?.apikey, TEST_SERVICE_ROLE_KEY);
@@ -1125,9 +1276,12 @@ Deno.test("Candidate-token signing failure after generation confirms the reserva
   let providerCalls = 0;
   let signingCalls = 0;
   const { fetchImpl } = createFetchMock({
-    onConsume: (body) => consumed.push((body as { p_reservation_id: string }).p_reservation_id),
-    onConfirm: (body) => confirmed.push((body as { p_reservation_id: string }).p_reservation_id),
-    onReconcile: (body) => refunded.push((body as { p_reservation_id: string }).p_reservation_id),
+    onConsume: (body) =>
+      consumed.push((body as { p_reservation_id: string }).p_reservation_id),
+    onConfirm: (body) =>
+      confirmed.push((body as { p_reservation_id: string }).p_reservation_id),
+    onReconcile: (body) =>
+      refunded.push((body as { p_reservation_id: string }).p_reservation_id),
   });
   const originalSign = crypto.subtle.sign;
   try {
@@ -1261,19 +1415,27 @@ Deno.test("The real BE-10 retrieval feeds the endpoint and returns a resolved pa
 
   assertEquals(res.status, 200);
   const body = await res.json();
-  assertEquals(body.parents, [{ id: PARENT_ID, title: "Garlic Fried Rice", star_rating: 5 }]);
+  assertEquals(body.parents, [{
+    id: PARENT_ID,
+    title: "Garlic Fried Rice",
+    star_rating: 5,
+  }]);
   assertEquals(body.context, {
     status: "MATCHED",
     matchedCandidateCount: 1,
     totalCandidateCount: 1,
   });
 
-  const recipeRead = requests.find((request) => request.path === "/rest/v1/recipes");
+  const recipeRead = requests.find((request) =>
+    request.path === "/rest/v1/recipes"
+  );
   assertEquals(recipeRead?.method, "GET");
   assertEquals(recipeRead?.authorization, `Bearer ${VALID_TEST_JWT}`);
   assertNoDatabaseWrites(requests);
   assertEquals(
-    requests.some((request) => request.path.startsWith("/rest/v1/recipe_lineage")),
+    requests.some((request) =>
+      request.path.startsWith("/rest/v1/recipe_lineage")
+    ),
     false,
   );
 });
@@ -1354,8 +1516,18 @@ Deno.test("A parent ID with no retrieved candidates is rejected even though the 
 
 Deno.test("Malformed provider output is rejected before the frontend sees it", async () => {
   const cases: Array<{ generated: unknown; label: string }> = [
-    { generated: { recipe: { title: 123 }, substitutions: [], parentRecipeIds: [] }, label: "bad recipe" },
-    { generated: { recipe: MOCK_EXTRACTED_RECIPE, parentRecipeIds: [] }, label: "missing substitutions" },
+    {
+      generated: {
+        recipe: { title: 123 },
+        substitutions: [],
+        parentRecipeIds: [],
+      },
+      label: "bad recipe",
+    },
+    {
+      generated: { recipe: MOCK_EXTRACTED_RECIPE, parentRecipeIds: [] },
+      label: "missing substitutions",
+    },
     {
       generated: {
         recipe: MOCK_EXTRACTED_RECIPE,
@@ -1371,7 +1543,10 @@ Deno.test("Malformed provider output is rejected before the frontend sees it", a
       },
       label: "orphan substitution",
     },
-    { generated: { ...COLD_START_GENERATED, parentRecipeIds: ["not-a-uuid"] }, label: "non-uuid parent" },
+    {
+      generated: { ...COLD_START_GENERATED, parentRecipeIds: ["not-a-uuid"] },
+      label: "non-uuid parent",
+    },
   ];
 
   for (const testCase of cases) {
@@ -1385,7 +1560,11 @@ Deno.test("Malformed provider output is rejected before the frontend sees it", a
     });
 
     assertEquals(res.status, 502, testCase.label);
-    assertEquals((await res.json()).error?.code, "AI_OUTPUT_INVALID", testCase.label);
+    assertEquals(
+      (await res.json()).error?.code,
+      "AI_OUTPUT_INVALID",
+      testCase.label,
+    );
     assertNoDatabaseWrites(requests);
   }
 });
@@ -1403,9 +1582,11 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
       fail: (recordAttempt) => {
         recordAttempt();
         // The SDK aborts the request when its timeout elapses.
-        return Promise.reject(Object.assign(new Error("The operation was aborted."), {
-          name: "AbortError",
-        }));
+        return Promise.reject(
+          Object.assign(new Error("The operation was aborted."), {
+            name: "AbortError",
+          }),
+        );
       },
       status: 504,
       code: "AI_TIMEOUT",
@@ -1416,7 +1597,9 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
       label: "provider outage",
       fail: (recordAttempt) => {
         recordAttempt();
-        return Promise.reject(Object.assign(new Error("upstream unavailable"), { status: 503 }));
+        return Promise.reject(
+          Object.assign(new Error("upstream unavailable"), { status: 503 }),
+        );
       },
       status: 503,
       code: "AI_UNAVAILABLE",
@@ -1440,9 +1623,12 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
         // The real SDK shape: `response.text()` throws this on a blocked
         // prompt/candidate, and it carries no HTTP status.
         return Promise.reject(
-          new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
-            promptFeedback: { blockReason: "SAFETY" },
-          }),
+          new GoogleGenerativeAIResponseError(
+            "Response was blocked due to SAFETY",
+            {
+              promptFeedback: { blockReason: "SAFETY" },
+            },
+          ),
         );
       },
       status: 502,
@@ -1457,9 +1643,10 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
       const { fetchImpl, requests } = createFetchMock();
       let attempts = 0;
       const provider = new GeminiAdapter({
-        generateText: () => testCase.fail(() => {
-          attempts += 1;
-        }),
+        generateText: () =>
+          testCase.fail(() => {
+            attempts += 1;
+          }),
         log: () => {},
         sleep: async () => {},
       });
@@ -1478,7 +1665,11 @@ Deno.test("AI-09: a real adapter timeout, outage, malformed output or safety blo
       const label = `${path} ${testCase.label}`;
       assertEquals(res.status, testCase.status, label);
       assertEquals((await res.json()).error?.code, testCase.code, label);
-      assertEquals(attempts, testCase.attempts, `${label}: bounded retry count`);
+      assertEquals(
+        attempts,
+        testCase.attempts,
+        `${label}: bounded retry count`,
+      );
       assertNoDatabaseWrites(requests);
       assertNoRecipeOrLineageWrites(requests);
     }
@@ -1499,7 +1690,10 @@ Deno.test("AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTE
               // SDK 0.21.0 returns empty text for this newer block reason; the
               // adapter must classify it from the finish reason before reading
               // text(), otherwise it would surface as AI_OUTPUT_INVALID.
-              candidates: [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }],
+              candidates: [{
+                finishReason: "PROHIBITED_CONTENT",
+                content: { parts: [] },
+              }],
               text: () => {
                 textCalls += 1;
                 return "";
@@ -1530,8 +1724,16 @@ Deno.test("AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTE
     const label = `${path} PROHIBITED_CONTENT`;
     assertEquals(res.status, 502, label);
     assertEquals((await res.json()).error?.code, "AI_PROVIDER_REJECTED", label);
-    assertEquals(generateContentCalls, 1, `${label}: a blocked candidate must not be retried`);
-    assertEquals(textCalls, 0, `${label}: the adapter must not read text() for a blocked candidate`);
+    assertEquals(
+      generateContentCalls,
+      1,
+      `${label}: a blocked candidate must not be retried`,
+    );
+    assertEquals(
+      textCalls,
+      0,
+      `${label}: the adapter must not read text() for a blocked candidate`,
+    );
     assertNoDatabaseWrites(requests);
     assertNoRecipeOrLineageWrites(requests);
   }
@@ -1548,9 +1750,17 @@ Deno.test("Provider failures map to safe, recoverable errors without leaking det
     expectedRetryAfter?: string;
   }> = [
     { code: "invalid_output", status: 502, expectedCode: "AI_OUTPUT_INVALID" },
-    { code: "provider_rejected", status: 502, expectedCode: "AI_PROVIDER_REJECTED" },
+    {
+      code: "provider_rejected",
+      status: 502,
+      expectedCode: "AI_PROVIDER_REJECTED",
+    },
     { code: "provider_timeout", status: 504, expectedCode: "AI_TIMEOUT" },
-    { code: "provider_unavailable", status: 503, expectedCode: "AI_UNAVAILABLE" },
+    {
+      code: "provider_unavailable",
+      status: 503,
+      expectedCode: "AI_UNAVAILABLE",
+    },
     {
       code: "rate_limited",
       status: 429,
@@ -1565,7 +1775,12 @@ Deno.test("Provider failures map to safe, recoverable errors without leaking det
       retryAfterSeconds: 7_200,
       expectedRetryAfter: "3600",
     },
-    { code: "rate_limited", status: 429, expectedCode: "AI_RATE_LIMITED", expectedRetryAfter: "30" },
+    {
+      code: "rate_limited",
+      status: 429,
+      expectedCode: "AI_RATE_LIMITED",
+      expectedRetryAfter: "30",
+    },
     { code: "internal_error", status: 500, expectedCode: "INTERNAL_ERROR" },
   ];
 
@@ -1663,7 +1878,12 @@ Deno.test("Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and neve
       contextCalled = true;
     }),
     quotaCheck: () =>
-      Promise.resolve({ status: "exceeded", limit: 20, used: 20, retryAfterSeconds: 123 }),
+      Promise.resolve({
+        status: "exceeded",
+        limit: 20,
+        used: 20,
+        retryAfterSeconds: 123,
+      }),
   });
 
   assertEquals(res.status, 429);
@@ -1672,6 +1892,67 @@ Deno.test("Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and neve
   assertEquals(providerCalled, false);
   assertEquals(contextCalled, false);
   assertNoDatabaseWrites(requests);
+});
+
+Deno.test("Short-window AI rate exhaustion returns 429 with Retry-After before context retrieval or provider invocation", async () => {
+  const { fetchImpl, requests } = createFetchMock();
+  let providerCalled = false;
+  let contextCalled = false;
+  const response = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: fetchImpl,
+    provider: providerThrowing(
+      new Error("must not run"),
+      () => providerCalled = true,
+    ),
+    buildContext: contextReturning(
+      COLD_START_CONTEXT,
+      () => contextCalled = true,
+    ),
+    quotaCheck: () =>
+      Promise.resolve({ status: "rate_limited", retryAfterSeconds: 41 }),
+  });
+  assertEquals(response.status, 429);
+  assertEquals(response.headers.get("retry-after"), "41");
+  assertEquals((await response.json()).error?.code, "AI_REQUEST_RATE_LIMITED");
+  assertEquals(providerCalled, false);
+  assertEquals(contextCalled, false);
+  assertNoDatabaseWrites(requests);
+});
+
+Deno.test("Generated prompt context over the fixed byte budget is rejected and the reservation is rolled back", async () => {
+  let providerCalled = false;
+  let rollbackCalled = false;
+  let confirmCalled = false;
+  const context = { ...COLD_START_CONTEXT, preferences: "x".repeat(70 * 1024) };
+  const response = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: createFetchMock().fetchImpl,
+    provider: providerThrowing(
+      new Error("must not run"),
+      () => providerCalled = true,
+    ),
+    buildContext: contextReturning(context),
+    quotaCheck: () =>
+      Promise.resolve({
+        status: "allowed",
+        limit: 20,
+        used: 1,
+        rollback: async () => {
+          rollbackCalled = true;
+        },
+        confirm: async () => {
+          confirmCalled = true;
+        },
+      }),
+  });
+  assertEquals(response.status, 422);
+  assertEquals((await response.json()).error?.code, "AI_CONTEXT_TOO_LARGE");
+  assertEquals(providerCalled, false);
+  assertEquals(rollbackCalled, true);
+  assertEquals(confirmCalled, false);
 });
 
 Deno.test("A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never retrieves or calls the provider", async () => {
@@ -1715,7 +1996,12 @@ Deno.test("The endpoint passes the authenticated user id to the injected quota g
 });
 
 Deno.test("The default quota gate reads the daily counter and blocks at the configured limit", async () => {
-  for (const [usageCount, expectedStatus] of [[0, 200], [19, 200], [20, 429], [25, 429]] as const) {
+  for (
+    const [usageCount, expectedStatus] of [[0, 200], [19, 200], [20, 429], [
+      25,
+      429,
+    ]] as const
+  ) {
     const { fetchImpl, requests } = createFetchMock({ usageCount });
     const res = await handler(generateRequest(validBody()), {
       supabaseUrl: TEST_SUPABASE_URL,
@@ -1732,7 +2018,9 @@ Deno.test("The default quota gate reads the daily counter and blocks at the conf
       assertEquals(typeof res.headers.get("retry-after"), "string");
     }
 
-    const restCalls = requests.filter((request) => request.path.startsWith("/rest/"));
+    const restCalls = requests.filter((request) =>
+      request.path.startsWith("/rest/")
+    );
     assertEquals(restCalls.length, 1);
     assertEquals(restCalls[0].method, "GET");
     assertNoDatabaseWrites(requests);
@@ -1759,7 +2047,9 @@ Deno.test("Simulation drills need an allowed environment plus both switches, and
     SIMULATE_BAD_OUTPUT_ENV,
     "GEMINI_API_KEY",
   ];
-  const previousEnv = new Map(trackedEnvs.map((name) => [name, Deno.env.get(name)]));
+  const previousEnv = new Map(
+    trackedEnvs.map((name) => [name, Deno.env.get(name)]),
+  );
 
   try {
     for (const name of trackedEnvs) Deno.env.delete(name);
@@ -1781,7 +2071,10 @@ Deno.test("Simulation drills need an allowed environment plus both switches, and
       // Drill switch alone must not fire: no master switch means the real
       // adapter is used (which here fails as a plain 500, never the drill code).
       Deno.env.set(drill.env, "1");
-      const withoutMaster = await handler(generateRequest(validBody()), passthrough);
+      const withoutMaster = await handler(
+        generateRequest(validBody()),
+        passthrough,
+      );
       assertEquals(withoutMaster.status, 500);
       assertEquals((await withoutMaster.json()).error?.code, "INTERNAL_ERROR");
 
@@ -1789,10 +2082,22 @@ Deno.test("Simulation drills need an allowed environment plus both switches, and
       // Production/default/unknown environments ignore every switch, even together.
       Deno.env.set(SIMULATE_OUTAGE_ENV, "1");
       Deno.env.set(SIMULATE_BAD_OUTPUT_ENV, "1");
-      for (const environment of [undefined, "", "production", " PRODUCTION ", "staging", "typo"]) {
+      for (
+        const environment of [
+          undefined,
+          "",
+          "production",
+          " PRODUCTION ",
+          "staging",
+          "typo",
+        ]
+      ) {
         if (environment === undefined) Deno.env.delete(AI_ENVIRONMENT_ENV);
         else Deno.env.set(AI_ENVIRONMENT_ENV, environment);
-        const guarded = await handler(generateRequest(validBody()), passthrough);
+        const guarded = await handler(
+          generateRequest(validBody()),
+          passthrough,
+        );
         assertEquals(guarded.status, 500);
         assertEquals((await guarded.json()).error?.code, "INTERNAL_ERROR");
       }
@@ -1803,7 +2108,10 @@ Deno.test("Simulation drills need an allowed environment plus both switches, and
       // Only an allowed environment plus both switches activates a drill.
       for (const environment of ["development", "test", " TEST "]) {
         Deno.env.set(AI_ENVIRONMENT_ENV, environment);
-        const withMaster = await handler(generateRequest(validBody()), passthrough);
+        const withMaster = await handler(
+          generateRequest(validBody()),
+          passthrough,
+        );
         assertEquals(withMaster.status, drill.status);
         assertEquals((await withMaster.json()).error?.code, drill.code);
       }
@@ -1834,19 +2142,24 @@ Deno.test("Simulation drills need an allowed environment plus both switches, and
   }
 });
 
-
 Deno.test("Logical AI operation with bounded retry charges 1 quota reservation and confirms on success", async () => {
   let providerCalls = 0;
   const retryProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
+    extractRecipe: () =>
+      Promise.reject(new Error("extractRecipe is not used here")),
     generateRecipe: () => {
       providerCalls++;
       if (providerCalls === 1) {
-        throw new AIError("rate_limited", "generate", "Transient provider rate limit");
+        throw new AIError(
+          "rate_limited",
+          "generate",
+          "Transient provider rate limit",
+        );
       }
       return Promise.resolve(MOCK_GENERATED_RECIPE);
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+    testConnection: () =>
+      Promise.reject(new Error("testConnection is not used here")),
   };
 
   const consumedReservations: string[] = [];
@@ -1855,18 +2168,25 @@ Deno.test("Logical AI operation with bounded retry charges 1 quota reservation a
 
   const { fetchImpl, requests } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
   const wrappedProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
+    extractRecipe: () =>
+      Promise.reject(new Error("extractRecipe is not used here")),
     generateRecipe: async (input, ctx) => {
       try {
         return await retryProvider.generateRecipe(input, ctx);
@@ -1874,7 +2194,8 @@ Deno.test("Logical AI operation with bounded retry charges 1 quota reservation a
         return await retryProvider.generateRecipe(input, ctx);
       }
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+    testConnection: () =>
+      Promise.reject(new Error("testConnection is not used here")),
   };
 
   const res = await handler(
@@ -1900,12 +2221,18 @@ Deno.test("Logical AI operation with bounded retry charges 1 quota reservation a
 Deno.test("Logical AI operation with retry exhaustion refunds the quota reservation", async () => {
   let providerCalls = 0;
   const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
+    extractRecipe: () =>
+      Promise.reject(new Error("extractRecipe is not used here")),
     generateRecipe: () => {
       providerCalls++;
-      throw new AIError("rate_limited", "generate", "Provider rate limit exhausted");
+      throw new AIError(
+        "rate_limited",
+        "generate",
+        "Provider rate limit exhausted",
+      );
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+    testConnection: () =>
+      Promise.reject(new Error("testConnection is not used here")),
   };
 
   const consumedReservations: string[] = [];
@@ -1914,13 +2241,19 @@ Deno.test("Logical AI operation with retry exhaustion refunds the quota reservat
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -1946,7 +2279,10 @@ Deno.test("Logical AI operation with retry exhaustion refunds the quota reservat
 
 Deno.test("Reservation replay rejection prevents repeated provider invocations under single reservation", async () => {
   let providerCalls = 0;
-  const mockProvider = providerReturning(COLD_START_GENERATED, () => providerCalls++);
+  const mockProvider = providerReturning(
+    COLD_START_GENERATED,
+    () => providerCalls++,
+  );
   const reusedReservationId = crypto.randomUUID();
   const conflictSet = new Set<string>();
 
@@ -1969,7 +2305,10 @@ Deno.test("Reservation replay rejection prevents repeated provider invocations u
       provider: mockProvider,
       buildContext: contextReturning(COLD_START_CONTEXT),
       quotaCheck: (userId: string, sb: SupabaseClient, deps?: QuotaCheckDeps) =>
-        consumeDailyQuota(userId, sb, { ...deps, reservationId: reusedReservationId }),
+        consumeDailyQuota(userId, sb, {
+          ...deps,
+          reservationId: reusedReservationId,
+        }),
     },
   );
   assertEquals(res1.status, 200);
@@ -1984,7 +2323,10 @@ Deno.test("Reservation replay rejection prevents repeated provider invocations u
       provider: mockProvider,
       buildContext: contextReturning(COLD_START_CONTEXT),
       quotaCheck: (userId: string, sb: SupabaseClient, deps?: QuotaCheckDeps) =>
-        consumeDailyQuota(userId, sb, { ...deps, reservationId: reusedReservationId }),
+        consumeDailyQuota(userId, sb, {
+          ...deps,
+          reservationId: reusedReservationId,
+        }),
     },
   );
   assertEquals(res2.status, 503);
@@ -1995,12 +2337,18 @@ Deno.test("Reservation replay rejection prevents repeated provider invocations u
 Deno.test("Error preservation returns original provider error even when rollback RPC fails", async () => {
   let providerCalls = 0;
   const failingProvider: AIProvider = {
-    extractRecipe: () => Promise.reject(new Error("extractRecipe is not used here")),
+    extractRecipe: () =>
+      Promise.reject(new Error("extractRecipe is not used here")),
     generateRecipe: () => {
       providerCalls++;
-      throw new AIError("provider_rejected", "generate", "Gemini upstream 502 bad gateway");
+      throw new AIError(
+        "provider_rejected",
+        "generate",
+        "Gemini upstream 502 bad gateway",
+      );
     },
-    testConnection: () => Promise.reject(new Error("testConnection is not used here")),
+    testConnection: () =>
+      Promise.reject(new Error("testConnection is not used here")),
   };
 
   const { fetchImpl } = createFetchMock({
@@ -2026,13 +2374,18 @@ Deno.test("Error preservation returns original provider error even when rollback
 
 Deno.test("Confirmation safety delivers 200 OK preview even if confirmation RPC fails", async () => {
   let providerCalls = 0;
-  const mockProvider = providerReturning(COLD_START_GENERATED, () => providerCalls++);
+  const mockProvider = providerReturning(
+    COLD_START_GENERATED,
+    () => providerCalls++,
+  );
   const reconciledReservations: string[] = [];
 
   const { fetchImpl } = createFetchMock({
     confirmError: true,
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2063,7 +2416,8 @@ Deno.test("Missing service role credentials fail closed with QUOTA_UNAVAILABLE b
     Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
     Deno.env.delete("SUPABASE_URL");
     const res = await handler(
-      generateRequest(validBody()),{
+      generateRequest(validBody()),
+      {
         supabaseUrl: TEST_SUPABASE_URL,
         supabaseAnonKey: TEST_ANON_KEY,
         supabaseServiceRoleKey: undefined,
@@ -2101,13 +2455,19 @@ Deno.test("HTTP 503 provider failure across retries confirms generate quota with
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2147,13 +2507,19 @@ Deno.test("HTTP 500 provider failure across retries confirms generate quota with
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2193,13 +2559,19 @@ Deno.test("Network transport disconnect failure across retries confirms generate
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2228,7 +2600,9 @@ Deno.test("Ambiguous provider timeout failure confirms generate quota without re
   const adapter = new GeminiAdapter({
     generateText: () => {
       attemptsCount++;
-      throw Object.assign(new Error("Request timed out"), { name: "AbortError" });
+      throw Object.assign(new Error("Request timed out"), {
+        name: "AbortError",
+      });
     },
     sleep: () => Promise.resolve(),
   });
@@ -2239,13 +2613,19 @@ Deno.test("Ambiguous provider timeout failure confirms generate quota without re
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2275,7 +2655,9 @@ Deno.test("Mixed retries with timeout followed by 503 confirms generate quota wi
     generateText: () => {
       attemptsCount++;
       if (attemptsCount === 1) {
-        throw Object.assign(new Error("Request timed out"), { name: "AbortError" });
+        throw Object.assign(new Error("Request timed out"), {
+          name: "AbortError",
+        });
       }
       throw Object.assign(new Error("Service Unavailable"), { status: 503 });
     },
@@ -2288,13 +2670,19 @@ Deno.test("Mixed retries with timeout followed by 503 confirms generate quota wi
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2337,13 +2725,19 @@ Deno.test("Mixed retries with 429 followed by 503 confirms generate quota withou
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2386,13 +2780,19 @@ Deno.test("Mixed retries with 503 followed by 429 confirms generate quota withou
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2427,20 +2827,30 @@ for (const blockKind of ["prompt", "candidate"]) {
           return {
             response: {
               candidates: blockKind === "candidate"
-                ? [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }]
+                ? [{
+                  finishReason: "PROHIBITED_CONTENT",
+                  content: { parts: [] },
+                }]
                 : undefined,
               text: () => {
                 textCalls++;
-                throw new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
-                  promptFeedback: { blockReason: "SAFETY" },
-                });
+                throw new GoogleGenerativeAIResponseError(
+                  "Response was blocked due to SAFETY",
+                  {
+                    promptFeedback: { blockReason: "SAFETY" },
+                  },
+                );
               },
             },
           };
         },
       }),
     } as unknown as GoogleGenerativeAI;
-    const adapter = new GeminiAdapter({ client, log: () => {}, sleep: async () => {} });
+    const adapter = new GeminiAdapter({
+      client,
+      log: () => {},
+      sleep: async () => {},
+    });
 
     const consumedReservations: string[] = [];
     const confirmedReservations: string[] = [];
@@ -2448,13 +2858,19 @@ for (const blockKind of ["prompt", "candidate"]) {
 
     const { fetchImpl } = createFetchMock({
       onConsume: (body) => {
-        consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+        consumedReservations.push(
+          (body as { p_reservation_id: string }).p_reservation_id,
+        );
       },
       onConfirm: (body) => {
-        confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+        confirmedReservations.push(
+          (body as { p_reservation_id: string }).p_reservation_id,
+        );
       },
       onReconcile: (body) => {
-        reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+        reconciledReservations.push(
+          (body as { p_reservation_id: string }).p_reservation_id,
+        );
       },
     });
 
@@ -2496,13 +2912,19 @@ Deno.test("Definite non-consuming 429 rate limit across retries refunds generate
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2542,13 +2964,19 @@ Deno.test("Invalid model output schema failure confirms generate quota and does 
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2589,13 +3017,19 @@ Deno.test("Pre-provider context retrieval failure refunds reserved generate quot
 
   const { fetchImpl } = createFetchMock({
     onConsume: (body) => {
-      consumedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      consumedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onConfirm: (body) => {
-      confirmedReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      confirmedReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
     onReconcile: (body) => {
-      reconciledReservations.push((body as { p_reservation_id: string }).p_reservation_id);
+      reconciledReservations.push(
+        (body as { p_reservation_id: string }).p_reservation_id,
+      );
     },
   });
 
@@ -2605,7 +3039,8 @@ Deno.test("Pre-provider context retrieval failure refunds reserved generate quot
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
       fetch: fetchImpl,
-      buildContext: () => Promise.reject(new Error("Context database query failed")),
+      buildContext: () =>
+        Promise.reject(new Error("Context database query failed")),
       provider: unusedProvider,
     },
   );
@@ -2627,7 +3062,8 @@ Deno.test("Generate quota consumption falls back to environment variables when d
     Deno.env.set("SUPABASE_URL", TEST_SUPABASE_URL);
     Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", TEST_SERVICE_ROLE_KEY);
     const res = await handler(
-      generateRequest(validBody()),{
+      generateRequest(validBody()),
+      {
         supabaseUrl: TEST_SUPABASE_URL,
         supabaseAnonKey: TEST_ANON_KEY,
         supabaseServiceRoleKey: undefined,
@@ -2637,7 +3073,9 @@ Deno.test("Generate quota consumption falls back to environment variables when d
       },
     );
     assertEquals(res.status, 200);
-    const quotaOp = requests.find((request) => request.path === "/rest/v1/rpc/consume_ai_quota");
+    const quotaOp = requests.find((request) =>
+      request.path === "/rest/v1/rpc/consume_ai_quota"
+    );
     assertEquals(quotaOp?.authorization, `Bearer ${TEST_SERVICE_ROLE_KEY}`);
   } finally {
     if (prevUrl === undefined) Deno.env.delete("SUPABASE_URL");

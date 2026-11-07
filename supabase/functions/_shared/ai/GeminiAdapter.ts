@@ -5,18 +5,18 @@ import {
 } from "npm:@google/generative-ai@0.21.0";
 import type {
   AIProvider,
-  ExtractRecipeInput,
   ExtractedRecipe,
+  ExtractRecipeInput,
+  GeneratedRecipe,
   GenerateRecipeContext,
   GenerateRecipeInput,
-  GeneratedRecipe,
 } from "./AIProvider.ts";
 import {
+  buildChefPrompt,
+  buildExtractionPrompt,
   CHEF_PROMPT,
   EXTRACTION_PROMPT,
   type PromptTemplate,
-  buildChefPrompt,
-  buildExtractionPrompt,
 } from "./prompts.ts";
 import { ExtractedRecipeSchema, GeneratedRecipeSchema } from "./schemas.ts";
 
@@ -84,9 +84,13 @@ function readProviderRetryDelayMs(error: unknown): number | undefined {
   let delayMs: number | undefined;
   for (const detail of details) {
     if (typeof detail !== "object" || detail === null) continue;
-    if (detail["@type"] !== "type.googleapis.com/google.rpc.RetryInfo") continue;
+    if (detail["@type"] !== "type.googleapis.com/google.rpc.RetryInfo") {
+      continue;
+    }
     const duration: unknown = detail.retryDelay;
-    if (typeof duration !== "string" || !/^\d+(?:\.\d{1,9})?s$/.test(duration)) continue;
+    if (
+      typeof duration !== "string" || !/^\d+(?:\.\d{1,9})?s$/.test(duration)
+    ) continue;
     const milliseconds = Math.ceil(Number(duration.slice(0, -1)) * 1000);
     delayMs = Math.max(delayMs ?? 0, milliseconds);
   }
@@ -98,7 +102,9 @@ function readProviderRetryDelayMs(error: unknown): number | undefined {
  * needs. Clamped to [1, 3600] so an absent or overflowing delay can never emit
  * a `Retry-After: 0`/`Infinity` header.
  */
-function retryAfterSecondsFromMs(delayMs: number | undefined): number | undefined {
+function retryAfterSecondsFromMs(
+  delayMs: number | undefined,
+): number | undefined {
   if (delayMs === undefined || Number.isNaN(delayMs)) return undefined;
   if (!Number.isFinite(delayMs)) return 3600;
   return Math.min(3600, Math.max(1, Math.ceil(delayMs / 1000)));
@@ -111,7 +117,8 @@ export type AIErrorCode =
   | "provider_rejected"
   | "provider_timeout"
   | "provider_unavailable"
-  | "rate_limited";
+  | "rate_limited"
+  | "context_too_large";
 
 /**
  * Typed AI failure. `code` is stable so callers (the AI-05 endpoint) can map it
@@ -273,7 +280,9 @@ export class GeminiAdapter implements AIProvider {
     _input: GenerateRecipeInput,
     context: GenerateRecipeContext,
   ): Promise<GeneratedRecipe> {
-    const allowedParentIds = new Set(context.recipes.map((recipe) => recipe.id));
+    const allowedParentIds = new Set(
+      context.recipes.map((recipe) => recipe.id),
+    );
     return this.runOperation(
       "generate",
       CHEF_PROMPT,
@@ -335,8 +344,12 @@ export class GeminiAdapter implements AIProvider {
           [...attempts],
         );
 
-        if (!aiError.retryable || attempt === MAX_ATTEMPTS) throw accumulatedError;
-        const delayMs = retryDelayMs(aiError.code === "rate_limited" ? error : undefined);
+        if (!aiError.retryable || attempt === MAX_ATTEMPTS) {
+          throw accumulatedError;
+        }
+        const delayMs = retryDelayMs(
+          aiError.code === "rate_limited" ? error : undefined,
+        );
         if (delayMs === undefined) throw accumulatedError;
         lastError = accumulatedError;
         await this.sleep(delayMs);
@@ -347,10 +360,14 @@ export class GeminiAdapter implements AIProvider {
       new AIError(
         "provider_unavailable",
         operation,
-        operation === "extract" ? "Gemini extraction failed." : "Gemini generation failed.",
+        operation === "extract"
+          ? "Gemini extraction failed."
+          : "Gemini generation failed.",
         undefined,
         undefined,
-        attempts.length > 0 ? attempts.every((entry) => entry.nonConsuming) : false,
+        attempts.length > 0
+          ? attempts.every((entry) => entry.nonConsuming)
+          : false,
         attempts,
       );
   }
@@ -403,7 +420,10 @@ export class GeminiAdapter implements AIProvider {
   }
 
   /** One Gemini request in JSON mode. The response is validated by the caller. */
-  private async callModel(client: GoogleGenerativeAI, prompt: string): Promise<string> {
+  private async callModel(
+    client: GoogleGenerativeAI,
+    prompt: string,
+  ): Promise<string> {
     const model = client.getGenerativeModel(
       {
         model: this.modelName,
@@ -412,6 +432,7 @@ export class GeminiAdapter implements AIProvider {
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.2,
+          maxOutputTokens: 2048,
         },
       },
       { timeout: this.timeoutMs },
@@ -443,7 +464,14 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
   try {
     value = JSON.parse(cleaned);
   } catch {
-    throw new AIError("invalid_output", "extract", "Gemini did not return valid JSON.", undefined, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "extract",
+      "Gemini did not return valid JSON.",
+      undefined,
+      undefined,
+      false,
+    );
   }
 
   const parsed = ExtractedRecipeSchema.safeParse(value);
@@ -454,7 +482,14 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
     const message = fieldPaths
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
-    throw new AIError("invalid_output", "extract", message, fieldPaths, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "extract",
+      message,
+      fieldPaths,
+      undefined,
+      false,
+    );
   }
 
   return parsed.data;
@@ -478,7 +513,14 @@ export function parseGenerationResponse(
   try {
     value = JSON.parse(cleaned);
   } catch {
-    throw new AIError("invalid_output", "generate", "Gemini did not return valid JSON.", undefined, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "generate",
+      "Gemini did not return valid JSON.",
+      undefined,
+      undefined,
+      false,
+    );
   }
 
   const parsed = GeneratedRecipeSchema.safeParse(value);
@@ -489,7 +531,14 @@ export function parseGenerationResponse(
     const message = fieldPaths
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
-    throw new AIError("invalid_output", "generate", message, fieldPaths, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "generate",
+      message,
+      fieldPaths,
+      undefined,
+      false,
+    );
   }
 
   const hasUnknownParent = parsed.data.parentRecipeIds
@@ -613,31 +662,41 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
 function isNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as { code?: unknown }).code;
-  if (typeof code === "string" &&
-    /^(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)$/.test(code)) {
+  if (
+    typeof code === "string" &&
+    /^(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)$/
+      .test(code)
+  ) {
     return true;
   }
 
   // The SDK wraps fetch exceptions and discards their type/cause. Match only
   // known transport messages inside its fetch wrapper, never the wrapper alone.
   const message = error instanceof GoogleGenerativeAIError
-    ? error.message.match(/^\[GoogleGenerativeAI Error\]: Error fetching from https?:\/\/\S+: (.+)$/s)?.[1]
-    : error instanceof TypeError ? error.message : undefined;
+    ? error.message.match(
+      /^\[GoogleGenerativeAI Error\]: Error fetching from https?:\/\/\S+: (.+)$/s,
+    )?.[1]
+    : error instanceof TypeError
+    ? error.message
+    : undefined;
   return message !== undefined &&
-    /^(?:fetch failed|failed to fetch|NetworkError when attempting to fetch resource|Load failed|error sending request for url\b)/i.test(message);
+    /^(?:fetch failed|failed to fetch|NetworkError when attempting to fetch resource|Load failed|error sending request for url\b)/i
+      .test(message);
 }
 
 /** True when the failure looks like a timeout or an abort. */
 function isTimeout(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return error.name === "AbortError" || /timed? ?out|aborted/i.test(error.message);
+  return error.name === "AbortError" ||
+    /timed? ?out|aborted/i.test(error.message);
 }
 
 /** Reads an HTTP-style numeric `status` without trusting the error's shape. */
 function readStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const status = (error as { status?: unknown }).status;
-  return typeof status === "number" && Number.isInteger(status) && status >= 100 && status < 600
+  return typeof status === "number" && Number.isInteger(status) &&
+      status >= 100 && status < 600
     ? status
     : undefined;
 }
