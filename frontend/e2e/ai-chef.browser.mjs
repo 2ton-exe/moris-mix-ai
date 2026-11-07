@@ -40,6 +40,7 @@ const generated = {
 }
 const requests = []
 const recipeWrites = []
+let nextRecipeNumber = 1
 let appOrigin
 let apiOrigin
 let apiServer
@@ -103,9 +104,18 @@ async function handleApiRequest(request, response) {
     return
   }
   if (url.pathname === '/functions/v1/recipes' && request.method === 'POST') {
-    recipeWrites.push({ body, authorization: request.headers.authorization })
+    const id = `fe10-saved-recipe-${nextRecipeNumber++}`
+    recipeWrites.push({ method: request.method, id, body, authorization: request.headers.authorization })
     sendJson(request, response, 201, { recipe: {
-      id: 'fe10-saved-recipe', user_id: userId, ...body, flavor_scores: null,
+      id, user_id: userId, ...body, flavor_scores: null,
+    } })
+    return
+  }
+  if (url.pathname.startsWith('/functions/v1/recipes/') && request.method === 'PATCH') {
+    const id = decodeURIComponent(url.pathname.split('/').at(-1))
+    recipeWrites.push({ method: request.method, id, body, authorization: request.headers.authorization })
+    sendJson(request, response, 200, { recipe: {
+      id, user_id: userId, ...body, flavor_scores: null,
     } })
     return
   }
@@ -228,20 +238,108 @@ try {
     await page.screenshot({ path: path.join(os.tmpdir(), `moris-fe10-review-${width}.png`), fullPage: true })
   }
 
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: 'Previous Pages' }).click()
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByText('Recipe saved.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Explicit Save did not create exactly one recipe')
+  assert.equal(recipeWrites[0].method, 'POST')
   assert.equal(recipeWrites[0].authorization, `Bearer ${session.access_token}`)
   assert.equal(recipeWrites[0].body.title, 'Egg and rice skillet')
   assert.equal(recipeWrites[0].body.instructions[0].text, 'Warm the rice first, then fold in the eggs.')
   assert.equal('candidate_token' in recipeWrites[0].body, false)
   assert.equal(requests.some((request) => request.path.includes('/lineage')), false)
+  await expect(page.getByLabel('Recipe title')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible()
   const clearedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)
   assert.equal(clearedDraft.handoff, null, 'A confirmed save did not clear the unsaved review handoff')
+
+  await page.getByLabel('Recipe title').fill('Updated egg and rice skillet')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Recipe saved.')).toBeVisible()
+  assert.equal(recipeWrites.length, 2, 'Saving changed values created a second recipe')
+  assert.equal(recipeWrites[1].method, 'PATCH', 'Save changes did not update the confirmed recipe')
+  assert.equal(recipeWrites[1].id, recipeWrites[0].id)
+  assert.equal(recipeWrites[1].body.title, 'Updated egg and rice skillet')
+  await expect(page.getByText(/changed elsewhere/)).toHaveCount(0)
+  assert.equal((await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)).handoff, null)
+
+  await page.getByLabel('Recipe title').fill('A third saved version')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Recipe saved.')).toBeVisible()
+  assert.equal(recipeWrites.length, 3, 'Repeated cleanup created a second recipe')
+  assert.deepEqual(recipeWrites.map((write) => [write.method, write.id]), [
+    ['POST', recipeWrites[0].id], ['PATCH', recipeWrites[0].id], ['PATCH', recipeWrites[0].id],
+  ])
+  assert.equal((await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)).handoff, null)
+
+  const retryPage = await context.newPage()
+  await retryPage.goto(`${origin}app/chef`)
+  await expect(retryPage.getByRole('button', { name: 'Ask Mori for a recipe' })).toBeVisible()
+  const retryPantry = retryPage.getByRole('textbox', { name: 'Pantry ingredient' })
+  await retryPantry.fill('rice')
+  await retryPantry.press('Enter')
+  await retryPage.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+  await expect(retryPage.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  const chefDraftKey = `moris-mix:ai-chef:v1:${userId}`
+  await retryPage.evaluate((key) => {
+    const originalSetItem = globalThis.Storage.prototype.setItem
+    let failClear = true
+    let clearAttempts = 0
+    globalThis.Storage.prototype.setItem = function (itemKey, value) {
+      if (itemKey === key && JSON.parse(value).handoff === null) {
+        clearAttempts += 1
+        if (failClear) throw new globalThis.DOMException('Storage temporarily unavailable', 'QuotaExceededError')
+      }
+      return originalSetItem.call(this, itemKey, value)
+    }
+    globalThis.__setChefClearFailure = (fail) => { failClear = fail }
+    globalThis.__getChefClearAttempts = () => clearAttempts
+  }, chefDraftKey)
+  await retryPage.getByRole('button', { name: 'Save recipe' }).click()
+  await expect(retryPage.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
+  await expect(retryPage.getByRole('alert')).toContainText('could not clear the old preview')
+  const firstClearAttemptCount = await retryPage.evaluate(() => globalThis.__getChefClearAttempts())
+  assert.ok(firstClearAttemptCount > 0, 'The first clear did not attempt a session storage write')
+  const draftBeforeRetry = await retryPage.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), chefDraftKey)
+  assert.notEqual(draftBeforeRetry.handoff, null, 'The failed clear unexpectedly removed the handoff')
+  assert.equal(recipeWrites.at(-1).method, 'POST', 'Recipe persistence should succeed even when draft cleanup fails')
+
+  await retryPage.evaluate(() => globalThis.__setChefClearFailure(false))
+  await retryPage.getByRole('button', { name: 'Try saving the review again' }).click()
+  await expect.poll(async () => (await retryPage.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), chefDraftKey)).handoff).toBeNull()
+  await expect(retryPage.getByRole('alert')).toHaveCount(0)
+  const finalClearAttemptCount = await retryPage.evaluate(() => globalThis.__getChefClearAttempts())
+  assert.ok(finalClearAttemptCount > firstClearAttemptCount, 'The retry did not attempt a real session storage write')
+  assert.equal(recipeWrites.at(-1).method, 'POST')
+
+  const conflictPage = await context.newPage()
+  await conflictPage.goto(`${origin}app/chef`)
+  await expect(conflictPage.getByRole('button', { name: 'Ask Mori for a recipe' })).toBeVisible()
+  const conflictPantry = conflictPage.getByRole('textbox', { name: 'Pantry ingredient' })
+  await conflictPantry.fill('eggs')
+  await conflictPantry.press('Enter')
+  await conflictPage.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+  await expect(conflictPage.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  const conflictDraftKey = `moris-mix:ai-chef:v1:${userId}`
+  await conflictPage.evaluate((key) => {
+    const draft = JSON.parse(globalThis.sessionStorage.getItem(key))
+    draft.handoff.response.recipe.title = 'A newer recipe from another tab'
+    globalThis.sessionStorage.setItem(key, JSON.stringify(draft))
+  }, conflictDraftKey)
+  await conflictPage.getByRole('button', { name: 'Save recipe' }).click()
+  await expect(conflictPage.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
+  await expect(conflictPage.getByRole('alert')).toContainText('changed elsewhere')
+  const newerDraft = await conflictPage.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), conflictDraftKey)
+  assert.equal(newerDraft.handoff.response.recipe.title, 'A newer recipe from another tab')
+  await expect(conflictPage.getByRole('button', { name: 'Try saving the review again' })).toHaveCount(0)
+
   assert.deepEqual(errors, [])
+  await retryPage.close()
+  await conflictPage.close()
   await context.close()
-  process.stdout.write('FE-10 browser acceptance passed: Talk to Mori modal and keyboard close, authenticated AI Chef generation, duplicate pantry handling, retained unsaved review, substitutions and parent suggestions, explicit edited save, no lineage write, 320/375/768/1440px layouts, and 200% equivalent reflow.\n')
+  process.stdout.write('AI Chef browser acceptance passed: first save and continued editing, same-recipe updates after a cleared handoff, failed-clear retry with a real storage write, protection of a newer handoff, repeated cleanup, Talk to Mori keyboard behavior, authenticated generation, no lineage write in FE-10, and responsive reflow.\n')
 } finally {
   await browser?.close()
   await server?.close()

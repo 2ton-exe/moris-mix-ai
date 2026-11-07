@@ -73,7 +73,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
 
   function clearHandoffAfterSave(): ChefDraftWriteResult | null {
     const current = currentDraft()
-    if (!sameHandoff(current.handoff)) {
+    if (current.handoff !== null && !sameHandoff(current.handoff)) {
       setStorageIssue('handoff-changed')
       return null
     }
