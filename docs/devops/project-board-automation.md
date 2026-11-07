@@ -61,7 +61,7 @@ Runs #139 and #143 reconciled unchanged board state after distinct PR events; th
 
 
 
-### GraphQL workload telemetry (implementation pending hosted verification)
+### GraphQL workload telemetry (implemented and hosted verified 2026-11-07)
 
 The synchronizer records an aggregate `GraphQL workload` JSON summary at the end
 of each authenticated dry-run or reconciliation, including failure paths.
@@ -80,18 +80,99 @@ The `result` field is `incomplete` when reconciliation fails, even when
 some requests or Project mutations succeeded. Telemetry does not record
 credentials, request variables, raw GraphQL errors, PR bodies, or API responses.
 
-Before checking the runtime-measurement acceptance item, verify the hosted PR
-regression and main-branch run, then capture an authenticated run's summary,
-link the Action evidence, assess the measured 30-minute timeout headroom, and
-record missing cost precision or scheduled-run limitations explicitly.
+The exact-merge [Modular Main Validation #48](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42346767555)
+succeeded for PR #178's squash SHA `dfc7eba4b36d5c41dc41c0cfa12aed5cb11d1249`,
+including mandatory Hosted RLS, production deployment, URL/AI route checks,
+runtime smoke, and retained artifacts. The separate
+[merge-triggered synchronizer #210](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42346767974)
+succeeded, applying PR #178 → Done (1/1 Project operation, 0 rejected
+relationships). Its first hosted summary recorded **96 GraphQL requests**
+(95 reads, 1 mutation, 88 native-link requests), **25,393 ms** reconciliation,
+**0 failed requests**, and **4,849 / 5,000** remaining in its latest
+rate-limit response header. This measures a successful reconciliation, not a
+performance improvement or exact query-cost attribution.
+
+A subsequent [event reconciliation #215](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42348157200)
+had **94 read requests**, 0 mutations, 0 rejected relationships, and
+**29,559 ms** elapsed reconciliation time, with **4,490 / 5,000** remaining
+in its latest rate-limit response. It included **two Project item pages**,
+demonstrating hosted pagination beyond a single 100-item page. Both measured
+runs completed far inside the configured 30-minute job timeout; two runs are
+not a long-term reliability baseline. The recorded `x-ratelimit-used`
+samples may reflect concurrent use and cannot be interpreted as an exact
+per-run cost.
 
 ### Timing, known limits, and next actions
 
-From the GitHub Actions REST `created_at` and `updated_at` timestamps (run-level elapsed time, including scheduling and setup, **not** a per-API latency metric), #132 took approximately **36 s**, #133 **73 s**, #134 **33 s**, #135 **44 s**, #143 **86 s**, and #148 **37 s**. These runs are observations with different workloads, **not** comparable optimization evidence. Exact GraphQL request counts, remaining rate-limit budget and long-term reliability have **not** been independently measured.
+At the original November 6 checkpoint, GitHub Actions REST `created_at`
+to `updated_at` timestamps (including scheduling/setup, **not** GraphQL
+latency) showed: #132 ~36 s, #133 ~73 s, #134 ~33 s, #135 ~44 s,
+#143 ~86 s, and #148 ~37 s. Workloads differed, so these are not a
+before/after optimization comparison. GraphQL request and rate-budget
+measurements became available only in the November 7 update above.
 
 Known nonblocking warning: `actions/checkout@v4` / `actions/setup-node@v4` emitted a Node.js 20 deprecation warning under the runtime; the documented runs succeeded. Do not treat this as a successful compatibility upgrade. The configured synchronization timeout remains 30 minutes, and GitHub schedule executions can be delayed.
 
-Before closing #147: confirm fixture #170's final `Done` status in the Project UI; review the remaining issue acceptance checkboxes against run and board evidence; obtain independent review and main-branch verification for this documentation update; verify the merged-PR/issue-separation behavior through an appropriate **real** PR merge when available; **measure and record GraphQL request counts, rate-limit budget and run duration** for an authenticated reconciliation; and ensure test branch `test/170-development-board-lifecycle` is cleaned up without merging its contents.
+The November 6 to-do list has been superseded by the hosted evidence above
+and the dispositioned checklist below. Issue #147 stays open until the
+remaining operator-approval record, safe deferrals, and independently reviewed
+documentation have been assessed. Do not repeat completed fixtures or
+deliberately break the active Project solely to satisfy a checklist.
+
+---
+
+## Operational follow-up and acceptance boundaries — 2026-11-07
+
+**Current status:** The synchronizer is active; its first authenticated
+write, controlled live lifecycle fixtures, merged-PR status handling,
+hourly-schedule delivery (subject to GitHub schedule delays), and hosted
+GraphQL workload are evidenced below and in the dated comments on
+[#147](https://github.com/2ton-exe/moris-mix-ai/issues/147).
+Do not interpret older statements saying the workflow "remains disabled" or
+telemetry "remains unmeasured" as current configuration.
+
+[Schedule #203](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42297228839)
+and [schedule #204](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42326693766)
+both executed the active `synchronize` job successfully with **0 proposed,
+0 applied**; these confirm scheduled execution at those times, **not**
+induced drift repair or guaranteed hourly execution. Earlier
+[scheduled run #128](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42184174130)
+succeeded only via the `disabled` job, with `synchronize` skipped,
+proving the disabled scheduled path before activation.
+
+The operator independently reported that fixture
+[issue #170](https://github.com/2ton-exe/moris-mix-ai/issues/170)
+had **one unarchived Done Project card** after its explicitly completed
+closure. This is an **operator-reported UI observation**, separate from
+[run #148's acknowledged GraphQL mutation](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42203724235);
+it is not an independent API inventory of every Project card.
+Controlled [issue #175/#176 and PR #177](https://github.com/2ton-exe/moris-mix-ai/issues/147#issuecomment-6686552758)
+transitions covered draft conversion, relationship reassignment/removal,
+archival, and PR reopening via successful acknowledged writes.
+Both disposable `test/170-development-board-lifecycle` and
+`test/147-relationship-lifecycle-verification` branches were absent from
+the repository's November 7 branch inventory; neither was merged.
+
+Merged [PR #174](https://github.com/2ton-exe/moris-mix-ai/pull/174) and
+[PR #178](https://github.com/2ton-exe/moris-mix-ai/pull/178) demonstrate
+real PR status transitions without automatic parent-issue closure.
+PR #178's [single post-merge evidence comment](https://github.com/2ton-exe/moris-mix-ai/pull/178#issuecomment-6703367239)
+records the exact main deployment, production smoke, and runtime artifacts.
+A clean reconciliation snapshot and zero-op follow-up establish consistency
+only **at the observed time**, not immunity to future drift.
+
+**Deliberate evidence limits:** No live duplicate-webhook delivery was
+induced; zero-op repeated reconciliations are not equivalent. No deliberate
+permission outage, malformed activation value, or manual Project drift was
+introduced into the operating installation; offline regressions cover those
+failure/recovery paths, but hosted recovery remains unverified. Live
+multi-PR precedence and unrelated-number exclusion have offline regression
+coverage, not all independent UI confirmations. If these are accepted as
+deferred operational risks, record that decision explicitly instead of
+mislabeling the scenarios as live-tested. Approval of the complete initial
+24-operation dry-run plan before App activation also lacks a durable
+GitHub-side authorization record; activation success alone is not
+retrospective proof of plan approval.
 
 ---
 
@@ -488,34 +569,47 @@ the remaining evidence before closing #147.
   closed-unmerged PR archive (#140), and reopened issue unarchive/Todo (#142).
 - [x] Observe repeated steady-state reconciliation with zero additional mutations
   (#134, #135, #139, #143); duplicate-event delivery remains unverified.
-- [ ] Confirm explicit activation approval and review of dry-run metadata,
-  relationships and plans; execution success alone does not record those reviews.
-- [ ] Confirm merged default-branch implementation and code-owner approval;
-  obtain independent review and main-branch verification of this documentation.
-- [x] Verify disabled event-triggered path: runs #130/#131 completed the `disabled`
-  job and skipped `synchronize` before activation.
-- [ ] Document or execute a safe controlled verification of the disabled scheduled
-  path and hosted malformed-value pre-token guards, without unnecessarily
-  interrupting the active board; record any justified deferral.
-- [ ] Inspect fixture #170's final Done status independently in the Project UI.
-- [ ] Verify converted-draft PR In Progress and reopened PR unarchive/recalculation.
-- [ ] Edit/remove relationships with and without prior-body evidence; verify prior
-  issues return to Todo only without other valid OPEN/MERGED evidence; multiple
-  links/PRs remain correct and unrelated mentions do nothing.
-- [ ] Observe appropriate real partial/final implementation PR merges and verify PR Done while
-  the open issue remains In Progress until explicitly closed completed. The
-  closed-unmerged fixture does not verify this transition.
-- [ ] Verify duplicate-event delivery causes zero additional mutations/cards and
-  independently inspect item uniqueness; zero-operation runs alone do not prove it.
-- [ ] Exercise >100-item pagination, scheduled drift repair, API/permission failure
-  visibility and safe recovery with no credentials in logs.
-- [ ] Measure and document authenticated GraphQL request counts, pagination
-  workload, available rate-limit budget and run duration for an ordinary full
-  reconciliation; assess headroom against the 30-minute job timeout.
-- [ ] Review remaining #147 acceptance checkboxes against run and board evidence;
-  record remaining transitions, failures and limitations before issue closure.
-- [ ] Ensure test branch `test/170-development-board-lifecycle` is cleaned up
-  without merging its contents. Preserve completed issues as historical evidence.
+- [ ] Record explicit operator approval/review of the full #132 dry-run plan
+  and activation decision; workflow execution alone does not prove approval.
+- [x] Confirm merged default-branch implementation and independent review:
+  PRs #148/#156/#174 and PR #178 had main validation; #174/#178 include
+  reviewed documentation/telemetry. This new evidence-only update still
+  requires its **own** independent PR review and exact-main verification.
+- [x] Verify disabled event path (#130/#131) and disabled scheduled path (#128);
+  those runs skipped `synchronize`, as expected before activation.
+- [ ] Hosted malformed activation-value pre-token guard remains untested:
+  offline regressions exist; intentionally disrupting active configuration
+  is deferred pending a separately approved safe test plan.
+- [x] Operator confirmed fixture #170 had one unarchived Done card after
+  explicitly closing it Completed; run #148 separately applied that status.
+- [x] Verify converted-draft PR and reopened PR: #169 and #175 respectively,
+  with #170/#171 covering initial issue and draft/ready transitions.
+- [x] Verify live explicit relationship reassignment/multiple issue links/
+  removal: fixture PR #177, runs #171–#173. Prior-body-independent full
+  reconciliation, multiple PR precedence, and arbitrary mention exclusion
+  are also covered by offline regression tests; do not claim all were
+  independently live-tested.
+- [x] Observe real merged-PR handling: #174 and #178 became Done while
+  still-open parent #147 was not automatically closed.
+- [ ] Live duplicate-event delivery and independent full-board item-uniqueness
+  inspection are not proven; zero-operation repeat runs and fail-closed
+  duplicate validation establish narrower evidence.
+- [x] Hosted pagination exceeded one 100-item Project page in #215
+  (two Project-item page requests); scheduler fired successfully in #203/#204.
+- [ ] Induced scheduled drift repair, hosted API/permission failure, and
+  recovery were not live-tested; offline failure/recovery regressions are
+  retained. Record explicit risk acceptance or a separate controlled plan,
+  not fabricated live results.
+- [x] Authenticated workload measured: #210 (96 requests, 25,393 ms,
+  last observed 4,849/5,000 remaining) and #215 (94 requests, 29,559 ms,
+  last observed 4,490/5,000 remaining). Neither is an optimization claim.
+- [ ] Complete #147 acceptance review after independent review and
+  exact-main verification of this evidence update; record the disposition
+  of the open risk/approval items before issue closure.
+- [x] Confirm both unmerged fixture branches were cleaned up:
+  `test/170-development-board-lifecycle` and
+  `test/147-relationship-lifecycle-verification` absent on November 7.
+  Preserve their completed/retired repository issues as evidence.
 
 
 Reference API contracts: [Project GraphQL types and mutations](https://docs.github.com/en/graphql/reference/projects),
