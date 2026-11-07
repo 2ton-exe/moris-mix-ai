@@ -1751,6 +1751,11 @@ Deno.test("Provider failures map to safe, recoverable errors without leaking det
   }> = [
     { code: "invalid_output", status: 502, expectedCode: "AI_OUTPUT_INVALID" },
     {
+      code: "output_truncated",
+      status: 502,
+      expectedCode: "AI_OUTPUT_TRUNCATED",
+    },
+    {
       code: "provider_rejected",
       status: 502,
       expectedCode: "AI_PROVIDER_REJECTED",

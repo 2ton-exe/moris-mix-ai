@@ -89,6 +89,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 422  | `AI_CONTEXT_TOO_LARGE` | Assembled saved-recipe prompt context exceeds 64 KiB | no |
 | 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown (rounded up and clamped to 1–3,600 seconds), else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
+| 502  | `AI_OUTPUT_TRUNCATED`  | Gemini reached the 2,048-token output budget before completing its result; shorten the request and retry | no |
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected or blocked the request (bad key/model, safety policy) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
@@ -96,6 +97,12 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 503  | `AUTH_SERVICE_RATE_LIMITED` | Supabase Auth rate-limited the token check | auth service cooldown, if it sent one |
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
+
+The Gemini response budget is currently 2,048 output tokens. The output schemas do not
+impose a total response-size limit, so a schema-valid result can still exceed that
+budget. In that case, the endpoint returns `AI_OUTPUT_TRUNCATED`; the provider call
+counts toward the user's normal AI quota. Shortening the request can reduce the
+result size.
 
 The endpoint does **not** retry a `429` itself. The adapter handles at most one
 bounded retry (AI-18). A `rate_limited` surfaced here means that single retry was either

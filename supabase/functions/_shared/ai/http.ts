@@ -26,6 +26,7 @@ export type AIEndpointErrorCode =
   | "QUOTA_UNAVAILABLE"
   | "AI_DISABLED"
   | "AI_OUTPUT_INVALID"
+  | "AI_OUTPUT_TRUNCATED"
   | "AI_PROVIDER_REJECTED"
   | "AI_TIMEOUT"
   | "AI_UNAVAILABLE"
@@ -70,6 +71,13 @@ const AI_ERROR_RESPONSES: Record<
     code: "AI_OUTPUT_INVALID",
     message:
       "The AI returned a result that could not be validated. Please try again.",
+    retryAfter: false,
+  },
+  output_truncated: {
+    status: 502,
+    code: "AI_OUTPUT_TRUNCATED",
+    message:
+      "The AI result exceeded the supported response size. Please shorten the request and try again.",
     retryAfter: false,
   },
   provider_rejected: {

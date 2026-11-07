@@ -662,6 +662,77 @@ Deno.test("provider generation requests include a bounded output-token budget", 
   assertEquals(generationConfig?.maxOutputTokens, 2048);
 });
 
+Deno.test("both operations report MAX_TOKENS as output_truncated without retrying", async () => {
+  const operations: Array<{
+    label: "extract" | "generate";
+    run: (adapter: GeminiAdapter) => Promise<unknown>;
+  }> = [
+    {
+      label: "extract",
+      run: (adapter) => adapter.extractRecipe({ rawText: NOTES }),
+    },
+    {
+      label: "generate",
+      run: (adapter) =>
+        adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    },
+  ];
+
+  for (const operation of operations) {
+    let calls = 0;
+    let textCalls = 0;
+    const fakeClient = {
+      getGenerativeModel: () => ({
+        generateContent: () => {
+          calls += 1;
+          return Promise.resolve({
+            response: {
+              candidates: [{ finishReason: "MAX_TOKENS" }],
+              text: () => {
+                textCalls += 1;
+                throw new Error("truncated response text must not be read");
+              },
+            },
+          });
+        },
+      }),
+    } as unknown as GoogleGenerativeAI;
+    const outcomes: string[] = [];
+    const adapter = new GeminiAdapter({
+      client: fakeClient,
+      log: (entry) => outcomes.push(entry.outcome),
+      sleep: async () => {},
+    });
+
+    const error = await assertRejects(
+      () => operation.run(adapter),
+      AIError,
+      undefined,
+      operation.label,
+    );
+
+    assertEquals(error.code, "output_truncated", operation.label);
+    assertEquals(error.operation, operation.label, operation.label);
+    assertEquals(error.retryable, false, operation.label);
+    assertEquals(error.nonConsuming, false, operation.label);
+    assertEquals(
+      calls,
+      1,
+      `${operation.label}: truncation must not be retried`,
+    );
+    assertEquals(
+      textCalls,
+      0,
+      `${operation.label}: truncated text is not parsed`,
+    );
+    assertEquals(outcomes, ["output_truncated"]);
+    assertEquals(error.attempts, [{
+      code: "output_truncated",
+      nonConsuming: false,
+    }]);
+  }
+});
+
 Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even when text() is empty", async () => {
   const operations: Array<{
     label: string;

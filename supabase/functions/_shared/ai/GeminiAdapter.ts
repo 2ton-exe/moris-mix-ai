@@ -118,7 +118,8 @@ export type AIErrorCode =
   | "provider_timeout"
   | "provider_unavailable"
   | "rate_limited"
-  | "context_too_large";
+  | "context_too_large"
+  | "output_truncated";
 
 /**
  * Typed AI failure. `code` is stable so callers (the AI-05 endpoint) can map it
@@ -187,7 +188,10 @@ export type AIOperationLog = {
 };
 
 /** Test seam: replaces the real Gemini call. */
-export type GenerateText = (prompt: string) => Promise<string>;
+export type GenerateText = (
+  prompt: string,
+  operation: "extract" | "generate",
+) => Promise<string>;
 
 /** Adapter options. Production reads env vars; tests inject a generator. */
 export type GeminiAdapterConfig = {
@@ -248,7 +252,8 @@ export class GeminiAdapter implements AIProvider {
 
     const client = config.client ?? createGeminiClient(config.apiKey);
     this.client = client;
-    this.generateText = (prompt) => this.callModel(client, prompt);
+    this.generateText = (prompt, operation) =>
+      this.callModel(client, prompt, operation);
   }
 
   /**
@@ -312,7 +317,7 @@ export class GeminiAdapter implements AIProvider {
       const startedAt = Date.now();
 
       try {
-        const raw = await this.generateText(prompt);
+        const raw = await this.generateText(prompt, operation);
         const result = parse(raw);
 
         this.safeLog({
@@ -423,6 +428,7 @@ export class GeminiAdapter implements AIProvider {
   private async callModel(
     client: GoogleGenerativeAI,
     prompt: string,
+    operation: "extract" | "generate",
   ): Promise<string> {
     const model = client.getGenerativeModel(
       {
@@ -441,6 +447,14 @@ export class GeminiAdapter implements AIProvider {
     const result = await model.generateContent(prompt);
     const response = result.response;
     const finishReason = response.candidates?.[0]?.finishReason;
+
+    if (finishReason === "MAX_TOKENS") {
+      throw new AIError(
+        "output_truncated",
+        operation,
+        "Gemini output exceeded the configured token budget.",
+      );
+    }
 
     // SDK 0.21.0 throws for SAFETY/RECITATION/LANGUAGE, but newer block
     // reasons such as PROHIBITED_CONTENT return empty text instead. Without
