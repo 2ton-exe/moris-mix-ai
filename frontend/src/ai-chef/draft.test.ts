@@ -25,6 +25,7 @@ const handoff: ChefReviewHandoff = {
     candidate_token: null,
     context: { status: 'NO_SAVED_RECIPES', matchedCandidateCount: 0, totalCandidateCount: 0 },
   },
+  selectedParentIds: [],
   saved: false as const,
 }
 
@@ -63,5 +64,29 @@ describe('account-scoped AI Chef session drafts', () => {
       handoff: { ...handoff, response: { recipe: { title: 3 } } },
     }))
     expect(readChefDraftResult('chef-corrupt', storage)).toMatchObject({ status: 'read-failed' })
+  })
+
+  it('restores only distinct selected IDs from the generated candidate set and keeps saved recovery state', () => {
+    const storage = new MemoryStorage()
+    const candidate = { id: '123e4567-e89b-42d3-a456-426614174000', title: 'Garden rice', star_rating: 4 }
+    const foreign = '223e4567-e89b-42d3-a456-426614174000'
+    const savedId = '323e4567-e89b-42d3-a456-426614174000'
+    storage.setItem('moris-mix:ai-chef:v1:chef-recovery', JSON.stringify({
+      input: { pantryItems: [], pantryInput: '', preferences: '' },
+      handoff: {
+        ...handoff,
+        response: { ...handoff.response, parents: [candidate], candidate_token: 'opaque-token' },
+        selectedParentIds: [candidate.id, candidate.id, foreign],
+        savedRecipeId: savedId,
+        lineageStatus: 'pending',
+      },
+    }))
+
+    const restored = readChefDraftResult('chef-recovery', storage)
+    expect(restored.status).toBe('available')
+    expect(restored.draft.handoff?.selectedParentIds).toEqual([candidate.id])
+    expect(restored.draft.handoff?.savedRecipeId).toBe(savedId)
+    expect(restored.draft.handoff?.lineageStatus).toBe('pending')
+    expect(restored.draft.handoff?.response.candidate_token).toBe('opaque-token')
   })
 })

@@ -7,6 +7,7 @@ import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
 import { JournalShell } from '../journal/JournalShell'
+import { lineageApi, LineageApiError } from './lineage'
 import type { GenerateRecipeResponse } from './generateRecipe'
 import { generateRecipeApi } from './generateRecipe'
 import { AIChefPage } from './AIChefPage'
@@ -26,6 +27,9 @@ const response: GenerateRecipeResponse = {
   candidate_token: 'v1.short-lived-test-token',
   context: { status: 'MATCHED', matchedCandidateCount: 1, totalCandidateCount: 3 },
 }
+const savedRecipeId = '55555555-5555-4555-8555-555555555555'
+const secondParent = { id: '223e4567-e89b-42d3-a456-426614174000', title: 'Mori’s tomato rice', star_rating: null }
+const twoParentResponse = { ...response, parents: [...response.parents, secondParent] }
 
 function authState(userId = 'chef-cook'): AuthState {
   const user = { id: userId, email: `${userId}@example.test` } as User
@@ -48,7 +52,7 @@ class RouterTestRequest extends NativeRequest {
   }
 }
 
-function renderChef({ userId = 'chef-cook', save = vi.fn(async () => ({ id: 'saved-chef-recipe' })) } = {}) {
+function renderChef({ userId = 'chef-cook', save = vi.fn(async () => ({ id: savedRecipeId })) } = {}) {
   const state = authState(userId)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
@@ -103,7 +107,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     expect(screen.getByText('bell pepper')).toBeTruthy()
     expect(screen.getByText('Garden rice')).toBeTruthy()
-    expect(screen.getByText(/will not create parent links/)).toBeTruthy()
+    expect(screen.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -150,7 +154,7 @@ describe('AI Chef pantry and review workflow', () => {
     vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn()
       .mockRejectedValueOnce(new Error('temporary save outage'))
-      .mockResolvedValueOnce({ id: 'saved-chef-recipe' })
+      .mockResolvedValueOnce({ id: savedRecipeId })
     renderChef({ save })
     addIngredient('rice')
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
@@ -166,5 +170,249 @@ describe('AI Chef pantry and review workflow', () => {
     expect(save).toHaveBeenCalledTimes(2)
     expect(save.mock.calls[1]?.[0]).toMatchObject({ title: 'My edited rice bowl', ingredients: response.recipe.ingredients })
     expect(save.mock.calls[0]?.[1]).toMatchObject({ userId: 'chef-cook', signal: expect.any(AbortSignal) })
+  })
+
+  it('starts with no parents selected and persists only the explicit selection after Save', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(twoParentResponse)
+    const operations: string[] = []
+    const save = vi.fn(async () => {
+      operations.push('recipe')
+      return { id: savedRecipeId }
+    })
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockImplementation(async (childId, candidates, selected, token) => {
+      operations.push('lineage')
+      expect(childId).toBe(savedRecipeId)
+      expect(candidates).toEqual(response.parents.concat(secondParent).map((parent) => parent.id))
+      expect(selected).toEqual([secondParent.id])
+      expect(token).toBe(twoParentResponse.candidate_token)
+      return { lineage: [{
+        id: '66666666-6666-4666-8666-666666666666',
+        parent_recipe_id: secondParent.id,
+        child_recipe_id: savedRecipeId,
+        created_at: '2026-11-07T00:00:00.000Z',
+      }] }
+    })
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+
+    const garden = screen.getByRole('checkbox', { name: /Garden rice/ }) as HTMLInputElement
+    const tomato = screen.getByRole('checkbox', { name: /Mori’s tomato rice/ }) as HTMLInputElement
+    expect(garden.checked).toBe(false)
+    expect(tomato.checked).toBe(false)
+    fireEvent.click(garden)
+    expect((screen.getByRole('checkbox', { name: /Garden rice/ }) as HTMLInputElement).checked).toBe(true)
+    expect(save).not.toHaveBeenCalled()
+    expect(saveLineage).not.toHaveBeenCalled()
+    const selectedDraft = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null')
+    expect(selectedDraft.handoff.selectedParentIds).toEqual([response.parents[0].id])
+
+    fireEvent.click(garden)
+    fireEvent.click(tomato)
+    fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'My tomato rice' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    await screen.findByText('Recipe and selected parent links saved.')
+    expect(operations).toEqual(['recipe', 'lineage'])
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).toHaveBeenCalledOnce()
+    expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull()
+  })
+
+  it('saves a recipe with no selected parents and skips lineage persistence', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save')
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    expect(screen.getByRole('checkbox', { name: /Garden rice/ })).toHaveProperty('checked', false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    await screen.findByText('Recipe saved.')
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).not.toHaveBeenCalled()
+  })
+
+  it('announces the lineage write as in progress until its response is confirmed', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    let finishLineage!: (value: Awaited<ReturnType<typeof lineageApi.save>>) => void
+    const pendingLineage = new Promise<Awaited<ReturnType<typeof lineageApi.save>>>((resolve) => { finishLineage = resolve })
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockReturnValue(pendingLineage)
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    await screen.findByText('Your recipe is saved. Mori is saving the selected parent links now.')
+    expect(screen.getByRole('button', { name: 'Working on parent links…' }).matches(':disabled')).toBe(true)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(saveLineage).toHaveBeenCalledOnce()
+
+    finishLineage({ lineage: [{
+      id: '66666666-6666-4666-8666-666666666666',
+      parent_recipe_id: response.parents[0].id,
+      child_recipe_id: savedRecipeId,
+      created_at: '2026-11-07T00:00:00.000Z',
+    }] })
+    await screen.findByText('Recipe and selected parent links saved.')
+  })
+
+  it('recovers a partial save by reconciling first and retrying lineage without another recipe write', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save')
+      .mockRejectedValueOnce(new LineageApiError('unavailable', true))
+      .mockResolvedValueOnce({ lineage: [{
+        id: '66666666-6666-4666-8666-666666666666',
+        parent_recipe_id: response.parents[0].id,
+        child_recipe_id: savedRecipeId,
+        created_at: '2026-11-07T00:00:00.000Z',
+      }] })
+    const getLineage = vi.spyOn(lineageApi, 'get')
+      .mockResolvedValueOnce({ lineage: [] })
+      .mockResolvedValueOnce({ lineage: [] })
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Your recipe was saved, but Mori could not confirm its parent links.')
+    const progress = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+    expect(progress.savedRecipeId).toBe(savedRecipeId)
+    expect(progress.selectedParentIds).toEqual([response.parents[0].id])
+    expect(progress.lineageStatus).toBe('pending')
+    expect(save).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check and retry parent links' }))
+
+    await screen.findByText('Recipe and selected parent links saved.')
+    expect(getLineage).toHaveBeenCalledTimes(2)
+    expect(saveLineage).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the saved recipe and selected parents when the candidate token has expired', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockRejectedValue(new LineageApiError('expired-token'))
+    const getLineage = vi.spyOn(lineageApi, 'get')
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('authorization for its parent links expired')
+    expect(screen.getByText('Recipe saved. Parent links still need attention.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Check and retry parent links' })).toBeNull()
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).toHaveBeenCalledOnce()
+    expect(getLineage).not.toHaveBeenCalled()
+    const progress = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+    expect(progress.savedRecipeId).toBe(savedRecipeId)
+    expect(progress.selectedParentIds).toEqual([response.parents[0].id])
+    expect(progress.lineageStatus).toBe('expired')
+  })
+
+  it('restores blocked lineage recovery with cause-neutral copy', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    vi.spyOn(lineageApi, 'save').mockRejectedValue(new LineageApiError('not-candidate'))
+    const { router } = renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('could not verify one of the selected parents')
+    expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff.lineageStatus).toBe('blocked')
+    await act(async () => router.navigate('/app/chef'))
+    fireEvent.click(await screen.findByRole('link', { name: 'Return to recipe review' }))
+
+    expect(await screen.findByText('Your recipe is safe, but Mori could not confirm the selected parent links. The links remain unchanged.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Check and retry parent links' })).toBeNull()
+  })
+
+  it('reconciles a lost lineage response with GET and does not post twice', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockRejectedValue(new LineageApiError('unavailable', true))
+    const persisted = { lineage: [{
+      id: '66666666-6666-4666-8666-666666666666',
+      parent_recipe_id: response.parents[0].id,
+      child_recipe_id: savedRecipeId,
+      created_at: '2026-11-07T00:00:00.000Z',
+    }] }
+    const getLineage = vi.spyOn(lineageApi, 'get').mockResolvedValue(persisted)
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    await screen.findByText('Recipe and selected parent links saved.')
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).toHaveBeenCalledOnce()
+    expect(getLineage).toHaveBeenCalledOnce()
+    expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull()
+  })
+
+  it('shows an empty candidate state without controls and saves without requiring a token', async () => {
+    const noCandidates: GenerateRecipeResponse = {
+      ...response,
+      parents: [],
+      candidate_token: null,
+      context: { status: 'NO_SAVED_RECIPES', matchedCandidateCount: 0, totalCandidateCount: 0 },
+    }
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(noCandidates)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save')
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+
+    expect(screen.getByText('There are no saved recipes to suggest yet.')).toBeTruthy()
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await screen.findByText('Recipe saved.')
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).not.toHaveBeenCalled()
+  })
+
+  it('limits explicit parent approval to ten candidates', async () => {
+    const parents = Array.from({ length: 11 }, (_, index) => ({
+      id: '40000000-0000-4000-8000-' + String(index + 1).padStart(12, '0'),
+      title: 'Parent ' + (index + 1),
+      star_rating: null,
+    }))
+    const manyCandidates: GenerateRecipeResponse = {
+      ...response,
+      parents,
+      context: { status: 'MATCHED', matchedCandidateCount: 11, totalCandidateCount: 11 },
+    }
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(manyCandidates)
+    renderChef()
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    expect(screen.getAllByRole('checkbox')).toHaveLength(11)
+    for (let index = 0; index < 10; index += 1) {
+      fireEvent.click(screen.getAllByRole('checkbox')[index])
+    }
+    expect(screen.getByText('10 of 10 parent recipes selected.')).toBeTruthy()
+    expect(screen.getAllByRole('checkbox')[10]).toHaveProperty('disabled', true)
   })
 })
