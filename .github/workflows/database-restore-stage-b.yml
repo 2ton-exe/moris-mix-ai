@@ -18,6 +18,9 @@ jobs:
       group: database-restore-drill
       cancel-in-progress: false
     env:
+      # Official postgres:17.11-alpine multi-platform index (Docker Library).
+      # Immutable client code is important because this container reads private SQL.
+      PSQL_IMAGE: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
       R2_BUCKET: moris-mix-db-backups-prod
       BACKUP_PREFIX: postgres/2026/11/06/20261106T134224Z-f051d52f8c7b-42227611036-1
       ARCHIVE_NAME: moris-mix-postgres-20261106T134224Z-f051d52f8c7b-42227611036-1.tar.gz
@@ -171,11 +174,11 @@ jobs:
           # Ubuntu's psql may be version 16. A patched 17.11 client understands
           # the source dump's restrict/unrestrict guards without stripping them.
           # The container does not receive any R2 or production credentials.
-          if ! docker run --rm --pull always --network host \
+          if ! docker run --rm --network host \
             --user "$(id -u):$(id -g)" --cap-drop ALL \
             --security-opt no-new-privileges --read-only \
             --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
-            postgres:17.11-alpine \
+            "$PSQL_IMAGE" \
               psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
               -f /backup/roles.sql \
               -f /backup/schema.sql \
@@ -206,7 +209,7 @@ jobs:
           if ! aggregates="$(docker run --rm --network host \
               --user "$(id -u):$(id -g)" --cap-drop ALL \
               --security-opt no-new-privileges --read-only \
-              postgres:17.11-alpine \
+              "$PSQL_IMAGE" \
                 psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -c "$query" \
                 -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
               2> "$RUNNER_TEMP/private-verify-result.log")"; then
