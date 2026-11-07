@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Check for frontend project
         id: frontend
@@ -77,6 +79,9 @@ jobs:
 
       - name: Test production queue safety (offline)
         run: node --test scripts/production-queue-safety.test.mjs
+
+      - name: Test checkout credential persistence (offline)
+        run: node --test scripts/checkout-credentials.test.mjs
 
       - name: Run lint
         if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
