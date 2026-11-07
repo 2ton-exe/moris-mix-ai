@@ -160,11 +160,11 @@ class StageBOfflineTests(unittest.TestCase):
             data, history = root / "data.sql", root / "history.sql"
             data.write_text(
                 'COPY "public"."recipes" ("id") FROM stdin;\n'
-                'a\nb\n\\\\.\n'
+                'a\nb\n\\.\n'
             )
             history.write_text(
                 'COPY "supabase_migrations"."schema_migrations" ("version", "name") FROM stdin;\n'
-                '20261013000000\\tinitial\n\\\\.\n'
+                '20261013000000\tinitial\n\\.\n'
             )
             digest = hashlib.md5(b"20261013000000").hexdigest()
             response = subprocess.run(
