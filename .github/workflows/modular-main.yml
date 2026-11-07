@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy-upload-signing:
-        description: Deploy the upload-signing function after production readiness review
+        description: Reserved upload-signing deployment request; the production job is hard-disabled
         required: false
         default: false
         type: boolean
@@ -64,10 +64,7 @@ jobs:
   deploy-upload-signing:
     name: Deploy protected upload-signing function
     needs: production
-    if: >-
-      success() && (inputs.deploy-upload-signing || false) &&
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main'
+    if: false
     runs-on: ubuntu-latest
     environment: recipe-image-upload-production
     concurrency:

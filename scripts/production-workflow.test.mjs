@@ -97,7 +97,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(Object.keys(main.on), ['push', 'workflow_dispatch']);
   assert.deepEqual(main.on.push.branches, ['main']);
   assert.deepEqual(main.on.workflow_dispatch.inputs['deploy-upload-signing'], {
-    description: 'Deploy the upload-signing function after production readiness review',
+    description: 'Reserved upload-signing deployment request; the production job is hard-disabled',
     required: false,
     default: false,
     type: 'boolean',
@@ -307,14 +307,11 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
 });
 
-test('upload signing runs as a separate manually requested protected production job', () => {
+test('upload signing keeps its protected deployment job and frozen dependency setup', () => {
   const job = main.jobs['deploy-upload-signing'];
   assert.deepEqual(job.needs, 'production');
   assert.equal(job.environment, 'recipe-image-upload-production');
-  assert.match(job.if, /inputs\.deploy-upload-signing/);
-  assert.match(job.if, /\|\| false/);
-  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.equal(job.if, false);
   const rootInstall = step(job, 'Install root dependencies');
   assert.equal(rootInstall.run, 'pnpm install --frozen-lockfile');
   assert.ok(JSON.parse(readFileSync('package.json', 'utf8')).devDependencies.pg);
@@ -595,15 +592,12 @@ test('cleanup workflow paths contain no variable-based activation bypass', () =>
   }
 });
 
-test('upload signing requires an explicit request and successful protected readiness preflight', () => {
+test('upload signing remains disabled until ingress and cleanup readiness are addressed', () => {
   const job = main.jobs['deploy-upload-signing'];
+  assert.equal(job.if, false);
   assert.equal(job.environment, 'recipe-image-upload-production');
   assert.equal(job.needs, 'production');
-  assert.match(job.if, /inputs\.deploy-upload-signing/);
-  assert.match(job.if, /\|\| false/);
-  assert.doesNotMatch(job.if, /vars\./);
-  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.doesNotMatch(JSON.stringify(job.if), /vars\.|inputs\./);
   const readiness = step(job, 'Verify upload-signing production readiness');
   assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
   for (const name of [
@@ -722,23 +716,18 @@ test('upload signing requires an explicit request and successful protected readi
   assert.match(stale.run, /set -euo pipefail/);
   assert.match(stale.run, /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/main"/);
   assert.match(stale.run, /"\$current_sha" != "\$GITHUB_SHA"/);
-  for (const github of [
-    { event_name: 'push', ref: 'refs/heads/main' },
-    { event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
-    { event_name: 'workflow_dispatch', ref: 'refs/heads/feature' },
-    { event_name: 'pull_request', ref: 'refs/heads/main' },
-  ]) {
-    assert.equal(condition(job.if, { inputs: {}, github }), false);
-    assert.equal(condition(job.if, {
-      inputs: { 'deploy-upload-signing': false }, github,
-    }), false);
-    assert.equal(condition(job.if, {
-      inputs: { 'deploy-upload-signing': true }, github,
-    }), github.event_name === 'workflow_dispatch' && github.ref === 'refs/heads/main');
+  for (const event_name of ['push', 'workflow_dispatch', 'pull_request']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
+      for (const deployRequest of [undefined, false, true]) {
+        for (const readiness of [undefined, 'verified']) {
+          assert.equal(condition(job.if, {
+            inputs: { 'deploy-upload-signing': deployRequest },
+            vars: { UPLOAD_SIGNING_ENABLED: 'true' },
+            secrets: { UPLOAD_SIGNING_READINESS_ATTESTATION: readiness },
+            github: { event_name, ref },
+          }), false);
+        }
+      }
+    }
   }
-  assert.equal(condition(job.if, {
-    success: () => false,
-    inputs: { 'deploy-upload-signing': true },
-    github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
-  }), false);
 });
