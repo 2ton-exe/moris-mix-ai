@@ -362,7 +362,7 @@ test('recipe image cleanup is explicitly disabled for scheduled and manual invoc
   assert.notEqual(curlIndex, -1);
   assert.ok(httpsGuardIndex < curlIndex);
   assert.match(cleanup.steps[0].run, /functions\/v1\/recipe-image-upload-cleanup/);
-  assert.doesNotMatch(cleanup.steps[0].run, /R2_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(cleanup.steps[0].run, /R2_IMAGE_SECRET_ACCESS_KEY|R2_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test('main validation covers current authoritative Edge/API targets and mandatory hosted RLS', () => {
@@ -607,12 +607,14 @@ test('upload signing requires an explicit request and successful protected readi
   for (const name of [
     'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
     'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY',
-    'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
     'ALLOWED_ORIGIN', 'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.ok(Object.hasOwn(readiness.env, name), name);
   for (const name of [
-    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID',
-    'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+    'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+    'R2_IMAGE_ENDPOINT', 'R2_IMAGE_BUCKET', 'R2_IMAGE_ACCESS_KEY_ID', 'R2_IMAGE_SECRET_ACCESS_KEY',
+  ]) assert.equal(Object.hasOwn(readiness.env, name), false, name);
+  for (const name of [
+    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_SERVICE_ROLE_KEY',
     'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.equal(readiness.env[name], '${{ secrets.' + name + ' }}', name);
   assert.equal(readiness.env.SUPABASE_URL, '${{ vars.VITE_SUPABASE_URL }}');
@@ -634,6 +636,7 @@ test('upload signing requires an explicit request and successful protected readi
   assert.match(verifier, /\/auth\/v1\/settings/);
   assert.match(verifier, /\/rest\/v1\/recipe_image_upload_intents\?select=id&limit=0/);
   assert.match(verifier, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(verifier, /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_)/);
   assert.match(verifier, /await import\('pg'\)/);
   assert.match(verifier, /getSupabaseDatabaseCaCertificates/);
   assert.match(verifier, /ssl:\s*\{\s*ca:\s*databaseCa,\s*rejectUnauthorized:\s*true\s*\}/);
@@ -662,10 +665,6 @@ test('upload signing requires an explicit request and successful protected readi
       SUPABASE_PROJECT_REF: 'invalid',
       SUPABASE_SERVICE_ROLE_KEY: 'placeholder',
       SUPABASE_ANON_KEY: 'placeholder',
-      R2_ACCOUNT_ID: 'placeholder',
-      R2_BUCKET_NAME: 'placeholder',
-      R2_ACCESS_KEY_ID: 'placeholder',
-      R2_SECRET_ACCESS_KEY: 'placeholder',
       ALLOWED_ORIGIN: 'https://example.invalid',
       UPLOAD_SIGNING_READINESS_ATTESTATION: 'unverified',
     };

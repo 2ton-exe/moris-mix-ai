@@ -19,7 +19,7 @@ const payload = {
   byte_size: 1024,
 };
 const config = {
-  accountId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  endpoint: "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com",
   bucketName: "mock-recipe-images",
   accessKeyId: "TESTACCESSKEY",
   secretAccessKey: "synthetic-r2-secret-key",
@@ -517,7 +517,7 @@ Deno.test("authentication, ownership database, and intent persistence failures f
 Deno.test("missing or invalid backend configuration never returns a capability", async () => {
   for (
     const change of [
-      { r2Config: { ...config, accountId: "invalid" } },
+      { r2Config: { ...config, endpoint: "https://invalid.example" } },
       { r2Config: { ...config, secretAccessKey: "" } },
       { supabaseServiceRoleKey: "" },
     ]

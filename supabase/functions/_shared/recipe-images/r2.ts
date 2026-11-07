@@ -5,8 +5,24 @@ import {
   validateUploadIntent,
 } from "./uploadIntents.ts";
 
+const R2_ENDPOINT_HOST_PATTERN = /^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/;
+
+function isApprovedR2Endpoint(value: string): boolean {
+  try {
+    const endpoint = new URL(value);
+    return endpoint.protocol === "https:" &&
+      R2_ENDPOINT_HOST_PATTERN.test(endpoint.hostname) &&
+      endpoint.username === "" && endpoint.password === "" &&
+      endpoint.port === "" && endpoint.pathname === "/" &&
+      endpoint.search === "" && endpoint.hash === "" &&
+      endpoint.origin === value;
+  } catch {
+    return false;
+  }
+}
+
 const R2ConfigSchema = z.object({
-  accountId: z.string().regex(/^[a-f0-9]{32}$/),
+  endpoint: z.string().refine(isApprovedR2Endpoint),
   bucketName: z.string().min(3).max(63).regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
   accessKeyId: z.string().min(1).max(128).regex(/^[A-Za-z0-9]+$/),
   secretAccessKey: z.string().min(1).max(256).regex(/^[\x21-\x7e]+$/),
@@ -25,10 +41,10 @@ export type SignedUpload = {
 export function resolveR2Config(explicit?: R2Config): R2Config {
   const result = R2ConfigSchema.safeParse(
     explicit ?? {
-      accountId: Deno.env.get("R2_ACCOUNT_ID"),
-      bucketName: Deno.env.get("R2_BUCKET_NAME"),
-      accessKeyId: Deno.env.get("R2_ACCESS_KEY_ID"),
-      secretAccessKey: Deno.env.get("R2_SECRET_ACCESS_KEY"),
+      endpoint: Deno.env.get("R2_IMAGE_ENDPOINT"),
+      bucketName: Deno.env.get("R2_IMAGE_BUCKET"),
+      accessKeyId: Deno.env.get("R2_IMAGE_ACCESS_KEY_ID"),
+      secretAccessKey: Deno.env.get("R2_IMAGE_SECRET_ACCESS_KEY"),
     },
   );
   if (!result.success) {
@@ -78,7 +94,7 @@ export async function signRecipeImageUpload(
   const timestamp = intent.created_at.replace(/[-:]|\.\d{3}/g, "");
   const date = timestamp.slice(0, 8);
   const scope = `${date}/auto/s3/aws4_request`;
-  const host = `${config.accountId}.r2.cloudflarestorage.com`;
+  const host = new URL(config.endpoint).host;
   const path = `/${config.bucketName}/${
     intent.staging_key.split("/").map(encode).join("/")
   }`;
@@ -113,7 +129,7 @@ export async function signRecipeImageUpload(
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
   return {
     id: intent.id,
-    url: `https://${host}${path}?${query}&X-Amz-Signature=${signature}`,
+    url: `${config.endpoint}${path}?${query}&X-Amz-Signature=${signature}`,
     method: "PUT",
     headers: { "Content-Type": intent.content_type },
     expires_at: intent.expires_at,
@@ -134,7 +150,7 @@ export async function signRecipeImageStagingDelete(
   const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "");
   const date = timestamp.slice(0, 8);
   const scope = `${date}/auto/s3/aws4_request`;
-  const host = `${config.accountId}.r2.cloudflarestorage.com`;
+  const host = new URL(config.endpoint).host;
   const path = `/${config.bucketName}/${
     stagingKey.split("/").map(encode).join("/")
   }`;
@@ -167,7 +183,7 @@ export async function signRecipeImageStagingDelete(
     signingKey = await hmac(signingKey, component);
   }
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
-  return `https://${host}${path}?${query}&X-Amz-Signature=${signature}`;
+  return `${config.endpoint}${path}?${query}&X-Amz-Signature=${signature}`;
 }
 
 export async function signRecipeImageStagingList(
@@ -185,7 +201,7 @@ export async function signRecipeImageStagingList(
   const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "");
   const date = timestamp.slice(0, 8);
   const scope = `${date}/auto/s3/aws4_request`;
-  const host = `${config.accountId}.r2.cloudflarestorage.com`;
+  const host = new URL(config.endpoint).host;
   const path = `/${config.bucketName}`;
   const queryEntries: [string, string][] = [
     ["list-type", "2"],
@@ -230,5 +246,5 @@ export async function signRecipeImageStagingList(
     signingKey = await hmac(signingKey, component);
   }
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
-  return `https://${host}${path}?${query}&X-Amz-Signature=${signature}`;
+  return `${config.endpoint}${path}?${query}&X-Amz-Signature=${signature}`;
 }

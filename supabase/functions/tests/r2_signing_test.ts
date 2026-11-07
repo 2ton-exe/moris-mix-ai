@@ -19,7 +19,7 @@ import {
 import type { RecipeImageContentType } from "../_shared/recipe-images/schemas.ts";
 
 const config: R2Config = {
-  accountId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  endpoint: "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com",
   bucketName: "mock-recipe-images",
   accessKeyId: "TESTACCESSKEY",
   secretAccessKey: "synthetic-r2-secret-key",
@@ -28,10 +28,10 @@ const now = new Date("2026-11-02T00:00:00Z");
 
 Deno.test("R2 configuration resolves only backend environment settings and rejects a missing secret", () => {
   const values = {
-    R2_ACCOUNT_ID: config.accountId,
-    R2_BUCKET_NAME: config.bucketName,
-    R2_ACCESS_KEY_ID: config.accessKeyId,
-    R2_SECRET_ACCESS_KEY: config.secretAccessKey,
+    R2_IMAGE_ENDPOINT: config.endpoint,
+    R2_IMAGE_BUCKET: config.bucketName,
+    R2_IMAGE_ACCESS_KEY_ID: config.accessKeyId,
+    R2_IMAGE_SECRET_ACCESS_KEY: config.secretAccessKey,
   };
   const previous = Object.fromEntries(
     Object.keys(values).map((name) => [name, Deno.env.get(name)]),
@@ -41,7 +41,40 @@ Deno.test("R2 configuration resolves only backend environment settings and rejec
       Deno.env.set(name, value);
     }
     assertEquals(resolveR2Config(), config);
-    Deno.env.delete("R2_SECRET_ACCESS_KEY");
+    Deno.env.delete("R2_IMAGE_SECRET_ACCESS_KEY");
+    assertThrows(
+      () => resolveR2Config(),
+      Error,
+      "Invalid image storage configuration.",
+    );
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+});
+
+Deno.test("R2 configuration does not fall back to legacy or backup credential names", () => {
+  const names = [
+    "R2_IMAGE_ENDPOINT",
+    "R2_IMAGE_BUCKET",
+    "R2_IMAGE_ACCESS_KEY_ID",
+    "R2_IMAGE_SECRET_ACCESS_KEY",
+    "R2_ACCOUNT_ID",
+    "R2_BUCKET_NAME",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+  ];
+  const previous = Object.fromEntries(
+    names.map((name) => [name, Deno.env.get(name)]),
+  );
+  try {
+    for (const name of names) Deno.env.delete(name);
+    Deno.env.set("R2_ACCOUNT_ID", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    Deno.env.set("R2_BUCKET_NAME", "backup-bucket");
+    Deno.env.set("R2_ACCESS_KEY_ID", "BACKUPACCESSKEY");
+    Deno.env.set("R2_SECRET_ACCESS_KEY", "synthetic-backup-secret");
     assertThrows(
       () => resolveR2Config(),
       Error,
@@ -162,7 +195,7 @@ for (
       expected,
     );
     assertEquals(url.protocol, "https:");
-    assertEquals(url.host, `${config.accountId}.r2.cloudflarestorage.com`);
+    assertEquals(url.host, new URL(config.endpoint).host);
     assertEquals(url.pathname, `/${config.bucketName}/${intent().staging_key}`);
     assertEquals(
       url.searchParams.get("X-Amz-Credential"),
@@ -249,7 +282,35 @@ Deno.test("R2 signature binds HTTP method, object, host, content type, scope, an
 Deno.test("R2 signer rejects invalid configuration and altered upload intents", async () => {
   for (
     const change of [
-      { accountId: "https://untrusted.invalid" },
+      { endpoint: "https://untrusted.invalid" },
+      {
+        endpoint:
+          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com",
+      },
+      {
+        endpoint:
+          "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com:8443",
+      },
+      {
+        endpoint:
+          "https://user@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com",
+      },
+      {
+        endpoint:
+          "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com/path",
+      },
+      {
+        endpoint:
+          "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com?region=auto",
+      },
+      {
+        endpoint:
+          "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com#fragment",
+      },
+      {
+        endpoint:
+          "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com/",
+      },
       { bucketName: "../other" },
       { accessKeyId: "" },
       { secretAccessKey: "" },

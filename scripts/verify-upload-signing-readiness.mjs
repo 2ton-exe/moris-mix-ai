@@ -4,8 +4,7 @@ import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from
 
 const required = [
   'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
-  'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID', 'R2_BUCKET_NAME',
-  'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'ALLOWED_ORIGIN',
+  'SUPABASE_SERVICE_ROLE_KEY', 'ALLOWED_ORIGIN',
 ];
 for (const name of required) {
   if (!process.env[name]?.trim()) throw new Error(`Missing required protected configuration: ${name}`);
