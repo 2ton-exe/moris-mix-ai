@@ -488,16 +488,17 @@ Currently, #76 is completed/closed, PR #88 is merged, and its merged-main verifi
 is authoritative. CI #290 provides the production runtime-smoke evidence recorded
 in the deployment runbook; it does not prove authenticated recipe CRUD or independent
 runtime-observed source provenance.
-BE-06 adds recipe/API validation and guarded migrations
-for optional hosted non-production test-database integration.
-Stage 2A's modular workflows perform no production deployment or production
-database migration. DEVOPS-07 adds a targeted `recipes` deployment step to the
-authoritative `ci.yml` path, before Cloudflare; production deployment executed
-successfully through validated main. This does not establish production runtime
-smoke or full authenticated CRUD. Production database migration automation remains separate, and
-post-deployment smoke verification is now configured for DEVOPS-08 in the active
-`ci.yml` deployment job, with separate command/runtime outcomes and the same
-production concurrency lock. The staging workflow reuses the shared verifier for
+BE-06 adds recipe/API validation and guarded migrations for optional hosted
+non-production test-database integration. At the Stage 2A checkpoint, the modular
+workflows did not deploy production or apply production database migrations.
+The current `modular-main.yml` release applies pending production migrations
+before Edge Function and frontend deployment. DEVOPS-07 added a targeted
+`recipes` deployment step to the then-authoritative `ci.yml` path, before
+Cloudflare; production deployment executed successfully through validated main.
+This does not establish production runtime smoke or full authenticated CRUD.
+Post-deployment smoke verification was configured for DEVOPS-08 in the `ci.yml`
+deployment job, with separate command/runtime outcomes and the same production
+concurrency lock. The staging workflow reuses the shared verifier for
 HTML, JavaScript, and the operator-managed public demo database path. The staging
 backend path was manually verified after a staging-only `service_role` table
 SELECT grant and approved demo fixture bootstrap; these database corrections are
