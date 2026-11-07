@@ -7,6 +7,7 @@ import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
 import { JournalShell } from '../journal/JournalShell'
+import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { lineageApi, LineageApiError } from './lineage'
 import type { GenerateRecipeResponse } from './generateRecipe'
 import { generateRecipeApi } from './generateRecipe'
@@ -172,6 +173,142 @@ describe('AI Chef pantry and review workflow', () => {
     expect(save.mock.calls[0]?.[1]).toMatchObject({ userId: 'chef-cook', signal: expect.any(AbortSignal) })
   })
 
+  it('clears the handoff after the first save and leaves the editor available', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save')
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    expect(await screen.findByRole('heading', { name: 'Your recipe is saved.' })).toBeTruthy()
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull())
+    expect(screen.getByLabelText('Recipe title')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy()
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).not.toHaveBeenCalled()
+  })
+
+  it('updates the same recipe after the cleared handoff instead of reporting a conflict', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId }))
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await screen.findByRole('heading', { name: 'Your recipe is saved.' })
+
+    fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'Updated tomato egg rice' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    expect(save.mock.calls[0]?.[1].recipeId).toBeUndefined()
+    expect(save.mock.calls[1]?.[1].recipeId).toBe(savedRecipeId)
+    expect(save.mock.calls[1]?.[0]).toMatchObject({ title: 'Updated tomato egg rice' })
+    expect(screen.queryByText(/changed elsewhere/)).toBeNull()
+    expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull()
+  })
+
+  it('retries cleared-handoff storage after a confirmed two-stage save', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockResolvedValue({ lineage: [{
+      id: '66666666-6666-4666-8666-666666666666',
+      parent_recipe_id: response.parents[0].id,
+      child_recipe_id: savedRecipeId,
+      created_at: '2026-11-07T00:00:00.000Z',
+    }] })
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+
+    let failClear = true
+    let clearWrites = 0
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === 'moris-mix:ai-chef:v1:chef-cook' && JSON.parse(value).handoff === null) {
+        clearWrites += 1
+        if (failClear) throw new Error('session storage unavailable')
+      }
+      return originalSetItem.call(this, key, value)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('could not clear the saved preview')
+    const storedProgress = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+    expect(storedProgress).toMatchObject({
+      savedRecipeId,
+      selectedParentIds: [response.parents[0].id],
+      lineageStatus: 'confirmed',
+    })
+    expect(storedProgress.response.candidate_token).toBe(response.candidate_token)
+    const failedWriteCount = clearWrites
+    expect(failedWriteCount).toBeGreaterThan(0)
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).toHaveBeenCalledOnce()
+
+    failClear = false
+    fireEvent.click(screen.getByRole('button', { name: 'Try clearing the saved preview' }))
+
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(clearWrites).toBeGreaterThan(failedWriteCount)
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a different newer handoff and reports the existing conflict warning', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId }))
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    const storageKey = 'moris-mix:ai-chef:v1:chef-cook'
+    const newerDraft = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null')
+    newerDraft.handoff.response.recipe.title = 'A newer recipe from another tab'
+    sessionStorage.setItem(storageKey, JSON.stringify(newerDraft))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('changed elsewhere')
+    await screen.findByRole('heading', { name: 'Your recipe is saved.' })
+    expect(JSON.parse(sessionStorage.getItem(storageKey) ?? 'null').handoff.response.recipe.title).toBe('A newer recipe from another tab')
+    expect(screen.queryByRole('button', { name: 'Try saving the review again' })).toBeNull()
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the cleared handoff absent during repeated edits to the existing recipe', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId }))
+    renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await screen.findByRole('heading', { name: 'Your recipe is saved.' })
+
+    for (const [index, title] of ['Second saved title', 'Third saved title'].entries()) {
+      fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: title } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(index + 2))
+      expect(screen.queryByText(/changed elsewhere/)).toBeNull()
+      expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull()
+    }
+
+    expect(save.mock.calls.map(([, context]) => context.recipeId)).toEqual([undefined, savedRecipeId, savedRecipeId])
+    expect(save.mock.calls.map(([draft]) => draft.title)).toEqual([
+      'Tomato egg rice', 'Second saved title', 'Third saved title',
+    ])
+  })
+
   it('starts with no parents selected and persists only the explicit selection after Save', async () => {
     vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(twoParentResponse)
     const operations: string[] = []
@@ -253,6 +390,9 @@ describe('AI Chef pantry and review workflow', () => {
     await screen.findByText('Your recipe is saved. Mori is saving the selected parent links now.')
     expect(screen.getByRole('button', { name: 'Working on parent links…' }).matches(':disabled')).toBe(true)
     expect(screen.queryByRole('alert')).toBeNull()
+    const pendingProgress = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+    expect(pendingProgress.savedRecipeId).toBe(savedRecipeId)
+    expect(pendingProgress.lineageStatus).toBe('pending')
     expect(saveLineage).toHaveBeenCalledOnce()
 
     finishLineage({ lineage: [{

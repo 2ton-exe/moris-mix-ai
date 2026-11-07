@@ -364,11 +364,48 @@ try {
   await expect(page.getByRole('checkbox')).toHaveCount(0)
   const emptyDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), 'moris-mix:ai-chef:v1:' + userId)
   assert.equal(emptyDraft.handoff.response.candidate_token, null)
+  const chefDraftKey = 'moris-mix:ai-chef:v1:' + userId
+  await page.evaluate((key) => {
+    const originalSetItem = globalThis.Storage.prototype.setItem
+    let failClear = true
+    let clearAttempts = 0
+    globalThis.Storage.prototype.setItem = function (itemKey, value) {
+      if (itemKey === key && JSON.parse(value).handoff === null) {
+        clearAttempts += 1
+        if (failClear) throw new globalThis.DOMException('Storage temporarily unavailable', 'QuotaExceededError')
+      }
+      return originalSetItem.call(this, itemKey, value)
+    }
+    globalThis.__setChefClearFailure = (fail) => { failClear = fail }
+    globalThis.__getChefClearAttempts = () => clearAttempts
+  }, chefDraftKey)
   await page.getByRole('button', { name: 'Save recipe' }).click()
-  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('could not clear the saved preview')
   assert.equal(recipeWrites.length, 1)
   assert.equal(lineageWrites.length, 0, 'The empty-parent path called the lineage endpoint')
-  process.stdout.write('AI Chef browser acceptance Scenario B passed: empty candidate state and recipe-only save.\n')
+  const failedClearProgress = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), chefDraftKey)
+  assert.equal(failedClearProgress.handoff.savedRecipeId, scenarioRecipeIds['no-parents'])
+  assert.equal(failedClearProgress.handoff.lineageStatus, 'confirmed')
+  const failedClearAttempts = await page.evaluate(() => globalThis.__getChefClearAttempts())
+  assert.ok(failedClearAttempts > 0, 'The initial handoff cleanup did not try writing session storage')
+
+  await page.evaluate(() => globalThis.__setChefClearFailure(false))
+  await page.getByRole('button', { name: 'Try clearing the saved preview' }).click()
+  await expect.poll(async () => (await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), chefDraftKey)).handoff).toBeNull()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  const retriedClearAttempts = await page.evaluate(() => globalThis.__getChefClearAttempts())
+  assert.ok(retriedClearAttempts > failedClearAttempts, 'Retry did not make a real session storage write')
+
+  await page.getByLabel('Recipe title').fill('Edited after storage recovered')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
+  assert.equal(recipeWrites.length, 1, 'Editing after cleanup retry created another recipe')
+  assert.equal(recipeUpdates.length, 1, 'Editing after cleanup retry did not update the saved recipe')
+  assert.equal(recipeUpdates[0].recipeId, scenarioRecipeIds['no-parents'])
+  assert.equal(recipeUpdates[0].body.title, 'Edited after storage recovered')
+  assert.equal((await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), chefDraftKey)).handoff, null)
+  process.stdout.write('AI Chef browser acceptance Scenario B passed: recipe-only save, cleared-handoff storage retry, and same-recipe update after recovery.\n')
 
   await beginScenario(page, origin, 'partial')
   await page.getByRole('checkbox', { name: /Sunday fried rice/ }).check()

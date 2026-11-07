@@ -202,14 +202,12 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
 
   function clearHandoffAfterSave(): ChefDraftWriteResult | null {
     const current = currentDraft()
-    if (!current.handoff) {
-      setStorageIssue(null)
-      return { persisted: true }
-    }
-    if (!sameHandoff(current.handoff)) {
+    if (current.handoff && !sameHandoff(current.handoff)) {
       setStorageIssue('handoff-changed')
       return null
     }
+    const clearableHandoff = current.handoff ?? handoff
+    if (!clearableHandoff || clearableHandoff.lineageStatus !== 'confirmed') return null
     const next = { ...current, handoff: null }
     setLastKnownDraft(next)
     const result = writeChefDraft(userId, next)
