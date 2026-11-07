@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy-upload-signing:
-        description: Deploy the upload-signing function after production readiness review
+        description: Reserved upload-signing deployment request; the production job is hard-disabled
         required: false
         default: false
         type: boolean
@@ -64,10 +64,7 @@ jobs:
   deploy-upload-signing:
     name: Deploy protected upload-signing function
     needs: production
-    if: >-
-      success() && (inputs.deploy-upload-signing || false) &&
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main'
+    if: false
     runs-on: ubuntu-latest
     environment: recipe-image-upload-production
     concurrency:
@@ -108,10 +105,6 @@ jobs:
           SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ALLOWED_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_URL }}
           UPLOAD_SIGNING_READINESS_ATTESTATION: ${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}
         run: node scripts/verify-upload-signing-readiness.mjs

@@ -97,7 +97,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(Object.keys(main.on), ['push', 'workflow_dispatch']);
   assert.deepEqual(main.on.push.branches, ['main']);
   assert.deepEqual(main.on.workflow_dispatch.inputs['deploy-upload-signing'], {
-    description: 'Deploy the upload-signing function after production readiness review',
+    description: 'Reserved upload-signing deployment request; the production job is hard-disabled',
     required: false,
     default: false,
     type: 'boolean',
@@ -307,14 +307,11 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
 });
 
-test('upload signing runs as a separate manually requested protected production job', () => {
+test('upload signing keeps its protected deployment job and frozen dependency setup', () => {
   const job = main.jobs['deploy-upload-signing'];
   assert.deepEqual(job.needs, 'production');
   assert.equal(job.environment, 'recipe-image-upload-production');
-  assert.match(job.if, /inputs\.deploy-upload-signing/);
-  assert.match(job.if, /\|\| false/);
-  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.equal(job.if, false);
   const rootInstall = step(job, 'Install root dependencies');
   assert.equal(rootInstall.run, 'pnpm install --frozen-lockfile');
   assert.ok(JSON.parse(readFileSync('package.json', 'utf8')).devDependencies.pg);
@@ -362,7 +359,7 @@ test('recipe image cleanup is explicitly disabled for scheduled and manual invoc
   assert.notEqual(curlIndex, -1);
   assert.ok(httpsGuardIndex < curlIndex);
   assert.match(cleanup.steps[0].run, /functions\/v1\/recipe-image-upload-cleanup/);
-  assert.doesNotMatch(cleanup.steps[0].run, /R2_SECRET_ACCESS_KEY|SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(cleanup.steps[0].run, /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test('main validation covers current authoritative Edge/API targets and mandatory hosted RLS', () => {
@@ -425,6 +422,8 @@ test('Stage A keeps required workflows unfiltered and classifier failure runs co
   assert.ok(audit.on.pull_request.paths.includes('.github/workflows/security-audit.yml'));
   assert.equal(audit.on.push, undefined, 'observation workflow must not gate production push');
   assert.deepEqual(audit.permissions, { contents: 'read' });
+  // Caller-wide minimum must not depend on repository default token settings.
+  assert.deepEqual(pr.permissions, { contents: 'read' });
   const classifier = pr.jobs.classify;
   assert.deepEqual(classifier.permissions, { contents: 'read' });
   assert.equal(classifier.secrets, undefined);
@@ -594,26 +593,25 @@ test('cleanup workflow paths contain no variable-based activation bypass', () =>
   }
 });
 
-test('upload signing requires an explicit request and successful protected readiness preflight', () => {
+test('upload signing remains disabled until ingress and cleanup readiness are addressed', () => {
   const job = main.jobs['deploy-upload-signing'];
+  assert.equal(job.if, false);
   assert.equal(job.environment, 'recipe-image-upload-production');
   assert.equal(job.needs, 'production');
-  assert.match(job.if, /inputs\.deploy-upload-signing/);
-  assert.match(job.if, /\|\| false/);
-  assert.doesNotMatch(job.if, /vars\./);
-  assert.match(job.if, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(job.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.doesNotMatch(JSON.stringify(job.if), /vars\.|inputs\./);
   const readiness = step(job, 'Verify upload-signing production readiness');
   assert.equal(readiness.run, 'node scripts/verify-upload-signing-readiness.mjs');
   for (const name of [
     'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
     'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY',
-    'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
     'ALLOWED_ORIGIN', 'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.ok(Object.hasOwn(readiness.env, name), name);
   for (const name of [
-    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_SERVICE_ROLE_KEY', 'R2_ACCOUNT_ID',
-    'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+    'R2_ACCOUNT_ID', 'R2_BUCKET_NAME', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY',
+    'R2_IMAGE_ENDPOINT', 'R2_IMAGE_BUCKET', 'R2_IMAGE_ACCESS_KEY_ID', 'R2_IMAGE_SECRET_ACCESS_KEY',
+  ]) assert.equal(Object.hasOwn(readiness.env, name), false, name);
+  for (const name of [
+    'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_SERVICE_ROLE_KEY',
     'UPLOAD_SIGNING_READINESS_ATTESTATION',
   ]) assert.equal(readiness.env[name], '${{ secrets.' + name + ' }}', name);
   assert.equal(readiness.env.SUPABASE_URL, '${{ vars.VITE_SUPABASE_URL }}');
@@ -635,6 +633,7 @@ test('upload signing requires an explicit request and successful protected readi
   assert.match(verifier, /\/auth\/v1\/settings/);
   assert.match(verifier, /\/rest\/v1\/recipe_image_upload_intents\?select=id&limit=0/);
   assert.match(verifier, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(verifier, /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_)/);
   assert.match(verifier, /await import\('pg'\)/);
   assert.match(verifier, /getSupabaseDatabaseCaCertificates/);
   assert.match(verifier, /ssl:\s*\{\s*ca:\s*databaseCa,\s*rejectUnauthorized:\s*true\s*\}/);
@@ -663,10 +662,6 @@ test('upload signing requires an explicit request and successful protected readi
       SUPABASE_PROJECT_REF: 'invalid',
       SUPABASE_SERVICE_ROLE_KEY: 'placeholder',
       SUPABASE_ANON_KEY: 'placeholder',
-      R2_ACCOUNT_ID: 'placeholder',
-      R2_BUCKET_NAME: 'placeholder',
-      R2_ACCESS_KEY_ID: 'placeholder',
-      R2_SECRET_ACCESS_KEY: 'placeholder',
       ALLOWED_ORIGIN: 'https://example.invalid',
       UPLOAD_SIGNING_READINESS_ATTESTATION: 'unverified',
     };
@@ -722,23 +717,18 @@ test('upload signing requires an explicit request and successful protected readi
   assert.match(stale.run, /set -euo pipefail/);
   assert.match(stale.run, /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/commits\/main"/);
   assert.match(stale.run, /"\$current_sha" != "\$GITHUB_SHA"/);
-  for (const github of [
-    { event_name: 'push', ref: 'refs/heads/main' },
-    { event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
-    { event_name: 'workflow_dispatch', ref: 'refs/heads/feature' },
-    { event_name: 'pull_request', ref: 'refs/heads/main' },
-  ]) {
-    assert.equal(condition(job.if, { inputs: {}, github }), false);
-    assert.equal(condition(job.if, {
-      inputs: { 'deploy-upload-signing': false }, github,
-    }), false);
-    assert.equal(condition(job.if, {
-      inputs: { 'deploy-upload-signing': true }, github,
-    }), github.event_name === 'workflow_dispatch' && github.ref === 'refs/heads/main');
+  for (const event_name of ['push', 'workflow_dispatch', 'pull_request']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/feature']) {
+      for (const deployRequest of [undefined, false, true]) {
+        for (const readiness of [undefined, 'verified']) {
+          assert.equal(condition(job.if, {
+            inputs: { 'deploy-upload-signing': deployRequest },
+            vars: { UPLOAD_SIGNING_ENABLED: 'true' },
+            secrets: { UPLOAD_SIGNING_READINESS_ATTESTATION: readiness },
+            github: { event_name, ref },
+          }), false);
+        }
+      }
+    }
   }
-  assert.equal(condition(job.if, {
-    success: () => false,
-    inputs: { 'deploy-upload-signing': true },
-    github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main' },
-  }), false);
 });
