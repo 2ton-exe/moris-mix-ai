@@ -324,6 +324,30 @@ describe('AI Chef pantry and review workflow', () => {
     expect(progress.lineageStatus).toBe('expired')
   })
 
+  it('explains that forgetting saved recovery does not undo parent links already persisted', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    const save = vi.fn(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockRejectedValue(new LineageApiError('unavailable', true))
+    vi.spyOn(lineageApi, 'get').mockResolvedValue({ lineage: [] })
+    const { router } = renderChef({ save })
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await screen.findByRole('button', { name: 'Check and retry parent links' })
+
+    await act(async () => router.navigate('/app/chef'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Forget saved recovery' }))
+    expect(screen.getByText(/removes the selected parent IDs and candidate authorization from this browser/)).toBeTruthy()
+    expect(screen.getByText(/does not delete the recipe or undo any parent links already saved/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Forget recovery details' }))
+
+    await waitFor(() => expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull())
+    expect(save).toHaveBeenCalledOnce()
+    expect(saveLineage).toHaveBeenCalledOnce()
+  })
+
   it('restores blocked lineage recovery with cause-neutral copy', async () => {
     vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn(async () => ({ id: savedRecipeId }))

@@ -160,9 +160,9 @@ function AIChefSession({ userId }: { userId: string }) {
     {discardOpen && <UnsavedChangesDialog
       title={handoff?.savedRecipeId ? 'Keep the saved recipe?' : 'Discard Mori’s recipe preview?'}
       message={handoff?.savedRecipeId
-        ? 'Your recipe is already in your journal. Forgetting this recovery removes the selected parent links and authorization, but does not delete the recipe.'
+        ? 'Your recipe is already in your journal. Forgetting this recovery removes the selected parent IDs and candidate authorization from this browser. It does not delete the recipe or undo any parent links already saved.'
         : 'This generated recipe has not been saved. Discarding the preview lets you start a new pantry request.'}
-      discardLabel={handoff?.savedRecipeId ? 'Keep recipe and forget links' : 'Discard preview'}
+      discardLabel={handoff?.savedRecipeId ? 'Forget recovery details' : 'Discard preview'}
       onKeepEditing={() => setDiscardOpen(false)}
       onDiscardChanges={discardPreview}
     />}
@@ -179,15 +179,21 @@ function AIChefSession({ userId }: { userId: string }) {
 
     {handoff && <aside className="mm-ai-chef__resume" aria-label="Unsaved AI Chef recipe">
       <div>
-        <strong>{handoff.savedRecipeId ? 'Your recipe is saved; parent links need attention.' : 'An AI Chef recipe is waiting for you.'}</strong>
+        <strong>{handoff.savedRecipeId
+          ? handoff.lineageStatus === 'confirmed'
+            ? handoff.selectedParentIds.length > 0 ? 'Your recipe and selected parent links are saved.' : 'Your recipe is saved; no parent links were selected.'
+            : 'Your recipe is saved; parent links need attention.'
+          : 'An AI Chef recipe is waiting for you.'}</strong>
         <p>{handoff.savedRecipeId
-          ? 'Return to review the selected parent links. Retrying will not create another recipe.'
+          ? handoff.lineageStatus === 'confirmed'
+            ? 'Open the saved recipe or clear these recovery details.'
+            : 'Return to review the parent-link recovery. Retrying will not create another recipe.'
           : 'Review or save that suggestion before starting another one.'}</p>
       </div>
       <div className="mm-ai-chef__resume-actions">
         <Link className="button button-primary" to="/app/chef/review">Return to recipe review</Link>
         {handoff.savedRecipeId && <Link className="button button-secondary" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved recipe</Link>}
-        <button className="button button-secondary" type="button" onClick={() => setDiscardOpen(true)}>{handoff.savedRecipeId ? 'Forget parent-link retry' : 'Discard preview'}</button>
+        <button className="button button-secondary" type="button" onClick={() => setDiscardOpen(true)}>{handoff.savedRecipeId ? 'Forget saved recovery' : 'Discard preview'}</button>
       </div>
     </aside>}
 
