@@ -1042,3 +1042,37 @@ Deno.test("release failures preserve upload outcomes and keep reservations close
     }
   }
 });
+
+Deno.test("a committed claim with a lost response is released before retry", async () => {
+  const { deps, stored } = mock();
+  const id = await createUpload(deps);
+  const original = deps.fetch!;
+  let loseResponse = true;
+  let releases = 0;
+  deps.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/release_recipe_image_upload_reservation")) releases++;
+    const response = await original(input, init);
+    if (
+      loseResponse && url.includes("/claim_recipe_image_upload_reservation")
+    ) {
+      loseResponse = false;
+      assertEquals(await response.json(), true);
+      throw new Error("synthetic response loss after commit");
+    }
+    return response;
+  };
+  await expectError(
+    await handler(putRequest(id, new Uint8Array(1024)), deps),
+    500,
+    "INTERNAL_ERROR",
+  );
+  assertEquals(releases, 1);
+  assertEquals(stored.length, 0);
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    201,
+  );
+  assertEquals(releases, 2);
+  assertEquals(stored.length, 1);
+});

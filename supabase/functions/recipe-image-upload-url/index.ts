@@ -251,14 +251,16 @@ async function uploadBody(
   ) return error("VALIDATION_ERROR", "Invalid upload request.", 400);
 
   const token = crypto.randomUUID();
-  if (!await uploadReservation("claim", uploadId, userId, token, deps)) {
-    return error(
-      "UPLOAD_IN_PROGRESS",
-      "Upload is already being processed.",
-      409,
-    );
-  }
+  let releaseRequired = true;
   try {
+    if (!await uploadReservation("claim", uploadId, userId, token, deps)) {
+      releaseRequired = false;
+      return error(
+        "UPLOAD_IN_PROGRESS",
+        "Upload is already being processed.",
+        409,
+      );
+    }
     const config = resolveR2Config(deps.r2Config);
     const existing = await (deps.checkUpload ?? checkRecipeImageStaging)(
       intent.staging_key,
@@ -351,10 +353,12 @@ async function uploadBody(
     }
     return respond({ upload: { id: uploadId, received: true } }, 201);
   } finally {
-    try {
-      await uploadReservation("release", uploadId, userId, token, deps);
-    } catch {
-      console.error("Recipe image upload reservation release failed");
+    if (releaseRequired) {
+      try {
+        await uploadReservation("release", uploadId, userId, token, deps);
+      } catch {
+        console.error("Recipe image upload reservation release failed");
+      }
     }
   }
 }
