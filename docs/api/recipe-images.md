@@ -18,7 +18,7 @@ Production readiness remains **BLOCKED** until BE-14 independently verifies R2 o
 - The `POST` authorization request requires `Authorization: Bearer <supabase-access-token>`, the Supabase project `apikey`, and a JSON body. The `PUT` upload request requires the same authenticated user credentials and raw image bytes. The project key does not authenticate the user; the Bearer token is verified by the backend.
 - The upload handler uses the shared `authenticateRequest()` boundary and derives ownership from its verified user context. The future attach handler must do the same. Client-supplied `user_id` is never trusted.
 - The upload authorization checks that `recipe_id` belongs to the authenticated user. The `PUT` handler rechecks that the upload intent belongs to the authenticated user and is still pending; the attach request checks ownership again. An upload does not authorize attachment by itself.
-- Missing and foreign recipes have the same `404 RECIPE_NOT_FOUND` result. Never reveal whether another userâ€™s recipe exists.
+- Missing and foreign recipes have the same `404 RECIPE_NOT_FOUND` result. Never reveal whether another user's recipe exists.
 - `OPTIONS` is handled before authentication. The function entries in `supabase/config.toml` already set `verify_jwt = false` so unauthenticated preflight requests reach the handlers. This only disables gateway JWT validation; the upload handler calls `authenticateRequest()` for every `POST` and `PUT` before accessing user or storage data, and the future attach handler must do the same. The Edge Function CORS policy allows `POST, PUT, OPTIONS` and `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
 
 ## Request an upload URL
