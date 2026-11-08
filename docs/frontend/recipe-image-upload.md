@@ -1,6 +1,6 @@
 # FE-12 private recipe-image upload integration
 
-**Status** — BE-13 backend contract approved by Ramos on 2026-11-08 in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406). FE-12 owner acceptance remains pending in [#106](https://github.com/2ton-exe/moris-mix-ai/issues/106). The shared revision awaits that acceptance.
+**Status** — BE-13 backend contract approved by Ramos on 2026-11-08 in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406). The FE-12 author has approved this revised upload contract. This is API-contract approval only; it does not authorize production deployment or cleanup.
 
 ## Upload requirements
 
@@ -20,6 +20,6 @@ Use the returned `upload.url` and its declared method and content type. Send the
 
 ## Acceptance and rollout evidence
 
-FE-12 acceptance must cover authenticated raw-byte requests, supported MIME types, actual size limits, expiry, duplicate responses, ambiguous retries, and preservation of the existing image on failure. Browser integration and live R2 behavior still require independent verification.
+The FE-12 author approved authenticated raw-byte requests, supported MIME types, actual size limits, expiry, duplicate responses, ambiguous retries, and preservation of the existing image on failure. Browser integration and live R2 behavior still require independent verification.
 
-This specification revises the original direct browser-to-R2 presigned PUT requirement. Ramos has recorded BE-13 acceptance, and FE-12 owner acceptance remains pending. Production signing remains hard-disabled. The backend approval record and production prerequisites are maintained in the [API contract](../api/recipe-images.md#pending-upload-contract-and-migration-ownership-decisions).
+This specification replaces the original direct browser-to-R2 presigned PUT requirement with the approved shared contract. BE-13 approval is recorded in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406), and FE-12 author acceptance has been received. These approvals cover the API contract only. Production signing and cleanup remain hard-disabled pending independent readiness verification and separate authorization. See the [API contract and production prerequisites](../api/recipe-images.md#approved-upload-contract-and-migration-ownership-decisions).
