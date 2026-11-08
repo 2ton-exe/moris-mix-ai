@@ -11,6 +11,7 @@ const validationWorkflows = [
   'reusable-frontend.yml',
   'reusable-database.yml',
   'reusable-e2e.yml',
+  'reusable-staging.yml',
 ];
 
 for (const file of validationWorkflows) {
