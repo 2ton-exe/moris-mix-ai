@@ -192,6 +192,7 @@ function mock(
         }
         throw new Error("Unexpected network request");
       }),
+    checkUpload: () => Promise.resolve("missing"),
     putUpload: (_intent, _configuration, body) => {
       stored.push(body);
       return Promise.resolve(options.putResult ?? "stored");
@@ -848,4 +849,40 @@ Deno.test("signing failures expose no credentials, keys, URLs or raw exceptions 
   } finally {
     console.error = original;
   }
+});
+
+Deno.test("replays and unavailable storage are rejected before reading upload bytes", async () => {
+  for (const state of ["exists", "failed"] as const) {
+    const { deps, stored } = mock();
+    const id = await createUpload(deps, 1024);
+    deps.checkUpload = () => Promise.resolve(state);
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads += 1;
+        controller.enqueue(new Uint8Array(1024));
+        controller.close();
+      },
+    }, { highWaterMark: 0 });
+    const req = new Request(putRequest(id, new Uint8Array(1024)), { body });
+    const response = await handler(req, deps);
+    assertEquals(response.status, state === "exists" ? 409 : 503);
+    assertEquals(reads, 0);
+    assertEquals(stored.length, 0);
+    await req.body?.cancel();
+  }
+});
+
+Deno.test("an upload with no stored object can retry after a failed PUT", async () => {
+  const { deps } = mock({ putResult: "failed" });
+  const id = await createUpload(deps, 1024);
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    503,
+  );
+  deps.putUpload = () => Promise.resolve("stored");
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    201,
+  );
 });

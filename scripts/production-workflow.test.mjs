@@ -820,3 +820,8 @@ test('production migration plan accepts only all seven expected migrations pendi
   }, 'before'), /unknown migration version/);
   assert.throws(() => validateProductionImageMigrationState(pendingState, 'after'), /not applied/);
 });
+
+test('ordinary production releases cannot apply migrations outside the manual operation', () => {
+  const source = readFileSync('.github/workflows/reusable-production.yml', 'utf8');
+  assert.doesNotMatch(source, /db\s+push|migration\s+up|run-migrations\.mjs/);
+});

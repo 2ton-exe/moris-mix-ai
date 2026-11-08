@@ -29,7 +29,7 @@ Version-controlled Supabase migrations define the recipe, lineage, and AI quota 
 
 Document each Edge Function endpoint under `docs/api/`. Its contract must state the method and path, access level, query parameters and body, successful response shape, HTTP status and error codes, CORS behavior, and frontend loading and error behavior.
 
-Use JSON for request and response bodies. Return errors with a stable `error.code` and user-safe `error.message`; never expose secrets, database details, or stack traces. Validate untrusted function input at the boundary with Zod. The Sprint 1 demo route is public and may use the Supabase anon key without a signed-in user. Never put a service-role key in the browser. Restrict the demo query to approved sample rows so it cannot return private user data.
+Use JSON for request and response bodies, except the recipe-image upload PUT request, which carries raw JPEG, PNG, or WebP bytes under the image API contract. Return errors with a stable `error.code` and user-safe `error.message`; never expose secrets, database details, or stack traces. Validate untrusted function input at the boundary with Zod. The Sprint 1 demo route is public and may use the Supabase anon key without a signed-in user. Never put a service-role key in the browser. Restrict the demo query to approved sample rows so it cannot return private user data.
 
 The frontend handles pending requests, successful responses, non-2xx responses, network failures, and invalid JSON. It shows a user-safe, retryable error rather than raw backend details. Handle `OPTIONS` preflight for the configured frontend origin and allow only the methods and headers the endpoint needs.
 

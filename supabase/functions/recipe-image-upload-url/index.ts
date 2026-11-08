@@ -6,6 +6,7 @@ import {
 } from "../_shared/cors.ts";
 import { RecipeImageUploadRequestSchema } from "../_shared/recipe-images/schemas.ts";
 import {
+  checkRecipeImageStaging,
   deleteRecipeImageStaging,
   putRecipeImageStaging,
   type R2Config,
@@ -25,6 +26,7 @@ export type UploadHandlerDeps = AuthDeps & {
   supabaseServiceRoleKey?: string;
   now?: () => Date;
   putUpload?: typeof putRecipeImageStaging;
+  checkUpload?: typeof checkRecipeImageStaging;
   deleteUpload?: typeof deleteRecipeImageStaging;
 };
 
@@ -197,6 +199,27 @@ async function uploadBody(
     (contentLength !== null && Number(contentLength) !== intent.byte_size)
   ) return error("VALIDATION_ERROR", "Invalid upload request.", 400);
 
+  const config = resolveR2Config(deps.r2Config);
+  const existing = await (deps.checkUpload ?? checkRecipeImageStaging)(
+    intent.staging_key,
+    config,
+    deps.fetch ?? fetch,
+  );
+  if (existing === "exists") {
+    return error(
+      "UPLOAD_ALREADY_USED",
+      "Upload has already been received.",
+      409,
+    );
+  }
+  if (existing !== "missing") {
+    return error(
+      "STORAGE_UNAVAILABLE",
+      "Image storage is temporarily unavailable.",
+      503,
+    );
+  }
+
   let body: Uint8Array<ArrayBuffer>;
   try {
     body = await readBoundedBody(req, intent.byte_size);
@@ -219,7 +242,6 @@ async function uploadBody(
     return error("UPLOAD_EXPIRED", "Upload is no longer available.", 410);
   }
 
-  const config = resolveR2Config(deps.r2Config);
   const put = await (deps.putUpload ?? putRecipeImageStaging)(
     {
       recipe_id: currentBeforePut.recipe_id,
