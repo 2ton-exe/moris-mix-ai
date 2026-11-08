@@ -979,23 +979,66 @@ Deno.test("reservation failures prevent body reads and storage access", async ()
   }
 });
 
-Deno.test("a failed release keeps the reservation closed to subsequent reads", async () => {
-  const { deps, stored } = mock();
-  const id = await createUpload(deps);
-  const original = deps.fetch!;
-  deps.fetch = (input, init) =>
-    String(input).includes("/release_recipe_image_upload_reservation")
-      ? Promise.resolve(Response.json(false))
-      : original(input, init);
-  await expectError(
-    await handler(putRequest(id, new Uint8Array(1024)), deps),
-    500,
-    "INTERNAL_ERROR",
-  );
-  await expectError(
-    await handler(putRequest(id, new Uint8Array(1024)), deps),
-    409,
-    "UPLOAD_IN_PROGRESS",
-  );
-  assertEquals(stored.length, 1);
+Deno.test("release failures preserve upload outcomes and keep reservations closed", async () => {
+  for (const failure of ["rejected", "http", "network"] as const) {
+    for (const outcome of ["stored", "invalid", "failed"] as const) {
+      const { deps, stored } = mock({
+        putResult: outcome === "failed" ? "failed" : "stored",
+      });
+      const id = await createUpload(deps);
+      const original = deps.fetch!;
+      deps.fetch = (input, init) => {
+        if (
+          !String(input).includes("/release_recipe_image_upload_reservation")
+        ) return original(input, init);
+        if (failure === "network") {
+          return Promise.reject(new Error("private release failure"));
+        }
+        return Promise.resolve(
+          failure === "http"
+            ? new Response("private release failure", { status: 500 })
+            : Response.json(false),
+        );
+      };
+      const logs: unknown[][] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        logs.push(args);
+      };
+      try {
+        const response = await handler(
+          putRequest(
+            id,
+            new Uint8Array(outcome === "invalid" ? 1 : 1024),
+            "image/jpeg",
+            1024,
+          ),
+          deps,
+        );
+        if (outcome === "stored") {
+          assertEquals(response.status, 201);
+          assertEquals(await response.json(), {
+            upload: { id, received: true },
+          });
+        } else {
+          await expectError(
+            response,
+            outcome === "invalid" ? 400 : 503,
+            outcome === "invalid" ? "VALIDATION_ERROR" : "STORAGE_UNAVAILABLE",
+          );
+        }
+        await expectError(
+          await handler(putRequest(id, new Uint8Array(1024)), deps),
+          409,
+          "UPLOAD_IN_PROGRESS",
+        );
+        assertEquals(stored.length, outcome === "invalid" ? 0 : 1);
+        assertEquals(logs, [[
+          "Recipe image upload reservation release failed",
+        ]]);
+      } finally {
+        console.error = originalError;
+      }
+    }
+  }
 });

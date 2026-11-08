@@ -351,7 +351,11 @@ async function uploadBody(
     }
     return respond({ upload: { id: uploadId, received: true } }, 201);
   } finally {
-    await uploadReservation("release", uploadId, userId, token, deps);
+    try {
+      await uploadReservation("release", uploadId, userId, token, deps);
+    } catch {
+      console.error("Recipe image upload reservation release failed");
+    }
   }
 }
 
