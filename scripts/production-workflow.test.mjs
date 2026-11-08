@@ -242,6 +242,7 @@ test('failed/cancelled/skipped gating dependencies block production; E2E remains
 
 test('single release body preserves order, explicit targets, smoke, evidence and lock', () => {
   // Assert the release contract from this checkout; CI need not have Git history.
+  assert.equal(step(release, 'Checkout repository').with['persist-credentials'], false);
   assert.deepEqual(release.env, {
     VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
