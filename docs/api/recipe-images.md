@@ -274,13 +274,13 @@ Track optional client conversion as a separate frontend/FE-12 issue with an appr
 - The authenticated session contract defines Bearer verification and the RLS-aware request-scoped client.
 - Cloudflare R2 documentation: [S3 conditional operations](https://developers.cloudflare.com/r2/api/s3/extensions/), [S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/), and [bucket CORS](https://developers.cloudflare.com/r2/buckets/cors/).
 
-## Pending upload contract and migration ownership decisions
+## Approved upload contract and migration ownership decisions
 
 ### Proposed BE-09 and FE-12 transport revision
 
-This API document is the repository-local backend contract for BE-09. The [FE-12 upload integration specification](../frontend/recipe-image-upload.md) defines its corresponding browser behavior. Together they propose the following revision to the original contract in [BE-09 issue #51](https://github.com/2ton-exe/moris-mix-ai/issues/51).
+This API document is the repository-local backend contract for BE-09. The [FE-12 upload integration specification](../frontend/recipe-image-upload.md) defines its corresponding browser behavior. Together they define the approved revision to the original contract in [BE-09 issue #51](https://github.com/2ton-exe/moris-mix-ai/issues/51).
 
-| Requirement | Original contract | Proposed contract in PR #190 |
+| Requirement | Original contract | Approved contract in PR #190 |
 | --- | --- | --- |
 | Upload destination | Object-specific presigned R2 PUT URL | Short-lived authenticated Supabase Edge Function URL |
 | Upload authentication | Possession of the signed R2 URL | Verified user Bearer token and project API key |
@@ -290,13 +290,13 @@ This API document is the repository-local backend contract for BE-09. The [FE-12
 | Lifetime and types | Ten minutes; JPEG, PNG, WebP | Ten minutes; JPEG, PNG, WebP |
 | Attachment | Separate verified operation | Separate BE-14 verified operation |
 
-Issues [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104) and [#106](https://github.com/2ton-exe/moris-mix-ai/issues/106) already describe the proposed transport, while issue #51 still describes the original transport. Ramos approved the BE-13 backend contract revision on 2026-11-08 in the [owner approval record](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406), including the proposed revision to BE-09 issue #51. FE-12 owner acceptance must still be recorded in #106 before the shared revision is treated as accepted. The specification changes and passing tests do not constitute FE-12 approval.
+Issues [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104) and [#106](https://github.com/2ton-exe/moris-mix-ai/issues/106) describe the revised transport, while issue #51 still contains the original direct-to-R2 requirement. These repository-local BE-09 and FE-12 specifications now define the accepted shared contract. Ramos approved the BE-13 backend revision on 2026-11-08 in the [owner approval record](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406). The FE-12 author has now approved the revised contract; this approval is limited to the API contract and does not authorize production deployment or cleanup.
 
 | Required decision | Owner | Recorded acceptance |
 | --- | --- | --- |
 | BE-13 upload transport and backend contract | Ramos (`DanielRamos1186`) | Approved 2026-11-08 — [record](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406) |
-| FE-12 authenticated raw-byte upload, error, and retry behavior | Ong (`adnro2`) | Pending |
+| FE-12 authenticated raw-byte upload, error, and retry behavior | FE-12 owner | Approved — API-contract approval only |
 
-Production upload-signing deployment remains hard-disabled pending these decisions and independent production readiness verification.
+Production upload-signing deployment remains hard-disabled pending independent production readiness verification and separate deployment authorization.
 
 The selected production migration policy is PR #154's guarded release migration path. PR #190 removes its competing manual migration operation and depends on PR #154 for production migration delivery. This policy decision does not satisfy PR #154's recovery-readiness, restore, credential, or owner-review requirements. The workflow regression suite checks that PR #190 introduces no separate image migration job or command.
