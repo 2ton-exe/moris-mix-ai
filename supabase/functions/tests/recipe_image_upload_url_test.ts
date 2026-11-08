@@ -73,6 +73,7 @@ function mock(
     staleAfterPut?: boolean;
   } = {},
 ) {
+  const reservations = new Map<string, string>();
   const calls: { url: URL; method: string; headers: Headers }[] = [];
   const intents: UploadIntent[] = [];
   const stored: Uint8Array<ArrayBuffer>[] = [];
@@ -177,6 +178,18 @@ function mock(
             });
           }
           return Response.json(options.quota ?? "allowed");
+        }
+        if (url.pathname.endsWith("_recipe_image_upload_reservation")) {
+          assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
+          const args = JSON.parse(String(init?.body));
+          if (url.pathname.includes("/claim_")) {
+            if (reservations.has(args.p_id)) return Response.json(false);
+            reservations.set(args.p_id, args.p_token);
+            return Response.json(true);
+          }
+          const matches = reservations.get(args.p_id) === args.p_token;
+          if (matches) reservations.delete(args.p_id);
+          return Response.json(matches);
         }
         if (url.pathname === "/rest/v1/recipe_image_upload_intents") {
           assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
@@ -885,4 +898,104 @@ Deno.test("an upload with no stored object can retry after a failed PUT", async 
     (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
     201,
   );
+});
+
+Deno.test("reservation rejects a concurrent request before reading its stream and releases on failure", async () => {
+  const { deps } = mock();
+  const id = await createUpload(deps);
+  let enter!: () => void;
+  const entered = new Promise<void>((resolve) => enter = resolve);
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => finish = resolve);
+  deps.checkUpload = async () => {
+    enter();
+    await finished;
+    return "missing";
+  };
+  const first = handler(
+    putRequest(id, new Uint8Array(1), "image/jpeg", 1024),
+    deps,
+  );
+  await entered;
+  let reads = 0;
+  const second = new Request(
+    `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${id}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "image/jpeg",
+      },
+      body: new ReadableStream<Uint8Array>({
+        pull() {
+          reads++;
+        },
+      }, { highWaterMark: 0 }),
+    },
+  );
+  await expectError(await handler(second, deps), 409, "UPLOAD_IN_PROGRESS");
+  assertEquals(reads, 0);
+  finish();
+  await expectError(await first, 400, "VALIDATION_ERROR");
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    201,
+  );
+});
+
+Deno.test("reservation failures prevent body reads and storage access", async () => {
+  for (
+    const [result, status] of [[Response.json(false), 409], [
+      new Response(null, { status: 500 }),
+      500,
+    ], [Response.json("invalid"), 500]] as const
+  ) {
+    const { deps } = mock();
+    const id = await createUpload(deps);
+    const original = deps.fetch!;
+    deps.fetch = (input, init) =>
+      String(input).includes("/claim_recipe_image_upload_reservation")
+        ? Promise.resolve(result)
+        : original(input, init);
+    let reads = 0;
+    const req = new Request(
+      `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${id}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/jpeg",
+        },
+        body: new ReadableStream<Uint8Array>({
+          pull() {
+            reads++;
+          },
+        }, { highWaterMark: 0 }),
+      },
+    );
+    const response = await handler(req, deps);
+    assertEquals(response.status, status);
+    assertEquals(reads, 0);
+  }
+});
+
+Deno.test("a failed release keeps the reservation closed to subsequent reads", async () => {
+  const { deps, stored } = mock();
+  const id = await createUpload(deps);
+  const original = deps.fetch!;
+  deps.fetch = (input, init) =>
+    String(input).includes("/release_recipe_image_upload_reservation")
+      ? Promise.resolve(Response.json(false))
+      : original(input, init);
+  await expectError(
+    await handler(putRequest(id, new Uint8Array(1024)), deps),
+    500,
+    "INTERNAL_ERROR",
+  );
+  await expectError(
+    await handler(putRequest(id, new Uint8Array(1024)), deps),
+    409,
+    "UPLOAD_IN_PROGRESS",
+  );
+  assertEquals(stored.length, 1);
 });

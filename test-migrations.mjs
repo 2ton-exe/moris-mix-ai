@@ -67,6 +67,18 @@ function runDiscoveryAndIntegrityUnitTests() {
   assert.match(uploadSql, /expires_at = created_at \+ interval '10 minutes'/);
   assert.match(uploadSql, /check \(state = 'pending'\)/);
   assert.doesNotMatch(uploadSql, /references|on delete|update public\.recipes|delete from/i);
+  const reservation = migrations.find(migration => migration.version === '20261108152005');
+  assert.ok(reservation, 'Upload reservation migration must be discoverable');
+  const reservationSql = fs.readFileSync(reservation.filePath, 'utf8');
+  assert.match(reservationSql, /add column upload_reservation uuid/);
+  assert.match(reservationSql, /update public\.recipe_image_upload_intents[\s\S]*upload_reservation is null/);
+  assert.match(reservationSql, /upload_reservation = p_token/);
+  assert.match(reservationSql, /expires_at > clock_timestamp\(\) \+ interval '30 seconds'/);
+  assert.match(reservationSql, /state = 'pending' and cleanup_status = 'waiting'/);
+  for (const operation of ['claim', 'release']) {
+    assert.match(reservationSql, new RegExp(`revoke all on function public\\.${operation}_recipe_image_upload_reservation\\(uuid, uuid, uuid\\) from public`));
+  }
+  assert.doesNotMatch(reservationSql, /grant[^;]+to (anon|authenticated|public)\b/i);
   const lifecycleMigration = migrations.find((migration) => migration.version === '20261102000010');
   assert.equal(lifecycleMigration?.file, '20261102000010_recipe_image_upload_lifecycle.sql');
   const lifecycleSql = fs.readFileSync(lifecycleMigration.filePath, 'utf8');

@@ -615,7 +615,8 @@ test('upload-signing activation remains independently hard-disabled', () => {
 test('upload-signing readiness verifier keeps strict read-only schema and credential checks', () => {
   const verifier = readFileSync('scripts/verify-upload-signing-readiness.mjs', 'utf8');
   for (const prerequisite of [
-    '20261102000009', '20261102000010', 'recipe_image_upload_intents',
+    '20261102000009', '20261102000010', '20261108152005', 'recipe_image_upload_intents',
+    'upload_reservation', 'claim_recipe_image_upload_reservation', 'release_recipe_image_upload_reservation',
     'relforcerowsecurity', 'create_recipe_image_upload_intent',
     'has_table_privilege', 'has_function_privilege',
   ]) assert.ok(verifier.includes(prerequisite), prerequisite);
