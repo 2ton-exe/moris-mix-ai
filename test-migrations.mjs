@@ -289,6 +289,7 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     await assert.rejects(() => claimReservation(client, reservationUser, winnerToken), error => error.code === '42501');
     await assert.rejects(() => releaseReservation(winnerToken), error => error.code === '42501');
     await setServiceRole(client);
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [reservedIntent.id]);
     console.log('PASS: PostgreSQL upload reservations admit one competing claimant, require the winning release token, permit reacquisition, reject foreign/expired intents, and deny browser roles.');
     const retentionEligible = await createIntent(client, crypto.randomUUID());
     const retentionIneligible = await createIntent(client, crypto.randomUUID());
