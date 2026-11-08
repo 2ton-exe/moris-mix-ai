@@ -74,7 +74,7 @@ async function readBoundedBody(
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!req.body) throw new UploadInputError("Missing upload body.");
   const reader = req.body.getReader();
-  const body = new Uint8Array(expectedSize);
+  let body: Uint8Array<ArrayBuffer> = new Uint8Array(0);
   let total = 0;
   try {
     while (true) {
@@ -86,6 +86,16 @@ async function readBoundedBody(
       ) {
         await reader.cancel();
         throw new UploadInputError("Upload exceeds its declared size.");
+      }
+      const needed = total + value.byteLength;
+      if (needed > body.byteLength) {
+        const capacity = Math.min(
+          expectedSize,
+          Math.max(needed, body.byteLength * 2),
+        );
+        const expanded = new Uint8Array(capacity);
+        expanded.set(body);
+        body = expanded;
       }
       body.set(value, total);
       total += value.byteLength;
@@ -167,6 +177,47 @@ function intentCanRetainObject(intent: StoredUploadIntent, now: Date): boolean {
       intent.state === "finalizing" || intent.state === "attached");
 }
 
+async function uploadReservation(
+  operation: "claim" | "release",
+  uploadId: string,
+  userId: string,
+  token: string,
+  deps: UploadHandlerDeps,
+): Promise<boolean> {
+  const base = deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
+  const key = deps.supabaseServiceRoleKey ??
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!base?.trim() || !key?.trim()) {
+    throw new Error("Missing upload configuration.");
+  }
+  const response = await (deps.fetch ?? fetch)(
+    new URL(`/rest/v1/rpc/${operation}_recipe_image_upload_reservation`, base),
+    {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_id: uploadId,
+        p_user_id: userId,
+        p_token: token,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    },
+  );
+  if (!response.ok) throw new Error("Upload reservation operation failed.");
+  const result: unknown = await response.json();
+  if (typeof result !== "boolean") {
+    throw new Error("Invalid upload reservation result.");
+  }
+  if (operation === "release" && !result) {
+    throw new Error("Upload reservation release failed.");
+  }
+  return result;
+}
+
 async function uploadBody(
   req: Request,
   uploadId: string,
@@ -200,95 +251,117 @@ async function uploadBody(
     (contentLength !== null && Number(contentLength) !== intent.byte_size)
   ) return error("VALIDATION_ERROR", "Invalid upload request.", 400);
 
-  const config = resolveR2Config(deps.r2Config);
-  const existing = await (deps.checkUpload ?? checkRecipeImageStaging)(
-    intent.staging_key,
-    config,
-    deps.fetch ?? fetch,
-  );
-  if (existing === "exists") {
-    return error(
-      "UPLOAD_ALREADY_USED",
-      "Upload has already been received.",
-      409,
-    );
-  }
-  if (existing !== "missing") {
-    return error(
-      "STORAGE_UNAVAILABLE",
-      "Image storage is temporarily unavailable.",
-      503,
-    );
-  }
-
-  let body: Uint8Array<ArrayBuffer>;
+  const token = crypto.randomUUID();
+  let releaseRequired = true;
   try {
-    body = await readBoundedBody(req, intent.byte_size);
-  } catch (cause) {
-    if (cause instanceof UploadInputError) {
+    if (!await uploadReservation("claim", uploadId, userId, token, deps)) {
+      releaseRequired = false;
       return error(
-        "VALIDATION_ERROR",
-        "Upload size does not match its intent.",
-        400,
+        "UPLOAD_IN_PROGRESS",
+        "Upload is already being processed.",
+        409,
       );
     }
-    throw cause;
-  }
-
-  const currentBeforePut = await loadStoredIntent(uploadId, userId, deps);
-  if (
-    !currentBeforePut ||
-    !intentIsUploadable(currentBeforePut, deps.now?.() ?? new Date())
-  ) {
-    return error("UPLOAD_EXPIRED", "Upload is no longer available.", 410);
-  }
-
-  const put = await (deps.putUpload ?? putRecipeImageStaging)(
-    {
-      recipe_id: currentBeforePut.recipe_id,
-      content_type: currentBeforePut.content_type as
-        | "image/jpeg"
-        | "image/png"
-        | "image/webp",
-      byte_size: currentBeforePut.byte_size,
-      id: currentBeforePut.id,
-      user_id: currentBeforePut.user_id,
-      staging_key: currentBeforePut.staging_key,
-      final_key: currentBeforePut.final_key,
-      created_at: currentBeforePut.created_at,
-      expires_at: currentBeforePut.expires_at,
-      state: "pending",
-    },
-    config,
-    body,
-    deps.fetch ?? fetch,
-    deps.now?.() ?? new Date(),
-  );
-  if (put === "already_exists") {
-    return error(
-      "UPLOAD_ALREADY_USED",
-      "Upload has already been received.",
-      409,
-    );
-  }
-  if (put !== "stored") {
-    return error(
-      "STORAGE_UNAVAILABLE",
-      "Image storage is temporarily unavailable.",
-      503,
-    );
-  }
-
-  const current = await loadStoredIntent(uploadId, userId, deps);
-  if (!current || !intentCanRetainObject(current, deps.now?.() ?? new Date())) {
-    await (deps.deleteUpload ?? deleteRecipeImageStaging)(
-      currentBeforePut.staging_key,
+    const config = resolveR2Config(deps.r2Config);
+    const existing = await (deps.checkUpload ?? checkRecipeImageStaging)(
+      intent.staging_key,
       config,
       deps.fetch ?? fetch,
     );
-    return error("UPLOAD_EXPIRED", "Upload is no longer available.", 410);
+    if (existing === "exists") {
+      return error(
+        "UPLOAD_ALREADY_USED",
+        "Upload has already been received.",
+        409,
+      );
+    }
+    if (existing !== "missing") {
+      return error(
+        "STORAGE_UNAVAILABLE",
+        "Image storage is temporarily unavailable.",
+        503,
+      );
+    }
+
+    let body: Uint8Array<ArrayBuffer>;
+    try {
+      body = await readBoundedBody(req, intent.byte_size);
+    } catch (cause) {
+      if (cause instanceof UploadInputError) {
+        return error(
+          "VALIDATION_ERROR",
+          "Upload size does not match its intent.",
+          400,
+        );
+      }
+      throw cause;
+    }
+
+    const currentBeforePut = await loadStoredIntent(uploadId, userId, deps);
+    if (
+      !currentBeforePut ||
+      !intentIsUploadable(currentBeforePut, deps.now?.() ?? new Date())
+    ) {
+      return error("UPLOAD_EXPIRED", "Upload is no longer available.", 410);
+    }
+
+    const put = await (deps.putUpload ?? putRecipeImageStaging)(
+      {
+        recipe_id: currentBeforePut.recipe_id,
+        content_type: currentBeforePut.content_type as
+          | "image/jpeg"
+          | "image/png"
+          | "image/webp",
+        byte_size: currentBeforePut.byte_size,
+        id: currentBeforePut.id,
+        user_id: currentBeforePut.user_id,
+        staging_key: currentBeforePut.staging_key,
+        final_key: currentBeforePut.final_key,
+        created_at: currentBeforePut.created_at,
+        expires_at: currentBeforePut.expires_at,
+        state: "pending",
+      },
+      config,
+      body,
+      deps.fetch ?? fetch,
+      deps.now?.() ?? new Date(),
+    );
+    if (put === "already_exists") {
+      return error(
+        "UPLOAD_ALREADY_USED",
+        "Upload has already been received.",
+        409,
+      );
+    }
+    if (put !== "stored") {
+      return error(
+        "STORAGE_UNAVAILABLE",
+        "Image storage is temporarily unavailable.",
+        503,
+      );
+    }
+
+    const current = await loadStoredIntent(uploadId, userId, deps);
+    if (
+      !current || !intentCanRetainObject(current, deps.now?.() ?? new Date())
+    ) {
+      await (deps.deleteUpload ?? deleteRecipeImageStaging)(
+        currentBeforePut.staging_key,
+        config,
+        deps.fetch ?? fetch,
+      );
+      return error("UPLOAD_EXPIRED", "Upload is no longer available.", 410);
+    }
+    return respond({ upload: { id: uploadId, received: true } }, 201);
+  } finally {
+    if (releaseRequired) {
+      try {
+        await uploadReservation("release", uploadId, userId, token, deps);
+      } catch {
+        console.error("Recipe image upload reservation release failed");
+      }
+    }
   }
-  return respond({ upload: { id: uploadId, received: true } }, 201);
 }
 
 export async function handler(
