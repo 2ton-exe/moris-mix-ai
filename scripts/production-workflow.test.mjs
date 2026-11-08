@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { getCACertificates } from 'node:tls';
 import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
 
@@ -19,6 +19,30 @@ const edge = workflow('reusable-edge-api');
 const scheduledCleanup = workflow('recipe-image-upload-cleanup');
 const step = (job, name) => job.steps.find(s => s.name === name);
 
+const migrationStateFixtures = {
+  matching: { migrations: [
+    { local: '20261017000001', remote: '20261017000001', time: '2026-10-17 00:00:01' },
+    { local: '20261023000002', remote: '20261023000002', time: '2026-10-23 00:00:02' },
+  ] },
+  localPending: { migrations: [
+    { local: '20261017000001', remote: '20261017000001', time: '2026-10-17 00:00:01' },
+    { local: '20261023000002', remote: '', time: '2026-10-23 00:00:02' },
+  ] },
+  remoteOnly: { migrations: [
+    { local: '20261017000001', remote: '20261017000001', time: '2026-10-17 00:00:01' },
+    { local: '', remote: '20261023000002', time: '2026-10-23 00:00:02' },
+  ] },
+};
+
+test('production migration-state verifier accepts matching history and rejects pending versions', () => {
+  const verify = fixture => spawnSync(process.execPath, ['scripts/verify-production-migration-state.mjs'], {
+    input: JSON.stringify(fixture), encoding: 'utf8',
+  });
+  assert.equal(verify(migrationStateFixtures.matching).status, 0);
+  assert.equal(verify(migrationStateFixtures.localPending).status, 1);
+  assert.equal(verify(migrationStateFixtures.remoteOnly).status, 1);
+});
+
 // These conditions use only this small subset of Actions expressions. Execute the
 // actual YAML expressions against fixtures so changes to the gate affect tests.
 function condition(expression, overrides = {}) {
@@ -26,9 +50,9 @@ function condition(expression, overrides = {}) {
   const context = {
     actionsStringEqual: (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase(),
     success: () => true,
-    vars: {},
     inputs: { 'frontend-exists': true },
     needs: { frontend: { outputs: { exists: 'true' } } },
+    vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: 'true' },
     github: { event_name: 'push', ref: 'refs/heads/main', repository: '2ton-exe/moris-mix-ai',
       workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main' },
     format: (template, value) => template.replace('{0}', value),
@@ -51,6 +75,8 @@ test('all workflow YAML parses, including the reusable production contract', () 
   }
   assert.deepEqual(Object.keys(production.on), ['workflow_call']);
   assert.deepEqual(production.permissions, { contents: 'read' });
+  assert.equal(production.on.workflow_call.secrets.SUPABASE_DB_PASSWORD.required, true);
+  assert.equal(production.on.workflow_call.secrets.SUPABASE_DB_ROOT_CERT.required, true);
 });
 
 test('Supabase database targets accept only the direct endpoint or project-bound session pooler', () => {
@@ -103,7 +129,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
     type: 'boolean',
   });
   assert.deepEqual(main.permissions, { contents: 'read' });
-  assert.deepEqual(main.jobs.production.permissions, { contents: 'read' });
+  assert.deepEqual(main.jobs.production.permissions, { contents: 'read', deployments: 'write' });
   assert.equal(main.jobs['production-ownership'], undefined);
   assert.equal(main.jobs['gate-evidence'], undefined);
   assert.equal(production.on.workflow_call.inputs.owner, undefined);
@@ -116,6 +142,28 @@ test('legacy CI is intentionally absent; modular main is the only production cal
     }
   }
   assert.deepEqual(callers, ['modular-main.yml']);
+});
+
+test('recovery hold fails explicitly instead of skipping the production job', () => {
+  for (const value of ['', 'false', 'true']) {
+    assert.equal(condition(release.if, { vars: { PRODUCTION_MIGRATION_RECOVERY_VERIFIED: value } }), true);
+  }
+  const acquire = step(release, 'Acquire production recovery hold');
+  assert.equal(acquire.env.RECOVERY_VERIFIED, '${{ vars.PRODUCTION_MIGRATION_RECOVERY_VERIFIED }}');
+  assert.equal(acquire.run, 'node scripts/production-recovery-hold.mjs acquire');
+  assert.ok(release.steps.indexOf(acquire) < release.steps.indexOf(step(release, 'Apply production database migrations')));
+  const complete = step(release, 'Release production recovery hold');
+  assert.equal(complete.if, undefined);
+  assert.equal(complete.run, 'node scripts/production-recovery-hold.mjs release');
+  assert.equal(complete.env.HOLD_ID, '${{ steps.recovery-hold.outputs.hold-id }}');
+  assert.equal(release.steps.at(-1), complete);
+});
+
+test('production schema changes require backend-only code ownership', () => {
+  const owners = readFileSync('.github/CODEOWNERS', 'utf8')
+    .split(/\r?\n/)
+    .find(line => line.startsWith('/supabase/migrations/'));
+  assert.equal(owners, '/supabase/migrations/ @DanielRamos1186');
 });
 
 test('modular PR remains PR-only, with staging and no production call or credentials', () => {
@@ -194,6 +242,7 @@ test('failed/cancelled/skipped gating dependencies block production; E2E remains
 
 test('single release body preserves order, explicit targets, smoke, evidence and lock', () => {
   // Assert the release contract from this checkout; CI need not have Git history.
+  assert.equal(step(release, 'Checkout repository').with['persist-credentials'], false);
   assert.deepEqual(release.env, {
     VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
@@ -205,7 +254,10 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_PUBLIC_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}',
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
-  const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
+  const ordered = ['Validate production deployment configuration', 'Prepare production database CA certificate',
+    'Install frontend dependencies', 'Build frontend',
+    'Preview production database migrations', 'Apply production database migrations',
+    'Verify production database migration state', 'Deploy recipes Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
@@ -217,16 +269,19 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
   assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-cleanup']);
-  assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
+  assert.equal([...commands.matchAll(/db push/g)].length, 2);
+  assert.doesNotMatch(commands, /migration up|run-migrations|db:setup/);
   assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
   assert.deepEqual(configuration.env, {
     SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_DB_PASSWORD: '${{ secrets.SUPABASE_DB_PASSWORD }}',
+    SUPABASE_DB_ROOT_CERT: '${{ secrets.SUPABASE_DB_ROOT_CERT }}',
     SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
   });
   assert.match(configuration.run, /configuration\(process\.env\)/);
   for (const guard of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
-    'SUPABASE_ACCESS_TOKEN', 'SUPABASE_PROJECT_REF', 'supabase/config.toml',
+    'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT', 'SUPABASE_PROJECT_REF', 'supabase/config.toml',
     'https://${SUPABASE_PROJECT_REF}.supabase.co']) assert.ok(configuration.run.includes(guard), guard);
   const install = step(release, 'Install frontend dependencies');
   assert.equal(install['working-directory'], 'frontend');
@@ -234,13 +289,44 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const build = step(release, 'Build frontend');
   assert.equal(build['working-directory'], 'frontend');
   assert.equal(build.run, 'pnpm build');
+  const prepareDbCa = step(release, 'Prepare production database CA certificate');
+  assert.deepEqual(prepareDbCa.env, {
+    SUPABASE_DB_ROOT_CERT: '${{ secrets.SUPABASE_DB_ROOT_CERT }}',
+  });
+  assert.match(prepareDbCa.run, /umask 077[\s\S]*openssl x509[\s\S]*-noout/);
+  const migrationEnv = {
+    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_DB_PASSWORD: '${{ secrets.SUPABASE_DB_PASSWORD }}',
+    PGSSLMODE: 'verify-full',
+    PGSSLROOTCERT: '${{ runner.temp }}/supabase-db-root.crt',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+  };
+  const previewMigrations = step(release, 'Preview production database migrations');
+  assert.equal(previewMigrations.id, 'preview-migrations');
+  assert.equal(previewMigrations['working-directory'], 'frontend');
+  assert.deepEqual(previewMigrations.env, migrationEnv);
+  assert.match(previewMigrations.run, /db push[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--skip-vault[\s\S]*--dry-run/);
+  const applyMigrations = step(release, 'Apply production database migrations');
+  assert.equal(applyMigrations.id, 'deploy-migrations');
+  assert.equal(applyMigrations['working-directory'], 'frontend');
+  assert.deepEqual(applyMigrations.env, migrationEnv);
+  assert.match(applyMigrations.run, /db push[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--skip-vault[\s\S]*--yes/);
+  const verifyMigrations = step(release, 'Verify production database migration state');
+  assert.equal(verifyMigrations.id, 'verify-migrations');
+  assert.equal(verifyMigrations['working-directory'], 'frontend');
+  assert.deepEqual(verifyMigrations.env, migrationEnv);
+  assert.match(verifyMigrations.run, /migration list[\s\S]*--project-ref "\$SUPABASE_PROJECT_REF"[\s\S]*--output-format json/);
+  assert.match(verifyMigrations.run, /node "\$GITHUB_WORKSPACE\/scripts\/verify-production-migration-state\.mjs"/);
   const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
   assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
   for (const target of ['recipes', 'extract-recipe', 'generate-recipe']) {
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
     assert.equal(deploy['working-directory'], 'frontend');
-    assert.deepEqual(deploy.env, configuration.env);
+    assert.deepEqual(deploy.env, {
+      SUPABASE_ACCESS_TOKEN: configuration.env.SUPABASE_ACCESS_TOKEN,
+      SUPABASE_PROJECT_REF: configuration.env.SUPABASE_PROJECT_REF,
+    });
     assert.ok(deploy.run.includes(`pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy ${target}`));
     assert.match(deploy.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
     assert.match(deploy.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
@@ -250,7 +336,10 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(cleanup.if, false);
   assert.equal(cleanup.id, 'deploy-recipe-image-cleanup');
   assert.equal(cleanup['working-directory'], 'frontend');
-  assert.deepEqual(cleanup.env, configuration.env);
+  assert.deepEqual(cleanup.env, {
+    SUPABASE_ACCESS_TOKEN: configuration.env.SUPABASE_ACCESS_TOKEN,
+    SUPABASE_PROJECT_REF: configuration.env.SUPABASE_PROJECT_REF,
+  });
   assert.match(cleanup.run, /--workdir "\$GITHUB_WORKSPACE" functions deploy recipe-image-upload-cleanup/);
   assert.match(cleanup.run, /--project-ref "\$SUPABASE_PROJECT_REF"/);
   assert.match(cleanup.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
@@ -279,6 +368,9 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    MIGRATIONS_PREVIEW_OUTCOME: '${{ steps.preview-migrations.outcome }}',
+    MIGRATIONS_OUTCOME: '${{ steps.deploy-migrations.outcome }}',
+    MIGRATIONS_VERIFY_OUTCOME: '${{ steps.verify-migrations.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
@@ -300,9 +392,9 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const summary = step(release, 'Record production deployment and runtime outcomes');
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
-  assert.deepEqual(release.permissions, { contents: 'read' });
+  assert.deepEqual(release.permissions, { contents: 'read', deployments: 'write' });
   for (const caller of [main.jobs.production]) {
-    assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN']);
+    assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
   }
 });
@@ -617,9 +709,11 @@ test('upload signing remains disabled until ingress and cleanup readiness are ad
   assert.equal(readiness.env.SUPABASE_PROJECT_REF, '${{ vars.SUPABASE_PROJECT_REF }}');
   assert.deepEqual(Object.keys(main.jobs.production.secrets).sort(), [
     'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN',
+    'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT',
   ]);
   assert.deepEqual(Object.keys(production.on.workflow_call.secrets).sort(), [
     'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN',
+    'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_ROOT_CERT',
   ]);
   const verifier = readFileSync('scripts/verify-upload-signing-readiness.mjs', 'utf8');
   for (const prerequisite of [

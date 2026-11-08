@@ -19,6 +19,21 @@ As of 2026-11-02:
 - **No successful backup run is claimed until a merged-main/manual workflow run actually creates, uploads, re-downloads, and verifies a private R2 object.**
 - **No restore capability is claimed until a selected backup is restored and verified in an isolated safe target.**
 
+## Production release gate
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f80187d8135bf05d16d5ace4c98f7f68b0a0738e6800926e5c30c2ddbb5d6f2d -->
+
+The reusable production workflow fails the release explicitly unless the repository
+variable `PRODUCTION_MIGRATION_RECOVERY_VERIFIED` is set to `true`. Leave it
+unset until issue #155 records the recovery readiness decision and issue #159
+records a successful private-backup round-trip and isolated restore drill,
+including observed recovery exclusions. PR CI does not set this repository
+variable or execute the production migration path.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ## Backup trigger and ownership
 
 The workflow supports:

@@ -119,7 +119,7 @@ To inspect leftover recipes, start the E2E stack with `stack start --runtime nat
 
 ## Migrations and schema management
 
-The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. For approved remote schema updates, preview and apply migrations with `supabase db push --dry-run --linked` and `supabase db push --linked`.
+The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. On pushes to `main`, the validated production release previews and applies pending migrations before deploying application code. Configure the GitHub Actions secrets `SUPABASE_DB_PASSWORD` and `SUPABASE_DB_ROOT_CERT`; download the root certificate from the project's Database Settings → SSL Configuration. The existing `SUPABASE_ACCESS_TOKEN` secret and `SUPABASE_PROJECT_REF` variable identify and authorize the target. For approved remote schema updates outside that release, preview and apply with `supabase db push --dry-run --linked` and `supabase db push --linked`.
 
 ## Demo API
 

@@ -31,7 +31,7 @@ test('production queue rejects stale revisions before the first production mutat
   });
 
   const staleGuard = step(production, 'Reject stale production revision');
-  const firstMutation = step(production, 'Deploy recipes Edge Function');
+  const firstMutation = step(production, 'Apply production database migrations');
   assert.ok(staleGuard, 'stale revision guard must exist');
   assert.ok(firstMutation, 'first production mutation must exist');
   assert.ok(production.steps.indexOf(staleGuard) < production.steps.indexOf(firstMutation));
@@ -150,6 +150,75 @@ test('backup diagnostics report later COPY differences after header differences'
     assert.match(result.stdout, /first differing line=1; before category=outside-copy/);
     assert.match(result.stdout, /all differing line categories=copy-row->copy-row,outside-copy->outside-copy/);
     assert.doesNotMatch(result.stdout, /PRIVATE_HEADER|PRIVATE_STATEMENT|schema_migrations/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Exercise persistent provider state across separate queued run attempts.
+import { recoveryHold } from './production-recovery-hold.mjs';
+const holdEnv = { GITHUB_REPOSITORY: 'test/repo', GITHUB_SHA: 'abc',
+  GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1', RECOVERY_VERIFIED: 'true' };
+
+function holdProvider() {
+  const deployments = [];
+  const statuses = new Map();
+  return (path, body, paginate) => {
+    if (paginate) return [deployments.slice(0, 1), deployments.slice(1)];
+    const match = path.match(/\/(\d+)\/statuses/);
+    if (match) {
+      if (body) statuses.set(Number(match[1]), [body]);
+      return statuses.get(Number(match[1])) ?? [];
+    }
+    assert.equal(body.auto_merge, false);
+    assert.deepEqual(body.required_contexts, []);
+    assert.equal(body.environment, 'production-migration-recovery');
+    const deployment = { id: deployments.length + 1 };
+    deployments.unshift(deployment);
+    return deployment;
+  };
+}
+
+test('failed, interrupted and post-migration application failures hold newer queued attempts', () => {
+  for (const failure of ['migration failure', 'runner interrupted', 'application failure', 'smoke failure']) {
+    const api = holdProvider();
+    const id = recoveryHold('acquire', holdEnv, api);
+    // These paths must not call release. A newer SHA/static true flag cannot clear the hold.
+    assert.throws(() => recoveryHold('acquire', { ...holdEnv, GITHUB_SHA: 'new' }, api), /Production held/, failure);
+    recoveryHold('release', { ...holdEnv, HOLD_ID: String(id) }, api);
+    assert.equal(recoveryHold('acquire', holdEnv, api), 2);
+    assert.throws(() => recoveryHold('acquire', holdEnv, api), /Production held/);
+  }
+});
+
+test('only explicit success releases prior holds, including older pages', () => {
+  for (const state of ['pending', 'in_progress', 'failure', 'error', 'inactive', 'queued']) {
+    assert.throws(() => recoveryHold('acquire', holdEnv, (path, body, paginate) =>
+      paginate ? [[], [{ id: 42 }]] : [{ state }]), /Production held/);
+  }
+});
+
+test('recovery flag and provider failures fail closed before creating a deployment', () => {
+  for (const value of [undefined, '', 'false', 'TRUE']) {
+    assert.throws(() => recoveryHold('acquire', { ...holdEnv, RECOVERY_VERIFIED: value }, () => {
+      assert.fail('must not access provider');
+    }), /must equal true/);
+  }
+  assert.throws(() => recoveryHold('acquire', holdEnv, () => { throw new Error('API unavailable'); }), /API unavailable/);
+  assert.throws(() => recoveryHold('acquire', holdEnv, () => ({})), /Invalid deployment history/);
+  assert.throws(() => recoveryHold('acquire', holdEnv, (path, body) => body ? {} : [[]]), /not acknowledged/);
+});
+
+test('unset recovery flag produces a failed command and observable summary', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'recovery-held-'));
+  try {
+    const summary = join(dir, 'summary');
+    const result = spawnSync(process.execPath, ['scripts/production-recovery-hold.mjs', 'acquire'], {
+      encoding: 'utf8', env: { ...process.env, RECOVERY_VERIFIED: '', GITHUB_STEP_SUMMARY: summary },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /::error::.*Production held/);
+    assert.match(readFileSync(summary, 'utf8'), /PRODUCTION_MIGRATION_RECOVERY_VERIFIED must equal true/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
