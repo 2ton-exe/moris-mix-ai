@@ -156,7 +156,8 @@ export async function putRecipeImageStaging(
   }
 }
 
-export async function signRecipeImageStagingDelete(
+async function signRecipeImageStagingRequest(
+  method: "DELETE" | "HEAD",
   stagingKey: string,
   configuration: R2Config,
   now: Date = new Date(),
@@ -184,7 +185,7 @@ export async function signRecipeImageStagingDelete(
     "X-Amz-SignedHeaders": signedHeaders,
   }).map(([key, value]) => `${encode(key)}=${encode(value)}`).sort().join("&");
   const canonicalRequest = [
-    "DELETE",
+    method,
     path,
     query,
     `host:${host}\n`,
@@ -205,6 +206,43 @@ export async function signRecipeImageStagingDelete(
   }
   const signature = hex((await hmac(signingKey, stringToSign)).buffer);
   return `${endpoint.origin}${path}?${query}&X-Amz-Signature=${signature}`;
+}
+
+export function signRecipeImageStagingDelete(
+  stagingKey: string,
+  configuration: R2Config,
+  now: Date = new Date(),
+): Promise<string> {
+  return signRecipeImageStagingRequest(
+    "DELETE",
+    stagingKey,
+    configuration,
+    now,
+  );
+}
+
+export async function checkRecipeImageStaging(
+  stagingKey: string,
+  configuration: R2Config,
+  fetchImpl: typeof fetch = fetch,
+): Promise<"exists" | "missing" | "failed"> {
+  try {
+    const url = await signRecipeImageStagingRequest(
+      "HEAD",
+      stagingKey,
+      configuration,
+    );
+    const response = await fetchImpl(url, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(5_000),
+      redirect: "error",
+    });
+    if (response.status === 200) return "exists";
+    if (response.status === 404) return "missing";
+    return "failed";
+  } catch {
+    return "failed";
+  }
 }
 
 export async function deleteRecipeImageStaging(

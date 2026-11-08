@@ -6,6 +6,7 @@ import {
 } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import { createHash, createHmac } from "node:crypto";
 import {
+  checkRecipeImageStaging,
   putRecipeImageStaging,
   type R2Config,
   resolveR2Config,
@@ -410,4 +411,41 @@ Deno.test("upload intent normalizes UUIDs, truncates milliseconds, and generates
   assertNotEquals(fresh.id, original.id);
   assertNotEquals(fresh.staging_key, original.staging_key);
   assertNotEquals(fresh.staging_key, fresh.final_key);
+});
+
+Deno.test("staging HEAD is independently signed and fails closed for uncertain results", async () => {
+  for (
+    const [status, expected] of [[200, "exists"], [404, "missing"], [
+      403,
+      "failed",
+    ], [500, "failed"]] as const
+  ) {
+    const result = await checkRecipeImageStaging(
+      intent().staging_key,
+      config,
+      (input, init) => {
+        const url = new URL(String(input));
+        assertEquals(init?.method, "HEAD");
+        assertEquals(init?.redirect, "error");
+        assertEquals(
+          url.pathname,
+          `/${config.bucketName}/${intent().staging_key}`,
+        );
+        assertEquals(
+          url.searchParams.get("X-Amz-Signature"),
+          referenceSignature(url, "HEAD", new Headers()),
+        );
+        return Promise.resolve(new Response(null, { status }));
+      },
+    );
+    assertEquals(result, expected);
+  }
+  assertEquals(
+    await checkRecipeImageStaging(
+      intent().staging_key,
+      config,
+      () => Promise.reject(new Error("network failure")),
+    ),
+    "failed",
+  );
 });
