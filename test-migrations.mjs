@@ -249,6 +249,47 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
   try {
     await setServiceRole(client);
     await setServiceRole(competing);
+    const reservationUser = crypto.randomUUID();
+    const reservedIntent = await createIntent(client, reservationUser);
+    const reservationTokens = [crypto.randomUUID(), crypto.randomUUID()];
+    const claimReservation = (target, user, token) => target.query(
+      'SELECT public.claim_recipe_image_upload_reservation($1::uuid, $2::uuid, $3::uuid) AS claimed',
+      [reservedIntent.id, user, token]
+    );
+    const releaseReservation = token => client.query(
+      'SELECT public.release_recipe_image_upload_reservation($1::uuid, $2::uuid, $3::uuid) AS released',
+      [reservedIntent.id, reservationUser, token]
+    );
+    const reservationClaims = await Promise.all([
+      claimReservation(client, reservationUser, reservationTokens[0]),
+      claimReservation(competing, reservationUser, reservationTokens[1])
+    ]);
+    assert.deepEqual(reservationClaims.map(result => result.rows[0].claimed).sort(), [false, true]);
+    const winner = reservationClaims.findIndex(result => result.rows[0].claimed);
+    const winnerToken = reservationTokens[winner];
+    const loserToken = reservationTokens[1 - winner];
+    assert.equal((await releaseReservation(loserToken)).rows[0].released, false);
+    assert.equal((await claimReservation(competing, reservationUser, loserToken)).rows[0].claimed, false);
+    assert.equal((await releaseReservation(winnerToken)).rows[0].released, true);
+    assert.equal((await claimReservation(competing, crypto.randomUUID(), loserToken)).rows[0].claimed, false);
+    assert.equal((await claimReservation(competing, reservationUser, loserToken)).rows[0].claimed, true);
+    assert.equal((await releaseReservation(loserToken)).rows[0].released, true);
+    await client.query("UPDATE public.recipe_image_upload_intents SET created_at = now() - interval '11 minutes', expires_at = now() - interval '1 minute' WHERE id = $1", [reservedIntent.id]);
+    assert.equal((await claimReservation(client, reservationUser, winnerToken)).rows[0].claimed, false);
+    for (const role of ['anon', 'authenticated']) {
+      try {
+        await client.query(`SET ROLE ${role}`);
+        await assert.rejects(() => claimReservation(client, reservationUser, winnerToken), error => error.code === '42501');
+        await assert.rejects(() => releaseReservation(winnerToken), error => error.code === '42501');
+      } finally {
+        await client.query('RESET ROLE');
+      }
+    }
+    await client.query("SELECT set_config('request.jwt.claim.role', '', false)");
+    await assert.rejects(() => claimReservation(client, reservationUser, winnerToken), error => error.code === '42501');
+    await assert.rejects(() => releaseReservation(winnerToken), error => error.code === '42501');
+    await setServiceRole(client);
+    console.log('PASS: PostgreSQL upload reservations admit one competing claimant, require the winning release token, permit reacquisition, reject foreign/expired intents, and deny browser roles.');
     const retentionEligible = await createIntent(client, crypto.randomUUID());
     const retentionIneligible = await createIntent(client, crypto.randomUUID());
     await client.query("UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() - interval '31 days' WHERE id = $1::uuid", [retentionEligible.id]);
@@ -502,9 +543,10 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public' AND p.proname = ANY($1::text[])`, [[
         'claim_expired_recipe_image_uploads', 'finish_recipe_image_upload_cleanup',
-        'recipe_image_upload_cleanup_health', 'claim_recipe_image_staging_reconciliation_objects'
+        'recipe_image_upload_cleanup_health', 'claim_recipe_image_staging_reconciliation_objects',
+        'claim_recipe_image_upload_reservation', 'release_recipe_image_upload_reservation'
       ]]);
-    assert.equal(permissions.rowCount, 4);
+    assert.equal(permissions.rowCount, 6);
     for (const permission of permissions.rows) {
       assert.equal(permission.anon, false);
       assert.equal(permission.authenticated, false);
