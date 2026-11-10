@@ -86,6 +86,9 @@ jobs:
       - name: Test checkout credential persistence (offline)
         run: node --test scripts/checkout-credentials.test.mjs
 
+      - name: Test staging action pins (offline)
+        run: node --test scripts/staging-action-pins.test.mjs
+
       - name: Run lint
         if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'
         working-directory: frontend
