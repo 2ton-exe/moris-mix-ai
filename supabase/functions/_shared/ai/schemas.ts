@@ -1,4 +1,4 @@
-import { z } from "npm:zod@3.22.4";
+import { z } from "npm:zod@4.6.6";
 
 // --- BASE SCHEMAS ---
 
@@ -76,7 +76,7 @@ export const SubstitutionSchema = z.object({
 export const GeneratedRecipeSchema = z.object({
   recipe: ExtractedRecipeSchema,
   substitutions: z.array(SubstitutionSchema),
-  parentRecipeIds: z.array(z.string().uuid()),
+  parentRecipeIds: z.array(z.guid()),
 }).superRefine((value, ctx) => {
   // The prompt requires an exact match, and the UI renders a substitution
   // against its ingredient. Enforce it instead of trusting the model: an
@@ -123,7 +123,7 @@ export type ExtractRecipeResponse = z.infer<typeof ExtractRecipeResponseSchema>;
 
 // --- DEMO SCHEMAS (RESTORED FOR SPRINT 1 CI) ---
 export const DemoRecipeSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   title: z.string().min(1),
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
@@ -167,8 +167,8 @@ export const CreateRecipeRequestSchema = z.object({
 });
 
 export const RecipeSchema = z.object({
-  id: z.string().uuid(),
-  user_id: z.string().uuid(),
+  id: z.guid(),
+  user_id: z.guid(),
   title: z.string().min(1),
   raw_input: z.string().nullable(),
   notes: z.string().nullable(),
@@ -187,10 +187,10 @@ export const RecipeResponseSchema = z.object({
   recipe: RecipeSchema,
 });
 
-export const RecipeIdParamSchema = z.string().uuid();
+export const RecipeIdParamSchema = z.guid();
 
 export const RecipeParamsSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
 });
 
 export const RecipeSortModeSchema = z.enum(["newest", "rating"]);
@@ -203,7 +203,7 @@ export const RecipeCursorSchema = z.object({
   title: z.string().max(200).optional(),
   ingredient: z.string().max(200).optional(),
   rank: z.number().int().min(1).max(3).optional(),
-  id: z.string().uuid(),
+  id: z.guid(),
   createdAt: z.string().datetime({ offset: true }),
   starRating: z.number().int().min(1).max(5).nullable().optional(),
 });
@@ -246,15 +246,15 @@ export type UpdateRecipeRequest = z.infer<typeof UpdateRecipeRequestSchema>;
 export const MAX_PARENT_RECIPE_IDS = 10;
 
 export const LineageRecordSchema = z.object({
-  id: z.string().uuid(),
-  parent_recipe_id: z.string().uuid(),
-  child_recipe_id: z.string().uuid(),
+  id: z.guid(),
+  parent_recipe_id: z.guid(),
+  child_recipe_id: z.guid(),
   created_at: z.string().min(1),
 });
 
 export const CreateLineageRequestSchema = z.object({
   parent_recipe_ids: z
-    .array(z.string().uuid())
+    .array(z.guid())
     .min(1, { message: "At least one parent recipe ID must be provided." })
     .max(MAX_PARENT_RECIPE_IDS, {
       message: "At most 10 parent recipe IDs may be provided.",
@@ -325,8 +325,8 @@ export const ChefRecipeContextOptionsSchema = z.object({
 }).strict();
 
 export const ChefContextCandidateSchema = z.object({
-  id: z.string().uuid(),
-  user_id: z.string().uuid(),
+  id: z.guid(),
+  user_id: z.guid(),
   title: z.string().min(1),
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
@@ -338,7 +338,7 @@ export const ChefContextCandidateSchema = z.object({
 export type ChefContextCandidate = z.infer<typeof ChefContextCandidateSchema>;
 
 export const RankedRecipeContextItemSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   title: z.string().min(1),
   ingredients: z.array(IngredientSchema),
   instructions: z.array(InstructionSchema),
@@ -513,7 +513,7 @@ export const GenerateRecipeRequestSchema = z.object({
 
 /** A proposed lineage parent, resolved from the retrieved candidate set. */
 export const SuggestedParentSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   title: z.string().min(1),
   star_rating: z.number().int().min(1).max(5).refine(Number.isFinite)
     .nullable(),
