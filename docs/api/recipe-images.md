@@ -121,6 +121,8 @@ The response contains no standalone object key or URL. The temporary `PUT` URL i
 
 The `200 OK` JSON response contains a presigned R2 `GET` URL and `expires_at`. It has `Cache-Control: no-store`; the URL expires after 60 seconds and pins the verified `Content-Type` and a generic inline filename in its signed response overrides. BE-14 owns private GET signing. An issued URL is a temporary bearer capability and remains usable until expiry, subject to the object still existing. Clearing or replacing the association does not revoke an issued URL. Signed URLs are never logged or included in recipe responses.
 
+BE-13 owns upload authorization and upload ingress. BE-14 owns attachment and private download signing for finalized objects; FE-12 consumes the authenticated download endpoint. The BE-13 author approved this private-read contract and ownership split in [issue #105](https://github.com/2ton-exe/moris-mix-ai/issues/105#issuecomment-6786120224). FE-12 integration-owner acceptance must still be recorded before this lifecycle change is merged. The earlier upload-transport approval does not cover private reads.
+
 ## Delete a recipe image
 
 `POST /functions/v1/recipe-image-delete` accepts `{ "recipe_id": "<uuid>" }`. Only the recipe owner may delete its image. The transaction locks the recipe, clears `image_path`, and records the former final key in a durable cleanup queue. Deleting an already-empty association on an existing owned recipe is idempotent and returns `204 No Content`. A missing or foreign recipe returns `404 RECIPE_NOT_FOUND`. R2 deletion occurs after the transaction and cannot roll back the database change.
@@ -158,7 +160,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 | `410 Gone` | `UPLOAD_EXPIRED` | `Upload is no longer available.` | The intent is expired, no longer pending, or cleanup has completed. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only POST, PUT and OPTIONS methods are supported.` | Unsupported method on the upload endpoint. Includes `Allow: POST, PUT, OPTIONS`. |
 | `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed, or another request currently owns the intent's finalizing lease; retry later. |
-| `422 Unprocessable Content` | `INVALID_IMAGE` | `Uploaded image metadata is invalid.` | Actual object type or size does not match the intent and contract. |
+| `422 Unprocessable Content` | `INVALID_IMAGE` | `Uploaded image could not be verified.` | Actual object type, size, or image structure fails verification. |
 | `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Supabase Auth returns `429 Too Many Requests` during token verification. A validated `Retry-After` header is propagated when supplied; invalid or absent values are omitted. |
 | `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | `Image storage is temporarily unavailable.` | R2 is temporarily unreachable. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Other unexpected configuration, database, or storage failure. |
