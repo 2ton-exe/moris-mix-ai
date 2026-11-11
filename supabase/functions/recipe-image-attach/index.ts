@@ -124,7 +124,11 @@ export async function handler(
       return failure("UPLOAD_NOT_FOUND", "Upload not found.", 404);
     }
     if (claimed.data.status === "conflict") {
-      return failure("UPLOAD_NOT_READY", "Upload is not ready to attach.", 409);
+      return failure(
+        "UPLOAD_NOT_READY",
+        "Uploaded image is not ready for attachment.",
+        409,
+      );
     }
     if (claimed.data.status === "attached") {
       const metadata = RecipeImageMetadataSchema.safeParse({
@@ -182,7 +186,7 @@ export async function handler(
         await release();
         return failure(
           "UPLOAD_NOT_READY",
-          "Upload is not ready to attach.",
+          "Uploaded image is not ready for attachment.",
           409,
         );
       }
@@ -215,7 +219,7 @@ export async function handler(
         await release();
         return failure(
           "UPLOAD_NOT_READY",
-          "Upload is not ready to attach.",
+          "Uploaded image is not ready for attachment.",
           409,
         );
       }
@@ -235,7 +239,7 @@ export async function handler(
         await release();
         return failure(
           "UPLOAD_NOT_READY",
-          "Upload is not ready to attach.",
+          "Uploaded image is not ready for attachment.",
           409,
         );
       }

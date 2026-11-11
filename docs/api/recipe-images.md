@@ -153,10 +153,12 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe image request.` | Invalid UUID, image type, declared size, or unknown request fields. |
 | `401 Unauthorized` | `UNAUTHORIZED` | `Missing or invalid authentication credentials.` | Missing, invalid, or expired Bearer token. |
 | `404 Not Found` | `RECIPE_NOT_FOUND` | `Recipe not found.` | Recipe is missing or belongs to another user. |
+| `404 Not Found` | `IMAGE_NOT_FOUND` | `Recipe image not found.` | The owned recipe has no resolvable finalized image. |
 | `429 Too Many Requests` | `UPLOAD_RATE_LIMITED` | `Upload signing limit reached. Please try again later.` | The user has requested 10 upload URLs within the last hour. |
 | `429 Too Many Requests` | `UPLOAD_QUOTA_EXCEEDED` | `Too many image uploads are pending. Please try again later.` | The per-user outstanding-intent cap is exhausted. |
 | `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown or belongs to another owner. |
 | `409 Conflict` | `UPLOAD_ALREADY_USED` | `Upload has already been received.` | R2 create-only condition found a staging object for this intent; an upload cannot replace it. |
+| `409 Conflict` | `UPLOAD_IN_PROGRESS` | `Upload is already being processed.` | Another request holds this intent's atomic upload reservation. Retry after that request finishes. |
 | `410 Gone` | `UPLOAD_EXPIRED` | `Upload is no longer available.` | The intent is expired, no longer pending, or cleanup has completed. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only POST, PUT and OPTIONS methods are supported.` | Unsupported method on the upload endpoint. Includes `Allow: POST, PUT, OPTIONS`. |
 | `409 Conflict` | `UPLOAD_NOT_READY` | `Uploaded image is not ready for attachment.` | The staging object is absent or changed, or another request currently owns the intent's finalizing lease; retry later. |
