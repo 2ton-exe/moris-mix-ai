@@ -1,10 +1,10 @@
 # Recipe image upload API contract
 
-This contract defines the authenticated request to authorize a Cloudflare R2 upload through a server-controlled ingress and the later request to verify and attach that upload to an owned recipe. BE-09 supplies the contract and shared validators. BE-13 owns upload-intent persistence, quotas, staging cleanup, and reconciliation. This PR carries the bounded-ingress contract revision from PR #190, replacing the original direct browser-to-R2 presigned PUT contract. BE-14 implements attachment, private reads, and finalized-image deletion. Its migration and runtime behavior require independent verification.
+This contract defines the authenticated private recipe-image lifecycle: upload authorization and bounded ingress, verification and attachment, private reads, deletion, and finalized-object cleanup. BE-09 supplies the shared validators. BE-13 owns upload-intent persistence, quotas, staging cleanup, and reconciliation. This PR carries the bounded-ingress contract revision from PR #190, replacing the original direct browser-to-R2 presigned PUT contract. BE-14 implements attachment, private reads, and finalized-image deletion. Its migration and runtime behavior require independent verification.
 
 Production readiness remains **BLOCKED** until BE-14 independently verifies R2 object size and content type before attachment and all required R2/Supabase configuration and migrations are deployed and verified. Production upload-signing deployment remains hard-disabled pending independent production readiness verification and authorization. The upload handler counts the actual request body before sending upload bytes to R2, accepts no more than 10 MiB, and requires the count to match the stored intent. It then sends a payload-hash-bound, create-only R2 `PUT`; R2 atomically rejects a second write to an existing staging key. The handler rejects expired, consumed, attached, or cleanup-completed intents and compensates for an upload that becomes ineligible while R2 is processing it. Production behavior and R2 conditional-write compatibility have not been live-verified.
 
-The bounded ingress implementation is shared with merged PR #190. BE-13 and FE-12 owner approvals are recorded in the contract acceptance table below. Production signing and cleanup remain hard-disabled. BE-14 migration `20261107000016` must follow verified BE-13 migrations 09–15, and upload-reservation migration `20261108152005` must follow migration 16. The guarded release migration path must include the reviewed head and satisfy its recovery and configuration prerequisites before any production application.
+The bounded ingress implementation is shared with merged PR #190. BE-13 and FE-12 owner approvals for that upload transport are recorded in the contract acceptance table below; they do not approve the separate private-read contract. Production signing and cleanup remain hard-disabled. BE-14 migration `20261107000016` must follow verified BE-13 migrations 09–15, and upload-reservation migration `20261108152005` must follow migration 16. The guarded release migration path must include the reviewed head and satisfy its recovery and configuration prerequisites before any production application.
 
 ## Endpoint overview
 
@@ -13,15 +13,17 @@ The bounded ingress implementation is shared with merged PR #190. BE-13 and FE-1
 | `POST` | `/functions/v1/recipe-image-upload-url` | Authorize one short-lived image upload for an owned recipe | `200 OK`, `{ "upload": ... }` |
 | `PUT` | `/functions/v1/recipe-image-upload-url?upload_id=<uuid>` | Upload raw bytes through authenticated, bounded server ingress | `201 Created`, `{ "upload": ... }` |
 | `POST` | `/functions/v1/recipe-image-attach` | Verify an uploaded object and attach it to the recipe | `200 OK`, `{ "image": ... }` |
-| `OPTIONS` | Either path | CORS preflight | `204 No Content` |
+| `POST` | `/functions/v1/recipe-image-download-url` | Resolve the owned recipe image and issue a short-lived private GET URL | `200 OK`, `{ "url": ..., "expires_at": ... }` |
+| `POST` | `/functions/v1/recipe-image-delete` | Clear the image association and queue finalized-object cleanup | `204 No Content` |
+| `OPTIONS` | Any browser-facing image route | CORS preflight | `204 No Content` |
 
 ## Authentication and ownership
 
-- The `POST` authorization request requires `Authorization: Bearer <supabase-access-token>`, the Supabase project `apikey`, and a JSON body. The `PUT` upload request requires the same authenticated user credentials and raw image bytes. The project key does not authenticate the user; the Bearer token is verified by the backend.
-- The upload handler uses the shared `authenticateRequest()` boundary and derives ownership from its verified user context. The attach handler must do the same. Client-supplied `user_id` is never trusted.
-- The upload authorization checks that `recipe_id` belongs to the authenticated user. The `PUT` handler rechecks that the upload intent belongs to the authenticated user and is still pending; the attach request checks ownership again. An upload does not authorize attachment by itself.
+- Every browser-facing `POST` operation requires `Authorization: Bearer <supabase-access-token>`, the Supabase project `apikey`, and a JSON body. The `PUT` upload request requires the same authenticated user credentials and raw image bytes. The project key does not authenticate the user; the Bearer token is verified by the backend.
+- The user-facing upload authorization, upload ingress, attach, download, and image-delete handlers use the shared `authenticateRequest()` boundary and derive ownership from its verified user context. Client-supplied `user_id` is never trusted.
+- Upload authorization checks that `recipe_id` belongs to the authenticated user. The `PUT` handler rechecks that the upload intent belongs to the authenticated user and is still pending; attach, download, and delete check recipe ownership again. An upload does not authorize attachment by itself.
 - Missing and foreign recipes have the same `404 RECIPE_NOT_FOUND` result. Never reveal whether another user’s recipe exists.
-- `OPTIONS` is handled before authentication. The function entries in `supabase/config.toml` already set `verify_jwt = false` so unauthenticated preflight requests reach the handlers. This only disables gateway JWT validation; the upload handler calls `authenticateRequest()` for every `POST` and `PUT` before accessing user or storage data, and the attach handler must do the same. The Edge Function CORS policy allows `POST, PUT, OPTIONS` and `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
+- Browser-facing `OPTIONS` is handled before authentication. The function entries in `supabase/config.toml` set `verify_jwt = false` so unauthenticated preflight requests reach the handlers. This only disables gateway JWT validation; every user-facing non-preflight handler calls `authenticateRequest()` before accessing user or storage data. Upload ingress allows `POST, PUT, OPTIONS`; attach, download, and image-delete allow `POST, OPTIONS`. The Edge Function CORS policy allows `authorization`, `x-client-info`, `apikey`, and `content-type` headers for configured frontend origins.
 
 ## Request an upload URL
 
@@ -171,7 +173,7 @@ Attach, download, and delete handlers also return `405 METHOD_NOT_ALLOWED` for u
 
 ## CORS
 
-- The Edge Function handles unauthenticated `OPTIONS` requests before calling `authenticateRequest()`. It allows `POST, PUT, OPTIONS` and the headers listed in Authentication and ownership.
+- Each browser-facing handler handles unauthenticated `OPTIONS` requests before calling `authenticateRequest()`. Upload ingress allows `POST, PUT, OPTIONS`; attach, download, and image-delete allow `POST, OPTIONS`. All allow the headers listed in Authentication and ownership.
 - Browser uploads now target Supabase Edge Function ingress, so R2 bucket CORS is not part of the upload request. Edge Function CORS must allow only the deployed frontend origin in production. CORS is not authentication; the handler verifies the user's bearer token and upload intent.
 - A failed or expired upload does not authorize attachment. A second write to a successfully created staging key returns `409`; the client must start a new intent instead of retrying that upload ID.
 
