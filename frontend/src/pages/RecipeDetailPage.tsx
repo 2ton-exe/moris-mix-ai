@@ -4,6 +4,7 @@ import type { Ingredient } from '../api/demoRecipe'
 import { RecipeMetadata } from '../recipes/RecipeCard'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
 import { RecipeDeletionControl } from '../recipes/RecipeDeletionControl'
+import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import { isRecipeAccessError } from '../recipes/errors'
 import { useRecipe } from '../recipes/queries'
 import { RecipeSourceContext } from '../recipes/source'
@@ -32,6 +33,7 @@ export default function RecipeDetailPage() {
         </nav>}
         {query.isFetching && <p role="status">Updating recipe…</p>}
         {query.isError && <p className="recipe-update">Showing the last loaded recipe.</p>}
+        <RecipeImagePanel key={`image-${recipe.id}`} recipeId={recipe.id} recipeTitle={recipe.title} showEmpty />
         <div className="recipe-detail-columns">
           <section className="ingredient-panel" aria-labelledby="ingredients-heading">
             <h2 id="ingredients-heading">Ingredients</h2>
