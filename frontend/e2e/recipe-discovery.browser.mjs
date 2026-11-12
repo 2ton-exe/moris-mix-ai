@@ -23,6 +23,7 @@ const server = await createServer({
     'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify('browser-test-public-key'),
     'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(''),
     'import.meta.env.VITE_RECIPE_PREVIEW': JSON.stringify('false'),
+    'import.meta.env.VITE_RECIPE_IMAGES': JSON.stringify('false'),
   },
   server: { host: '127.0.0.1', port: 0 },
   logLevel: 'error',
