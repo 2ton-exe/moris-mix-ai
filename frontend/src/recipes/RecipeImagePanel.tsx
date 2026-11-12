@@ -10,6 +10,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   showEmpty?: boolean
 }) {
   const { user } = useAuth()
+  const featureEnabled = import.meta.env.VITE_RECIPE_IMAGES === 'true'
   const id = useId()
   const [download, setDownload] = useState<(Download & { userId: string }) | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,8 +30,11 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const selectionVersion = useRef(0)
   const uploadController = useRef<AbortController | null>(null)
   const currentUserId = useRef(user?.id)
+  const imageLoadSequence = useRef(0)
 
   const loadImage = useCallback(async (signal?: AbortSignal, resetRefreshAttempt = true) => {
+    const sequence = ++imageLoadSequence.current
+    if (!featureEnabled) return false
     if (!user?.id) {
       setDownload(null)
       setLoading(false)
@@ -39,27 +43,29 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     setLoading(true)
     try {
       const result = await recipeImageApi.getDownload(recipeId, { userId: user.id, signal })
+      if (signal?.aborted || sequence !== imageLoadSequence.current) return false
       setDownload(result ? { ...result, userId: user.id } : null)
       setDownloadError(false)
       if (resetRefreshAttempt) refreshAttempted.current = false
       return result !== null
     } catch {
-      if (signal?.aborted) return false
+      if (signal?.aborted || sequence !== imageLoadSequence.current) return false
       setDownloadError(true)
       return false
     } finally {
-      if (!signal?.aborted) setLoading(false)
+      if (!signal?.aborted && sequence === imageLoadSequence.current) setLoading(false)
     }
-  }, [recipeId, user?.id])
+  }, [featureEnabled, recipeId, user?.id])
 
   useEffect(() => {
+    if (!featureEnabled) return
     const controller = new AbortController()
     void loadImage(controller.signal)
     return () => controller.abort()
-  }, [loadImage])
+  }, [featureEnabled, loadImage])
 
   useEffect(() => {
-    if (!download || download.userId !== user?.id) return
+    if (!featureEnabled || !download || download.userId !== user?.id) return
     const controller = new AbortController()
     const delay = Math.max(0, download.expiresAt - Date.now())
     const timer = window.setTimeout(() => { void loadImage(controller.signal) }, delay)
@@ -67,10 +73,11 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [download, loadImage, user?.id])
+  }, [download, featureEnabled, loadImage, user?.id])
 
   useEffect(() => {
     const selectionVersionRef = selectionVersion
+    const imageLoadSequenceRef = imageLoadSequence
     if (currentUserId.current !== user?.id) {
       currentUserId.current = user?.id
       setDownload(null)
@@ -88,6 +95,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       setUploadSuccess(false)
     }
     return () => {
+      imageLoadSequenceRef.current++
       selectionVersionRef.current++
       uploadController.current?.abort()
       uploadController.current = null
@@ -126,7 +134,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   }
 
   async function uploadImage() {
-    if (!selected || !user?.id || busy.current) return
+    if (!featureEnabled || !selected || !user?.id || busy.current) return
     const controller = new AbortController()
     uploadController.current = controller
     busy.current = true
@@ -164,7 +172,6 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
           if (recipeImageErrorCode(error) === 'UPLOAD_ALREADY_USED') {
             setBytesUploaded(true)
           } else if (recipeImageErrorCode(error) === 'UPLOAD_IN_PROGRESS') {
-            setBytesUploaded(true)
             throw error
           } else if (recipeImageErrorCode(error) === 'UPLOAD_EXPIRED') {
             setIntent(null)
@@ -201,7 +208,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         setUploadError('This upload is no longer available. Retry to start a new upload.')
       } else {
         setUploadError(code === 'UPLOAD_IN_PROGRESS'
-          ? 'This upload is still being processed. Wait, then retry to finish attaching it.'
+          ? 'This upload is still being processed. Wait, then retry the upload.'
           : code === 'UPLOAD_EXPIRED'
             ? 'This upload expired. Retry to start a new upload.'
             : error instanceof Error && error.message === 'Could not prepare this image for upload.'
@@ -225,6 +232,8 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     refreshAttempted.current = true
     void loadImage(undefined, false)
   }
+
+  if (!featureEnabled) return null
 
   const currentDownload = download?.userId === user?.id ? download : null
   if (!allowUpload && !showEmpty && !loading && !currentDownload && !downloadError) return null

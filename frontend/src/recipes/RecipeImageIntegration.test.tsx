@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const sessionProvider = vi.hoisted(() => ({ getSession: vi.fn() }))
@@ -37,6 +37,10 @@ let resolvePutStarted: (() => void) | undefined
 let putStarted: Promise<void>
 let attachFailureCode = 'TEMPORARY_UNAVAILABLE'
 let attachFailureStatus = 503
+let delayFirstDownload = false
+let resolveFirstDownloadStarted: (() => void) | undefined
+let firstDownloadStarted: Promise<void>
+let resolveInitialDownload: ((response: Response) => void) | undefined
 let downloadCount = 0
 let intentCount = 0
 let putCount = 0
@@ -51,6 +55,7 @@ beforeEach(async () => {
   vi.stubEnv('VITE_SUPABASE_URL', apiUrl)
   vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'public-test-key')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+  vi.stubEnv('VITE_RECIPE_IMAGES', 'true')
   fetchImpl = vi.fn<typeof fetch>()
   vi.stubGlobal('fetch', fetchImpl)
 
@@ -103,6 +108,9 @@ beforeEach(async () => {
   putStarted = new Promise((resolve) => { resolvePutStarted = resolve })
   attachFailureCode = 'TEMPORARY_UNAVAILABLE'
   attachFailureStatus = 503
+  delayFirstDownload = false
+  firstDownloadStarted = new Promise((resolve) => { resolveFirstDownloadStarted = resolve })
+  resolveInitialDownload = undefined
   attachFailuresRemaining = 0
   attachedUploadIds = []
   downloadCount = 0
@@ -114,6 +122,10 @@ beforeEach(async () => {
     const method = init?.method ?? 'GET'
     if (url.pathname === '/functions/v1/recipe-image-download-url') {
       downloadCount++
+      if (delayFirstDownload && downloadCount === 1) {
+        resolveFirstDownloadStarted?.()
+        return await new Promise<Response>((resolve) => { resolveInitialDownload = resolve })
+      }
       if (noImage) return Response.json({ error: { code: 'IMAGE_NOT_FOUND' } }, { status: 404 })
       return Response.json({
         url: activeImage === 'new' || (refreshOnFailure && downloadCount > 1) ? newImageUrl : oldImageUrl,
@@ -229,6 +241,15 @@ function renderDetailPage() {
     createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) })))
 }
 
+it('keeps image panels and endpoint calls disabled unless recipe images are explicitly enabled', () => {
+  vi.stubEnv('VITE_RECIPE_IMAGES', 'false')
+  renderEditPage()
+
+  expect(screen.queryByLabelText('Choose recipe image')).toBeNull()
+  expect(screen.queryByText('Recipe image')).toBeNull()
+  expect(fetchImpl).not.toHaveBeenCalled()
+})
+
 it('enables image upload for a new recipe only after its save returns a stable ID', async () => {
   noImage = true
   const save = vi.fn(async () => ({ id: recipeId }))
@@ -302,7 +323,28 @@ it('requests another private URL when the current URL expires', async () => {
   expect(downloadCount).toBeGreaterThanOrEqual(2)
 })
 
-it('waits on an in-progress upload without resending bytes or attaching immediately', async () => {
+it('keeps the new private URL when an older initial read finishes after attachment', async () => {
+  delayFirstDownload = true
+  putFirstFails = false
+  renderEditPage()
+  await firstDownloadStarted
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await waitFor(() => expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl))
+  expect(downloadCount).toBe(2)
+
+  await act(async () => {
+    resolveInitialDownload?.(Response.json({ url: oldImageUrl, expires_at: new Date(Date.now() + 60_000).toISOString() }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl)
+})
+
+it('retries bytes with the same intent after an in-progress reservation clears', async () => {
   putFirstErrorCode = 'UPLOAD_IN_PROGRESS'
   putFirstErrorStatus = 409
   renderEditPage()
@@ -313,13 +355,17 @@ it('waits on an in-progress upload without resending bytes or attaching immediat
   await screen.findByRole('img', { name: 'Selected recipe image preview' })
   fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
 
-  expect((await screen.findByRole('alert')).textContent).toContain('Wait, then retry to finish attaching it.')
+  expect((await screen.findByRole('alert')).textContent).toContain('Wait, then retry the upload.')
   expect(putCount).toBe(1)
   expect(attachCount).toBe(0)
-  fireEvent.click(screen.getByRole('button', { name: 'Retry attachment' }))
+  expect(screen.getByRole('button', { name: 'Retry upload' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry upload' }))
   await waitFor(() => expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl))
-  expect(putCount).toBe(1)
+  expect(putCount).toBe(2)
   expect(attachCount).toBe(1)
+  expect(intentCount).toBe(1)
+  const putRequests = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT')
+  expect(putRequests[0]?.[0]).toBe(putRequests[1]?.[0])
 })
 
 it('does not resend bytes when the upload intent was already used', async () => {
