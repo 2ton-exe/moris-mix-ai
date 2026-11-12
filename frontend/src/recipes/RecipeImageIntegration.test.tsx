@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const sessionProvider = vi.hoisted(() => ({ getSession: vi.fn() }))
 const recipeId = '33333333-3333-4333-8333-333333333333'
 const uploadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const retryUploadId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const userId = 'cook-a'
 const oldImageUrl = 'https://images.example.test/old-signed-image'
 const newImageUrl = 'https://images.example.test/new-signed-image'
@@ -30,11 +31,18 @@ let downloadLifetimeMs = 60_000
 let putFirstErrorCode = 'STORAGE_UNAVAILABLE'
 let putFirstErrorStatus = 503
 let putFirstFails = true
+let waitForPutAbort = false
+let putSignal: AbortSignal | undefined
+let resolvePutStarted: (() => void) | undefined
+let putStarted: Promise<void>
+let attachFailureCode = 'TEMPORARY_UNAVAILABLE'
+let attachFailureStatus = 503
 let downloadCount = 0
 let intentCount = 0
 let putCount = 0
 let attachCount = 0
 let attachFailuresRemaining = 0
+let attachedUploadIds: string[]
 let testURL: typeof URL
 
 beforeEach(async () => {
@@ -90,7 +98,13 @@ beforeEach(async () => {
   putFirstErrorCode = 'STORAGE_UNAVAILABLE'
   putFirstErrorStatus = 503
   putFirstFails = true
+  waitForPutAbort = false
+  putSignal = undefined
+  putStarted = new Promise((resolve) => { resolvePutStarted = resolve })
+  attachFailureCode = 'TEMPORARY_UNAVAILABLE'
+  attachFailureStatus = 503
   attachFailuresRemaining = 0
+  attachedUploadIds = []
   downloadCount = 0
   intentCount = 0
   putCount = 0
@@ -108,9 +122,10 @@ beforeEach(async () => {
     }
     if (url.pathname === '/functions/v1/recipe-image-upload-url' && method === 'POST') {
       intentCount++
+      const id = intentCount === 1 ? uploadId : retryUploadId
       return Response.json({ upload: {
-        id: uploadId,
-        url: `${apiUrl}/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`,
+        id,
+        url: `${apiUrl}/functions/v1/recipe-image-upload-url?upload_id=${id}`,
         method: 'PUT',
         headers: { 'Content-Type': 'image/webp' },
         expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
@@ -118,14 +133,24 @@ beforeEach(async () => {
     }
     if (url.pathname === '/functions/v1/recipe-image-upload-url' && method === 'PUT') {
       putCount++
+      putSignal = init?.signal as AbortSignal | undefined
+      if (waitForPutAbort) {
+        resolvePutStarted?.()
+        if (!putSignal) throw new Error('Binary upload did not receive an AbortSignal.')
+        return await new Promise<Response>((_resolve, reject) => {
+          putSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+        })
+      }
       if (putCount === 1 && putFirstFails) return Response.json({ error: { code: putFirstErrorCode } }, { status: putFirstErrorStatus })
-      return Response.json({ upload: { id: uploadId, received: true } }, { status: 201 })
+      return Response.json({ upload: { id: url.searchParams.get('upload_id'), received: true } }, { status: 201 })
     }
     if (url.pathname === '/functions/v1/recipe-image-attach') {
       attachCount++
+      const request = JSON.parse(String(init?.body)) as { upload_id: string }
+      attachedUploadIds.push(request.upload_id)
       if (attachFailuresRemaining > 0) {
         attachFailuresRemaining--
-        return Response.json({ error: { code: 'TEMPORARY_UNAVAILABLE' } }, { status: 503 })
+        return Response.json({ error: { code: attachFailureCode } }, { status: attachFailureStatus })
       }
       activeImage = 'new'
       return Response.json({ image: { recipe_id: recipeId, content_type: 'image/webp', byte_size: 10, uploaded_at: new Date().toISOString() } })
@@ -172,8 +197,10 @@ function renderEditPage() {
     path: '/app/recipes/:recipeId/edit',
     element: createElement(modules.EditRecipePage, { record, save: async () => ({ id: recipeId }) }),
   }], { initialEntries: [`/app/recipes/${recipeId}/edit`] })
-  return render(createElement(modules.AuthContext.Provider, { value: authState },
-    createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) })))
+  const tree = (state: import('../auth/context').AuthState) => createElement(modules.AuthContext.Provider, { value: state },
+    createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) }))
+  const view = render(tree(authState))
+  return { ...view, setAuthState: (state: import('../auth/context').AuthState) => view.rerender(tree(state)) }
 }
 
 function renderCreatePage(save: () => Promise<{ id: string }>) {
@@ -352,6 +379,71 @@ it('keeps the current photo after attachment failure and retries verification wi
   expect(attachCount).toBe(2)
 })
 
+it('requests a fresh intent after attachment reports that the old intent was not found', async () => {
+  putFirstFails = false
+  attachFailuresRemaining = 1
+  attachFailureCode = 'UPLOAD_NOT_FOUND'
+  attachFailureStatus = 404
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+
+  expect((await screen.findByRole('alert')).textContent).toContain('This upload is no longer available. Retry to start a new upload.')
+  expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(oldImageUrl)
+  expect(screen.getByRole('button', { name: 'Retry upload' })).toBeTruthy()
+  expect(intentCount).toBe(1)
+  expect(putCount).toBe(1)
+  expect(attachCount).toBe(1)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry upload' }))
+  await waitFor(() => expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl))
+  expect(intentCount).toBe(2)
+  expect(putCount).toBe(2)
+  expect(attachCount).toBe(2)
+  expect(attachedUploadIds).toEqual([uploadId, retryUploadId])
+})
+
+it('aborts an in-flight byte PUT when the recipe image panel unmounts', async () => {
+  waitForPutAbort = true
+  const view = renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await putStarted
+
+  view.unmount()
+
+  expect(putSignal).toBeTruthy()
+  expect(putSignal?.aborted).toBe(true)
+  expect(attachCount).toBe(0)
+})
+
+it('aborts an in-flight byte PUT when the authenticated account changes', async () => {
+  waitForPutAbort = true
+  const view = renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await putStarted
+
+  const nextUser = { ...authState.user!, id: 'cook-b' }
+  view.setAuthState({ ...authState, user: nextUser, session: { ...authState.session!, user: nextUser } })
+
+  expect(putSignal?.aborted).toBe(true)
+  expect(attachCount).toBe(0)
+  expect(screen.queryByLabelText('Choose recipe image')).toBeNull()
+})
+
 it('uploads optimized bytes through authenticated ingress and preserves the current image until attachment', async () => {
   renderEditPage()
   await screen.findByRole('img', { name: 'Ginger rice photo' })
@@ -377,13 +469,17 @@ it('uploads optimized bytes through authenticated ingress and preserves the curr
     new URL(String(input)).pathname.endsWith('recipe-image-upload-url') && init?.method === 'POST')
   expect(JSON.parse(intentRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId, content_type: 'image/webp', byte_size: 10 })
 
-  const putRequest = fetchImpl.mock.calls.find(([, init]) => init?.method === 'PUT')
+  const putRequests = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT')
+  const putRequest = putRequests[0]
+  const attachRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-attach'))
   expect(putRequest?.[0]).toBe(`${apiUrl}/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`)
   expect(putRequest?.[1]?.body).toBeInstanceOf(Blob)
   expect((putRequest?.[1]?.body as Blob).type).toBe('image/webp')
   expect(new Headers(putRequest?.[1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
   expect(new Headers(putRequest?.[1]?.headers).get('apikey')).toBe('public-test-key')
   expect(new Headers(putRequest?.[1]?.headers).get('Content-Type')).toBe('image/webp')
+  expect(intentRequest?.[1]?.signal).toBe(putRequest?.[1]?.signal)
+  expect(putRequests[1]?.[1]?.signal).toBe(attachRequest?.[1]?.signal)
   await waitFor(() => expect(testURL.revokeObjectURL).toHaveBeenCalledWith('blob:recipe-preview'))
   expect(screen.getByText('Recipe image saved.')).toBeTruthy()
 })

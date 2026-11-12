@@ -27,6 +27,8 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const refreshAttempted = useRef(false)
   const busy = useRef(false)
   const selectionVersion = useRef(0)
+  const uploadController = useRef<AbortController | null>(null)
+  const currentUserId = useRef(user?.id)
 
   const loadImage = useCallback(async (signal?: AbortSignal, resetRefreshAttempt = true) => {
     if (!user?.id) {
@@ -67,9 +69,31 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     }
   }, [download, loadImage, user?.id])
 
-  useEffect(() => () => {
-    selectionVersion.current++
-  }, [])
+  useEffect(() => {
+    const selectionVersionRef = selectionVersion
+    if (currentUserId.current !== user?.id) {
+      currentUserId.current = user?.id
+      setDownload(null)
+      setDownloadError(false)
+      setLoading(true)
+      setSelected(null)
+      setPreviewUrl(null)
+      setPreparing(false)
+      setSelectionError(null)
+      setUploadError(null)
+      setUploading(false)
+      setIntent(null)
+      setBytesUploaded(false)
+      setAttached(false)
+      setUploadSuccess(false)
+    }
+    return () => {
+      selectionVersionRef.current++
+      uploadController.current?.abort()
+      uploadController.current = null
+      busy.current = false
+    }
+  }, [user?.id])
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
@@ -103,12 +127,16 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
 
   async function uploadImage() {
     if (!selected || !user?.id || busy.current) return
+    const controller = new AbortController()
+    uploadController.current = controller
     busy.current = true
     setUploading(true)
     setUploadError(null)
     try {
       if (attached) {
-        if (await loadImage()) {
+        const refreshed = await loadImage(controller.signal)
+        if (controller.signal.aborted) return
+        if (refreshed) {
           setSelected(null)
           setPreviewUrl(null)
           setIntent(null)
@@ -123,13 +151,16 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
 
       let activeIntent = intent
       if (!activeIntent) {
-        activeIntent = await recipeImageApi.createUpload(recipeId, selected, { userId: user.id })
+        activeIntent = await recipeImageApi.createUpload(recipeId, selected, { userId: user.id, signal: controller.signal })
+        if (controller.signal.aborted) return
         setIntent(activeIntent)
       }
       if (!bytesUploaded) {
         try {
-          await recipeImageApi.uploadBytes(activeIntent, selected, { userId: user.id })
+          await recipeImageApi.uploadBytes(activeIntent, selected, { userId: user.id, signal: controller.signal })
+          if (controller.signal.aborted) return
         } catch (error) {
+          if (controller.signal.aborted) return
           if (recipeImageErrorCode(error) === 'UPLOAD_ALREADY_USED') {
             setBytesUploaded(true)
           } else if (recipeImageErrorCode(error) === 'UPLOAD_IN_PROGRESS') {
@@ -145,9 +176,12 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         }
         setBytesUploaded(true)
       }
-      await recipeImageApi.attach(recipeId, activeIntent.id, selected, { userId: user.id })
+      await recipeImageApi.attach(recipeId, activeIntent.id, selected, { userId: user.id, signal: controller.signal })
+      if (controller.signal.aborted) return
       setAttached(true)
-      if (await loadImage()) {
+      const refreshed = await loadImage(controller.signal)
+      if (controller.signal.aborted) return
+      if (refreshed) {
         setSelected(null)
         setPreviewUrl(null)
         setIntent(null)
@@ -158,17 +192,28 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         setUploadError('The image is attached, but could not be refreshed. Try again.')
       }
     } catch (error) {
+      if (controller.signal.aborted) return
       const code = recipeImageErrorCode(error)
-      setUploadError(code === 'UPLOAD_IN_PROGRESS'
-        ? 'This upload is still being processed. Wait, then retry to finish attaching it.'
-        : code === 'UPLOAD_EXPIRED'
-          ? 'This upload expired. Retry to start a new upload.'
-          : error instanceof Error && error.message === 'Could not prepare this image for upload.'
-            ? error.message
-            : 'Could not upload this image. Try again.')
+      if (code === 'UPLOAD_NOT_FOUND') {
+        setIntent(null)
+        setBytesUploaded(false)
+        setAttached(false)
+        setUploadError('This upload is no longer available. Retry to start a new upload.')
+      } else {
+        setUploadError(code === 'UPLOAD_IN_PROGRESS'
+          ? 'This upload is still being processed. Wait, then retry to finish attaching it.'
+          : code === 'UPLOAD_EXPIRED'
+            ? 'This upload expired. Retry to start a new upload.'
+            : error instanceof Error && error.message === 'Could not prepare this image for upload.'
+              ? error.message
+              : 'Could not upload this image. Try again.')
+      }
     } finally {
-      busy.current = false
-      setUploading(false)
+      if (uploadController.current === controller) {
+        uploadController.current = null
+        busy.current = false
+        if (!controller.signal.aborted) setUploading(false)
+      }
     }
   }
 
