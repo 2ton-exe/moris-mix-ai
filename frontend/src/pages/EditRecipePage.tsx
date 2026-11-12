@@ -9,6 +9,7 @@ import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import type { RecipeEditorRecord, SaveRecipeDraft } from '../recipe-form/submission'
 import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
+import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import { useRecipe } from '../recipes/queries'
 
 export default function EditRecipePage({ record, isLoading = false, loadError, onRetry, save, notesSupported = true }: {
@@ -50,7 +51,10 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   return <RecipeEditorFrame mode="edit" connected>
     {activeLoading && !canEdit && <LoadingState message="Loading recipe for editing…" />}
     {activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
-    {canEdit && <RecipeForm key={activeRecord.id} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate('/app')} />}
+    {canEdit && <>
+      <RecipeForm key={activeRecord.id} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate('/app')} />
+      <RecipeImagePanel key={`image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />
+    </>}
     {!canEdit && !activeLoading && !activeError && <p className="request-state" role="status">This recipe is not available for editing yet. Please return when your journal is connected.</p>}
     {!canEdit && <div className="actions"><Link className="button button-secondary" to="/app">Back to journal</Link></div>}
   </RecipeEditorFrame>

@@ -143,6 +143,19 @@ summary:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
 .journal-recipe { width: 100%; overflow-wrap: anywhere; }
 .recipe-detail-header { margin: 32px 0 36px; max-width: 850px; }
 .recipe-detail-header h1 { font-size: clamp(36px, 5vw, 56px); margin: 16px 0 24px; line-height: 1.15; }
+.recipe-image-panel { width: min(100%, 560px); margin: 32px 0; }
+.recipe-image-panel h2 { margin: 0 0 16px; }
+.recipe-image { display: block; width: 100%; max-height: 420px; object-fit: contain; border: 1px solid #dce3df; border-radius: 12px; background: #f0f4f1; }
+.recipe-image-controls { display: grid; justify-items: start; gap: 12px; margin-top: 16px; }
+.recipe-image-controls label { font-size: 14px; font-weight: 600; }
+.recipe-image-controls input { max-width: 100%; min-height: 44px; font: inherit; }
+.recipe-image-controls p { margin: 0; color: #626e7c; line-height: 1.6; }
+.recipe-image-controls [role="alert"], .recipe-image-error { color: #9b3038; }
+.recipe-image-error { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.recipe-image-error p { margin: 0; }
+.recipe-image-panel button { min-height: 44px; padding: 10px 16px; border: 1px solid #5a8c78; border-radius: 8px; background: #fff; color: #344a3e; font: inherit; font-weight: 600; cursor: pointer; }
+.recipe-image-panel button:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
+.recipe-image-panel button:disabled { cursor: not-allowed; opacity: .65; }
 .recipe-delete-control { margin-top: 24px; }
 .recipe-delete-unavailable p { margin: 10px 0 0; color: #626e7c; font-size: 13px; line-height: 1.6; }
 .button-danger { background: #9b3038; color: #fff; box-shadow: 0 5px 12px #9b30381a; }
