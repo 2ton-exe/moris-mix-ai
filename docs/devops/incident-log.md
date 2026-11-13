@@ -11,16 +11,16 @@ Use [pipeline metrics](pipeline-metrics.md) for defined-period counts/rates and 
 ## Incident 2026-11-13 — Cloudflare Workers API failure during production release
 
 **Category:** Production deployment failure / partial release; no production outage demonstrated.  
-**State:** Two failed release attempts recorded; existing frontend manually reachable; automated recovery and current-release smoke verification pending.  
+**State:** Two failed release attempts followed by successful attempt 3 on the same revision; automated production deployment and smoke verification completed on 2026-11-14 PHT. Original partial-release failure retained.  
 **Affected revision:** `f36b1fc17ff34601995ca38d183e0a4fb28cccb8` (squash merge of PR #195).
 
 ### What happened
 
-After [PR #195](https://github.com/2ton-exe/moris-mix-ai/pull/195) merged, automatic [Modular Main Validation #43451688823](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823) ran on the exact merge SHA. Attempts **1** and **2** both passed the main validation jobs and deployed three Supabase Edge Functions, but failed at `Deploy to Cloudflare Workers`. Wrangler `3.90.0` reported Cloudflare API error `10013` while uploading the `moris-mix-ai` Worker version.
+After [PR #195](https://github.com/2ton-exe/moris-mix-ai/pull/195) merged, automatic [Modular Main Validation #43451688823](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823) ran on the exact merge SHA. Attempts **1** and **2** both passed the main validation jobs and deployed three Supabase Edge Functions, but failed at `Deploy to Cloudflare Workers`. Wrangler `3.90.0` reported Cloudflare API error `10013` while uploading the `moris-mix-ai` Worker version. [Attempt **3**](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823/attempts/3) later succeeded on the **same source SHA**, including Cloudflare deployment and automated production verification.
 
 ### Impact
 
-The release was **partial**: `recipes`, `extract-recipe`, and `generate-recipe` deployed, but the new Cloudflare Workers frontend version was not confirmed deployed. Production URL verification, deployed AI-route checks, and runtime smoke were skipped after the deployment failure. The operator opened the existing `/demo-recipe` page and observed the expected recipe rendered, while the Cloudflare deployment dashboard showed an older active Worker version. This is **point-in-time availability evidence**, not a successful automated post-deployment check or proof of full production health. No rollback was performed. Whether the API functions and previous frontend have compatibility differences was not independently tested.
+During attempts 1 and 2 the release was **partial**: `recipes`, `extract-recipe`, and `generate-recipe` deployed, but the new Cloudflare Workers frontend version was not confirmed deployed. Production URL verification, deployed AI-route checks, and runtime smoke were skipped after the failed uploads. The operator opened the existing `/demo-recipe` page and observed the expected recipe rendered, while the Cloudflare deployment dashboard showed an older active Worker version. This was **point-in-time availability evidence**, not a successful automated post-deployment check or proof of full production health. No rollback was performed. Compatibility of the updated API functions with the previous frontend was not independently tested during the partial-release window. Attempt 3 subsequently completed automated production deployment and smoke verification; no application outage was demonstrated.
 
 ### Detection
 
@@ -34,27 +34,28 @@ The release was **partial**: `recipes`, `extract-recipe`, and `generate-recipe` 
 
 ### Fix
 
-Cloudflare reported implementing a provider-side fix at 23:42 PHT and monitoring its results. **No repository, token, Wrangler version, configuration, or production rollback change was made to address this incident.** The announced provider fix is not proof that this application's deployment recovered.
+Cloudflare reported implementing a provider-side fix at 23:42 PHT and monitoring its results. **No repository, token, Wrangler version, configuration, or production rollback change was made to address this incident.** The subsequent successful attempt 3 demonstrates this application's deployment recovery, but does not prove Cloudflare's fix was the specific cause.
 
 ### Recovery
 
-**Pending.** Do not infer recovery from the older Worker being reachable or from the provider's Monitoring announcement. After confirming provider readiness, authorize a controlled, revision-specific deployment recovery; then verify the new Worker version, intended deployed URL, AI-route checks, and production runtime smoke. Any rerun may repeat already successful Supabase deployments, so scope and side effects must be reviewed first.
+**Automated release recovery verified on 2026-11-14 PHT.** [Attempt 3 of main run #43451688823](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823/attempts/3) succeeded on the original `f36b1fc17ff34601995ca38d183e0a4fb28cccb8` revision. The production job successfully deployed the three intended Supabase Edge Functions and Cloudflare Worker, then passed production deployment URL verification, deployed AI-route verification, and production runtime smoke. Both evidence-preservation steps passed; the `production-runtime-smoke-43451688823-3` and `production-ai-route-smoke-43451688823-3` artifacts are available in the run. The recipe-image cleanup and protected upload-signing function deployments were skipped as configured, not passed. No rollback or repository/configuration change was required. This verifies the automated deployment and its smoke scope, **not** exhaustive authenticated application acceptance or a DEVOPS-10 database restore. The exact Cloudflare dashboard version identifier was not separately cross-checked here.
 
 ### Recovery time
 
-**Not measured.** There is no confirmed timestamp when the intended release became successfully deployed and verified. The older frontend's availability is not a recovery timestamp.
+**Not measured as a formal recovery interval.** Attempt 3 completed the deployment and smoke verification on 2026-11-14 PHT, but a consistently defined start/restore timestamp pair was not assembled for an operational recovery-time metric. The older frontend's availability is not used as a recovery timestamp.
 
 ### Prevention / follow-up
 
-- Retain the exact SHA/run/attempt and Cloudflare audit evidence; check the official incident resolution before attempting recovery.
-- If failure recurs after the provider incident, investigate the API response and request details before changing secrets, permissions, or Wrangler versions.
-- Verify recovery using real deployment and runtime evidence. Record any new run, status, artifacts, deployed Worker version, and time before changing this entry to recovered.
+- Retain the exact SHA, all three run attempts, Cloudflare audit evidence, and successful smoke artifacts; do not erase the earlier failed deployment attempts.
+- If the Cloudflare upload failure recurs, investigate request/response evidence and current provider status before changing secrets, permissions, or Wrangler versions. Provider attribution remains unconfirmed.
+- For future incidents, record compatible detection and verified-restoration timestamps if a recovery-time metric is needed; a green rerun alone does not prove a root cause.
 - Keep unrelated DEVOPS-10 [restore issue #159](https://github.com/2ton-exe/moris-mix-ai/issues/159) open until its own isolated-restore criteria pass; this deployment incident does not prove or refute database recovery.
 
 ### Evidence
 
 - [Merged PR #195 and original delivery record](https://github.com/2ton-exe/moris-mix-ai/pull/195).
 - [Exact-merge main run, attempts 1 and 2](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823).
+- [Same-SHA recovery: main run attempt 3](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823/attempts/3) — successful Cloudflare deployment, production URL check, AI-route check, runtime smoke and artifact preservation; artifacts `production-runtime-smoke-43451688823-3` and `production-ai-route-smoke-43451688823-3`.
 - [Cloudflare Workers API incident timeline](https://www.cloudflarestatus.com/incidents/e7ktq32gphhe).
 - Cloudflare account audit log, 2026-11-13 23:31:05 PHT: `Upload Version`, failed HTTP 500, Ray ID above (operator screenshot, not committed because it includes account information).
 - Manual Cloudflare deployment-history and `/demo-recipe` page observations from 2026-11-13 (operator screenshots, not automated checks).
