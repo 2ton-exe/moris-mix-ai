@@ -1,4 +1,4 @@
-"""Offline fail-closed tests for Stage B's embedded Python verifiers."""
+"""Offline tests for Stage B's embedded verifiers and restore diagnostics."""
 
 import hashlib
 import io
@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -209,6 +210,158 @@ class StageBOfflineTests(unittest.TestCase):
                 input=self.verify_counts, text=True, capture_output=True, check=False)
             self.assertEqual(response.returncode, 0, response.stderr)
 
+
+
+class RestoreDiagnosticTests(unittest.TestCase):
+    """Execute actual workflow Bash with synthetic Docker results, offline."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bash = shutil.which("bash")
+        if not cls.bash and os.name == "nt":
+            candidate = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+            if candidate.exists():
+                cls.bash = str(candidate)
+        if not cls.bash:
+            raise unittest.SkipTest("Bash required for workflow diagnostic tests")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        step = workflow.split("      - name: Restore SQL transactionally", 1)[1]
+        body = step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
+        cls.script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
+
+    def run_diagnostic(self, phase="none", code=0, missing_file=False,
+                       temp_prefix="tmp"):
+        # No Docker daemon, network, or SQL execution. Both streams deliberately
+        # contain synthetic private markers, including annotation-like content.
+        stub = r'''
+docker() {
+  local phase=restore arg
+  for arg in "$@"; do
+    case "$arg" in
+      --version) phase=client ;;
+      sh) phase=files ;;
+      'SELECT 1') phase=connection ;;
+    esac
+  done
+  printf '%s\n' "$phase" "$@" END >> "$RUNNER_TEMP/trace"
+  printf 'SYNTHETIC_PRIVATE_SQL credential=synthetic row=synthetic\n'
+  printf '::error::SYNTHETIC_PRIVATE_STDERR SELECT secret FROM synthetic;\n' >&2
+  if [[ "$phase" == "$FAIL_PHASE" ]]; then return "$FAIL_CODE"; fi
+  if [[ "$phase" == files ]]; then
+    # Exercise the actual mounted-file probe against synthetic local files.
+    # Insert a quoted variable reference, never the filesystem path as code.
+    local backup_reference='"$RUNNER_TEMP/restore-verified-sql"'
+    sh -c "${arg//\/backup/$backup_reference}"
+    return $?
+  fi
+  return 0
+}
+'''
+        with tempfile.TemporaryDirectory(prefix=temp_prefix) as td:
+            root = Path(td)
+            backup = root / "restore-verified-sql"
+            backup.mkdir()
+            for name in SQL:
+                if not (missing_file and name == "data.sql"):
+                    (backup / name).write_text("SYNTHETIC_PRIVATE_DUMP")
+            env = dict(os.environ, RUNNER_TEMP=root.as_posix(),
+                       PSQL_IMAGE="synthetic-pinned-image", FAIL_PHASE=phase,
+                       FAIL_CODE=str(code))
+            result = subprocess.run([self.bash, "--noprofile", "--norc"],
+                                    input=stub + self.script, text=True,
+                                    capture_output=True, env=env, check=False)
+            private_log = root / "private-restore-result.log"
+            self.assertIn("SYNTHETIC_PRIVATE_SQL", private_log.read_text())
+            self.assertIn("SYNTHETIC_PRIVATE_STDERR", private_log.read_text())
+            if os.name != "nt":
+                self.assertEqual(private_log.stat().st_mode & 0o777, 0o600)
+            trace = (root / "trace").read_text().split("END\n")[:-1]
+            calls = [record.strip().splitlines() for record in trace]
+            self.assertEqual({path.name for path in backup.iterdir()},
+                             set(SQL) - ({"data.sql"} if missing_file else set()))
+            for path in backup.iterdir():
+                self.assertEqual(path.read_text(), "SYNTHETIC_PRIVATE_DUMP")
+        self.assertNotIn("SYNTHETIC_PRIVATE", result.stdout + result.stderr)
+        self.assertEqual(result.stderr, "")
+        return result, calls
+
+    def test_success_and_preserved_restore_arguments(self):
+        result, calls = self.run_diagnostic()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual([call[0] for call in calls],
+                         ["client", "files", "connection", "restore"])
+        self.assertEqual(result.stdout, "".join(
+            f"Restore diagnostic: phase={phase} status=passed\n"
+            for phase in ("client", "files", "connection", "restore")) +
+            "Transactional isolated SQL restore passed.\n")
+        for call in calls:
+            self.assertEqual(call[1:5], ["run", "--rm", "--network", "host"])
+            self.assertIn("--read-only", call)
+            self.assertIn("no-new-privileges", call)
+            self.assertIn("ALL", call)
+            self.assertIn("synthetic-pinned-image", call)
+            self.assertTrue(any(arg.endswith("target=/backup,readonly") for arg in call))
+        restore = calls[-1]
+        self.assertEqual(restore[restore.index("psql"):], [
+            "psql", "-X", "-q", "--single-transaction", "-v", "ON_ERROR_STOP=1",
+            "-f", "/backup/roles.sql", "-f", "/backup/schema.sql",
+            "-f", "/backup/history-schema.sql",
+            "-c", "SET session_replication_role = replica",
+            "-f", "/backup/data.sql", "-f", "/backup/history-data.sql",
+            "-d", "postgresql://postgres:postgres@127.0.0.1:54322/postgres"])
+
+    def test_bash_syntax(self):
+        result = subprocess.run([self.bash, "--noprofile", "--norc", "-n"],
+                                input=self.script, text=True, capture_output=True,
+                                check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_failure_categories_and_actual_exit_codes(self):
+        cases = [("client", 1, "container-client"),
+                 ("files", 1, "mounted-files"),
+                 ("connection", 1, "client-fatal"),
+                 ("connection", 2, "connection"),
+                 ("restore", 1, "client-fatal"),
+                 ("restore", 2, "connection"),
+                 ("restore", 3, "sql-script"),
+                 ("restore", 42, "unclassified"),
+                 ("restore", 137, "unclassified")]
+        cases += [(phase, code, "container-client")
+                  for phase in ("client", "files", "connection", "restore")
+                  for code in (125, 126, 127)]
+        phases = ["client", "files", "connection", "restore"]
+        for phase, code, category in cases:
+            with self.subTest(phase=phase, code=code):
+                result, calls = self.run_diagnostic(phase, code)
+                self.assertEqual(result.returncode, code)
+                preceding = phases[:phases.index(phase)]
+                self.assertEqual([call[0] for call in calls], preceding + [phase])
+                self.assertEqual(result.stdout, "".join(
+                    f"Restore diagnostic: phase={p} status=passed\n" for p in preceding) +
+                    f"::error::Restore diagnostic: phase={phase} category={category} "
+                    f"exit_code={code}; private output suppressed\n")
+
+    def test_missing_mounted_file_stops_before_connection_or_restore(self):
+        result, calls = self.run_diagnostic(missing_file=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual([call[0] for call in calls], ["client", "files"])
+        self.assertIn("phase=files category=mounted-files exit_code=1", result.stdout)
+
+    def test_space_containing_path_passes_file_checks(self):
+        result, calls = self.run_diagnostic(temp_prefix="stage-b restore ")
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(any("stage-b restore " in arg for arg in calls[0]))
+        self.assertEqual([call[0] for call in calls],
+                         ["client", "files", "connection", "restore"])
+        self.assertIn("phase=files status=passed", result.stdout)
+
+    def test_space_containing_path_rejects_missing_file(self):
+        result, calls = self.run_diagnostic(missing_file=True,
+                                            temp_prefix="stage-b restore ")
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(any("stage-b restore " in arg for arg in calls[0]))
+        self.assertEqual([call[0] for call in calls], ["client", "files"])
+        self.assertIn("phase=files category=mounted-files exit_code=1", result.stdout)
 
 
 if __name__ == "__main__":

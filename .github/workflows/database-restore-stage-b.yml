@@ -174,11 +174,46 @@ jobs:
           # Ubuntu's psql may be version 16. A patched 17.11 client understands
           # the source dump's restrict/unrestrict guards without stripping them.
           # The container does not receive any R2 or production credentials.
-          if ! docker run --rm --network host \
+          # Public output is constructed only from fixed phases/categories and
+          # numeric exit codes. Never echo or parse private command output.
+          checked() {
+            local phase="$1" rc category
+            shift
+            if "$@" > "$RUNNER_TEMP/private-restore-result.log" 2>&1; then
+              printf 'Restore diagnostic: phase=%s status=passed\n' "$phase"
+            else
+              rc=$?
+              case "$rc" in
+                125|126|127) category=container-client ;;
+                *)
+                  case "$phase:$rc" in
+                    client:*) category=container-client ;;
+                    files:*) category=mounted-files ;;
+                    connection:2|restore:2) category=connection ;;
+                    restore:3) category=sql-script ;;
+                    connection:1|restore:1) category=client-fatal ;;
+                    *) category=unclassified ;;
+                  esac ;;
+              esac
+              printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d; private output suppressed\n' \
+                "$phase" "$category" "$rc"
+              exit "$rc"
+            fi
+          }
+          # Keep the same container identity, hardening, mount and local target
+          # for every probe and the restore. No R2 credentials enter the client.
+          client=(docker run --rm --network host \
             --user "$(id -u):$(id -g)" --cap-drop ALL \
             --security-opt no-new-privileges --read-only \
             --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
-            "$PSQL_IMAGE" \
+            "$PSQL_IMAGE")
+          checked client "${client[@]}" psql --version
+          checked files "${client[@]}" sh -c \
+            'for file in /backup/roles.sql /backup/schema.sql /backup/history-schema.sql /backup/data.sql /backup/history-data.sql; do test -f "$file" && test -r "$file" || exit 1; done'
+          checked connection "${client[@]}" \
+            psql -X -q -v ON_ERROR_STOP=1 -c 'SELECT 1' \
+            -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          checked restore "${client[@]}" \
               psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
               -f /backup/roles.sql \
               -f /backup/schema.sql \
@@ -186,11 +221,7 @@ jobs:
               -c 'SET session_replication_role = replica' \
               -f /backup/data.sql \
               -f /backup/history-data.sql \
-              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
-            > "$RUNNER_TEMP/private-restore-result.log" 2>&1; then
-            echo "::error::SQL restore failed; private SQL output suppressed"
-            exit 1
-          fi
+              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
           echo 'Transactional isolated SQL restore passed.'
 
       - name: Validate restored application counts and migration versions
