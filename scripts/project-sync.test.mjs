@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
-import { CONFIG, STATUSES, relationships, desiredState, discover, plan, paginate, createApi, adapter, reconcile, main } from './project-sync.mjs';
+import { CONFIG, STATUSES, relationships, desiredState, discover, plan, paginate, createApi, createTelemetry, adapter, reconcile, main } from './project-sync.mjs';
 
 const repository = { nameWithOwner: CONFIG.repository };
 const issue = (number = 147, extra = {}) => ({ __typename: 'Issue', id: `I_${number}`, number, repository, state: 'OPEN', ...extra });
@@ -590,6 +590,82 @@ for (const [name, first, second] of [
 ]) test(`pagination fails: ${name}`, async () => {
   await assert.rejects(() => paginate(async after => after ? second : first));
 });
+
+test('GraphQL workload telemetry counts paginated requests, mutations, rate headers, and elapsed time', async () => {
+  let now = 0;
+  let responseNo = 0;
+  const telemetry = createTelemetry(() => now);
+  const api = createApi('SENSITIVE_TOKEN_NOT_FOR_LOGS', async (_url, options) => {
+    assert.match(options.headers.Authorization, /^Bearer /);
+    now += 10;
+    responseNo++;
+    const used = 100 + responseNo;
+    return {
+      ok: true,
+      headers: { get: name => ({
+        'x-ratelimit-limit': '5000',
+        'x-ratelimit-used': String(used),
+        'x-ratelimit-remaining': String(5000 - used),
+        'x-ratelimit-reset': '1794000000',
+      })[name] ?? null },
+      json: async () => ({ data: { accepted: true } }),
+    };
+  }, true, telemetry);
+  await api('query { repository { issues(first:100) { nodes { id } } } }');
+  await api('query { repository { issues(first:100) { nodes { id } } } }');
+  await api('query { node(id:"PR") { closingIssuesReferences(first:100) { nodes { id } } } }');
+  await api('mutation { updateProjectV2ItemFieldValue(input:{}) { projectV2Item { id } } }');
+  const summary = telemetry.summary(true);
+  assert.equal(summary.result, 'success');
+  assert.equal(summary.requests, 4);
+  assert.equal(summary.reads, 3);
+  assert.equal(summary.mutations, 1);
+  assert.equal(summary.failedRequests, 0);
+  assert.deepEqual(summary.attemptedRequestsByCategory, { issues: 2, mutations: 1, nativeLinks: 1 });
+  assert.equal(summary.cumulativeApiMs, 40);
+  assert.equal(summary.reconciliationMs, 40);
+  assert.deepEqual(summary.rateLimit, {
+    firstObservedUsed: 101, limit: 5000, used: 104, remaining: 4896,
+    resetAtUnix: 1794000000, sampledResponses: 4,
+  });
+  assert.doesNotMatch(JSON.stringify(summary), /SENSITIVE_TOKEN|repository \{|input:/);
+});
+
+test('GraphQL telemetry flags failed requests and remains useful without rate-limit headers', async () => {
+  let now = 0;
+  const telemetry = createTelemetry(() => now);
+  const responses = [
+    { ok: true, json: async () => ({ data: {} }) },
+    { ok: false, status: 403, headers: { get: name => name === 'x-ratelimit-remaining' ? '0' : null } },
+  ];
+  const api = createApi('test', async () => { now += 5; return responses.shift(); }, false, telemetry);
+  await api('query { repository { pullRequests(first:100) { nodes { id } } } }');
+  await assert.rejects(() => api('query { repository { pullRequests(first:100) { nodes { id } } } }'), /HTTP 403/);
+  const summary = telemetry.summary(false);
+  assert.equal(summary.result, 'incomplete');
+  assert.equal(summary.requests, 2);
+  assert.equal(summary.failedRequests, 1);
+  assert.deepEqual(summary.attemptedRequestsByCategory, { pullRequests: 2 });
+  assert.equal(summary.rateLimit.remaining, 0);
+  assert.equal(summary.rateLimit.used, null);
+  assert.equal(summary.reconciliationMs, 10);
+});
+
+test('GraphQL telemetry captures thrown network and malformed-response failures without payloads', async () => {
+  const telemetry = createTelemetry(() => 0);
+  const api = createApi('test', async () => { throw Error('request rejected'); }, false, telemetry);
+  await assert.rejects(() => api('query { repository { issues(first:100) { nodes { id } } } }'), /request rejected/);
+  const invalid = createApi('test', async () => ({ ok: true, json: async () => ({
+    errors: [{ message: 'PRIVATE_API_RESPONSE' }], data: {},
+  }) }), false, telemetry);
+  await assert.rejects(() => invalid('query { repository { issues(first:100) { nodes { id } } } }'), /GraphQL failure/);
+  const summary = telemetry.summary(false);
+  assert.equal(summary.failedRequests, 2);
+  assert.equal(summary.requests, 2);
+  assert.equal(summary.rateLimit, null);
+  assert.doesNotMatch(JSON.stringify(summary), /PRIVATE_API_RESPONSE|request rejected/);
+});
+
 test('API HTTP/auth/permission/GraphQL/malformed JSON/network failures propagate', async () => {
   for (const status of [401, 403, 429, 500]) {
     await assert.rejects(() => createApi('test', async () => ({ ok: false, status }))('query {}'), /HTTP/);
