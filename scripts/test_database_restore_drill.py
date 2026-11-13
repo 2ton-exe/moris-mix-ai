@@ -329,6 +329,10 @@ docker() {
         cases += [(phase, code, "container-client")
                   for phase in ("client", "files", "connection", "restore")
                   for code in (125, 126, 127)]
+        cases += [(phase, code, "unclassified")
+                  for phase in ("client", "files", "connection", "restore")
+                  for code in (137, 143)
+                  if (phase, code) != ("restore", 137)]
         phases = ["client", "files", "connection", "restore"]
         for phase, code, category in cases:
             with self.subTest(phase=phase, code=code):

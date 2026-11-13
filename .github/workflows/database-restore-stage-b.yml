@@ -187,8 +187,8 @@ jobs:
                 125|126|127) category=container-client ;;
                 *)
                   case "$phase:$rc" in
-                    client:*) category=container-client ;;
-                    files:*) category=mounted-files ;;
+                    client:1) category=container-client ;;
+                    files:1) category=mounted-files ;;
                     connection:2|restore:2) category=connection ;;
                     restore:3) category=sql-script ;;
                     connection:1|restore:1) category=client-fatal ;;
