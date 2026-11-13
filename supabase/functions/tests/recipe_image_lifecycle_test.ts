@@ -92,7 +92,11 @@ Deno.test("attachment distinguishes retryable missing or changed objects from in
     assertEquals(response.status, scenario === "invalid" ? 422 : 409);
     assertEquals(
       (await response.json()).error.code,
-      scenario === "invalid" ? "INVALID_IMAGE" : "UPLOAD_NOT_READY",
+      scenario === "invalid"
+        ? "INVALID_IMAGE"
+        : scenario === "missing"
+        ? "UPLOAD_BYTES_MISSING"
+        : "UPLOAD_NOT_READY",
     );
     assertEquals(calls.at(-1), "release_recipe_image_finalization");
   }

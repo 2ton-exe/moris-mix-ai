@@ -625,7 +625,7 @@ export async function copyVerifiedRecipeImage(
   etag: string,
   configuration: R2Config,
   fetchImpl: typeof fetch = fetch,
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (
     !STAGING_KEY_PATTERN.test(stagingKey) ||
     !FINAL_KEY_PATTERN.test(finalKey) || !etag || /[\r\n]/.test(etag)
@@ -650,7 +650,7 @@ export async function copyVerifiedRecipeImage(
     headers,
     signal: AbortSignal.timeout(8_000),
   });
-  if (response.status === 404) return false;
+  if (response.status === 404) return null;
   if (response.status === 412) {
     throw new Error("Staging object changed before finalization.");
   }

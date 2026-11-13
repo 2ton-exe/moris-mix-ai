@@ -153,13 +153,14 @@ export async function handler(
     let released = false;
     let copyOutcome: "not_started" | "complete" | "uncertain" = "not_started";
     const release = async () => {
-      if (released) return;
+      if (released) return false;
       released = true;
-      await rpc("release_recipe_image_finalization", {
+      const result = await rpc("release_recipe_image_finalization", {
         p_upload_id: uploadId,
         p_attempt_token: attemptToken,
         p_copy_outcome: copyOutcome,
       });
+      return !result.error && result.data === "pending";
     };
     try {
       const r2Config = resolveR2Config(deps.r2Config);
@@ -171,10 +172,12 @@ export async function handler(
         deps.r2Fetch ?? fetch,
       );
       if (!stored) {
-        await release();
+        const retryable = await release();
         return failure(
-          "UPLOAD_NOT_READY",
-          "Uploaded image is not ready for attachment.",
+          retryable ? "UPLOAD_BYTES_MISSING" : "UPLOAD_NOT_READY",
+          retryable
+            ? "Uploaded image bytes are missing."
+            : "Uploaded image is not ready for attachment.",
           409,
         );
       }
@@ -201,6 +204,16 @@ export async function handler(
         deps.r2Fetch ?? fetch,
       );
       copyOutcome = "complete";
+      if (copied === null) {
+        const retryable = await release();
+        return failure(
+          retryable ? "UPLOAD_BYTES_MISSING" : "UPLOAD_NOT_READY",
+          retryable
+            ? "Uploaded image bytes are missing."
+            : "Uploaded image is not ready for attachment.",
+          409,
+        );
+      }
       if (!copied) {
         await release();
         return failure(
