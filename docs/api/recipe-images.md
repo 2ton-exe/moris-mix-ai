@@ -127,7 +127,7 @@ BE-13 owns upload authorization and upload ingress. BE-14 owns attachment and pr
 
 ## Delete a recipe image
 
-`POST /functions/v1/recipe-image-delete` accepts `{ "recipe_id": "<uuid>" }`. Only the recipe owner may delete its image. The transaction locks the recipe, clears `image_path`, and records the former final key in a durable cleanup queue. Deleting an already-empty association on an existing owned recipe is idempotent and returns `204 No Content`. A missing or foreign recipe returns `404 RECIPE_NOT_FOUND`. R2 deletion occurs after the transaction and cannot roll back the database change.
+`POST /functions/v1/recipe-image-delete` accepts `{ "recipe_id": "<uuid>" }`. Only the recipe owner may delete its image. The transaction locks the recipe, clears `image_path`, and records the former final key in a durable cleanup queue. Deleting an already-empty association on an existing owned recipe is idempotent and returns `204 No Content`. A missing or foreign recipe returns `404 RECIPE_NOT_FOUND`. The `204` confirms that the association was cleared and cleanup was queued; it does not confirm physical deletion from R2. A separate cleanup worker removes the object, with failures retained for retry or investigation.
 
 Deleting a recipe through the existing `DELETE /recipes/:id` endpoint also records its current finalized key through a database delete trigger. The cleanup queue has no cascading recipe or user foreign key, so recipe and account deletion cannot erase the only cleanup record.
 
