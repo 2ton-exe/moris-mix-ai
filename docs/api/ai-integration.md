@@ -10,6 +10,8 @@ Status: **BE-12 and AI-07 (Sprint 3)**. Both AI endpoints are implemented, harde
   separate, explicit `POST /recipes` call made only after the user confirms.
 - Generation returns a short-lived `candidate_token` (AI-07). Saving lineage with
   `POST /recipes/:id/lineage` requires it and rejects any parent the preview did not show.
+- System-level walkthrough (architecture, prompt versions, failure behavior and
+  limitations): [AI architecture and operations](../ai-architecture.md).
 
 ## Endpoint summary
 

@@ -57,6 +57,64 @@ async function turnPage(page, button) {
   await layer.waitFor({ state: 'detached' })
 }
 
+async function installKeyboardAudit(page) {
+  await page.evaluate(() => {
+    globalThis.__mmKeyboardEvents = []
+    globalThis.addEventListener('keydown', (event) => {
+      globalThis.__mmKeyboardEvents.push({ key: event.key, defaultPrevented: event.defaultPrevented })
+    })
+  })
+}
+
+async function keyboardWasPrevented(page, key) {
+  return page.evaluate((lastKey) => globalThis.__mmKeyboardEvents.filter((event) => event.key === lastKey).at(-1)?.defaultPrevented, key)
+}
+
+async function scrollableAncestors(leaf) {
+  return leaf.evaluate((target) => {
+    const regions = []
+    for (let element = target; element; element = element.parentElement) {
+      const overflowY = globalThis.getComputedStyle(element).overflowY
+      if (!['auto', 'scroll', 'overlay'].includes(overflowY) || element.scrollHeight <= element.clientHeight + 2) continue
+      const label = element.dataset.writingLeafKey ? `leaf:${element.dataset.writingLeafKey}`
+        : element.classList.contains('mm-journal-spread') ? 'spread'
+          : element.classList.contains('mm-journal-page') ? 'page'
+            : element.tagName.toLowerCase()
+      regions.push({ label, scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight })
+    }
+    return regions
+  })
+}
+
+async function waitForNativeScroll(leaf, before, direction) {
+  await expect.poll(async () => {
+    const after = await scrollableAncestors(leaf)
+    return after.some((region) => {
+      const previous = before.find((candidate) => candidate.label === region.label)?.scrollTop ?? (direction === 'down' ? -Infinity : Infinity)
+      return direction === 'down' ? region.scrollTop > previous : region.scrollTop < previous
+    })
+  }).toBe(true)
+}
+
+async function waitForScrollSettle(leaf) {
+  let previous = ''
+  let stable = 0
+  await expect.poll(async () => {
+    const current = JSON.stringify((await scrollableAncestors(leaf)).map(({ label, scrollTop }) => ({ label, scrollTop })))
+    stable = current === previous ? stable + 1 : 0
+    previous = current
+    return stable >= 2
+  }, { interval: 100, timeout: 3000 }).toBe(true)
+}
+
+async function waitForKeyboardTurn(page, expectedPage) {
+  await expect(page.locator('.mm-writing-pages').first()).toHaveAttribute('data-form-page', String(expectedPage))
+  if (await page.evaluate(() => globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches)) return
+  const layer = page.locator('[data-journal-page-turn]')
+  await layer.waitFor({ state: 'attached' })
+  await layer.waitFor({ state: 'detached' })
+}
+
 const outputDir = path.join(root, 'test-results', 'ui01-step3b', 'after')
 await mkdir(outputDir, { recursive: true })
 const server = await createServer({
@@ -377,6 +435,125 @@ try {
     assert.ok(saveBox && saveBox.width > 0 && saveBox.height >= 44 && saveBox.x >= 0 && saveBox.x + saveBox.width <= width + 1, `Save must fit at ${width}px`)
     if (width === 320) await page.screenshot({ path: path.join(outputDir, 'long-form-320.png'), fullPage: true })
   }
+
+  // Real Chromium keyboard regression. Constrain the long identity leaf to
+  // model an overflowing paper region across desktop and narrow reflow widths.
+  for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }]) {
+    await page.setViewportSize({ width, height })
+    await page.goto(editUrl(longRecipe.id))
+    await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
+    await settleJournalLayout(page)
+    await installKeyboardAudit(page)
+    await page.getByLabel('Recipe title').fill('Keyboard scroll draft survives turns')
+    const leaf = page.locator('.mm-writing-leaf').first()
+    assert.equal(await leaf.getAttribute('data-writing-leaf-key'), 'identity')
+    await leaf.evaluate((element) => {
+      element.style.flex = 'none'
+      element.style.height = '180px'
+      element.style.maxHeight = 'none'
+      element.scrollTop = 0
+    })
+    await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
+    await leaf.focus()
+    let regions = await scrollableAncestors(leaf)
+    assert.ok(regions.some((region) => region.label === 'leaf:identity' && region.scrollHeight > region.clientHeight + 2), `${width}px: identity writing leaf must have a real browser scroll range: ${JSON.stringify(regions)}`)
+
+    // Inputs keep their native PageDown behavior and do not change pages.
+    await page.getByLabel('Recipe title').focus()
+    await page.keyboard.press('PageDown')
+    assert.equal(await keyboardWasPrevented(page, 'PageDown'), false, `${width}px: PageDown in the title control must remain native`)
+    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
+    await leaf.focus()
+    await leaf.evaluate((element) => { element.scrollTop = 0 })
+
+    let before = await scrollableAncestors(leaf)
+    await page.keyboard.press('PageDown')
+    await waitForNativeScroll(leaf, before, 'down')
+    await waitForScrollSettle(leaf)
+    regions = await scrollableAncestors(leaf)
+    assert.ok(regions.some((region) => region.scrollTop > (before.find((candidate) => candidate.label === region.label)?.scrollTop ?? 0)), `${width}px: PageDown must change a writing scrollTop`)
+    assert.equal(await keyboardWasPrevented(page, 'PageDown'), false)
+    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
+
+    before = regions
+    await page.keyboard.press('PageUp')
+    await waitForNativeScroll(leaf, before, 'up')
+    await waitForScrollSettle(leaf)
+    regions = await scrollableAncestors(leaf)
+    assert.ok(regions.some((region) => region.scrollTop < (before.find((candidate) => candidate.label === region.label)?.scrollTop ?? Infinity)), `${width}px: PageUp must change a writing scrollTop`)
+    assert.equal(await keyboardWasPrevented(page, 'PageUp'), false)
+    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
+
+    for (let scroll = 0; scroll < 12; scroll++) {
+      regions = await scrollableAncestors(leaf)
+      if (!regions.some((region) => region.scrollHeight - region.clientHeight - region.scrollTop > 2)) break
+      before = regions
+      await page.keyboard.press('PageDown')
+      assert.equal(await keyboardWasPrevented(page, 'PageDown'), false, `${width}px: PageDown must remain native before the bottom`)
+      await waitForNativeScroll(leaf, before, 'down')
+      await waitForScrollSettle(leaf)
+      assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
+    }
+    regions = await scrollableAncestors(leaf)
+    assert.ok(!regions.some((region) => region.scrollHeight - region.clientHeight - region.scrollTop > 2), `${width}px: repeated PageDown should reach the writing leaf bottom`)
+    await page.keyboard.press('PageDown')
+    assert.equal(await keyboardWasPrevented(page, 'PageDown'), true, `${width}px: accepted boundary turn consumes PageDown`)
+    await waitForKeyboardTurn(page, 1)
+    await expect(page.locator('.mm-writing-leaf h2[tabindex="-1"]').first()).toBeFocused()
+
+    await page.keyboard.press('PageUp')
+    assert.equal(await keyboardWasPrevented(page, 'PageUp'), true, `${width}px: accepted top-boundary turn consumes PageUp`)
+    await waitForKeyboardTurn(page, 0)
+    await expect(page.getByLabel('Recipe title')).toHaveValue('Keyboard scroll draft survives turns')
+    process.stdout.write(`Keyboard scroll: native PageUp/PageDown and boundary turns passed at ${width}×${height}.\n`)
+  }
+
+  // Invalid first/last turns stay native. Arrows, rejected requests, animation,
+  // focus, preserved draft data, and reduced motion are checked in Chromium.
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(editUrl(longRecipe.id))
+  await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
+  await installKeyboardAudit(page)
+  await page.locator('.mm-writing-leaf').first().focus()
+  await page.keyboard.press('PageUp')
+  assert.equal(await keyboardWasPrevented(page, 'PageUp'), false)
+  await page.keyboard.press('ArrowLeft')
+  assert.equal(await keyboardWasPrevented(page, 'ArrowLeft'), false)
+  assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
+
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await keyboardWasPrevented(page, 'ArrowRight'), true)
+  await expect(page.locator('.mm-writing-pages').first()).toHaveAttribute('data-form-page', '1')
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await keyboardWasPrevented(page, 'ArrowRight'), false, 'A rejected overlapping turn must leave the key available')
+  assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '1')
+  await page.locator('[data-journal-page-turn]').waitFor({ state: 'attached' })
+  await page.locator('[data-journal-page-turn]').waitFor({ state: 'detached' })
+  await page.keyboard.press('ArrowLeft')
+  assert.equal(await keyboardWasPrevented(page, 'ArrowLeft'), true)
+  await waitForKeyboardTurn(page, 0)
+  await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
+
+  while (await page.locator('.mm-writing-turns button:last-child').isEnabled()) {
+    await turnPage(page, page.locator('.mm-writing-turns button:last-child'))
+  }
+  const finalPage = await page.locator('.mm-writing-pages').first().getAttribute('data-form-page')
+  await page.locator('.mm-writing-leaf').last().focus()
+  await page.keyboard.press('PageDown')
+  assert.equal(await keyboardWasPrevented(page, 'PageDown'), false)
+  assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), finalPage)
+
+  while (await page.locator('.mm-writing-turns button:first-child').isEnabled()) {
+    await turnPage(page, page.locator('.mm-writing-turns button:first-child'))
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('.mm-writing-leaf').first().focus()
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await keyboardWasPrevented(page, 'ArrowRight'), true)
+  await expect(page.locator('.mm-writing-pages').first()).toHaveAttribute('data-form-page', '1')
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await expect(page.locator('.mm-writing-leaf h2[tabindex="-1"]').first()).toBeFocused()
+  process.stdout.write('Keyboard boundaries, arrows, rejected requests, focus, preserved draft data, animation, and reduced motion passed in Chromium.\n')
 
   // 200% equivalent reflow at 1280×900; native zoom has its own browser suite.
   await page.setViewportSize({ width: 640, height: 450 })

@@ -1,0 +1,82 @@
+name: Database Restore Drill (Stage A)
+
+# Stage A proves the temporary database can boot; it does not access backups.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgres-smoke:
+    name: Isolated PostgreSQL 17 smoke
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+        with:
+          version: 2.122.0
+
+      - name: Start disposable Supabase PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          workdir="$RUNNER_TEMP/moris-restore-smoke"
+          supabase init --workdir "$workdir"
+          config="$workdir/supabase/config.toml"
+
+          # Generate an independent local configuration, not the repository's
+          # Supabase-linked production configuration or migration files.
+          python3 - "$config" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          import tomllib
+
+          config_path = Path(sys.argv[1])
+          contents = config_path.read_text(encoding="utf-8")
+          replacement = r"\g<1>17\2"
+          updated, count = re.subn(
+              r'(?m)^([ \t]*major_version[ \t]*=[ \t]*)(?:"[0-9]+"|[0-9]+)([ \t]*(?:#.*)?)$',
+              replacement,
+              contents,
+          )
+          if count != 1 or tomllib.loads(updated)["db"]["major_version"] != 17:
+              raise SystemExit("Unable to configure disposable PostgreSQL 17")
+          config_path.write_text(updated, encoding="utf-8")
+          PY
+
+          supabase db start --workdir "$workdir"
+
+          # Local runner connection only; no production credentials are used.
+          local_db="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          major="$(psql "$local_db" -v ON_ERROR_STOP=1 -Atqc \
+            "SELECT current_setting('server_version_num')::integer / 10000")"
+          [[ "$major" == "17" ]] || {
+            echo "::error::Expected isolated PostgreSQL 17"
+            exit 1
+          }
+
+          baseline="$(psql "$local_db" -v ON_ERROR_STOP=1 -Atqc \
+            "SELECT (to_regclass('auth.users') IS NOT NULL AND to_regprocedure('auth.uid()') IS NOT NULL)::int")"
+          [[ "$baseline" == "1" ]] || {
+            echo "::error::Supabase auth baseline is not available"
+            exit 1
+          }
+
+          echo "Verified isolated PostgreSQL 17 and Supabase auth baseline; no backup was downloaded or restored."
+
+      - name: Destroy disposable database
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          workdir="$RUNNER_TEMP/moris-restore-smoke"
+          if [[ -f "$workdir/supabase/config.toml" ]]; then
+            supabase stop --workdir "$workdir" --no-backup || echo "::warning::Runner teardown will remove the disposable environment"
+          fi
+          rm -rf "$workdir"

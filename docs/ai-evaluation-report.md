@@ -2,7 +2,8 @@
 
 Status: **AI-09 (Sprint 3)**. Measured results for the AI failure contract and the
 versioned evaluation set. The fixtures themselves are documented in
-[AI evaluation fixtures](ai-evaluation.md).
+[AI evaluation fixtures](ai-evaluation.md); the system-level explanation is in
+[AI architecture and operations](ai-architecture.md).
 
 - Dataset: `EVALUATION_DATASET` **2.1.1**
   (`supabase/functions/_shared/ai/eval_dataset.ts`)
@@ -17,7 +18,7 @@ versioned evaluation set. The fixtures themselves are documented in
 | ----- | ------- | -------------- |
 | Versioned offline acceptance | `tests/eval_dataset_test.ts` | No |
 | Endpoint failure contract | `tests/extract_recipe_test.ts`, `tests/generate_recipe_test.ts` | No (mock transport) |
-| Full Edge/API regression | the `ci.yml` deterministic suite | No |
+| Full Edge/API regression | the modular Edge/API workflow's deterministic suite | No |
 | Live extraction spot check | `tests/ai_extraction_live.ts` (opt-in) | Yes |
 
 The endpoint failure tests inject the **real `GeminiAdapter`** and mock only the
@@ -59,8 +60,15 @@ permanent failures never do. Error bodies contain no prompt text, recipe text,
 provider detail, stack traces or file paths.
 
 The successful paths are also checked: extraction and generation return a
-validated preview and never write a recipe, lineage or usage row. Generation is
-a stateless preview; saving remains an explicit later call.
+validated preview and write no recipe or lineage row. The AI-09 baseline
+(`0aeaaea`) predated BE-12, so it made no quota claims and recorded no usage
+row. The endpoint tests added with BE-12 do exercise settlement orchestration
+against a mocked PostgREST transport: the reservation is confirmed and charged
+on success or provider-consumed failure, refunded on definite non-consuming
+failures, and a failed confirm call still returns the preview. Those mocks
+cannot prove hosted-database atomicity, concurrency or role enforcement; that
+is BE-12's own hosted database suite. Generation is a stateless preview;
+saving remains an explicit later call.
 
 ## Versioned dataset results
 
@@ -85,10 +93,14 @@ flavor-score presence, parent IDs and substitution originals. Every invalid case
 asserts the exact `AIError` code and field path. Chef candidates are recomputed
 with BE-10's `computeIngredientOverlap` before they are accepted.
 
-The full deterministic Edge/API suite (exact `ci.yml` command) is
-**266 passed / 0 failed / 5 ignored** at the time of this report. The five
-ignored tests are the opt-in live PostgreSQL hosted-integration checks; none is
-an AI failure test.
+At the report's baseline commit (`0aeaaea`) the then-current legacy `ci.yml`
+list passed with **0 failures** and 5 ignored tests. Those totals are a
+historical snapshot, not a comparable suite size: the suite has grown
+considerably since (candidate tokens, quota reservations, recipe search and
+recipe-image schema tests all landed). The modular `reusable-edge-api.yml`
+target list is authoritative, and the latest `main` validation run reports
+**425 passed / 0 failed / 6 ignored**. The ignored tests are the opt-in live
+PostgreSQL hosted-integration checks; none is an AI failure test.
 
 ## Live extraction spot check
 
@@ -139,8 +151,12 @@ This matches the historical 3/3 note in the adapter's model-selection comment.
   error shapes can differ.
 - **No latency benchmark.** The suite asserts behavior and error codes, not
   response-time percentiles.
-- **Quota accounting is read-only.** AI-17's atomic usage accounting is tracked
-  separately (BE-12); this report does not claim quota writes.
+- **Quota settlement coverage is split.** The AI-09 baseline predated BE-12 and
+  made no quota claims. BE-12's endpoint tests exercise handler-level
+  confirmation and rollback against a mocked PostgREST transport; they do not
+  prove hosted-database atomicity, concurrency or role enforcement, which
+  BE-12's hosted database tests cover. At runtime settlement is best-effort
+  (see `docs/ai-architecture.md` §6).
 
 ## Reproduction
 
@@ -154,19 +170,10 @@ deno test --frozen-lockfile --node-modules-dir=auto --allow-env \
   supabase/functions/tests/extract_recipe_test.ts \
   supabase/functions/tests/generate_recipe_test.ts
 
-# Full deterministic Edge/API suite (same command as ci.yml)
-deno test --frozen-lockfile --node-modules-dir=auto --allow-env \
-  --allow-read=fixtures/demo-recipe.json \
-  supabase/functions/tests/demo_recipe_test.ts \
-  supabase/functions/tests/auth_test.ts \
-  supabase/functions/tests/recipes_test.ts \
-  supabase/functions/tests/ai_contracts_test.ts \
-  supabase/functions/tests/eval_dataset_test.ts \
-  supabase/functions/tests/cross_user_rls_lineage_test.ts \
-  supabase/functions/tests/recipe_context_test.ts \
-  supabase/functions/tests/gemini_adapter_test.ts \
-  supabase/functions/tests/extract_recipe_test.ts \
-  supabase/functions/tests/generate_recipe_test.ts
+# Full deterministic Edge/API suite: run the exact `deno test` command from
+# .github/workflows/reusable-edge-api.yml (the modular Edge/API workflow).
+# That workflow is the authoritative target list; it is not duplicated here so
+# this report cannot drift when the suite grows.
 ```
 
 When the dataset changes, bump `EVALUATION_DATASET_VERSION` and re-run the
