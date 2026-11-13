@@ -6,7 +6,58 @@ Qualifying incidents include production deployment failure, main/release pipelin
 
 Do not count intentional controlled failure experiments, deliberately failing gate tests, PR-only expected failures, expected production-deploy skips on PRs, CodeRabbit comments, local test failures, forced staging failures or application retry tests that were not real production incidents. Those belong in task evidence or the [optimization log](optimization-log.md), not production incident totals.
 
-Use [pipeline metrics](pipeline-metrics.md) for defined-period counts/rates and the [deployment runbook](deployment-runbook.md#12-recovery-and-rollback) for rollback procedures. No qualifying production deployment/runtime incident is entered from this reviewed evidence; that is not a claim of zero incidents across the sprint. The genuine delivery-tooling incident below is not a production outage or failed production deployment.
+Use [pipeline metrics](pipeline-metrics.md) for defined-period counts/rates and the [deployment runbook](deployment-runbook.md#12-recovery-and-rollback) for rollback procedures. The 2026-11-13 entry below records a production deployment failure, not a proven application outage. The older DEVOPS-86 record concerns non-gating delivery tooling and must not be counted as a production deployment failure. Neither entry establishes a complete sprint incident count.
+
+## Incident 2026-11-13 — Cloudflare Workers API failure during production release
+
+**Category:** Production deployment failure / partial release; no production outage demonstrated.  
+**State:** Two failed release attempts recorded; existing frontend manually reachable; automated recovery and current-release smoke verification pending.  
+**Affected revision:** `f36b1fc17ff34601995ca38d183e0a4fb28cccb8` (squash merge of PR #195).
+
+### What happened
+
+After [PR #195](https://github.com/2ton-exe/moris-mix-ai/pull/195) merged, automatic [Modular Main Validation #43451688823](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823) ran on the exact merge SHA. Attempts **1** and **2** both passed the main validation jobs and deployed three Supabase Edge Functions, but failed at `Deploy to Cloudflare Workers`. Wrangler `3.90.0` reported Cloudflare API error `10013` while uploading the `moris-mix-ai` Worker version.
+
+### Impact
+
+The release was **partial**: `recipes`, `extract-recipe`, and `generate-recipe` deployed, but the new Cloudflare Workers frontend version was not confirmed deployed. Production URL verification, deployed AI-route checks, and runtime smoke were skipped after the deployment failure. The operator opened the existing `/demo-recipe` page and observed the expected recipe rendered, while the Cloudflare deployment dashboard showed an older active Worker version. This is **point-in-time availability evidence**, not a successful automated post-deployment check or proof of full production health. No rollback was performed. Whether the API functions and previous frontend have compatibility differences was not independently tested.
+
+### Detection
+
+- [Main run #43451688823](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823), attempt 1, failed at approximately **23:23 PHT** (15:23 UTC). Attempt 2 failed at approximately **23:31 PHT** (15:31 UTC), on the same revision and step.
+- Cloudflare audit logs recorded failed `Upload Version` actions. The **2026-11-13 23:31:05 PHT** entry identified the `moris-mix-ai` Worker, an HTTP `500` response to the Worker versions upload API, and Wrangler `3.90.0`. Audit Ray ID: `a59ed244799b2158`. No credentials or account identifiers are retained here.
+- [PR #195 post-merge verification](https://github.com/2ton-exe/moris-mix-ai/pull/195#issuecomment-6857371063) records the initial failure and distinguishes passed, failed, and skipped steps. Attempt 2 independently reproduced the same failure.
+
+### Root cause
+
+**Strongly correlated with a Cloudflare-side Workers API incident; exact internal cause unverified.** In the [official Workers API incident](https://www.cloudflarestatus.com/incidents/e7ktq32gphhe), Cloudflare reported elevated 5xx errors during Worker deployments beginning at **23:31 PHT**, identified the problem at **23:39**, and announced a fix with **Monitoring** status at **23:42**. This directly overlaps the second failed attempt. The first failure at 23:23 predates the published incident start, so it cannot be attributed conclusively. HTTP 500 and the acknowledged incident do not, by themselves, rule out a request-specific trigger.
+
+### Fix
+
+Cloudflare reported implementing a provider-side fix at 23:42 PHT and monitoring its results. **No repository, token, Wrangler version, configuration, or production rollback change was made to address this incident.** The announced provider fix is not proof that this application's deployment recovered.
+
+### Recovery
+
+**Pending.** Do not infer recovery from the older Worker being reachable or from the provider's Monitoring announcement. After confirming provider readiness, authorize a controlled, revision-specific deployment recovery; then verify the new Worker version, intended deployed URL, AI-route checks, and production runtime smoke. Any rerun may repeat already successful Supabase deployments, so scope and side effects must be reviewed first.
+
+### Recovery time
+
+**Not measured.** There is no confirmed timestamp when the intended release became successfully deployed and verified. The older frontend's availability is not a recovery timestamp.
+
+### Prevention / follow-up
+
+- Retain the exact SHA/run/attempt and Cloudflare audit evidence; check the official incident resolution before attempting recovery.
+- If failure recurs after the provider incident, investigate the API response and request details before changing secrets, permissions, or Wrangler versions.
+- Verify recovery using real deployment and runtime evidence. Record any new run, status, artifacts, deployed Worker version, and time before changing this entry to recovered.
+- Keep unrelated DEVOPS-10 [restore issue #159](https://github.com/2ton-exe/moris-mix-ai/issues/159) open until its own isolated-restore criteria pass; this deployment incident does not prove or refute database recovery.
+
+### Evidence
+
+- [Merged PR #195 and original delivery record](https://github.com/2ton-exe/moris-mix-ai/pull/195).
+- [Exact-merge main run, attempts 1 and 2](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43451688823).
+- [Cloudflare Workers API incident timeline](https://www.cloudflarestatus.com/incidents/e7ktq32gphhe).
+- Cloudflare account audit log, 2026-11-13 23:31:05 PHT: `Upload Version`, failed HTTP 500, Ray ID above (operator screenshot, not committed because it includes account information).
+- Manual Cloudflare deployment-history and `/demo-recipe` page observations from 2026-11-13 (operator screenshots, not automated checks).
 
 ## Incident DEVOPS-86 / 2026-10-28 — PR Secretary publication failure
 
