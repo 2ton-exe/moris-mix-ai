@@ -206,6 +206,9 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         setBytesUploaded(false)
         setAttached(false)
         setUploadError('This upload is no longer available. Retry to start a new upload.')
+      } else if (code === 'UPLOAD_BYTES_MISSING') {
+        setBytesUploaded(false)
+        setUploadError('Uploaded image bytes are missing. Retry the upload.')
       } else {
         setUploadError(code === 'UPLOAD_IN_PROGRESS'
           ? 'This upload is still being processed. Wait, then retry the upload.'

@@ -19,6 +19,8 @@ Use the returned `upload.url` and its declared method and content type. Send the
 
 - Show pending state until the upload request completes.
 - On `201`, retain the returned upload ID and proceed through the separately approved BE-14 verification and attachment contract.
+- On attachment `409 UPLOAD_BYTES_MISSING`, retry the byte upload with the same intent, then retry attachment. The backend returns this only after confirming the staging object is absent and the intent is pending again.
+- On attachment `409 UPLOAD_NOT_READY`, do not resend bytes; wait and retry attachment.
 - On `409 UPLOAD_ALREADY_USED`, stop resending bytes. An object already exists for that intent. Recover through the approved verification/attachment flow, which must validate that object before showing it as the saved recipe image.
 - On `409 UPLOAD_IN_PROGRESS`, do not treat the reservation as proof that bytes were received or attach it. Wait before retrying the same intent; the backend decides whether it remains in progress, was received, or can accept another send. A crashed request can retain its reservation until expiry, so request a new intent only when backend quota permits.
 - On `410 UPLOAD_EXPIRED`, stop using the expired intent. Request another only if the backend quota permits.
