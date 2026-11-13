@@ -30,7 +30,7 @@ The release was **partial**: `recipes`, `extract-recipe`, and `generate-recipe` 
 
 ### Root cause
 
-**Strongly correlated with a Cloudflare-side Workers API incident; exact internal cause unverified.** In the [official Workers API incident](https://www.cloudflarestatus.com/incidents/e7ktq32gphhe), Cloudflare reported elevated 5xx errors during Worker deployments beginning at **23:31 PHT**, identified the problem at **23:39**, and announced a fix with **Monitoring** status at **23:42**. This directly overlaps the second failed attempt. The first failure at 23:23 predates the published incident start, so it cannot be attributed conclusively. HTTP 500 and the acknowledged incident do not, by themselves, rule out a request-specific trigger.
+**Possible Cloudflare-side Workers API incident; exact cause unverified.** Cloudflare [reported elevated 5xx errors during Worker deployments](https://www.cloudflarestatus.com/incidents/e7ktq32gphhe). Attempt 2's Wrangler error was logged at **15:31:09.064 UTC**, approximately **4.7 seconds before** Cloudflare's published incident start of **15:31:13.772 UTC** ([status record](https://www.cloudflarestatus.com/api/v2/incidents/e7ktq32gphhe.json)). The close timing and HTTP 500 are consistent with the reported issue but do not prove the request was affected. Attempt 1 at approximately 23:23 PHT also predates the published start. Cloudflare later identified the issue around **23:39 PHT** and announced a fix with **Monitoring** status around **23:42 PHT**. An HTTP 500 does not rule out a request-specific trigger.
 
 ### Fix
 
