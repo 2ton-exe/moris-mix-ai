@@ -1,0 +1,391 @@
+name: Production Database Backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monday 02:00 PHT / Sunday 18:00 UTC.
+    - cron: "0 18 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Backup PostgreSQL to private R2
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production-backup
+
+    # Reuse the production-release lock so backup capture cannot overlap the
+    # validated-main deployment path or any production migration added there.
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+      queue: max
+
+    permissions:
+      contents: read
+
+    env:
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      R2_BACKUP_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
+      AWS_DEFAULT_REGION: auto
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+        with:
+          version: 2.122.0
+
+      - name: Validate Supabase backup configuration
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          required_values=(
+            SUPABASE_ACCESS_TOKEN
+            SUPABASE_DB_PASSWORD
+            SUPABASE_PROJECT_REF
+          )
+
+          for name in "${required_values[@]}"; do
+            value="${!name:-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::Required Supabase backup configuration is missing: ${name}"
+              exit 1
+            fi
+          done
+
+          config_project_ref="$(sed -n 's/^project_id = "\(.*\)"/\1/p' supabase/config.toml)"
+          if [[ -z "$config_project_ref" || "$SUPABASE_PROJECT_REF" != "$config_project_ref" ]]; then
+            echo "::error::SUPABASE_PROJECT_REF must match project_id in supabase/config.toml."
+            exit 1
+          fi
+
+          supabase --version
+          docker --version
+
+      - name: Validate R2 backup configuration
+        shell: bash
+        env:
+          R2_BACKUP_ENDPOINT: ${{ secrets.R2_BACKUP_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+
+          required_values=(
+            R2_BACKUP_ENDPOINT
+            R2_BACKUP_BUCKET
+            AWS_ACCESS_KEY_ID
+            AWS_SECRET_ACCESS_KEY
+          )
+
+          for name in "${required_values[@]}"; do
+            value="${!name:-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::Required R2 backup configuration is missing: ${name}"
+              exit 1
+            fi
+          done
+
+          if [[ ! "$R2_BACKUP_ENDPOINT" =~ ^https://[^/]+\.r2\.cloudflarestorage\.com/?$ ]]; then
+            echo "::error::R2_BACKUP_ENDPOINT must be the Cloudflare R2 S3 endpoint."
+            exit 1
+          fi
+
+          if [[ ! "$R2_BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9.-]*[a-z0-9]$ ]]; then
+            echo "::error::R2_BACKUP_BUCKET is not a valid bucket name."
+            exit 1
+          fi
+
+          aws --version
+
+      - name: Link production Supabase project
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Create Supabase logical backup bundle
+        id: bundle
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          generated_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+          short_sha="${GITHUB_SHA::12}"
+          year="$(date -u +'%Y')"
+          month="$(date -u +'%m')"
+          day="$(date -u +'%d')"
+          backup_id="${timestamp}-${short_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          backup_dir="$RUNNER_TEMP/moris-mix-db-backup-${backup_id}"
+          consistency_dir="$RUNNER_TEMP/moris-mix-db-consistency-${backup_id}"
+          archive="$RUNNER_TEMP/moris-mix-postgres-${backup_id}.tar.gz"
+          evidence="$RUNNER_TEMP/moris-mix-postgres-${backup_id}.json"
+          object_prefix="postgres/${year}/${month}/${day}/${backup_id}"
+          object_key="${object_prefix}/$(basename "$archive")"
+          evidence_key="${object_prefix}/$(basename "$evidence")"
+
+          mkdir -p "$backup_dir" "$consistency_dir"
+
+          # Supabase's supported logical-backup flow uses separate role, schema,
+          # and data dumps. The shared production concurrency lock prevents the
+          # repository's production release/migration path from overlapping this
+          # capture. Pre/post schema and migration-history comparisons below also
+          # fail closed if out-of-band DDL or ledger drift occurs during the dump.
+          supabase db dump -f "$backup_dir/roles.sql" --role-only
+          supabase db dump -f "$backup_dir/schema.sql"
+          supabase db dump -f "$backup_dir/history-schema.sql" \
+            --schema supabase_migrations
+          supabase db dump -f "$backup_dir/history-data.sql" \
+            --schema supabase_migrations \
+            --use-copy \
+            --data-only
+
+          supabase db dump -f "$backup_dir/data.sql" --use-copy --data-only \
+            -x "storage.buckets_vectors" \
+            -x "storage.vector_indexes"
+
+          # Re-read the schema and migration ledger after the data snapshot.
+          # Do not upload a bundle whose components straddle a detected schema
+          # or migration-history change.
+          supabase db dump -f "$consistency_dir/roles-after.sql" --role-only
+          supabase db dump -f "$consistency_dir/schema-after.sql"
+          supabase db dump -f "$consistency_dir/history-schema-after.sql" \
+            --schema supabase_migrations
+          supabase db dump -f "$consistency_dir/history-data-after.sql" \
+            --schema supabase_migrations \
+            --use-copy \
+            --data-only
+
+          normalize_dump() {
+            # PostgreSQL plain-text dumps generate a random psql restrict key.
+            # Remove only those generated guard lines so unchanged dumps remain
+            # comparable without fixing or weakening the restore-time key.
+            sed -E '/^\\(un)?restrict [[:alnum:]]+$/d' "$1"
+          }
+
+          normalize_history_data_dump() {
+            # Compare executable SQL and sorted COPY rows; ignore non-executable
+            # dump comments, blank lines, and checked random psql restrict guards.
+            # The original history-data.sql in the restore archive is untouched.
+            python3 scripts/normalize-pg-copy.py < "$1"
+          }
+
+          if ! cmp -s <(normalize_dump "$backup_dir/roles.sql") <(normalize_dump "$consistency_dir/roles-after.sql"); then
+            echo "::error::Production role definitions changed during backup capture; refusing to package or upload the bundle."
+            exit 1
+          fi
+          if ! cmp -s <(normalize_dump "$backup_dir/schema.sql") <(normalize_dump "$consistency_dir/schema-after.sql"); then
+            echo "::error::Production schema changed during backup capture; refusing to package or upload the bundle."
+            exit 1
+          fi
+          if ! cmp -s <(normalize_dump "$backup_dir/history-schema.sql") <(normalize_dump "$consistency_dir/history-schema-after.sql"); then
+            echo "::error::Supabase migration-history schema changed during backup capture; refusing to package or upload the bundle."
+            exit 1
+          fi
+
+          # Materialize normalized history dumps as checked top-level commands.
+          # Process-substitution exit statuses are not reliably observed by cmp.
+          history_before_normalized="$consistency_dir/history-data-before-normalized.sql"
+          history_after_normalized="$consistency_dir/history-data-after-normalized.sql"
+          normalize_history_data_dump "$backup_dir/history-data.sql" > "$history_before_normalized"
+          normalize_history_data_dump "$consistency_dir/history-data-after.sql" > "$history_after_normalized"
+
+          if ! cmp -s "$history_before_normalized" "$history_after_normalized"; then
+            # Keep the mismatch fail-closed. Report structural classifications
+            # only; never emit SQL lines, migration statements or dump hashes.
+            python3 scripts/describe-pg-dump-diff.py \
+              "$history_before_normalized" "$history_after_normalized" || \
+              echo "::notice::Sanitized dump classification unavailable."
+            echo "::error::Supabase migration ledger changed during backup capture; refusing to package or upload the bundle."
+            exit 1
+          fi
+
+          (
+            cd "$backup_dir"
+            sha256sum \
+              roles.sql \
+              schema.sql \
+              data.sql \
+              history-schema.sql \
+              history-data.sql \
+              > component-checksums.sha256
+          )
+
+          cat > "$backup_dir/backup-metadata.json" <<EOF
+          {
+            "generated_at_utc": "$generated_at",
+            "source_repository": "$GITHUB_REPOSITORY",
+            "source_revision": "$GITHUB_SHA",
+            "workflow_run_id": "$GITHUB_RUN_ID",
+            "workflow_run_attempt": "$GITHUB_RUN_ATTEMPT",
+            "source_project_ref": "$SUPABASE_PROJECT_REF",
+            "supabase_cli_version": "$(supabase --version | tr -d '\r\n')",
+            "consistency_check": "production release serialized; roles and schema stable; migration history stable after deterministic COPY-row comparison",
+            "backup_scope": "Supabase-filtered PostgreSQL logical dump: roles, application schema/data, and supabase_migrations history",
+            "known_exclusions": [
+              "Supabase-managed/internal schema recovery is not claimed until restore verification proves it",
+              "Supabase Storage object bytes are not included",
+              "Edge Functions, provider configuration, API keys, and other platform configuration are not included"
+            ]
+          }
+          EOF
+
+          tar -czf "$archive" -C "$backup_dir" .
+          archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          archive_size_bytes="$(stat -c '%s' "$archive")"
+
+          cat > "$evidence" <<EOF
+          {
+            "generated_at_utc": "$generated_at",
+            "source_repository": "$GITHUB_REPOSITORY",
+            "source_revision": "$GITHUB_SHA",
+            "workflow_run_id": "$GITHUB_RUN_ID",
+            "workflow_run_attempt": "$GITHUB_RUN_ATTEMPT",
+            "source_project_ref": "$SUPABASE_PROJECT_REF",
+            "object_key": "$object_key",
+            "archive_size_bytes": $archive_size_bytes,
+            "archive_sha256": "$archive_sha256",
+            "consistency_check": "passed",
+            "backup_scope": "Supabase-filtered PostgreSQL logical dump; managed-schema and Storage-object recovery require separate verification"
+          }
+          EOF
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "evidence=$evidence" >> "$GITHUB_OUTPUT"
+          echo "object_key=$object_key" >> "$GITHUB_OUTPUT"
+          echo "evidence_key=$evidence_key" >> "$GITHUB_OUTPUT"
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "archive_size_bytes=$archive_size_bytes" >> "$GITHUB_OUTPUT"
+          echo "generated_at=$generated_at" >> "$GITHUB_OUTPUT"
+
+      - name: Upload backup bundle to private R2
+        id: upload
+        shell: bash
+        env:
+          R2_BACKUP_ENDPOINT: ${{ secrets.R2_BACKUP_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          ARCHIVE_PATH: ${{ steps.bundle.outputs.archive }}
+          EVIDENCE_PATH: ${{ steps.bundle.outputs.evidence }}
+          OBJECT_KEY: ${{ steps.bundle.outputs.object_key }}
+          EVIDENCE_KEY: ${{ steps.bundle.outputs.evidence_key }}
+        run: |
+          set -euo pipefail
+
+          aws s3 cp "$ARCHIVE_PATH" "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" \
+            --endpoint-url "$R2_BACKUP_ENDPOINT" \
+            --only-show-errors \
+            --no-progress
+
+          aws s3 cp "$EVIDENCE_PATH" "s3://${R2_BACKUP_BUCKET}/${EVIDENCE_KEY}" \
+            --endpoint-url "$R2_BACKUP_ENDPOINT" \
+            --content-type application/json \
+            --only-show-errors \
+            --no-progress
+
+      - name: Verify uploaded backup objects
+        id: verify
+        shell: bash
+        env:
+          R2_BACKUP_ENDPOINT: ${{ secrets.R2_BACKUP_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          OBJECT_KEY: ${{ steps.bundle.outputs.object_key }}
+          EVIDENCE_KEY: ${{ steps.bundle.outputs.evidence_key }}
+          EXPECTED_SIZE: ${{ steps.bundle.outputs.archive_size_bytes }}
+          EXPECTED_SHA256: ${{ steps.bundle.outputs.archive_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          remote_size="$(aws s3api head-object \
+            --bucket "$R2_BACKUP_BUCKET" \
+            --key "$OBJECT_KEY" \
+            --endpoint-url "$R2_BACKUP_ENDPOINT" \
+            --query ContentLength \
+            --output text)"
+
+          if [[ "$remote_size" != "$EXPECTED_SIZE" ]]; then
+            echo "::error::Uploaded backup size does not match the local archive size."
+            exit 1
+          fi
+
+          verify_copy="$RUNNER_TEMP/moris-mix-postgres-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
+          aws s3 cp "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" "$verify_copy" \
+            --endpoint-url "$R2_BACKUP_ENDPOINT" \
+            --only-show-errors \
+            --no-progress
+
+          remote_sha256="$(sha256sum "$verify_copy" | awk '{print $1}')"
+          if [[ "$remote_sha256" != "$EXPECTED_SHA256" ]]; then
+            echo "::error::Downloaded backup checksum does not match the locally created archive."
+            exit 1
+          fi
+
+          aws s3api head-object \
+            --bucket "$R2_BACKUP_BUCKET" \
+            --key "$EVIDENCE_KEY" \
+            --endpoint-url "$R2_BACKUP_ENDPOINT" \
+            --query ContentLength \
+            --output text \
+            >/dev/null
+
+      - name: Record backup evidence
+        if: always()
+        shell: bash
+        env:
+          BUNDLE_OUTCOME: ${{ steps.bundle.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          GENERATED_AT: ${{ steps.bundle.outputs.generated_at }}
+          OBJECT_KEY: ${{ steps.bundle.outputs.object_key }}
+          ARCHIVE_SIZE: ${{ steps.bundle.outputs.archive_size_bytes }}
+          ARCHIVE_SHA256: ${{ steps.bundle.outputs.archive_sha256 }}
+        run: |
+          {
+            echo "### Production database backup"
+            echo "- Source revision: ${GITHUB_SHA}"
+            echo "- Source project ref: ${SUPABASE_PROJECT_REF}"
+            echo "- Generated at (UTC): ${GENERATED_AT:-not-created}"
+            echo "- Bundle creation and consistency gate: ${BUNDLE_OUTCOME}"
+            echo "- Private R2 upload: ${UPLOAD_OUTCOME}"
+            echo "- Remote size/checksum verification: ${VERIFY_OUTCOME}"
+            if [[ -n "${OBJECT_KEY:-}" ]]; then
+              echo "- R2 object key: \`${OBJECT_KEY}\`"
+            fi
+            if [[ -n "${ARCHIVE_SIZE:-}" ]]; then
+              echo "- Archive size: ${ARCHIVE_SIZE} bytes"
+            fi
+            if [[ -n "${ARCHIVE_SHA256:-}" ]]; then
+              echo "- SHA-256: \`${ARCHIVE_SHA256}\`"
+            fi
+            echo "- Scope: Supabase-filtered PostgreSQL logical backup. Storage object bytes and full managed-schema recovery are not claimed by this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove runner backup files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP"/moris-mix-db-backup-* \
+            "$RUNNER_TEMP"/moris-mix-db-consistency-* \
+            "$RUNNER_TEMP"/moris-mix-postgres-*.tar.gz \
+            "$RUNNER_TEMP"/moris-mix-postgres-*.json

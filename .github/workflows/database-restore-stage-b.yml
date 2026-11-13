@@ -1,0 +1,334 @@
+name: Database Restore Drill (Stage B)
+
+# No PR, push, or scheduled access to the selected production backup.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-restore:
+    name: Restore selected private R2 backup into disposable PostgreSQL 17
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: database-restore-drill
+    concurrency:
+      group: database-restore-drill
+      cancel-in-progress: false
+    env:
+      # Official postgres:17.11-alpine multi-platform index (Docker Library).
+      # Immutable client code is important because this container reads private SQL.
+      PSQL_IMAGE: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
+      R2_BUCKET: moris-mix-db-backups-prod
+      BACKUP_PREFIX: postgres/2026/11/06/20261106T134224Z-f051d52f8c7b-42227611036-1
+      ARCHIVE_NAME: moris-mix-postgres-20261106T134224Z-f051d52f8c7b-42227611036-1.tar.gz
+      EVIDENCE_NAME: moris-mix-postgres-20261106T134224Z-f051d52f8c7b-42227611036-1.json
+      BACKUP_SHA256: 7e62664f44c13dccc1a8c924712ff7baadaeb8e58b5e4a6563d41e2ed5e45a3f
+      BACKUP_SIZE: "16814"
+      BACKUP_RUN_ID: "42227611036"
+      BACKUP_ATTEMPT: "1"
+      BACKUP_SOURCE_SHA: f051d52f8c7b19a4f837794b1d26720dc78219ae
+      BACKUP_SOURCE_PROJECT: gtbwblxskctpsqhbpebg
+      AWS_DEFAULT_REGION: auto
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    steps:
+      - name: Checkout reviewed restore workflow
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
+        with:
+          version: 2.122.0
+
+      - name: Download selected private R2 backup and evidence
+        shell: bash
+        env:
+          R2_RESTORE_ENDPOINT: ${{ secrets.R2_RESTORE_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_RESTORE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_RESTORE_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for key in R2_RESTORE_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Missing isolated restore credential $key"
+              exit 1
+            fi
+          done
+          if [[ ! "$R2_RESTORE_ENDPOINT" =~ ^https://[^/]+\.r2\.cloudflarestorage\.com/?$ ]]; then
+            echo "::error::Invalid R2 restore endpoint"
+            exit 1
+          fi
+          aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${ARCHIVE_NAME}" \
+            "$RUNNER_TEMP/restore-selected.tar.gz" \
+            --endpoint-url "$R2_RESTORE_ENDPOINT" --only-show-errors --no-progress
+          aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${EVIDENCE_NAME}" \
+            "$RUNNER_TEMP/restore-selected.json" \
+            --endpoint-url "$R2_RESTORE_ENDPOINT" --only-show-errors --no-progress
+
+      - name: Verify selected archive, source identity, and component checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - "$RUNNER_TEMP/restore-selected.tar.gz" \
+            "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/restore-verified-sql" <<'PY'
+          import hashlib, json, os, pathlib, re, sys, tarfile
+          arc, ev, target = map(pathlib.Path, sys.argv[1:])
+          members = {'roles.sql','schema.sql','data.sql','history-schema.sql',
+                     'history-data.sql','component-checksums.sha256','backup-metadata.json'}
+          components = members - {'component-checksums.sha256','backup-metadata.json'}
+          def require(check, reason):
+              if not check: raise SystemExit('Private archive verification failed: '+reason)
+          require(arc.stat().st_size == int(os.environ['BACKUP_SIZE']), 'size mismatch')
+          require(hashlib.sha256(arc.read_bytes()).hexdigest()==os.environ['BACKUP_SHA256'],'SHA-256 mismatch')
+          evidence=json.loads(ev.read_text())
+          expected={'archive_sha256':os.environ['BACKUP_SHA256'],
+                    'archive_size_bytes':int(os.environ['BACKUP_SIZE']),
+                    'workflow_run_id':os.environ['BACKUP_RUN_ID'],
+                    'workflow_run_attempt':os.environ['BACKUP_ATTEMPT'],
+                    'source_revision':os.environ['BACKUP_SOURCE_SHA'],
+                    'source_project_ref':os.environ['BACKUP_SOURCE_PROJECT'],
+                    'source_repository':os.environ['GITHUB_REPOSITORY'],
+                    'object_key':os.environ['BACKUP_PREFIX']+'/'+os.environ['ARCHIVE_NAME'],
+                    'consistency_check':'passed'}
+          for key,value in expected.items():
+              require(str(evidence.get(key))==str(value),'evidence identity '+key)
+          require(not target.exists(),'restore file directory already exists')
+          with tarfile.open(arc,'r:gz') as bundle:
+              selected={}
+              for item in bundle.getmembers():
+                  if item.isdir() and item.name in ('.','./'): continue
+                  require(item.isfile() and item.name.startswith('./'),'unsafe archive entry')
+                  name=item.name[2:]
+                  require(name in members and name not in selected and 0<item.size<32*1024*1024,
+                          'unexpected archive entry or size')
+                  selected[name]=item
+              require(set(selected)==members,'archive manifest')
+              checks=bundle.extractfile(selected['component-checksums.sha256']).read().decode('ascii')
+              hashes={}
+              for line in checks.splitlines():
+                  match=re.fullmatch(r'([0-9a-f]{64})  ([a-z-]+\.sql)',line)
+                  require(match is not None,'invalid checksum line')
+                  h,name=match.groups()
+                  require(name in components and name not in hashes,'unexpected checksum entry')
+                  hashes[name]=h
+              require(set(hashes)==components,'missing checksums')
+              metadata=json.loads(bundle.extractfile(selected['backup-metadata.json']).read())
+              for key,value in {'source_revision':expected['source_revision'],
+                                'source_project_ref':expected['source_project_ref'],
+                                'workflow_run_id':expected['workflow_run_id'],
+                                'workflow_run_attempt':expected['workflow_run_attempt'],
+                                'generated_at_utc':evidence['generated_at_utc']}.items():
+                  require(str(metadata.get(key))==str(value),'metadata identity '+key)
+              verified={}
+              for name in components:
+                  source=bundle.extractfile(selected[name]).read()
+                  require(hashlib.sha256(source).hexdigest()==hashes[name],'SQL checksum mismatch')
+                  verified[name]=source
+          target.mkdir(mode=0o700)
+          for name,source in verified.items():
+              with (target/name).open('xb') as out:
+                  os.chmod(target/name,0o600)
+                  out.write(source)
+          print('Private archive, R2 evidence, and five SQL components verified.')
+          PY
+
+      - name: Start clean, isolated Supabase PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          workdir="$RUNNER_TEMP/moris-restore-local"
+          supabase init --workdir "$workdir"
+          python3 - "$workdir/supabase/config.toml" <<'PY'
+          from pathlib import Path
+          import re, sys, tomllib
+          path=Path(sys.argv[1])
+          original=path.read_text(encoding='utf-8')
+          updated,count=re.subn(
+              r'(?m)^([ \t]*major_version[ \t]*=[ \t]*)(?:"[0-9]+"|[0-9]+)([ \t]*(?:#.*)?)$',
+              r'\g<1>17\2',original)
+          if count!=1 or tomllib.loads(updated)['db']['major_version']!=17:
+              raise SystemExit('Disposable PostgreSQL 17 configuration failed')
+          path.write_text(updated,encoding='utf-8')
+          PY
+          supabase db start --workdir "$workdir"
+          local_db='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          major="$(psql "$local_db" -X -v ON_ERROR_STOP=1 -Atqc \
+            "SELECT current_setting('server_version_num')::integer / 10000")"
+          [[ "$major" == "17" ]] || { echo "::error::Unexpected PostgreSQL version"; exit 1; }
+          fresh="$(psql "$local_db" -X -v ON_ERROR_STOP=1 -Atqc \
+            "SELECT (to_regclass('public.recipes') IS NULL AND to_regclass('public.profiles') IS NULL AND to_regclass('auth.users') IS NOT NULL)::int")"
+          [[ "$fresh" == "1" ]] || { echo "::error::Target is not a clean Supabase baseline"; exit 1; }
+
+      - name: Restore SQL transactionally using patched PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # Ubuntu's psql may be version 16. A patched 17.11 client understands
+          # the source dump's restrict/unrestrict guards without stripping them.
+          # The container does not receive any R2 or production credentials.
+          # Public output is constructed only from fixed phases/categories and
+          # numeric exit codes. Never echo or parse private command output.
+          checked() {
+            local phase="$1" rc category
+            shift
+            if "$@" > "$RUNNER_TEMP/private-restore-result.log" 2>&1; then
+              printf 'Restore diagnostic: phase=%s status=passed\n' "$phase"
+            else
+              rc=$?
+              case "$rc" in
+                125|126|127) category=container-client ;;
+                *)
+                  case "$phase:$rc" in
+                    client:1) category=container-client ;;
+                    files:1) category=mounted-files ;;
+                    connection:2|restore:2) category=connection ;;
+                    restore:3) category=sql-script ;;
+                    connection:1|restore:1) category=client-fatal ;;
+                    *) category=unclassified ;;
+                  esac ;;
+              esac
+              printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d; private output suppressed\n' \
+                "$phase" "$category" "$rc"
+              exit "$rc"
+            fi
+          }
+          # Keep the same container identity, hardening, mount and local target
+          # for every probe and the restore. No R2 credentials enter the client.
+          client=(docker run --rm --network host \
+            --user "$(id -u):$(id -g)" --cap-drop ALL \
+            --security-opt no-new-privileges --read-only \
+            --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
+            "$PSQL_IMAGE")
+          checked client "${client[@]}" psql --version
+          checked files "${client[@]}" sh -c \
+            'for file in /backup/roles.sql /backup/schema.sql /backup/history-schema.sql /backup/data.sql /backup/history-data.sql; do test -f "$file" && test -r "$file" || exit 1; done'
+          checked connection "${client[@]}" \
+            psql -X -q -v ON_ERROR_STOP=1 -c 'SELECT 1' \
+            -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          checked restore "${client[@]}" \
+              psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
+              -f /backup/roles.sql \
+              -f /backup/schema.sql \
+              -f /backup/history-schema.sql \
+              -c 'SET session_replication_role = replica' \
+              -f /backup/data.sql \
+              -f /backup/history-data.sql \
+              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          echo 'Transactional isolated SQL restore passed.'
+
+      - name: Validate restored application counts and migration versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          query="SELECT (SELECT count(*) FROM public.profiles),
+            (SELECT count(*) FROM public.recipes),
+            (SELECT count(*) FROM public.recipe_lineage),
+            (SELECT count(*) FROM public.ai_usage_daily),
+            (SELECT count(*) FROM public.ai_quota_reservations),
+            (SELECT count(*) FROM supabase_migrations.schema_migrations),
+            (SELECT md5(string_agg(version::text, ',' ORDER BY version::text))
+              FROM supabase_migrations.schema_migrations);"
+          if ! aggregates="$(docker run --rm --network host \
+              --user "$(id -u):$(id -g)" --cap-drop ALL \
+              --security-opt no-new-privileges --read-only \
+              "$PSQL_IMAGE" \
+                psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -c "$query" \
+                -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+              2> "$RUNNER_TEMP/private-verify-result.log")"; then
+            echo "::error::Database aggregate verification query failed"
+            exit 1
+          fi
+          python3 - "$RUNNER_TEMP/restore-verified-sql/data.sql" \
+            "$RUNNER_TEMP/restore-verified-sql/history-data.sql" "$aggregates" <<'PY'
+          import hashlib, pathlib, re, sys
+          tables=['public.profiles','public.recipes','public.recipe_lineage',
+                  'public.ai_usage_daily','public.ai_quota_reservations']
+          ledger='supabase_migrations.schema_migrations'
+          def counts(path):
+              result={name:0 for name in tables+[ledger]}
+              versions=[]
+              active=None
+              version_index=None
+              for line in pathlib.Path(path).read_text().splitlines():
+                  if active is not None:
+                      if line==r'\.': active=None; continue
+                      if active in result: result[active]+=1
+                      if active==ledger:
+                          fields=line.split('\t')
+                          if version_index is None or version_index>=len(fields) or not re.fullmatch(r'[0-9]{14}',fields[version_index]):
+                              raise SystemExit('Invalid migration history version')
+                          versions.append(fields[version_index])
+                      continue
+                  if line.startswith('COPY '):
+                      # pg_dump may quote either or both schema/table identifiers.
+                      # Match paired quotes, not arbitrary SQL names or expressions.
+                      identifier=r'(?:"([a-z0-9_]+)"|([a-z0-9_]+))'
+                      match=re.fullmatch(
+                          r'COPY '+identifier+r'\.'+identifier+r' \(([^)]*)\) FROM stdin;',line)
+                      if match is None: raise SystemExit('Unsupported COPY format')
+                      schema=match.group(1) or match.group(2)
+                      table=match.group(3) or match.group(4)
+                      active=f'{schema}.{table}'
+                      if active==ledger:
+                          columns=[x.strip(' "') for x in match.group(5).split(',')]
+                          if 'version' not in columns: raise SystemExit('Migration version column missing')
+                          version_index=columns.index('version')
+              if active is not None: raise SystemExit('Unterminated COPY block')
+              return result,versions
+          data,_=counts(sys.argv[1])
+          history,versions=counts(sys.argv[2])
+          fields=sys.argv[3].strip().split('|')
+          if len(fields)!=7 or not all(re.fullmatch(r'[0-9]+',s) for s in fields[:6]):
+              raise SystemExit('Invalid aggregate result')
+          expected=[data[name] for name in tables]+[history[ledger]]
+          if [int(s) for s in fields[:6]]!=expected:
+              raise SystemExit('Restored row counts do not match backup')
+          digest=hashlib.md5(','.join(sorted(versions)).encode()).hexdigest()
+          if digest!=fields[6] or len(set(versions))!=len(versions):
+              raise SystemExit('Restored migration version set does not match backup')
+          print('Five application table counts and the migration version set match the backup.')
+          PY
+          echo 'Managed-schema, Storage object and provider-settings recovery are not claimed.'
+
+      - name: Record safe restore result
+        shell: bash
+        run: |
+          {
+            echo '### Database Restore Drill — Stage B'
+            echo "- Selected backup workflow run: ${BACKUP_RUN_ID}"
+            echo "- Backup source revision: ${BACKUP_SOURCE_SHA}"
+            echo '- Target: isolated PostgreSQL 17 on a temporary GitHub runner'
+            echo '- R2 byte-integrity, metadata, component checksums: passed'
+            echo '- Transactional SQL restore: passed'
+            echo '- Application counts and migration history: passed'
+            echo '- Excluded: Storage object bytes, platform secrets/settings, unverified managed schemas'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop isolated database and delete private files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          failure=0
+          workdir="$RUNNER_TEMP/moris-restore-local"
+          if [[ -f "$workdir/supabase/config.toml" ]]; then
+            supabase stop --workdir "$workdir" --no-backup \
+              > /dev/null 2>&1 || failure=1
+          fi
+          rm -rf "$RUNNER_TEMP/restore-verified-sql" "$RUNNER_TEMP/restore-selected.tar.gz" \
+            "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/private-restore-result.log" \
+            "$RUNNER_TEMP/private-verify-result.log" "$workdir"
+          if [[ "$failure" -ne 0 ]]; then
+            echo '::error::Local database shutdown failed; runner teardown will recycle the VM'
+            exit 1
+          fi
+          echo 'Isolated database stopped; private runner files deleted.'

@@ -47,6 +47,9 @@ verify_jwt = false
 [functions.recipe-image-upload-url]
 verify_jwt = false
 
+[functions.recipe-image-upload-cleanup]
+verify_jwt = false
+
 [functions.recipe-image-attach]
 verify_jwt = false
 

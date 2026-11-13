@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import test from 'node:test';
-import { CONFIG, STATUSES, relationships, desiredState, discover, plan, paginate, createApi, adapter, reconcile, main } from './project-sync.mjs';
+import { CONFIG, STATUSES, relationships, desiredState, discover, plan, paginate, createApi, createTelemetry, adapter, reconcile, main } from './project-sync.mjs';
 
 const repository = { nameWithOwner: CONFIG.repository };
 const issue = (number = 147, extra = {}) => ({ __typename: 'Issue', id: `I_${number}`, number, repository, state: 'OPEN', ...extra });
@@ -27,9 +27,13 @@ for (const [name, prs, expected] of [
   ['draft implementation', [pr(148, { isDraft: true })], 'In Progress'],
   ['ready implementation', [pr()], 'In Progress'],
   ['multiple open PRs', [pr(), pr(149)], 'In Progress'],
-  ['merged partial only', [pr(148, { state: 'MERGED' })], 'Todo'],
+  ['merged partial only', [pr(148, { state: 'MERGED' })], 'In Progress'],
+  ['merged final awaiting verification', [pr(148, { state: 'MERGED' })], 'In Progress'],
   ['closed unmerged only', [pr(148, { state: 'CLOSED' })], 'Todo'],
   ['merged and current PR', [pr(148, { state: 'MERGED' }), pr(149)], 'In Progress'],
+  ['multiple merged partial PRs', [pr(148, { state: 'MERGED' }), pr(149, { state: 'MERGED' })], 'In Progress'],
+  ['merged and closed unmerged', [pr(148, { state: 'MERGED' }), pr(149, { state: 'CLOSED' })], 'In Progress'],
+  ['only closed unmerged PRs', [pr(148, { state: 'CLOSED' }), pr(149, { state: 'CLOSED' })], 'Todo'],
 ]) test(`issues: ${name}`, () => {
   const operations = operationsFor(snapshot({ prs }));
   assert.equal(operations.find(o => o.contentId === 'I_147' && o.kind === 'status').status, expected);
@@ -54,6 +58,155 @@ test('unknown closed issue reason and malformed state fail safely', () => {
   assert.throws(() => desiredState(issue(1, { state: 'CLOSED' })), /Unclassified/);
   assert.throws(() => desiredState(pr(1, { state: 'UNKNOWN' })), /Invalid PR/);
   assert.throws(() => desiredState(pr(1, { isDraft: null })), /Invalid PR/);
+});
+
+for (const state of ['OPEN', 'MERGED']) {
+  test(`${state} implementation uncertainty quarantines only affected issues`, () => {
+    for (const body of ['Refs #147, #999999', 'Refs #147, #0', `Refs #147, #${'9'.repeat(100)}`]) {
+      const malformed = pr(148, { state, body });
+      const result = plan(snapshot({ issues: [issue(), issue(2)], prs: [malformed] }));
+      assert.equal(result.rejectedRelationships.length, 1);
+      assert.ok(!result.operations.some(o => o.contentId === 'I_147'));
+      assert.ok(result.operations.some(o => o.number === 2 && o.status === 'Todo'));
+      for (const otherState of ['OPEN', 'MERGED']) {
+        const valid = pr(149, { state: otherState });
+        for (const prs of [[malformed, valid], [valid, malformed]]) {
+          assert.ok(operationsFor(snapshot({ prs })).some(o => o.number === 147 && o.status === 'In Progress'));
+        }
+      }
+    }
+    assert.throws(() => plan(snapshot({ prs: [pr(148, { state, body: null })] })), /Incomplete/);
+  });
+}
+
+test('closed-unmerged malformed relationships neither participate nor quarantine', () => {
+  for (const body of ['Refs #147, #999999', 'Refs #147, #0', null]) {
+    const result = plan(snapshot({ prs: [pr(148, { state: 'CLOSED', body, nativeIssues: [{}] })] }));
+    assert.deepEqual(result.rejectedRelationships, []);
+    assert.equal(result.operations.find(o => o.number === 147 && o.kind === 'status').status, 'Todo');
+  }
+});
+
+test('merged evidence respects explicit completed and not-planned issue state', () => {
+  for (const stateReason of ['COMPLETED', 'NOT_PLANNED']) {
+    const content = issue(147, { state: 'CLOSED', stateReason });
+    const operations = operationsFor(snapshot({ issues: [content], prs: [pr(148, { state: 'MERGED' })],
+      items: [card(content, 'In Progress')] })).filter(o => o.contentId === content.id);
+    assert.deepEqual(operations.map(o => [o.kind, o.status]), stateReason === 'COMPLETED'
+      ? [['status', 'Done']] : [['clear-status', undefined], ['archive', undefined]]);
+  }
+});
+
+test('reopened issue with merged implementation history unarchives deterministically', () => {
+  const content = issue(147, { stateReason: 'REOPENED' });
+  const operations = operationsFor(snapshot({ issues: [content], prs: [pr(148, { state: 'MERGED' })],
+    items: [card(content, 'Done', true)] })).filter(o => o.contentId === content.id);
+  assert.deepEqual(operations.map(o => [o.kind, o.status]), [['unarchive', undefined], ['status', 'In Progress']]);
+});
+
+test('merged evidence repairs any Project status and converges without status memory', () => {
+  for (const status of [null, 'Todo', 'In Progress', 'In Review', 'Done']) {
+    const data = snapshot({ prs: [pr(148, { state: 'MERGED' })], items: [card(issue(), status)] });
+    assert.deepEqual(operationsFor(data, metadata()).filter(o => o.contentId === 'I_147').map(o => o.status),
+      status === 'In Progress' ? [] : ['In Progress']);
+    assert.equal(operationsFor({ ...data, prs: [] }).find(o => o.kind === 'status')?.status,
+      status === 'Todo' ? undefined : 'Todo');
+  }
+});
+
+test('issue checklist and comments do not establish implementation or completion', () => {
+  const content = issue(147, { body: '- [x] all verified\nready to close', comments: ['ready to close'], assignees: ['AI'] });
+  for (const prs of [[], [pr(148, { state: 'MERGED' })]]) {
+    assert.equal(operationsFor(snapshot({ issues: [content], prs })).find(o => o.number === 147 && o.kind === 'status').status,
+      prs.length ? 'In Progress' : 'Todo');
+  }
+});
+
+test('merged implementation never closes repository issues and second reconciliation is a no-op', async () => {
+  const client = fakeClient(snapshot({ prs: [pr(148, { state: 'MERGED' })] }));
+  await reconcile(client, options);
+  assert.equal(client.data.issues[0].state, 'OPEN');
+  assert.equal(client.data.items[0].fieldValueByName.name, 'In Progress');
+  assert.ok(client.mutations.every(o => ['add', 'status', 'clear-status', 'archive', 'unarchive'].includes(o.kind)));
+  assert.equal((await reconcile(client, options)).applied, 0);
+  await assert.rejects(() => adapter(async () => { throw Error('API must not be called'); })
+    .mutate({ kind: 'close-issue' }, metadata(), card(issue())), /Unknown mutation/);
+  assert.doesNotMatch(readFileSync('scripts/project-sync.mjs', 'utf8'), /\b(?:closeIssue|updateIssue|reopenIssue)\s*\(/);
+});
+
+test('native-only implementation persists when only PR state changes from OPEN to MERGED', () => {
+  const content = pr(148, { body: '', nativeIssues: [{ number: 147, repository }] });
+  for (const state of ['OPEN', 'MERGED']) {
+    content.state = state;
+    const result = plan(snapshot({ prs: [content] }));
+    assert.deepEqual(result.rejectedRelationships, []);
+    assert.equal(result.operations.find(o => o.number === 147 && o.kind === 'status').status, 'In Progress');
+  }
+});
+
+test('CLOSED-unmerged native-only implementation is ignored without quarantine', () => {
+  const result = plan(snapshot({ prs: [pr(148, { state: 'CLOSED', body: '',
+    nativeIssues: [{ number: 147, repository }, { number: 999999, repository }] })] }));
+  assert.deepEqual(result.rejectedRelationships, []);
+  assert.equal(result.operations.find(o => o.number === 147 && o.kind === 'status').status, 'Todo');
+});
+
+test('merged body and native relationships deduplicate issue operations', () => {
+  const result = plan(snapshot({ prs: [pr(148, { state: 'MERGED',
+    nativeIssues: [{ number: 147, repository }, { number: 147, repository }] })] }));
+  assert.deepEqual(result.rejectedRelationships, []);
+  assert.deepEqual(result.operations.filter(o => o.number === 147).map(o => [o.kind, o.status]),
+    [['add', undefined], ['status', 'In Progress']]);
+});
+
+for (const state of ['OPEN', 'MERGED']) {
+  test(`${state} unresolvable native evidence quarantines affected issues and permits independent valid native evidence`, () => {
+    for (const number of [0, 999999, 148]) {
+      const uncertain = pr(148, { state, body: '', nativeIssues: [{ number: 147, repository }, { number, repository }] });
+      const result = plan(snapshot({ issues: [issue(), issue(2)], prs: [uncertain] }));
+      assert.equal(result.rejectedRelationships.length, 1);
+      assert.ok(!result.operations.some(o => o.number === 147));
+      assert.ok(result.operations.some(o => o.number === 2 && o.status === 'Todo'));
+      for (const otherState of ['OPEN', 'MERGED']) {
+        const valid = pr(149, { state: otherState, body: '', nativeIssues: [{ number: 147, repository }] });
+        for (const prs of [[uncertain, valid], [valid, uncertain]]) {
+          assert.equal(operationsFor(snapshot({ prs })).find(o => o.number === 147 && o.kind === 'status').status, 'In Progress');
+        }
+      }
+    }
+  });
+
+  test(`${state} malformed native evidence fails visibly and cross-repository native links are excluded`, () => {
+    for (const nativeIssues of [undefined, null, [{}], [{ number: '147', repository }]]) {
+      assert.throws(() => plan(snapshot({ prs: [pr(148, { state, body: '', nativeIssues })] })), /Incomplete|Malformed native/);
+    }
+    const result = plan(snapshot({ prs: [pr(148, { state, body: '',
+      nativeIssues: [{ number: 147, repository: { nameWithOwner: 'other/repo' } }] })] }));
+    assert.deepEqual(result.rejectedRelationships, []);
+    assert.equal(result.operations.find(o => o.number === 147 && o.kind === 'status').status, 'Todo');
+  });
+}
+
+for (const stateReason of ['COMPLETED', 'NOT_PLANNED']) {
+  test(`merged native evidence preserves closed issue ${stateReason} semantics`, () => {
+    const content = issue(147, { state: 'CLOSED', stateReason });
+    const result = operationsFor(snapshot({ issues: [content], prs: [pr(148, { state: 'MERGED', body: '',
+      nativeIssues: [{ number: 147, repository }] })], items: [card(content, 'In Progress')] }));
+    assert.deepEqual(result.filter(o => o.number === 147).map(o => [o.kind, o.status]),
+      stateReason === 'COMPLETED' ? [['status', 'Done']] : [['clear-status', undefined], ['archive', undefined]]);
+  });
+}
+
+test('native-only merge reconciliation preserves progress without issue closure and remains idempotent', async () => {
+  const client = fakeClient(snapshot({ prs: [pr(148, { body: '', nativeIssues: [{ number: 147, repository }] })] }));
+  await reconcile(client, options);
+  client.data.prs[0].state = 'MERGED';
+  const offset = client.mutations.length;
+  await reconcile(client, options);
+  assert.ok(!client.mutations.slice(offset).some(o => o.number === 147));
+  assert.equal(client.data.issues[0].state, 'OPEN');
+  assert.equal(client.data.items.find(i => i.content.id === 'I_147').fieldValueByName.name, 'In Progress');
+  assert.equal((await reconcile(client, options)).applied, 0);
 });
 
 for (const verb of ['Part of', 'Ref', 'Refs', 'Related to', 'Closes', 'Close', 'Fixes', 'Fix', 'Resolves', 'Resolve']) {
@@ -342,7 +495,7 @@ test('November 1 baseline issue and PR fixtures', () => {
   const operations = operationsFor({ issues, prs, items: [card(prs[3], 'In Review')] });
   assert.deepEqual(operations.filter(o => o.kind === 'status').map(o => [o.number, o.status]),
     [[100, 'In Progress'], [116, 'In Progress'], [124, 'In Progress'], [130, 'Todo'],
-      [136, 'In Review'], [144, 'In Review'], [145, 'In Review'], [146, 'Done'], [147, 'Todo']]);
+      [136, 'In Review'], [144, 'In Review'], [145, 'In Review'], [146, 'Done'], [147, 'In Progress']]);
 });
 for (const number of [6, 20, 24, 26, 29, 68, 119, 139, 141]) {
   test(`historical closed unmerged #${number} is archived when present, never bulk-added/Done`, () => {
@@ -437,6 +590,82 @@ for (const [name, first, second] of [
 ]) test(`pagination fails: ${name}`, async () => {
   await assert.rejects(() => paginate(async after => after ? second : first));
 });
+
+test('GraphQL workload telemetry counts paginated requests, mutations, rate headers, and elapsed time', async () => {
+  let now = 0;
+  let responseNo = 0;
+  const telemetry = createTelemetry(() => now);
+  const api = createApi('SENSITIVE_TOKEN_NOT_FOR_LOGS', async (_url, options) => {
+    assert.match(options.headers.Authorization, /^Bearer /);
+    now += 10;
+    responseNo++;
+    const used = 100 + responseNo;
+    return {
+      ok: true,
+      headers: { get: name => ({
+        'x-ratelimit-limit': '5000',
+        'x-ratelimit-used': String(used),
+        'x-ratelimit-remaining': String(5000 - used),
+        'x-ratelimit-reset': '1794000000',
+      })[name] ?? null },
+      json: async () => ({ data: { accepted: true } }),
+    };
+  }, true, telemetry);
+  await api('query { repository { issues(first:100) { nodes { id } } } }');
+  await api('query { repository { issues(first:100) { nodes { id } } } }');
+  await api('query { node(id:"PR") { closingIssuesReferences(first:100) { nodes { id } } } }');
+  await api('mutation { updateProjectV2ItemFieldValue(input:{}) { projectV2Item { id } } }');
+  const summary = telemetry.summary(true);
+  assert.equal(summary.result, 'success');
+  assert.equal(summary.requests, 4);
+  assert.equal(summary.reads, 3);
+  assert.equal(summary.mutations, 1);
+  assert.equal(summary.failedRequests, 0);
+  assert.deepEqual(summary.attemptedRequestsByCategory, { issues: 2, mutations: 1, nativeLinks: 1 });
+  assert.equal(summary.cumulativeApiMs, 40);
+  assert.equal(summary.reconciliationMs, 40);
+  assert.deepEqual(summary.rateLimit, {
+    firstObservedUsed: 101, limit: 5000, used: 104, remaining: 4896,
+    resetAtUnix: 1794000000, sampledResponses: 4,
+  });
+  assert.doesNotMatch(JSON.stringify(summary), /SENSITIVE_TOKEN|repository \{|input:/);
+});
+
+test('GraphQL telemetry flags failed requests and remains useful without rate-limit headers', async () => {
+  let now = 0;
+  const telemetry = createTelemetry(() => now);
+  const responses = [
+    { ok: true, json: async () => ({ data: {} }) },
+    { ok: false, status: 403, headers: { get: name => name === 'x-ratelimit-remaining' ? '0' : null } },
+  ];
+  const api = createApi('test', async () => { now += 5; return responses.shift(); }, false, telemetry);
+  await api('query { repository { pullRequests(first:100) { nodes { id } } } }');
+  await assert.rejects(() => api('query { repository { pullRequests(first:100) { nodes { id } } } }'), /HTTP 403/);
+  const summary = telemetry.summary(false);
+  assert.equal(summary.result, 'incomplete');
+  assert.equal(summary.requests, 2);
+  assert.equal(summary.failedRequests, 1);
+  assert.deepEqual(summary.attemptedRequestsByCategory, { pullRequests: 2 });
+  assert.equal(summary.rateLimit.remaining, 0);
+  assert.equal(summary.rateLimit.used, null);
+  assert.equal(summary.reconciliationMs, 10);
+});
+
+test('GraphQL telemetry captures thrown network and malformed-response failures without payloads', async () => {
+  const telemetry = createTelemetry(() => 0);
+  const api = createApi('test', async () => { throw Error('request rejected'); }, false, telemetry);
+  await assert.rejects(() => api('query { repository { issues(first:100) { nodes { id } } } }'), /request rejected/);
+  const invalid = createApi('test', async () => ({ ok: true, json: async () => ({
+    errors: [{ message: 'PRIVATE_API_RESPONSE' }], data: {},
+  }) }), false, telemetry);
+  await assert.rejects(() => invalid('query { repository { issues(first:100) { nodes { id } } } }'), /GraphQL failure/);
+  const summary = telemetry.summary(false);
+  assert.equal(summary.failedRequests, 2);
+  assert.equal(summary.requests, 2);
+  assert.equal(summary.rateLimit, null);
+  assert.doesNotMatch(JSON.stringify(summary), /PRIVATE_API_RESPONSE|request rejected/);
+});
+
 test('API HTTP/auth/permission/GraphQL/malformed JSON/network failures propagate', async () => {
   for (const status of [401, 403, 429, 500]) {
     await assert.rejects(() => createApi('test', async () => ({ ok: false, status }))('query {}'), /HTTP/);
@@ -623,7 +852,9 @@ test('adapter requests archived items, native links and validates mutation paylo
     if (query.includes('organization(login:')) return { organization: { projectsV2: page(projects()) } };
     if (query.includes('fields(first:')) return { node: { fields: page(fields()) } };
     if (query.includes('issues(first:')) return { repository: { issues: page([issue()]) } };
-    if (query.includes('pullRequests(first:')) return { repository: { pullRequests: page([pr()]) } };
+    if (query.includes('pullRequests(first:')) return { repository: { pullRequests: page([
+      pr(), pr(149, { state: 'MERGED', nativeIssues: undefined }), pr(150, { state: 'CLOSED', nativeIssues: undefined }),
+    ]) } };
     if (query.includes('closingIssuesReferences(first:')) return { node: { closingIssuesReferences: page([{ id: 'I_147', number: 147, repository }]) } };
     if (query.includes('items(first:')) return { node: { items: page([card(issue())]) } };
     if (query.includes('projectItems(first:')) return { node: { projectItems: page([{ ...card(issue()), project: { id: 'PROJECT' } }]) } };
@@ -632,11 +863,42 @@ test('adapter requests archived items, native links and validates mutation paylo
   assert.equal((await client.metadata()).projectId, 'PROJECT');
   const data = await client.snapshot('PROJECT');
   assert.equal(data.prs[0].nativeIssues[0].number, 147);
+  assert.deepEqual(calls.filter(c => c.query.includes('closingIssuesReferences(first:')).map(c => c.variables.id), ['PR_148', 'PR_149']);
+  assert.equal(data.prs[1].nativeIssues[0].number, 147);
+  assert.equal(data.prs[2].nativeIssues, undefined, 'CLOSED-unmerged native links are not queried');
+  assert.ok(operationsFor(data).some(o => o.number === 147 && o.status === 'In Progress'));
   assert.equal((await client.itemFor('I_147', 'PROJECT')).id, 'ITEM_I_147');
   assert.ok(calls.some(c => c.query.includes('archivedStates:[ARCHIVED,NOT_ARCHIVED]')));
   assert.ok(calls.some(c => c.query.includes('includeArchived:true')));
   await assert.rejects(() => client.mutate({ kind: 'add', contentId: 'I_147' }, metadata()), /Malformed/);
 });
+test('adapter paginates OPEN and MERGED native links and propagates incomplete merged evidence', async () => {
+  const calls = [];
+  let incomplete = false;
+  const client = adapter(async (query, variables) => {
+    if (query.includes('issues(first:')) return { repository: { issues: page([issue(), issue(2)]) } };
+    if (query.includes('pullRequests(first:')) return { repository: { pullRequests: page([
+      pr(148, { body: '' }), pr(149, { state: 'MERGED', body: '' }), pr(150, { state: 'CLOSED' }),
+    ]) } };
+    if (query.includes('closingIssuesReferences(first:')) {
+      calls.push([variables.id, variables.after]);
+      assert.notEqual(variables.id, 'PR_150');
+      const nodes = [147, 2].map(number => ({ id: `I_${number}`, number, repository }));
+      if (!variables.after) return { node: { closingIssuesReferences: page(nodes.slice(0, 1), 2, true, 'next') } };
+      return { node: { closingIssuesReferences: page(incomplete && variables.id === 'PR_149' ? [] : nodes.slice(1), 2) } };
+    }
+    if (query.includes('items(first:')) return { node: { items: page([]) } };
+    throw Error('Unexpected query');
+  });
+  const data = await client.snapshot('PROJECT');
+  assert.deepEqual(calls, [['PR_148', null], ['PR_148', 'next'], ['PR_149', null], ['PR_149', 'next']]);
+  assert.ok(data.prs.slice(0, 2).every(p => p.nativeIssues.length === 2));
+  assert.deepEqual(operationsFor(data).filter(o => o.contentId.startsWith('I_') && o.kind === 'status').map(o => o.status),
+    ['In Progress', 'In Progress']);
+  incomplete = true;
+  await assert.rejects(() => client.snapshot('PROJECT'), /Incomplete pagination/);
+});
+
 test('adapter emits only documented operations and discovered Status IDs', async () => {
   for (const [kind, key] of [['add', 'addProjectV2ItemById'], ['status', 'updateProjectV2ItemFieldValue'],
     ['clear-status', 'clearProjectV2ItemFieldValue'],

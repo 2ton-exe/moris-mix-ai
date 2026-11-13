@@ -103,9 +103,9 @@ export function relationships(body, native = [], rejected = null) {
   return [...numbers].sort((a, b) => a - b);
 }
 
-export function desiredState(content, active = false) {
+export function desiredState(content, implementation = false) {
   if (content.__typename === 'Issue') {
-    if (content.state === 'OPEN') return { status: active ? 'In Progress' : 'Todo', archive: false };
+    if (content.state === 'OPEN') return { status: implementation ? 'In Progress' : 'Todo', archive: false };
     requireValue(content.state === 'CLOSED', `Invalid issue state for #${content.number}`);
     if (content.stateReason === 'COMPLETED') return { status: 'Done' };
     if (content.stateReason === 'NOT_PLANNED') return { archive: true };
@@ -164,19 +164,22 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
     contents.set(content.id, content);
     byNumber.set(content.number, content);
   }
-  const activeIssues = new Set();
+  const implementationIssues = new Set();
   const uncertainIssues = new Set();
   const rejectedRelationships = [];
-  for (const pr of prs.filter(p => p.state === 'OPEN')) {
-    requireValue(Array.isArray(pr.nativeIssues), `Incomplete native relationship evidence for PR #${pr.number}`);
+  for (const pr of prs.filter(p => ['OPEN', 'MERGED'].includes(p.state))) {
+    // Implementation evidence persists across OPEN -> MERGED, including native
+    // links. CLOSED-unmerged PRs do not participate in resolution or quarantine.
+    const native = pr.nativeIssues;
+    requireValue(Array.isArray(native), `Incomplete native relationship evidence for PR #${pr.number}`);
     const rejected = [];
     const resolved = [];
-    for (const number of relationships(pr.body, pr.nativeIssues, rejected)) {
+    for (const number of relationships(pr.body, native, rejected)) {
       const issue = byNumber.get(number);
       if (issue?.__typename === 'Issue') resolved.push(issue.id);
       else rejected.push({ issueNumber: number, reason: 'unresolvable issue relationship' });
     }
-    const target = rejected.length ? uncertainIssues : activeIssues;
+    const target = rejected.length ? uncertainIssues : implementationIssues;
     for (const issueId of resolved) target.add(issueId);
     rejectedRelationships.push(...rejected.map(rejection => ({ prNumber: pr.number, ...rejection })));
   }
@@ -190,8 +193,8 @@ export function plan({ issues, prs, items, eventContentId = null }, metadata) {
     const item = byContent.get(content.id);
     if (!item && content.state !== 'OPEN' && content.id !== eventContentId) continue;
     if (content.__typename === 'Issue' && content.state === 'OPEN' &&
-        uncertainIssues.has(content.id) && !activeIssues.has(content.id)) continue;
-    const desired = desiredState(content, activeIssues.has(content.id));
+        uncertainIssues.has(content.id) && !implementationIssues.has(content.id)) continue;
+    const desired = desiredState(content, implementationIssues.has(content.id));
     if (!item && desired.archive) continue;
     const base = { contentId: content.id, number: content.number };
     if (!item) operations.push({ ...base, kind: 'add' });
@@ -238,21 +241,100 @@ export async function paginate(page) {
   return nodes;
 }
 
-export function createApi(token, fetcher = fetch, writable = false) {
+// Operational telemetry is independent of Project planning, mutation decisions, and credentials.
+// Each paginated GraphQL connection is fetched through createApi, so counts describe actual
+// attempted page requests rather than inferred totals from repository or Project sizes.
+export function createTelemetry(clock = () => performance.now()) {
+  const started = clock();
+  const pages = {};
+  let requests = 0;
+  let reads = 0;
+  let mutations = 0;
+  let failures = 0;
+  let apiDurationMs = 0;
+  let firstUsed = null;
+  let lastRateLimit = null;
+  let rateLimitSamples = 0;
+  const categoryOf = query => {
+    if (/^\s*mutation\b/.test(query)) return 'mutations';
+    if (query.includes('closingIssuesReferences(')) return 'nativeLinks';
+    if (query.includes('projectItems(')) return 'projectMembership';
+    if (query.includes('items(first:')) return 'projectItems';
+    if (query.includes('pullRequests(first:')) return 'pullRequests';
+    if (query.includes('issues(first:')) return 'issues';
+    if (query.includes('fields(first:')) return 'projectFields';
+    if (query.includes('projectsV2(first:')) return 'projects';
+    return 'otherReads';
+  };
+  const headerNumber = (headers, name) => {
+    const value = headers?.get?.(name);
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+    const number = Number(value);
+    return Number.isSafeInteger(number) ? number : null;
+  };
+  return {
+    begin(query) {
+      const category = categoryOf(query);
+      const requestStart = clock();
+      return (headers, succeeded) => {
+        requests++;
+        if (category === 'mutations') mutations++;
+        else reads++;
+        if (!succeeded) failures++;
+        pages[category] = (pages[category] ?? 0) + 1;
+        apiDurationMs += Math.max(0, clock() - requestStart);
+        const sample = {
+          limit: headerNumber(headers, 'x-ratelimit-limit'),
+          used: headerNumber(headers, 'x-ratelimit-used'),
+          remaining: headerNumber(headers, 'x-ratelimit-remaining'),
+          resetAtUnix: headerNumber(headers, 'x-ratelimit-reset'),
+        };
+        if (Object.values(sample).some(value => value !== null)) {
+          firstUsed ??= sample.used;
+          lastRateLimit = sample;
+          rateLimitSamples++;
+        }
+      };
+    },
+    summary(succeeded) {
+      return {
+        result: succeeded ? 'success' : 'incomplete',
+        requests,
+        reads,
+        mutations,
+        failedRequests: failures,
+        attemptedRequestsByCategory: Object.fromEntries(Object.entries(pages).sort(([a], [b]) => a.localeCompare(b))),
+        cumulativeApiMs: Math.round(apiDurationMs),
+        reconciliationMs: Math.round(Math.max(0, clock() - started)),
+        rateLimit: lastRateLimit && { firstObservedUsed: firstUsed, ...lastRateLimit, sampledResponses: rateLimitSamples },
+      };
+    },
+  };
+}
+
+export function createApi(token, fetcher = fetch, writable = false, telemetry = null) {
   requireValue(id(token), 'Missing GH_TOKEN');
   return async (query, variables = {}) => {
     requireValue(writable || !/^\s*mutation\b/.test(query), 'Project mutations forbidden in read-only mode');
-    const response = await fetcher('https://api.github.com/graphql', {
-      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
-        'User-Agent': 'moris-mix-project-sync' }, body: JSON.stringify({ query, variables }), signal: AbortSignal.timeout(60000),
-    });
-    requireValue(response.ok, `GitHub API HTTP ${response.status}`);
-    let result;
-    try { result = await response.json(); } catch { throw new SyncError('Malformed GitHub JSON response'); }
-    // Do not log raw API errors, bodies, titles, or credentials.
-    requireValue(result && (result.errors === undefined || (Array.isArray(result.errors) && result.errors.length === 0)) &&
-      result.data && typeof result.data === 'object' && !Array.isArray(result.data), 'GitHub GraphQL failure or malformed response');
-    return result.data;
+    const record = telemetry?.begin(query);
+    let response;
+    let succeeded = false;
+    try {
+      response = await fetcher('https://api.github.com/graphql', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
+          'User-Agent': 'moris-mix-project-sync' }, body: JSON.stringify({ query, variables }), signal: AbortSignal.timeout(60000),
+      });
+      requireValue(response.ok, `GitHub API HTTP ${response.status}`);
+      let result;
+      try { result = await response.json(); } catch { throw new SyncError('Malformed GitHub JSON response'); }
+      // Do not log raw API errors, bodies, titles, or credentials.
+      requireValue(result && (result.errors === undefined || (Array.isArray(result.errors) && result.errors.length === 0)) &&
+        result.data && typeof result.data === 'object' && !Array.isArray(result.data), 'GitHub GraphQL failure or malformed response');
+      succeeded = true;
+      return result.data;
+    } finally {
+      record?.(response?.headers, succeeded);
+    }
   };
 }
 
@@ -289,7 +371,7 @@ export function adapter(api) {
         repository(owner:"${CONFIG.owner}",name:"${CONFIG.repo}") {
           pullRequests(first:100,after:$after) { ${PAGE} nodes { __typename ${CONTENT} isDraft body } }
         } }`, { after })).repository?.pullRequests);
-      for (const pr of prs.filter(p => p.state === 'OPEN')) {
+      for (const pr of prs.filter(p => ['OPEN', 'MERGED'].includes(p.state))) {
         pr.nativeIssues = await paginate(async after => (await api(`query($id:ID!,$after:String) {
           node(id:$id) { ... on PullRequest { closingIssuesReferences(first:100,after:$after) {
             ${PAGE} nodes { id number repository { nameWithOwner } }
@@ -396,8 +478,17 @@ export async function main(env = process.env) {
   }
   requireValue(env.GITHUB_REPOSITORY === CONFIG.repository, 'Unexpected repository');
   const event = env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(env.GITHUB_EVENT_PATH, 'utf8')) : {};
-  await reconcile(adapter(createApi(env.GH_TOKEN, fetch, mode === 'reconcile' && env.PROJECT_AUTOMATION_ENABLED === 'true')),
+  const telemetry = createTelemetry();
+  let succeeded = false;
+  try {
+    await reconcile(adapter(createApi(env.GH_TOKEN, fetch,
+      mode === 'reconcile' && env.PROJECT_AUTOMATION_ENABLED === 'true', telemetry)),
     { mode, enabled: env.PROJECT_AUTOMATION_ENABLED, event });
+    succeeded = true;
+  } finally {
+    // Always distinguish a complete reconciliation from an interrupted run.
+    console.log(`GraphQL workload: ${JSON.stringify(telemetry.summary(succeeded))}`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
