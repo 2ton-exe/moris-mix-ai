@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import fixture from '../../../fixtures/demo-recipe.json'
@@ -28,9 +28,11 @@ it('shows loading then renders the validated recipe from the API', async () => {
   await screen.findByRole('heading', { name: fixture.recipe.title })
   expect(screen.getByText('200 g spaghetti')).toBeTruthy()
   expect(screen.getByText('Boil pasta in salted water.')).toBeTruthy()
-  expect(screen.getByText('4 / 5')).toBeTruthy()
-  expect(screen.getByText(/Rating: 4 \/ 5/)).toBeTruthy()
-  expect(screen.getByText('2026-10-13')).toBeTruthy()
+  const identity = screen.getByRole('region', { name: 'Recipe identity and details' })
+  expect(within(identity).getByText('4 / 5')).toBeTruthy()
+  expect(within(identity).getByRole('img', { name: '4 out of 5 stars' })).toBeTruthy()
+  expect(identity.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-13')
+  expect(within(screen.getByRole('region', { name: 'Flavor scores' })).getByText('4 / 5')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' }).getAttribute('href')).toBe('/home')
   expect(mockedGetDemoRecipe).toHaveBeenCalledOnce()

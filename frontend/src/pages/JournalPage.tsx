@@ -1,10 +1,14 @@
 import { useContext, useEffect, useRef, useState } from 'react'
-import { Link, Outlet } from 'react-router'
+import { Link, Outlet, useLocation } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeSourceContext } from '../recipes/source'
+import { JournalShell } from '../journal/JournalShell'
+import { JournalCompanion } from '../journal/JournalFacingPage'
 
 // Shared authenticated journal shell, including logout on detail/error screens.
 export default function JournalPage() {
+  const { pathname } = useLocation()
+  const reading = /^\/app\/recipes\/[^/]+\/?$/.test(pathname)
   const { user, logout } = useAuth()
   const source = useContext(RecipeSourceContext)
   const [pending, setPending] = useState(false)
@@ -25,15 +29,11 @@ export default function JournalPage() {
   }
 
   return (
-    <main className="page-shell journal-shell" id="journal">
-      <header className="journal-header">
-        <Link className="eyebrow" to="/app/recipes"><span className="status-dot" /> Mori’s Mix</Link>
-        <div className="journal-account"><span>{user?.email}</span><button className="button button-secondary" type="button" disabled={pending} onClick={() => { void signOut() }}>{pending ? 'Logging out…' : 'Log out'}</button></div>
-      </header>
+    <JournalShell mode={reading ? 'reading' : 'journal'} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'} account={<div className="journal-account"><span>{user?.email}</span><button className="button button-secondary" type="button" disabled={pending} onClick={() => { void signOut() }}>{pending ? 'Logging out…' : 'Log out'}</button></div>}>
       {error && <p className="field-error" role="alert">{error}</p>}
       {source.mode === 'preview' && <p className="recipe-preview-notice" role="note">Sample recipes · Development preview. These recipes are examples, not your saved collection.</p>}
       <Outlet />
-      <footer className="journal-footer">A place for the meals that become yours. <Link to="/demo-recipe">Demonstration recipe</Link></footer>
-    </main>
+      <JournalCompanion><footer className="journal-footer">A place for the meals that become yours. <Link to="/demo-recipe">Demonstration recipe</Link></footer></JournalCompanion>
+    </JournalShell>
   )
 }
