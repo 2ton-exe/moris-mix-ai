@@ -302,4 +302,3 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     await expect(readSavedRecipeState(page, recipeReadContext)).resolves.toEqual(savedRecipeState)
   })
 })
-
