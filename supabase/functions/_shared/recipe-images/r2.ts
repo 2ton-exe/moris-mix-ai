@@ -1,5 +1,9 @@
-import { z } from "npm:zod@3.22.4";
-import { type UploadIntent, validateUploadIntent } from "./uploadIntents.ts";
+import { z } from "npm:zod@4.6.6";
+import {
+  UPLOAD_TTL_SECONDS,
+  type UploadIntent,
+  validateUploadIntent,
+} from "./uploadIntents.ts";
 
 const R2_ACCOUNT_ID_PATTERN = /^[a-f0-9]{32}$/;
 const R2_ENDPOINT_HOST_PATTERN = /^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/;

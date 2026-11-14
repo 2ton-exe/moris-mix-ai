@@ -383,7 +383,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
     // Explicit contract replaces parity against the retired workflow. Keep all
     // current recipe, auth, AI and recipe-image targets independently asserted.
     const targets = step(edge.jobs['test-edge-api'], name).run.split(/\s+/).filter(s => s.startsWith('supabase/'));
-    const tests = ['demo_recipe', 'auth', 'recipes', 'ai_contracts', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
+    const tests = ['demo_recipe', 'auth', 'recipes', 'ai_contracts', 'ai_journeys', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
       'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'recipe_image_lifecycle', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
       .map(name => `supabase/functions/tests/${name}_test.ts`);
     const expected = name.startsWith('Type-check') ? [

@@ -111,18 +111,23 @@ No remediation was performed. These are local advisory observations, not hosted 
 | Frontend | `npx --yes pnpm@10.34.9 --dir frontend audit --json` | 1 | info 0, low 0, moderate 6, high 1, critical 2 |
 | Deno | `deno audit --lock=deno.lock` | 1 | low 0, moderate 0, high 1, critical 0 |
 
+The following package versions and advisory counts are the historical PR #167
+scan from November 2, 2026; they describe that lockfile snapshot, not this PR's
+current dependency state. The current Deno and frontend lockfiles resolve Zod
+4.6.6.
+
 Frontend returned these package/advisory entries (counts can reflect dependency occurrences and need not equal the number of distinct advisories):
 
 | Package/version | Severity | Advisory |
 | --- | --- | --- |
 | tinypool 1.1.1 | critical | GHSA-5gmw-xhrv-c9v3; GHSA-85c8-ppgw-ccpr |
-| zod 3.22.4 | high | GHSA-mrhx-c7xc-m3w5 |
+| zod 3.22.4 | high | GHSA-mrhx-c7xc-m3w5 (historical version) |
 | vitest 3.2.7 and @vitest/mocker 3.2.7 | moderate | GHSA-82fw-gwwq-j7x9 |
 | @vitest/mocker 3.2.7 | moderate | GHSA-qxg6-89mg-rqv8 |
 | vite 6.4.4 | moderate | GHSA-8g5g-mxqh-grgj |
 | minimatch 3.1.5 / 10.2.6 | moderate | GHSA-g3hv-75wg-m249 |
 
-Deno returned Zod / GHSA-mrhx-c7xc-m3w5 (high); `deno.lock` resolves Zod 3.22.4. Frontend/component owners should assess reachability, supported upgrades and regressions; the backend owner should triage locked Deno Zod usage. Build/test-tool findings remain relevant to CI supply-chain risk even when not production runtime dependencies. This slice leaves all manifests and lockfiles intact.
+Deno returned Zod / GHSA-mrhx-c7xc-m3w5 (high) in that historical scan. Its lockfile now resolves Zod 4.6.6. Build/test-tool findings remain relevant to CI supply-chain risk even when not production runtime dependencies.
 
 ## Hosted execution evidence — November 2026
 

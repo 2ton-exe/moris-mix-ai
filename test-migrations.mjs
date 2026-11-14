@@ -192,6 +192,31 @@ function runDiscoveryAndIntegrityUnitTests() {
     assert.match(definition, /begin\s+if auth\.role\(\) IS DISTINCT FROM 'service_role' then\s+raise exception 'Unauthorized quota operation' using errcode = '42501';/);
     assert.doesNotMatch(definition, /auth\.role\(\)\s*<>/);
   }
+  const shortWindowRateMigration = migrations.find((migration) => migration.version === '20261114000019');
+  assert.ok(shortWindowRateMigration, 'short-window AI rate-limit migration is present');
+  const shortWindowRateSql = fs.readFileSync(shortWindowRateMigration.filePath, 'utf8');
+  const boundedChefCandidates = migrations.find((migration) => migration.version === '20261114000018');
+  assert.ok(boundedChefCandidates, 'bounded Chef candidate retrieval migration is present');
+  const boundedChefCandidatesSql = fs.readFileSync(boundedChefCandidates.filePath, 'utf8');
+  assert.match(boundedChefCandidatesSql, /create or replace function public\.get_chef_recipe_context_candidates\([\s\S]*?returns jsonb[\s\S]*?security invoker/i);
+  assert.match(boundedChefCandidatesSql, /auth\.uid\(\)/i);
+  assert.match(boundedChefCandidatesSql, /octet_length\(to_jsonb\(v_candidate\)::text\)/i);
+  assert.match(boundedChefCandidatesSql, /if v_candidate_bytes \+ 256 > p_max_bytes then[\s\S]*?exit;/i);
+  assert.match(boundedChefCandidatesSql, /if v_candidate_count > 0 and v_candidate_bytes \+ 256 > p_max_bytes then[\s\S]*?'candidates', '\[\]'::jsonb[\s\S]*?'too_large', true/i);
+  assert.match(boundedChefCandidatesSql, /p_max_bytes > 65536/);
+  assert.match(boundedChefCandidatesSql, /revoke all on function public\.get_chef_recipe_context_candidates\(integer, integer\) from public, anon/i);
+  assert.match(boundedChefCandidatesSql, /grant execute on function public\.get_chef_recipe_context_candidates\(integer, integer\) to authenticated/i);
+  assert.doesNotMatch(boundedChefCandidatesSql, /security definer/i);
+  assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_started_at timestamptz/i);
+  assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_count integer not null default 0/i);
+  assert.match(shortWindowRateSql, /pg_advisory_xact_lock\(hashtext\('ai-rate:' \|\| p_user_id::text\)\)/i);
+  assert.match(shortWindowRateSql, /for update/i);
+  assert.match(shortWindowRateSql, /v_rate_window_count >= 5/i);
+  assert.match(shortWindowRateSql, /interval '60 seconds'/i);
+  assert.match(shortWindowRateSql, /'status', 'rate_limited'/i);
+  assert.match(shortWindowRateSql, /'retry_after_seconds', v_retry_after/i);
+  assert.match(shortWindowRateSql, /auth\.role\(\) IS DISTINCT FROM 'service_role'/i);
+  assert.doesNotMatch(shortWindowRateSql, /^\s*grant\b[^;]*\b(?:public|anon|authenticated)\b[^;]*;/im);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-unit-'));
   try {
     fs.writeFileSync(path.join(tempDir, '20261020000000_second.sql'), 'SELECT 2;');

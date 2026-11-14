@@ -80,20 +80,20 @@ export function createSupabaseCliEnvironment(source = process.env) {
   return environment
 }
 
-export async function waitForRecipesHandler(apiUrl, publicKey, functionServer) {
+async function waitForFunctionHandler(apiUrl, publicKey, functionServer, functionName, expectedStatus, expectedCode) {
   const { child } = functionServer
-  const url = `${apiUrl}/functions/v1/recipes`
+  const url = `${apiUrl}/functions/v1/${functionName}`
   const deadline = Date.now() + 60_000
   let lastStatus = 'no response'
 
   while (Date.now() < deadline) {
     if (child.pid === undefined) {
       const detail = functionServer.failureDetail()
-      throw new Error(`Could not start the local recipes function server${detail ? `: ${detail}` : '.'}`)
+      throw new Error(`Could not start the local ${functionName} function server${detail ? `: ${detail}` : '.'}`)
     }
     if (child.exitCode !== null || child.signalCode !== null) {
       const detail = functionServer.failureDetail()
-      throw new Error(`The local recipes function server exited before its handler became ready.${detail ? ` ${detail}` : ''}`)
+      throw new Error(`The local ${functionName} function server exited before its handler became ready.${detail ? ` ${detail}` : ''}`)
     }
 
     try {
@@ -102,7 +102,7 @@ export async function waitForRecipesHandler(apiUrl, publicKey, functionServer) {
         signal: globalThis.AbortSignal.timeout(5_000),
       })
       const body = await response.json().catch(() => null)
-      if (response.status === 401 && body?.error?.code === 'UNAUTHORIZED') return
+      if (response.status === expectedStatus && body?.error?.code === expectedCode) return
       lastStatus = `HTTP ${response.status}`
     } catch (error) {
       lastStatus = error instanceof Error ? error.name : 'request failed'
@@ -112,7 +112,19 @@ export async function waitForRecipesHandler(apiUrl, publicKey, functionServer) {
   }
 
   const detail = functionServer.failureDetail()
-  throw new Error(`The local recipes handler did not become ready (${lastStatus}).${detail ? ` ${detail}` : ''}`)
+  throw new Error(`The local ${functionName} handler did not become ready (${lastStatus}).${detail ? ` ${detail}` : ''}`)
+}
+
+export function waitForRecipesHandler(apiUrl, publicKey, functionServer) {
+  return waitForFunctionHandler(apiUrl, publicKey, functionServer, 'recipes', 401, 'UNAUTHORIZED')
+}
+
+export function waitForExtractionHandler(apiUrl, publicKey, functionServer) {
+  return waitForFunctionHandler(apiUrl, publicKey, functionServer, 'extract-recipe', 405, 'METHOD_NOT_ALLOWED')
+}
+
+export function waitForMethodNotAllowedHandler(apiUrl, publicKey, functionServer, functionName) {
+  return waitForFunctionHandler(apiUrl, publicKey, functionServer, functionName, 405, 'METHOD_NOT_ALLOWED')
 }
 
 async function readLocalE2eUserId(filePath) {
