@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
@@ -20,7 +21,7 @@ import { previewRecipes } from './testing/previewAdapter'
 
 const recipe = previewRecipes[0]
 const detailPath = `/app/recipes/${recipe.id}`
-let deleteHandler: ReturnType<typeof vi.fn>
+let deleteHandler: Mock<(id: string, request: RecipeRequest) => Promise<void>>
 let source: RecipeSource
 let currentClient: QueryClient
 let serverRecipes: RecipeSummary[]
@@ -79,7 +80,7 @@ function deferred<T>() {
 
 beforeEach(() => {
   onlineManager.setOnline(true)
-  deleteHandler = vi.fn().mockResolvedValue(undefined)
+  deleteHandler = vi.fn<(id: string, request: RecipeRequest) => Promise<void>>().mockResolvedValue(undefined)
   serverRecipes = previewRecipes.map(({ id, title, star_rating, cooked_at }) => ({ id, title, star_rating, cooked_at }))
   source = {
     mode: 'live',

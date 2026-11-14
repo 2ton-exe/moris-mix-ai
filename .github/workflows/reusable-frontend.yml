@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Check for frontend project
         id: frontend
@@ -58,14 +60,34 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Test project board synchronizer (offline)
+        if: steps.frontend.outputs.exists == 'true' && hashFiles('scripts/project-sync.test.mjs') != ''
+        working-directory: .
+        run: node --test scripts/project-sync.test.mjs
+
       - name: Test CI path classifier (offline)
         run: node --test scripts/ci-path-classifier.test.mjs
 
       - name: Test runtime smoke verifier (offline)
         run: node --test scripts/runtime-smoke.test.mjs
 
+      - name: Test PostgreSQL backup comparison (offline)
+        run: python3 -m unittest discover -s scripts -p 'test_normalize_pg_copy.py'
+
+      - name: Test isolated backup restore verification (offline)
+        run: python3 -m unittest discover -s scripts -p 'test_database_restore_drill.py'
+
       - name: Test production workflow safety (offline)
-        run: node --test scripts/production-workflow.test.mjs
+        run: node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs
+
+      - name: Test production queue safety (offline)
+        run: node --test scripts/production-queue-safety.test.mjs
+
+      - name: Test checkout credential persistence (offline)
+        run: node --test scripts/checkout-credentials.test.mjs
+
+      - name: Test staging action pins (offline)
+        run: node --test scripts/staging-action-pins.test.mjs
 
       - name: Run lint
         if: env.DOCS_ONLY != 'true' && steps.frontend.outputs.exists == 'true'

@@ -59,6 +59,38 @@ it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallba
   expect(screen.getByText('Page space is limited. Scroll this paper to continue reading.')).toBeTruthy()
 })
 
+it.each([
+  { key: 'PageDown', scrollTop: 0 },
+  { key: 'PageUp', scrollTop: 100 },
+])('leaves $key available while the identity leaf can scroll', ({ key, scrollTop }) => {
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
+  const region = screen.getByRole('region', { name: 'Left recipe page' })
+  Object.defineProperties(region, {
+    clientHeight: { configurable: true, value: 100 },
+    scrollHeight: { configurable: true, value: 300 },
+  })
+  region.scrollTop = scrollTop
+  region.focus()
+
+  expect(fireEvent.keyDown(region, { key })).toBe(true)
+  expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+})
+
+it('turns the page when PageDown reaches a fractional physical bottom', async () => {
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
+  const region = screen.getByRole('region', { name: 'Left recipe page' })
+  Object.defineProperties(region, {
+    clientHeight: { configurable: true, value: 100 },
+    scrollHeight: { configurable: true, value: 300 },
+  })
+  region.scrollTop = 199.5
+  region.focus()
+
+  expect(region.scrollTop).toBe(199.5)
+  expect(fireEvent.keyDown(region, { key: 'PageDown' })).toBe(false)
+  await screen.findByText('Page 2 of 2')
+})
+
 it('turns through facing leaves with live announcements and preserves route return state', async () => {
   render(<MemoryRouter initialEntries={[{ pathname: '/app/recipes/reading-test', search: '?keep=value', state: { journalReturn: '/app/recipes?entry=6' } }]}><RouteView /></MemoryRouter>)
   expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
