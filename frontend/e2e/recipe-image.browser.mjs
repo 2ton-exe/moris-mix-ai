@@ -11,6 +11,7 @@ import react from '@vitejs/plugin-react'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiOrigin = 'https://qa04.example.test'
 const appUserId = '11111111-1111-4111-8111-111111111111'
+const otherUserId = '22222222-2222-4222-8222-222222222222'
 const recipeId = '33333333-3333-4333-8333-333333333333'
 const oldImageUrl = 'https://images.qa04.example.test/old.webp'
 const newImageUrl = 'https://images.qa04.example.test/new.webp'
@@ -153,6 +154,52 @@ try {
         assert.equal(putAttempts, 2)
         await context.close()
         process.stdout.write(`${browserName} ${browser.version()} at ${width}px (${imageType}): private image load, failed replacement recovery, retry, and layout passed.\n`)
+
+        const otherContext = await browser.newContext({ viewport: { width, height: 844 } })
+        const otherPage = await otherContext.newPage()
+        const otherPageErrors = []
+        let deniedImageDownloads = 0
+        otherPage.on('pageerror', (error) => otherPageErrors.push(error.message))
+        await otherContext.route('**/*', async (route) => {
+          const request = route.request()
+          const url = new URL(request.url())
+          if (url.origin === appOrigin) {
+            if (url.pathname === '/favicon.ico') return route.fulfill({ status: 204 })
+            return route.continue()
+          }
+          assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
+          if (url.pathname === '/auth/v1/user') {
+            return route.fulfill({ json: { id: otherUserId, aud: 'authenticated', email: 'other-cook@example.test' } })
+          }
+          if (url.pathname === `/functions/v1/recipes/${recipeId}` && request.method() === 'GET') {
+            // This mocked denial checks the browser UI; Deno lifecycle tests exercise the real handler.
+            const accessToken = request.headers().authorization?.replace(/^Bearer /, '')
+            assert.ok(accessToken, 'Second cook recipe request must include an authenticated session')
+            const claims = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8'))
+            assert.equal(claims.sub, otherUserId)
+            return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message: 'Recipe not found.' } } })
+          }
+          if (url.pathname === '/functions/v1/recipe-image-download-url' && request.method() === 'POST') {
+            deniedImageDownloads++
+            return route.fulfill({ status: 404, json: { error: { code: 'RECIPE_NOT_FOUND', message: 'Recipe not found.' } } })
+          }
+          assert.fail(`Unexpected request from second cook: ${request.method()} ${url.pathname}`)
+        })
+        await otherPage.addInitScript(({ userId }) => {
+          const expires_at = Math.floor(Date.now() / 1000) + 3600
+          const user = { id: userId, aud: 'authenticated', email: 'other-cook@example.test', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() }
+          const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: userId, exp: expires_at }))}.test-signature`
+          globalThis.localStorage.setItem('sb-qa04-auth-token', JSON.stringify({ access_token: token, refresh_token: 'qa04-other-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
+        }, { userId: otherUserId })
+        await otherPage.goto(`${appOrigin}/app/recipes/${recipeId}`)
+        await expect(otherPage.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible()
+        await expect(otherPage.getByText('This recipe could not be found. It may have been removed or may not be available to you.')).toBeVisible()
+        await expect(otherPage.getByRole('img', { name: 'Ginger rice photo' })).toHaveCount(0)
+        await otherPage.waitForLoadState('networkidle')
+        assert.equal(deniedImageDownloads, 0, `Second cook triggered ${deniedImageDownloads} image download requests`)
+        assert.deepEqual(otherPageErrors, [])
+        await otherContext.close()
+        process.stdout.write(`${browserName} ${browser.version()} at ${width}px: second cook sees unavailable recipe with no image download.\n`)
       }
     } finally {
       await browser.close()

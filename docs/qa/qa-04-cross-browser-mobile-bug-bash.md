@@ -27,6 +27,7 @@ The E2E workflow now installs Chromium, Firefox, and WebKit on Ubuntu and runs t
 - Existing recipe discovery browser check passed in Chrome at desktop, narrow mobile, and extra-narrow mobile widths. It checked search and sort, pagination, empty and retry states, keyboard focus recovery, logout, and horizontal overflow.
 - Existing synthetic-auth browser check passed in Chrome for sign-in, signup, verification pending/success/expired, session restoration, logout, keyboard/focus and recovery behavior. Mobile cases ran at `390×900` and `320×900`.
 - The private-image UI check used intercepted, synthetic API/storage responses. It loaded the current image, selected and previewed a replacement, injected a failed upload, verified the previous image remained visible, retried, and verified the replacement appeared. It also checked for page errors and horizontal overflow.
+- The foreign-cook image UI check used a second synthetic authenticated session and a mocked recipe-read `404`. It verified the page shows `Recipe unavailable`, the private image is absent, and the UI makes zero image-download requests. This verifies frontend behavior when recipe access is denied; it does not exercise Edge Function authorization. The separate Deno lifecycle test `private read signs only the owned recipe's final image and does not cache` in `supabase/functions/tests/recipe_image_lifecycle_test.ts` exercises the actual handler's owner check and passed in this review-fix run.
 - The mobile CRUD regression journey asserts no horizontal overflow during create, detail, edit, and delete at `375×812`. The successful Chef flow also checks pantry entry, preview, reviewed-lineage save, and saved recipe detail at `375×812` in Chromium and WebKit.
 
 ## Findings and dispositions
@@ -51,8 +52,9 @@ No other reproducible product blocker or non-blocking product finding was found 
 | `node e2e/recipe-discovery.browser.mjs` | Passed at `1280×900`, `375×900`, and `320×900` |
 | `node e2e/auth-ui.browser.mjs` | Passed; auth mobile cases at `390×900` and `320×900` |
 | `pnpm run test:e2e:local -- --browser chromium --grep "AI Chef saves"` and WebKit equivalent | Both passed, 1/1 at `375×812`; pantry, preview, reviewed-lineage save, saved detail, and overflow checks |
-| `QA04_BROWSER=chromium pnpm run test:e2e:qa04:images` | Passed at `1280×844` and `375×844`; encoder output `image/webp` |
-| `QA04_BROWSER=webkit pnpm run test:e2e:qa04:images` | Passed at `1280×844` and `375×844`; encoder output `image/png` |
+| `QA04_BROWSER=chromium pnpm run test:e2e:qa04:images` | Owner image journey and foreign-cook denial UI check passed at `1280×844` and `375×844`; encoder output `image/webp`; denied cook made zero image-download requests |
+| `QA04_BROWSER=webkit pnpm run test:e2e:qa04:images` | Owner image journey and foreign-cook denial UI check passed at `1280×844` and `375×844`; encoder output `image/png`; denied cook made zero image-download requests |
+| `deno test --node-modules-dir=auto --allow-env=ALLOWED_ORIGIN --filter "private read signs only" supabase/functions/tests/recipe_image_lifecycle_test.ts` | Passed, 1/1; actual handler returns 404 for a foreign cook's private image read |
 | `pnpm run lint` | Passed |
 | `pnpm run type-check` | Passed |
 | `pnpm run build` | Passed; existing Zod annotation and chunk-size warnings only |
