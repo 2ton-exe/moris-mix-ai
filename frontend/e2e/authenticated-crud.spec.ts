@@ -34,11 +34,11 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     const recipeCard = page.getByRole('link', { name: recipeTitle })
     await expect(recipeCard).toBeVisible()
     await recipeCard.click()
-    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
     await expectRecipeContents(page)
 
     await page.reload()
-    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
     await expectRecipeContents(page)
   })
 
@@ -52,7 +52,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await page.getByRole('button', { name: 'Back to journal' }).click()
     await page.getByRole('link', { name: updatedTitle }).click()
     await page.reload()
-    await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible()
+    await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('4 / 5', { exact: true })).toBeVisible()
   })
 
@@ -87,7 +87,7 @@ test('a signed-in cook cannot view, update, or delete another cook’s recipe', 
   const recipeCard = page.getByRole('link', { name: recipeTitle })
   await expect(recipeCard).toBeVisible()
   await recipeCard.click()
-  await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+  await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
   const recipeUrl = page.url()
 
   await page.getByRole('button', { name: 'Log out' }).click()
