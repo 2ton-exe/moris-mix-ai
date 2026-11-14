@@ -2,7 +2,7 @@
 
 This guide uses the local Supabase stack for app development and documents standalone PostgreSQL as an optional path for database tests. The local stack provides the Auth and PostgREST services used by the app; deterministic checks can also run without it.
 
-The local recipe and demo flows use local Supabase keys and do not require hosted Supabase, Gemini, or R2 credentials. AI extraction and generation each need an optional Gemini API key, and image lifecycle calls need server-side R2 configuration; none is required to start the app or use recipe CRUD and the public demo. See the [AI API guide](api/ai-integration.md) and [recipe image API guide](api/recipe-images.md) before enabling either integration locally.
+The local recipe and demo flows use local Supabase keys and do not require hosted Supabase, Gemini, or R2 credentials. AI extraction and generation each need an optional Gemini API key. Image upload, attachment, and private-read requests require server-side R2 configuration; image deletion only clears the association and queues cleanup, while physical cleanup needs R2. Neither is required to start the app or use recipe CRUD and the public demo. See the [AI API guide](api/ai-integration.md) and [recipe image API guide](api/recipe-images.md) before enabling either integration locally.
 
 ## Prerequisites
 

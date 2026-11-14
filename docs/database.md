@@ -7,7 +7,7 @@ Versioned SQL migrations in `supabase/migrations/` are the source of truth for t
 | Table | Key data | Relationship and access |
 | --- | --- | --- |
 | `profiles` | Auth user ID, display name, avatar URL, timestamps | One profile per `auth.users` row. Users can access their own profile. |
-| `recipes` | Owner ID, title, raw input, notes, ingredients, instructions, flavor scores, rating, cooked date, image fields, timestamps | Owned by `user_id`. The `is_public` flag supports the approved demo row; it does not make the recipe collection public. Search uses generated/indexed ingredient text and database-side ranking. |
+| `recipes` | Owner ID, title, raw input, notes, ingredients, instructions, flavor scores, rating, cooked date, image fields, timestamps | Owned by `user_id`. The `is_public` flag supports the approved demo row; it does not make the recipe collection public. Ingredient filters use generated text; combined searches use database-side ranking. |
 | `recipe_lineage` | Parent recipe ID, child recipe ID, creation time | Both IDs reference recipes. Self-links and duplicate pairs are rejected; deletion cascades with either recipe. The API verifies that the caller owns the child and every parent. |
 | `ai_usage_daily` | User ID, usage date, operation count | One counter per user and date. The backend owns quota updates. |
 | `ai_quota_reservations` | User ID, daily usage ID, reservation status, refund details, timestamps | Internal reservation records support concurrent quota enforcement. Browser roles have no table access. |
