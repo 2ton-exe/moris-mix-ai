@@ -1,10 +1,21 @@
 # Production ownership and final cleanup - issue #73
 
+> **Current status (verified 2026-11-14):** [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142)
+> merged as `8747e6e605c5eda358c1bb77b27d3d120c87bddc`; [issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73)
+> is closed. [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+> automatically ran on that merge SHA and passed core validation, Hosted RLS,
+> production deployment, URL verification, runtime smoke and artifact preservation.
+> The dated cleanup proposal below is historical, not current operating guidance.
+> `modular-main.yml` is now the sole production caller; the [current release workflow](workflows/reusable-production.yml)
+> deploys `recipes`, `extract-recipe` and `generate-recipe`. The latter two
+> targets were added after run #29 and are not claimed as part of that run.
+
 ## Issue #73 final cleanup proposal (2026-10-31)
 
 Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
-This branch proposes repository cleanup; it is not merged-main verification and
-issue #73 is not complete. No GitHub settings are changed here.
+At this 2026-10-31 proposal checkpoint, the branch had not yet provided
+merged-main verification and issue #73 remained open. This proposal itself
+made no GitHub settings changes.
 
 Operator-provided evidence at that main SHA already proves both ownership modes:
 
@@ -70,14 +81,20 @@ the planned handoff without a required-check protection gap. Required human
 review and review-thread resolution remain enabled. This documentation update
 records that completed GitHub action; it changes no policy.
 
-PR #142 is still unmerged. Still pending are its merge, confirmation that `ci.yml`
-is absent from merged main, and automatic Modular Main Validation on the merge
-SHA. Observe mandatory Hosted RLS on main and Modular Main Production execution;
-verify recipes deployment, Cloudflare deployment, production URL verification,
-runtime smoke, outcome summary and artifact preservation. Verify PR Secretary
-from the new default-branch code. The completed ruleset handoff does not establish
-merged production steady state or any of these post-merge outcomes; issue #73
-remains open until that verification is complete.
+At the 2026-10-31 proposal checkpoint, PR #142 was still unmerged. Its
+merge, removal of `ci.yml` from merged main, and automatic modular-only main
+validation, production deployment, URL verification, runtime smoke and artifact
+preservation were pending then. The ruleset handoff alone did not prove those
+post-merge outcomes; PR Secretary default-branch verification was also pending.
+
+**Later verified (2026-10-31 UTC / 2026-11-01 PHT):** PR #142 merged as
+[`8747e6e`](https://github.com/2ton-exe/moris-mix-ai/commit/8747e6e605c5eda358c1bb77b27d3d120c87bddc),
+retiring `ci.yml`. [Main run #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+passed Frontend, Database, Edge/API, mandatory Hosted RLS, production deployment
+(`recipes` and Cloudflare), URL verification, runtime smoke and artifact
+preservation. Issue #73 is closed. The pre-merge pending statements above are
+historical; PR Secretary verification is not independently established by this
+run, nor does successful runtime smoke establish full authenticated acceptance.
 Do not rerun pre-cleanup production revisions as a rollback shortcut; concurrency
 serializes deployments but does not reject stale runs. Rollback after retirement
 requires a reviewed repository change restoring the required caller/guards, not a

@@ -100,13 +100,17 @@ The frontend and repository tooling are separate pnpm projects. Run frontend ins
 
 ## Cloudflare Workers deployment
 
-Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The proposed [modular main caller](../../.github/workflows/modular-main.yml) invokes the shared production release after successful core validation, mandatory hosted RLS, and frontend existence on main. See the [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) for policy and post-merge verification still required.
+Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The [modular main caller](../../.github/workflows/modular-main.yml) is the sole production caller and invokes the shared production release after successful core validation, mandatory hosted RLS, and frontend existence on main. See the historical [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) for pre-merge cutover and rollback context.
 
-The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10 for frontend installs. Its guarded `deploy` job deploys the `recipes` Edge Function to Supabase before deploying the frontend to Cloudflare. The function step uses `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
+The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10 for frontend installs. Its guarded `deploy` job deploys the `recipes`, `extract-recipe`, and `generate-recipe` Edge Functions to Supabase before deploying the frontend to Cloudflare. The function steps use `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
 
-**Cleanup proposal:** `frontend/package.json` is present. The modular main
+**Verified production path:** `frontend/package.json` is present. The modular main
 production caller retains main push/manual-only guards, successful frontend,
 database and aggregate Edge/API validation, mandatory nested hosted RLS, and
 frontend existence. PRs cannot call production. Cutover and ownership rollback
-were operator-confirmed on `46809319eb23394a45d6f1ea79f8ee41f541011b`;
-modular-only behavior after merging this cleanup remains unverified.
+were operator-confirmed on `46809319eb23394a45d6f1ea79f8ee41f541011b` before legacy retirement.
+[PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) retired `ci.yml`.
+[Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+on merge SHA `8747e6e605c5eda358c1bb77b27d3d120c87bddc` passed core validation,
+mandatory hosted RLS, production deployment, and production runtime smoke,
+verifying the modular-only path after merge.
