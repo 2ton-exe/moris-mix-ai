@@ -2,6 +2,8 @@
 
 This guide uses the local Supabase stack for app development and documents standalone PostgreSQL as an optional path for database tests. The local stack provides the Auth and PostgREST services used by the app; deterministic checks can also run without it.
 
+The local recipe and demo flows use local Supabase keys and do not require hosted Supabase, Gemini, or R2 credentials. AI generation needs an optional Gemini key, and image lifecycle calls need server-side R2 configuration; neither is required to start the app or use recipe CRUD and the public demo. See the [AI API guide](api/ai-integration.md) and [recipe image API guide](api/recipe-images.md) before enabling either integration locally.
+
 ## Prerequisites
 
 - [Node.js 24](https://nodejs.org/en/download) and pnpm 10 (`npm install --global pnpm@10`; see the [pnpm 10 installation guide](https://pnpm.io/10.x/installation))
@@ -58,7 +60,7 @@ The local Supabase database is available on loopback port `54322` by default and
    ```sh
    supabase functions serve
    ```
-   The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). Create that gitignored file before serving, because both AI endpoints are **off by default** (AI-05 and AI-06):
+   The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). AI endpoints are **off by default** (AI-05 and AI-06); create this gitignored file only if you want to exercise them locally:
 
    ```sh
    # Required: allow POST /extract-recipe and POST /generate-recipe.

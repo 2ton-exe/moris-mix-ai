@@ -24,6 +24,8 @@ Never expose Gemini credentials, service role keys, or Cloudflare R2 secrets to 
 
 See the [Sprint 1 architecture ADR](docs/architecture/sprint-1-adr.md) for the target data flow, API contract, folder and pnpm conventions, and Workers deployment plan.
 
+See the [database overview](docs/database.md) for the implemented tables, relationships, and ownership rules. The [API reference](docs/api/README.md) links the recipe, authentication, demo, AI, and private recipe-image contracts.
+
 ## Tech Stack
 
 - Frontend: React, Vite, TypeScript, Tailwind CSS, and shadcn
