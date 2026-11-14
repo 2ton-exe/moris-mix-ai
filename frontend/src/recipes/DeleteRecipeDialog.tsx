@@ -1,5 +1,8 @@
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import type { KeyboardEvent } from 'react'
+import { Mori } from '../journal/Mori'
+import { Tape } from '../journal/Scrapbook'
 
 interface DeleteRecipeDialogProps {
   recipeTitle: string
@@ -66,7 +69,7 @@ export function DeleteRecipeDialog({ recipeTitle, isPending, errorMessage, canRe
     }
   }
 
-  return (
+  return createPortal(
     <div className="delete-dialog-backdrop">
       <div
         className="delete-dialog"
@@ -79,8 +82,12 @@ export function DeleteRecipeDialog({ recipeTitle, isPending, errorMessage, canRe
         ref={dialogRef}
         onKeyDown={handleKeyDown}
       >
-        <span className="recipe-card-label">Delete recipe</span>
-        <h2 id={titleId}>Delete “{recipeTitle}”?</h2>
+        <Tape variant="burgundy" className="mm-delete-dialog__tape" />
+        <span className="recipe-card-label mm-delete-dialog__label">A note from your journal</span>
+        <div className="mm-delete-dialog__heading">
+          <Mori mood="worried" size={62} label="Mori is worried about deleting this recipe" />
+          <h2 id={titleId}>Delete “{recipeTitle}”?</h2>
+        </div>
         <p id={descriptionId}>This action cannot be undone. The recipe will be removed from your collection.</p>
         {isPending && <p className="delete-pending" role="status" tabIndex={-1} ref={pendingStatusRef}>Deleting “{recipeTitle}”…</p>}
         {errorMessage && <p className="delete-error" role="alert">{errorMessage}</p>}
@@ -91,6 +98,6 @@ export function DeleteRecipeDialog({ recipeTitle, isPending, errorMessage, canRe
           </button>
         </div>
       </div>
-    </div>
+    </div>, document.getElementById('journal-overlays') ?? document.body,
   )
 }

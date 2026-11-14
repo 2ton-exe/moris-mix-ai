@@ -1,16 +1,18 @@
 import { useContext, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { DeleteRecipeDialog } from './DeleteRecipeDialog'
 import { presentDeleteError } from './deleteErrors'
 import { RecipeSourceContext } from './source'
 import { useDeleteRecipe } from './useDeleteRecipe'
+import { journalReturnTo } from '../journal/indexNavigation'
 
 export function RecipeDeletionControl({ recipeId, recipeTitle }: { recipeId: string; recipeTitle: string }) {
   const { user, isAuthenticated } = useAuth()
   const source = useContext(RecipeSourceContext)
   const { mutation, isAvailable, requestFor } = useDeleteRecipe()
   const navigate = useNavigate()
+  const location = useLocation()
   const [isOpen, setOpen] = useState(false)
   const submitLocked = useRef(false)
   const error = presentDeleteError(mutation.error)
@@ -25,7 +27,7 @@ export function RecipeDeletionControl({ recipeId, recipeTitle }: { recipeId: str
       onSuccess: () => {
         submitLocked.current = false
         setOpen(false)
-        navigate('/app/recipes', { state: { recipeDeleted: true, accountId: request.userId } })
+        navigate(journalReturnTo(location.state), { state: { recipeDeleted: true, accountId: request.userId, journalAccount: request.userId } })
       },
       onError: () => { submitLocked.current = false },
     })
@@ -34,10 +36,10 @@ export function RecipeDeletionControl({ recipeId, recipeTitle }: { recipeId: str
   return (
     <div className="recipe-delete-control">
       {isAvailable ? (
-        <button className="button button-danger" type="button" onClick={(event) => { event.currentTarget.focus(); setOpen(true) }}>Delete recipe</button>
+        <button className="button button-danger mm-button--ghost mm-button--small" type="button" onClick={(event) => { event.currentTarget.focus(); setOpen(true) }}>Delete recipe</button>
       ) : (
         <div className="recipe-delete-unavailable">
-          <button className="button button-danger" type="button" disabled>Delete unavailable</button>
+          <button className="button button-danger mm-button--ghost mm-button--small" type="button" disabled>Delete unavailable</button>
           <p role="status">Recipe deletion is not connected yet.</p>
         </div>
       )}
