@@ -350,3 +350,37 @@ it('handles malformed initial data without rendering an unsafe edit form', () =>
   expect(screen.getByRole('alert').textContent).toContain('could not be prepared')
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
 })
+
+it('restores a confirmed create as saved and keeps post-save edits explicit', async () => {
+  const statusMessage = 'Recipe saved. Parent links still need attention.'
+  const submit = vi.fn().mockResolvedValue({ id: 'saved-recipe', statusMessage })
+  render(<RecipeForm
+    mode="create"
+    initialValues={editable}
+    initialSaveConfirmation={{ id: 'saved-recipe', statusMessage }}
+    saveSuccessMessage={statusMessage}
+    onSubmit={submit}
+  />)
+
+  expect(screen.getByText(statusMessage)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Save changes' }).matches(':disabled')).toBe(true)
+  fill('Recipe title', 'Edited after recovery')
+  click('Save changes')
+  await screen.findByText(statusMessage)
+  expect(submit).toHaveBeenCalledOnce()
+  expect(submit.mock.calls[0][0].title).toBe('Edited after recovery')
+})
+
+it('ignores duplicate submit events while a create request is in flight', async () => {
+  const request = deferred<{ id: string }>()
+  const submit = vi.fn().mockReturnValue(request.promise)
+  render(<RecipeForm mode="create" initialValues={editable} onSubmit={submit} />)
+  fill('Recipe title', 'One saved recipe')
+  const form = document.querySelector<HTMLFormElement>('form.recipe-form')
+  expect(form).toBeTruthy()
+  fireEvent.submit(form!)
+  fireEvent.submit(form!)
+  expect(submit).toHaveBeenCalledOnce()
+  await act(async () => request.resolve({ id: 'saved-recipe' }))
+  await screen.findByText('Recipe saved.')
+})

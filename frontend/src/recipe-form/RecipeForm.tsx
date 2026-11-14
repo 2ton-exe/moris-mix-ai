@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { RecipeDraft, RecipeDraftInput, RecipeEditorState } from './draft'
 import { recipeDraftSchema, recipeEditorStateSchema } from './draft'
 import type { RecipeSaveConfirmation } from './submission'
+import { confirmedSave } from './submission'
 import { RecipeFormEditor } from './RecipeFormEditor'
 
 export type RecipeFormProps = {
@@ -10,6 +11,8 @@ export type RecipeFormProps = {
   initialValues?: RecipeDraftInput
   initialEditorState?: RecipeEditorState
   initialValuesAreUnsaved?: boolean
+  initialSaveConfirmation?: RecipeSaveConfirmation
+  saveSuccessMessage?: string
   onSubmit?: (draft: RecipeDraft, context: { signal: AbortSignal }) => Promise<RecipeSaveConfirmation>
   onCancel?: () => void
   cancelLabel?: string
@@ -29,6 +32,7 @@ export function RecipeForm(props: RecipeFormProps) {
   const [initialState] = useState(() => props.initialEditorState === undefined ? undefined : recipeEditorStateSchema.safeParse(props.initialEditorState))
   if ((props.initialValues !== undefined && !initial?.success) ||
     (props.initialEditorState !== undefined && !initialState?.success) ||
+    (props.initialSaveConfirmation !== undefined && !confirmedSave(props.initialSaveConfirmation)) ||
     (props.initialValues !== undefined && props.initialEditorState !== undefined) ||
     (props.mode === 'edit' && props.initialValues === undefined)) {
     return <p className="field-error" role="alert">This recipe could not be prepared for editing. Please reload it before making changes.</p>
