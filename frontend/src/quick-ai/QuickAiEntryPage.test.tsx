@@ -193,7 +193,8 @@ describe('Quick AI Entry', () => {
       return setItem.call(this, key, value)
     })
     const { router } = renderEntry({ initialEntry: '/app/recipes' })
-    fireEvent.click(screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" }))
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
     const sourceNotes = 'notes before browser back'
     enterNotes(sourceNotes)
 
@@ -331,22 +332,24 @@ describe('Quick AI Entry', () => {
     restored.unmount()
   })
 
-  it('opens from the Mori bookmark, returns to the exact journal location, and restores the unsaved preview', async () => {
+  it('opens Quick AI Entry from Talk to Mori, returns to the exact journal location, and restores the unsaved preview', async () => {
     const journalLocation = '/app/recipes?q=rice&sort=rating&leaf=2#collection-heading'
     const extract = vi.fn<Extract>().mockResolvedValue(recipe)
     renderEntry({ extract, initialEntry: journalLocation })
 
     const bookmarks = screen.getByRole('navigation', { name: 'Journal sections' })
     const recipesBookmark = screen.getByRole('link', { name: 'My recipes' })
-    const moriBookmark = screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" })
+    const moriBookmark = screen.getByRole('button', { name: 'Talk to Mori' })
     expect(recipesBookmark.getAttribute('aria-current')).toBe('page')
-    expect(moriBookmark.getAttribute('href')).toBe('/app/quick-entry')
+    expect(moriBookmark.getAttribute('aria-expanded')).toBe('false')
     moriBookmark.focus()
     expect(document.activeElement).toBe(moriBookmark)
     fireEvent.click(moriBookmark)
+    expect(screen.getByRole('dialog', { name: 'Mori' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
 
     expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('button', { name: 'Talk to Mori' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBeNull()
     expect(bookmarks).toBeTruthy()
 
@@ -360,7 +363,8 @@ describe('Quick AI Entry', () => {
     expect((await screen.findByTestId('journal-location')).textContent).toBe(journalLocation)
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
 
-    fireEvent.click(screen.getByRole('link', { name: "Mori's notes, Quick AI Entry" }))
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
     expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()

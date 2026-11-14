@@ -12,7 +12,7 @@ export function journalReturnTo(state: unknown, fallback = '/app/recipes') {
   return fallback
 }
 
-/** Preserve the current journal page when opening Quick AI Entry from its bookmark. */
+/** Preserve the current journal page when opening Quick AI Entry from Talk to Mori. */
 export function journalReturnFromLocation(location: { pathname: string; search: string; hash?: string; state: unknown }, fallback = '/app/recipes') {
   if (QUICK_AI_ENTRY_PATH.test(location.pathname)) return journalReturnTo(location.state, fallback)
   return journalReturnTo({ journalReturn: `${location.pathname}${location.search}${location.hash ?? ''}` }, fallback)
