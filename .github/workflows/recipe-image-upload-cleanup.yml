@@ -16,7 +16,7 @@ jobs:
   cleanup:
     if: ${{ github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' }}
     runs-on: ubuntu-latest
-    environment: recipe-image-upload-production
+    environment: recipe-image-cleanup-production
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

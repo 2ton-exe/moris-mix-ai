@@ -344,13 +344,13 @@ test('upload signing stays hard-disabled independently of migration dispatch', (
   }
 });
 
-test('recipe image cleanup requires the explicit production opt-in and protected environment', () => {
+test('recipe image cleanup requires the explicit production opt-in and unattended cleanup environment', () => {
   assert.deepEqual(scheduledCleanup.on.schedule, [{ cron: '*/15 * * * *' }]);
   assert.equal('workflow_dispatch' in scheduledCleanup.on, true);
   assert.deepEqual(scheduledCleanup.permissions, { contents: 'read' });
   const cleanup = scheduledCleanup.jobs.cleanup;
   assert.equal(cleanup.if, "${{ github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' }}");
-  assert.equal(cleanup.environment, 'recipe-image-upload-production');
+  assert.equal(cleanup.environment, 'recipe-image-cleanup-production');
   assert.equal(cleanup.steps.length, 2);
   assert.equal(cleanup.steps[0].uses, 'actions/checkout@v4');
   const invocation = cleanup.steps[1];
@@ -604,7 +604,7 @@ test('cleanup invocation uses only the protected opt-in and has no storage crede
   const cleanup = scheduledCleanup.jobs.cleanup;
   const invocation = step(cleanup, 'Invoke recipe image cleanup');
   assert.equal(deployment.if, false);
-  assert.equal(cleanup.environment, 'recipe-image-upload-production');
+  assert.equal(cleanup.environment, 'recipe-image-cleanup-production');
   assert.equal(invocation.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
   assert.doesNotMatch(invocation.run, /RECIPE_IMAGE_CLEANUP_ENABLED/);
   assert.doesNotMatch(JSON.stringify(invocation), /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)|SUPABASE_SERVICE_ROLE_KEY/);
