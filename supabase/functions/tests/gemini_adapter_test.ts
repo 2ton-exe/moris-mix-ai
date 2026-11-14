@@ -700,6 +700,45 @@ Deno.test("AI output schemas and parsers enforce the 8 KiB JSON response budget"
   assertEquals(generationError.code, "output_truncated");
 });
 
+Deno.test("output size limit includes fields added during Zod normalization", () => {
+  const compactIngredients = Array.from({ length: 100 }, () => ({
+    name: "x".repeat(45),
+  }));
+  const extractionRaw = JSON.stringify({
+    title: "Recipe",
+    ingredients: compactIngredients,
+    instructions: [],
+  });
+  assert(
+    new TextEncoder().encode(extractionRaw).byteLength <
+      MAX_AI_OUTPUT_JSON_BYTES,
+  );
+  const extractionError = assertThrows(
+    () => parseExtractionResponse(extractionRaw),
+    AIError,
+  );
+  assertEquals(extractionError.code, "output_truncated");
+
+  const generationRaw = JSON.stringify({
+    recipe: {
+      title: "Recipe",
+      ingredients: compactIngredients,
+      instructions: [],
+    },
+    substitutions: [],
+    parentRecipeIds: [],
+  });
+  assert(
+    new TextEncoder().encode(generationRaw).byteLength <
+      MAX_AI_OUTPUT_JSON_BYTES,
+  );
+  const generationError = assertThrows(
+    () => parseGenerationResponse(generationRaw, new Set()),
+    AIError,
+  );
+  assertEquals(generationError.code, "output_truncated");
+});
+
 Deno.test("both operations report MAX_TOKENS as output_truncated without retrying", async () => {
   const operations: Array<{
     label: "extract" | "generate";

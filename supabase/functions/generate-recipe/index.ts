@@ -29,7 +29,11 @@ import {
   readBodyWithinByteLimit,
   withAiCorsMethods,
 } from "../_shared/ai/http.ts";
-import { consumeDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
+import {
+  consumeDailyQuota,
+  logQuotaRpcFailure,
+  type QuotaCheck,
+} from "../_shared/ai/quota.ts";
 import {
   buildChefRecipeContext,
   ChefCandidateContextTooLargeError,
@@ -407,7 +411,7 @@ async function handleRequest(
       try {
         await quota.confirm?.();
       } catch (confirmError) {
-        console.error("Quota confirmation failed", confirmError);
+        logQuotaRpcFailure("confirmation", confirmError);
       }
 
       return generateJsonResponse(responseValidation.data, { status: 200 });
@@ -416,13 +420,13 @@ async function handleRequest(
         try {
           await quota.rollback?.();
         } catch (rollbackError) {
-          console.error("Quota rollback failed", rollbackError);
+          logQuotaRpcFailure("rollback", rollbackError);
         }
       } else {
         try {
           await quota.confirm?.();
         } catch (confirmError) {
-          console.error("Quota confirmation failed", confirmError);
+          logQuotaRpcFailure("confirmation", confirmError);
         }
       }
       throw opError;

@@ -20,7 +20,7 @@ export const RecipeImageAttachRequestSchema = z.object({
 }).strict();
 
 export const RecipeImageRecipeRequestSchema = z.object({
-  recipe_id: z.string().uuid(),
+  recipe_id: z.guid(),
 }).strict();
 
 export const RecipeImageDownloadResponseSchema = z.object({

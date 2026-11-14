@@ -19,6 +19,7 @@ import {
   type PromptTemplate,
 } from "./prompts.ts";
 import {
+  AI_OUTPUT_SIZE_LIMIT_MESSAGE,
   ExtractedRecipeSchema,
   GeneratedRecipeSchema,
   MAX_AI_OUTPUT_JSON_BYTES,
@@ -503,6 +504,18 @@ export function parseExtractionResponse(raw: string): ExtractedRecipe {
 
   const parsed = ExtractedRecipeSchema.safeParse(value);
   if (!parsed.success) {
+    if (
+      parsed.error.issues.some((issue) =>
+        issue.code === "custom" &&
+        issue.message === AI_OUTPUT_SIZE_LIMIT_MESSAGE
+      )
+    ) {
+      throw new AIError(
+        "output_truncated",
+        "extract",
+        "Gemini output exceeded the supported response size after normalization.",
+      );
+    }
     const fieldPaths = parsed.error.issues
       .map((issue) => issue.path.join("."))
       .join(", ");
@@ -559,6 +572,18 @@ export function parseGenerationResponse(
 
   const parsed = GeneratedRecipeSchema.safeParse(value);
   if (!parsed.success) {
+    if (
+      parsed.error.issues.some((issue) =>
+        issue.code === "custom" &&
+        issue.message === AI_OUTPUT_SIZE_LIMIT_MESSAGE
+      )
+    ) {
+      throw new AIError(
+        "output_truncated",
+        "generate",
+        "Gemini output exceeded the supported response size after normalization.",
+      );
+    }
     const fieldPaths = parsed.error.issues
       .map((issue) => issue.path.join("."))
       .join(", ");

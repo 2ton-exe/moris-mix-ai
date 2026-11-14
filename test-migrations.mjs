@@ -192,7 +192,7 @@ function runDiscoveryAndIntegrityUnitTests() {
     assert.match(definition, /begin\s+if auth\.role\(\) IS DISTINCT FROM 'service_role' then\s+raise exception 'Unauthorized quota operation' using errcode = '42501';/);
     assert.doesNotMatch(definition, /auth\.role\(\)\s*<>/);
   }
-  const shortWindowRateMigration = migrations.find((migration) => migration.version === '20261107000017');
+  const shortWindowRateMigration = migrations.find((migration) => migration.version === '20261114000019');
   assert.ok(shortWindowRateMigration, 'short-window AI rate-limit migration is present');
   const shortWindowRateSql = fs.readFileSync(shortWindowRateMigration.filePath, 'utf8');
   const boundedChefCandidates = migrations.find((migration) => migration.version === '20261114000018');

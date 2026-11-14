@@ -95,7 +95,7 @@ function readSafeErrorMetadata(error: unknown): {
   return metadata;
 }
 
-function logQuotaRpcFailure(stage: string, error?: unknown): void {
+export function logQuotaRpcFailure(stage: string, error?: unknown): void {
   console.error(JSON.stringify({
     event: "ai_quota_rpc_failed",
     stage,

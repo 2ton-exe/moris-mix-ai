@@ -132,8 +132,8 @@ candidate RPC measures their aggregate JSON size and returns no bodies above
 64 KiB. This bounds candidate loading before prompt assembly; an oversized set
 uses the same `422 AI_CONTEXT_TOO_LARGE` response.
 
-Apply migrations `20261107000017_ai_short_window_rate_limit.sql` and
-`20261114000018_bounded_chef_candidate_retrieval.sql` through the normal non-production
+Apply migrations `20261114000018_bounded_chef_candidate_retrieval.sql` and
+`20261114000019_ai_short_window_rate_limit.sql` through the normal non-production
 validation and deployment workflow before deploying these handlers.
 The short-window guard requires no new environment setting; `AI_DAILY_LIMIT` retains
 its existing behavior.

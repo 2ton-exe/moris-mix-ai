@@ -5,13 +5,13 @@ import type { Ingredient, Instruction } from '../api/demoRecipe'
 // Deno Zod schemas in _shared/ai/schemas.ts; npm: imports cannot run in Vite.
 // Keep this bridge aligned until a browser-compatible shared package exists.
 const ingredientSchema = z.object({
-  name: z.string().trim(),
-  quantity: z.number().finite().nullable(),
-  unit: z.string().nullable(),
-  quantityText: z.string().optional(),
+  name: z.string().trim().min(1).max(200),
+  quantity: z.number().finite().nonnegative().nullable(),
+  unit: z.string().max(100).nullable(),
+  quantityText: z.string().max(200).optional(),
   inferred: z.boolean().default(false),
 }) satisfies z.ZodType<Ingredient>
-const instructionSchema = z.object({ step: z.number().finite(), text: z.string() }) satisfies z.ZodType<Instruction>
+const instructionSchema = z.object({ step: z.number().finite(), text: z.string().max(2_000) }) satisfies z.ZodType<Instruction>
 
 function calendarDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -20,13 +20,12 @@ function calendarDate(value: string) {
 }
 
 export const recipeDraftSchema = z.object({
-  title: z.string().trim().min(1, 'Enter a recipe title.'),
-  ingredients: z.array(ingredientSchema),
-  instructions: z.array(instructionSchema),
+  title: z.string().trim().min(1, 'Enter a recipe title.').max(200),
+  ingredients: z.array(ingredientSchema).max(100),
+  instructions: z.array(instructionSchema).max(100),
   star_rating: z.number().int().min(1).max(5).nullable(),
   cooked_at: z.string().refine(calendarDate, 'Enter a valid calendar date.').nullable(),
-  // BE-06 accepts recipe notes, but publishes no length limit for this field.
-  notes: z.string().default(''),
+  notes: z.string().max(20_000).default(''),
 })
 export type RecipeDraft = z.infer<typeof recipeDraftSchema>
 export type RecipeDraftInput = z.input<typeof recipeDraftSchema>
@@ -50,14 +49,14 @@ export interface RecipeEditorState {
 }
 
 export const recipeEditorStateSchema = z.object({
-  title: z.string(),
+  title: z.string().max(200),
   ingredients: z.array(z.object({
-    key: z.string().min(1), name: z.string(), quantity: z.string(), unit: z.string(), quantityText: z.string(), inferred: z.boolean(),
-  })),
-  instructions: z.array(z.object({ key: z.string().min(1), text: z.string() })),
+    key: z.string().min(1), name: z.string().max(200), quantity: z.string(), unit: z.string().max(100), quantityText: z.string().max(200), inferred: z.boolean(),
+  })).max(100),
+  instructions: z.array(z.object({ key: z.string().min(1), text: z.string().max(2_000) })).max(100),
   rating: z.string(),
   cookedDate: z.string(),
-  notes: z.string(),
+  notes: z.string().max(20_000),
 }) satisfies z.ZodType<RecipeEditorState>
 
 export const emptyRecipeDraft = (): RecipeDraft => ({

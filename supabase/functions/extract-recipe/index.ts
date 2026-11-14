@@ -13,7 +13,11 @@ import {
 import type { AIProvider } from "../_shared/ai/AIProvider.ts";
 import { AIError, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
 import { createFailureDrillProvider } from "../_shared/ai/drills.ts";
-import { consumeDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
+import {
+  consumeDailyQuota,
+  logQuotaRpcFailure,
+  type QuotaCheck,
+} from "../_shared/ai/quota.ts";
 import {
   AI_ALLOWED_METHODS,
   AI_MAX_REQUEST_BYTES,
@@ -270,7 +274,7 @@ async function handleRequest(
       try {
         await quota.confirm?.();
       } catch (confirmError) {
-        console.error("Quota confirmation failed", confirmError);
+        logQuotaRpcFailure("confirmation", confirmError);
       }
 
       return extractJsonResponse({ recipe: revalidated.data }, { status: 200 });
@@ -279,13 +283,13 @@ async function handleRequest(
         try {
           await quota.rollback?.();
         } catch (rollbackError) {
-          console.error("Quota rollback failed", rollbackError);
+          logQuotaRpcFailure("rollback", rollbackError);
         }
       } else {
         try {
           await quota.confirm?.();
         } catch (confirmError) {
-          console.error("Quota confirmation failed", confirmError);
+          logQuotaRpcFailure("confirmation", confirmError);
         }
       }
       throw opError;

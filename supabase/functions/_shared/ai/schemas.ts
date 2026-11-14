@@ -53,6 +53,8 @@ export const FlavorScoreSchema = z.object({
 
 // --- AI SCHEMAS (SPRINT 2) ---
 export const MAX_AI_OUTPUT_JSON_BYTES = 8 * 1024;
+export const AI_OUTPUT_SIZE_LIMIT_MESSAGE =
+  "AI output exceeds the supported JSON byte limit.";
 
 function isWithinAiOutputJsonLimit(value: unknown): boolean {
   const serialized = JSON.stringify(value);
@@ -71,7 +73,7 @@ export const ExtractedRecipeSchema = z.object({
   if (!isWithinAiOutputJsonLimit(value)) {
     ctx.addIssue({
       code: "custom",
-      message: "AI output exceeds the supported JSON byte limit.",
+      message: AI_OUTPUT_SIZE_LIMIT_MESSAGE,
     });
   }
 });
@@ -96,7 +98,7 @@ export const GeneratedRecipeSchema = z.object({
   if (!isWithinAiOutputJsonLimit(value)) {
     ctx.addIssue({
       code: "custom",
-      message: "AI output exceeds the supported JSON byte limit.",
+      message: AI_OUTPUT_SIZE_LIMIT_MESSAGE,
     });
   }
 
