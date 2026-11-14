@@ -1,6 +1,16 @@
-import { assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
+import {
+  assertEquals,
+  assertNotEquals,
+  assertRejects,
+  assertThrows,
+} from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { handler, MAX_LINEAGE_REQUEST_BYTES } from "../recipes/index.ts";
+import {
+  handler,
+  MAX_LINEAGE_REQUEST_BYTES,
+  MAX_RECIPE_REQUEST_BYTES,
+  MAX_RECIPE_SEARCH_CHARS,
+} from "../recipes/index.ts";
 import {
   CreateLineageRequestSchema,
   CreateRecipeRequestSchema,
@@ -18,8 +28,8 @@ import {
 import { signCandidateToken } from "../_shared/ai/candidateToken.ts";
 import {
   evaluateHostedRlsPrerequisites,
-  isLoopbackHost,
   isLegacyServiceRoleJwt,
+  isLoopbackHost,
   isModernPublishableKey,
   isModernSecretKey,
   KNOWN_PRODUCTION_REF,
@@ -39,7 +49,8 @@ const VERIFIED_USER_EMAIL = "verified@morisscraps.local";
 const CREATED_RECIPE_ID = "33333333-3333-4333-8333-333333333333";
 
 /** AI-07: lineage tests sign and verify with the same fixed secret. */
-const TEST_CANDIDATE_TOKEN_SECRET = "test-candidate-token-secret-0123456789abcdef";
+const TEST_CANDIDATE_TOKEN_SECRET =
+  "test-candidate-token-secret-0123456789abcdef";
 Deno.env.set("AI_CANDIDATE_TOKEN_SECRET", TEST_CANDIDATE_TOKEN_SECRET);
 
 function candidateTokenFor(
@@ -50,7 +61,9 @@ function candidateTokenFor(
     userId: options.userId ?? VERIFIED_USER_ID,
     parentRecipeIds: parentIds,
     secret: TEST_CANDIDATE_TOKEN_SECRET,
-    ...(options.ttlSeconds === undefined ? {} : { ttlSeconds: options.ttlSeconds }),
+    ...(options.ttlSeconds === undefined
+      ? {}
+      : { ttlSeconds: options.ttlSeconds }),
     ...(options.now === undefined ? {} : { now: options.now }),
   });
 }
@@ -61,7 +74,13 @@ function validRecipePayload() {
     raw_input: "Leftover jasmine rice, shallots, garlic, soy sauce.",
     ingredients: [
       { name: "jasmine rice", quantity: 2, unit: "cups", inferred: false },
-      { name: "shallots", quantity: null, unit: null, quantityText: "2 small", inferred: true },
+      {
+        name: "shallots",
+        quantity: null,
+        unit: null,
+        quantityText: "2 small",
+        inferred: true,
+      },
     ],
     instructions: [
       { step: 1, text: "Slice shallots and garlic thinly." },
@@ -151,7 +170,13 @@ Deno.test("CreateRecipeRequestSchema and RecipeResponseSchema validate valid pay
     title: "A bowl of ginger rice",
     ingredients: [
       { name: "rice", quantity: 2, unit: "cups", inferred: false },
-      { name: "ginger", quantity: null, unit: null, quantityText: "A small piece", inferred: true },
+      {
+        name: "ginger",
+        quantity: null,
+        unit: null,
+        quantityText: "A small piece",
+        inferred: true,
+      },
     ],
     instructions: [
       { step: 1, text: "Prepare the rice." },
@@ -167,9 +192,24 @@ Deno.test("CreateRecipeRequestSchema and RecipeResponseSchema validate valid pay
   });
   assertEquals(responseResult.success, true);
 
-  assertEquals(RecipeResponseSchema.safeParse({ recipe: persistedRecipeRow({ notes: "Saved notes" }) }).success, true);
-  assertEquals(RecipeResponseSchema.safeParse({ recipe: persistedRecipeRow({ notes: null }) }).success, true);
-  assertEquals(RecipeResponseSchema.safeParse({ recipe: persistedRecipeRow({ notes: 12345 }) }).success, false);
+  assertEquals(
+    RecipeResponseSchema.safeParse({
+      recipe: persistedRecipeRow({ notes: "Saved notes" }),
+    }).success,
+    true,
+  );
+  assertEquals(
+    RecipeResponseSchema.safeParse({
+      recipe: persistedRecipeRow({ notes: null }),
+    }).success,
+    true,
+  );
+  assertEquals(
+    RecipeResponseSchema.safeParse({
+      recipe: persistedRecipeRow({ notes: 12345 }),
+    }).success,
+    false,
+  );
 
   const demoCompat = DemoRecipeResponseSchema.safeParse({
     recipe: persistedRecipeRow(),
@@ -184,6 +224,41 @@ Deno.test("CreateRecipeRequestSchema and RecipeResponseSchema validate valid pay
   assertEquals(extractedCompat.success, true);
 });
 
+Deno.test("Recipe request schemas bound text fields and collection sizes", () => {
+  assertEquals(
+    CreateRecipeRequestSchema.safeParse({
+      ...validRecipePayload(),
+      title: "x".repeat(200),
+      notes: "x".repeat(20_000),
+      ingredients: Array.from({ length: 100 }, () => ({ name: "x" })),
+      instructions: Array.from(
+        { length: 100 },
+        (_, i) => ({ step: i + 1, text: "x".repeat(2_000) }),
+      ),
+    }).success,
+    true,
+  );
+  assertEquals(
+    CreateRecipeRequestSchema.safeParse({
+      ...validRecipePayload(),
+      title: "x".repeat(201),
+    }).success,
+    false,
+  );
+  assertEquals(
+    CreateRecipeRequestSchema.safeParse({
+      ...validRecipePayload(),
+      ingredients: Array.from({ length: 101 }, () => ({ name: "x" })),
+    }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ notes: "x".repeat(20_001) }).success,
+    false,
+  );
+  assertEquals(MAX_RECIPE_SEARCH_CHARS, 200);
+});
+
 Deno.test("CORS OPTIONS preflight on /recipes returns 204 with POST, OPTIONS allowed and does not require authentication", async () => {
   const req = new Request("http://localhost/functions/v1/recipes", {
     method: "OPTIONS",
@@ -191,7 +266,10 @@ Deno.test("CORS OPTIONS preflight on /recipes returns 204 with POST, OPTIONS all
   const res = await handler(req);
   assertEquals(res.status, 204);
   assertEquals(res.headers.get("access-control-allow-origin"), "*");
-  assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+  assertEquals(
+    res.headers.get("access-control-allow-methods"),
+    "GET, POST, PATCH, DELETE, OPTIONS",
+  );
   assertEquals(
     res.headers.get("access-control-allow-headers"),
     "authorization, x-client-info, apikey, content-type",
@@ -205,14 +283,19 @@ Deno.test("Dynamic ALLOWED_ORIGIN configuration scopes origin and sets Vary on r
   try {
     Deno.env.set("ALLOWED_ORIGIN", "https://frontend.morisscraps.com");
     const preflightRes = await handler(
-      new Request("http://localhost/functions/v1/recipes", { method: "OPTIONS" }),
+      new Request("http://localhost/functions/v1/recipes", {
+        method: "OPTIONS",
+      }),
     );
     assertEquals(preflightRes.status, 204);
     assertEquals(
       preflightRes.headers.get("access-control-allow-origin"),
       "https://frontend.morisscraps.com",
     );
-    assertEquals(preflightRes.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      preflightRes.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(preflightRes.headers.get("vary"), "Origin");
 
     const unauthRes = await handler(
@@ -223,7 +306,10 @@ Deno.test("Dynamic ALLOWED_ORIGIN configuration scopes origin and sets Vary on r
       unauthRes.headers.get("access-control-allow-origin"),
       "https://frontend.morisscraps.com",
     );
-    assertEquals(unauthRes.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      unauthRes.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(unauthRes.headers.get("vary"), "Origin");
   } finally {
     if (originalOrigin) {
@@ -253,7 +339,10 @@ Deno.test("Unsupported HTTP methods on collection route return 405 METHOD_NOT_AL
     });
     assertEquals(res.status, 405);
     assertEquals(res.headers.get("allow"), "GET, POST, OPTIONS");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
     const body = await res.json();
@@ -271,7 +360,13 @@ Deno.test("Unsupported sub-paths on /recipes return 404 NOT_FOUND without callin
     return Promise.resolve(new Response(null, { status: 200 }));
   };
 
-  for (const path of ["/functions/v1/recipes/123/edit", "/recipes/123/edit", "/functions/v1/recipes/a/b/c"]) {
+  for (
+    const path of [
+      "/functions/v1/recipes/123/edit",
+      "/recipes/123/edit",
+      "/functions/v1/recipes/a/b/c",
+    ]
+  ) {
     const req = new Request(`http://localhost${path}`, {
       method: "POST",
       headers: {
@@ -286,7 +381,10 @@ Deno.test("Unsupported sub-paths on /recipes return 404 NOT_FOUND without callin
       fetch: mockFetch,
     });
     assertEquals(res.status, 404);
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     const body = await res.json();
     assertEquals(body.error?.code, "NOT_FOUND");
   }
@@ -302,7 +400,11 @@ Deno.test("Authenticated POST /recipes persists a valid recipe with verified own
 
   const mockFetch: typeof fetch = async (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -355,7 +457,10 @@ Deno.test("Authenticated POST /recipes persists a valid recipe with verified own
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
     assertEquals(res.headers.get("access-control-allow-origin"), "*");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
 
     assertNotEquals(capturedPostgrestUrl, null);
     assertEquals(capturedPostgrestUrl!.pathname, "/rest/v1/recipes");
@@ -366,7 +471,10 @@ Deno.test("Authenticated POST /recipes persists a valid recipe with verified own
     assertEquals(capturedPostgrestMethod, "POST");
 
     assertNotEquals(capturedPostgrestHeaders, null);
-    assertEquals(capturedPostgrestHeaders!.get("authorization"), `Bearer ${VALID_TEST_JWT}`);
+    assertEquals(
+      capturedPostgrestHeaders!.get("authorization"),
+      `Bearer ${VALID_TEST_JWT}`,
+    );
     assertEquals(capturedPostgrestHeaders!.get("apikey"), TEST_ANON_KEY);
 
     assertNotEquals(capturedInsertBody, null);
@@ -387,7 +495,10 @@ Deno.test("Authenticated POST /recipes persists a valid recipe with verified own
     assertEquals(body.recipe.star_rating, 5);
     assertEquals(body.recipe.cooked_at, "2026-10-19");
     assertEquals((body.recipe as Record<string, unknown>).is_public, undefined);
-    assertEquals((body.recipe as Record<string, unknown>).image_path, undefined);
+    assertEquals(
+      (body.recipe as Record<string, unknown>).image_path,
+      undefined,
+    );
   }
 });
 
@@ -396,7 +507,11 @@ Deno.test("Authenticated POST /recipes persists personal notes independently of 
 
   const mockFetch: typeof fetch = async (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -453,7 +568,10 @@ Deno.test("Authenticated POST /recipes persists personal notes independently of 
   assertEquals(res.status, 201);
   assertNotEquals(capturedInsertBody, null);
   assertEquals(capturedInsertBody!.raw_input, "Original raw ingredients list");
-  assertEquals(capturedInsertBody!.notes, "Chef note: add crispy chili oil at the end");
+  assertEquals(
+    capturedInsertBody!.notes,
+    "Chef note: add crispy chili oil at the end",
+  );
 
   const body = await res.json();
   assertEquals(body.recipe.raw_input, "Original raw ingredients list");
@@ -465,7 +583,11 @@ Deno.test("Authenticated POST /recipes accepts minimal payload with optional fie
 
   const mockFetch: typeof fetch = async (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -541,7 +663,11 @@ Deno.test("Malformed JSON and non-object JSON bodies return 400 INVALID_JSON wit
 
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
     if (url.pathname === "/auth/v1/user") {
       return Promise.resolve(
@@ -594,7 +720,10 @@ Deno.test("Malformed JSON and non-object JSON bodies return 400 INVALID_JSON wit
     assertEquals(res.status, 400);
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(postgrestCalled, false);
 
     const body = await res.json();
@@ -603,12 +732,142 @@ Deno.test("Malformed JSON and non-object JSON bodies return 400 INVALID_JSON wit
   }
 });
 
+Deno.test("Recipe request body byte limit enforces the exact boundary and request IDs are generated", async () => {
+  let postgrestCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }
+    if (url.pathname.startsWith("/rest/v1/")) postgrestCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+  const deps = {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  };
+  const exactBody = "{" + " ".repeat(MAX_RECIPE_REQUEST_BYTES - 1);
+  const exact = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: exactBody,
+    }),
+    deps,
+  );
+  assertEquals(exact.status, 400);
+  assertEquals(
+    exact.headers.get("x-request-id")?.match(/^[0-9a-f-]{36}$/i) !== null,
+    true,
+  );
+
+  const oversized = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: `${exactBody} `,
+    }),
+    deps,
+  );
+  assertEquals(oversized.status, 413);
+  assertEquals((await oversized.json()).error?.code, "INPUT_TOO_LARGE");
+  assertEquals(postgrestCalled, false);
+});
+
+Deno.test("Recipe write routes reject unsupported media types before database access", async () => {
+  let postgrestCalled = false;
+  const mockFetch: typeof fetch = (input) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
+    if (url.pathname === "/auth/v1/user") {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }
+    if (url.pathname.startsWith("/rest/v1/")) postgrestCalled = true;
+    return Promise.resolve(new Response(null, { status: 404 }));
+  };
+  const response = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "text/plain",
+      },
+      body: JSON.stringify(validRecipePayload()),
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
+  assertEquals(response.status, 415);
+  assertEquals((await response.json()).error?.code, "UNSUPPORTED_MEDIA_TYPE");
+
+  const missingHeader = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      body: new TextEncoder().encode("{"),
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
+  assertEquals(missingHeader.status, 400);
+  assertEquals((await missingHeader.json()).error?.code, "INVALID_JSON");
+  assertEquals(postgrestCalled, false);
+});
+
 Deno.test("Invalid recipe payloads fail shared Zod validation with 400 VALIDATION_ERROR and never execute database insert", async () => {
   let postgrestCalled = false;
 
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
     if (url.pathname === "/auth/v1/user") {
       return Promise.resolve(
@@ -629,7 +888,9 @@ Deno.test("Invalid recipe payloads fail shared Zod validation with 400 VALIDATIO
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const invalidCases: Array<{ payload: Record<string, unknown>; expectedPathPrefix: string }> = [
+  const invalidCases: Array<
+    { payload: Record<string, unknown>; expectedPathPrefix: string }
+  > = [
     {
       payload: { ingredients: [], instructions: [] },
       expectedPathPrefix: "title",
@@ -667,14 +928,28 @@ Deno.test("Invalid recipe payloads fail shared Zod validation with 400 VALIDATIO
     {
       payload: {
         ...validRecipePayload(),
-        flavor_scores: { sweet: 6, salty: 1, sour: 1, bitter: 1, umami: 1, spicy: 1 },
+        flavor_scores: {
+          sweet: 6,
+          salty: 1,
+          sour: 1,
+          bitter: 1,
+          umami: 1,
+          spicy: 1,
+        },
       },
       expectedPathPrefix: "flavor_scores.sweet",
     },
     {
       payload: {
         ...validRecipePayload(),
-        flavor_scores: { sweet: -1, salty: 1, sour: 1, bitter: 1, umami: 1, spicy: 1 },
+        flavor_scores: {
+          sweet: -1,
+          salty: 1,
+          sour: 1,
+          bitter: 1,
+          umami: 1,
+          spicy: 1,
+        },
       },
       expectedPathPrefix: "flavor_scores.sweet",
     },
@@ -751,7 +1026,11 @@ Deno.test("Missing, malformed, invalid, or expired Bearer tokens are rejected wi
 
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -816,7 +1095,10 @@ Deno.test("Missing, malformed, invalid, or expired Bearer tokens are rejected wi
     assertEquals(res.status, 401);
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(postgrestCalled, false);
 
     const body = await res.json();
@@ -832,7 +1114,11 @@ Deno.test("Client attempts to override ownership, id, or is_public in body, quer
 
   const mockFetch: typeof fetch = async (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -911,14 +1197,16 @@ Deno.test("Client attempts to override ownership, id, or is_public in body, quer
 });
 
 Deno.test("Database insert failures, RLS rejections, ownership mismatches, and invalid DB payloads return safe 500 INTERNAL_ERROR without leaking details", async () => {
-  const sensitiveDetail = "postgres_secret_password_or_rls_internal_detail_98765";
+  const sensitiveDetail =
+    "postgres_secret_password_or_rls_internal_detail_98765";
 
   const failureScenarios: Array<(url: URL) => Response> = [
     () =>
       new Response(
         JSON.stringify({
           code: "42501",
-          message: `new row violates row-level security policy for table "recipes" (${sensitiveDetail})`,
+          message:
+            `new row violates row-level security policy for table "recipes" (${sensitiveDetail})`,
         }),
         { status: 403, headers: { "Content-Type": "application/json" } },
       ),
@@ -953,7 +1241,11 @@ Deno.test("Database insert failures, RLS rejections, ownership mismatches, and i
   for (const buildPostgrestResponse of failureScenarios) {
     const mockFetch: typeof fetch = (input) => {
       const url = new URL(
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url,
       );
 
       if (url.pathname === "/auth/v1/user") {
@@ -995,7 +1287,10 @@ Deno.test("Database insert failures, RLS rejections, ownership mismatches, and i
     assertEquals(res.status, 500);
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
 
     const rawText = await res.text();
     assertEquals(rawText.includes(sensitiveDetail), false);
@@ -1019,60 +1314,146 @@ Deno.test("RecipeIdParamSchema, RecipeParamsSchema, RecipeListResponseSchema, an
   assertEquals(RecipeIdParamSchema.safeParse("not-a-uuid").success, false);
   assertEquals(RecipeIdParamSchema.safeParse("").success, false);
 
-  assertEquals(RecipeParamsSchema.safeParse({ id: CREATED_RECIPE_ID }).success, true);
+  assertEquals(
+    RecipeParamsSchema.safeParse({ id: CREATED_RECIPE_ID }).success,
+    true,
+  );
   assertEquals(RecipeParamsSchema.safeParse({ id: "123" }).success, false);
 
   assertEquals(
-    RecipeListResponseSchema.safeParse({ recipes: [persistedRecipeRow()] }).success,
+    RecipeListResponseSchema.safeParse({ recipes: [persistedRecipeRow()] })
+      .success,
     true,
   );
-  assertEquals(RecipeListResponseSchema.safeParse({ recipes: [] }).success, true);
-  assertEquals(RecipeListResponseSchema.safeParse({ recipes: [{ title: "No id" }] }).success, false);
+  assertEquals(
+    RecipeListResponseSchema.safeParse({ recipes: [] }).success,
+    true,
+  );
+  assertEquals(
+    RecipeListResponseSchema.safeParse({ recipes: [{ title: "No id" }] })
+      .success,
+    false,
+  );
 
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ star_rating: 4 }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ star_rating: null }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ star_rating: 6 }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ star_rating: 0 }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ star_rating: 3.5 }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ star_rating: "5" }).success, false);
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ star_rating: 4 }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ star_rating: null }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ star_rating: 6 }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ star_rating: 0 }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ star_rating: 3.5 }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ star_rating: "5" }).success,
+    false,
+  );
 
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ cooked_at: "2026-10-21" }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ cooked_at: null }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ cooked_at: "2026-02-31" }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ cooked_at: "invalid" }).success, false);
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ cooked_at: "2026-10-21" }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ cooked_at: null }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ cooked_at: "2026-02-31" }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ cooked_at: "invalid" }).success,
+    false,
+  );
 
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ notes: "Some notes" }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ notes: null }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ raw_input: "rice", notes: "custom" }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ raw_input: "Valid raw input" }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ raw_input: null }).success, true);
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ notes: "Some notes" }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ notes: null }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ raw_input: "rice", notes: "custom" })
+      .success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ raw_input: "Valid raw input" })
+      .success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ raw_input: null }).success,
+    true,
+  );
 
-  for (const nullableField of [
-    { raw_input: null },
-    { notes: null },
-    { flavor_scores: null },
-    { star_rating: null },
-    { cooked_at: null },
-  ]) {
-    assertEquals(UpdateRecipeRequestSchema.safeParse(nullableField).success, true);
+  for (
+    const nullableField of [
+      { raw_input: null },
+      { notes: null },
+      { flavor_scores: null },
+      { star_rating: null },
+      { cooked_at: null },
+    ]
+  ) {
+    assertEquals(
+      UpdateRecipeRequestSchema.safeParse(nullableField).success,
+      true,
+    );
   }
 
-  for (const nonNullableField of [
-    { title: null },
-    { ingredients: null },
-    { instructions: null },
-  ]) {
-    assertEquals(UpdateRecipeRequestSchema.safeParse(nonNullableField).success, false);
+  for (
+    const nonNullableField of [
+      { title: null },
+      { ingredients: null },
+      { instructions: null },
+    ]
+  ) {
+    assertEquals(
+      UpdateRecipeRequestSchema.safeParse(nonNullableField).success,
+      false,
+    );
   }
 
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ title: "Updated Title" }).success, true);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ title: "   " }).success, false);
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ title: "Updated Title" }).success,
+    true,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ title: "   " }).success,
+    false,
+  );
 
   assertEquals(UpdateRecipeRequestSchema.safeParse({}).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ user_id: VERIFIED_USER_ID }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ id: CREATED_RECIPE_ID }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ is_public: true }).success, false);
-  assertEquals(UpdateRecipeRequestSchema.safeParse({ unexpected: true }).success, false);
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ user_id: VERIFIED_USER_ID }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ id: CREATED_RECIPE_ID }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ is_public: true }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({ unexpected: true }).success,
+    false,
+  );
 });
 
 Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at descending and validates schema envelope", async () => {
@@ -1089,7 +1470,11 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1122,10 +1507,20 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  for (const { endpointPath, expectedLimit, expectedOffset } of [
-    { endpointPath: "/functions/v1/recipes?limit=1000&offset=0", expectedLimit: "1001", expectedOffset: "0" },
-    { endpointPath: "/recipes?limit=25&offset=50", expectedLimit: "26", expectedOffset: "50" },
-  ]) {
+  for (
+    const { endpointPath, expectedLimit, expectedOffset } of [
+      {
+        endpointPath: "/functions/v1/recipes?limit=1000&offset=0",
+        expectedLimit: "1001",
+        expectedOffset: "0",
+      },
+      {
+        endpointPath: "/recipes?limit=25&offset=50",
+        expectedLimit: "26",
+        expectedOffset: "50",
+      },
+    ]
+  ) {
     const req = new Request(`http://localhost${endpointPath}`, {
       method: "GET",
       headers: {
@@ -1144,7 +1539,10 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
     assertEquals(res.headers.get("access-control-allow-origin"), "*");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
 
     assertNotEquals(capturedPostgrestUrl, null);
     assertEquals(capturedPostgrestUrl!.pathname, "/rest/v1/recipes");
@@ -1152,15 +1550,30 @@ Deno.test("Authenticated GET /recipes lists owned recipes ordered by created_at 
       capturedPostgrestUrl!.searchParams.get("select"),
       "id,user_id,title,raw_input,notes,ingredients,instructions,flavor_scores,star_rating,cooked_at,image_url,created_at,updated_at",
     );
-    assertEquals(capturedPostgrestUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
-    assertEquals(capturedPostgrestUrl!.searchParams.get("order"), "created_at.desc,id.asc");
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("user_id"),
+      `eq.${VERIFIED_USER_ID}`,
+    );
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("order"),
+      "created_at.desc,id.asc",
+    );
     assertEquals(capturedPostgrestMethod, "GET");
 
     assertNotEquals(capturedPostgrestHeaders, null);
-    assertEquals(capturedPostgrestHeaders!.get("authorization"), `Bearer ${VALID_TEST_JWT}`);
+    assertEquals(
+      capturedPostgrestHeaders!.get("authorization"),
+      `Bearer ${VALID_TEST_JWT}`,
+    );
     assertEquals(capturedPostgrestHeaders!.get("apikey"), TEST_ANON_KEY);
-    assertEquals(capturedPostgrestUrl!.searchParams.get("limit"), expectedLimit);
-    assertEquals(capturedPostgrestUrl!.searchParams.get("offset"), expectedOffset);
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("limit"),
+      expectedLimit,
+    );
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("offset"),
+      expectedOffset,
+    );
 
     const body = await res.json();
     const parsed = RecipeListResponseSchema.safeParse(body);
@@ -1178,7 +1591,11 @@ Deno.test("Authenticated GET /recipes rejects invalid pagination before querying
   let recipeQueryCount = 0;
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1199,14 +1616,16 @@ Deno.test("Authenticated GET /recipes rejects invalid pagination before querying
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  for (const query of [
-    "?limit=0",
-    "?limit=1001",
-    "?offset=-1",
-    "?offset=1.5",
-    "?limit=1000&offset=9007199254740991",
-    "?limit=10&limit=20",
-  ]) {
+  for (
+    const query of [
+      "?limit=0",
+      "?limit=1001",
+      "?offset=-1",
+      "?offset=1.5",
+      "?limit=1000&offset=9007199254740991",
+      "?limit=10&limit=20",
+    ]
+  ) {
     const res = await handler(
       new Request(`http://localhost/functions/v1/recipes${query}`, {
         method: "GET",
@@ -1231,7 +1650,11 @@ Deno.test("Authenticated GET /recipes rejects invalid pagination before querying
 Deno.test("Authenticated GET /recipes returns empty list when user has no recipes", async () => {
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1284,7 +1707,11 @@ Deno.test("Authenticated GET /recipes/:id retrieves single owned recipe", async 
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1316,10 +1743,12 @@ Deno.test("Authenticated GET /recipes/:id retrieves single owned recipe", async 
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  for (const endpointPath of [
-    `/functions/v1/recipes/${CREATED_RECIPE_ID}`,
-    `/recipes/${CREATED_RECIPE_ID}`,
-  ]) {
+  for (
+    const endpointPath of [
+      `/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      `/recipes/${CREATED_RECIPE_ID}`,
+    ]
+  ) {
     const req = new Request(`http://localhost${endpointPath}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
@@ -1336,12 +1765,21 @@ Deno.test("Authenticated GET /recipes/:id retrieves single owned recipe", async 
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
     assertEquals(res.headers.get("access-control-allow-origin"), "*");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
 
     assertNotEquals(capturedPostgrestUrl, null);
     assertEquals(capturedPostgrestUrl!.pathname, "/rest/v1/recipes");
-    assertEquals(capturedPostgrestUrl!.searchParams.get("id"), `eq.${CREATED_RECIPE_ID}`);
-    assertEquals(capturedPostgrestUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("id"),
+      `eq.${CREATED_RECIPE_ID}`,
+    );
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("user_id"),
+      `eq.${VERIFIED_USER_ID}`,
+    );
     assertEquals(capturedPostgrestMethod, "GET");
 
     const body = await res.json();
@@ -1370,7 +1808,11 @@ Deno.test("Authenticated GET /recipes and GET /recipes/:id retrieve recipes with
 
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1425,10 +1867,13 @@ Deno.test("Authenticated GET /recipes and GET /recipes/:id retrieve recipes with
   assertEquals(listBody.recipes[1].notes, null);
   assertEquals(listBody.recipes[1].raw_input, null);
 
-  const detailReq = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  });
+  const detailReq = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    },
+  );
   const detailRes = await handler(detailReq, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -1443,7 +1888,11 @@ Deno.test("Authenticated GET /recipes and GET /recipes/:id retrieve recipes with
 Deno.test("Authenticated GET /recipes/:id returns 404 NOT_FOUND for missing recipe or another user recipe", async () => {
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1473,10 +1922,13 @@ Deno.test("Authenticated GET /recipes/:id returns 404 NOT_FOUND for missing reci
   };
 
   const missingId = "88888888-8888-4888-8888-888888888888";
-  const req = new Request(`http://localhost/functions/v1/recipes/${missingId}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  });
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${missingId}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    },
+  );
 
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1496,7 +1948,11 @@ Deno.test("Malformed recipe ID on detail, update, and delete returns 400 VALIDAT
   let postgrestCalls = 0;
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1520,7 +1976,12 @@ Deno.test("Malformed recipe ID on detail, update, and delete returns 400 VALIDAT
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const malformedIds = ["not-a-uuid", "123", "33333333-3333-4333-8333", "undefined"];
+  const malformedIds = [
+    "not-a-uuid",
+    "123",
+    "33333333-3333-4333-8333",
+    "undefined",
+  ];
 
   for (const id of malformedIds) {
     for (const method of ["GET", "PATCH", "DELETE"]) {
@@ -1530,7 +1991,9 @@ Deno.test("Malformed recipe ID on detail, update, and delete returns 400 VALIDAT
           Authorization: `Bearer ${VALID_TEST_JWT}`,
           ...(method === "PATCH" ? { "Content-Type": "application/json" } : {}),
         },
-        ...(method === "PATCH" ? { body: JSON.stringify({ star_rating: 4 }) } : {}),
+        ...(method === "PATCH"
+          ? { body: JSON.stringify({ star_rating: 4 }) }
+          : {}),
       });
 
       const res = await handler(req, {
@@ -1560,7 +2023,11 @@ Deno.test("Authenticated PATCH /recipes/:id updates allowed fields and persists 
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1586,7 +2053,8 @@ Deno.test("Authenticated PATCH /recipes/:id updates allowed fields and persists 
       const updatedRow = persistedRecipeRow({
         title: capturedUpdateBody?.title ?? "Crispy Garlic Shallot Rice",
         star_rating: capturedUpdateBody?.star_rating ?? 5,
-        raw_input: capturedUpdateBody?.raw_input ?? "Leftover jasmine rice, shallots, garlic, soy sauce.",
+        raw_input: capturedUpdateBody?.raw_input ??
+          "Leftover jasmine rice, shallots, garlic, soy sauce.",
         cooked_at: capturedUpdateBody?.cooked_at ?? "2026-10-19",
       });
 
@@ -1601,17 +2069,20 @@ Deno.test("Authenticated PATCH /recipes/:id updates allowed fields and persists 
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: "Updated Garlic Shallot Rice",
+        star_rating: 4,
+      }),
     },
-    body: JSON.stringify({
-      title: "Updated Garlic Shallot Rice",
-      star_rating: 4,
-    }),
-  });
+  );
 
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1622,8 +2093,14 @@ Deno.test("Authenticated PATCH /recipes/:id updates allowed fields and persists 
   assertEquals(res.status, 200);
   assertNotEquals(capturedPostgrestUrl, null);
   assertEquals(capturedPostgrestUrl!.pathname, "/rest/v1/recipes");
-  assertEquals(capturedPostgrestUrl!.searchParams.get("id"), `eq.${CREATED_RECIPE_ID}`);
-  assertEquals(capturedPostgrestUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  assertEquals(
+    capturedPostgrestUrl!.searchParams.get("id"),
+    `eq.${CREATED_RECIPE_ID}`,
+  );
+  assertEquals(
+    capturedPostgrestUrl!.searchParams.get("user_id"),
+    `eq.${VERIFIED_USER_ID}`,
+  );
   assertEquals(capturedPostgrestMethod, "PATCH");
 
   assertNotEquals(capturedUpdateBody, null);
@@ -1640,18 +2117,21 @@ Deno.test("Authenticated PATCH /recipes/:id updates allowed fields and persists 
   assertEquals(body.recipe.title, "Updated Garlic Shallot Rice");
   assertEquals(body.recipe.star_rating, 4);
 
-  const rawInputReq = new Request(`http://localhost/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const rawInputReq = new Request(
+    `http://localhost/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raw_input: "Custom chef raw input",
+        star_rating: null,
+        cooked_at: null,
+      }),
     },
-    body: JSON.stringify({
-      raw_input: "Custom chef raw input",
-      star_rating: null,
-      cooked_at: null,
-    }),
-  });
+  );
 
   const rawInputRes = await handler(rawInputReq, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1676,7 +2156,11 @@ Deno.test("Authenticated PATCH /recipes/:id updates notes without modifying raw_
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1713,16 +2197,19 @@ Deno.test("Authenticated PATCH /recipes/:id updates notes without modifying raw_
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const patchNotesReq = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const patchNotesReq = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        notes: "Updated secret garlic glaze note",
+      }),
     },
-    body: JSON.stringify({
-      notes: "Updated secret garlic glaze note",
-    }),
-  });
+  );
 
   const patchNotesRes = await handler(patchNotesReq, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1745,16 +2232,19 @@ Deno.test("Authenticated PATCH /recipes/:id updates notes without modifying raw_
   assertEquals(notesBody.recipe.notes, "Updated secret garlic glaze note");
   assertEquals(notesBody.recipe.raw_input, "Unmodified raw input");
 
-  const patchRawInputReq = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const patchRawInputReq = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raw_input: "New separate raw input prompt",
+      }),
     },
-    body: JSON.stringify({
-      raw_input: "New separate raw input prompt",
-    }),
-  });
+  );
 
   const patchRawInputRes = await handler(patchRawInputReq, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1781,7 +2271,11 @@ Deno.test("Authenticated PATCH /recipes/:id clears notes with explicit null whil
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1818,16 +2312,19 @@ Deno.test("Authenticated PATCH /recipes/:id clears notes with explicit null whil
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const clearNotesReq = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const clearNotesReq = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        notes: null,
+      }),
     },
-    body: JSON.stringify({
-      notes: null,
-    }),
-  });
+  );
 
   const clearNotesRes = await handler(clearNotesReq, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1849,16 +2346,19 @@ Deno.test("Authenticated PATCH /recipes/:id clears notes with explicit null whil
     notes: "Persistent notes text",
   });
 
-  const clearRawInputReq = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const clearRawInputReq = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raw_input: null,
+      }),
     },
-    body: JSON.stringify({
-      raw_input: null,
-    }),
-  });
+  );
 
   const clearRawInputRes = await handler(clearRawInputReq, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -1881,7 +2381,11 @@ Deno.test("Authenticated PATCH /recipes/:id accepts every valid rating 1 to 5 an
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1904,7 +2408,9 @@ Deno.test("Authenticated PATCH /recipes/:id accepts every valid rating 1 to 5 an
       const parsedBody = rawText ? JSON.parse(rawText) : {};
       return Promise.resolve(
         new Response(
-          JSON.stringify([persistedRecipeRow({ star_rating: parsedBody.star_rating })]),
+          JSON.stringify([
+            persistedRecipeRow({ star_rating: parsedBody.star_rating }),
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -1914,14 +2420,17 @@ Deno.test("Authenticated PATCH /recipes/:id accepts every valid rating 1 to 5 an
   };
 
   for (const rating of [1, 2, 3, 4, 5]) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ star_rating: rating }),
       },
-      body: JSON.stringify({ star_rating: rating }),
-    });
+    );
 
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
@@ -1937,14 +2446,17 @@ Deno.test("Authenticated PATCH /recipes/:id accepts every valid rating 1 to 5 an
 
   const invalidRatings = [0, 6, -1, 3.5, "five", true, {}];
   for (const badRating of invalidRatings) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ star_rating: badRating }),
       },
-      body: JSON.stringify({ star_rating: badRating }),
-    });
+    );
 
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
@@ -1965,7 +2477,11 @@ Deno.test("Authenticated PATCH /recipes/:id with empty object body fails validat
 
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -1989,14 +2505,17 @@ Deno.test("Authenticated PATCH /recipes/:id with empty object body fails validat
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
     },
-    body: JSON.stringify({}),
-  });
+  );
 
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -2015,7 +2534,11 @@ Deno.test("Authenticated PATCH /recipes/:id rejects invalid JSON, non-object JSO
 
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2039,16 +2562,28 @@ Deno.test("Authenticated PATCH /recipes/:id rejects invalid JSON, non-object JSO
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const invalidJsonBodies = ["", "   ", "{broken", "[]", "[1, 2, 3]", "\"string\"", "123", "null"];
+  const invalidJsonBodies = [
+    "",
+    "   ",
+    "{broken",
+    "[]",
+    "[1, 2, 3]",
+    '"string"',
+    "123",
+    "null",
+  ];
   for (const rawBody of invalidJsonBodies) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: rawBody,
       },
-      body: rawBody,
-    });
+    );
 
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
@@ -2072,14 +2607,17 @@ Deno.test("Authenticated PATCH /recipes/:id rejects invalid JSON, non-object JSO
   ];
 
   for (const payload of unsupportedPayloads) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+    );
 
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
@@ -2098,7 +2636,11 @@ Deno.test("Authenticated PATCH /recipes/:id rejects invalid JSON, non-object JSO
 Deno.test("Authenticated PATCH /recipes/:id returns 404 NOT_FOUND for missing recipe or another user recipe", async () => {
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2127,14 +2669,17 @@ Deno.test("Authenticated PATCH /recipes/:id returns 404 NOT_FOUND for missing re
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ star_rating: 4 }),
     },
-    body: JSON.stringify({ star_rating: 4 }),
-  });
+  );
 
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -2154,7 +2699,11 @@ Deno.test("Authenticated DELETE /recipes/:id deletes owned recipe and returns 20
 
   const mockFetch: typeof fetch = (input, init) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2186,10 +2735,12 @@ Deno.test("Authenticated DELETE /recipes/:id deletes owned recipe and returns 20
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  for (const endpointPath of [
-    `/functions/v1/recipes/${CREATED_RECIPE_ID}`,
-    `/recipes/${CREATED_RECIPE_ID}`,
-  ]) {
+  for (
+    const endpointPath of [
+      `/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      `/recipes/${CREATED_RECIPE_ID}`,
+    ]
+  ) {
     const req = new Request(`http://localhost${endpointPath}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
@@ -2205,13 +2756,22 @@ Deno.test("Authenticated DELETE /recipes/:id deletes owned recipe and returns 20
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
     assertEquals(res.headers.get("access-control-allow-origin"), "*");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(await res.text(), "");
 
     assertNotEquals(capturedPostgrestUrl, null);
     assertEquals(capturedPostgrestUrl!.pathname, "/rest/v1/recipes");
-    assertEquals(capturedPostgrestUrl!.searchParams.get("id"), `eq.${CREATED_RECIPE_ID}`);
-    assertEquals(capturedPostgrestUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("id"),
+      `eq.${CREATED_RECIPE_ID}`,
+    );
+    assertEquals(
+      capturedPostgrestUrl!.searchParams.get("user_id"),
+      `eq.${VERIFIED_USER_ID}`,
+    );
     assertEquals(capturedPostgrestMethod, "DELETE");
   }
 });
@@ -2219,7 +2779,11 @@ Deno.test("Authenticated DELETE /recipes/:id deletes owned recipe and returns 20
 Deno.test("Authenticated DELETE /recipes/:id returns 404 NOT_FOUND for missing recipe or another user recipe", async () => {
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2248,10 +2812,13 @@ Deno.test("Authenticated DELETE /recipes/:id returns 404 NOT_FOUND for missing r
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  });
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    },
+  );
 
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -2273,10 +2840,13 @@ Deno.test("Member routes reject unsupported HTTP methods with 405 and Allow: GET
   };
 
   for (const method of ["POST", "PUT", "HEAD"]) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, {
-      method,
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    });
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      {
+        method,
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    );
 
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
@@ -2286,7 +2856,10 @@ Deno.test("Member routes reject unsupported HTTP methods with 405 and Allow: GET
 
     assertEquals(res.status, 405);
     assertEquals(res.headers.get("allow"), "GET, PATCH, DELETE, OPTIONS");
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     const body = await res.json();
     assertEquals(body.error?.code, "METHOD_NOT_ALLOWED");
   }
@@ -2298,7 +2871,11 @@ Deno.test("Unauthenticated requests across GET list, GET detail, PATCH, and DELE
   let postgrestCalls = 0;
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2323,13 +2900,19 @@ Deno.test("Unauthenticated requests across GET list, GET detail, PATCH, and DELE
 
   const endpoints = [
     { url: "http://localhost/functions/v1/recipes", method: "GET" },
-    { url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, method: "GET" },
+    {
+      url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      method: "GET",
+    },
     {
       url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
       method: "PATCH",
       body: JSON.stringify({ star_rating: 4 }),
     },
-    { url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, method: "DELETE" },
+    {
+      url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      method: "DELETE",
+    },
   ];
 
   for (const endpoint of endpoints) {
@@ -2377,7 +2960,11 @@ Deno.test("Database failures and ownership mismatches on list, detail, update, a
 
   const errorFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2411,7 +2998,11 @@ Deno.test("Database failures and ownership mismatches on list, detail, update, a
 
   const mismatchFetch: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
     );
 
     if (url.pathname === "/auth/v1/user") {
@@ -2432,7 +3023,9 @@ Deno.test("Database failures and ownership mismatches on list, detail, update, a
       return Promise.resolve(
         new Response(
           JSON.stringify([
-            persistedRecipeRow({ user_id: "00000000-0000-0000-0000-000000000000" }),
+            persistedRecipeRow({
+              user_id: "00000000-0000-0000-0000-000000000000",
+            }),
           ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
@@ -2443,10 +3036,26 @@ Deno.test("Database failures and ownership mismatches on list, detail, update, a
   };
 
   const failureRequests = [
-    { url: "http://localhost/functions/v1/recipes", method: "GET", fetchImpl: errorFetch },
-    { url: "http://localhost/functions/v1/recipes", method: "GET", fetchImpl: mismatchFetch },
-    { url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, method: "GET", fetchImpl: errorFetch },
-    { url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, method: "GET", fetchImpl: mismatchFetch },
+    {
+      url: "http://localhost/functions/v1/recipes",
+      method: "GET",
+      fetchImpl: errorFetch,
+    },
+    {
+      url: "http://localhost/functions/v1/recipes",
+      method: "GET",
+      fetchImpl: mismatchFetch,
+    },
+    {
+      url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      method: "GET",
+      fetchImpl: errorFetch,
+    },
+    {
+      url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      method: "GET",
+      fetchImpl: mismatchFetch,
+    },
     {
       url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
       method: "PATCH",
@@ -2459,7 +3068,11 @@ Deno.test("Database failures and ownership mismatches on list, detail, update, a
       body: JSON.stringify({ star_rating: 4 }),
       fetchImpl: mismatchFetch,
     },
-    { url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`, method: "DELETE", fetchImpl: errorFetch },
+    {
+      url: `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      method: "DELETE",
+      fetchImpl: errorFetch,
+    },
   ];
 
   for (const item of failureRequests) {
@@ -2504,7 +3117,10 @@ type RlsResolvedConfig = {
 function extractSupabaseProjectRef(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port) {
+    if (
+      parsed.protocol !== "https:" || parsed.username || parsed.password ||
+      parsed.port
+    ) {
       return null;
     }
     const host = parsed.hostname.toLowerCase();
@@ -2551,37 +3167,38 @@ function resolveRlsConfiguration(
   const be06OptIn = (getEnv("RUN_BE06_RLS_INTEGRATION") ?? "").trim();
   const be06Url = (getEnv("BE06_RLS_TEST_SUPABASE_URL") ?? "").trim();
   const be06DbUrl = sanitizeDatabaseUrl(getEnv("BE06_RLS_TEST_DATABASE_URL"));
-  const be06Anon = (
-    getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
+  const be06Anon = getEnv("BE06_RLS_TEST_SUPABASE_ANON_KEY")?.trim() ||
     getEnv("BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
-    ""
-  );
-  const be06Service = (
+    "";
+  const be06Service =
     getEnv("BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY")?.trim() ||
     getEnv("BE06_RLS_TEST_SUPABASE_SECRET_KEY")?.trim() ||
-    ""
-  );
-  const be06ExpectedRef = (
+    "";
+  const be06ExpectedRef =
     getEnv("BE06_RLS_TEST_EXPECTED_PROJECT_REF")?.trim() ||
     getEnv("BE06_RLS_TEST_PROJECT_REF")?.trim() ||
-    ""
-  );
+    "";
 
   const hasAnyBe06 = Boolean(
-    be06OptIn || be06Url || be06DbUrl || be06Anon || be06Service || be06ExpectedRef,
+    be06OptIn || be06Url || be06DbUrl || be06Anon || be06Service ||
+      be06ExpectedRef,
   );
 
   if (hasAnyBe06) {
     const isOptedIn = be06OptIn.toLowerCase() === "true" || be06OptIn === "1";
     if (!isOptedIn) {
-      const nonProdOptIn = (getEnv("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION") ?? "").trim();
-      const isLegacyOptedIn = nonProdOptIn.toLowerCase() === "true" || nonProdOptIn === "1";
+      const nonProdOptIn =
+        (getEnv("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION") ?? "")
+          .trim();
+      const isLegacyOptedIn = nonProdOptIn.toLowerCase() === "true" ||
+        nonProdOptIn === "1";
       if (isLegacyOptedIn) {
         return {
           isOptedIn: true,
           shouldRun: true,
           source: "BE-06",
-          error: "Inconsistent RLS test configuration: RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION is enabled but BE-06 variables are present without RUN_BE06_RLS_INTEGRATION=true. BE-06 credentials cannot be mixed with NON_PRODUCTION_TEST_DATABASE.",
+          error:
+            "Inconsistent RLS test configuration: RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION is enabled but BE-06 variables are present without RUN_BE06_RLS_INTEGRATION=true. BE-06 credentials cannot be mixed with NON_PRODUCTION_TEST_DATABASE.",
           url: be06Url,
           anonKey: be06Anon,
           serviceRoleKey: be06Service,
@@ -2599,8 +3216,16 @@ function resolveRlsConfiguration(
     }
     const missing: string[] = [];
     if (!be06Url) missing.push("BE06_RLS_TEST_SUPABASE_URL");
-    if (!be06Anon) missing.push("BE06_RLS_TEST_SUPABASE_ANON_KEY (or BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)");
-    if (!be06Service) missing.push("BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY (or BE06_RLS_TEST_SUPABASE_SECRET_KEY)");
+    if (!be06Anon) {
+      missing.push(
+        "BE06_RLS_TEST_SUPABASE_ANON_KEY (or BE06_RLS_TEST_SUPABASE_PUBLISHABLE_KEY)",
+      );
+    }
+    if (!be06Service) {
+      missing.push(
+        "BE06_RLS_TEST_SUPABASE_SERVICE_ROLE_KEY (or BE06_RLS_TEST_SUPABASE_SECRET_KEY)",
+      );
+    }
     if (!be06ExpectedRef) missing.push("BE06_RLS_TEST_EXPECTED_PROJECT_REF");
 
     if (missing.length > 0) {
@@ -2608,7 +3233,10 @@ function resolveRlsConfiguration(
         isOptedIn: true,
         shouldRun: true,
         source: "BE-06",
-        error: `BE-06 live RLS integration test enabled but configuration is incomplete: missing ${missing.join(", ")} (never falling back to NON_PRODUCTION_TEST_DATABASE variables when BE-06 is configured).`,
+        error:
+          `BE-06 live RLS integration test enabled but configuration is incomplete: missing ${
+            missing.join(", ")
+          } (never falling back to NON_PRODUCTION_TEST_DATABASE variables when BE-06 is configured).`,
         url: be06Url,
         anonKey: be06Anon,
         serviceRoleKey: be06Service,
@@ -2628,8 +3256,10 @@ function resolveRlsConfiguration(
     };
   }
 
-  const nonProdOptIn = (getEnv("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION") ?? "").trim();
-  const isLegacyOptedIn = nonProdOptIn.toLowerCase() === "true" || nonProdOptIn === "1";
+  const nonProdOptIn =
+    (getEnv("RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION") ?? "").trim();
+  const isLegacyOptedIn = nonProdOptIn.toLowerCase() === "true" ||
+    nonProdOptIn === "1";
   if (!isLegacyOptedIn) {
     return {
       isOptedIn: false,
@@ -2641,30 +3271,40 @@ function resolveRlsConfiguration(
     };
   }
 
-  const nonProdUrl = (getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL") ?? "").trim();
-  const nonProdDbUrl = sanitizeDatabaseUrl(getEnv("NON_PRODUCTION_TEST_DATABASE_URL"));
-  const nonProdAnon = (
+  const nonProdUrl = (getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL") ?? "")
+    .trim();
+  const nonProdDbUrl = sanitizeDatabaseUrl(
+    getEnv("NON_PRODUCTION_TEST_DATABASE_URL"),
+  );
+  const nonProdAnon =
     getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY")?.trim() ||
     getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY")?.trim() ||
-    ""
-  );
-  const nonProdService = (
+    "";
+  const nonProdService =
     getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY")?.trim() ||
     getEnv("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY")?.trim() ||
-    ""
-  );
-  const nonProdExpectedRef = (
+    "";
+  const nonProdExpectedRef =
     getEnv("NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF")?.trim() ||
     getEnv("NON_PRODUCTION_TEST_DATABASE_PROJECT_REF")?.trim() ||
     extractProjectRefFromKey(nonProdAnon) ||
     extractProjectRefFromKey(nonProdService) ||
-    ""
-  );
+    "";
 
   const missingLegacy: string[] = [];
-  if (!nonProdUrl) missingLegacy.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL");
-  if (!nonProdAnon) missingLegacy.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY (or NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY)");
-  if (!nonProdService) missingLegacy.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY (or NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY)");
+  if (!nonProdUrl) {
+    missingLegacy.push("NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL");
+  }
+  if (!nonProdAnon) {
+    missingLegacy.push(
+      "NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY (or NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY)",
+    );
+  }
+  if (!nonProdService) {
+    missingLegacy.push(
+      "NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY (or NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY)",
+    );
+  }
   if (!nonProdExpectedRef) {
     missingLegacy.push("NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF");
   }
@@ -2674,7 +3314,10 @@ function resolveRlsConfiguration(
       isOptedIn: true,
       shouldRun: true,
       source: "NON_PRODUCTION_TEST_DATABASE",
-      error: `Non-production test database live RLS integration test enabled but configuration is incomplete: missing ${missingLegacy.join(", ")}.`,
+      error:
+        `Non-production test database live RLS integration test enabled but configuration is incomplete: missing ${
+          missingLegacy.join(", ")
+        }.`,
       url: nonProdUrl,
       anonKey: nonProdAnon,
       serviceRoleKey: nonProdService,
@@ -2719,10 +3362,14 @@ function redactSecrets(message: string, secrets: string[]): string {
 
 function isModernApiKey(key: string): boolean {
   const trimmed = key.trim();
-  return trimmed.startsWith("sb_secret_") || trimmed.startsWith("sb_publishable_");
+  return trimmed.startsWith("sb_secret_") ||
+    trimmed.startsWith("sb_publishable_");
 }
 
-function createRlsClientFetch(apiKey: string, baseFetch: typeof fetch = fetch): typeof fetch {
+function createRlsClientFetch(
+  apiKey: string,
+  baseFetch: typeof fetch = fetch,
+): typeof fetch {
   const trimmedKey = apiKey.trim();
   if (!isModernApiKey(trimmedKey)) {
     return baseFetch;
@@ -2730,7 +3377,9 @@ function createRlsClientFetch(apiKey: string, baseFetch: typeof fetch = fetch): 
   return (input, init) => {
     const headers = new Headers(init?.headers);
     const auth = headers.get("authorization");
-    if (auth && auth.trim().toLowerCase() === `bearer ${trimmedKey.toLowerCase()}`) {
+    if (
+      auth && auth.trim().toLowerCase() === `bearer ${trimmedKey.toLowerCase()}`
+    ) {
       headers.delete("authorization");
     }
     return baseFetch(input, { ...init, headers });
@@ -2797,7 +3446,8 @@ function validateDedicatedTestTarget(
     );
   }
   if (
-    extractedRef.toLowerCase() === LINKED_PRODUCTION_PROJECT_REF.toLowerCase() ||
+    extractedRef.toLowerCase() ===
+      LINKED_PRODUCTION_PROJECT_REF.toLowerCase() ||
     extractedRef.toLowerCase() === KNOWN_PRODUCTION_REF.toLowerCase() ||
     parsed.hostname.includes(LINKED_PRODUCTION_PROJECT_REF) ||
     parsed.hostname.includes(KNOWN_PRODUCTION_REF)
@@ -2806,7 +3456,9 @@ function validateDedicatedTestTarget(
       "Safety guard rejected test target: refuses to run against the primary linked production project.",
     );
   }
-  const regularAppUrl = (Deno.env.get("SUPABASE_URL") ?? Deno.env.get("VITE_SUPABASE_URL") ?? "").trim();
+  const regularAppUrl =
+    (Deno.env.get("SUPABASE_URL") ?? Deno.env.get("VITE_SUPABASE_URL") ?? "")
+      .trim();
   if (regularAppUrl) {
     try {
       const parsedRegular = new URL(regularAppUrl);
@@ -2828,7 +3480,9 @@ function validateDedicatedTestTarget(
   }
 }
 
-function extractProjectRefFromDatabaseUrl(connectionString: string): string | null {
+function extractProjectRefFromDatabaseUrl(
+  connectionString: string,
+): string | null {
   const sanitized = sanitizeDatabaseUrl(connectionString);
   if (!sanitized) return null;
   try {
@@ -2847,7 +3501,10 @@ function extractProjectRefFromDatabaseUrl(connectionString: string): string | nu
   }
 }
 
-function validateTestDatabaseTarget(connectionString: string, expectedProjectRef: string): void {
+function validateTestDatabaseTarget(
+  connectionString: string,
+  expectedProjectRef: string,
+): void {
   const sanitized = sanitizeDatabaseUrl(connectionString);
   if (!sanitized) {
     throw new Error("Test database connection string is missing.");
@@ -2859,32 +3516,52 @@ function validateTestDatabaseTarget(connectionString: string, expectedProjectRef
     throw new Error("Test database connection string is invalid.");
   }
   if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
-    throw new Error("Test database connection string must use postgresql: protocol.");
+    throw new Error(
+      "Test database connection string must use postgresql: protocol.",
+    );
   }
-  const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1" || parsed.hostname === "[::1]";
+  const isLocal = parsed.hostname === "localhost" ||
+    parsed.hostname === "127.0.0.1" || parsed.hostname === "::1" ||
+    parsed.hostname === "[::1]";
   if (isLocal) {
-    throw new Error("Safety guard rejected test database target: hosted test database must not target localhost/loopback.");
+    throw new Error(
+      "Safety guard rejected test database target: hosted test database must not target localhost/loopback.",
+    );
   }
-  if (!expectedProjectRef || typeof expectedProjectRef !== "string" || !expectedProjectRef.trim()) {
-    throw new Error("Safety guard rejected test database target: expected test-project reference must be explicitly configured.");
+  if (
+    !expectedProjectRef || typeof expectedProjectRef !== "string" ||
+    !expectedProjectRef.trim()
+  ) {
+    throw new Error(
+      "Safety guard rejected test database target: expected test-project reference must be explicitly configured.",
+    );
   }
   const extractedRef = extractProjectRefFromDatabaseUrl(sanitized);
   if (!extractedRef) {
-    throw new Error("Safety guard rejected test database target: unable to extract Supabase project reference from connection string.");
+    throw new Error(
+      "Safety guard rejected test database target: unable to extract Supabase project reference from connection string.",
+    );
   }
   if (extractedRef.toLowerCase() !== expectedProjectRef.trim().toLowerCase()) {
-    throw new Error(`Safety guard rejected test database target: expected project reference '${expectedProjectRef.trim()}' does not match database URL project reference '${extractedRef}'.`);
+    throw new Error(
+      `Safety guard rejected test database target: expected project reference '${expectedProjectRef.trim()}' does not match database URL project reference '${extractedRef}'.`,
+    );
   }
-  const configuredMainRef = (Deno.env.get("RLS_EXPECTED_PROJECT_REF") || "").trim().toLowerCase();
+  const configuredMainRef = (Deno.env.get("RLS_EXPECTED_PROJECT_REF") || "")
+    .trim().toLowerCase();
   const knownProductionRef = "gtbwblxskctpsqhbpebg";
   if (
     extractedRef.toLowerCase() === knownProductionRef ||
     (configuredMainRef && extractedRef.toLowerCase() === configuredMainRef) ||
     parsed.hostname.toLowerCase().includes(knownProductionRef) ||
     parsed.username.toLowerCase().includes(knownProductionRef) ||
-    (configuredMainRef && (parsed.hostname.toLowerCase().includes(configuredMainRef) || parsed.username.toLowerCase().includes(configuredMainRef)))
+    (configuredMainRef &&
+      (parsed.hostname.toLowerCase().includes(configuredMainRef) ||
+        parsed.username.toLowerCase().includes(configuredMainRef)))
   ) {
-    throw new Error("Safety guard rejected test database target: refuses to target the primary linked production project (gtbwblxskctpsqhbpebg).");
+    throw new Error(
+      "Safety guard rejected test database target: refuses to target the primary linked production project (gtbwblxskctpsqhbpebg).",
+    );
   }
 }
 
@@ -2980,14 +3657,21 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
   const envNeither: Record<string, string> = {};
   assertEquals(resolveRlsConfiguration((k) => envNeither[k]).shouldRun, false);
 
-  const envBe06OptOut: Record<string, string> = { RUN_BE06_RLS_INTEGRATION: "false" };
-  assertEquals(resolveRlsConfiguration((k) => envBe06OptOut[k]).shouldRun, false);
+  const envBe06OptOut: Record<string, string> = {
+    RUN_BE06_RLS_INTEGRATION: "false",
+  };
+  assertEquals(
+    resolveRlsConfiguration((k) => envBe06OptOut[k]).shouldRun,
+    false,
+  );
 
   const envBe06Incomplete: Record<string, string> = {
     RUN_BE06_RLS_INTEGRATION: "true",
     BE06_RLS_TEST_SUPABASE_URL: "https://be06-test.supabase.co",
   };
-  const be06IncompleteResult = resolveRlsConfiguration((k) => envBe06Incomplete[k]);
+  const be06IncompleteResult = resolveRlsConfiguration((k) =>
+    envBe06Incomplete[k]
+  );
   assertEquals(be06IncompleteResult.shouldRun, true);
   assertEquals(be06IncompleteResult.source, "BE-06");
   assertNotEquals(be06IncompleteResult.error, undefined);
@@ -3020,12 +3704,15 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
 
   const envLegacyComplete: Record<string, string> = {
     RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
-    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL:
+      "https://non-prod-test.supabase.co",
     NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: anonKey,
     NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
     NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF: "non-prod-test",
   };
-  const legacyCompleteResult = resolveRlsConfiguration((k) => envLegacyComplete[k]);
+  const legacyCompleteResult = resolveRlsConfiguration((k) =>
+    envLegacyComplete[k]
+  );
   assertEquals(legacyCompleteResult.shouldRun, true);
   assertEquals(legacyCompleteResult.source, "NON_PRODUCTION_TEST_DATABASE");
   assertEquals(legacyCompleteResult.error, undefined);
@@ -3033,20 +3720,26 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
 
   const envLegacyIncomplete: Record<string, string> = {
     RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
-    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL:
+      "https://non-prod-test.supabase.co",
   };
-  const legacyIncompleteResult = resolveRlsConfiguration((k) => envLegacyIncomplete[k]);
+  const legacyIncompleteResult = resolveRlsConfiguration((k) =>
+    envLegacyIncomplete[k]
+  );
   assertEquals(legacyIncompleteResult.shouldRun, true);
   assertEquals(legacyIncompleteResult.source, "NON_PRODUCTION_TEST_DATABASE");
   assertNotEquals(legacyIncompleteResult.error, undefined);
 
   const envLegacyMissingRef: Record<string, string> = {
     RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
-    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL:
+      "https://non-prod-test.supabase.co",
     NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: anonKey,
     NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
   };
-  const legacyMissingRefResult = resolveRlsConfiguration((k) => envLegacyMissingRef[k]);
+  const legacyMissingRefResult = resolveRlsConfiguration((k) =>
+    envLegacyMissingRef[k]
+  );
   assertEquals(legacyMissingRefResult.shouldRun, true);
   assertEquals(legacyMissingRefResult.source, "NON_PRODUCTION_TEST_DATABASE");
   assertEquals(
@@ -3056,12 +3749,15 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
 
   const envLegacyProjectRefAlias: Record<string, string> = {
     RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
-    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: "https://non-prod-test.supabase.co",
+    NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL:
+      "https://non-prod-test.supabase.co",
     NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY: anonKey,
     NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
     NON_PRODUCTION_TEST_DATABASE_PROJECT_REF: "non-prod-test",
   };
-  const legacyAliasResult = resolveRlsConfiguration((k) => envLegacyProjectRefAlias[k]);
+  const legacyAliasResult = resolveRlsConfiguration((k) =>
+    envLegacyProjectRefAlias[k]
+  );
   assertEquals(legacyAliasResult.shouldRun, true);
   assertEquals(legacyAliasResult.source, "NON_PRODUCTION_TEST_DATABASE");
   assertEquals(legacyAliasResult.error, undefined);
@@ -3071,7 +3767,9 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
     RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION: "true",
     BE06_RLS_TEST_SUPABASE_URL: "https://be06-test.supabase.co",
   };
-  const inconsistentResult = resolveRlsConfiguration((k) => envInconsistentMixedOptIn[k]);
+  const inconsistentResult = resolveRlsConfiguration((k) =>
+    envInconsistentMixedOptIn[k]
+  );
   assertEquals(inconsistentResult.shouldRun, true);
   assertEquals(inconsistentResult.source, "BE-06");
   assertNotEquals(inconsistentResult.error, undefined);
@@ -3091,31 +3789,45 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
   assertEquals(legacyJwtResult.expectedProjectRef, "jwt-proj");
 
   assertEquals(
-    sanitizeDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres"'),
+    sanitizeDatabaseUrl(
+      '"postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres"',
+    ),
     "postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres",
   );
   assertEquals(
-    sanitizeDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'"),
+    sanitizeDatabaseUrl(
+      "'postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres'",
+    ),
     "postgresql://postgres.my-test-proj:secret@aws-0.pooler.supabase.com:5432/postgres",
   );
   assertEquals(
-    extractProjectRefFromDatabaseUrl("postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"),
+    extractProjectRefFromDatabaseUrl(
+      "postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres",
+    ),
     "my-test-proj",
   );
   assertEquals(
-    extractProjectRefFromDatabaseUrl('"postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"'),
+    extractProjectRefFromDatabaseUrl(
+      '"postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres"',
+    ),
     "my-test-proj",
   );
   assertEquals(
-    extractProjectRefFromDatabaseUrl("'postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'"),
+    extractProjectRefFromDatabaseUrl(
+      "'postgresql://postgres.my-test-proj:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres'",
+    ),
     "my-test-proj",
   );
   assertEquals(
-    extractProjectRefFromDatabaseUrl("postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres"),
+    extractProjectRefFromDatabaseUrl(
+      "postgresql://postgres:secret@db.my-test-proj.supabase.co:5432/postgres",
+    ),
     "my-test-proj",
   );
   assertEquals(
-    extractProjectRefFromDatabaseUrl("postgresql://postgres:secret@127.0.0.1:5432/postgres"),
+    extractProjectRefFromDatabaseUrl(
+      "postgresql://postgres:secret@127.0.0.1:5432/postgres",
+    ),
     null,
   );
 
@@ -3125,22 +3837,38 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
     "Test database connection string is missing.",
   );
   assertThrows(
-    () => validateTestDatabaseTarget("http://my-host:5432/postgres", "my-test-proj"),
+    () =>
+      validateTestDatabaseTarget(
+        "http://my-host:5432/postgres",
+        "my-test-proj",
+      ),
     Error,
     "Test database connection string must use postgresql: protocol.",
   );
   assertThrows(
-    () => validateTestDatabaseTarget("postgresql://postgres:pass@127.0.0.1:5432/postgres", "my-test-proj"),
+    () =>
+      validateTestDatabaseTarget(
+        "postgresql://postgres:pass@127.0.0.1:5432/postgres",
+        "my-test-proj",
+      ),
     Error,
     "Safety guard rejected test database target: hosted test database must not target localhost/loopback.",
   );
   assertThrows(
-    () => validateTestDatabaseTarget("postgresql://postgres.other-proj:pass@aws-0.pooler.supabase.com:5432/postgres", "my-test-proj"),
+    () =>
+      validateTestDatabaseTarget(
+        "postgresql://postgres.other-proj:pass@aws-0.pooler.supabase.com:5432/postgres",
+        "my-test-proj",
+      ),
     Error,
     "expected project reference 'my-test-proj' does not match database URL project reference 'other-proj'",
   );
   assertThrows(
-    () => validateTestDatabaseTarget("postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0.pooler.supabase.com:5432/postgres", "gtbwblxskctpsqhbpebg"),
+    () =>
+      validateTestDatabaseTarget(
+        "postgresql://postgres.gtbwblxskctpsqhbpebg:pass@aws-0.pooler.supabase.com:5432/postgres",
+        "gtbwblxskctpsqhbpebg",
+      ),
     Error,
     "refuses to target the primary linked production project",
   );
@@ -3156,23 +3884,36 @@ Deno.test("Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local,
 
   const envBe06WithDbUrl: Record<string, string> = {
     ...envBe06Complete,
-    BE06_RLS_TEST_DATABASE_URL: "postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres",
+    BE06_RLS_TEST_DATABASE_URL:
+      "postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres",
   };
-  const be06WithDbUrlResult = resolveRlsConfiguration((k) => envBe06WithDbUrl[k]);
+  const be06WithDbUrlResult = resolveRlsConfiguration((k) =>
+    envBe06WithDbUrl[k]
+  );
   assertEquals(be06WithDbUrlResult.shouldRun, true);
-  assertEquals(be06WithDbUrlResult.databaseUrl, "postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres");
+  assertEquals(
+    be06WithDbUrlResult.databaseUrl,
+    "postgresql://postgres.be06-test:pass@aws-0.pooler.supabase.com:5432/postgres",
+  );
 
   const envLegacyWithDbUrl: Record<string, string> = {
     ...envLegacyComplete,
-    NON_PRODUCTION_TEST_DATABASE_URL: "postgresql://postgres.non-prod-test:pass@aws-0.pooler.supabase.com:5432/postgres",
+    NON_PRODUCTION_TEST_DATABASE_URL:
+      "postgresql://postgres.non-prod-test:pass@aws-0.pooler.supabase.com:5432/postgres",
   };
-  const legacyWithDbUrlResult = resolveRlsConfiguration((k) => envLegacyWithDbUrl[k]);
+  const legacyWithDbUrlResult = resolveRlsConfiguration((k) =>
+    envLegacyWithDbUrl[k]
+  );
   assertEquals(legacyWithDbUrlResult.shouldRun, true);
-  assertEquals(legacyWithDbUrlResult.databaseUrl, "postgresql://postgres.non-prod-test:pass@aws-0.pooler.supabase.com:5432/postgres");
+  assertEquals(
+    legacyWithDbUrlResult.databaseUrl,
+    "postgresql://postgres.non-prod-test:pass@aws-0.pooler.supabase.com:5432/postgres",
+  );
 });
 
 Deno.test({
-  name: "Live PostgreSQL schema preflight: public.recipes.notes is present and queryable as nullable text (hosted integration)",
+  name:
+    "Live PostgreSQL schema preflight: public.recipes.notes is present and queryable as nullable text (hosted integration)",
   ignore: !rlsConfig.shouldRun,
   fn: async () => {
     if (rlsConfig.error) {
@@ -3188,13 +3929,17 @@ Deno.test({
       validateTestDatabaseTarget(testDatabaseUrl, testExpectedProjectRef);
     }
 
-    const adminClient = createRlsTestClient(testSupabaseUrl, testServiceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
+    const adminClient = createRlsTestClient(
+      testSupabaseUrl,
+      testServiceRoleKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
       },
-    });
+    );
 
     const { error: probeError } = await adminClient
       .from("recipes")
@@ -3202,7 +3947,9 @@ Deno.test({
       .limit(0);
 
     if (probeError) {
-      if (probeError.code === "PGRST204" || probeError.message?.includes("notes")) {
+      if (
+        probeError.code === "PGRST204" || probeError.message?.includes("notes")
+      ) {
         throw new Error(
           `Preflight verification failed: PostgREST returned PGRST204 for column 'notes' in schema cache. Migration '20261023000002_add_notes_to_recipes.sql' must be applied to the test database and PostgREST schema cache reloaded. Set BE06_RLS_TEST_DATABASE_URL (or NON_PRODUCTION_TEST_DATABASE_URL) to apply test database migrations.`,
         );
@@ -3213,7 +3960,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Live PostgreSQL persistence and RLS enforcement for recipe CRUD (hosted integration)",
+  name:
+    "Live PostgreSQL persistence and RLS enforcement for recipe CRUD (hosted integration)",
   ignore: !rlsConfig.shouldRun,
   fn: async () => {
     if (rlsConfig.error) {
@@ -3227,25 +3975,34 @@ Deno.test({
       testExpectedProjectRef,
     );
 
-    const adminClient = createRlsTestClient(testSupabaseUrl, testServiceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
+    const adminClient = createRlsTestClient(
+      testSupabaseUrl,
+      testServiceRoleKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
       },
-    });
+    );
 
     const { error: preflightError } = await adminClient
       .from("recipes")
       .select("notes")
       .limit(0);
     if (preflightError) {
-      if (preflightError.code === "PGRST204" || preflightError.message?.includes("notes")) {
+      if (
+        preflightError.code === "PGRST204" ||
+        preflightError.message?.includes("notes")
+      ) {
         throw new Error(
           `Preflight verification failed: PostgREST returned PGRST204 for column 'notes'. Migration '20261023000002_add_notes_to_recipes.sql' must be applied to the dedicated test database before running hosted CRUD tests. Set BE06_RLS_TEST_DATABASE_URL (or NON_PRODUCTION_TEST_DATABASE_URL).`,
         );
       }
-      throw new Error(`Preflight verification failed: ${preflightError.message}`);
+      throw new Error(
+        `Preflight verification failed: ${preflightError.message}`,
+      );
     }
 
     const runId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
@@ -3260,57 +4017,89 @@ Deno.test({
     let primaryError: Error | null = null;
 
     try {
-      const { data: createdA, error: createErrorA } = await adminClient.auth.admin.createUser({
-        email: userAEmail,
-        password: userAPassword,
-        email_confirm: true,
-      });
+      const { data: createdA, error: createErrorA } = await adminClient.auth
+        .admin.createUser({
+          email: userAEmail,
+          password: userAPassword,
+          email_confirm: true,
+        });
       if (createErrorA || !createdA?.user?.id) {
         throw new Error(
-          `Failed to create test User A: ${redactSecrets(createErrorA?.message ?? "missing user id", knownSecrets)}`,
+          `Failed to create test User A: ${
+            redactSecrets(
+              createErrorA?.message ?? "missing user id",
+              knownSecrets,
+            )
+          }`,
         );
       }
       const userAId = createdA.user.id;
       createdUserIds.push(userAId);
 
-      const { data: createdB, error: createErrorB } = await adminClient.auth.admin.createUser({
-        email: userBEmail,
-        password: userBPassword,
-        email_confirm: true,
-      });
+      const { data: createdB, error: createErrorB } = await adminClient.auth
+        .admin.createUser({
+          email: userBEmail,
+          password: userBPassword,
+          email_confirm: true,
+        });
       if (createErrorB || !createdB?.user?.id) {
         throw new Error(
-          `Failed to create test User B: ${redactSecrets(createErrorB?.message ?? "missing user id", knownSecrets)}`,
+          `Failed to create test User B: ${
+            redactSecrets(
+              createErrorB?.message ?? "missing user id",
+              knownSecrets,
+            )
+          }`,
         );
       }
       const userBId = createdB.user.id;
       createdUserIds.push(userBId);
 
       const anonClientA = createRlsTestClient(testSupabaseUrl, testAnonKey, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
       });
-      const { data: signInA, error: signInErrorA } = await anonClientA.auth.signInWithPassword({
-        email: userAEmail,
-        password: userAPassword,
-      });
+      const { data: signInA, error: signInErrorA } = await anonClientA.auth
+        .signInWithPassword({
+          email: userAEmail,
+          password: userAPassword,
+        });
       if (signInErrorA || !signInA?.session?.access_token) {
         throw new Error(
-          `Failed to sign in User A: ${redactSecrets(signInErrorA?.message ?? "missing token", knownSecrets)}`,
+          `Failed to sign in User A: ${
+            redactSecrets(
+              signInErrorA?.message ?? "missing token",
+              knownSecrets,
+            )
+          }`,
         );
       }
       const userAAccessToken = signInA.session.access_token;
       knownSecrets.push(userAAccessToken);
 
       const anonClientB = createRlsTestClient(testSupabaseUrl, testAnonKey, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
       });
-      const { data: signInB, error: signInErrorB } = await anonClientB.auth.signInWithPassword({
-        email: userBEmail,
-        password: userBPassword,
-      });
+      const { data: signInB, error: signInErrorB } = await anonClientB.auth
+        .signInWithPassword({
+          email: userBEmail,
+          password: userBPassword,
+        });
       if (signInErrorB || !signInB?.session?.access_token) {
         throw new Error(
-          `Failed to sign in User B: ${redactSecrets(signInErrorB?.message ?? "missing token", knownSecrets)}`,
+          `Failed to sign in User B: ${
+            redactSecrets(
+              signInErrorB?.message ?? "missing token",
+              knownSecrets,
+            )
+          }`,
         );
       }
       const userBAccessToken = signInB.session.access_token;
@@ -3351,7 +4140,11 @@ Deno.test({
       assertEquals(persistedRow?.is_public, false);
 
       const rlsClientB = createRlsTestClient(testSupabaseUrl, testAnonKey, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
         global: { headers: { Authorization: `Bearer ${userBAccessToken}` } },
       });
       const { data: crossReadRows, error: crossReadError } = await rlsClientB
@@ -3372,12 +4165,18 @@ Deno.test({
       assertEquals(listRes.status, 200);
       const listBody = await listRes.json();
       assertEquals(Array.isArray(listBody.recipes), true);
-      assertEquals(listBody.recipes.some((r: { id: string }) => r.id === createdId), true);
+      assertEquals(
+        listBody.recipes.some((r: { id: string }) => r.id === createdId),
+        true,
+      );
 
-      const detailReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${userAAccessToken}` },
-      });
+      const detailReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${userAAccessToken}` },
+        },
+      );
       const detailRes = await handler(detailReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
@@ -3387,18 +4186,21 @@ Deno.test({
       assertEquals(detailBody.recipe?.id, createdId);
       assertEquals(detailBody.recipe?.user_id, userAId);
 
-      const patchReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${userAAccessToken}`,
-          "Content-Type": "application/json",
+      const patchReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${userAAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            star_rating: 4,
+            cooked_at: "2026-10-22",
+            raw_input: "Chef test prompt",
+          }),
         },
-        body: JSON.stringify({
-          star_rating: 4,
-          cooked_at: "2026-10-22",
-          raw_input: "Chef test prompt",
-        }),
-      });
+      );
       const patchRes = await handler(patchReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
@@ -3418,28 +4220,34 @@ Deno.test({
       assertEquals(readAfterPatchBody.recipe?.star_rating, 4);
       assertEquals(readAfterPatchBody.recipe?.raw_input, "Chef test prompt");
 
-      const patchEmptyReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${userAAccessToken}`,
-          "Content-Type": "application/json",
+      const patchEmptyReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${userAAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
         },
-        body: JSON.stringify({}),
-      });
+      );
       const patchEmptyRes = await handler(patchEmptyReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
       });
       assertEquals(patchEmptyRes.status, 400);
 
-      const patchNotesReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${userAAccessToken}`,
-          "Content-Type": "application/json",
+      const patchNotesReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${userAAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ notes: "personal notes" }),
         },
-        body: JSON.stringify({ notes: "personal notes" }),
-      });
+      );
       const patchNotesRes = await handler(patchNotesReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
@@ -3449,14 +4257,21 @@ Deno.test({
       assertEquals(patchNotesBody.recipe?.notes, "personal notes");
       assertEquals(patchNotesBody.recipe?.raw_input, "Chef test prompt");
 
-      const patchNullReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${userAAccessToken}`,
-          "Content-Type": "application/json",
+      const patchNullReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${userAAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            star_rating: null,
+            raw_input: null,
+            notes: null,
+          }),
         },
-        body: JSON.stringify({ star_rating: null, raw_input: null, notes: null }),
-      });
+      );
       const patchNullRes = await handler(patchNullReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
@@ -3477,44 +4292,56 @@ Deno.test({
       assertEquals(readAfterNullBody.recipe?.raw_input, null);
       assertEquals(readAfterNullBody.recipe?.notes, null);
 
-      const crossGetReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${userBAccessToken}` },
-      });
+      const crossGetReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${userBAccessToken}` },
+        },
+      );
       const crossGetRes = await handler(crossGetReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
       });
       assertEquals(crossGetRes.status, 404);
 
-      const crossPatchReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${userBAccessToken}`,
-          "Content-Type": "application/json",
+      const crossPatchReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${userBAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ title: "Attacker Title" }),
         },
-        body: JSON.stringify({ title: "Attacker Title" }),
-      });
+      );
       const crossPatchRes = await handler(crossPatchReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
       });
       assertEquals(crossPatchRes.status, 404);
 
-      const crossDeleteReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${userBAccessToken}` },
-      });
+      const crossDeleteReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${userBAccessToken}` },
+        },
+      );
       const crossDeleteRes = await handler(crossDeleteReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
       });
       assertEquals(crossDeleteRes.status, 404);
 
-      const deleteReq = new Request(`http://localhost/functions/v1/recipes/${createdId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${userAAccessToken}` },
-      });
+      const deleteReq = new Request(
+        `http://localhost/functions/v1/recipes/${createdId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${userAAccessToken}` },
+        },
+      );
       const deleteRes = await handler(deleteReq, {
         supabaseUrl: testSupabaseUrl,
         supabaseAnonKey: testAnonKey,
@@ -3544,18 +4371,28 @@ Deno.test({
 type RlsCleanupAdminClient = {
   from: (table: string) => {
     delete: () => {
-      in: (column: string, values: string[]) => PromiseLike<{ error: { message?: string } | null }>;
+      in: (
+        column: string,
+        values: string[],
+      ) => PromiseLike<{ error: { message?: string } | null }>;
     };
     select: (columns: string) => {
       in: (
         column: string,
         values: string[],
-      ) => PromiseLike<{ data: Array<{ id: string }> | null; error: { message?: string } | null }>;
+      ) => PromiseLike<
+        {
+          data: Array<{ id: string }> | null;
+          error: { message?: string } | null;
+        }
+      >;
     };
   };
   auth: {
     admin: {
-      deleteUser: (id: string) => PromiseLike<{ error: { message?: string } | null }>;
+      deleteUser: (
+        id: string,
+      ) => PromiseLike<{ error: { message?: string } | null }>;
     };
   };
 };
@@ -3568,18 +4405,30 @@ async function cleanupRlsTestResources(
   primaryError: Error | null,
 ): Promise<void> {
   const cleanupErrors: string[] = [];
-  const deleteRows = async (table: string, column: string, values: string[], label: string) => {
+  const deleteRows = async (
+    table: string,
+    column: string,
+    values: string[],
+    label: string,
+  ) => {
     try {
-      const { error } = await adminClient.from(table).delete().in(column, values);
+      const { error } = await adminClient.from(table).delete().in(
+        column,
+        values,
+      );
       if (error) {
         cleanupErrors.push(
-          `Failed to delete test ${label}: ${redactSecrets(error.message || "unknown error", knownSecrets)}`,
+          `Failed to delete test ${label}: ${
+            redactSecrets(error.message || "unknown error", knownSecrets)
+          }`,
         );
       }
     } catch (err) {
       const rawMessage = err instanceof Error ? err.message : String(err);
       cleanupErrors.push(
-        `Failed to delete test ${label}: ${redactSecrets(rawMessage, knownSecrets)}`,
+        `Failed to delete test ${label}: ${
+          redactSecrets(rawMessage, knownSecrets)
+        }`,
       );
     }
   };
@@ -3592,16 +4441,25 @@ async function cleanupRlsTestResources(
     await deleteRows("profiles", "id", createdUserIds, "profile rows");
     for (const uid of createdUserIds) {
       try {
-        const { error: deleteError } = await adminClient.auth.admin.deleteUser(uid);
+        const { error: deleteError } = await adminClient.auth.admin.deleteUser(
+          uid,
+        );
         if (deleteError) {
           cleanupErrors.push(
-            `Failed to delete test user ${uid}: ${redactSecrets(deleteError.message || "unknown error", knownSecrets)}`,
+            `Failed to delete test user ${uid}: ${
+              redactSecrets(
+                deleteError.message || "unknown error",
+                knownSecrets,
+              )
+            }`,
           );
         }
       } catch (err) {
         const rawMessage = err instanceof Error ? err.message : String(err);
         cleanupErrors.push(
-          `Failed to delete test user ${uid}: ${redactSecrets(rawMessage, knownSecrets)}`,
+          `Failed to delete test user ${uid}: ${
+            redactSecrets(rawMessage, knownSecrets)
+          }`,
         );
       }
     }
@@ -3613,10 +4471,14 @@ async function cleanupRlsTestResources(
         .in("user_id", createdUserIds);
       if (verifyError) {
         cleanupErrors.push(
-          `Failed to verify recipe cleanup: ${redactSecrets(verifyError.message || "unknown error", knownSecrets)}`,
+          `Failed to verify recipe cleanup: ${
+            redactSecrets(verifyError.message || "unknown error", knownSecrets)
+          }`,
         );
       } else if (remainingRecipes === null) {
-        cleanupErrors.push("Failed to verify recipe cleanup: no rows were returned.");
+        cleanupErrors.push(
+          "Failed to verify recipe cleanup: no rows were returned.",
+        );
       } else if (remainingRecipes.length > 0) {
         cleanupErrors.push(
           `Cleanup incomplete: ${remainingRecipes.length} test recipe row(s) still present.`,
@@ -3625,14 +4487,18 @@ async function cleanupRlsTestResources(
     } catch (err) {
       const rawMessage = err instanceof Error ? err.message : String(err);
       cleanupErrors.push(
-        `Failed to verify recipe cleanup: ${redactSecrets(rawMessage, knownSecrets)}`,
+        `Failed to verify recipe cleanup: ${
+          redactSecrets(rawMessage, knownSecrets)
+        }`,
       );
     }
   }
 
   if (primaryError && cleanupErrors.length > 0) {
     throw new Error(
-      `${redactSecrets(primaryError.message, knownSecrets)} | Cleanup failed: ${cleanupErrors.join("; ")}`,
+      `${redactSecrets(primaryError.message, knownSecrets)} | Cleanup failed: ${
+        cleanupErrors.join("; ")
+      }`,
       { cause: primaryError },
     );
   }
@@ -3649,7 +4515,9 @@ Deno.test("RLS test cleanup reports table and auth-user failures, redacts secret
   const mockAnonKey = "secret-anon-key-value";
   const knownSecrets = [mockAnonKey, mockServiceRoleKey];
 
-  const deletedTables: Array<{ table: string; column: string; values: string[] }> = [];
+  const deletedTables: Array<
+    { table: string; column: string; values: string[] }
+  > = [];
   const deletedUsersSuccess: string[] = [];
 
   const successAdminClient: RlsCleanupAdminClient = {
@@ -3695,14 +4563,14 @@ Deno.test("RLS test cleanup reports table and auth-user failures, redacts secret
       delete: () => ({
         in: (column: string) =>
           Promise.resolve({
-            error:
-              table === "recipes" && column === "id"
-                ? { message: `Recipe deletion failed with ${mockServiceRoleKey}` }
-                : null,
+            error: table === "recipes" && column === "id"
+              ? { message: `Recipe deletion failed with ${mockServiceRoleKey}` }
+              : null,
           }),
       }),
       select: () => ({
-        in: () => Promise.resolve({ data: [{ id: "leftover-recipe" }], error: null }),
+        in: () =>
+          Promise.resolve({ data: [{ id: "leftover-recipe" }], error: null }),
       }),
     }),
     auth: {
@@ -3733,7 +4601,9 @@ Deno.test("RLS test cleanup reports table and auth-user failures, redacts secret
     true,
   );
   assertEquals(
-    tableCleanupError.message.includes("Cleanup incomplete: 1 test recipe row(s) still present."),
+    tableCleanupError.message.includes(
+      "Cleanup incomplete: 1 test recipe row(s) still present.",
+    ),
     true,
   );
   assertEquals(tableCleanupError.message.includes(mockServiceRoleKey), false);
@@ -3811,7 +4681,9 @@ Deno.test("RLS test cleanup reports table and auth-user failures, redacts secret
     },
   };
 
-  const earlierError = new Error("Primary RLS assertion failed: expected 201 to equal 500");
+  const earlierError = new Error(
+    "Primary RLS assertion failed: expected 201 to equal 500",
+  );
   const combinedError = await assertRejects(
     () =>
       cleanupRlsTestResources(
@@ -3826,7 +4698,9 @@ Deno.test("RLS test cleanup reports table and auth-user failures, redacts secret
 
   assertEquals(attemptedUsersWithPrimaryError, ["user-a", "user-b"]);
   assertEquals(
-    combinedError.message.includes("Primary RLS assertion failed: expected 201 to equal 500"),
+    combinedError.message.includes(
+      "Primary RLS assertion failed: expected 201 to equal 500",
+    ),
     true,
   );
   assertEquals(
@@ -3867,7 +4741,9 @@ Deno.test("cleanupRlsTestResources handles thrown deleteUser exceptions by faili
           attemptedUsers.push(id);
           if (id === "user-a") {
             return Promise.reject(
-              new Error(`Network exception during deleteUser with ${mockServiceRoleKey}`),
+              new Error(
+                `Network exception during deleteUser with ${mockServiceRoleKey}`,
+              ),
             );
           }
           return Promise.resolve({ error: null });
@@ -3938,7 +4814,9 @@ Deno.test("cleanupRlsTestResources handles thrown deleteUser exceptions by faili
 
   assertEquals(attemptedUsersWithPrimary, ["user-a", "user-b"]);
   assertEquals(
-    combinedThrownError.message.includes("Primary test failure before thrown cleanup ([REDACTED])"),
+    combinedThrownError.message.includes(
+      "Primary test failure before thrown cleanup ([REDACTED])",
+    ),
     true,
   );
   assertEquals(
@@ -3955,28 +4833,87 @@ Deno.test("cleanupRlsTestResources handles thrown deleteUser exceptions by faili
 Deno.test("Authenticated GET /recipes search filters match title, ingredient, trimmed whitespace, and empty values", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
   const cases = [
-    { query: "?title=Garlic", check: () => assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%Garlic%"') },
-    { query: "?title=garlic+rice", check: () => assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%garlic rice%"') },
-    { query: "?title=%20%20crispy%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%crispy%"') },
-    { query: "?ingredient=shallots", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%shallots%"') },
-    { query: "?ingredient=%20%20jasmine%20%20", check: () => assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%jasmine%"') },
+    {
+      query: "?title=Garlic",
+      check: () =>
+        assertEquals(
+          capturedUrl!.searchParams.get("title"),
+          'ilike."%Garlic%"',
+        ),
+    },
+    {
+      query: "?title=garlic+rice",
+      check: () =>
+        assertEquals(
+          capturedUrl!.searchParams.get("title"),
+          'ilike."%garlic rice%"',
+        ),
+    },
+    {
+      query: "?title=%20%20crispy%20%20",
+      check: () =>
+        assertEquals(
+          capturedUrl!.searchParams.get("title"),
+          'ilike."%crispy%"',
+        ),
+    },
+    {
+      query: "?ingredient=shallots",
+      check: () =>
+        assertEquals(
+          capturedUrl!.searchParams.get("ingredients_text"),
+          'ilike."%shallots%"',
+        ),
+    },
+    {
+      query: "?ingredient=%20%20jasmine%20%20",
+      check: () =>
+        assertEquals(
+          capturedUrl!.searchParams.get("ingredients_text"),
+          'ilike."%jasmine%"',
+        ),
+    },
     {
       query: "?title=rice&ingredient=shallots",
       check: () => {
         assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%rice%"');
-        assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%shallots%"');
+        assertEquals(
+          capturedUrl!.searchParams.get("ingredients_text"),
+          'ilike."%shallots%"',
+        );
       },
     },
     {
@@ -3989,10 +4926,17 @@ Deno.test("Authenticated GET /recipes search filters match title, ingredient, tr
   ];
 
   for (const { query, check } of cases) {
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes${query}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(`http://localhost/functions/v1/recipes${query}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(res.status, 200);
     check();
   }
@@ -4000,20 +4944,51 @@ Deno.test("Authenticated GET /recipes search filters match title, ingredient, tr
 
 Deno.test("Authenticated GET /recipes search returns empty collection when no recipes match query", async () => {
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const res = await handler(new Request("http://localhost/functions/v1/recipes?title=nonexistent&ingredient=nonexistent", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const res = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?title=nonexistent&ingredient=nonexistent",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(res.status, 200);
   const body = await res.json();
@@ -4025,9 +5000,25 @@ Deno.test("Authenticated GET /recipes search returns empty collection when no re
 Deno.test("Authenticated GET /recipes rejects duplicate and invalid search and sort query parameters", async () => {
   let recipeCalls = 0;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       recipeCalls++;
@@ -4062,10 +5053,17 @@ Deno.test("Authenticated GET /recipes rejects duplicate and invalid search and s
   ];
 
   for (const query of invalidQueries) {
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes${query}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(`http://localhost/functions/v1/recipes${query}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
 
     assertEquals(res.status, 400);
     const body = await res.json();
@@ -4078,45 +5076,112 @@ Deno.test("Authenticated GET /recipes rejects duplicate and invalid search and s
 Deno.test("Authenticated GET /recipes sorting applies newest and rating modes at database query layer", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const defaultSortRes = await handler(new Request("http://localhost/functions/v1/recipes", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const defaultSortRes = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(defaultSortRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("order"), "created_at.desc,id.asc");
+  assertEquals(
+    capturedUrl!.searchParams.get("order"),
+    "created_at.desc,id.asc",
+  );
 
-  const newestSortRes = await handler(new Request("http://localhost/functions/v1/recipes?sort=newest", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const newestSortRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?sort=newest", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(newestSortRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("order"), "created_at.desc,id.asc");
+  assertEquals(
+    capturedUrl!.searchParams.get("order"),
+    "created_at.desc,id.asc",
+  );
 
-  const ratingSortRes = await handler(new Request("http://localhost/functions/v1/recipes?sort=rating", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const ratingSortRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?sort=rating", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(ratingSortRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("order"), "star_rating.desc.nullslast,created_at.desc,id.asc");
+  assertEquals(
+    capturedUrl!.searchParams.get("order"),
+    "star_rating.desc.nullslast,created_at.desc,id.asc",
+  );
 });
 
 Deno.test("Authenticated GET /recipes pagination supports first page, custom limits, next_cursor continuation, and final page", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
@@ -4129,18 +5194,32 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
           id: `00000000-0000-0000-0000-${idNum}`,
           title: `Recipe ${i + 1}`,
           star_rating: 5,
-          created_at: `2026-10-20T${String(23 - (i % 24)).padStart(2, "0")}:00:00.000Z`,
+          created_at: `2026-10-20T${
+            String(23 - (i % 24)).padStart(2, "0")
+          }:00:00.000Z`,
         });
       }
-      return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify(rows), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const page1Res = await handler(
+    new Request("http://localhost/functions/v1/recipes?pagination=cursor", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(page1Res.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "21");
@@ -4149,10 +5228,22 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
   assertEquals(page1Body.has_more, true);
   assertNotEquals(page1Body.next_cursor, null);
 
-  const continuationRes = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${encodeURIComponent(page1Body.next_cursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const continuationRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?cursor=${
+        encodeURIComponent(page1Body.next_cursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(continuationRes.status, 200);
   assertNotEquals(capturedUrl!.searchParams.get("or"), null);
@@ -4162,10 +5253,20 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
     `(created_at.lt.${lastPage1Row.created_at},and(created_at.eq.${lastPage1Row.created_at},id.gt.${lastPage1Row.id}))`,
   );
 
-  const customLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const customLimitRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&limit=5",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(customLimitRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "6");
   const customLimitBody = await customLimitRes.json();
@@ -4173,20 +5274,51 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
   assertEquals(customLimitBody.has_more, true);
 
   const finalPageFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=20", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: finalPageFetch });
+  const finalPageRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&limit=20",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: finalPageFetch,
+    },
+  );
   assertEquals(finalPageRes.status, 200);
   const finalPageBody = await finalPageRes.json();
   assertEquals(finalPageBody.recipes.length, 1);
@@ -4197,25 +5329,68 @@ Deno.test("Authenticated GET /recipes pagination supports first page, custom lim
 Deno.test("Authenticated GET /recipes pagination supports rating sort keyset continuation with nullable ratings", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
-      return Promise.resolve(new Response(JSON.stringify([
-        persistedRecipeRow({ star_rating: 4, id: "11111111-1111-4111-8111-111111111111", created_at: "2026-10-20T00:00:00.000Z" }),
-        persistedRecipeRow({ star_rating: 4, id: "22222222-2222-4222-8222-222222222222", created_at: "2026-10-19T00:00:00.000Z" }),
-        persistedRecipeRow({ star_rating: null, id: "33333333-3333-4333-8333-333333333333", created_at: "2026-10-18T00:00:00.000Z" }),
-      ]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            persistedRecipeRow({
+              star_rating: 4,
+              id: "11111111-1111-4111-8111-111111111111",
+              created_at: "2026-10-20T00:00:00.000Z",
+            }),
+            persistedRecipeRow({
+              star_rating: 4,
+              id: "22222222-2222-4222-8222-222222222222",
+              created_at: "2026-10-19T00:00:00.000Z",
+            }),
+            persistedRecipeRow({
+              star_rating: null,
+              id: "33333333-3333-4333-8333-333333333333",
+              created_at: "2026-10-18T00:00:00.000Z",
+            }),
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&sort=rating&limit=2", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const page1Res = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&sort=rating&limit=2",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(page1Res.status, 200);
   const page1Body = await page1Res.json();
@@ -4223,10 +5398,22 @@ Deno.test("Authenticated GET /recipes pagination supports rating sort keyset con
   assertEquals(page1Body.has_more, true);
   assertNotEquals(page1Body.next_cursor, null);
 
-  const ratedContinuationRes = await handler(new Request(`http://localhost/functions/v1/recipes?sort=rating&limit=2&cursor=${encodeURIComponent(page1Body.next_cursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const ratedContinuationRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?sort=rating&limit=2&cursor=${
+        encodeURIComponent(page1Body.next_cursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(ratedContinuationRes.status, 200);
   assertEquals(
@@ -4242,10 +5429,22 @@ Deno.test("Authenticated GET /recipes pagination supports rating sort keyset con
   };
   const unratedCursor = btoa(JSON.stringify(unratedCursorObj));
 
-  const unratedContinuationRes = await handler(new Request(`http://localhost/functions/v1/recipes?sort=rating&limit=2&cursor=${encodeURIComponent(unratedCursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const unratedContinuationRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?sort=rating&limit=2&cursor=${
+        encodeURIComponent(unratedCursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(unratedContinuationRes.status, 200);
   assertEquals(
@@ -4257,9 +5456,25 @@ Deno.test("Authenticated GET /recipes pagination supports rating sort keyset con
 Deno.test("Authenticated GET /recipes rejects malformed cursors and cursors incompatible with filters or sort mode", async () => {
   let recipeCalls = 0;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       recipeCalls++;
@@ -4272,14 +5487,32 @@ Deno.test("Authenticated GET /recipes rejects malformed cursors and cursors inco
     "not-base-64",
     btoa("not json"),
     btoa(JSON.stringify({ unknown: true })),
-    btoa(JSON.stringify({ sort: "newest", id: "not-a-uuid", createdAt: "2026-10-20" })),
+    btoa(
+      JSON.stringify({
+        sort: "newest",
+        id: "not-a-uuid",
+        createdAt: "2026-10-20",
+      }),
+    ),
   ];
 
   for (const cursor of malformedCursors) {
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${encodeURIComponent(cursor)}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(
+        `http://localhost/functions/v1/recipes?cursor=${
+          encodeURIComponent(cursor)
+        }`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        },
+      ),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
 
     assertEquals(res.status, 400);
     const body = await res.json();
@@ -4292,10 +5525,22 @@ Deno.test("Authenticated GET /recipes rejects malformed cursors and cursors inco
     createdAt: "2026-10-20T00:00:00.000Z",
   }));
 
-  const sortMismatchRes = await handler(new Request(`http://localhost/functions/v1/recipes?sort=rating&cursor=${encodeURIComponent(newestCursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const sortMismatchRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?sort=rating&cursor=${
+        encodeURIComponent(newestCursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(sortMismatchRes.status, 400);
   const sortMismatchBody = await sortMismatchRes.json();
   assertEquals(sortMismatchBody.error?.code, "VALIDATION_ERROR");
@@ -4307,10 +5552,22 @@ Deno.test("Authenticated GET /recipes rejects malformed cursors and cursors inco
     createdAt: "2026-10-20T00:00:00.000Z",
   }));
 
-  const filterMismatchRes = await handler(new Request(`http://localhost/functions/v1/recipes?title=onion&cursor=${encodeURIComponent(filterCursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const filterMismatchRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?title=onion&cursor=${
+        encodeURIComponent(filterCursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(filterMismatchRes.status, 400);
   const filterMismatchBody = await filterMismatchRes.json();
   assertEquals(filterMismatchBody.error?.code, "VALIDATION_ERROR");
@@ -4321,13 +5578,34 @@ Deno.test("Authenticated GET /recipes rejects malformed cursors and cursors inco
 Deno.test("Authenticated GET /recipes owner isolation is enforced across search, sorting, and cursor pagination", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
@@ -4340,12 +5618,22 @@ Deno.test("Authenticated GET /recipes owner isolation is enforced across search,
   ];
 
   for (const q of queries) {
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes${q}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(`http://localhost/functions/v1/recipes${q}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(res.status, 200);
-    assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+    assertEquals(
+      capturedUrl!.searchParams.get("user_id"),
+      `eq.${VERIFIED_USER_ID}`,
+    );
   }
 
   const foreignCursor = btoa(JSON.stringify({
@@ -4354,30 +5642,75 @@ Deno.test("Authenticated GET /recipes owner isolation is enforced across search,
     createdAt: "2026-10-20T00:00:00.000Z",
   }));
 
-  const foreignCursorRes = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${encodeURIComponent(foreignCursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const foreignCursorRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?cursor=${
+        encodeURIComponent(foreignCursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(foreignCursorRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  assertEquals(
+    capturedUrl!.searchParams.get("user_id"),
+    `eq.${VERIFIED_USER_ID}`,
+  );
 
   const mockLeakFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(JSON.stringify([
-        persistedRecipeRow({ user_id: "77777777-7777-4777-8777-777777777777" }),
-      ]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            persistedRecipeRow({
+              user_id: "77777777-7777-4777-8777-777777777777",
+            }),
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const leakedRes = await handler(new Request("http://localhost/functions/v1/recipes?title=test", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockLeakFetch });
+  const leakedRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?title=test", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockLeakFetch,
+    },
+  );
   assertEquals(leakedRes.status, 500);
   const leakedBody = await leakedRes.json();
   assertEquals(leakedBody.error?.code, "INTERNAL_ERROR");
@@ -4385,192 +5718,441 @@ Deno.test("Authenticated GET /recipes owner isolation is enforced across search,
 Deno.test("Regression BE-08 Task 1: Authenticated GET /recipes ingredient search uses ingredients_text and handles Unicode and isolation", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
       const ingFilter = url.searchParams.get("ingredients_text");
       if (ingFilter && ingFilter.includes("nonexistent")) {
-        return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        return Promise.resolve(
+          new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
       }
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const matchingRes = await handler(new Request("http://localhost/functions/v1/recipes?ingredient=ginger", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const matchingRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?ingredient=ginger", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(matchingRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%ginger%"');
-  assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  assertEquals(
+    capturedUrl!.searchParams.get("ingredients_text"),
+    'ilike."%ginger%"',
+  );
+  assertEquals(
+    capturedUrl!.searchParams.get("user_id"),
+    `eq.${VERIFIED_USER_ID}`,
+  );
   const matchingBody = await matchingRes.json();
   assertEquals(matchingBody.recipes.length, 1);
 
-  const nonMatchingRes = await handler(new Request("http://localhost/functions/v1/recipes?ingredient=nonexistent", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const nonMatchingRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?ingredient=nonexistent",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(nonMatchingRes.status, 200);
-  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%nonexistent%"');
+  assertEquals(
+    capturedUrl!.searchParams.get("ingredients_text"),
+    'ilike."%nonexistent%"',
+  );
   const nonMatchingBody = await nonMatchingRes.json();
   assertEquals(nonMatchingBody.recipes.length, 0);
   assertEquals(nonMatchingBody.has_more, false);
 
   for (const unicodeTerm of ["🍵", "生姜", "чеснок"]) {
-    const unicodeRes = await handler(new Request(`http://localhost/functions/v1/recipes?ingredient=${encodeURIComponent(unicodeTerm)}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const unicodeRes = await handler(
+      new Request(
+        `http://localhost/functions/v1/recipes?ingredient=${
+          encodeURIComponent(unicodeTerm)
+        }`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        },
+      ),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(unicodeRes.status, 200);
-    assertEquals(capturedUrl!.searchParams.get("ingredients_text"), `ilike."%${unicodeTerm}%"`);
-    assertEquals(capturedUrl!.searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+    assertEquals(
+      capturedUrl!.searchParams.get("ingredients_text"),
+      `ilike."%${unicodeTerm}%"`,
+    );
+    assertEquals(
+      capturedUrl!.searchParams.get("user_id"),
+      `eq.${VERIFIED_USER_ID}`,
+    );
   }
 
-  const combinedRes = await handler(new Request("http://localhost/functions/v1/recipes?title=Matcha&ingredient=%F0%9F%8D%B5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const combinedRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?title=Matcha&ingredient=%F0%9F%8D%B5",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(combinedRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("title"), 'ilike."%Matcha%"');
-  assertEquals(capturedUrl!.searchParams.get("ingredients_text"), 'ilike."%🍵%"');
+  assertEquals(
+    capturedUrl!.searchParams.get("ingredients_text"),
+    'ilike."%🍵%"',
+  );
 });
 
 Deno.test("Regression BE-08 Task 2: Authenticated GET /recipes preserves BE-06 list contract and opt-in cursor mode", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const noParamsRes = await handler(new Request("http://localhost/functions/v1/recipes", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const noParamsRes = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(noParamsRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "1001");
   assertEquals(capturedUrl!.searchParams.get("offset"), "0");
   const noParamsBody = await noParamsRes.json();
   assertEquals(noParamsBody.next_cursor, null);
 
-  const limit200Res = await handler(new Request("http://localhost/functions/v1/recipes?limit=200", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const limit200Res = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=200", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(limit200Res.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "201");
   assertEquals(capturedUrl!.searchParams.get("offset"), "0");
   const limit200Body = await limit200Res.json();
   assertEquals(limit200Body.next_cursor, null);
 
-  const offsetOnlyRes = await handler(new Request("http://localhost/functions/v1/recipes?offset=50", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const offsetOnlyRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?offset=50", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(offsetOnlyRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "1001");
   assertEquals(capturedUrl!.searchParams.get("offset"), "50");
 
-  const limitAndOffsetRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=100&offset=50", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const limitAndOffsetRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=100&offset=50", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(limitAndOffsetRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "101");
   assertEquals(capturedUrl!.searchParams.get("offset"), "50");
 
-  const maxLegacyLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const maxLegacyLimitRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=1000", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(maxLegacyLimitRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "1001");
 
-  const exceedingLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1001", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const exceedingLimitRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=1001", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(exceedingLimitRes.status, 400);
 
-  const optInCursorRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const optInCursorRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?pagination=cursor", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(optInCursorRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "21");
   assertEquals(capturedUrl!.searchParams.has("offset"), false);
 
-  const optInCursorLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=50", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const optInCursorLimitRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&limit=50",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(optInCursorLimitRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "51");
 
-  const optInCursorMaxLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=100", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const optInCursorMaxLimitRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&limit=100",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(optInCursorMaxLimitRes.status, 200);
   assertEquals(capturedUrl!.searchParams.get("limit"), "101");
 
-  const optInCursorExceedingRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&limit=101", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const optInCursorExceedingRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&limit=101",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(optInCursorExceedingRes.status, 400);
 
-  const conflictCursorOffsetRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&offset=10", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const conflictCursorOffsetRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&offset=10",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(conflictCursorOffsetRes.status, 400);
 
-  const conflictOffsetCursorRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=offset&cursor=somecursor", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const conflictOffsetCursorRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=offset&cursor=somecursor",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(conflictOffsetCursorRes.status, 400);
 
-  const invalidPaginationRes = await handler(new Request("http://localhost/functions/v1/recipes?pagination=unknown", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const invalidPaginationRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?pagination=unknown", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(invalidPaginationRes.status, 400);
 });
 
 Deno.test("Regression BE-08 Task 3: Authenticated GET /recipes cursor encoding is Unicode-safe, URL-safe, and validated", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
       const rows = [
-        persistedRecipeRow({ id: "11111111-1111-4111-8111-111111111111", title: "Matcha 🍵", created_at: "2026-10-20T12:00:00.000Z" }),
-        persistedRecipeRow({ id: "22222222-2222-4222-8222-222222222222", title: "Matcha 🍵 II", created_at: "2026-10-20T11:00:00.000Z" }),
+        persistedRecipeRow({
+          id: "11111111-1111-4111-8111-111111111111",
+          title: "Matcha 🍵",
+          created_at: "2026-10-20T12:00:00.000Z",
+        }),
+        persistedRecipeRow({
+          id: "22222222-2222-4222-8222-222222222222",
+          title: "Matcha 🍵 II",
+          created_at: "2026-10-20T11:00:00.000Z",
+        }),
       ];
-      return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify(rows), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const unicodePage1Res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&limit=1", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const unicodePage1Res = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&limit=1",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(unicodePage1Res.status, 200);
   const page1Body = await unicodePage1Res.json();
   assertEquals(page1Body.has_more, true);
@@ -4580,35 +6162,85 @@ Deno.test("Regression BE-08 Task 3: Authenticated GET /recipes cursor encoding i
   assertEquals(generatedCursor.includes("/"), false);
   assertEquals(generatedCursor.includes("="), false);
 
-  const continuationRes = await handler(new Request(`http://localhost/functions/v1/recipes?title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&limit=1&cursor=${generatedCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const continuationRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&limit=1&cursor=${generatedCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(continuationRes.status, 200);
   assertNotEquals(capturedUrl!.searchParams.get("or"), null);
 
-  for (const badCursor of ["not-valid-base64!!!", "", "e30=", "abc", "eyJzb3J0Ijoibm90X3ZhbGlkIn0="]) {
-    const badRes = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${encodeURIComponent(badCursor)}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  for (
+    const badCursor of [
+      "not-valid-base64!!!",
+      "",
+      "e30=",
+      "abc",
+      "eyJzb3J0Ijoibm90X3ZhbGlkIn0=",
+    ]
+  ) {
+    const badRes = await handler(
+      new Request(
+        `http://localhost/functions/v1/recipes?cursor=${
+          encodeURIComponent(badCursor)
+        }`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        },
+      ),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(badRes.status, 400);
     const badBody = await badRes.json();
     assertEquals(badBody.error?.code, "VALIDATION_ERROR");
   }
 
-  const incompatibleFilterRes = await handler(new Request(`http://localhost/functions/v1/recipes?title=DifferentTitle&ingredient=%E7%94%9F%E5%A7%9C&cursor=${generatedCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const incompatibleFilterRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?title=DifferentTitle&ingredient=%E7%94%9F%E5%A7%9C&cursor=${generatedCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(incompatibleFilterRes.status, 400);
   const incompatibleFilterBody = await incompatibleFilterRes.json();
   assertEquals(incompatibleFilterBody.error?.code, "VALIDATION_ERROR");
 
-  const incompatibleSortRes = await handler(new Request(`http://localhost/functions/v1/recipes?sort=rating&title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&cursor=${generatedCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const incompatibleSortRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?sort=rating&title=Matcha%20%F0%9F%8D%B5&ingredient=%E7%94%9F%E5%A7%9C&cursor=${generatedCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(incompatibleSortRes.status, 400);
   const incompatibleSortBody = await incompatibleSortRes.json();
   assertEquals(incompatibleSortBody.error?.code, "VALIDATION_ERROR");
@@ -4620,27 +6252,59 @@ Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination
 
   function makeMockFetch(rowCount: number): typeof fetch {
     return (input) => {
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url,
+      );
       if (url.pathname === "/auth/v1/user") {
-        return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: VERIFIED_USER_ID,
+              aud: "authenticated",
+              role: "authenticated",
+              email: VERIFIED_USER_EMAIL,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
       if (url.pathname === "/rest/v1/recipes") {
         capturedOffset = url.searchParams.get("offset") ?? "";
         capturedLimit = url.searchParams.get("limit") ?? "";
         const rows = [];
         for (let i = 0; i < rowCount; i++) {
-          rows.push(persistedRecipeRow({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}` }));
+          rows.push(
+            persistedRecipeRow({
+              id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+            }),
+          );
         }
-        return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+        return Promise.resolve(
+          new Response(JSON.stringify(rows), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
       }
       return Promise.resolve(new Response(null, { status: 404 }));
     };
   }
 
-  const zeroRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(0) });
+  const zeroRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=5", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: makeMockFetch(0),
+    },
+  );
   assertEquals(zeroRes.status, 200);
   assertEquals(capturedOffset, "0");
   assertEquals(capturedLimit, "6");
@@ -4648,37 +6312,65 @@ Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination
   assertEquals(zeroBody.recipes.length, 0);
   assertEquals(zeroBody.has_more, false);
 
-  const fewerRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(3) });
+  const fewerRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=5", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: makeMockFetch(3),
+    },
+  );
   assertEquals(fewerRes.status, 200);
   const fewerBody = await fewerRes.json();
   assertEquals(fewerBody.recipes.length, 3);
   assertEquals(fewerBody.has_more, false);
 
-  const exactLimitRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(5) });
+  const exactLimitRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=5", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: makeMockFetch(5),
+    },
+  );
   assertEquals(exactLimitRes.status, 200);
   const exactLimitBody = await exactLimitRes.json();
   assertEquals(exactLimitBody.recipes.length, 5);
   assertEquals(exactLimitBody.has_more, false);
 
-  const exactLimitPlusOneRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(6) });
+  const exactLimitPlusOneRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=5", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: makeMockFetch(6),
+    },
+  );
   assertEquals(exactLimitPlusOneRes.status, 200);
   const exactLimitPlusOneBody = await exactLimitPlusOneRes.json();
   assertEquals(exactLimitPlusOneBody.recipes.length, 5);
   assertEquals(exactLimitPlusOneBody.has_more, true);
 
-  const page1Res = await handler(new Request("http://localhost/functions/v1/recipes?limit=5&offset=0", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(6) });
+  const page1Res = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=5&offset=0", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: makeMockFetch(6),
+    },
+  );
   assertEquals(page1Res.status, 200);
   assertEquals(capturedOffset, "0");
   assertEquals(capturedLimit, "6");
@@ -4686,10 +6378,17 @@ Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination
   assertEquals(page1ResBody.recipes.length, 5);
   assertEquals(page1ResBody.has_more, true);
 
-  const page2Res = await handler(new Request("http://localhost/functions/v1/recipes?limit=5&offset=5", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: makeMockFetch(2) });
+  const page2Res = await handler(
+    new Request("http://localhost/functions/v1/recipes?limit=5&offset=5", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: makeMockFetch(2),
+    },
+  );
   assertEquals(page2Res.status, 200);
   assertEquals(capturedOffset, "5");
   assertEquals(capturedLimit, "6");
@@ -4701,29 +6400,66 @@ Deno.test("Regression BE-08 Task 4: Authenticated GET /recipes offset pagination
 Deno.test("Regression BE-08: Offset pagination probes beyond Supabase's 1000-row cap", async () => {
   const requestedUrls: URL[] = [];
   let hasContinuation = true;
-  const cappedRows = Array.from({ length: 1000 }, (_, i) =>
-    persistedRecipeRow({ id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}` })
+  const cappedRows = Array.from(
+    { length: 1000 },
+    (_, i) =>
+      persistedRecipeRow({
+        id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+      }),
   );
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       requestedUrls.push(url);
       let rows: unknown[] = cappedRows;
       if (url.searchParams.get("select") === "id") {
-        rows = hasContinuation ? [{ id: "44444444-4444-4444-8444-444444444444" }] : [];
+        rows = hasContinuation
+          ? [{ id: "44444444-4444-4444-8444-444444444444" }]
+          : [];
       }
-      return Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify(rows), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const res = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&ingredient=Ginger&sort=rating", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const res = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?limit=1000&title=Rice&ingredient=Ginger&sort=rating",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(res.status, 200);
   const body = await res.json();
@@ -4734,17 +6470,36 @@ Deno.test("Regression BE-08: Offset pagination probes beyond Supabase's 1000-row
   assertEquals(requestedUrls[1].searchParams.get("select"), "id");
   assertEquals(requestedUrls[1].searchParams.get("offset"), "1000");
   assertEquals(requestedUrls[1].searchParams.get("limit"), "1");
-  assertEquals(requestedUrls[1].searchParams.get("user_id"), `eq.${VERIFIED_USER_ID}`);
+  assertEquals(
+    requestedUrls[1].searchParams.get("user_id"),
+    `eq.${VERIFIED_USER_ID}`,
+  );
   assertEquals(requestedUrls[1].searchParams.get("title"), 'ilike."%Rice%"');
-  assertEquals(requestedUrls[1].searchParams.get("ingredients_text"), 'ilike."%Ginger%"');
-  assertEquals(requestedUrls[1].searchParams.get("order"), "star_rating.desc.nullslast,created_at.desc,id.asc");
+  assertEquals(
+    requestedUrls[1].searchParams.get("ingredients_text"),
+    'ilike."%Ginger%"',
+  );
+  assertEquals(
+    requestedUrls[1].searchParams.get("order"),
+    "star_rating.desc.nullslast,created_at.desc,id.asc",
+  );
 
   hasContinuation = false;
   requestedUrls.length = 0;
-  const finalPageRes = await handler(new Request("http://localhost/functions/v1/recipes?limit=1000&title=Rice&ingredient=Ginger&sort=rating", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const finalPageRes = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?limit=1000&title=Rice&ingredient=Ginger&sort=rating",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(finalPageRes.status, 200);
   const finalPageBody = await finalPageRes.json();
   assertEquals(finalPageBody.recipes.length, 1000);
@@ -4754,35 +6509,96 @@ Deno.test("Regression BE-08: Offset pagination probes beyond Supabase's 1000-row
 Deno.test("Regression BE-08 Follow-Up: Search safely handles reserved characters and escapes SQL wildcards", async () => {
   let capturedUrl: URL | null = null;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedUrl = url;
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
   const testCases = [
-    { param: "title", value: "garlic, shallots", expected: 'ilike."%garlic, shallots%"' },
+    {
+      param: "title",
+      value: "garlic, shallots",
+      expected: 'ilike."%garlic, shallots%"',
+    },
     { param: "title", value: "soup (hot)", expected: 'ilike."%soup (hot)%"' },
-    { param: "title", value: 'sauce "special"', expected: 'ilike."%sauce \\\"special\\\"%"' },
-    { param: "title", value: "oil\\vinegar", expected: 'ilike."%oil\\\\vinegar%"' },
+    {
+      param: "title",
+      value: 'sauce "special"',
+      expected: 'ilike."%sauce \\"special\\"%"',
+    },
+    {
+      param: "title",
+      value: "oil\\vinegar",
+      expected: 'ilike."%oil\\\\vinegar%"',
+    },
     { param: "title", value: "100%", expected: 'ilike."%100\\%%"' },
-    { param: "title", value: "salt_pepper", expected: 'ilike."%salt\\_pepper%"' },
-    { param: "ingredient", value: "garlic, shallots", expected: 'ilike."%garlic, shallots%"' },
-    { param: "ingredient", value: "soup (hot)", expected: 'ilike."%soup (hot)%"' },
+    {
+      param: "title",
+      value: "salt_pepper",
+      expected: 'ilike."%salt\\_pepper%"',
+    },
+    {
+      param: "ingredient",
+      value: "garlic, shallots",
+      expected: 'ilike."%garlic, shallots%"',
+    },
+    {
+      param: "ingredient",
+      value: "soup (hot)",
+      expected: 'ilike."%soup (hot)%"',
+    },
     { param: "ingredient", value: "100%", expected: 'ilike."%100\\%%"' },
-    { param: "ingredient", value: "salt_pepper", expected: 'ilike."%salt\\_pepper%"' },
+    {
+      param: "ingredient",
+      value: "salt_pepper",
+      expected: 'ilike."%salt\\_pepper%"',
+    },
   ];
 
   for (const tc of testCases) {
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes?${tc.param}=${encodeURIComponent(tc.value)}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(
+        `http://localhost/functions/v1/recipes?${tc.param}=${
+          encodeURIComponent(tc.value)
+        }`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        },
+      ),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(res.status, 200);
     const key = tc.param === "ingredient" ? "ingredients_text" : "title";
     assertEquals(capturedUrl!.searchParams.get(key), tc.expected);
@@ -4792,38 +6608,85 @@ Deno.test("Regression BE-08 Follow-Up: Search safely handles reserved characters
 Deno.test("Regression BE-08 Follow-Up: Ingredient search matches names only and does not match JSON metadata", async () => {
   const recipeWithMetadata = persistedRecipeRow({
     title: "Garlic Bread",
-    ingredients: [{ name: "Garlic", unit: "cloves", quantity: 2, inferred: false }],
+    ingredients: [{
+      name: "Garlic",
+      unit: "cloves",
+      quantity: 2,
+      inferred: false,
+    }],
   });
 
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       const ingFilter = url.searchParams.get("ingredients_text") ?? "";
-      const namesArray = JSON.stringify(recipeWithMetadata.ingredients.map((i: { name: string }) => i.name));
+      const namesArray = JSON.stringify(
+        recipeWithMetadata.ingredients.map((i: { name: string }) => i.name),
+      );
       const termMatch = ingFilter.match(/ilike\."%(.*)%"/);
       const term = termMatch ? termMatch[1].toLowerCase() : "";
       const matches = namesArray.toLowerCase().includes(term);
-      return Promise.resolve(new Response(JSON.stringify(matches ? [recipeWithMetadata] : []), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify(matches ? [recipeWithMetadata] : []), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const nameRes = await handler(new Request("http://localhost/functions/v1/recipes?ingredient=Garlic", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const nameRes = await handler(
+    new Request("http://localhost/functions/v1/recipes?ingredient=Garlic", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(nameRes.status, 200);
   const nameBody = await nameRes.json();
   assertEquals(nameBody.recipes.length, 1);
 
-  for (const metadataKey of ["unit", "quantity", "inferred", "cloves", "false"]) {
-    const metaRes = await handler(new Request(`http://localhost/functions/v1/recipes?ingredient=${metadataKey}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  for (
+    const metadataKey of ["unit", "quantity", "inferred", "cloves", "false"]
+  ) {
+    const metaRes = await handler(
+      new Request(
+        `http://localhost/functions/v1/recipes?ingredient=${metadataKey}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        },
+      ),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(metaRes.status, 200);
     const metaBody = await metaRes.json();
     assertEquals(metaBody.recipes.length, 0);
@@ -4832,12 +6695,33 @@ Deno.test("Regression BE-08 Follow-Up: Ingredient search matches names only and 
 
 Deno.test("Regression BE-08 Follow-Up: Validates cursor timestamps and rejects injection or non-ISO dates", async () => {
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
@@ -4848,7 +6732,8 @@ Deno.test("Regression BE-08 Follow-Up: Validates cursor timestamps and rejects i
       id: "11111111-1111-4111-8111-111111111111",
       createdAt,
     };
-    return btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_")
+      .replace(/=+$/, "");
   }
 
   const badTimestamps = [
@@ -4862,10 +6747,17 @@ Deno.test("Regression BE-08 Follow-Up: Validates cursor timestamps and rejects i
 
   for (const badTs of badTimestamps) {
     const cursor = makeCursor(badTs);
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${cursor}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(`http://localhost/functions/v1/recipes?cursor=${cursor}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(res.status, 400);
     const body = await res.json();
     assertEquals(body.error?.code, "VALIDATION_ERROR");
@@ -4879,10 +6771,17 @@ Deno.test("Regression BE-08 Follow-Up: Validates cursor timestamps and rejects i
 
   for (const validTs of validTimestamps) {
     const cursor = makeCursor(validTs);
-    const res = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${cursor}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const res = await handler(
+      new Request(`http://localhost/functions/v1/recipes?cursor=${cursor}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      }),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(res.status, 200);
   }
 });
@@ -4890,16 +6789,37 @@ Deno.test("Regression BE-08 Follow-Up: Validates cursor timestamps and rejects i
 Deno.test("Regression BE-08 Follow-Up: Supports large recipe persistence without index row size failure", async () => {
   let capturedInsertBody: Record<string, unknown> | null = null;
   const mockFetch: typeof fetch = (input, init) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes" && init?.method === "POST") {
       capturedInsertBody = JSON.parse(init.body as string);
-      return Promise.resolve(new Response(JSON.stringify({
-        ...persistedRecipeRow(),
-        ingredients: (capturedInsertBody as any).ingredients,
-      }), { status: 201, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ...persistedRecipeRow(),
+            ingredients: (capturedInsertBody as any).ingredients,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
@@ -4907,7 +6827,9 @@ Deno.test("Regression BE-08 Follow-Up: Supports large recipe persistence without
   const largeIngredients = [];
   for (let i = 0; i < 40; i++) {
     largeIngredients.push({
-      name: `Special Organic Locally Sourced Herb or Spice Item Number ${i + 1}`,
+      name: `Special Organic Locally Sourced Herb or Spice Item Number ${
+        i + 1
+      }`,
       quantity: i + 1,
       unit: "tablespoons",
       quantityText: `${i + 1} fresh tablespoons finely ground`,
@@ -4921,21 +6843,27 @@ Deno.test("Regression BE-08 Follow-Up: Supports large recipe persistence without
     instructions: [{ step: 1, text: "Mix everything together." }],
   };
 
-  const res = await handler(new Request("http://localhost/functions/v1/recipes", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const res = await handler(
+    new Request("http://localhost/functions/v1/recipes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
     },
-    body: JSON.stringify(payload),
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  );
 
   assertEquals(res.status, 201);
   assertEquals((capturedInsertBody!.ingredients as any[]).length, 40);
   const jsonSize = JSON.stringify(capturedInsertBody!.ingredients).length;
   assertEquals(jsonSize > 3000, true);
 });
-
 
 const LINEAGE_CHILD_ID = "11111111-1111-4111-8111-111111111111";
 const LINEAGE_PARENT_ID_1 = "22222222-2222-4222-8222-222222222222";
@@ -4951,11 +6879,18 @@ Deno.test("CreateLineageRequestSchema and LineageResponseSchema validate valid l
   assertEquals(singleParentResult.success, true);
   if (singleParentResult.success) {
     assertEquals(singleParentResult.data.parent_recipe_ids.length, 1);
-    assertEquals(singleParentResult.data.parent_recipe_ids[0], LINEAGE_PARENT_ID_1);
+    assertEquals(
+      singleParentResult.data.parent_recipe_ids[0],
+      LINEAGE_PARENT_ID_1,
+    );
   }
 
   const multiParentResult = CreateLineageRequestSchema.safeParse({
-    parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2, LINEAGE_PARENT_ID_3],
+    parent_recipe_ids: [
+      LINEAGE_PARENT_ID_1,
+      LINEAGE_PARENT_ID_2,
+      LINEAGE_PARENT_ID_3,
+    ],
     candidate_token: "v1.test-token",
   });
   assertEquals(multiParentResult.success, true);
@@ -4964,7 +6899,10 @@ Deno.test("CreateLineageRequestSchema and LineageResponseSchema validate valid l
   }
 
   const maxParentsResult = CreateLineageRequestSchema.safeParse({
-    parent_recipe_ids: Array.from({ length: 10 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
+    parent_recipe_ids: Array.from(
+      { length: 10 },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    ),
     candidate_token: "v1.test-token",
   });
   assertEquals(maxParentsResult.success, true);
@@ -4989,7 +6927,10 @@ Deno.test("CreateLineageRequestSchema rejects empty, oversized, duplicate, non-U
   assertEquals(emptyResult.success, false);
 
   const oversizedResult = CreateLineageRequestSchema.safeParse({
-    parent_recipe_ids: Array.from({ length: 11 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`),
+    parent_recipe_ids: Array.from(
+      { length: 11 },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    ),
   });
   assertEquals(oversizedResult.success, false);
 
@@ -4999,7 +6940,10 @@ Deno.test("CreateLineageRequestSchema rejects empty, oversized, duplicate, non-U
   });
   assertEquals(duplicateResult.success, false);
   if (!duplicateResult.success) {
-    assertEquals(duplicateResult.error.issues[0].message, "Duplicate parent recipe ID in request.");
+    assertEquals(
+      duplicateResult.error.issues[0].message,
+      "Duplicate parent recipe ID in request.",
+    );
   }
 
   const invalidUuidResult = CreateLineageRequestSchema.safeParse({
@@ -5020,10 +6964,12 @@ Deno.test("CreateLineageRequestSchema rejects empty, oversized, duplicate, non-U
 });
 
 Deno.test("CORS preflight OPTIONS on /recipes/:id/lineage returns 204 with Allow GET, POST, OPTIONS", async () => {
-  for (const endpointPath of [
-    `/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
-    `/recipes/${LINEAGE_CHILD_ID}/lineage`,
-  ]) {
+  for (
+    const endpointPath of [
+      `/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      `/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    ]
+  ) {
     const req = new Request(`http://localhost${endpointPath}`, {
       method: "OPTIONS",
     });
@@ -5032,7 +6978,10 @@ Deno.test("CORS preflight OPTIONS on /recipes/:id/lineage returns 204 with Allow
       supabaseAnonKey: TEST_ANON_KEY,
     });
     assertEquals(res.status, 204);
-    assertEquals(res.headers.get("access-control-allow-methods"), "GET, POST, PATCH, DELETE, OPTIONS");
+    assertEquals(
+      res.headers.get("access-control-allow-methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
     assertEquals(res.headers.get("access-control-allow-origin"), "*");
   }
 });
@@ -5045,10 +6994,13 @@ Deno.test("Unsupported HTTP methods on /recipes/:id/lineage return 405 METHOD_NO
   };
 
   for (const method of ["PUT", "PATCH", "DELETE", "HEAD"]) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method,
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    });
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method,
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    );
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5064,7 +7016,13 @@ Deno.test("Unsupported HTTP methods on /recipes/:id/lineage return 405 METHOD_NO
 
 Deno.test("Unauthenticated requests to /recipes/:id/lineage return 401 UNAUTHORIZED", async () => {
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
       return Promise.resolve(
         new Response(
@@ -5081,11 +7039,16 @@ Deno.test("Unauthenticated requests to /recipes/:id/lineage return 401 UNAUTHORI
   };
 
   for (const method of ["GET", "POST"]) {
-    const unauthReq = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: method === "POST" ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }) : undefined,
-    });
+    const unauthReq = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: method === "POST"
+          ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] })
+          : undefined,
+      },
+    );
     const unauthRes = await handler(unauthReq, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5095,14 +7058,19 @@ Deno.test("Unauthenticated requests to /recipes/:id/lineage return 401 UNAUTHORI
     const unauthBody = await unauthRes.json();
     assertEquals(unauthBody.error?.code, "UNAUTHORIZED");
 
-    const forgedReq = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${FORGED_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const forgedReq = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${FORGED_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: method === "POST"
+          ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] })
+          : undefined,
       },
-      body: method === "POST" ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }) : undefined,
-    });
+    );
     const forgedRes = await handler(forgedReq, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5112,14 +7080,19 @@ Deno.test("Unauthenticated requests to /recipes/:id/lineage return 401 UNAUTHORI
     const forgedBody = await forgedRes.json();
     assertEquals(forgedBody.error?.code, "UNAUTHORIZED");
 
-    const expiredReq = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${EXPIRED_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const expiredReq = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${EXPIRED_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: method === "POST"
+          ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] })
+          : undefined,
       },
-      body: method === "POST" ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }) : undefined,
-    });
+    );
     const expiredRes = await handler(expiredReq, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5133,24 +7106,37 @@ Deno.test("Unauthenticated requests to /recipes/:id/lineage return 401 UNAUTHORI
 
 Deno.test("Auth rate limit on /recipes/:id/lineage returns 503 AUTH_SERVICE_RATE_LIMITED", async () => {
   const rateLimitFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ error: "rate limit exceeded" }), { status: 429 }));
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: "rate limit exceeded" }), {
+          status: 429,
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5164,26 +7150,44 @@ Deno.test("Auth rate limit on /recipes/:id/lineage returns 503 AUTH_SERVICE_RATE
 Deno.test("Invalid child ID on /recipes/:id/lineage returns 400 VALIDATION_ERROR without calling database", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
   for (const method of ["GET", "POST"]) {
-    const req = new Request("http://localhost/functions/v1/recipes/not-a-valid-uuid/lineage", {
-      method,
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      "http://localhost/functions/v1/recipes/not-a-valid-uuid/lineage",
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: method === "POST"
+          ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] })
+          : undefined,
       },
-      body: method === "POST" ? JSON.stringify({ parent_recipe_ids: [LINEAGE_PARENT_ID_1] }) : undefined,
-    });
+    );
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5199,27 +7203,50 @@ Deno.test("Invalid child ID on /recipes/:id/lineage returns 400 VALIDATION_ERROR
 Deno.test("POST /recipes/:id/lineage rejects malformed JSON, empty bodies, duplicate parents, and limits without database calls", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const malformedBodies = ["", "   ", "{invalid-json", "[]", "123", '"plain string"'];
+  const malformedBodies = [
+    "",
+    "   ",
+    "{invalid-json",
+    "[]",
+    "123",
+    '"plain string"',
+  ];
   for (const bodyStr of malformedBodies) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: bodyStr,
       },
-      body: bodyStr,
-    });
+    );
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5233,20 +7260,28 @@ Deno.test("POST /recipes/:id/lineage rejects malformed JSON, empty bodies, dupli
   const invalidPayloads = [
     { parent_recipe_ids: [] },
     { parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_1] },
-    { parent_recipe_ids: Array.from({ length: 11 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`) },
+    {
+      parent_recipe_ids: Array.from(
+        { length: 11 },
+        (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      ),
+    },
     { parent_recipe_ids: ["not-a-uuid"] },
     { parent_recipe_ids: [LINEAGE_PARENT_ID_1], user_id: VERIFIED_USER_ID },
   ];
 
   for (const payload of invalidPayloads) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+    );
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5263,28 +7298,44 @@ Deno.test("POST /recipes/:id/lineage rejects malformed JSON, empty bodies, dupli
 Deno.test("POST /recipes/:id/lineage rejects self-referencing relationship with 400 VALIDATION_ERROR before database calls", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_CHILD_ID],
+        candidate_token: await candidateTokenFor([LINEAGE_CHILD_ID]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_CHILD_ID],
-      candidate_token: await candidateTokenFor([LINEAGE_CHILD_ID]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5300,15 +7351,33 @@ Deno.test("POST /recipes/:id/lineage rejects self-referencing relationship with 
 Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does not exist or belongs to another user", async () => {
   let lineageInsertCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(JSON.stringify(null), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       lineageInsertCalled = true;
@@ -5317,17 +7386,20 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when child recipe doe
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5342,24 +7414,44 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when child recipe doe
 Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when any parent recipe does not exist or is foreign", async () => {
   let lineageInsertCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: LINEAGE_PARENT_ID_1,
+            user_id: VERIFIED_USER_ID,
+          }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       lineageInsertCalled = true;
@@ -5368,17 +7460,23 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when any parent recip
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1, FOREIGN_RECIPE_ID],
+        candidate_token: await candidateTokenFor([
+          LINEAGE_PARENT_ID_1,
+          FOREIGN_RECIPE_ID,
+        ]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1, FOREIGN_RECIPE_ID],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1, FOREIGN_RECIPE_ID]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5400,46 +7498,73 @@ Deno.test("POST /recipes/:id/lineage persists single parent and returns 201 Crea
   };
 
   const mockFetch: typeof fetch = (input, init) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: LINEAGE_PARENT_ID_1,
+            user_id: VERIFIED_USER_ID,
+          }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
-      capturedInsertBody = JSON.parse(typeof init?.body === "string" ? init.body : "[]");
-      return Promise.resolve(new Response(
-        JSON.stringify([expectedLineageRecord]),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ));
+      capturedInsertBody = JSON.parse(
+        typeof init?.body === "string" ? init.body : "[]",
+      );
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([expectedLineageRecord]),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5452,8 +7577,14 @@ Deno.test("POST /recipes/:id/lineage persists single parent and returns 201 Crea
   assertEquals(body.lineage[0].child_recipe_id, LINEAGE_CHILD_ID);
   assertEquals(Array.isArray(capturedInsertBody), true);
   assertEquals((capturedInsertBody as any[]).length, 1);
-  assertEquals((capturedInsertBody as any[])[0].parent_recipe_id, LINEAGE_PARENT_ID_1);
-  assertEquals((capturedInsertBody as any[])[0].child_recipe_id, LINEAGE_CHILD_ID);
+  assertEquals(
+    (capturedInsertBody as any[])[0].parent_recipe_id,
+    LINEAGE_PARENT_ID_1,
+  );
+  assertEquals(
+    (capturedInsertBody as any[])[0].child_recipe_id,
+    LINEAGE_CHILD_ID,
+  );
 });
 
 Deno.test("POST /recipes/:id/lineage persists multiple parents atomically and returns 201 Created", async () => {
@@ -5474,49 +7605,76 @@ Deno.test("POST /recipes/:id/lineage persists multiple parents atomically and re
   ];
 
   const mockFetch: typeof fetch = (input, init) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([
-          { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
-          { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
-      capturedInsertBody = JSON.parse(typeof init?.body === "string" ? init.body : "[]");
-      return Promise.resolve(new Response(
-        JSON.stringify(expectedLineageRecords),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ));
+      capturedInsertBody = JSON.parse(
+        typeof init?.body === "string" ? init.body : "[]",
+      );
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(expectedLineageRecords),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2],
+        candidate_token: await candidateTokenFor([
+          LINEAGE_PARENT_ID_1,
+          LINEAGE_PARENT_ID_2,
+        ]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5526,51 +7684,85 @@ Deno.test("POST /recipes/:id/lineage persists multiple parents atomically and re
   const body = await res.json();
   assertEquals(body.lineage.length, 2);
   assertEquals((capturedInsertBody as any[]).length, 2);
-  assertEquals((capturedInsertBody as any[])[0].parent_recipe_id, LINEAGE_PARENT_ID_1);
-  assertEquals((capturedInsertBody as any[])[1].parent_recipe_id, LINEAGE_PARENT_ID_2);
+  assertEquals(
+    (capturedInsertBody as any[])[0].parent_recipe_id,
+    LINEAGE_PARENT_ID_1,
+  );
+  assertEquals(
+    (capturedInsertBody as any[])[1].parent_recipe_id,
+    LINEAGE_PARENT_ID_2,
+  );
 });
 
 Deno.test("POST /recipes/:id/lineage maps database unique conflict 23505 to 409 CONFLICT", async () => {
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: LINEAGE_PARENT_ID_1,
+            user_id: VERIFIED_USER_ID,
+          }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }),
-        { status: 409, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            code: "23505",
+            message: "duplicate key value violates unique constraint",
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5582,69 +7774,112 @@ Deno.test("POST /recipes/:id/lineage maps database unique conflict 23505 to 409 
 });
 
 Deno.test("POST /recipes/:id/lineage maps database check violation 23514 to 400 VALIDATION_ERROR and RLS 42501 to 404 NOT_FOUND", async () => {
-  const makeFetch = (dbError: { code: string; message: string }, status: number): typeof fetch => {
+  const makeFetch = (
+    dbError: { code: string; message: string },
+    status: number,
+  ): typeof fetch => {
     return (input) => {
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url,
+      );
       if (url.pathname === "/auth/v1/user") {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: VERIFIED_USER_ID,
+              aud: "authenticated",
+              role: "authenticated",
+              email: VERIFIED_USER_EMAIL,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
       if (url.pathname === "/rest/v1/recipes") {
         if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-          return Promise.resolve(new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: LINEAGE_CHILD_ID,
+                user_id: VERIFIED_USER_ID,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
         }
-        return Promise.resolve(new Response(
-          JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([{
+              id: LINEAGE_PARENT_ID_1,
+              user_id: VERIFIED_USER_ID,
+            }]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
       if (url.pathname === "/rest/v1/recipe_lineage") {
-        return Promise.resolve(new Response(JSON.stringify(dbError), { status, headers: { "Content-Type": "application/json" } }));
+        return Promise.resolve(
+          new Response(JSON.stringify(dbError), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
       }
       return Promise.resolve(new Response(null, { status: 404 }));
     };
   };
 
-  const reqCheck = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const reqCheck = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const resCheck = await handler(reqCheck, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
-    fetch: makeFetch({ code: "23514", message: "check_parent_child_distinct" }, 400),
+    fetch: makeFetch(
+      { code: "23514", message: "check_parent_child_distinct" },
+      400,
+    ),
   });
   assertEquals(resCheck.status, 400);
   const bodyCheck = await resCheck.json();
   assertEquals(bodyCheck.error?.code, "VALIDATION_ERROR");
 
-  const reqRls = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const reqRls = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const resRls = await handler(reqRls, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
-    fetch: makeFetch({ code: "42501", message: "new row violates row-level security policy" }, 403),
+    fetch: makeFetch({
+      code: "42501",
+      message: "new row violates row-level security policy",
+    }, 403),
   });
   assertEquals(resRls.status, 404);
   const bodyRls = await resRls.json();
@@ -5654,12 +7889,25 @@ Deno.test("POST /recipes/:id/lineage maps database check violation 23514 to 400 
 Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wrong-user tokens before database calls", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
@@ -5668,7 +7916,9 @@ Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wron
   const validToken = await candidateTokenFor([LINEAGE_PARENT_ID_1]);
   const [version, payload, signature] = validToken.split(".");
   const firstSignatureChar = signature[0] === "A" ? "B" : "A";
-  const tamperedSignatureToken = `${version}.${payload}.${firstSignatureChar}${signature.slice(1)}`;
+  const tamperedSignatureToken = `${version}.${payload}.${firstSignatureChar}${
+    signature.slice(1)
+  }`;
   const expiredToken = await candidateTokenFor([LINEAGE_PARENT_ID_1], {
     ttlSeconds: 60,
     now: new Date(Date.now() - 2 * 60 * 60 * 1000),
@@ -5726,17 +7976,22 @@ Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wron
   ];
 
   for (const testCase of cases) {
-    const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${VALID_TEST_JWT}`,
-        "Content-Type": "application/json",
+    const req = new Request(
+      `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          parent_recipe_ids: testCase.parentRecipeIds,
+          ...(testCase.candidateToken === undefined
+            ? {}
+            : { candidate_token: testCase.candidateToken }),
+        }),
       },
-      body: JSON.stringify({
-        parent_recipe_ids: testCase.parentRecipeIds,
-        ...(testCase.candidateToken === undefined ? {} : { candidate_token: testCase.candidateToken }),
-      }),
-    });
+    );
     const res = await handler(req, {
       supabaseUrl: TEST_SUPABASE_URL,
       supabaseAnonKey: TEST_ANON_KEY,
@@ -5746,7 +8001,11 @@ Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wron
     const body = await res.json();
     assertEquals(body.error?.code, testCase.code, testCase.label);
     if (testCase.detailCode) {
-      assertEquals(body.error?.details?.[0]?.code, testCase.detailCode, testCase.label);
+      assertEquals(
+        body.error?.details?.[0]?.code,
+        testCase.detailCode,
+        testCase.label,
+      );
     }
   }
   assertEquals(dbCalled, false);
@@ -5755,27 +8014,44 @@ Deno.test("AI-07: lineage rejects missing, malformed, tampered, expired and wron
 Deno.test("AI-07: lineage rejects an owned parent outside the token's candidate set", async () => {
   let lineageInsertCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([
-          { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
-          { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       lineageInsertCalled = true;
@@ -5784,18 +8060,21 @@ Deno.test("AI-07: lineage rejects an owned parent outside the token's candidate 
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2],
+        // The token only allows the first parent; the second is owned but not a candidate.
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2],
-      // The token only allows the first parent; the second is owned but not a candidate.
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5811,52 +8090,82 @@ Deno.test("AI-07: lineage rejects an owned parent outside the token's candidate 
 Deno.test("AI-07: lineage accepts a subset of the token's candidates", async () => {
   let capturedInsertBody: unknown = null;
   const mockFetch: typeof fetch = (input, init) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
       // Only the selected parent is requested and owned.
-      return Promise.resolve(new Response(
-        JSON.stringify([{ id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID }]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: LINEAGE_PARENT_ID_2,
+            user_id: VERIFIED_USER_ID,
+          }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
-      capturedInsertBody = JSON.parse(typeof init?.body === "string" ? init.body : "[]");
-      return Promise.resolve(new Response(
-        JSON.stringify([{
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          parent_recipe_id: LINEAGE_PARENT_ID_2,
-          child_recipe_id: LINEAGE_CHILD_ID,
-          created_at: "2026-10-30T10:00:00.000Z",
-        }]),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ));
+      capturedInsertBody = JSON.parse(
+        typeof init?.body === "string" ? init.body : "[]",
+      );
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            parent_recipe_id: LINEAGE_PARENT_ID_2,
+            child_recipe_id: LINEAGE_CHILD_ID,
+            created_at: "2026-10-30T10:00:00.000Z",
+          }]),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_2],
+        candidate_token: await candidateTokenFor([
+          LINEAGE_PARENT_ID_1,
+          LINEAGE_PARENT_ID_2,
+        ]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_2],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1, LINEAGE_PARENT_ID_2]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5866,34 +8175,54 @@ Deno.test("AI-07: lineage accepts a subset of the token's candidates", async () 
   const body = await res.json();
   assertEquals(body.lineage.length, 1);
   assertEquals(body.lineage[0].parent_recipe_id, LINEAGE_PARENT_ID_2);
-  assertEquals((capturedInsertBody as Array<{ parent_recipe_id: string }>)[0].parent_recipe_id, LINEAGE_PARENT_ID_2);
+  assertEquals(
+    (capturedInsertBody as Array<{ parent_recipe_id: string }>)[0]
+      .parent_recipe_id,
+    LINEAGE_PARENT_ID_2,
+  );
 });
 
 Deno.test("AI-07: lineage fails closed when the candidate token secret is missing", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [LINEAGE_PARENT_ID_1],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5924,33 +8253,53 @@ Deno.test("GET /recipes/:id/lineage returns 200 OK with ordered lineage records 
   ];
 
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       capturedQueryUrl = url;
-      return Promise.resolve(new Response(
-        JSON.stringify(mockLineageRecords),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify(mockLineageRecords),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  });
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    },
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -5963,22 +8312,46 @@ Deno.test("GET /recipes/:id/lineage returns 200 OK with ordered lineage records 
   assertEquals(body.lineage[1].parent_recipe_id, LINEAGE_PARENT_ID_2);
   assertNotEquals(capturedQueryUrl, null);
   assertEquals(capturedQueryUrl!.pathname, "/rest/v1/recipe_lineage");
-  assertEquals(capturedQueryUrl!.searchParams.get("child_recipe_id"), `eq.${LINEAGE_CHILD_ID}`);
-  assertEquals(capturedQueryUrl!.searchParams.get("order"), "created_at.asc,id.asc");
+  assertEquals(
+    capturedQueryUrl!.searchParams.get("child_recipe_id"),
+    `eq.${LINEAGE_CHILD_ID}`,
+  );
+  assertEquals(
+    capturedQueryUrl!.searchParams.get("order"),
+    "created_at.asc,id.asc",
+  );
 });
 
 Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does not belong to user", async () => {
   let lineageQueryCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(new Response(JSON.stringify(null), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       lineageQueryCalled = true;
@@ -5987,10 +8360,13 @@ Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  });
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    },
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6001,7 +8377,6 @@ Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does
   assertEquals(body.error?.code, "NOT_FOUND");
   assertEquals(lineageQueryCalled, false);
 });
-
 
 /** Fixed token so the byte-length arithmetic stays deterministic. */
 let exactByteLineageToken: Promise<string> | null = null;
@@ -6015,9 +8390,12 @@ function exactByteLineageCandidateToken(): Promise<string> {
   return exactByteLineageToken;
 }
 
-async function lineageBodyOfExactByteLength(targetBytes: number): Promise<string> {
+async function lineageBodyOfExactByteLength(
+  targetBytes: number,
+): Promise<string> {
   const token = await exactByteLineageCandidateToken();
-  const prefix = `{"parent_recipe_ids":["${LINEAGE_PARENT_ID_1}"],"candidate_token":"${token}"`;
+  const prefix =
+    `{"parent_recipe_ids":["${LINEAGE_PARENT_ID_1}"],"candidate_token":"${token}"`;
   const suffix = "}";
   const overhead = new TextEncoder().encode(prefix + suffix).byteLength;
   const paddingLength = Math.max(0, targetBytes - overhead);
@@ -6026,19 +8404,31 @@ async function lineageBodyOfExactByteLength(targetBytes: number): Promise<string
 
 Deno.test("CreateLineageRequestSchema rejects case-insensitive duplicate UUIDs and accepts distinct UUIDs", () => {
   const lowercaseDupe = CreateLineageRequestSchema.safeParse({
-    parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toLowerCase()],
+    parent_recipe_ids: [
+      LINEAGE_PARENT_ID_1.toLowerCase(),
+      LINEAGE_PARENT_ID_1.toLowerCase(),
+    ],
   });
   assertEquals(lowercaseDupe.success, false);
   if (!lowercaseDupe.success) {
-    assertEquals(lowercaseDupe.error.issues[0].message, "Duplicate parent recipe ID in request.");
+    assertEquals(
+      lowercaseDupe.error.issues[0].message,
+      "Duplicate parent recipe ID in request.",
+    );
   }
 
   const mixedCaseDupe = CreateLineageRequestSchema.safeParse({
-    parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toUpperCase()],
+    parent_recipe_ids: [
+      LINEAGE_PARENT_ID_1.toLowerCase(),
+      LINEAGE_PARENT_ID_1.toUpperCase(),
+    ],
   });
   assertEquals(mixedCaseDupe.success, false);
   if (!mixedCaseDupe.success) {
-    assertEquals(mixedCaseDupe.error.issues[0].message, "Duplicate parent recipe ID in request.");
+    assertEquals(
+      mixedCaseDupe.error.issues[0].message,
+      "Duplicate parent recipe ID in request.",
+    );
   }
 
   const alternatingCaseDupe = CreateLineageRequestSchema.safeParse({
@@ -6049,11 +8439,17 @@ Deno.test("CreateLineageRequestSchema rejects case-insensitive duplicate UUIDs a
   });
   assertEquals(alternatingCaseDupe.success, false);
   if (!alternatingCaseDupe.success) {
-    assertEquals(alternatingCaseDupe.error.issues[0].message, "Duplicate parent recipe ID in request.");
+    assertEquals(
+      alternatingCaseDupe.error.issues[0].message,
+      "Duplicate parent recipe ID in request.",
+    );
   }
 
   const distinctCase = CreateLineageRequestSchema.safeParse({
-    parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_2.toUpperCase()],
+    parent_recipe_ids: [
+      LINEAGE_PARENT_ID_1.toLowerCase(),
+      LINEAGE_PARENT_ID_2.toUpperCase(),
+    ],
     candidate_token: "v1.test-token",
   });
   assertEquals(distinctCase.success, true);
@@ -6062,28 +8458,47 @@ Deno.test("CreateLineageRequestSchema rejects case-insensitive duplicate UUIDs a
 Deno.test("POST /recipes/:id/lineage rejects case-insensitive duplicate UUIDs with 400 VALIDATION_ERROR before database calls", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parent_recipe_ids: [
+          LINEAGE_PARENT_ID_1.toLowerCase(),
+          LINEAGE_PARENT_ID_1.toUpperCase(),
+        ],
+        candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
+      }),
     },
-    body: JSON.stringify({
-      parent_recipe_ids: [LINEAGE_PARENT_ID_1.toLowerCase(), LINEAGE_PARENT_ID_1.toUpperCase()],
-      candidate_token: await candidateTokenFor([LINEAGE_PARENT_ID_1]),
-    }),
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6098,50 +8513,77 @@ Deno.test("POST /recipes/:id/lineage rejects case-insensitive duplicate UUIDs wi
 Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 16385 bytes with 413 INPUT_TOO_LARGE", async () => {
   let dbInsertCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: LINEAGE_PARENT_ID_1,
+            user_id: VERIFIED_USER_ID,
+          }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       dbInsertCalled = true;
-      return Promise.resolve(new Response(
-        JSON.stringify([{
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          parent_recipe_id: LINEAGE_PARENT_ID_1,
-          child_recipe_id: LINEAGE_CHILD_ID,
-          created_at: "2026-10-30T10:00:00.000Z",
-        }]),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            parent_recipe_id: LINEAGE_PARENT_ID_1,
+            child_recipe_id: LINEAGE_CHILD_ID,
+            created_at: "2026-10-30T10:00:00.000Z",
+          }]),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const exact16kBody = await lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES);
+  const exact16kBody = await lineageBodyOfExactByteLength(
+    MAX_LINEAGE_REQUEST_BYTES,
+  );
   assertEquals(new TextEncoder().encode(exact16kBody).byteLength, 16384);
-  const req16k = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req16k = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: exact16kBody,
     },
-    body: exact16kBody,
-  });
+  );
   const res16k = await handler(req16k, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6151,16 +8593,21 @@ Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 
   assertEquals(dbInsertCalled, true);
 
   dbInsertCalled = false;
-  const over16kBody = await lineageBodyOfExactByteLength(MAX_LINEAGE_REQUEST_BYTES + 1);
+  const over16kBody = await lineageBodyOfExactByteLength(
+    MAX_LINEAGE_REQUEST_BYTES + 1,
+  );
   assertEquals(new TextEncoder().encode(over16kBody).byteLength, 16385);
-  const reqOver = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const reqOver = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: over16kBody,
     },
-    body: over16kBody,
-  });
+  );
   const resOver = await handler(reqOver, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6169,19 +8616,35 @@ Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 
   assertEquals(resOver.status, 413);
   const bodyOver = await resOver.json();
   assertEquals(bodyOver.error?.code, "INPUT_TOO_LARGE");
-  assertEquals(bodyOver.error?.message, "Request body must be at most 16384 bytes.");
+  assertEquals(
+    bodyOver.error?.message,
+    "Request body must be at most 16384 bytes.",
+  );
   assertEquals(dbInsertCalled, false);
 });
 
 Deno.test("POST /recipes/:id/lineage byte limit enforces streaming chunks, cancels stream, and rejects without Content-Length", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
@@ -6192,21 +8655,26 @@ Deno.test("POST /recipes/:id/lineage byte limit enforces streaming chunks, cance
   const chunkStream = new ReadableStream<Uint8Array>({
     pull(controller) {
       pulls++;
-      controller.enqueue(new Uint8Array(pulls <= 2 ? MAX_LINEAGE_REQUEST_BYTES / 2 : 1));
+      controller.enqueue(
+        new Uint8Array(pulls <= 2 ? MAX_LINEAGE_REQUEST_BYTES / 2 : 1),
+      );
     },
     cancel() {
       cancelled = true;
     },
   }, { highWaterMark: 0 });
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: chunkStream,
     },
-    body: chunkStream,
-  });
+  );
 
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
@@ -6224,26 +8692,42 @@ Deno.test("POST /recipes/:id/lineage byte limit enforces streaming chunks, cance
 Deno.test("POST /recipes/:id/lineage rejects misleading Content-Length and fast-rejects oversized Content-Length", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const reqFastReject = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
-      "Content-Length": "20000",
+  const reqFastReject = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+        "Content-Length": "20000",
+      },
+      body: "small body",
     },
-    body: "small body",
-  });
+  );
   const resFast = await handler(reqFastReject, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6254,15 +8738,18 @@ Deno.test("POST /recipes/:id/lineage rejects misleading Content-Length and fast-
   assertEquals(bodyFast.error?.code, "INPUT_TOO_LARGE");
   assertEquals(dbCalled, false);
 
-  const reqMisleading = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
-      "Content-Length": "10",
+  const reqMisleading = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+        "Content-Length": "10",
+      },
+      body: "x".repeat(MAX_LINEAGE_REQUEST_BYTES + 10),
     },
-    body: "x".repeat(MAX_LINEAGE_REQUEST_BYTES + 10),
-  });
+  );
   const resMisleading = await handler(reqMisleading, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6277,12 +8764,25 @@ Deno.test("POST /recipes/:id/lineage rejects misleading Content-Length and fast-
 Deno.test("POST /recipes/:id/lineage measures bytes rather than characters for multibyte UTF-8", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
@@ -6294,14 +8794,17 @@ Deno.test("POST /recipes/:id/lineage measures bytes rather than characters for m
   assertEquals(byteCount, 20000);
   assertEquals(byteCount > MAX_LINEAGE_REQUEST_BYTES, true);
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: emojiText,
     },
-    body: emojiText,
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6316,36 +8819,58 @@ Deno.test("POST /recipes/:id/lineage measures bytes rather than characters for m
 Deno.test("POST /recipes/:id/lineage decodes chunked streams split across arbitrary byte boundaries", async () => {
   let dbInsertCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
-      return Promise.resolve(new Response(
-        JSON.stringify([{ id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID }]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: LINEAGE_PARENT_ID_1,
+            user_id: VERIFIED_USER_ID,
+          }]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       dbInsertCalled = true;
-      return Promise.resolve(new Response(
-        JSON.stringify([{
-          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          parent_recipe_id: LINEAGE_PARENT_ID_1,
-          child_recipe_id: LINEAGE_CHILD_ID,
-          created_at: "2026-10-30T10:00:00.000Z",
-        }]),
-        { status: 201, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([{
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            parent_recipe_id: LINEAGE_PARENT_ID_1,
+            child_recipe_id: LINEAGE_CHILD_ID,
+            created_at: "2026-10-30T10:00:00.000Z",
+          }]),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
@@ -6373,14 +8898,17 @@ Deno.test("POST /recipes/:id/lineage decodes chunked streams split across arbitr
     },
   });
 
-  const req = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const req = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: stream,
     },
-    body: stream,
-  });
+  );
   const res = await handler(req, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6393,12 +8921,25 @@ Deno.test("POST /recipes/:id/lineage decodes chunked streams split across arbitr
 Deno.test("POST /recipes/:id/lineage safely handles malformed UTF-8 and stream read failures with 400 INVALID_JSON", async () => {
   let dbCalled = false;
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(
-        JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     dbCalled = true;
     return Promise.resolve(new Response(null, { status: 404 }));
@@ -6411,14 +8952,17 @@ Deno.test("POST /recipes/:id/lineage safely handles malformed UTF-8 and stream r
       controller.close();
     },
   });
-  const reqMalformed = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const reqMalformed = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: streamMalformed,
     },
-    body: streamMalformed,
-  });
+  );
   const resMalformed = await handler(reqMalformed, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6433,14 +8977,17 @@ Deno.test("POST /recipes/:id/lineage safely handles malformed UTF-8 and stream r
       controller.error(new Error("Simulated network stream disconnect"));
     },
   });
-  const reqError = new Request(`http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${VALID_TEST_JWT}`,
-      "Content-Type": "application/json",
+  const reqError = new Request(
+    `http://localhost/functions/v1/recipes/${LINEAGE_CHILD_ID}/lineage`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${VALID_TEST_JWT}`,
+        "Content-Type": "application/json",
+      },
+      body: streamError,
     },
-    body: streamError,
-  });
+  );
   const resError = await handler(reqError, {
     supabaseUrl: TEST_SUPABASE_URL,
     supabaseAnonKey: TEST_ANON_KEY,
@@ -6468,7 +9015,10 @@ Deno.test("Authenticated GET /recipes search routes to search_recipes RPC with r
       relevance_rank: 1,
     },
     {
-      ...persistedRecipeRow({ id: recipe2Id, title: "Pasta with Garlic Sauce" }),
+      ...persistedRecipeRow({
+        id: recipe2Id,
+        title: "Pasta with Garlic Sauce",
+      }),
       image_path: null,
       is_public: false,
       relevance_rank: 2,
@@ -6482,24 +9032,55 @@ Deno.test("Authenticated GET /recipes search routes to search_recipes RPC with r
   ];
 
   const mockFetch: typeof fetch = async (input, init) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({
+          id: VERIFIED_USER_ID,
+          aud: "authenticated",
+          role: "authenticated",
+          email: VERIFIED_USER_EMAIL,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
     if (url.pathname === "/rest/v1/rpc/search_recipes") {
       capturedUrl = url;
       if (init?.body) {
-        capturedBody = JSON.parse(typeof init.body === "string" ? init.body : new TextDecoder().decode(init.body as Uint8Array));
+        capturedBody = JSON.parse(
+          typeof init.body === "string"
+            ? init.body
+            : new TextDecoder().decode(init.body as Uint8Array),
+        );
       }
-      return new Response(JSON.stringify(rpcRows), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(rpcRows), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     return new Response(null, { status: 404 });
   };
 
-  const res = await handler(new Request("http://localhost/functions/v1/recipes?pagination=cursor&search=garlic&sort=rating&limit=2", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const res = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?pagination=cursor&search=garlic&sort=rating&limit=2",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(res.status, 200);
   assertEquals(capturedUrl!.pathname, "/rest/v1/rpc/search_recipes");
@@ -6522,10 +9103,22 @@ Deno.test("Authenticated GET /recipes search routes to search_recipes RPC with r
   assertEquals("is_public" in body.recipes[1], false);
 
   const nextCursor = body.next_cursor;
-  const continuationRes = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&sort=rating&limit=2&cursor=${encodeURIComponent(nextCursor)}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const continuationRes = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?search=garlic&sort=rating&limit=2&cursor=${
+        encodeURIComponent(nextCursor)
+      }`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
 
   assertEquals(continuationRes.status, 200);
   assertEquals(capturedBody!.p_cursor_rank, 2);
@@ -6535,39 +9128,81 @@ Deno.test("Authenticated GET /recipes search routes to search_recipes RPC with r
 for (const searchMode of ["title", "ingredients", "both"]) {
   for (const sort of ["newest", "rating"]) {
     for (const limit of [100, 101, 200, 1000]) {
-      for (const scenario of [
-        { name: "page with continuation", count: limit + 1, hasMore: true },
-        { name: "final full page", count: limit, hasMore: false },
-        { name: "incomplete page", count: limit - 1, hasMore: false },
-      ]) {
+      for (
+        const scenario of [
+          { name: "page with continuation", count: limit + 1, hasMore: true },
+          { name: "final full page", count: limit, hasMore: false },
+          { name: "incomplete page", count: limit - 1, hasMore: false },
+        ]
+      ) {
         Deno.test(`Search offset pagination: ${searchMode}, ${sort}, limit ${limit}, ${scenario.name}`, async () => {
           const calls: Record<string, unknown>[] = [];
-          const rows = Array.from({ length: scenario.count }, () =>
-            persistedRecipeRow({ id: crypto.randomUUID(), relevance_rank: 1 })
+          const rows = Array.from(
+            { length: scenario.count },
+            () =>
+              persistedRecipeRow({
+                id: crypto.randomUUID(),
+                relevance_rank: 1,
+              }),
           );
           const mockFetch: typeof fetch = (input, init) => {
-            const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+            const url = new URL(
+              typeof input === "string"
+                ? input
+                : input instanceof URL
+                ? input.toString()
+                : input.url,
+            );
             if (url.pathname === "/auth/v1/user") {
-              return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated" }), { headers: { "Content-Type": "application/json" } }));
+              return Promise.resolve(
+                new Response(
+                  JSON.stringify({
+                    id: VERIFIED_USER_ID,
+                    aud: "authenticated",
+                    role: "authenticated",
+                  }),
+                  { headers: { "Content-Type": "application/json" } },
+                ),
+              );
             }
             assertEquals(url.pathname, "/rest/v1/rpc/search_recipes");
             calls.push(JSON.parse(init?.body as string));
             const call = calls.at(-1)!;
             const offset = Number(call.p_offset) - 2000;
             const data = rows.slice(offset, offset + Number(call.p_limit) + 1);
-            return Promise.resolve(new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } }));
+            return Promise.resolve(
+              new Response(JSON.stringify(data), {
+                headers: { "Content-Type": "application/json" },
+              }),
+            );
           };
-          const response = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&searchMode=${searchMode}&sort=${sort}&limit=${limit}&offset=2000`, {
-            headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-          }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+          const response = await handler(
+            new Request(
+              `http://localhost/functions/v1/recipes?search=garlic&searchMode=${searchMode}&sort=${sort}&limit=${limit}&offset=2000`,
+              {
+                headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+              },
+            ),
+            {
+              supabaseUrl: TEST_SUPABASE_URL,
+              supabaseAnonKey: TEST_ANON_KEY,
+              fetch: mockFetch,
+            },
+          );
           assertEquals(response.status, 200);
           const body = await response.json();
           assertEquals(body.has_more, scenario.hasMore);
           assertEquals(body.next_cursor, null);
           assertEquals(body.recipes.length, Math.min(scenario.count, limit));
-          assertEquals(body.recipes.map((row: { id: string }) => row.id), rows.slice(0, limit).map((row) => row.id));
+          assertEquals(
+            body.recipes.map((row: { id: string }) => row.id),
+            rows.slice(0, limit).map((row) => row.id),
+          );
           assertEquals("relevance_rank" in body.recipes[0], false);
-          assertEquals(calls.length, Math.max(1, Math.ceil(Math.min(scenario.count, limit) / 100)));
+          assertEquals(
+            calls.length,
+            Math.max(1, Math.ceil(Math.min(scenario.count, limit) / 100)),
+          );
           for (const [index, call] of calls.entries()) {
             assertEquals(call, {
               p_search: searchMode === "both" ? "garlic" : null,
@@ -6591,39 +9226,104 @@ for (const searchMode of ["title", "ingredients", "both"]) {
 for (const failure of ["rpc", "null", "object", "transport"]) {
   Deno.test(`Search offset continuation failure returns safe INTERNAL_ERROR: ${failure}`, async () => {
     let calls = 0;
-    const rows = Array.from({ length: 1000 }, () => persistedRecipeRow({ relevance_rank: 1 }));
+    const rows = Array.from(
+      { length: 1000 },
+      () => persistedRecipeRow({ relevance_rank: 1 }),
+    );
     const mockFetch: typeof fetch = (input) => {
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.toString()
+          : input.url,
+      );
       if (url.pathname === "/auth/v1/user") {
-        return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated" }), { headers: { "Content-Type": "application/json" } }));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: VERIFIED_USER_ID,
+              aud: "authenticated",
+              role: "authenticated",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+        );
       }
       assertEquals(url.pathname, "/rest/v1/rpc/search_recipes");
       calls++;
-      if (calls === 1) return Promise.resolve(new Response(JSON.stringify(rows.slice(0, 101)), { headers: { "Content-Type": "application/json" } }));
-      if (failure === "transport") throw new TypeError("private provider detail");
-      const data = failure === "rpc" ? { code: "XX000", message: "private database detail" } : failure === "null" ? null : {};
-      return Promise.resolve(new Response(JSON.stringify(data), {
-        status: failure === "rpc" ? 500 : 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+      if (calls === 1) {
+        return Promise.resolve(
+          new Response(JSON.stringify(rows.slice(0, 101)), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (failure === "transport") {
+        throw new TypeError("private provider detail");
+      }
+      const data = failure === "rpc"
+        ? { code: "XX000", message: "private database detail" }
+        : failure === "null"
+        ? null
+        : {};
+      return Promise.resolve(
+        new Response(JSON.stringify(data), {
+          status: failure === "rpc" ? 500 : 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     };
-    const response = await handler(new Request("http://localhost/functions/v1/recipes?search=garlic&limit=1000", {
-      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-    }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+    const response = await handler(
+      new Request(
+        "http://localhost/functions/v1/recipes?search=garlic&limit=1000",
+        {
+          headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+        },
+      ),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        fetch: mockFetch,
+      },
+    );
     assertEquals(calls, 2);
     assertEquals(response.status, 500);
-    assertEquals(await response.json(), { error: { code: "INTERNAL_ERROR", message: "Internal server error." } });
+    assertEquals(await response.json(), {
+      error: { code: "INTERNAL_ERROR", message: "Internal server error." },
+    });
   });
 }
 
 Deno.test("Authenticated GET /recipes search validates cursors across search terms and relevance ranks", async () => {
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/rpc/search_recipes") {
-      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
@@ -6632,8 +9332,13 @@ Deno.test("Authenticated GET /recipes search validates cursors across search ter
     const json = JSON.stringify(data);
     const bytes = new TextEncoder().encode(json);
     let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+      /=+$/,
+      "",
+    );
   };
 
   const validSearchCursor = makeCursor({
@@ -6670,28 +9375,68 @@ Deno.test("Authenticated GET /recipes search validates cursors across search ter
     starRating: null,
   });
 
-  const resMismatched = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&cursor=${mismatchedTermCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resMismatched = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?search=garlic&cursor=${mismatchedTermCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resMismatched.status, 400);
 
-  const resMissingRank = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&cursor=${missingRankCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resMissingRank = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?search=garlic&cursor=${missingRankCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resMissingRank.status, 400);
 
-  const resUnsearchedWithRank = await handler(new Request(`http://localhost/functions/v1/recipes?cursor=${unsearchedWithRankCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resUnsearchedWithRank = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?cursor=${unsearchedWithRankCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resUnsearchedWithRank.status, 400);
 
-  const resValid = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&cursor=${validSearchCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resValid = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?search=garlic&cursor=${validSearchCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resValid.status, 200);
 
   const modeMismatchedCursor = makeCursor({
@@ -6704,66 +9449,144 @@ Deno.test("Authenticated GET /recipes search validates cursors across search ter
     starRating: null,
   });
 
-  const resModeMismatched = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&searchMode=ingredients&cursor=${modeMismatchedCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resModeMismatched = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?search=garlic&searchMode=ingredients&cursor=${modeMismatchedCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resModeMismatched.status, 400);
 
-  const resModeMatched = await handler(new Request(`http://localhost/functions/v1/recipes?search=garlic&searchMode=title&cursor=${modeMismatchedCursor}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resModeMatched = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes?search=garlic&searchMode=title&cursor=${modeMismatchedCursor}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resModeMatched.status, 200);
 });
 
 Deno.test("Authenticated GET /recipes search routes with searchMode title, ingredients, and both", async () => {
   let capturedBody: Record<string, unknown> | null = null;
   const mockFetch: typeof fetch = (input, init) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/rpc/search_recipes") {
       capturedBody = JSON.parse(init?.body as string);
-      return Promise.resolve(new Response(JSON.stringify([
-        persistedRecipeRow({ relevance_rank: 1 }),
-      ]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            persistedRecipeRow({ relevance_rank: 1 }),
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const resTitle = await handler(new Request("http://localhost/functions/v1/recipes?search=garlick&searchMode=title", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resTitle = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?search=garlick&searchMode=title",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resTitle.status, 200);
   assertEquals(capturedBody!.p_title, "garlick");
   assertEquals(capturedBody!.p_search, null);
   assertEquals(capturedBody!.p_ingredient, null);
 
-  const resIng = await handler(new Request("http://localhost/functions/v1/recipes?search=shalots&searchMode=ingredients", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resIng = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?search=shalots&searchMode=ingredients",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resIng.status, 200);
   assertEquals(capturedBody!.p_ingredient, "shalots");
   assertEquals(capturedBody!.p_search, null);
   assertEquals(capturedBody!.p_title, null);
 
-  const resBoth = await handler(new Request("http://localhost/functions/v1/recipes?search=rice&searchMode=both", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resBoth = await handler(
+    new Request(
+      "http://localhost/functions/v1/recipes?search=rice&searchMode=both",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+      },
+    ),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resBoth.status, 200);
   assertEquals(capturedBody!.p_search, "rice");
   assertEquals(capturedBody!.p_title, null);
   assertEquals(capturedBody!.p_ingredient, null);
 
-  const resDefault = await handler(new Request("http://localhost/functions/v1/recipes?search=rice", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resDefault = await handler(
+    new Request("http://localhost/functions/v1/recipes?search=rice", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resDefault.status, 200);
   assertEquals(capturedBody!.p_search, "rice");
   assertEquals(capturedBody!.p_title, null);
@@ -6773,36 +9596,78 @@ Deno.test("Authenticated GET /recipes search routes with searchMode title, ingre
 Deno.test("Authenticated GET /recipes search handles whitespace-only terms and rejects ownership mismatch", async () => {
   let capturedPath = "";
   const mockFetch: typeof fetch = (input) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url,
+    );
     if (url.pathname === "/auth/v1/user") {
-      return Promise.resolve(new Response(JSON.stringify({ id: VERIFIED_USER_ID, aud: "authenticated", role: "authenticated", email: VERIFIED_USER_EMAIL }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: VERIFIED_USER_ID,
+            aud: "authenticated",
+            role: "authenticated",
+            email: VERIFIED_USER_EMAIL,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     if (url.pathname === "/rest/v1/recipes") {
       capturedPath = url.pathname;
-      return Promise.resolve(new Response(JSON.stringify([persistedRecipeRow()]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(JSON.stringify([persistedRecipeRow()]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     }
     if (url.pathname === "/rest/v1/rpc/search_recipes") {
       capturedPath = url.pathname;
-      return Promise.resolve(new Response(JSON.stringify([
-        persistedRecipeRow({ user_id: "00000000-0000-0000-0000-000000000000", relevance_rank: 1 }),
-      ]), { status: 200, headers: { "Content-Type": "application/json" } }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            persistedRecipeRow({
+              user_id: "00000000-0000-0000-0000-000000000000",
+              relevance_rank: 1,
+            }),
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
 
-  const resWhitespace = await handler(new Request("http://localhost/functions/v1/recipes?search=%20%20%20", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resWhitespace = await handler(
+    new Request("http://localhost/functions/v1/recipes?search=%20%20%20", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resWhitespace.status, 200);
   assertEquals(capturedPath, "/rest/v1/recipes");
 
-  const resForeign = await handler(new Request("http://localhost/functions/v1/recipes?search=garlic", {
-    method: "GET",
-    headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
-  }), { supabaseUrl: TEST_SUPABASE_URL, supabaseAnonKey: TEST_ANON_KEY, fetch: mockFetch });
+  const resForeign = await handler(
+    new Request("http://localhost/functions/v1/recipes?search=garlic", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${VALID_TEST_JWT}` },
+    }),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      fetch: mockFetch,
+    },
+  );
   assertEquals(resForeign.status, 500);
   const bodyForeign = await resForeign.json();
   assertEquals(bodyForeign.error?.code, "INTERNAL_ERROR");
 });
-

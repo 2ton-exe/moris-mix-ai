@@ -1,4 +1,4 @@
-import { z } from "npm:zod@3.22.4";
+import { z } from "npm:zod@4.6.6";
 import { ExtractedRecipeSchema, GeneratedRecipeSchema } from "./schemas.ts";
 import type { ChefRecipeContextResult } from "./schemas.ts";
 

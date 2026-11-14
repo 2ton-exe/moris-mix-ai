@@ -5,11 +5,11 @@ import {
   GoogleGenerativeAIResponseError,
 } from "npm:@google/generative-ai@0.21.0";
 import {
+  assert,
   assertEquals,
   assertFalse,
   assertRejects,
   assertThrows,
-  assert,
 } from "jsr:@std/assert@1";
 import {
   AIError,
@@ -20,7 +20,13 @@ import {
   parseGenerationResponse,
 } from "../_shared/ai/GeminiAdapter.ts";
 import type { GenerateRecipeContext } from "../_shared/ai/AIProvider.ts";
+import { MOCK_EXTRACTED_RECIPE } from "../_shared/ai/mocks.ts";
 import { buildExtractionPrompt } from "../_shared/ai/prompts.ts";
+import {
+  ExtractedRecipeSchema,
+  GeneratedRecipeSchema,
+  MAX_AI_OUTPUT_JSON_BYTES,
+} from "../_shared/ai/schemas.ts";
 
 const NOTES = "Boiled chicken with garlic and a splash of soy sauce.";
 
@@ -28,7 +34,13 @@ const VALID_RECIPE = {
   title: "Boiled Chicken",
   ingredients: [
     { name: "chicken", quantity: 1, unit: "whole", inferred: false },
-    { name: "soy sauce", quantity: null, unit: null, quantityText: "a splash", inferred: true },
+    {
+      name: "soy sauce",
+      quantity: null,
+      unit: null,
+      quantityText: "a splash",
+      inferred: true,
+    },
   ],
   instructions: [
     { step: 1, text: "Boil the chicken with garlic and soy sauce." },
@@ -44,7 +56,13 @@ const VALID_GENERATED = {
     ingredients: [
       { name: "rice", quantity: 2, unit: "cups", inferred: false },
       { name: "eggs", quantity: 2, unit: null, inferred: false },
-      { name: "soy sauce", quantity: null, unit: null, quantityText: "a splash", inferred: true },
+      {
+        name: "soy sauce",
+        quantity: null,
+        unit: null,
+        quantityText: "a splash",
+        inferred: true,
+      },
     ],
     instructions: [
       { step: 1, text: "Scramble the eggs, then fold in the rice." },
@@ -111,7 +129,9 @@ Deno.test("extractRecipe returns a parsed recipe from valid JSON", async () => {
 });
 
 Deno.test("extractRecipe accepts JSON wrapped in a markdown fence", async () => {
-  const adapter = adapterWith(async () => "```json\n" + JSON.stringify(VALID_RECIPE) + "\n```");
+  const adapter = adapterWith(async () =>
+    "```json\n" + JSON.stringify(VALID_RECIPE) + "\n```"
+  );
 
   const recipe = await adapter.extractRecipe({ rawText: NOTES });
 
@@ -131,7 +151,9 @@ Deno.test("extractRecipe rejects non-JSON output", async () => {
 });
 
 Deno.test("extractRecipe rejects JSON that fails the schema", async () => {
-  const adapter = adapterWith(async () => JSON.stringify({ ...VALID_RECIPE, title: 123 }));
+  const adapter = adapterWith(async () =>
+    JSON.stringify({ ...VALID_RECIPE, title: 123 })
+  );
 
   const error = await assertRejects(
     () => adapter.extractRecipe({ rawText: NOTES }),
@@ -146,7 +168,12 @@ Deno.test("extractRecipe rejects impossible values and reports the field path", 
   const adapter = adapterWith(async () =>
     JSON.stringify({
       ...VALID_RECIPE,
-      ingredients: [{ name: "salt", quantity: -1, unit: null, inferred: false }],
+      ingredients: [{
+        name: "salt",
+        quantity: -1,
+        unit: null,
+        inferred: false,
+      }],
     })
   );
 
@@ -186,7 +213,9 @@ Deno.test("extractRecipe retries once after a transient provider failure", async
   let calls = 0;
   const adapter = adapterWith(async () => {
     calls += 1;
-    if (calls === 1) throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    if (calls === 1) {
+      throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    }
     return JSON.stringify(VALID_RECIPE);
   });
 
@@ -221,9 +250,15 @@ Deno.test("extractRecipe waits before retrying a rate limit", async () => {
   assertEquals(recipe.title, "Boiled Chicken");
 });
 
-function rateLimitWithDetails(errorDetails: unknown): GoogleGenerativeAIFetchError {
+function rateLimitWithDetails(
+  errorDetails: unknown,
+): GoogleGenerativeAIFetchError {
   return Object.assign(
-    new GoogleGenerativeAIFetchError("Quota exceeded", 429, "Too Many Requests"),
+    new GoogleGenerativeAIFetchError(
+      "Quota exceeded",
+      429,
+      "Too Many Requests",
+    ),
     {
       errorDetails,
     },
@@ -249,8 +284,14 @@ Deno.test("extractRecipe honors SDK RetryInfo durations within the retry budget"
     const adapter = new GeminiAdapter({
       generateText: () => {
         calls += 1;
-        if (calls === 1) return Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)]));
-        assertEquals(delays, [expectedMs], "cooldown must finish before the next call");
+        if (calls === 1) {
+          return Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)]));
+        }
+        assertEquals(
+          delays,
+          [expectedMs],
+          "cooldown must finish before the next call",
+        );
         return Promise.resolve(JSON.stringify(VALID_RECIPE));
       },
       log: () => {},
@@ -289,7 +330,9 @@ Deno.test("extractRecipe uses jitter for missing or malformed SDK retry metadata
     const adapter = new GeminiAdapter({
       generateText: () => {
         calls += 1;
-        if (calls === 1) return Promise.reject(rateLimitWithDetails(errorDetails));
+        if (calls === 1) {
+          return Promise.reject(rateLimitWithDetails(errorDetails));
+        }
         return Promise.resolve(JSON.stringify(VALID_RECIPE));
       },
       log: () => {},
@@ -303,7 +346,10 @@ Deno.test("extractRecipe uses jitter for missing or malformed SDK retry metadata
 
     assertEquals(calls, 2);
     assertEquals(delays.length, 1);
-    assertEquals(Number.isInteger(delays[0]) && delays[0] >= 250 && delays[0] < 500, true);
+    assertEquals(
+      Number.isInteger(delays[0]) && delays[0] >= 250 && delays[0] < 500,
+      true,
+    );
   }
 });
 
@@ -323,7 +369,10 @@ Deno.test("extractRecipe skips retry when the provider cooldown exceeds the budg
       },
     });
 
-    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
 
     assertEquals(error.code, "rate_limited");
     assertEquals(calls, 1);
@@ -338,7 +387,12 @@ Deno.test("extractRecipe honors the longest valid cooldown and still tries at mo
     generateText: () => {
       calls += 1;
       return Promise.reject(
-        rateLimitWithDetails([null, retryInfo("bad"), retryInfo("3s"), retryInfo("1s")]),
+        rateLimitWithDetails([
+          null,
+          retryInfo("bad"),
+          retryInfo("3s"),
+          retryInfo("1s"),
+        ]),
       );
     },
     log: () => {},
@@ -348,7 +402,10 @@ Deno.test("extractRecipe honors the longest valid cooldown and still tries at mo
     },
   });
 
-  const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+  const error = await assertRejects(
+    () => adapter.extractRecipe({ rawText: NOTES }),
+    AIError,
+  );
 
   assertEquals(error.code, "rate_limited");
   assertEquals(calls, 2);
@@ -366,12 +423,16 @@ Deno.test("extractRecipe exposes the provider cooldown as retryAfterSeconds for 
     ] as const
   ) {
     const adapter = new GeminiAdapter({
-      generateText: () => Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)])),
+      generateText: () =>
+        Promise.reject(rateLimitWithDetails([retryInfo(retryDelay)])),
       log: () => {},
       sleep: async () => {},
     });
 
-    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
 
     assertEquals(error.code, "rate_limited");
     assertEquals(error.retryAfterSeconds, expectedSeconds);
@@ -379,14 +440,21 @@ Deno.test("extractRecipe exposes the provider cooldown as retryAfterSeconds for 
 });
 
 Deno.test("extractRecipe leaves retryAfterSeconds undefined without usable RetryInfo", async () => {
-  for (const errorDetails of [undefined, null, [], [null], [retryInfo("bad")], [{ "@type": "type.googleapis.com/google.rpc.Other" }]]) {
+  for (
+    const errorDetails of [undefined, null, [], [null], [retryInfo("bad")], [{
+      "@type": "type.googleapis.com/google.rpc.Other",
+    }]]
+  ) {
     const adapter = new GeminiAdapter({
       generateText: () => Promise.reject(rateLimitWithDetails(errorDetails)),
       log: () => {},
       sleep: async () => {},
     });
 
-    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
 
     assertEquals(error.code, "rate_limited");
     assertEquals(error.retryAfterSeconds, undefined);
@@ -427,7 +495,10 @@ Deno.test("extractRecipe does not retry unexpected local or SDK exceptions", asy
       },
     });
 
-    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
 
     assertEquals(error.code, "internal_error");
     assertEquals(error.retryable, false);
@@ -444,7 +515,9 @@ Deno.test("extractRecipe retries recognized transport failures including SDK-wra
       new TypeError("fetch failed"),
       new TypeError("Failed to fetch"),
       new TypeError("NetworkError when attempting to fetch resource."),
-      new TypeError("error sending request for url (https://example.test): connection closed"),
+      new TypeError(
+        "error sending request for url (https://example.test): connection closed",
+      ),
       Object.assign(new Error("socket closed"), { code: "ECONNRESET" }),
       new GoogleGenerativeAIError(
         "Error fetching from https://generativelanguage.googleapis.com/test: fetch failed",
@@ -460,7 +533,10 @@ Deno.test("extractRecipe retries recognized transport failures including SDK-wra
       return Promise.reject(transportError);
     });
 
-    const error = await assertRejects(() => adapter.extractRecipe({ rawText: NOTES }), AIError);
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
 
     assertEquals(error.code, "provider_unavailable");
     assertEquals(error.retryable, true);
@@ -507,7 +583,9 @@ Deno.test("a 4xx mentioning quota is rejected, not treated as a rate limit", asy
   let calls = 0;
   const adapter = adapterWith(async () => {
     calls += 1;
-    throw Object.assign(new Error("Quota exceeded for this project"), { status: 403 });
+    throw Object.assign(new Error("Quota exceeded for this project"), {
+      status: 403,
+    });
   });
 
   const error = await assertRejects(
@@ -531,9 +609,12 @@ Deno.test("extractRecipe maps a blocked response from response.text() to provide
             text: () => {
               // Exactly what the SDK throws on a blocked prompt/candidate:
               // a GoogleGenerativeAIResponseError with no HTTP status.
-              throw new GoogleGenerativeAIResponseError("Response was blocked due to SAFETY", {
-                promptFeedback: { blockReason: "SAFETY" },
-              });
+              throw new GoogleGenerativeAIResponseError(
+                "Response was blocked due to SAFETY",
+                {
+                  promptFeedback: { blockReason: "SAFETY" },
+                },
+              );
             },
           },
         });
@@ -556,7 +637,177 @@ Deno.test("extractRecipe maps a blocked response from response.text() to provide
   assertEquals(error.retryable, false);
   assertEquals(calls, 1, "a safety block must not consume the bounded retry");
   assertEquals(error.nonConsuming, false);
-  assertEquals(error.attempts, [{ code: "provider_rejected", nonConsuming: false }]);
+  assertEquals(error.attempts, [{
+    code: "provider_rejected",
+    nonConsuming: false,
+  }]);
+});
+
+Deno.test("provider generation requests include a bounded output-token budget", async () => {
+  let generationConfig: Record<string, unknown> | undefined;
+  const fakeClient = {
+    getGenerativeModel: (
+      options: { generationConfig?: Record<string, unknown> },
+    ) => {
+      generationConfig = options.generationConfig;
+      return {
+        generateContent: () =>
+          Promise.resolve({
+            response: { text: () => JSON.stringify(MOCK_EXTRACTED_RECIPE) },
+          }),
+      };
+    },
+  } as unknown as GoogleGenerativeAI;
+  const adapter = new GeminiAdapter({
+    client: fakeClient,
+    log: () => {},
+    sleep: async () => {},
+  });
+  await adapter.extractRecipe({ rawText: NOTES });
+  assertEquals(generationConfig?.maxOutputTokens, 8192);
+});
+
+Deno.test("AI output schemas and parsers enforce the 8 KiB JSON response budget", () => {
+  const oversizedRecipe = {
+    ...MOCK_EXTRACTED_RECIPE,
+    instructions: [{ step: 1, text: "x".repeat(MAX_AI_OUTPUT_JSON_BYTES) }],
+  };
+  assertFalse(ExtractedRecipeSchema.safeParse(oversizedRecipe).success);
+
+  const oversizedGenerated = {
+    recipe: MOCK_EXTRACTED_RECIPE,
+    substitutions: [{
+      original: "rice",
+      replacement: "x".repeat(MAX_AI_OUTPUT_JSON_BYTES),
+      reason: "available",
+    }],
+    parentRecipeIds: [],
+  };
+  assertFalse(GeneratedRecipeSchema.safeParse(oversizedGenerated).success);
+
+  const raw = JSON.stringify(MOCK_EXTRACTED_RECIPE) +
+    " ".repeat(MAX_AI_OUTPUT_JSON_BYTES);
+  const extractionError = assertThrows(
+    () => parseExtractionResponse(raw),
+    AIError,
+  );
+  assertEquals(extractionError.code, "output_truncated");
+
+  const generationError = assertThrows(
+    () => parseGenerationResponse(raw, new Set()),
+    AIError,
+  );
+  assertEquals(generationError.code, "output_truncated");
+});
+
+Deno.test("output size limit includes fields added during Zod normalization", () => {
+  const compactIngredients = Array.from({ length: 100 }, () => ({
+    name: "x".repeat(45),
+  }));
+  const extractionRaw = JSON.stringify({
+    title: "Recipe",
+    ingredients: compactIngredients,
+    instructions: [],
+  });
+  assert(
+    new TextEncoder().encode(extractionRaw).byteLength <
+      MAX_AI_OUTPUT_JSON_BYTES,
+  );
+  const extractionError = assertThrows(
+    () => parseExtractionResponse(extractionRaw),
+    AIError,
+  );
+  assertEquals(extractionError.code, "output_truncated");
+
+  const generationRaw = JSON.stringify({
+    recipe: {
+      title: "Recipe",
+      ingredients: compactIngredients,
+      instructions: [],
+    },
+    substitutions: [],
+    parentRecipeIds: [],
+  });
+  assert(
+    new TextEncoder().encode(generationRaw).byteLength <
+      MAX_AI_OUTPUT_JSON_BYTES,
+  );
+  const generationError = assertThrows(
+    () => parseGenerationResponse(generationRaw, new Set()),
+    AIError,
+  );
+  assertEquals(generationError.code, "output_truncated");
+});
+
+Deno.test("both operations report MAX_TOKENS as output_truncated without retrying", async () => {
+  const operations: Array<{
+    label: "extract" | "generate";
+    run: (adapter: GeminiAdapter) => Promise<unknown>;
+  }> = [
+    {
+      label: "extract",
+      run: (adapter) => adapter.extractRecipe({ rawText: NOTES }),
+    },
+    {
+      label: "generate",
+      run: (adapter) =>
+        adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+    },
+  ];
+
+  for (const operation of operations) {
+    let calls = 0;
+    let textCalls = 0;
+    const fakeClient = {
+      getGenerativeModel: () => ({
+        generateContent: () => {
+          calls += 1;
+          return Promise.resolve({
+            response: {
+              candidates: [{ finishReason: "MAX_TOKENS" }],
+              text: () => {
+                textCalls += 1;
+                throw new Error("truncated response text must not be read");
+              },
+            },
+          });
+        },
+      }),
+    } as unknown as GoogleGenerativeAI;
+    const outcomes: string[] = [];
+    const adapter = new GeminiAdapter({
+      client: fakeClient,
+      log: (entry) => outcomes.push(entry.outcome),
+      sleep: async () => {},
+    });
+
+    const error = await assertRejects(
+      () => operation.run(adapter),
+      AIError,
+      undefined,
+      operation.label,
+    );
+
+    assertEquals(error.code, "output_truncated", operation.label);
+    assertEquals(error.operation, operation.label, operation.label);
+    assertEquals(error.retryable, false, operation.label);
+    assertEquals(error.nonConsuming, false, operation.label);
+    assertEquals(
+      calls,
+      1,
+      `${operation.label}: truncation must not be retried`,
+    );
+    assertEquals(
+      textCalls,
+      0,
+      `${operation.label}: truncated text is not parsed`,
+    );
+    assertEquals(outcomes, ["output_truncated"]);
+    assertEquals(error.attempts, [{
+      code: "output_truncated",
+      nonConsuming: false,
+    }]);
+  }
 });
 
 Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even when text() is empty", async () => {
@@ -564,10 +815,14 @@ Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even
     label: string;
     run: (adapter: GeminiAdapter) => Promise<unknown>;
   }> = [
-    { label: "extract", run: (adapter) => adapter.extractRecipe({ rawText: NOTES }) },
+    {
+      label: "extract",
+      run: (adapter) => adapter.extractRecipe({ rawText: NOTES }),
+    },
     {
       label: "generate",
-      run: (adapter) => adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
+      run: (adapter) =>
+        adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT),
     },
   ];
 
@@ -581,7 +836,10 @@ Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even
           return Promise.resolve({
             response: {
               // SDK 0.21.0 does not throw for this newer block reason.
-              candidates: [{ finishReason: "PROHIBITED_CONTENT", content: { parts: [] } }],
+              candidates: [{
+                finishReason: "PROHIBITED_CONTENT",
+                content: { parts: [] },
+              }],
               text: () => {
                 textCalls += 1;
                 return "";
@@ -607,9 +865,16 @@ Deno.test("both operations classify PROHIBITED_CONTENT as provider_rejected even
 
     assertEquals(error.code, "provider_rejected", operation.label);
     assertEquals(error.retryable, false, operation.label);
-    assertEquals(calls, 1, `${operation.label}: a blocked candidate must not be retried`);
+    assertEquals(
+      calls,
+      1,
+      `${operation.label}: a blocked candidate must not be retried`,
+    );
     assertEquals(error.nonConsuming, false, operation.label);
-    assertEquals(error.attempts, [{ code: "provider_rejected", nonConsuming: false }], operation.label);
+    assertEquals(error.attempts, [{
+      code: "provider_rejected",
+      nonConsuming: false,
+    }], operation.label);
     assertEquals(
       textCalls,
       0,
@@ -679,8 +944,20 @@ Deno.test("extractRecipe normalises null optional fields instead of failing", as
   const withNulls = {
     ...VALID_RECIPE,
     ingredients: [
-      { name: "chicken", quantity: 1, unit: "whole", quantityText: null, inferred: false },
-      { name: "garlic", quantity: null, unit: null, quantityText: "some", inferred: true },
+      {
+        name: "chicken",
+        quantity: 1,
+        unit: "whole",
+        quantityText: null,
+        inferred: false,
+      },
+      {
+        name: "garlic",
+        quantity: null,
+        unit: null,
+        quantityText: "some",
+        inferred: true,
+      },
     ],
     flavor_scores: null,
   };
@@ -791,10 +1068,15 @@ Deno.test("generateRecipe cold start sends no candidate IDs and accepts no paren
     return JSON.stringify({ ...VALID_GENERATED, parentRecipeIds: [] });
   });
 
-  const result = await adapter.generateRecipe({ pantryItems: ["rice", "eggs"] }, COLD_START_CONTEXT);
+  const result = await adapter.generateRecipe(
+    { pantryItems: ["rice", "eggs"] },
+    COLD_START_CONTEXT,
+  );
 
   assertEquals(result.parentRecipeIds, []);
-  assert(prompt.includes("No historical matching recipes available for context."));
+  assert(
+    prompt.includes("No historical matching recipes available for context."),
+  );
   assertFalse(prompt.includes(`[ID: ${PARENT_ID}]`));
 });
 
@@ -803,7 +1085,10 @@ Deno.test("generateRecipe accepts JSON wrapped in a markdown fence", async () =>
     async () => "```json\n" + JSON.stringify(VALID_GENERATED) + "\n```",
   );
 
-  const result = await adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT);
+  const result = await adapter.generateRecipe(
+    { pantryItems: ["rice"] },
+    MATCHED_CONTEXT,
+  );
 
   assertEquals(result.recipe.instructions.length, 2);
 });
@@ -812,7 +1097,10 @@ Deno.test("generateRecipe rejects an invented parent ID without retrying", async
   let calls = 0;
   const adapter = adapterWith(async () => {
     calls += 1;
-    return JSON.stringify({ ...VALID_GENERATED, parentRecipeIds: [FOREIGN_PARENT_ID] });
+    return JSON.stringify({
+      ...VALID_GENERATED,
+      parentRecipeIds: [FOREIGN_PARENT_ID],
+    });
   });
 
   const error = await assertRejects(
@@ -896,11 +1184,16 @@ Deno.test("generateRecipe retries once after a transient provider failure", asyn
   let calls = 0;
   const adapter = adapterWith(async () => {
     calls += 1;
-    if (calls === 1) throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    if (calls === 1) {
+      throw Object.assign(new Error("Service Unavailable"), { status: 503 });
+    }
     return JSON.stringify(VALID_GENERATED);
   });
 
-  const result = await adapter.generateRecipe({ pantryItems: ["rice"] }, MATCHED_CONTEXT);
+  const result = await adapter.generateRecipe(
+    { pantryItems: ["rice"] },
+    MATCHED_CONTEXT,
+  );
 
   assertEquals(calls, 2);
   assertEquals(result.recipe.title, "Egg Fried Rice");
