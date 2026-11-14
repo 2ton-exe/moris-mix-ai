@@ -49,7 +49,7 @@ class RouterTestRequest extends NativeRequest {
   }
 }
 
-function renderChef({ userId = 'chef-cook', save = vi.fn(async () => ({ id: 'saved-chef-recipe' })) } = {}) {
+function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: 'saved-chef-recipe' })) } = {}) {
   const state = authState(userId)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
