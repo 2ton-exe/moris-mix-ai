@@ -2,10 +2,12 @@ import { expect, test } from '@playwright/test'
 import { localE2eUser } from './local-user.mjs'
 import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
-async function expectRecipeAbsentInCollection(page, title) {
+async function expectRecipeAbsentInCollection(page, ...titles) {
   await page.goto('/app/recipes')
   await waitForCollection(page)
-  await expect(page.getByRole('link', { name: title })).toHaveCount(0)
+  for (const title of titles) {
+    await expect(page.getByRole('link', { name: title })).toHaveCount(0)
+  }
 }
 
 test('an edited extraction stays unsaved until a successful explicit retry', async ({ page }) => {
@@ -73,7 +75,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     expect(createRequests).toHaveLength(0)
     const collectionPage = await page.context().newPage()
     try {
-      await expectRecipeAbsentInCollection(collectionPage, reviewedTitle)
+      await expectRecipeAbsentInCollection(collectionPage, extractedTitle, reviewedTitle)
     } finally {
       await collectionPage.close()
     }
@@ -100,7 +102,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
 
     const collectionPage = await page.context().newPage()
     try {
-      await expectRecipeAbsentInCollection(collectionPage, reviewedTitle)
+      await expectRecipeAbsentInCollection(collectionPage, extractedTitle, reviewedTitle)
     } finally {
       await collectionPage.close()
     }
