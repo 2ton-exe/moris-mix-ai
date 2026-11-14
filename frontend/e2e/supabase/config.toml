@@ -28,3 +28,6 @@ enable_signup = true
 
 [functions.recipes]
 verify_jwt = false
+
+[functions.extract-recipe]
+verify_jwt = false
