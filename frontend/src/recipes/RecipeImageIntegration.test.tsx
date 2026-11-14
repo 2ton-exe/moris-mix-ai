@@ -208,6 +208,9 @@ function renderEditPage() {
   const router = modules.createMemoryRouter([{
     path: '/app/recipes/:recipeId/edit',
     element: createElement(modules.EditRecipePage, { record, save: async () => ({ id: recipeId }) }),
+  }, {
+    path: '/app',
+    element: createElement('h1', null, 'Journal'),
   }], { initialEntries: [`/app/recipes/${recipeId}/edit`] })
   const tree = (state: import('../auth/context').AuthState) => createElement(modules.AuthContext.Provider, { value: state },
     createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) }))
@@ -221,8 +224,10 @@ function renderCreatePage(save: () => Promise<{ id: string }>) {
     path: '/app/recipes/new',
     element: createElement(modules.CreateRecipePage, { save }),
   }], { initialEntries: ['/app/recipes/new'] })
-  return render(createElement(modules.AuthContext.Provider, { value: authState },
-    createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) })))
+  const tree = (state: import('../auth/context').AuthState) => createElement(modules.AuthContext.Provider, { value: state },
+    createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) }))
+  const view = render(tree(authState))
+  return { ...view, setAuthState: (state: import('../auth/context').AuthState) => view.rerender(tree(state)) }
 }
 
 function renderDetailPage() {
@@ -261,9 +266,43 @@ it('enables image upload for a new recipe only after its save returns a stable I
   fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
   expect(await screen.findByText('No recipe photo has been added yet.')).toBeTruthy()
   expect(screen.getByLabelText('Choose recipe image')).toBeTruthy()
+  expect(screen.getByLabelText('Choose recipe image').closest('[data-writing-leaf-key]')?.getAttribute('data-writing-leaf-key')).toBe('identity')
   expect(save).toHaveBeenCalledOnce()
   const downloadRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-download-url'))
   expect(JSON.parse(downloadRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId })
+})
+
+it('hides saved create-image controls when the authenticated account changes', async () => {
+  noImage = true
+  const view = renderCreatePage(vi.fn(async () => ({ id: recipeId })))
+  fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'New dish' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  await screen.findByLabelText('Choose recipe image')
+  const requests = fetchImpl.mock.calls.length
+
+  view.setAuthState({ ...authState, user: { ...authState.user!, id: 'cook-b' } })
+
+  expect(screen.queryByLabelText('Choose recipe image')).toBeNull()
+  expect(screen.queryByRole('img', { name: 'New dish photo' })).toBeNull()
+  expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('')
+  expect(fetchImpl.mock.calls.length).toBe(requests)
+})
+
+it('preserves the image selection and dirty recipe when journal navigation is cancelled', async () => {
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'Unsaved ginger rice' } })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('link', { name: /Back to journal/ }))
+  await screen.findByRole('alertdialog', { name: 'Leave without saving?' })
+  fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
+
+  expect(screen.getByDisplayValue('Unsaved ginger rice')).toBeTruthy()
+  expect(screen.getByRole('img', { name: 'Selected recipe image preview' })).toBeTruthy()
+  expect(intentCount).toBe(0)
 })
 
 it('rejects unsupported files before requesting an upload intent', async () => {
@@ -308,6 +347,7 @@ it('shows an attached private image on the recipe detail page', async () => {
   renderDetailPage()
 
   expect(await screen.findByRole('img', { name: 'Ginger rice photo' })).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Recipe identity and details' }).contains(screen.getByRole('img', { name: 'Ginger rice photo' }))).toBe(true)
   const downloadRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-download-url'))
   expect(JSON.parse(downloadRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId })
   expect(new Headers(downloadRequest?.[1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')

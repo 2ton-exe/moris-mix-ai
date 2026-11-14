@@ -13,7 +13,7 @@ does not activate production signing or cleanup.
 
 The browser requests an upload intent for an owned, saved recipe through authenticated `POST /functions/v1/recipe-image-upload-url`. Send the selected file's actual byte size and supported MIME type using the [backend API contract](../api/recipe-images.md). The file must be JPEG, PNG, or WebP and at most 10 MiB. If an approved client conversion policy is used, complete conversion before declaring size and type, then upload those exact bytes.
 
-Use the returned `upload.url` and its declared method and content type. Send the raw file bytes with `PUT`, the signed-in user's Bearer token, and the Supabase project API key. The proposed upload destination is the authenticated Edge Function. All R2 signing and storage requests occur on the backend. The URL expires after ten minutes and the server stops admitting uploads during its final 30 seconds.
+Use the returned `upload.url` and its declared method and content type. Send the raw file bytes with `PUT`, the signed-in user's Bearer token, and the Supabase project API key. The upload destination is the authenticated Edge Function. All R2 signing and storage requests occur on the backend. The URL expires after ten minutes and the server stops admitting uploads during its final 30 seconds.
 
 ## Results and retry requirements
 

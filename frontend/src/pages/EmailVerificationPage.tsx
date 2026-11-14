@@ -6,6 +6,7 @@ import { intendedDestination } from '../auth/navigation'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { getVerificationCallbackResult } from '../auth/client'
+import { JournalAuthCard, JournalAuthScene } from '../journal/JournalAuth'
 
 export default function EmailVerificationPage({ callback = false }: { callback?: boolean }) {
   const { session, isLoading, error: initializationError, retryInitialization, resendVerification } = useAuth()
@@ -45,34 +46,45 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
     finally { submitting.current = false; setPending(false) }
   }
 
-  return (
-    <main className="page-shell auth-shell">
-      <div className="eyebrow"><span className="status-dot" /> Mori’s Mix</div>
-      {initializationError ? <>
-        <ErrorState message={initializationError} onRetry={retryInitialization} />
-        <Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link>
-      </>
-        : isLoading || (callback && callbackResult === 'checking') ? <LoadingState message="Checking your verification link…" /> : <>
-        <h1>{verified ? 'Email verified' : callback ? 'Check your verification link' : 'Check your email'}</h1>
-        <p className="intro" role="status">{verified ? 'Your email is confirmed and you are logged in.' : callback
-          ? 'We could not confirm this link. It may be expired, invalid, or already used. Try logging in, or request a new verification email below.'
-          : 'If your account needs confirmation, open the verification link in your email to finish signing up. You are not logged in yet. Check your spam folder if it has not arrived.'}</p>
-        {verified ? <div className="actions"><Link className="button button-primary" to={intendedDestination(location.state)}>Continue to your journal</Link></div> : <>
-          <form className="auth-form" noValidate onSubmit={(event) => { void resend(event) }} aria-busy={pending}>
-            <div className="auth-field">
-              <label htmlFor="verification-email">Email</label>
-              <input id="verification-email" name="email" type="email" autoComplete="email" required value={email}
-                onChange={(event) => setEmail(event.target.value)} disabled={pending} aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'verification-error' : undefined} />
-            </div>
-            {error && <p id="verification-error" className="field-error" role="alert">{error}</p>}
-            {sent && <p role="status">If this address has an unconfirmed account, a new link will arrive shortly. Please check your inbox.</p>}
-            <button className="button button-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send verification link'}</button>
-          </form>
-          <p className="auth-links"><Link to="/login" state={location.state}>Back to login</Link></p>
-          <p className="auth-links"><Link to="/signup" state={location.state}>Use another email</Link></p>
-        </>}
-      </>}
+  const checking = isLoading || (callback && callbackResult === 'checking')
+  const title = initializationError ? 'The kitchen needs a moment.'
+    : checking ? 'Setting the table'
+      : verified ? 'Email verified' : callback ? 'Check your verification link' : 'Check your email'
+  const description = initializationError ? undefined : checking ? undefined : verified
+    ? 'Your email is confirmed and you are logged in.'
+    : callback
+      ? 'We could not confirm this link. It may be expired, invalid, or already used. Try logging in, or request a new verification email below.'
+      : 'If your account needs confirmation, open the verification link in your email to finish signing up. You are not logged in yet. Check your spam folder if it has not arrived.'
+
+  return <JournalAuthScene>
+    <main className="mm-auth-main">
+      <JournalAuthCard
+        eyebrow={callback ? 'A note from the post' : 'Almost there'}
+        title={title}
+        description={initializationError ? undefined : description && <p role="status">{description}</p>}
+        mood={initializationError || callbackResult === 'invalid' ? 'worried' : verified ? 'cheer' : 'happy'}
+      >
+        {initializationError ? <>
+          <ErrorState message={initializationError} onRetry={retryInitialization} />
+          <Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link>
+        </> : checking ? <LoadingState message="Checking your verification link…" /> : verified
+          ? <div className="actions"><Link className="button button-primary mm-button--large" to={intendedDestination(location.state)}>Continue to your journal</Link></div>
+          : <>
+            <form className="auth-form" noValidate onSubmit={(event) => { void resend(event) }} aria-busy={pending}>
+              <div className="auth-field">
+                <label htmlFor="verification-email">Email</label>
+                <input id="verification-email" name="email" type="email" autoComplete="email" required value={email}
+                  onChange={(event) => setEmail(event.target.value)} disabled={pending} aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'verification-error' : undefined} />
+              </div>
+              {error && <p id="verification-error" className="field-error" role="alert">{error}</p>}
+              {sent && <p role="status">If this address has an unconfirmed account, a new link will arrive shortly. Please check your inbox.</p>}
+              <button className="button button-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send verification link'}</button>
+            </form>
+            <p className="auth-links"><Link to="/login" state={location.state}>Back to login</Link></p>
+            <p className="auth-links"><Link to="/signup" state={location.state}>Use another email</Link></p>
+          </>}
+      </JournalAuthCard>
     </main>
-  )
+  </JournalAuthScene>
 }

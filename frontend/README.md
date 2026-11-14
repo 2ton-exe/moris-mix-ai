@@ -1,5 +1,51 @@
 # Mori's Mix frontend
 
+UI-01 visual corrections replace the asymmetric dashboard book with equal facing
+pages and reference-based stationery controls. See the
+[visual correction report](../docs/frontend/journal-visual-corrections.md) for
+measurements, screenshot comparisons, validation and remaining Figma differences.
+Run `node e2e/journal-visual-fidelity.browser.mjs after` for screenshots at
+1440, 1280, 768, 390 and 320px and a local comparison gallery in `test-results`.
+
+UI-01 Phase A adds MORI'S MIX's reusable scrapbook visual foundation. See the
+[foundation handoff](../docs/frontend/journal-foundation.md) for source recovery,
+asset provenance, component usage, validation and the Phase B plan. To inspect
+the components, run `pnpm dev` here and open `/journal-foundation.html`.
+
+UI-01 Phase B adds the shared desk, leather journal, paper pages, and bookmark
+navigation around the existing protected routes. See the
+[shell handoff](../docs/frontend/journal-shell.md) for integration details,
+the isolated authentication baseline comparison, and browser verification.
+Run `node e2e/journal-shell.browser.mjs` here for isolated shell acceptance.
+
+UI-01 Phase C applies the journal stationery presentation to the existing
+login, signup, email verification, and session-restoration states. See the
+[authentication handoff](../docs/frontend/journal-auth.md) for the route and
+Supabase boundaries, visual integration, validation results, and the password
+recovery capability gap. Run `node e2e/auth-ui.browser.mjs` here for isolated
+authentication acceptance.
+
+UI-01 Phase D styles the authenticated recipe collection and detail pages as
+scrapbook entries while keeping their existing API, TanStack Query, route, and
+action behavior. See the [recipe journal handoff](../docs/frontend/journal-recipes.md)
+for implementation boundaries, browser acceptance, and Phase E planning. Run
+`node e2e/recipe-journal.browser.mjs` here for isolated dashboard and detail
+acceptance.
+
+UI-01 Phase E brings the existing create/edit recipe forms and delete
+confirmation into the journal's stationery style without changing their routes,
+validation, mutations, or query behavior. See the
+[recipe forms handoff](../docs/frontend/journal-forms.md) for interaction and
+accessibility details. Run `node e2e/recipe-forms.browser.mjs` here for isolated
+form, navigation guard, and delete-flow acceptance.
+
+UI-01 Phase F verifies that the existing BE-08 discovery controls and cursor
+results fit the scrapbook dashboard, then reviews semantics, keyboard focus,
+responsive layout, and visual consistency across the journal. See the
+[cross-phase review](../docs/frontend/journal-review.md) for findings, bundle
+analysis, and the Phase G plan. Run `node e2e/recipe-discovery.browser.mjs` for
+isolated discovery acceptance.
+
 FE-04 adds the protected recipe dashboard at `/app` and `/app/recipes`, plus
 details at `/app/recipes/:recipeId`, using TanStack Query and BE-06's authenticated
 recipe REST API. The shared REST client checks the current SDK session for each
@@ -75,6 +121,16 @@ pnpm build
 The test and build scripts use Vite's runner config loader because the default
 bundled loader cannot resolve config paths in this Windows workspace sandbox.
 
+The optional Figma comparison harnesses (`node e2e/journal-step1.browser.mjs`,
+`node e2e/journal-step2.browser.mjs`, and `node e2e/journal-step4.browser.mjs`)
+require the original reference app in `../figma-make-reference`, a sibling of
+this repository (not inside `frontend`). Restore that checkout and run
+`pnpm install` there first; its Vite, `@vitejs/plugin-react`, and
+`@tailwindcss/vite` dependencies must be installed. These harnesses check the
+prerequisites before importing reference dependencies and write comparisons
+under `frontend/test-results`. The reference checkout is not required for
+production builds, normal CI, or the isolated browser acceptance suites.
+
 ## Production verification still needed
 
 For the production workflow, configure these GitHub Actions repository variables
@@ -97,3 +153,25 @@ loads the PostgreSQL-backed response, that the request uses GET and public
 headers, and that blocked network access and backend errors show a retryable
 error. Confirm no private recipe data or service-role key appears in the browser
 response or bundle. Local unit tests and a build do not establish this live path.
+
+## Mori dialogue UI (UI-01 Phase G)
+
+The authenticated recipe index includes an opt-in, inline note from Mori. Its
+content and choices are supplied as presentation props; it does not call an AI
+service, persist dialogue, or write recipes. The reusable interface and future
+service coordination notes are documented in
+[journal-dialogue.md](../docs/frontend/journal-dialogue.md).
+
+## Physical journal workflows
+
+The index, recipe detail, create/edit forms, and public demonstration recipe all
+use the same leather journal on their existing routes. Desktop book dimensions
+are constrained by viewport width and height; each facing page scrolls within
+the stationary cover. Narrow and zoomed viewports use one readable page scroll
+area, with tabs attached at the top. Search, sorting, and leaf state survive return.
+
+See [journal-physical-ux.md](../docs/frontend/journal-physical-ux.md) for geometry,
+implementation, screenshots, validation, and remaining reference differences.
+Run `node e2e/journal-expanded.browser.mjs` to regenerate the viewport matrix and
+`node e2e/journal-zoom.browser.mjs` for native Chrome 200% zoom. Evidence is in
+`test-results/physical-journal/index.html` (ignored by Git).
