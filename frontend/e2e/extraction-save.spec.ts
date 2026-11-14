@@ -3,7 +3,11 @@ import { localE2eUser } from './local-user.mjs'
 import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeAbsentInCollection(page, ...titles) {
+  const collectionResponse = page.waitForResponse((response) =>
+    response.request().method() === 'GET' && new URL(response.url()).pathname === '/functions/v1/recipes',
+  )
   await page.goto('/app/recipes')
+  expect((await collectionResponse).status()).toBe(200)
   await waitForCollection(page)
   for (const title of titles) {
     await expect(page.getByRole('link', { name: title })).toHaveCount(0)

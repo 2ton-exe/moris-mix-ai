@@ -32,7 +32,7 @@ export const RecipeImageMetadataSchema = z.object({
   recipe_id: z.guid(),
   content_type: RecipeImageContentTypeSchema,
   byte_size: z.number().int().positive().max(MAX_RECIPE_IMAGE_BYTES),
-  uploaded_at: z.string().datetime(),
+  uploaded_at: z.string().datetime({ offset: true }),
 }).strict();
 
 export type RecipeImageContentType = z.infer<

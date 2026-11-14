@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
+import { createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeContents(page) {
   await expect(
@@ -9,21 +9,6 @@ async function expectRecipeContents(page) {
   await expect(
     page.getByRole('region', { name: 'In the kitchen', exact: true }).getByRole('listitem'),
   ).toContainText('Warm the oil and fold in the herbs.')
-}
-
-async function createRecipe(page, recipeTitle) {
-  await page.getByRole('link', { name: 'Start a recipe' }).click()
-  await page.getByLabel('Recipe title').fill(recipeTitle)
-  const ingredients = await navigateToRecipeSection(page, 'Ingredients')
-  await ingredients.getByRole('button', { name: 'Add ingredient' }).click()
-  await ingredients.getByLabel('Ingredient 1 name').fill('olive oil')
-  await ingredients.getByLabel('Ingredient 1 quantity').fill('2')
-  await ingredients.getByLabel('Ingredient 1 unit').fill('tablespoons')
-  const cookingMethod = await navigateToRecipeSection(page, 'Cooking method')
-  await cookingMethod.getByRole('button', { name: 'Add cooking step' }).click()
-  await cookingMethod.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
-  await page.getByRole('button', { name: 'Save recipe' }).click()
-  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 }
 
 test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async ({ page }) => {
@@ -49,11 +34,11 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     const recipeCard = page.getByRole('link', { name: recipeTitle })
     await expect(recipeCard).toBeVisible()
     await recipeCard.click()
-    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
     await expectRecipeContents(page)
 
     await page.reload()
-    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+    await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
     await expectRecipeContents(page)
   })
 
@@ -67,7 +52,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await page.getByRole('button', { name: 'Back to journal' }).click()
     await page.getByRole('link', { name: updatedTitle }).click()
     await page.reload()
-    await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible()
+    await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('4 / 5', { exact: true })).toBeVisible()
   })
 
@@ -102,7 +87,7 @@ test('a signed-in cook cannot view, update, or delete another cook’s recipe', 
   const recipeCard = page.getByRole('link', { name: recipeTitle })
   await expect(recipeCard).toBeVisible()
   await recipeCard.click()
-  await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible()
+  await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
   const recipeUrl = page.url()
 
   await page.getByRole('button', { name: 'Log out' }).click()

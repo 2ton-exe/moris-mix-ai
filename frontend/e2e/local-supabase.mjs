@@ -123,6 +123,10 @@ export function waitForExtractionHandler(apiUrl, publicKey, functionServer) {
   return waitForFunctionHandler(apiUrl, publicKey, functionServer, 'extract-recipe', 405, 'METHOD_NOT_ALLOWED')
 }
 
+export function waitForMethodNotAllowedHandler(apiUrl, publicKey, functionServer, functionName) {
+  return waitForFunctionHandler(apiUrl, publicKey, functionServer, functionName, 405, 'METHOD_NOT_ALLOWED')
+}
+
 async function readLocalE2eUserId(filePath) {
   try {
     const stored = JSON.parse(await readFile(filePath, 'utf8'))
