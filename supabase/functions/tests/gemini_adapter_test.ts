@@ -22,6 +22,11 @@ import {
 import type { GenerateRecipeContext } from "../_shared/ai/AIProvider.ts";
 import { MOCK_EXTRACTED_RECIPE } from "../_shared/ai/mocks.ts";
 import { buildExtractionPrompt } from "../_shared/ai/prompts.ts";
+import {
+  ExtractedRecipeSchema,
+  GeneratedRecipeSchema,
+  MAX_AI_OUTPUT_JSON_BYTES,
+} from "../_shared/ai/schemas.ts";
 
 const NOTES = "Boiled chicken with garlic and a splash of soy sauce.";
 
@@ -659,7 +664,40 @@ Deno.test("provider generation requests include a bounded output-token budget", 
     sleep: async () => {},
   });
   await adapter.extractRecipe({ rawText: NOTES });
-  assertEquals(generationConfig?.maxOutputTokens, 2048);
+  assertEquals(generationConfig?.maxOutputTokens, 8192);
+});
+
+Deno.test("AI output schemas and parsers enforce the 8 KiB JSON response budget", () => {
+  const oversizedRecipe = {
+    ...MOCK_EXTRACTED_RECIPE,
+    instructions: [{ step: 1, text: "x".repeat(MAX_AI_OUTPUT_JSON_BYTES) }],
+  };
+  assertFalse(ExtractedRecipeSchema.safeParse(oversizedRecipe).success);
+
+  const oversizedGenerated = {
+    recipe: MOCK_EXTRACTED_RECIPE,
+    substitutions: [{
+      original: "rice",
+      replacement: "x".repeat(MAX_AI_OUTPUT_JSON_BYTES),
+      reason: "available",
+    }],
+    parentRecipeIds: [],
+  };
+  assertFalse(GeneratedRecipeSchema.safeParse(oversizedGenerated).success);
+
+  const raw = JSON.stringify(MOCK_EXTRACTED_RECIPE) +
+    " ".repeat(MAX_AI_OUTPUT_JSON_BYTES);
+  const extractionError = assertThrows(
+    () => parseExtractionResponse(raw),
+    AIError,
+  );
+  assertEquals(extractionError.code, "output_truncated");
+
+  const generationError = assertThrows(
+    () => parseGenerationResponse(raw, new Set()),
+    AIError,
+  );
+  assertEquals(generationError.code, "output_truncated");
 });
 
 Deno.test("both operations report MAX_TOKENS as output_truncated without retrying", async () => {

@@ -18,7 +18,13 @@ import {
   EXTRACTION_PROMPT,
   type PromptTemplate,
 } from "./prompts.ts";
-import { ExtractedRecipeSchema, GeneratedRecipeSchema } from "./schemas.ts";
+import {
+  ExtractedRecipeSchema,
+  GeneratedRecipeSchema,
+  MAX_AI_OUTPUT_JSON_BYTES,
+} from "./schemas.ts";
+
+const MAX_AI_OUTPUT_TOKENS = 8192;
 
 /**
  * Pinned extraction model as of Sprint 3. AI_MODEL overrides it, so a model
@@ -438,7 +444,7 @@ export class GeminiAdapter implements AIProvider {
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.2,
-          maxOutputTokens: 2048,
+          maxOutputTokens: MAX_AI_OUTPUT_TOKENS,
         },
       },
       { timeout: this.timeoutMs },
@@ -473,6 +479,13 @@ export class GeminiAdapter implements AIProvider {
 /** Exported for tests. */
 export function parseExtractionResponse(raw: string): ExtractedRecipe {
   const cleaned = stripCodeFence(raw);
+  if (new TextEncoder().encode(cleaned).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
+    throw new AIError(
+      "output_truncated",
+      "extract",
+      "Gemini output exceeded the supported response size.",
+    );
+  }
 
   let value: unknown;
   try {
@@ -522,6 +535,13 @@ export function parseGenerationResponse(
   allowedParentIds: ReadonlySet<string>,
 ): GeneratedRecipe {
   const cleaned = stripCodeFence(raw);
+  if (new TextEncoder().encode(cleaned).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
+    throw new AIError(
+      "output_truncated",
+      "generate",
+      "Gemini output exceeded the supported response size.",
+    );
+  }
 
   let value: unknown;
   try {

@@ -89,7 +89,7 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 422  | `AI_CONTEXT_TOO_LARGE` | Assembled saved-recipe prompt context exceeds 64 KiB | no |
 | 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown (rounded up and clamped to 1–3,600 seconds), else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
-| 502  | `AI_OUTPUT_TRUNCATED`  | Gemini reached the 2,048-token output budget before completing its result; shorten the request and retry | no |
+| 502  | `AI_OUTPUT_TRUNCATED`  | Gemini reached the 8,192-token budget or output exceeded the 8 KiB JSON limit; shorten the request and retry | no |
 | 502  | `AI_PROVIDER_REJECTED` | Provider rejected or blocked the request (bad key/model, safety policy) | no |
 | 503  | `AI_UNAVAILABLE`       | Provider `5xx`/transport failure | no |
 | 503  | `QUOTA_UNAVAILABLE`    | The quota check itself failed | no |
@@ -98,11 +98,10 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 504  | `AI_TIMEOUT`           | Provider did not respond in time | no |
 | 500  | `INTERNAL_ERROR`       | Unexpected server error | no |
 
-The Gemini response budget is currently 2,048 output tokens. The output schemas do not
-impose a total response-size limit, so a schema-valid result can still exceed that
-budget. In that case, the endpoint returns `AI_OUTPUT_TRUNCATED`; the provider call
-counts toward the user's normal AI quota. Shortening the request can reduce the
-result size.
+Gemini responses are limited to 8,192 output tokens, and extraction and generation
+schemas reject normalized JSON responses larger than 8 KiB. Responses exceeding
+either bound return `AI_OUTPUT_TRUNCATED`; the provider call counts toward the user's
+normal AI quota. Shortening the request can reduce the result size.
 
 The endpoint does **not** retry a `429` itself. The adapter handles at most one
 bounded retry (AI-18). A `rate_limited` surfaced here means that single retry was either
@@ -122,9 +121,10 @@ serializes reservations by user and preserves the active window when UTC usage r
 `429 AI_REQUEST_RATE_LIMITED` with a bounded `Retry-After`; unavailable quota state
 continues to fail closed. Short-window slots are not refunded on provider failures,
 while existing daily reservation rollback and confirmation rules remain unchanged.
-AI prompt input is capped at 64 KiB after server-side context assembly, and Gemini
-output is limited to 2,048 tokens. Oversized saved-recipe context is rejected before
-provider dispatch and rolls back the daily reservation.
+AI prompt input is capped at 64 KiB after server-side context assembly. Gemini
+output is limited to 8,192 tokens, and accepted extraction/generation JSON is at
+most 8 KiB. Oversized saved-recipe context is rejected before provider dispatch and
+rolls back the daily reservation.
 
 Apply migration `20261107000017_ai_short_window_rate_limit.sql` through the normal
 non-production validation and deployment workflow before deploying these handlers.

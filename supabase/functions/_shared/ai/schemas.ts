@@ -52,6 +52,14 @@ export const FlavorScoreSchema = z.object({
 });
 
 // --- AI SCHEMAS (SPRINT 2) ---
+export const MAX_AI_OUTPUT_JSON_BYTES = 8 * 1024;
+
+function isWithinAiOutputJsonLimit(value: unknown): boolean {
+  const serialized = JSON.stringify(value);
+  return typeof serialized === "string" &&
+    new TextEncoder().encode(serialized).byteLength <= MAX_AI_OUTPUT_JSON_BYTES;
+}
+
 export const ExtractedRecipeSchema = z.object({
   title: z.string().min(1),
   ingredients: z.array(IngredientSchema),
@@ -59,6 +67,13 @@ export const ExtractedRecipeSchema = z.object({
   // Models often send null for an optional field. Normalise that to absent
   // instead of failing an otherwise valid extraction.
   flavor_scores: nullToUndefined(FlavorScoreSchema.optional()),
+}).superRefine((value, ctx) => {
+  if (!isWithinAiOutputJsonLimit(value)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "AI output exceeds the supported JSON byte limit.",
+    });
+  }
 });
 
 /**
@@ -78,6 +93,13 @@ export const GeneratedRecipeSchema = z.object({
   substitutions: z.array(SubstitutionSchema),
   parentRecipeIds: z.array(z.guid()),
 }).superRefine((value, ctx) => {
+  if (!isWithinAiOutputJsonLimit(value)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "AI output exceeds the supported JSON byte limit.",
+    });
+  }
+
   // The prompt requires an exact match, and the UI renders a substitution
   // against its ingredient. Enforce it instead of trusting the model: an
   // orphan substitution is invalid output, not a preview the user can use.
