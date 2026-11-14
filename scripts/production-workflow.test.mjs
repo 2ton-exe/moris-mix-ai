@@ -207,6 +207,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
+    'Deploy account-export Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
@@ -217,7 +218,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-cleanup']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-cleanup']);
   const migrationStepIds = ['preview-migrations', 'deploy-migrations', 'verify-migrations'];
   if (release.steps.some(item => migrationStepIds.includes(item.id))) {
     const order = migrationStepIds.map(id => release.steps.findIndex(item => item.id === id));
@@ -225,6 +226,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.ok(order[0] < order[1] && order[1] < order[2]);
     assert.ok(order[2] < release.steps.findIndex(item => item.id === 'deploy-recipes'));
   }
+  assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
   assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
   assert.deepEqual(configuration.env, {
@@ -243,7 +245,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(build.run, 'pnpm build');
   const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
   assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
-  for (const target of ['recipes', 'extract-recipe', 'generate-recipe']) {
+  for (const target of ['recipes', 'account-export', 'extract-recipe', 'generate-recipe']) {
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
     assert.equal(deploy['working-directory'], 'frontend');
@@ -286,6 +288,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    ACCOUNT_EXPORT_OUTCOME: '${{ steps.deploy-account-export.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/demo-recipe.json', import.meta.url)));
 const shaPattern = /^[a-f0-9]{40}$/;
+const exportUnauthorized = { error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header.' } };
 class SmokeFailure extends Error {}
 
 /** Throw a SmokeFailure with the supplied message when condition is falsy. */
@@ -54,6 +55,8 @@ export function configuration(env) {
     const config = readFileSync(new URL('../supabase/config.toml', import.meta.url), 'utf8');
     const project = config.match(/^project_id = "([a-z]+)"/m)?.[1];
     requireValue(env.SMOKE_PROJECT_REF === project && env.SMOKE_PROJECT_REF !== 'pjeykhjzqhryjwuoizgh', 'Unexpected production project');
+    requireValue(typeof env.SMOKE_PUBLIC_KEY === 'string' && env.SMOKE_PUBLIC_KEY.trim().length > 0,
+      'Missing production public API key');
   }
   return { frontend, api };
 }
@@ -117,7 +120,7 @@ export function assetURL(html, home) {
  */
 export async function request(url, contentTypes, validate, {
   fetchImpl = fetch, attempts = 3, timeout = 10000,
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), headers = {},
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), headers = {}, expectedStatus = 200,
 } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -125,14 +128,18 @@ export async function request(url, contentTypes, validate, {
         redirect: 'manual', signal: AbortSignal.timeout(timeout),
         headers: { 'Cache-Control': 'no-cache', ...headers },
       });
-      requireValue(response.status === 200, `Expected HTTP 200; received ${response.status}`);
+      requireValue(response.status === expectedStatus, `Expected HTTP ${expectedStatus}; received ${response.status}`);
       requireValue(!response.redirected && (!response.url || response.url === String(url)), 'Unexpected effective URL');
-      const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-      requireValue(contentTypes.includes(type), 'Unexpected response content type');
       const body = await response.text();
-      requireValue(body.trim().length > 0, 'Empty response body');
-      requireValue(type === 'text/html' || !/^\s*(?:<!doctype\s+html|<html\b)/i.test(body), 'HTML asset fallback');
-      const value = validate(body);
+      if (expectedStatus === 204) {
+        requireValue(body.length === 0, 'Unexpected OPTIONS response body');
+      } else {
+        const type = (response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+        requireValue(contentTypes.includes(type), 'Unexpected response content type');
+        requireValue(body.trim().length > 0, 'Empty response body');
+        requireValue(type === 'text/html' || !/^\s*(?:<!doctype\s+html|<html\b)/i.test(body), 'HTML asset fallback');
+      }
+      const value = validate(body, response);
       return { value, attempts: attempt };
     } catch (error) {
       // Never echo arbitrary network exceptions, URLs, credentials, or response bodies.
@@ -150,8 +157,8 @@ export async function request(url, contentTypes, validate, {
  * check passes. Backend revision evidence remains operator-attested.
  *
  * @param {object} env Settings for configuration(), plus optional SMOKE_PR_HEAD_SHA
- * and SMOKE_DEPLOYMENT_OUTCOME metadata and SMOKE_PUBLIC_KEY for the demo API key header.
- * @param {object} [options] Overrides for request(); demo headers are replaced with the optional API key.
+ * and SMOKE_DEPLOYMENT_OUTCOME metadata and SMOKE_PUBLIC_KEY for public API probes.
+ * @param {object} [options] Overrides for request(); API probe headers are replaced with the required public key.
  * @returns {Promise<object>} Evidence with timestamps, revision metadata, check results, and overall outcome.
  */
 export async function runSmoke(env, options = {}) {
@@ -164,7 +171,7 @@ export async function runSmoke(env, options = {}) {
     deployment_outcome: ['success', 'failure', 'cancelled', 'skipped'].includes(env.SMOKE_DEPLOYMENT_OUTCOME)
       ? env.SMOKE_DEPLOYMENT_OUTCOME : 'not supplied; see workflow deployment evidence',
     started_at: new Date().toISOString(),
-    checks: { configuration: 'not run', frontend_html: 'not run', javascript_asset: 'not run', demo_database: 'not run' },
+    checks: { configuration: 'not run', frontend_html: 'not run', javascript_asset: 'not run', demo_database: 'not run', account_export: 'not run' },
   };
   let urls;
   try {
@@ -199,8 +206,42 @@ export async function runSmoke(env, options = {}) {
         });
       evidence.checks.demo_database = `passed (${result.attempts} attempt(s))`;
     } catch (error) { evidence.checks.demo_database = `failed (${failure(error)})`; }
+    if (env.SMOKE_ENVIRONMENT === 'production') {
+      try {
+        const exportUrl = new URL('/functions/v1/account-export', urls.api);
+        const validateExportCors = response => {
+          const allowedOrigin = (response.headers.get('access-control-allow-origin') ?? '').trim();
+          requireValue(allowedOrigin === '*' || allowedOrigin === urls.frontend, 'Account export CORS does not permit production frontend');
+          const methods = new Set((response.headers.get('access-control-allow-methods') ?? '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean));
+          requireValue(methods.size === 2 && methods.has('get') && methods.has('options'), 'Unexpected account export CORS methods');
+          requireValue((response.headers.get('x-content-type-options') ?? '').trim().toLowerCase() === 'nosniff', 'Account export response is missing nosniff protection');
+        };
+        await request(exportUrl, [], (_body, response) => {
+          validateExportCors(response);
+          const allowedHeaders = new Set((response.headers.get('access-control-allow-headers') ?? '').split(',').map(value => value.trim().toLowerCase()));
+          requireValue(['authorization', 'apikey', 'content-type'].every(name => allowedHeaders.has(name)), 'Account export CORS is missing required request headers');
+        }, {
+          ...options, expectedStatus: 204,
+          headers: {
+            Origin: urls.frontend,
+            'Access-Control-Request-Method': 'GET',
+            'Access-Control-Request-Headers': 'authorization, apikey, content-type',
+          },
+        });
+        const result = await request(exportUrl, ['application/json'], (body, response) => {
+          requireValue(isDeepStrictEqual(JSON.parse(body), exportUnauthorized), 'Unexpected account export unauthorized response');
+          validateExportCors(response);
+        }, {
+          ...options, expectedStatus: 401,
+          headers: { apikey: env.SMOKE_PUBLIC_KEY, Origin: urls.frontend },
+        });
+        evidence.checks.account_export = `passed (${result.attempts} attempt(s))`;
+      } catch (error) { evidence.checks.account_export = `failed (${failure(error)})`; }
+    } else {
+      evidence.checks.account_export = 'not applicable (production only)';
+    }
   }
-  evidence.outcome = Object.values(evidence.checks).every(value => value.startsWith('passed')) ? 'passed' : 'failed';
+  evidence.outcome = Object.values(evidence.checks).every(value => value.startsWith('passed') || value === 'not applicable (production only)') ? 'passed' : 'failed';
   evidence.finished_at = new Date().toISOString();
   return evidence;
 }

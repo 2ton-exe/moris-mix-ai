@@ -8,6 +8,6 @@ Queries paginate in stable ID order with 100 rows per request. Each table is lim
 
 ## Remaining acceptance work
 
-Issue #108 explicitly remains a draft while P0 work and FS-05 cleanup are unfinished. Account deletion is pending a reviewed design covering authentication revocation, related records, staging and final objects, cleanup retries, and recovery after partial failure. This draft exposes no account-deletion operation. It adds no deployment job or production migration.
+Issue #108 explicitly remains a draft while P0 work and FS-05 cleanup are unfinished. Account deletion is pending a reviewed design covering authentication revocation, related records, staging and final objects, cleanup retries, and recovery after partial failure. This draft exposes no account-deletion operation. The main production release workflow deploys this function after an eligible merge, then checks its CORS preflight and unauthenticated 401 response with the public API key. It does not apply a production migration or request account data during smoke.
 
 Before approval, validate export ownership and pagination against a dedicated non-production database, review export limits and snapshot expectations, and complete the account-deletion acceptance criteria or explicitly approve export-only scope. Issue #108 must remain open for the incomplete scope.

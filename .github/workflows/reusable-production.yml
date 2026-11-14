@@ -130,6 +130,19 @@ jobs:
             --use-api \
             --yes
 
+      - name: Deploy account-export Edge Function
+        id: deploy-account-export
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy account-export \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
       - name: Deploy extract-recipe Edge Function
         id: deploy-extract-recipe
         working-directory: frontend
@@ -210,6 +223,7 @@ jobs:
         if: always()
         env:
           RECIPES_OUTCOME: ${{ steps.deploy-recipes.outcome }}
+          ACCOUNT_EXPORT_OUTCOME: ${{ steps.deploy-account-export.outcome }}
           IMAGE_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-cleanup.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
           GENERATE_RECIPE_OUTCOME: ${{ steps.deploy-generate-recipe.outcome }}
@@ -223,6 +237,7 @@ jobs:
             echo "### Production delivery"
             echo "- Source revision: ${GITHUB_SHA}"
             echo "- recipes deployment command: ${RECIPES_OUTCOME}"
+            echo "- account-export deployment command: ${ACCOUNT_EXPORT_OUTCOME}"
             echo "- recipe image cleanup deployment command: ${IMAGE_CLEANUP_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
             echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"
