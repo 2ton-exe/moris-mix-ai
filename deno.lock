@@ -7,7 +7,7 @@
     "npm:@supabase/supabase-js@2.39.8": "2.39.8",
     "npm:dotenv@^18.0.7": "18.0.8",
     "npm:pg@^8.23.1": "8.23.1",
-    "npm:zod@3.22.4": "3.22.4"
+    "npm:zod@4.6.6": "4.6.6"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -180,8 +180,8 @@
     "xtend@4.0.2": {
       "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="
     },
-    "zod@3.22.4": {
-      "integrity": "sha512-iC+8Io04lddc+mVqQ9AZ7OQ2MrUKGN+oIQyq1vemgt46jwCwLfhq7/pwnBnNXXXZb8VTVLKwp9EDkx+ryxIWmg=="
+    "zod@4.6.6": {
+      "integrity": "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA=="
     }
   },
   "remote": {
