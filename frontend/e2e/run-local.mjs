@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { cp, copyFile, mkdir, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -28,8 +29,38 @@ const e2eSupabaseDir = path.join(e2eWorkdir, 'supabase')
 
 let activeCommand
 
+function resolvePnpmInvocation() {
+  if (process.platform !== 'win32') return { command: 'pnpm', prefixArgs: [] }
+
+  for (const directory of (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
+    const candidates = [
+      { command: path.join(directory, 'node_modules', 'pnpm', 'pnpm.exe'), prefixArgs: [] },
+      { command: path.join(directory, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'), prefixArgs: [process.execPath] },
+      { command: path.join(directory, 'pnpm.exe'), prefixArgs: [] },
+    ]
+    for (const candidate of candidates) {
+      if (existsSync(candidate.command)) {
+        return candidate.prefixArgs.length > 0
+          ? { command: candidate.prefixArgs[0], prefixArgs: [candidate.command] }
+          : candidate
+      }
+    }
+  }
+
+  throw new Error('Could not resolve pnpm.exe or pnpm.cjs from PATH for the Windows local E2E runner.')
+}
+
+const pnpmInvocation = resolvePnpmInvocation()
+
+function spawnCommand(commandName, args, options) {
+  if (commandName === 'pnpm') {
+    return spawn(pnpmInvocation.command, [...pnpmInvocation.prefixArgs, ...args], options)
+  }
+  return spawn(commandName, args, options)
+}
+
 function run(commandName, args, cwd, env, inheritOutput = false) {
-  const child = spawn(commandName, args, {
+  const child = spawnCommand(commandName, args, {
     cwd,
     env,
     stdio: inheritOutput ? 'inherit' : ['ignore', 'pipe', 'pipe'],
@@ -57,7 +88,7 @@ function run(commandName, args, cwd, env, inheritOutput = false) {
 }
 
 function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
-  const child = spawn('pnpm', [
+  const child = spawnCommand('pnpm', [
     'exec',
     'supabase',
     '--workdir',

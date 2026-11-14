@@ -125,6 +125,17 @@
   background: var(--mm-color-parchment-50);
   font: 700 12px/1.4 var(--mm-font-sans);
 }
+.mm-journal-editor .recipe-ai-estimate {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 5px 0 11px;
+  color: var(--mm-color-sage-900);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mm-journal-editor .recipe-ai-estimate input { flex: 0 0 auto; width: 18px; min-height: 18px; margin: 1px 0 0; accent-color: var(--mm-color-sage-700); }
+.mm-journal-editor .recipe-ai-gap { margin: 6px 0 0; color: var(--mm-color-ink-soft); font-size: 13px; line-height: 1.5; }
 .mm-journal-editor .recipe-amount-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .mm-journal-editor .recipe-row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .mm-journal-editor .button.mm-button--ghost { color: var(--mm-color-burgundy-700); }

@@ -34,10 +34,10 @@ function canScrollInDirection(target: Element, direction: 'up' | 'down') {
   return false
 }
 
-export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDirtyChange, notesSupported = false, renderFrame, notice }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, editorTitle, notesSupported = false, renderFrame, notice }: RecipeFormEditorProps) {
   const prefix = useId()
-  const [state, setState] = useState(() => editorState(initialValues ?? emptyRecipeDraft()))
-  const [baseline, setBaseline] = useState(() => JSON.stringify(state))
+  const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
+  const [baseline, setBaseline] = useState<string | null>(() => initialValuesAreUnsaved ? null : JSON.stringify(state))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
   const [hasConfirmedSave, setHasConfirmedSave] = useState(false)
@@ -60,7 +60,7 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
   const visibleSignature = visibleIndices.map((index) => leaves[index]?.key ?? '').join('|')
-  const dirty = JSON.stringify(state) !== baseline
+  const dirty = baseline === null || JSON.stringify(state) !== baseline
   const saved = hasConfirmedSave && !dirty
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
 
@@ -138,6 +138,10 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
   }, [onDirtyChange])
 
   useLayoutEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+
+  useLayoutEffect(() => {
     if (!dirty) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
@@ -146,7 +150,7 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
 
   function change(next: RecipeEditorState) {
     setState(next)
-    onDirtyChange?.(JSON.stringify(next) !== baseline)
+    onEditorStateChange?.(next)
     setErrors({})
     setMessage(null)
   }
@@ -402,6 +406,12 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
         {!items.length && <p className="editor-empty">No ingredients added yet. Start with one you reach for every time.</p>}
         {items.map(({ item, rowIndex }) => <fieldset className="recipe-editor-row" key={item.key}>
           <legend>Ingredient {rowIndex + 1}{state.ingredients.length > 1 ? ' of ' + state.ingredients.length : ''}</legend>
+          {showExtractionHints && item.inferred && <label className="recipe-ai-estimate">
+            <input type="checkbox" checked={item.inferred} aria-label={`Mori estimated ingredient ${rowIndex + 1}`} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, inferred: event.target.checked } : row) })} />
+            <span>Mori estimated this ingredient. Review it before saving; uncheck once confirmed.</span>
+          </label>}
+          {showExtractionHints && !item.quantity.trim() && !item.quantityText.trim() && <p className="recipe-ai-gap" role="note">No amount was extracted. Add one if you know it.</p>}
+          {showExtractionHints && !item.unit.trim() && (item.quantity.trim() || item.quantityText.trim()) && <p className="recipe-ai-gap" role="note">No unit was extracted. Add one if you know it.</p>}
           <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={'Ingredient ' + (rowIndex + 1) + ' name'} error={errors['ingredients.' + rowIndex + '.name']}>
             <input {...field('ingredients.' + rowIndex + '.name', false, 'ingredient:' + item.key + ':name')} value={item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, name: event.target.value } : row) })} />
           </RecipeFormField>
@@ -454,7 +464,7 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
         className={'mm-page-body mm-writing-leaf' + (leaf.kind === 'identity' ? ' mm-form-identity' : ' mm-form-recipe')}
         data-writing-leaf-key={leaf.key} data-overflowing={overflowing || undefined}
         role="region" aria-label={sectionTitle + ', page ' + leafNumber} tabIndex={0}>
-        {single && <h1 className="mm-writing-mobile-title" tabIndex={-1}>{mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'A recipe of your own.' : 'Make it your own.'}</h1>}
+        {single && <h1 className="mm-writing-mobile-title" tabIndex={-1}>{editorTitle ?? (mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'A recipe of your own.' : 'Make it your own.')}</h1>}
         <span className="mm-writing-folio" aria-label={'Physical page ' + leafNumber}>Leaf {leafNumber}</span>
         {overflowing && <p className="mm-writing-overflow" role="note">This writing leaf needs a little scrolling. Every field stays together and complete.</p>}
         <div className="mm-writing-leaf__content">{pageContent}</div>
@@ -478,7 +488,7 @@ export function RecipeFormEditor({ mode, initialValues, onSubmit, onCancel, onDi
       <RecipeWritingTurns page={position.page} total={position.total} text={position.text} single={single} onTurn={turnToPage} />
       <div className="actions recipe-form-actions">
         <button className="button button-primary" type="submit" disabled={pending || saved}>{pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? 'Save recipe' : 'Save changes'}</button>
-        {onCancel && <button className="button button-secondary" type="button" disabled={pending} onClick={() => onCancel()}>Back to journal</button>}
+        {onCancel && <button className="button button-secondary" type="button" disabled={pending} onClick={() => onCancel()}>{cancelLabel}</button>}
       </div>
       <p className="field-hint">{dirty ? 'You have unsaved changes.' : 'Changes are saved only after the recipe service confirms them.'}</p>
     </div></JournalPageFooter>

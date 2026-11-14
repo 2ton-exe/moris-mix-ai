@@ -11,6 +11,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
+import { settleJournalLayout } from './journal-geometry.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userId = '33333333-3333-4333-8333-333333333333'
@@ -34,6 +35,7 @@ let appOrigin
 let apiOrigin
 let extractionMode = 'success'
 const requests = []
+const recipeWrites = []
 
 function corsHeaders(request, exposeRetryAfter = true) {
   return {
@@ -99,6 +101,13 @@ async function handleApiRequest(request, response) {
   }
   if (url.pathname === '/functions/v1/recipes' && request.method === 'GET') {
     sendJson(request, response, 200, { recipes: [], has_more: false, next_cursor: null })
+    return
+  }
+  if (url.pathname === '/functions/v1/recipes' && request.method === 'POST') {
+    recipeWrites.push({ body, authorization: request.headers.authorization })
+    sendJson(request, response, 201, { recipe: {
+      id: 'review-save-id', user_id: userId, ...body, flavor_scores: null,
+    } })
     return
   }
   if (url.pathname !== '/functions/v1/extract-recipe' || request.method !== 'POST') {
@@ -208,7 +217,7 @@ try {
   const lostNotes = 'notes stay in the editor when session storage is blocked'
   await storageFailureNotes.fill(lostNotes)
   const storageWarning = storageFailurePage.locator('.mm-quick-ai__storage-warning')
-  await expect(storageWarning).toContainText('signing out, or reloading may erase them')
+  await expect(storageWarning).toContainText('a reload or closing the tab may erase them')
   await storageFailurePage.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(storageFailurePage.locator('.mm-quick-ai__error')).toContainText('Mori could not organize those notes just now')
   await expect(storageFailureNotes).toHaveValue(lostNotes)
@@ -224,6 +233,7 @@ try {
 
   for (const width of [1440, 375, 320]) {
     await storageFailurePage.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(storageFailurePage)
     await expect(storageWarning).toBeVisible()
     assert.equal(await storageFailurePage.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Storage warning overflow at ${width}px`)
     assert.equal(await storageWarning.evaluate((element) => element.getBoundingClientRect().right <= globalThis.innerWidth), true, `Storage warning extends beyond ${width}px viewport`)
@@ -295,6 +305,68 @@ try {
   await expect(page.locator('blockquote')).toHaveText(sourceNotes)
   assert.equal(requests.filter((request) => request.path === '/functions/v1/extract-recipe').length, extractionCount)
 
+  await page.getByRole('link', { name: 'Review & Edit Recipe' }).click()
+  await expect(page).toHaveURL(`${origin}app/quick-entry/review`)
+  await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  await expect(page.getByLabel('Recipe title')).toHaveValue('Garlic soy chicken')
+  await expect(page.getByLabel('Ingredient 1 amount description')).toHaveValue('some')
+  await expect(page.getByLabel('Mori estimated ingredient 1')).toBeChecked()
+  await expect(page.getByLabel('Rating')).toHaveValue('')
+  await expect(page.getByLabel('Cooked date')).toHaveValue('')
+  await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('')
+  assert.equal(recipeWrites.length, 0, 'Opening the extracted preview created a recipe')
+  await page.getByText('Original cooking notes').click()
+  await expect(page.locator('blockquote')).toHaveText(sourceNotes)
+  await page.getByText("Mori’s optional flavor estimates").click()
+  await expect(page.getByText(/informational only/)).toBeVisible()
+  await page.screenshot({ path: path.join(outputDir, 'desktop-extracted-recipe-review.png'), fullPage: true })
+
+  await page.getByRole('button', { name: 'Next Pages' }).click()
+  await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
+  await expect(page.locator('textarea[name="instructions.0.text"]:not([disabled])')).toHaveValue('Boil the chicken with garlic.')
+  await page.getByRole('button', { name: 'Previous Pages' }).click()
+  await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
+  await page.getByLabel('Recipe title').fill('Garlic soy chicken, corrected')
+  await page.getByLabel('Ingredient 1 quantity').fill('1.5')
+  assert.equal(recipeWrites.length, 0, 'Editing the extracted preview created a recipe')
+
+  for (const width of [1440, 768, 375, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(page)
+    await expect(page.getByLabel('Recipe title')).toBeVisible()
+    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Recipe review horizontal overflow at ${width}px`)
+    await page.screenshot({ path: path.join(outputDir, `recipe-review-${width}.png`), fullPage: true })
+  }
+  await page.setViewportSize({ width: 720, height: 450 })
+  await settleJournalLayout(page)
+  assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, 'Recipe review horizontal overflow at 200% equivalent reflow')
+  await page.reload()
+  await expect(page.getByLabel('Recipe title')).toHaveValue('Garlic soy chicken, corrected')
+  await page.getByRole('button', { name: 'Next Page' }).click()
+  await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
+  await expect(page.locator('input[name="ingredients.0.quantity"]:not([disabled])')).toHaveValue('1.5')
+  assert.equal(recipeWrites.length, 0, 'Reloading the review created a recipe')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: 'Save recipe' }).click()
+  await expect(page.getByText('Recipe saved.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
+  await expect(page.getByText('AI-extracted recipe saved to your journal')).toBeVisible()
+  assert.equal(recipeWrites.length, 1, 'Explicit Save did not create exactly one recipe')
+  assert.equal(recipeWrites[0].authorization, 'Bearer quick-ai-test-access')
+  assert.equal(recipeWrites[0].body.title, 'Garlic soy chicken, corrected')
+  assert.equal(recipeWrites[0].body.star_rating, null)
+  assert.equal(recipeWrites[0].body.cooked_at, null)
+  assert.equal(recipeWrites[0].body.notes, '')
+  assert.equal(recipeWrites[0].body.ingredients[0].quantity, 1.5)
+  assert.equal(recipeWrites[0].body.ingredients[0].quantityText, 'some')
+  assert.equal(recipeWrites[0].body.ingredients[0].inferred, true)
+  const accountDraftKey = `moris-mix:quick-ai-entry:v1:${userId}`
+  const consumedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), accountDraftKey)
+  assert.equal(consumedDraft.handoff, null, 'Successful Save did not consume the unsaved handoff')
+  assert.equal(consumedDraft.notes, sourceNotes, 'Successful Save cleared the original cooking notes')
+  await page.getByRole('button', { name: 'Back to Mori notes' }).click()
+  await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue(sourceNotes)
+
   extractionMode = 'network'
   await notes.fill('beans, cumin, lemon, a splash of water')
   await page.getByRole('button', { name: 'Organize my notes' }).click()
@@ -353,15 +425,21 @@ try {
 
   for (const width of [1440, 768, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(page)
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeVisible()
-    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Horizontal overflow at ${width}px`)
+    const overflowElements = await page.evaluate(() => Array.from(globalThis.document.querySelectorAll('body *'))
+      .filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1 || element.getBoundingClientRect().left < -1)
+      .map((element) => ({ tag: element.tagName, className: typeof element.className === 'string' ? element.className : '', text: element.textContent?.slice(0, 60), left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right }))
+      .slice(0, 12))
+    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Horizontal overflow at ${width}px: ${JSON.stringify(overflowElements)}`)
     assert.equal(await notes.evaluate((element) => element.scrollWidth <= element.clientWidth), true, `Textarea overflow at ${width}px`)
     await page.screenshot({ path: path.join(outputDir, `quick-entry-${width}.png`), fullPage: true })
   }
 
   // A 720px CSS viewport is the app's established 200% zoom-equivalent reflow check.
   await page.setViewportSize({ width: 720, height: 450 })
+  await settleJournalLayout(page)
   assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, 'Horizontal overflow at 200% equivalent reflow')
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeVisible()
   await page.screenshot({ path: path.join(outputDir, 'quick-entry-zoom-200-equivalent.png'), fullPage: true })
@@ -415,7 +493,7 @@ try {
   await expect(reducedMotionPage.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(errors, [])
   await context.close()
-  process.stdout.write(`Quick AI Entry authenticated extraction, validated unsaved handoff persistence, network/provider/quota/auth-rate-limit/invalid responses, exposed and hidden Retry-After behavior, retry and source-note preservation, keyboard focus, 320/375/768/1440px layout, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
+  process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, 320/375/768/1440px layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
 } finally {
   await browser?.close()
   await server?.close()
