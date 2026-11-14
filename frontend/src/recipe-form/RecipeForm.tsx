@@ -23,6 +23,7 @@ export type RecipeFormProps = {
   notesSupported?: boolean
   renderFrame?: (content: ReactNode) => ReactNode
   notice?: ReactNode
+  supplement?: ReactNode
 }
 
 // Mount once per account/recipe. Same-record refetches must not replace a dirty

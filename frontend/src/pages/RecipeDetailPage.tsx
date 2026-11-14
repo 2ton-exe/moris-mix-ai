@@ -2,6 +2,7 @@ import { useContext, useEffect, useRef } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
 import { RecipeDeletionControl } from '../recipes/RecipeDeletionControl'
+import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import { isRecipeAccessError } from '../recipes/errors'
 import { useRecipe } from '../recipes/queries'
 import { RecipeSourceContext } from '../recipes/source'
@@ -44,6 +45,7 @@ export default function RecipeDetailPage() {
     {query.isPaused && <p className="mm-recipe-detail__offline" role="status">You appear to be offline. This recipe will load when you reconnect.</p>}
     {!recipe && query.isError && <><h1 ref={titleRef} tabIndex={-1}>Recipe unavailable</h1><RecipeError detail error={query.error} onRetry={retry} /></>}
     {recipe && <RecipeReading recipe={recipe} titleRef={titleRef} folio={folio}
+      supplement={<RecipeImagePanel key={`image-${recipe.id}`} recipeId={recipe.id} recipeTitle={recipe.title} showEmpty />}
       back={<Link to={journalReturn} state={{ focusRecipe: recipeId }}><span aria-hidden="true">←</span> Back to recipes</Link>}
       status={<>
         {query.isFetching && <p role="status" className="recipe-update">Updating recipe…</p>}

@@ -34,7 +34,7 @@ function canScrollInDirection(target: Element, direction: 'up' | 'down') {
   return false
 }
 
-export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, editorTitle, notesSupported = false, renderFrame, notice }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, editorTitle, notesSupported = false, renderFrame, notice, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
@@ -395,6 +395,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
             <textarea {...field('notes', true)} rows={5} value={state.notes} onChange={(event) => change({ ...state, notes: event.target.value })} />
           </RecipeFormField>
         </section>
+        {supplement}
       </>
     } else if (leaf.kind === 'ingredients' || leaf.kind === 'ingredients-empty') {
       const items = leaf.rowKeys.map((key) => {

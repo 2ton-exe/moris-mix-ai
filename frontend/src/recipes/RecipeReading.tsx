@@ -60,9 +60,9 @@ function ReadingUnits({ units, prefix, measured = false, capacity, width, oversi
 }
 
 /** Shared physical reading leaves. Backend cursors never enter this component. */
-export function RecipeReading({ recipe, titleRef, folio, back, actions, status, publicDemo = false }: {
+export function RecipeReading({ recipe, titleRef, folio, back, actions, status, supplement, publicDemo = false }: {
   recipe: RecipeDetail; titleRef?: Ref<HTMLHeadingElement>; folio?: number
-  back: ReactNode; actions?: ReactNode; status?: ReactNode; publicDemo?: boolean
+  back: ReactNode; actions?: ReactNode; status?: ReactNode; supplement?: ReactNode; publicDemo?: boolean
 }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -138,6 +138,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       <RecipeMetadata recipe={recipe} />
       {recipe.star_rating == null && <p className="mm-recipe-unrated">Not rated</p>}
     </header>
+    {supplement}
   </div>
   return <article data-reading-ready={ready} data-reading-capacity={layout?.capacity} data-reading-width={layout?.width} className={`journal-recipe mm-recipe-detail__article mm-page-column mm-continuation ${layout ? 'is-measured' : 'is-fallback'}`}>
     <JournalFacingPage className="mm-facing-content--recipe mm-page-column mm-continuation-facing">
