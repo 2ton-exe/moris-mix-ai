@@ -48,7 +48,7 @@ The E2E workflow now installs Chromium, Firefox, and WebKit on Ubuntu and runs t
 - **Reproduction:** Request an upload intent, then send the selected image using the returned R2 URL.
 - **Expected:** The browser validates the object-scoped R2 URL and sends the bytes to R2 using the signed headers, without Supabase credentials; a successful `PutObject` returns `200`.
 - **Observed before fix:** The client required the upload Edge Function path and routed the byte PUT through the shared authenticated client, which rejected R2's origin and expected a JSON `201` response.
-- **Disposition:** Fixed by signing the staging `PUT` URL in the upload authorization handler, validating its R2 host/path and IDs in the browser, using a credential-free direct request, and accepting `200` (plus `412` for a completed retry). Regression coverage passed in Chromium and WebKit at `1280×844` and `375×844`. The storage response was mocked for these UI journeys; a synthetic local HTTP/2 probe confirmed browser `Content-Length` behavior. Live R2 CORS and signed-write compatibility remain a separate production readiness gate.
+- **Disposition:** Fixed by signing the staging `PUT` URL in the upload authorization handler, validating its R2 host/path and IDs in the browser, using a direct request with no Supabase auth or API key headers, and accepting `200` (plus `412` for a completed retry). Regression coverage passed in Chromium and WebKit at `1280×844` and `375×844`. The storage response was mocked for these UI journeys; a synthetic local HTTP/2 probe confirmed browser `Content-Length` behavior. Live R2 CORS and signed-write compatibility remain a separate production readiness gate.
 
 ### QA04-03 — Recipe writes had no request-size or field-count bounds
 

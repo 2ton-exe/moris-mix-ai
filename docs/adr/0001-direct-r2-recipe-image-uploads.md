@@ -40,7 +40,8 @@ guards remain unchanged.
 
 - The browser upload no longer traverses Supabase Auth or the Edge Function for
   image bytes. The presigned URL is a short-lived bearer capability and must
-  not be logged or shown in UI errors.
+  not be logged or shown in UI errors. Its SigV4 credential scope includes the
+  non-secret R2 access-key ID; the secret signing key stays server-side.
 - Attachment remains the trust boundary for actual object size, MIME type, and
   image structure. The signature binds the request's content length to the
   authorized 10 MiB maximum, and attachment independently checks R2 metadata

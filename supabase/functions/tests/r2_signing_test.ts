@@ -317,6 +317,10 @@ Deno.test("presigned staging PUT binds exact type, size, and create-only headers
     url.pathname,
     `/${config.bucketName}/${imageIntent.staging_key}`,
   );
+  assertEquals(
+    url.searchParams.get("X-Amz-Credential"),
+    `${config.accessKeyId}/20261102/auto/s3/aws4_request`,
+  );
   assertEquals(url.searchParams.get("X-Amz-Expires"), "600");
   assertEquals(
     url.searchParams.get("X-Amz-SignedHeaders"),
