@@ -8,6 +8,52 @@ async function addPantryItem(page: Page, item: string) {
   await input.press('Enter')
 }
 
+function trackRecipeAndLineageWrites(page: Page) {
+  const recipeWrites = []
+  const lineageWrites = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (request.method() === 'POST' && url.pathname === '/functions/v1/recipes') recipeWrites.push(request)
+    if (request.method() === 'POST' && /\/functions\/v1\/recipes\/[^/]+\/lineage$/.test(url.pathname)) lineageWrites.push(request)
+  })
+  return { recipeWrites, lineageWrites }
+}
+
+async function freshRecipeReadContext(page: Page) {
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'GET' && new URL(response.url()).pathname === '/functions/v1/recipes',
+  )
+  await page.goto('/app/recipes')
+  const response = await responsePromise
+  expect(response.status()).toBe(200)
+  await waitForCollection(page)
+  const requestHeaders = await response.request().allHeaders()
+  return {
+    origin: new URL(response.url()).origin,
+    headers: { authorization: requestHeaders.authorization, apikey: requestHeaders.apikey },
+  }
+}
+
+async function readSavedRecipeState(page: Page, context: Awaited<ReturnType<typeof freshRecipeReadContext>>) {
+  const response = await page.request.get(`${context.origin}/functions/v1/recipes?limit=1000&offset=0`, {
+    headers: context.headers,
+  })
+  expect(response.status()).toBe(200)
+  const body = await response.json()
+  expect(Array.isArray(body.recipes)).toBe(true)
+  const recipes = body.recipes as Array<{ id: string; title: string; updated_at: string }>
+  const lineage: Array<readonly [string, unknown]> = []
+  for (const recipe of recipes) {
+    const response = await page.request.get(`${context.origin}/functions/v1/recipes/${recipe.id}/lineage`, {
+      headers: context.headers,
+    })
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    lineage.push([recipe.id, body.lineage])
+  }
+  return { recipes, lineage: Object.fromEntries(lineage) }
+}
+
 test('AI Chef saves a reviewed recipe and only the selected parent lineage', async ({ page }) => {
   test.setTimeout(120_000)
 
@@ -16,16 +62,11 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
   const secondParentTitle = `${marker} parent two`
   const otherOwnerTitle = `${marker} other owner private parent`
   const reviewedTitle = `${marker} reviewed`
-  const recipeWrites = []
-  const lineageWrites = []
+  const { recipeWrites, lineageWrites } = trackRecipeAndLineageWrites(page)
   let otherPage: Page | undefined
   let otherRecipeId = ''
-
-  page.on('request', (request) => {
-    const url = new URL(request.url())
-    if (request.method() === 'POST' && url.pathname === '/functions/v1/recipes') recipeWrites.push(request)
-    if (request.method() === 'POST' && /\/functions\/v1\/recipes\/[^/]+\/lineage$/.test(url.pathname)) lineageWrites.push(request)
-  })
+  let recipeReadContext: Awaited<ReturnType<typeof freshRecipeReadContext>>
+  let savedRecipeState: Awaited<ReturnType<typeof readSavedRecipeState>>
 
   await test.step('Seed two owned candidates and another account’s private recipe', async () => {
     await signIn(page, localE2eUser)
@@ -45,6 +86,8 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     otherRecipeId = await createRecipe(otherPage, otherOwnerTitle)
     await otherPage.getByRole('button', { name: 'Back to journal' }).click()
     await waitForCollection(otherPage)
+    recipeReadContext = await freshRecipeReadContext(page)
+    savedRecipeState = await readSavedRecipeState(page, recipeReadContext)
     recipeWrites.length = 0
   })
 
@@ -73,6 +116,7 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     expect(generatedTitles).not.toContain(otherOwnerTitle)
     expect(recipeWrites).toHaveLength(0)
     expect(lineageWrites).toHaveLength(0)
+    await expect(readSavedRecipeState(page, recipeReadContext)).resolves.toEqual(savedRecipeState)
   })
 
   let parent: { id: string; title: string } | undefined
@@ -182,21 +226,23 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
 
 test('AI endpoints keep malformed and provider failures as unsaved, recoverable drafts', async ({ page }) => {
   test.setTimeout(120_000)
-  const recipeWrites = []
-  const lineageWrites = []
+  const { recipeWrites, lineageWrites } = trackRecipeAndLineageWrites(page)
   const generationRequests = []
   const extractionRequests = []
+  let recipeReadContext: Awaited<ReturnType<typeof freshRecipeReadContext>>
+  let savedRecipeState: Awaited<ReturnType<typeof readSavedRecipeState>>
 
   page.on('request', (request) => {
     const url = new URL(request.url())
-    if (request.method() === 'POST' && url.pathname === '/functions/v1/recipes') recipeWrites.push(request)
-    if (request.method() === 'POST' && /\/functions\/v1\/recipes\/[^/]+\/lineage$/.test(url.pathname)) lineageWrites.push(request)
     if (request.method() === 'POST' && url.pathname === '/functions/v1/generate-recipe') generationRequests.push(request)
     if (request.method() === 'POST' && url.pathname === '/functions/v1/extract-recipe') extractionRequests.push(request)
   })
 
   await test.step('Reject Chef generation until pantry input is valid', async () => {
     await signIn(page, localE2eUser)
+    await page.goto('/app/chef')
+    recipeReadContext = await freshRecipeReadContext(page)
+    savedRecipeState = await readSavedRecipeState(page, recipeReadContext)
     await page.goto('/app/chef')
     await expect(page.getByRole('button', { name: 'Ask Mori for a recipe' })).toBeEnabled()
     await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
@@ -229,6 +275,7 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     expect(generationRequests).toHaveLength(2)
     expect(recipeWrites).toHaveLength(0)
     expect(lineageWrites).toHaveLength(0)
+    await expect(readSavedRecipeState(page, recipeReadContext)).resolves.toEqual(savedRecipeState)
   })
 
   await test.step('Keep Quick AI notes after malformed and provider failures', async () => {
@@ -252,6 +299,7 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     expect(extractionRequests).toHaveLength(2)
     expect(recipeWrites).toHaveLength(0)
     expect(lineageWrites).toHaveLength(0)
+    await expect(readSavedRecipeState(page, recipeReadContext)).resolves.toEqual(savedRecipeState)
   })
 })
 
