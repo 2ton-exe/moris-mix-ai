@@ -5,12 +5,13 @@
 ## Browser rollout gate
 
 The image panel and all image endpoint requests are disabled unless
-`VITE_RECIPE_IMAGES=true`. Keep the flag off until the BE-14 attachment and
-private-read endpoints are deployed and verified. Enabling the frontend flag
-does not activate production signing or cleanup. The main production release
-deploys the offset-compatible `recipe-image-attach` function after this change
-is merged, but a successful code deployment alone does not verify production
-R2 behavior or cleanup readiness.
+`VITE_RECIPE_IMAGES=true`. The production build now sets the flag to `true` per
+owner direction, so the next production release exposes the image UI to all
+users. This frontend change does not verify R2 access or cleanup readiness, or
+deploy new Edge Functions or enable cleanup. The main production release deploys the
+offset-compatible `recipe-image-attach` function after this change is merged.
+Production R2 behavior and cleanup readiness remain unverified; keep the
+cleanup opt-in unset until its separate checks pass.
 
 ## Upload requirements
 

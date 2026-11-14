@@ -202,6 +202,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
     VITE_SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
+    VITE_RECIPE_IMAGES: 'true',
     SMOKE_ENVIRONMENT: 'production',
     SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
     SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
@@ -209,7 +210,6 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_PUBLIC_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_ANON_KEY }}',
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
-  assert.equal(release.env.VITE_RECIPE_IMAGES, undefined, 'production image UI flag must remain unset');
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
