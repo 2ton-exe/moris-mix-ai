@@ -1,23 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
-
-async function createRecipe(page: Page, title: string) {
-  await page.getByRole('link', { name: 'Start a recipe' }).click()
-  await page.getByLabel('Recipe title').fill(title)
-  const ingredients = await navigateToRecipeSection(page, 'Ingredients')
-  await ingredients.getByRole('button', { name: 'Add ingredient' }).click()
-  await ingredients.getByLabel('Ingredient 1 name').fill('olive oil')
-  await ingredients.getByLabel('Ingredient 1 quantity').fill('2')
-  await ingredients.getByLabel('Ingredient 1 unit').fill('tablespoons')
-  const method = await navigateToRecipeSection(page, 'Cooking method')
-  await method.getByRole('button', { name: 'Add cooking step' }).click()
-  await method.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
-  await page.getByRole('button', { name: 'Save recipe' }).click()
-  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Back to journal' }).click()
-  await waitForCollection(page)
-}
+import { createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function addPantryItem(page: Page, item: string) {
   const input = page.getByRole('textbox', { name: 'Pantry ingredient' })
@@ -35,6 +18,8 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
   const reviewedTitle = `${marker} reviewed`
   const recipeWrites = []
   const lineageWrites = []
+  let otherPage: Page | undefined
+  let otherRecipeId = ''
 
   page.on('request', (request) => {
     const url = new URL(request.url())
@@ -46,23 +31,27 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     await signIn(page, localE2eUser)
     await waitForCollection(page)
     await createRecipe(page, parentTitle)
+    await page.getByRole('button', { name: 'Back to journal' }).click()
+    await waitForCollection(page)
     await createRecipe(page, secondParentTitle)
+    await page.getByRole('button', { name: 'Back to journal' }).click()
+    await waitForCollection(page)
 
     const browser = page.context().browser()
     if (!browser) throw new Error('Playwright browser is unavailable for the second local account.')
-    const otherContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
-    try {
-      const otherPage = await otherContext.newPage()
-      await signIn(otherPage, localE2eOtherUser)
-      await waitForCollection(otherPage)
-      await createRecipe(otherPage, otherOwnerTitle)
-    } finally {
-      await otherContext.close()
-    }
+    otherPage = await browser.newPage({ baseURL: new URL(page.url()).origin })
+    await signIn(otherPage, localE2eOtherUser)
+    await waitForCollection(otherPage)
+    otherRecipeId = await createRecipe(otherPage, otherOwnerTitle)
+    await otherPage.getByRole('button', { name: 'Back to journal' }).click()
+    await waitForCollection(otherPage)
     recipeWrites.length = 0
   })
 
-  let generated: { parents: Array<{ id: string; title: string }> }
+  let generated: {
+    parents: Array<{ id: string; title: string }>
+    candidate_token: string | null
+  }
   await test.step('Generate an unsaved preview from only owned recipes', async () => {
     await page.goto('/app/chef')
     await addPantryItem(page, 'olive oil')
@@ -116,18 +105,78 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     expect(savedLineageResponse.status()).toBe(201)
     const savedRecipe = await savedRecipeResponse.json()
     const recipeHeaders = await recipeRequest.allHeaders()
-    const persistedLineage = await page.request.get(
-      `${new URL(recipeRequest.url()).origin}/functions/v1/recipes/${savedRecipe.recipe.id}/lineage`,
-      { headers: { authorization: recipeHeaders.authorization, apikey: recipeHeaders.apikey } },
-    )
+    const ownerOrigin = new URL(recipeRequest.url()).origin
+    const ownerHeaders = { authorization: recipeHeaders.authorization, apikey: recipeHeaders.apikey }
+    const lineageUrl = `${ownerOrigin}/functions/v1/recipes/${savedRecipe.recipe.id}/lineage`
+    const persistedLineage = await page.request.get(lineageUrl, { headers: ownerHeaders })
     expect(persistedLineage.status()).toBe(200)
-    await expect(persistedLineage.json()).resolves.toMatchObject({
-      lineage: [expect.objectContaining({ parent_recipe_id: parent!.id })],
+    const persistedLineageBody = await persistedLineage.json()
+    expect(persistedLineageBody.lineage.map((item: { parent_recipe_id: string }) => item.parent_recipe_id)).toEqual([parent!.id])
+
+    await test.step('Reject a foreign parent with the owner’s valid generation token', async () => {
+      expect(generated.candidate_token).toBeTruthy()
+      const rejectedForeignParent = await page.request.post(lineageUrl, {
+        headers: ownerHeaders,
+        data: {
+          parent_recipe_ids: [otherRecipeId],
+          candidate_token: generated.candidate_token,
+        },
+      })
+      expect(rejectedForeignParent.status()).toBe(404)
+      await expect(rejectedForeignParent.json()).resolves.toMatchObject({
+        error: { code: 'NOT_FOUND', message: 'Recipe not found.' },
+      })
     })
+
+    await test.step('Deny another account’s valid token access to the owner’s child lineage', async () => {
+      await otherPage!.goto('/app/chef')
+      await addPantryItem(otherPage!, 'olive oil')
+      await otherPage!.getByRole('textbox', { name: /^Cooking preferences/ }).fill(`${marker} other account`)
+      const otherGenerationResponsePromise = otherPage!.waitForResponse((response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/generate-recipe',
+      )
+      await otherPage!.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+      const otherGenerationResponse = await otherGenerationResponsePromise
+      expect(otherGenerationResponse.status()).toBe(200)
+      const otherGenerated = await otherGenerationResponse.json()
+      expect(otherGenerated.parents).toEqual(expect.arrayContaining([expect.objectContaining({ id: otherRecipeId })]))
+      expect(otherGenerated.candidate_token).toEqual(expect.any(String))
+
+      const otherGenerationHeaders = await otherGenerationResponse.request().allHeaders()
+      const otherHeaders = {
+        authorization: otherGenerationHeaders.authorization,
+        apikey: otherGenerationHeaders.apikey,
+      }
+      const foreignGet = await otherPage!.request.get(lineageUrl, { headers: otherHeaders })
+      expect(foreignGet.status()).toBe(404)
+      await expect(foreignGet.json()).resolves.toMatchObject({
+        error: { code: 'NOT_FOUND', message: 'Recipe not found.' },
+      })
+
+      const foreignPost = await otherPage!.request.post(lineageUrl, {
+        headers: otherHeaders,
+        data: {
+          parent_recipe_ids: [otherRecipeId],
+          candidate_token: otherGenerated.candidate_token,
+        },
+      })
+      expect(foreignPost.status()).toBe(404)
+      await expect(foreignPost.json()).resolves.toMatchObject({
+        error: { code: 'NOT_FOUND', message: 'Recipe not found.' },
+      })
+    })
+
+    const ownerLineageAfterRejectedWrites = await page.request.get(lineageUrl, { headers: ownerHeaders })
+    expect(ownerLineageAfterRejectedWrites.status()).toBe(200)
+    const finalLineageBody = await ownerLineageAfterRejectedWrites.json()
+    expect(finalLineageBody.lineage.map((item: { parent_recipe_id: string }) => item.parent_recipe_id)).toEqual([parent!.id])
+    expect(lineageWrites).toHaveLength(1)
+
     await page.goto(`/app/recipes/${savedRecipe.recipe.id}`)
     await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible()
     await page.reload()
     await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible()
+    await otherPage!.close()
   })
 })
 
