@@ -64,9 +64,9 @@ schema limits and integration status. For a labeled local sample preview, set
 Private recipe image panels and endpoint calls are disabled by default in
 local builds. The production release build sets `VITE_RECIPE_IMAGES=true` per
 owner direction, exposing the image UI to all production users on the next
-release. This does not verify production R2 access or cleanup readiness, or
-deploy new Edge Functions or enable cleanup. Keep the cleanup opt-in unset until its separate
-readiness checks pass.
+release. This does not verify production R2 access or cleanup readiness, deploy
+the upload-signing or cleanup functions, or enable cleanup. Keep the cleanup
+opt-in unset until its separate readiness checks pass.
 
 FE-03 adds login, signup, email verification, and session handling for the
 protected recipe dashboard. Open `/home` and select **Your cooking journal**, or go to

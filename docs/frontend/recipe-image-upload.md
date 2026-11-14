@@ -7,9 +7,10 @@
 The image panel and all image endpoint requests are disabled unless
 `VITE_RECIPE_IMAGES=true`. The production build now sets the flag to `true` per
 owner direction, so the next production release exposes the image UI to all
-users. This frontend change does not verify R2 access or cleanup readiness, or
-deploy new Edge Functions or enable cleanup. The main production release deploys the
-offset-compatible `recipe-image-attach` function after this change is merged.
+users. This frontend change does not verify R2 access or cleanup readiness,
+deploy the upload-signing or cleanup functions, or enable cleanup. The main
+production release deploys the offset-compatible `recipe-image-attach` function
+after this change is merged.
 Production R2 behavior and cleanup readiness remain unverified; keep the
 cleanup opt-in unset until its separate checks pass.
 
