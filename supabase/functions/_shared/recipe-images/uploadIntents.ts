@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { z } from "npm:zod@3.22.4";
+import { z } from "npm:zod@4.6.6";
 import {
   type RecipeImageUploadRequest,
   RecipeImageUploadRequestSchema,
@@ -30,9 +30,9 @@ export function createUploadIntent(
   finalObjectId: string = crypto.randomUUID(),
 ): UploadIntent {
   const metadata = RecipeImageUploadRequestSchema.parse(request);
-  const user_id = z.string().uuid().parse(userId).toLowerCase();
-  const id = z.string().uuid().parse(uploadId).toLowerCase();
-  const finalId = z.string().uuid().parse(finalObjectId).toLowerCase();
+  const user_id = z.guid().parse(userId).toLowerCase();
+  const id = z.guid().parse(uploadId).toLowerCase();
+  const finalId = z.guid().parse(finalObjectId).toLowerCase();
   const recipe_id = metadata.recipe_id.toLowerCase();
   const created = new Date(Math.floor(now.getTime() / 1000) * 1000);
   const suffix = `${user_id}/${recipe_id}/${id}`;
