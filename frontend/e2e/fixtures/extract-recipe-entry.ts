@@ -22,4 +22,7 @@ const provider: AIProvider = {
   testConnection: async () => "Local FS-04 test provider is available.",
 };
 
-Deno.serve((request) => handler(request, { provider }));
+Deno.serve((request) => handler(request, {
+  provider,
+  quotaCheck: async () => ({ status: "allowed", limit: 20, used: 0 }),
+}));

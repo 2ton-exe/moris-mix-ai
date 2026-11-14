@@ -1,15 +1,24 @@
-import { authenticateRequest, type AuthDeps } from "../_shared/auth.ts";
-import { getCorsHeaders, handleCorsPreflight, jsonResponse } from "../_shared/cors.ts";
+import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
+import {
+  getCorsHeaders,
+  handleCorsPreflight,
+  jsonResponse,
+} from "../_shared/cors.ts";
+import {
+  createRequestId,
+  logRequestFailure,
+  withRequestId,
+} from "../_shared/requestId.ts";
 import {
   CreateLineageRequestSchema,
   CreateRecipeRequestSchema,
   LineageResponseSchema,
+  type RecipeCursor,
   RecipeCursorSchema,
   RecipeListResponseSchema,
   RecipeParamsSchema,
   RecipeResponseSchema,
   UpdateRecipeRequestSchema,
-  type RecipeCursor,
 } from "../_shared/schemas.ts";
 import {
   type CandidateTokenErrorReason,
@@ -36,7 +45,8 @@ function lineageCandidateTokenRejection(
     case "not_yet_valid":
       return {
         code: "expired_token",
-        message: "The generation candidate token has expired. Generate the recipe again to refresh it.",
+        message:
+          "The generation candidate token has expired. Generate the recipe again to refresh it.",
       };
     case "wrong_user":
       return {
@@ -46,7 +56,8 @@ function lineageCandidateTokenRejection(
     default:
       return {
         code: "invalid_token",
-        message: "A valid generation candidate token is required to save recipe lineage.",
+        message:
+          "A valid generation candidate token is required to save recipe lineage.",
       };
   }
 }
@@ -57,6 +68,9 @@ const MAX_CURSOR_PAGE_LIMIT = 100;
 const DEFAULT_OFFSET_PAGE_LIMIT = 1000;
 const MAX_OFFSET_PAGE_LIMIT = 1000;
 export const MAX_LINEAGE_REQUEST_BYTES = 16384;
+export const MAX_RECIPE_REQUEST_BYTES = 256 * 1024;
+export const MAX_RECIPE_SEARCH_CHARS = 200;
+export const MAX_RECIPE_CURSOR_CHARS = 4096;
 
 type RouteMatch =
   | { kind: "COLLECTION" }
@@ -66,7 +80,10 @@ type RouteMatch =
 
 function parseRoute(pathname: string): RouteMatch {
   let path = pathname;
-  if (path === "/functions/v1/recipes" || path.startsWith("/functions/v1/recipes/")) {
+  if (
+    path === "/functions/v1/recipes" ||
+    path.startsWith("/functions/v1/recipes/")
+  ) {
     path = path.slice("/functions/v1/recipes".length);
   } else if (path === "/recipes" || path.startsWith("/recipes/")) {
     path = path.slice("/recipes".length);
@@ -93,7 +110,10 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/,
+    "",
+  );
 }
 
 function base64UrlToBytes(base64Url: string): Uint8Array | null {
@@ -116,7 +136,9 @@ function base64UrlToBytes(base64Url: string): Uint8Array | null {
 async function readBodyWithinByteLimit(
   req: Request,
   maxBytes: number,
-): Promise<{ ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }> {
+): Promise<
+  { ok: true; text: string } | { ok: false; reason: "too_large" | "unreadable" }
+> {
   if (!req.body) {
     return { ok: true, text: "" };
   }
@@ -134,10 +156,7 @@ async function readBodyWithinByteLimit(
 
       bytes += value.byteLength;
       if (bytes > maxBytes) {
-        try {
-          await reader.cancel();
-        } catch {
-        }
+        await reader.cancel().catch(() => undefined);
         return { ok: false, reason: "too_large" };
       }
 
@@ -151,7 +170,15 @@ async function readBodyWithinByteLimit(
   }
 }
 
-function decodeCursor(encoded: string): { ok: true; cursor: RecipeCursor } | { ok: false } {
+function isJsonRequest(req: Request): boolean {
+  const contentType = req.headers.get("content-type");
+  return contentType === null ||
+    contentType.split(";", 1)[0].trim().toLowerCase() === "application/json";
+}
+
+function decodeCursor(
+  encoded: string,
+): { ok: true; cursor: RecipeCursor } | { ok: false } {
   try {
     if (typeof encoded !== "string" || encoded.length === 0) {
       return { ok: false };
@@ -179,38 +206,83 @@ function encodeCursor(cursor: RecipeCursor): string {
 }
 
 function formatIlikePattern(term: string): string {
-  const sqlEscaped = term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+  const sqlEscaped = term.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(
+    /_/g,
+    "\\_",
+  );
   const postgrestEscaped = sqlEscaped.replace(/"/g, '\\"');
   return `"%${postgrestEscaped}%"`;
 }
 
 type RecipeListParams =
   | {
-      mode: "cursor";
-      search: string | null;
-      searchMode: "title" | "ingredients" | "both";
-      title: string | null;
-      ingredient: string | null;
-      sort: "newest" | "rating";
-      limit: number;
-      cursor: RecipeCursor | null;
-    }
+    mode: "cursor";
+    search: string | null;
+    searchMode: "title" | "ingredients" | "both";
+    title: string | null;
+    ingredient: string | null;
+    sort: "newest" | "rating";
+    limit: number;
+    cursor: RecipeCursor | null;
+  }
   | {
-      mode: "offset";
-      search: string | null;
-      searchMode: "title" | "ingredients" | "both";
-      title: string | null;
-      ingredient: string | null;
-      sort: "newest" | "rating";
-      limit: number;
-      offset: number;
-    };
+    mode: "offset";
+    search: string | null;
+    searchMode: "title" | "ingredients" | "both";
+    title: string | null;
+    ingredient: string | null;
+    sort: "newest" | "rating";
+    limit: number;
+    offset: number;
+  };
 
 type ParseListParamsResult =
   | { ok: true; params: RecipeListParams }
   | { ok: false; errorStatus: number; errorResponse: unknown };
 
 function parseRecipeListParams(url: URL): ParseListParamsResult {
+  for (const name of ["search", "title", "ingredient"]) {
+    const value = url.searchParams.get(name);
+    if (value !== null && value.length > MAX_RECIPE_SEARCH_CHARS) {
+      return {
+        ok: false,
+        errorStatus: 400,
+        errorResponse: {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid search parameter.",
+            details: [{
+              path: name,
+              code: "too_big",
+              message: `Must be at most ${MAX_RECIPE_SEARCH_CHARS} characters.`,
+            }],
+          },
+        },
+      };
+    }
+  }
+
+  const requestedCursor = url.searchParams.get("cursor");
+  if (
+    requestedCursor !== null && requestedCursor.length > MAX_RECIPE_CURSOR_CHARS
+  ) {
+    return {
+      ok: false,
+      errorStatus: 400,
+      errorResponse: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid pagination parameters.",
+          details: [{
+            path: "cursor",
+            code: "too_big",
+            message: "Cursor is too long.",
+          }],
+        },
+      },
+    };
+  }
+
   const sortValues = url.searchParams.getAll("sort");
   if (sortValues.length > 1) {
     return {
@@ -344,7 +416,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
           details: [{
             path: "query",
             code: "invalid_union",
-            message: "Cannot combine 'search' with 'title' or 'ingredient' parameters.",
+            message:
+              "Cannot combine 'search' with 'title' or 'ingredient' parameters.",
           }],
         },
       },
@@ -549,7 +622,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
               details: [{
                 path: "cursor",
                 code: "invalid_value",
-                message: "The provided pagination cursor is invalid or malformed.",
+                message:
+                  "The provided pagination cursor is invalid or malformed.",
               }],
             },
           },
@@ -559,7 +633,9 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
       if (
         decoded.cursor.sort !== sort ||
         (decoded.cursor.search ?? null) !== search ||
-        (decoded.cursor.search ? (decoded.cursor.searchMode ?? "both") : "both") !== searchMode ||
+        (decoded.cursor.search
+            ? (decoded.cursor.searchMode ?? "both")
+            : "both") !== searchMode ||
         (decoded.cursor.title ?? null) !== title ||
         (decoded.cursor.ingredient ?? null) !== ingredient
       ) {
@@ -573,7 +649,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
               details: [{
                 path: "cursor",
                 code: "custom",
-                message: "Pagination cursor is incompatible with active search filters or sort mode.",
+                message:
+                  "Pagination cursor is incompatible with active search filters or sort mode.",
               }],
             },
           },
@@ -581,7 +658,11 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
       }
 
       const isSearchActive = search !== null;
-      if (isSearchActive && (typeof decoded.cursor.rank !== "number" || decoded.cursor.rank < 1 || decoded.cursor.rank > 3)) {
+      if (
+        isSearchActive &&
+        (typeof decoded.cursor.rank !== "number" || decoded.cursor.rank < 1 ||
+          decoded.cursor.rank > 3)
+      ) {
         return {
           ok: false,
           errorStatus: 400,
@@ -592,7 +673,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
               details: [{
                 path: "cursor",
                 code: "custom",
-                message: "Pagination cursor is incompatible with active search filters or sort mode.",
+                message:
+                  "Pagination cursor is incompatible with active search filters or sort mode.",
               }],
             },
           },
@@ -610,7 +692,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
               details: [{
                 path: "cursor",
                 code: "custom",
-                message: "Pagination cursor is incompatible with active search filters or sort mode.",
+                message:
+                  "Pagination cursor is incompatible with active search filters or sort mode.",
               }],
             },
           },
@@ -640,7 +723,10 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
         };
       }
       const limitNum = Number(limitValues[0]);
-      if (!Number.isSafeInteger(limitNum) || limitNum < 1 || limitNum > MAX_CURSOR_PAGE_LIMIT) {
+      if (
+        !Number.isSafeInteger(limitNum) || limitNum < 1 ||
+        limitNum > MAX_CURSOR_PAGE_LIMIT
+      ) {
         return {
           ok: false,
           errorStatus: 400,
@@ -688,7 +774,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
             details: [{
               path: "query",
               code: "invalid_value",
-              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
+              message:
+                "Use limit 1–1000 and a non-negative safe-integer offset.",
             }],
           },
         },
@@ -706,7 +793,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
             details: [{
               path: "query",
               code: "invalid_value",
-              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
+              message:
+                "Use limit 1–1000 and a non-negative safe-integer offset.",
             }],
           },
         },
@@ -728,14 +816,18 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
             details: [{
               path: "query",
               code: "invalid_value",
-              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
+              message:
+                "Use limit 1–1000 and a non-negative safe-integer offset.",
             }],
           },
         },
       };
     }
     const limitNum = Number(limitValues[0]);
-    if (!Number.isSafeInteger(limitNum) || limitNum < 1 || limitNum > MAX_OFFSET_PAGE_LIMIT) {
+    if (
+      !Number.isSafeInteger(limitNum) || limitNum < 1 ||
+      limitNum > MAX_OFFSET_PAGE_LIMIT
+    ) {
       return {
         ok: false,
         errorStatus: 400,
@@ -746,7 +838,8 @@ function parseRecipeListParams(url: URL): ParseListParamsResult {
             details: [{
               path: "query",
               code: "invalid_value",
-              message: "Use limit 1–1000 and a non-negative safe-integer offset.",
+              message:
+                "Use limit 1–1000 and a non-negative safe-integer offset.",
             }],
           },
         },
@@ -822,7 +915,7 @@ function normalizeRecord(value: unknown): Record<string, unknown> | null {
   return isPlainObject(value) ? value : null;
 }
 
-export async function handler(
+async function handleRequest(
   req: Request,
   deps?: RecipesHandlerDeps,
 ): Promise<Response> {
@@ -881,12 +974,16 @@ export async function handler(
         );
       }
     } else {
-      if (req.method !== "GET" && req.method !== "PATCH" && req.method !== "DELETE") {
+      if (
+        req.method !== "GET" && req.method !== "PATCH" &&
+        req.method !== "DELETE"
+      ) {
         return recipesJsonResponse(
           {
             error: {
               code: "METHOD_NOT_ALLOWED",
-              message: "Only GET, PATCH, DELETE, and OPTIONS methods are supported.",
+              message:
+                "Only GET, PATCH, DELETE, and OPTIONS methods are supported.",
             },
           },
           {
@@ -910,19 +1007,21 @@ export async function handler(
       if (req.method === "GET") {
         const parsed = parseRecipeListParams(url);
         if (!parsed.ok) {
-          return recipesJsonResponse(parsed.errorResponse, { status: parsed.errorStatus });
+          return recipesJsonResponse(parsed.errorResponse, {
+            status: parsed.errorStatus,
+          });
         }
 
         const params = parsed.params;
         const isCombinedSearch = Boolean(params.search);
 
         type SearchRecipeRecord = {
-  id: string;
-  created_at: string;
-  star_rating: number | null;
-  relevance_rank?: number;
-  [key: string]: unknown;
-};
+          id: string;
+          created_at: string;
+          star_rating: number | null;
+          relevance_rank?: number;
+          [key: string]: unknown;
+        };
 
         let recipesData: Array<Record<string, unknown>>;
         let nextCursor: string | null = null;
@@ -932,21 +1031,36 @@ export async function handler(
           const data: SearchRecipeRecord[] = [];
           while (data.length < params.limit) {
             const batchLimit = Math.min(100, params.limit - data.length);
-            const { data: batch, error } = await supabase.rpc("search_recipes", {
-              p_search: params.searchMode === "both" ? params.search : null,
-              p_title: params.searchMode === "title" ? params.search : null,
-              p_ingredient: params.searchMode === "ingredients" ? params.search : null,
-              p_sort: params.sort,
-              p_limit: batchLimit,
-              p_offset: params.mode === "offset" ? params.offset + data.length : 0,
-              p_cursor_rank: params.mode === "cursor" && params.cursor ? params.cursor.rank ?? null : null,
-              p_cursor_created_at: params.mode === "cursor" && params.cursor ? params.cursor.createdAt : null,
-              p_cursor_star_rating: params.mode === "cursor" && params.cursor ? params.cursor.starRating ?? null : null,
-              p_cursor_id: params.mode === "cursor" && params.cursor ? params.cursor.id : null,
-            });
+            const { data: batch, error } = await supabase.rpc(
+              "search_recipes",
+              {
+                p_search: params.searchMode === "both" ? params.search : null,
+                p_title: params.searchMode === "title" ? params.search : null,
+                p_ingredient: params.searchMode === "ingredients"
+                  ? params.search
+                  : null,
+                p_sort: params.sort,
+                p_limit: batchLimit,
+                p_offset: params.mode === "offset"
+                  ? params.offset + data.length
+                  : 0,
+                p_cursor_rank: params.mode === "cursor" && params.cursor
+                  ? params.cursor.rank ?? null
+                  : null,
+                p_cursor_created_at: params.mode === "cursor" && params.cursor
+                  ? params.cursor.createdAt
+                  : null,
+                p_cursor_star_rating: params.mode === "cursor" && params.cursor
+                  ? params.cursor.starRating ?? null
+                  : null,
+                p_cursor_id: params.mode === "cursor" && params.cursor
+                  ? params.cursor.id
+                  : null,
+              },
+            );
 
             if (error || !batch || !Array.isArray(batch)) {
-              console.error("Database search query failed", error?.code ? `code: ${error.code}` : "");
+              console.error("Database search query failed");
               return recipesJsonResponse(
                 {
                   error: {
@@ -958,7 +1072,11 @@ export async function handler(
               );
             }
 
-            if (batch.some((item: { user_id: string }) => item.user_id !== user.id)) {
+            if (
+              batch.some((item: { user_id: string }) =>
+                item.user_id !== user.id
+              )
+            ) {
               console.error("Recipe ownership mismatch detected in list");
               return recipesJsonResponse(
                 {
@@ -971,7 +1089,10 @@ export async function handler(
               );
             }
 
-            if (batch.length > batchLimit && data.length + batchLimit < params.limit) {
+            if (
+              batch.length > batchLimit &&
+              data.length + batchLimit < params.limit
+            ) {
               data.push(...batch.slice(0, batchLimit));
             } else {
               data.push(...batch);
@@ -982,11 +1103,15 @@ export async function handler(
           const pageItems = hasMore ? data.slice(0, params.limit) : data;
 
           if (params.mode === "cursor" && hasMore && pageItems.length > 0) {
-            const lastItem = (pageItems[pageItems.length - 1] as unknown) as SearchRecipeRecord;
+            const lastItem = (pageItems[
+              pageItems.length - 1
+            ] as unknown) as SearchRecipeRecord;
             nextCursor = encodeCursor({
               sort: params.sort,
               ...(params.search ? { search: params.search } : {}),
-              ...(params.search && params.searchMode !== "both" ? { searchMode: params.searchMode } : {}),
+              ...(params.search && params.searchMode !== "both"
+                ? { searchMode: params.searchMode }
+                : {}),
               ...(params.title ? { title: params.title } : {}),
               ...(params.ingredient ? { ingredient: params.ingredient } : {}),
               rank: lastItem.relevance_rank,
@@ -1006,17 +1131,26 @@ export async function handler(
             pattern: string;
           }> = [];
           if (params.title) {
-            searchFilters.push({ column: "title", pattern: formatIlikePattern(params.title) });
+            searchFilters.push({
+              column: "title",
+              pattern: formatIlikePattern(params.title),
+            });
           }
           if (params.ingredient) {
-            searchFilters.push({ column: "ingredients_text", pattern: formatIlikePattern(params.ingredient) });
+            searchFilters.push({
+              column: "ingredients_text",
+              pattern: formatIlikePattern(params.ingredient),
+            });
           }
           const sortOrders: Array<{
             column: "star_rating" | "created_at" | "id";
             options: { ascending: boolean; nullsFirst?: boolean };
           }> = params.sort === "rating"
             ? [
-              { column: "star_rating", options: { ascending: false, nullsFirst: false } },
+              {
+                column: "star_rating",
+                options: { ascending: false, nullsFirst: false },
+              },
               { column: "created_at", options: { ascending: false } },
               { column: "id", options: { ascending: true } },
             ]
@@ -1043,7 +1177,9 @@ export async function handler(
                   `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
                 );
               } else {
-                if (cursor.starRating !== null && cursor.starRating !== undefined) {
+                if (
+                  cursor.starRating !== null && cursor.starRating !== undefined
+                ) {
                   listQuery = listQuery.or(
                     `star_rating.lt.${cursor.starRating},star_rating.is.null,and(star_rating.eq.${cursor.starRating},created_at.lt.${cursor.createdAt}),and(star_rating.eq.${cursor.starRating},created_at.eq.${cursor.createdAt},id.gt.${cursor.id})`,
                   );
@@ -1070,7 +1206,7 @@ export async function handler(
           const { data, error } = await listQuery;
 
           if (error || !data || !Array.isArray(data)) {
-            console.error("Database list query failed", error?.code ? `code: ${error.code}` : "");
+            console.error("Database list query failed");
             return recipesJsonResponse(
               {
                 error: {
@@ -1082,7 +1218,9 @@ export async function handler(
             );
           }
 
-          if (data.some((item: { user_id: string }) => item.user_id !== user.id)) {
+          if (
+            data.some((item: { user_id: string }) => item.user_id !== user.id)
+          ) {
             console.error("Recipe ownership mismatch detected in list");
             return recipesJsonResponse(
               {
@@ -1099,7 +1237,9 @@ export async function handler(
             hasMore = data.length > params.limit;
             recipesData = hasMore ? data.slice(0, params.limit) : data;
             if (hasMore && recipesData.length > 0) {
-              const lastItem = (recipesData[recipesData.length - 1] as unknown) as SearchRecipeRecord;
+              const lastItem = (recipesData[
+                recipesData.length - 1
+              ] as unknown) as SearchRecipeRecord;
               nextCursor = encodeCursor({
                 sort: params.sort,
                 ...(params.title ? { title: params.title } : {}),
@@ -1111,7 +1251,10 @@ export async function handler(
             }
           } else {
             hasMore = data.length > params.limit;
-            if (!hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT && data.length === params.limit) {
+            if (
+              !hasMore && params.limit === MAX_OFFSET_PAGE_LIMIT &&
+              data.length === params.limit
+            ) {
               let continuationQuery = supabase
                 .from("recipes")
                 .select("id")
@@ -1125,12 +1268,13 @@ export async function handler(
               }
 
               const continuationOffset = params.offset + params.limit;
-              const { data: continuationData, error: continuationError } = await continuationQuery.range(
-                continuationOffset,
-                continuationOffset,
-              );
+              const { data: continuationData, error: continuationError } =
+                await continuationQuery.range(
+                  continuationOffset,
+                  continuationOffset,
+                );
               if (continuationError || !Array.isArray(continuationData)) {
-                console.error("Database continuation probe failed", continuationError?.code ? `code: ${continuationError.code}` : "");
+                console.error("Database continuation probe failed");
                 return recipesJsonResponse(
                   {
                     error: {
@@ -1153,8 +1297,13 @@ export async function handler(
           has_more: hasMore,
         });
         if (!listValidation.success) {
-          const invalidPaths = listValidation.error.issues.map((issue) => issue.path.join(".")).join(", ");
-          console.error("Recipe list response validation failed on paths:", invalidPaths);
+          const invalidPaths = listValidation.error.issues.map((issue) =>
+            issue.path.join(".")
+          ).join(", ");
+          console.error(
+            "Recipe list response validation failed on paths:",
+            invalidPaths,
+          );
           return recipesJsonResponse(
             {
               error: {
@@ -1169,20 +1318,55 @@ export async function handler(
         return recipesJsonResponse(listValidation.data, { status: 200 });
       }
 
-      let rawBody: string;
-      try {
-        rawBody = await req.text();
-      } catch {
+      if (!isJsonRequest(req)) {
         return recipesJsonResponse(
           {
             error: {
-              code: "INVALID_JSON",
-              message: "Request body must be a valid JSON object.",
+              code: "UNSUPPORTED_MEDIA_TYPE",
+              message: "Content-Type must be application/json.",
             },
           },
-          { status: 400 },
+          { status: 415 },
         );
       }
+
+      const declaredLength = req.headers.get("content-length");
+      if (declaredLength !== null) {
+        const declaredBytes = Number(declaredLength);
+        if (
+          Number.isSafeInteger(declaredBytes) &&
+          declaredBytes > MAX_RECIPE_REQUEST_BYTES
+        ) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INPUT_TOO_LARGE",
+                message:
+                  `Request body must be at most ${MAX_RECIPE_REQUEST_BYTES} bytes.`,
+              },
+            },
+            { status: 413 },
+          );
+        }
+      }
+
+      const read = await readBodyWithinByteLimit(req, MAX_RECIPE_REQUEST_BYTES);
+      if (!read.ok) {
+        return recipesJsonResponse(
+          {
+            error: {
+              code: read.reason === "too_large"
+                ? "INPUT_TOO_LARGE"
+                : "INVALID_JSON",
+              message: read.reason === "too_large"
+                ? `Request body must be at most ${MAX_RECIPE_REQUEST_BYTES} bytes.`
+                : "Request body must be a valid JSON object.",
+            },
+          },
+          { status: read.reason === "too_large" ? 413 : 400 },
+        );
+      }
+      const rawBody = read.text;
 
       if (!rawBody || rawBody.trim().length === 0) {
         return recipesJsonResponse(
@@ -1267,7 +1451,7 @@ export async function handler(
 
       const record = normalizeRecord(data);
       if (error || !record) {
-        console.error("Database insert failed", error?.code ? `code: ${error.code}` : "");
+        console.error("Database insert failed");
         return recipesJsonResponse(
           {
             error: {
@@ -1292,10 +1476,17 @@ export async function handler(
         );
       }
 
-      const responseValidation = RecipeResponseSchema.safeParse({ recipe: record });
+      const responseValidation = RecipeResponseSchema.safeParse({
+        recipe: record,
+      });
       if (!responseValidation.success) {
-        const invalidPaths = responseValidation.error.issues.map((issue) => issue.path.join(".")).join(", ");
-        console.error("Recipe response validation failed on paths:", invalidPaths);
+        const invalidPaths = responseValidation.error.issues.map((issue) =>
+          issue.path.join(".")
+        ).join(", ");
+        console.error(
+          "Recipe response validation failed on paths:",
+          invalidPaths,
+        );
         return recipesJsonResponse(
           {
             error: {
@@ -1333,15 +1524,30 @@ export async function handler(
       const childId = paramValidation.data.id;
 
       if (req.method === "POST") {
+        if (!isJsonRequest(req)) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "UNSUPPORTED_MEDIA_TYPE",
+                message: "Content-Type must be application/json.",
+              },
+            },
+            { status: 415 },
+          );
+        }
         const declaredLength = req.headers.get("content-length");
         if (declaredLength !== null) {
           const declaredBytes = Number(declaredLength);
-          if (Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_LINEAGE_REQUEST_BYTES) {
+          if (
+            Number.isSafeInteger(declaredBytes) &&
+            declaredBytes > MAX_LINEAGE_REQUEST_BYTES
+          ) {
             return recipesJsonResponse(
               {
                 error: {
                   code: "INPUT_TOO_LARGE",
-                  message: `Request body must be at most ${MAX_LINEAGE_REQUEST_BYTES} bytes.`,
+                  message:
+                    `Request body must be at most ${MAX_LINEAGE_REQUEST_BYTES} bytes.`,
                 },
               },
               { status: 413 },
@@ -1349,14 +1555,18 @@ export async function handler(
           }
         }
 
-        const read = await readBodyWithinByteLimit(req, MAX_LINEAGE_REQUEST_BYTES);
+        const read = await readBodyWithinByteLimit(
+          req,
+          MAX_LINEAGE_REQUEST_BYTES,
+        );
         if (!read.ok) {
           if (read.reason === "too_large") {
             return recipesJsonResponse(
               {
                 error: {
                   code: "INPUT_TOO_LARGE",
-                  message: `Request body must be at most ${MAX_LINEAGE_REQUEST_BYTES} bytes.`,
+                  message:
+                    `Request body must be at most ${MAX_LINEAGE_REQUEST_BYTES} bytes.`,
                 },
               },
               { status: 413 },
@@ -1433,7 +1643,9 @@ export async function handler(
         }
 
         const parentIds = validation.data.parent_recipe_ids;
-        if (parentIds.some((id) => id.toLowerCase() === childId.toLowerCase())) {
+        if (
+          parentIds.some((id) => id.toLowerCase() === childId.toLowerCase())
+        ) {
           return recipesJsonResponse(
             {
               error: {
@@ -1459,9 +1671,13 @@ export async function handler(
         // reveals another user's data.
         let candidateTokenSecret: string;
         try {
-          candidateTokenSecret = resolveCandidateTokenSecret(deps?.candidateTokenSecret);
+          candidateTokenSecret = resolveCandidateTokenSecret(
+            deps?.candidateTokenSecret,
+          );
         } catch {
-          console.error("AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing lineage save.");
+          console.error(
+            "AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing lineage save.",
+          );
           return recipesJsonResponse(
             {
               error: {
@@ -1473,12 +1689,17 @@ export async function handler(
           );
         }
 
-        const tokenVerification = await verifyCandidateToken(validation.data.candidate_token, {
-          userId: user.id,
-          secret: candidateTokenSecret,
-        });
+        const tokenVerification = await verifyCandidateToken(
+          validation.data.candidate_token,
+          {
+            userId: user.id,
+            secret: candidateTokenSecret,
+          },
+        );
         if (!tokenVerification.ok) {
-          const rejection = lineageCandidateTokenRejection(tokenVerification.reason);
+          const rejection = lineageCandidateTokenRejection(
+            tokenVerification.reason,
+          );
           return recipesJsonResponse(
             {
               error: {
@@ -1505,7 +1726,7 @@ export async function handler(
           .maybeSingle();
 
         if (childError) {
-          console.error("Database child recipe verification failed", childError?.code ? `code: ${childError.code}` : "");
+          console.error("Database child recipe verification failed");
           return recipesJsonResponse(
             {
               error: {
@@ -1537,7 +1758,7 @@ export async function handler(
           .eq("user_id", user.id);
 
         if (parentsError || !Array.isArray(parentsData)) {
-          console.error("Database parent recipes verification failed", parentsError?.code ? `code: ${parentsError.code}` : "");
+          console.error("Database parent recipes verification failed");
           return recipesJsonResponse(
             {
               error: {
@@ -1549,7 +1770,10 @@ export async function handler(
           );
         }
 
-        if (parentsData.length !== parentIds.length || parentsData.some((p: { user_id: string }) => p.user_id !== user.id)) {
+        if (
+          parentsData.length !== parentIds.length ||
+          parentsData.some((p: { user_id: string }) => p.user_id !== user.id)
+        ) {
           return recipesJsonResponse(
             {
               error: {
@@ -1573,12 +1797,14 @@ export async function handler(
             {
               error: {
                 code: "FORBIDDEN",
-                message: "Selected parent recipe is not part of this generation's candidates.",
+                message:
+                  "Selected parent recipe is not part of this generation's candidates.",
                 details: [
                   {
                     path: "parent_recipe_ids",
                     code: "not_a_candidate",
-                    message: "One or more selected parents are not part of this generation's candidates.",
+                    message:
+                      "One or more selected parents are not part of this generation's candidates.",
                   },
                 ],
               },
@@ -1631,7 +1857,7 @@ export async function handler(
               { status: 404 },
             );
           }
-          console.error("Database lineage insert failed", insertError.code ? `code: ${insertError.code}` : "");
+          console.error("Database lineage insert failed");
           return recipesJsonResponse(
             {
               error: {
@@ -1655,7 +1881,9 @@ export async function handler(
           );
         }
 
-        const responseValidation = LineageResponseSchema.safeParse({ lineage: insertedData });
+        const responseValidation = LineageResponseSchema.safeParse({
+          lineage: insertedData,
+        });
         if (!responseValidation.success) {
           console.error("Lineage response validation failed");
           return recipesJsonResponse(
@@ -1680,7 +1908,7 @@ export async function handler(
         .maybeSingle();
 
       if (childError) {
-        console.error("Database child recipe verification failed", childError?.code ? `code: ${childError.code}` : "");
+        console.error("Database child recipe verification failed");
         return recipesJsonResponse(
           {
             error: {
@@ -1713,7 +1941,7 @@ export async function handler(
         .order("id", { ascending: true });
 
       if (lineageError || !Array.isArray(lineageData)) {
-        console.error("Database lineage query failed", lineageError?.code ? `code: ${lineageError.code}` : "");
+        console.error("Database lineage query failed");
         return recipesJsonResponse(
           {
             error: {
@@ -1725,7 +1953,9 @@ export async function handler(
         );
       }
 
-      const getResponseValidation = LineageResponseSchema.safeParse({ lineage: lineageData });
+      const getResponseValidation = LineageResponseSchema.safeParse({
+        lineage: lineageData,
+      });
       if (!getResponseValidation.success) {
         console.error("Lineage response validation failed");
         return recipesJsonResponse(
@@ -1774,7 +2004,7 @@ export async function handler(
         .maybeSingle();
 
       if (error) {
-        console.error("Database detail query failed", error?.code ? `code: ${error.code}` : "");
+        console.error("Database detail query failed");
         return recipesJsonResponse(
           {
             error: {
@@ -1812,10 +2042,17 @@ export async function handler(
         );
       }
 
-      const detailValidation = RecipeResponseSchema.safeParse({ recipe: record });
+      const detailValidation = RecipeResponseSchema.safeParse({
+        recipe: record,
+      });
       if (!detailValidation.success) {
-        const invalidPaths = detailValidation.error.issues.map((issue) => issue.path.join(".")).join(", ");
-        console.error("Recipe detail response validation failed on paths:", invalidPaths);
+        const invalidPaths = detailValidation.error.issues.map((issue) =>
+          issue.path.join(".")
+        ).join(", ");
+        console.error(
+          "Recipe detail response validation failed on paths:",
+          invalidPaths,
+        );
         return recipesJsonResponse(
           {
             error: {
@@ -1831,20 +2068,55 @@ export async function handler(
     }
 
     if (req.method === "PATCH") {
-      let rawBody: string;
-      try {
-        rawBody = await req.text();
-      } catch {
+      if (!isJsonRequest(req)) {
         return recipesJsonResponse(
           {
             error: {
-              code: "INVALID_JSON",
-              message: "Request body must be a valid JSON object.",
+              code: "UNSUPPORTED_MEDIA_TYPE",
+              message: "Content-Type must be application/json.",
             },
           },
-          { status: 400 },
+          { status: 415 },
         );
       }
+
+      const declaredLength = req.headers.get("content-length");
+      if (declaredLength !== null) {
+        const declaredBytes = Number(declaredLength);
+        if (
+          Number.isSafeInteger(declaredBytes) &&
+          declaredBytes > MAX_RECIPE_REQUEST_BYTES
+        ) {
+          return recipesJsonResponse(
+            {
+              error: {
+                code: "INPUT_TOO_LARGE",
+                message:
+                  `Request body must be at most ${MAX_RECIPE_REQUEST_BYTES} bytes.`,
+              },
+            },
+            { status: 413 },
+          );
+        }
+      }
+
+      const read = await readBodyWithinByteLimit(req, MAX_RECIPE_REQUEST_BYTES);
+      if (!read.ok) {
+        return recipesJsonResponse(
+          {
+            error: {
+              code: read.reason === "too_large"
+                ? "INPUT_TOO_LARGE"
+                : "INVALID_JSON",
+              message: read.reason === "too_large"
+                ? `Request body must be at most ${MAX_RECIPE_REQUEST_BYTES} bytes.`
+                : "Request body must be a valid JSON object.",
+            },
+          },
+          { status: read.reason === "too_large" ? 413 : 400 },
+        );
+      }
+      const rawBody = read.text;
 
       if (!rawBody || rawBody.trim().length === 0) {
         return recipesJsonResponse(
@@ -1943,7 +2215,7 @@ export async function handler(
         .maybeSingle();
 
       if (error) {
-        console.error("Database update failed", error?.code ? `code: ${error.code}` : "");
+        console.error("Database update failed");
         return recipesJsonResponse(
           {
             error: {
@@ -1981,10 +2253,17 @@ export async function handler(
         );
       }
 
-      const patchValidation = RecipeResponseSchema.safeParse({ recipe: record });
+      const patchValidation = RecipeResponseSchema.safeParse({
+        recipe: record,
+      });
       if (!patchValidation.success) {
-        const invalidPaths = patchValidation.error.issues.map((issue) => issue.path.join(".")).join(", ");
-        console.error("Recipe response validation failed on paths:", invalidPaths);
+        const invalidPaths = patchValidation.error.issues.map((issue) =>
+          issue.path.join(".")
+        ).join(", ");
+        console.error(
+          "Recipe response validation failed on paths:",
+          invalidPaths,
+        );
         return recipesJsonResponse(
           {
             error: {
@@ -2009,7 +2288,7 @@ export async function handler(
         .maybeSingle();
 
       if (error) {
-        console.error("Database delete failed", error?.code ? `code: ${error.code}` : "");
+        console.error("Database delete failed");
         return recipesJsonResponse(
           {
             error: {
@@ -2047,7 +2326,8 @@ export async function handler(
       {
         error: {
           code: "METHOD_NOT_ALLOWED",
-          message: "Only GET, PATCH, DELETE, and OPTIONS methods are supported.",
+          message:
+            "Only GET, PATCH, DELETE, and OPTIONS methods are supported.",
         },
       },
       {
@@ -2069,6 +2349,18 @@ export async function handler(
       { status: 500 },
     );
   }
+}
+
+export async function handler(
+  req: Request,
+  deps?: RecipesHandlerDeps,
+): Promise<Response> {
+  const requestId = createRequestId();
+  const response = await handleRequest(req, deps);
+  if (response.status >= 500) {
+    logRequestFailure(requestId, "recipes", response.status);
+  }
+  return withRequestId(response, requestId);
 }
 
 if (import.meta.main) {

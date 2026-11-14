@@ -134,5 +134,13 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible()
     await expect(page.getByRole('listitem').filter({ hasText: 'free-range chicken' })).toBeVisible()
     await expect(page.getByRole('listitem').filter({ hasText: 'Cook the chicken slowly until tender.' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Delete recipe' }).click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog.getByRole('heading', { name: `Delete “${reviewedTitle}”?` })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Delete recipe' }).click()
+    await expect(page).toHaveURL(/\/app(?:\/recipes)?$/)
+    await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: reviewedTitle })).toHaveCount(0)
   })
 })

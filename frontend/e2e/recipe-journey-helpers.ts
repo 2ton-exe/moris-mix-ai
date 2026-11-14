@@ -19,7 +19,7 @@ export async function waitForCollection(page: Page) {
   await expect(
     page.getByRole('heading', { name: 'A fresh page for your next favorite.' })
       .or(page.getByRole('heading', { name: 'No recipes match your search.' }))
-      .or(page.locator('[data-recipe-id]').first()),
+      .or(page.getByRole('list', { name: 'Recipes on page 1' }).getByRole('listitem').first()),
   ).toBeVisible({ timeout: 30_000 })
 }
 

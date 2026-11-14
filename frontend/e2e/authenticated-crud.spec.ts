@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
+import { createRecipe, navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeContents(page) {
   await expect(
