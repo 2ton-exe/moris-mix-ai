@@ -108,11 +108,27 @@ function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe t
 
 it.each([
   ['/app/recipes/new', '/app/recipes/new'],
+  ['/app/quick-entry/review', '/app/quick-entry/review'],
   ['/app/recipes/recipe-a/edit', '/app/recipes/:recipeId/edit'],
   ['/app/recipes', 'recipes'],
+  ['/app/quick-entry', 'quick-entry'],
 ])('keeps the production data-router route tree matching %s', (path, expectedRoute) => {
   const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), path)
   expect(matches?.at(-1)?.route.path).toBe(expectedRoute)
+})
+
+it('keeps Quick AI Entry under the protected app routes and account-scoped query provider', () => {
+  const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry')
+  expect(matches?.at(-1)?.route.path).toBe('quick-entry')
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
+})
+
+it('keeps the extracted recipe review route protected and under the recipe query provider', () => {
+  const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry/review')
+  expect(matches?.at(-1)?.route.path).toBe('/app/quick-entry/review')
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
+  expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
 })
 
 it.each(['/app/recipes/new', '/app/recipes/recipe-a/edit', '/app/recipes/recipe-a'])(
@@ -135,8 +151,30 @@ it('gates an edit deep link without exposing existing recipe values', () => {
   expect(screen.queryByDisplayValue(draft.title)).toBeNull()
 })
 
+it('keeps fields on both facing pages in one native form and submits them together', async () => {
+  const save = vi.fn().mockResolvedValue({ id: 'recipe-a' })
+  render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), save }))
+  const form = screen.getByRole('form', { name: 'Edit recipe' }) as HTMLFormElement
+  expect(document.querySelectorAll('form')).toHaveLength(1)
+  for (const label of ['Recipe title', 'Cooked date', 'Rating', 'Notes']) {
+    const field = screen.getByLabelText(label) as HTMLInputElement
+    expect(field.closest('.mm-journal-flyleaf')).toBeTruthy()
+    expect(field.form).toBe(form)
+    expect(form.elements.namedItem(field.name)).toBe(field)
+  }
+  const ingredient = screen.getByLabelText('Ingredient 1 name') as HTMLInputElement
+  expect(ingredient.closest('.mm-journal-page')).toBeTruthy()
+  expect(ingredient.form).toBe(form)
+  title('Both pages are one recipe')
+  fireEvent.change(ingredient, { target: { value: 'rice from the right page' } })
+  click('Save changes')
+  await screen.findByText('Recipe saved.')
+  expect(save).toHaveBeenCalledTimes(1)
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ title: 'Both pages are one recipe', ingredients: expect.arrayContaining([expect.objectContaining({ name: 'rice from the right page' })]) }), expect.anything())
+  expect(screen.getByRole('button', { name: 'Save changes' }).closest('.mm-journal-page-footer')).toBeTruthy()
+})
+
 it('sends a normalized create draft with account identity and cancellation to the injected adapter', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const save = vi.fn().mockResolvedValue({ id: 'created' })
   const accountList = recipeKeys.lists('cook-a')
   const otherAccountList = recipeKeys.lists('cook-b')
@@ -156,7 +194,7 @@ it('sends a normalized create draft with account identity and cancellation to th
   expect(queryClient.getQueryState(discovery)?.isInvalidated).toBe(true)
   expect(queryClient.getQueryState(otherDiscovery)?.isInvalidated).toBe(false)
   click('Back to journal')
-  expect(confirm).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
 })
 
@@ -177,51 +215,64 @@ it('updates the just-created recipe on subsequent saves instead of creating a du
 })
 
 it('blocks internal links and programmatic navigation once per attempt while preserving the draft', () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(tree())
   title('Do not lose this draft')
 
-  fireEvent.click(screen.getByRole('link', { name: 'Internal journal link' }))
-  expect(confirm).toHaveBeenCalledOnce()
+  const internalLink = screen.getByRole('link', { name: 'Internal journal link' })
+  internalLink.focus()
+  fireEvent.click(internalLink)
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
   expect(screen.getByDisplayValue('Do not lose this draft')).toBeTruthy()
+  const keepEditing = screen.getByRole('button', { name: 'Keep Editing' })
+  const discardChanges = screen.getByRole('button', { name: 'Discard Changes' })
+  expect(keepEditing).toBe(document.activeElement)
+  discardChanges.focus()
+  fireEvent.keyDown(discardChanges, { key: 'Tab' })
+  expect(keepEditing).toBe(document.activeElement)
+  keepEditing.focus()
+  fireEvent.keyDown(keepEditing, { key: 'Tab', shiftKey: true })
+  expect(discardChanges).toBe(document.activeElement)
+  fireEvent.keyDown(discardChanges, { key: 'Escape' })
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(internalLink).toBe(document.activeElement)
 
   fireEvent.click(screen.getByRole('button', { name: 'Programmatic journal navigation' }))
-  expect(confirm).toHaveBeenCalledTimes(2)
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Keep Editing')
   expect(screen.getByDisplayValue('Do not lose this draft')).toBeTruthy()
 })
 
 it('uses one confirmation for the editor Back button and proceeds when the user leaves', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
   render(tree())
   title('Leave after confirmation')
   click('Back to journal')
-  expect(confirm).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Discard Changes')
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
 })
 
 it('blocks browser back navigation and keeps the create form when the user stays', () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(tree())
   title('Keep me here')
   fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))
-  expect(confirm).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Keep Editing')
   expect(screen.getByDisplayValue('Keep me here')).toBeTruthy()
 })
 
 it('blocks browser forward navigation when it would leave the form', () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(tree({
     history: ['/app', '/app/recipes/new', '/app/other'],
     initialIndex: 1,
   }))
   title('Keep this draft on forward')
   fireEvent.click(screen.getByRole('button', { name: 'Browser forward' }))
-  expect(confirm).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Keep Editing')
   expect(screen.getByDisplayValue('Keep this draft on forward')).toBeTruthy()
 })
 
 it('keeps a pending save on Stay and aborts it when confirmed navigation leaves the route', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const accountList = recipeKeys.lists('cook-a')
   queryClient.setQueryData(accountList, [])
   let resolve!: (value: { id: string }) => void
@@ -232,12 +283,14 @@ it('keeps a pending save on Stay and aborts it when confirmed navigation leaves 
   const signal = save.mock.calls[0][1].signal as AbortSignal
 
   click('Programmatic journal navigation')
-  expect(confirm).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Keep Editing')
   expect(screen.getByDisplayValue('Pending route draft')).toBeTruthy()
   expect(signal.aborted).toBe(false)
 
-  confirm.mockReturnValue(true)
   click('Programmatic journal navigation')
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Discard Changes')
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
   expect(signal.aborted).toBe(true)
   await act(async () => resolve({ id: 'created-after-leave' }))
@@ -246,52 +299,49 @@ it('keeps a pending save on Stay and aborts it when confirmed navigation leaves 
 })
 
 it('blocks navigation to another recipe without replacing the current edit draft', () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record() }))
   title('Current recipe draft')
   fireEvent.click(screen.getByRole('button', { name: 'Navigate to another recipe' }))
-  expect(confirm).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  click('Keep Editing')
   expect(screen.getByDisplayValue('Current recipe draft')).toBeTruthy()
 })
 
 it('loads the new recipe after confirmed navigation between edit IDs without carrying the old draft', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), loadMatchingRecordOnRouteChange: true }))
   title('Unsaved recipe A')
 
   click('Navigate to another recipe')
+  click('Discard Changes')
   expect((await screen.findByLabelText('Recipe title') as HTMLInputElement).value).toBe(draft.title)
   expect(screen.queryByDisplayValue('Unsaved recipe A')).toBeNull()
 })
 
 it('allows the FE-03 protected-route redirect to login without trapping an expired session', () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const view = render(tree())
   title('Private unsaved draft')
   view.rerender(tree({ state: authState(null) }))
   expect(screen.getByRole('heading', { name: 'Login required' })).toBeTruthy()
-  expect(confirm).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alertdialog')).toBeNull()
 })
 
 it('clears the old account blocker when a form resets for a different user', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   const view = render(tree())
   title('Account A draft')
   view.rerender(tree({ state: authState('cook-b') }))
   expect(screen.queryByDisplayValue('Account A draft')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Programmatic journal navigation' }))
-  expect(confirm).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(await screen.findByRole('heading', { name: 'Journal' })).toBeTruthy()
 })
 
 it('does not prompt after a confirmed save when leaving the page', async () => {
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(tree({ save: vi.fn().mockResolvedValue({ id: 'created' }) }))
   title('Confirmed recipe')
   click('Save recipe')
   await screen.findByText('Recipe saved.')
   fireEvent.click(screen.getByRole('button', { name: 'Programmatic journal navigation' }))
-  expect(confirm).not.toHaveBeenCalled()
+  expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(screen.getByRole('heading', { name: 'Journal' })).toBeTruthy()
 })
 

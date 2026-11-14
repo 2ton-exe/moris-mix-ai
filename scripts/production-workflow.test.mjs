@@ -370,14 +370,15 @@ test('main validation covers current authoritative Edge/API targets and mandator
     // current recipe, auth, AI and recipe-image targets independently asserted.
     const targets = step(edge.jobs['test-edge-api'], name).run.split(/\s+/).filter(s => s.startsWith('supabase/'));
     const tests = ['demo_recipe', 'auth', 'recipes', 'ai_contracts', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
-      'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
+      'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'recipe_image_lifecycle', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
       .map(name => `supabase/functions/tests/${name}_test.ts`);
     const expected = name.startsWith('Type-check') ? [
       'supabase/functions/_shared/auth.ts', 'supabase/functions/_shared/ai/recipeContext.ts',
       'supabase/functions/_shared/recipe-images/schemas.ts', 'supabase/functions/_shared/recipe-images/r2.ts',
+      'supabase/functions/_shared/recipe-images/lifecycle.ts',
       'supabase/functions/_shared/recipe-images/uploadIntents.ts',
       'supabase/functions/_shared/recipe-images/uploadCleanup.ts',
-      ...['demo-recipe', 'auth-session', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
+      ...['demo-recipe', 'auth-session', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup', 'recipe-image-attach', 'recipe-image-download-url', 'recipe-image-delete', 'recipe-image-final-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
       'supabase/functions/tests/auth_rls_integration_test.ts', ...tests,
     ] : tests;
     assert.deepEqual(targets.sort(), expected.sort());

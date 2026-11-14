@@ -1,0 +1,69 @@
+/* Shared journal content compositions. The cover geometry lives in journal-shell.css. */
+.mm-desk-companion { position: relative; width: min(calc(100% - 48px), 1040px); margin: 28px auto 0; }
+.mm-desk-companion:empty { display: none; }
+.mm-desk-companion .mm-mori-companion { margin: 0; }
+.mm-desk .journal-footer { margin-top: auto; padding-top: 20px; color: var(--mm-color-ink-soft); font: 12px/1.6 var(--mm-font-sans); }
+.mm-desk .journal-footer a { display: inline-block; padding-block: 8px; text-decoration: underline; text-underline-offset: 3px; }
+.mm-desk footer span { color: inherit; padding: 0; }
+.mm-page-turns { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--mm-border-paper); }
+.mm-facing-content--index { gap: 22px; }
+.mm-facing-content--index .journal-heading { gap: 10px; }
+.mm-facing-content--index .journal-heading h1 { font-size: clamp(28px, 2.5vw, 34px); }
+.mm-facing-content--index .discovery-fields { gap: 12px; }
+.mm-facing-content--index .discovery-fields label { font-size: 12px; letter-spacing: .03em; text-transform: none; }
+.mm-facing-content--index .discovery-fields label:last-child { grid-column: auto; }
+.mm-facing-content--index .discovery-fields :is(input, select) { min-height: 44px; border-radius: 3px; font-size: 15px; padding: 9px; }
+.mm-facing-content--index .discovery-availability { font-size: 13px; line-height: 1.55; }
+.mm-journal-page .recipe-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 5px 0 10px; }
+.mm-journal-page .recipe-card.mm-recipe-card { grid-template-columns: 100px minmax(0, 1fr); min-height: 184px; height: auto; gap: 15px; padding: 21px 14px 14px; }
+.mm-journal-page .mm-recipe-card h2 { font-size: 22px; line-height: 1.2; }
+.mm-journal-page .mm-recipe-card__stamp { font-size: 10px; }
+.mm-journal-page .recipe-card-link { font-size: 12px; letter-spacing: .03em; }
+.mm-recipe-card__copy { padding-top: 6px; }
+.mm-recipe-empty { min-height: 0; padding: 22px 10px; }
+.mm-recipe-empty__card { padding: 24px 16px; }
+.mm-recipe-empty__card > .mm-mori { width: 90px; }
+.mm-recipe-empty__card h2 { font-size: 28px; }
+.mm-desk--demo .recipe { max-width: none; }
+.mm-desk--demo .recipe > .mm-recipe-detail__header h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.12; }
+.mm-desk--demo .recipe section { margin-top: 0; }
+.mm-desk--demo .recipe section h3 { font-size: 23px; }
+.mm-desk--demo .recipe p { color: var(--mm-color-ink-soft); }
+.mm-demo-sheet .mm-recipe-detail__flavors { margin-top: 8px; }
+.mm-demo-sheet .flavor-scores > div { background: rgb(255 252 243 / .55); border-color: var(--mm-border-paper); border-radius: 3px; }
+.mm-demo-sheet .flavor-scores dt { color: var(--mm-color-ink-soft); }
+.mm-public-page { gap: 12px; }
+.mm-public-page h1 { margin-top: 12px; }
+.mm-public-page > .mm-stamp { align-self: flex-start; }
+.mm-public-page .actions { margin-top: 12px; gap: 12px; }
+.mm-public-note { margin: 12px 0; padding: 14px 18px; border-block: 1px dashed var(--mm-border-paper); }
+.mm-public-note p { margin: 8px 0; }
+.mm-public-note .mm-handwriting { font: 500 24px/1.4 var(--mm-font-hand); color: var(--mm-color-burgundy-700); }
+@media (max-width: 540px) {
+  .mm-desk-companion { width: calc(100% - 20px); }
+  .mm-public-page .actions { align-items: stretch; flex-direction: column; }
+  .mm-journal-page .recipe-card.mm-recipe-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .mm-journal-page .recipe-card.mm-recipe-card .mm-recipe-artwork { width: 140px; }
+  .mm-page-turns .button { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mm-desk .button { transition: none; }
+  .mm-desk .button:hover, .mm-desk .button:active { transform: none; }
+}
+
+/* Reading and demonstration pages use the full width of each facing leaf. */
+.mm-desk--reading .mm-recipe-detail__sections,
+.mm-desk--demo .mm-recipe-detail__sections { grid-template-columns: minmax(0, 1fr); }
+.mm-facing-content--demo + .mm-facing-content--demo { margin-top: 24px; }
+.mm-facing-content--demo .mm-recipe-detail__header { display: flex; flex-direction: column; align-items: flex-start; }
+.mm-facing-content--demo .mm-recipe-detail__header h2 { font-size: 28px; line-height: 1.2; }
+.mm-facing-content--demo .mm-recipe-artwork { width: min(65%, 220px); align-self: center; }
+.mm-facing-content--recipe .mm-recipe-detail__header { gap: 16px; }
+.mm-facing-content--recipe .mm-recipe-artwork--detail { width: min(48%, 170px); align-self: center; }
+.mm-desk--demo .recipe section { margin-top: 0; }
+.mm-desk--demo .recipe h3 { font-size: 24px; }
+.mm-desk--writing .mm-recipe-form-sheet { padding: 10px; }
+.mm-desk--writing .recipe-form-section { padding-inline: 12px; }
+.mm-desk--writing .recipe-amount-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.mm-journal-page > *, .mm-facing-content > * { flex-shrink: 0; }
+.mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread { scroll-behavior: auto; }

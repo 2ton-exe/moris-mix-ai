@@ -5,6 +5,7 @@ export function getCorsHeaders(allowedMethods = "GET, OPTIONS"): Record<string, 
     "Access-Control-Allow-Origin": isCustomOrigin ? allowedOrigin.trim() : "*",
     "Access-Control-Allow-Methods": allowedMethods,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Expose-Headers": "Retry-After",
     "X-Content-Type-Options": "nosniff",
   };
   if (isCustomOrigin) {
@@ -17,6 +18,7 @@ export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Expose-Headers": "Retry-After",
   "X-Content-Type-Options": "nosniff",
 };
 

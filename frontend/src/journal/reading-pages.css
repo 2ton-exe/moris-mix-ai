@@ -1,0 +1,54 @@
+/* Physical reading only. Forms and collection cursor pagination keep their layouts. */
+.mm-desk .mm-continuation, .mm-desk .mm-continuation-facing { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.mm-desk .mm-recipe-detail:has(.mm-continuation) { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.mm-desk .mm-continuation-body { flex: 1 1 0; min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 4px; scroll-padding: 8px; }
+.mm-desk .mm-continuation-body:focus-visible { outline-offset: -3px; }
+.mm-desk .mm-continuation-left { margin-bottom: 12px; }
+.mm-desk .mm-reading-identity { min-height: 0; padding-bottom: 12px; }
+.mm-desk .mm-reading-left-folio { flex: none; padding-top: 8px; border-top: 1.5px dashed rgb(120 92 60 / .3); }
+.mm-reading-running-head { flex: none; min-height: 42px; margin-bottom: 12px; display: flex; align-items: center; color: var(--mm-color-ink-soft); font: 500 18px/1.2 var(--mm-font-hand); }
+.mm-reading-request-status { flex: none; }
+.mm-reading-request-status:empty { display: none; }
+.mm-desk .mm-reading-unit { margin: 0; padding: 0; transform: none; box-shadow: none; background: none; }
+.mm-desk .mm-reading-unit + .mm-reading-unit, .mm-unit-group + .mm-unit-group { margin-top: 10px; }
+.mm-unit-group { margin: 0; }
+.mm-continuation-title { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+.mm-reading-unit .mm-unit-heading { margin: 0 0 8px; }
+.mm-desk .mm-reading-unit .mm-unit-heading h2 { font-size: 21px; }
+.mm-continued { color: var(--mm-color-ink-soft); font: 400 13px/1.2 var(--mm-font-sans); }
+.mm-unit-content { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 0 3px; }
+.mm-unit-content:focus-visible { outline-offset: -3px; }
+.mm-unit-fallback .mm-unit-content { border: 1px dashed var(--mm-color-kraft-500); }
+.mm-desk .mm-reading-unit .mm-long-entry { margin: 0 0 8px; color: var(--mm-color-ink-soft); font: 500 12px/1.4 var(--mm-font-sans); }
+.mm-unit-content > p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mm-desk .mm-reading-unit.mm-reading-notes { padding: 18px 18px 24px; background: #fffdf6 var(--mm-tex-grain); box-shadow: var(--mm-shadow-paper); }
+.mm-desk .mm-reading-unit.mm-reading-notes .mm-unit-content { font: italic 400 16px/1.75 var(--mm-font-serif); }
+.mm-desk .mm-reading-unit.mm-reading-notes .mm-unit-heading h2 { color: var(--mm-color-burgundy-700); font: 700 11px/1.2 var(--mm-font-sans); letter-spacing: .15em; text-transform: uppercase; }
+.mm-desk .mm-reading-unit .mm-reading-notes__empty { font: 500 19px/1.4 var(--mm-font-hand); }
+.mm-reading-measure { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; contain: layout style; }
+.mm-reading-measure .mm-unit-content { max-height: none; overflow: visible; }
+.mm-reading-measure .mm-reading-unit { position: relative; }
+.mm-reading-measure .mm-long-entry { position: absolute; top: 0; left: 0; right: 0; }
+.mm-reading-measure .mm-reading-notes .mm-long-entry { left: 18px; right: 18px; }
+.mm-reading-turns { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.mm-reading-indicator { color: var(--mm-color-ink-soft); font: 500 13px/1.3 var(--mm-font-sans); text-align: center; }
+.mm-desk .mm-reading-turns .button { flex: 0 1 auto; min-width: 0; padding-inline: 6px; white-space: normal; font-size: 13px; }
+.mm-desk .mm-reading-turns .button:disabled { opacity: .5; cursor: default; }
+.mm-reading-footer:empty { display: none; }
+.mm-reading-end { color: var(--mm-color-ink-soft); font: italic 18px/1.6 var(--mm-font-serif); }
+.mm-reading-fallback-notice { margin: 0 0 12px; padding: 8px; border: 1px dashed var(--mm-color-kraft-500); font: 500 13px/1.4 var(--mm-font-sans); }
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-desk .mm-journal-spread:has(.mm-continuation) { display: flex; flex-direction: column; }
+  .mm-desk .mm-journal-flyleaf:has(.mm-continuation-facing) { display: none; }
+  .mm-desk .mm-journal-page:has(.mm-continuation) { flex: 1 1 0; min-height: 0; padding-top: 16px; padding-bottom: 8px; }
+  .mm-desk .mm-journal-spread:has(.mm-continuation) .mm-journal-page-footer { position: relative; flex: none; bottom: auto; }
+  .mm-reading-running-head { min-height: 32px; margin-bottom: 8px; }
+  .mm-reading-return a { color: var(--mm-color-burgundy-800); font: 650 13px/1.3 var(--mm-font-sans); }
+  .mm-desk .mm-reading-turns .button { font-size: 12px; padding-inline: 3px; }
+  .mm-reading-indicator { font-size: 12px; }
+}
+/* At high zoom / short windows retain a readable body. The existing bounded
+   single-paper scrollport keeps the footer reachable when both cannot fit. */
+@media (max-height: 450px) {
+  .mm-desk .mm-journal-page:has(.mm-continuation) { min-height: 180px; }
+}

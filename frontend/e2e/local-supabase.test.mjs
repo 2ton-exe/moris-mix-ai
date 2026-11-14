@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { URL } from 'node:url'
 import test from 'node:test'
 import {
@@ -59,12 +60,15 @@ test('passes only the minimal local browser environment', () => {
 })
 
 test('local Supabase CLI environment excludes hosted and Docker targets', () => {
-  assert.deepEqual(createSupabaseCliEnvironment({
+  const sourceEnvironment = {
     PATH: '/usr/bin',
     HOME: '/tmp/test-home',
     TMPDIR: '/tmp',
     TERM: 'xterm',
     CI: 'true',
+    SystemRoot: 'C:\\Windows',
+    ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+    PATHEXT: '.COM;.EXE;.BAT;.CMD',
     DOCKER_HOST: 'unix:///var/run/docker.sock',
     DOCKER_CONTEXT: 'desktop-linux',
     DOCKER_CERT_PATH: '/tmp/docker-certs',
@@ -74,14 +78,24 @@ test('local Supabase CLI environment excludes hosted and Docker targets', () => 
     DATABASE_URL: 'postgresql://remote',
     PGPASSWORD: 'remote-secret',
     BE06_TEST_SUPABASE_URL: 'https://hosted.example.test',
-  }), {
+  }
+  const expectedEnvironment = {
     PATH: '/usr/bin',
     HOME: '/tmp/test-home',
     TMPDIR: '/tmp',
     TERM: 'xterm',
     CI: 'true',
     SUPABASE_EXPERIMENTAL_STACK: '1',
-  })
+  }
+  if (process.platform === 'win32') {
+    Object.assign(expectedEnvironment, {
+      SystemRoot: 'C:\\Windows',
+      ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+      PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    })
+  }
+
+  assert.deepEqual(createSupabaseCliEnvironment(sourceEnvironment), expectedEnvironment)
 })
 
 test('retries readiness timeouts while the native function server starts', async (t) => {
