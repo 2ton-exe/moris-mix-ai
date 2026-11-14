@@ -12,7 +12,9 @@ so an expectation here can never drift from the code that serves users.
 | **Live extraction** (`tests/ai_extraction_live.ts`) | Actual Gemini output quality on messy notes | Yes — opt-in, quota-limited |
 
 Measured results, the failure contract and the current limitations are recorded
-in the [AI failure evaluation report](ai-evaluation-report.md).
+in the [AI failure evaluation report](ai-evaluation-report.md). The system-level
+explanation — architecture, prompts, validation, failure behavior and
+non-claims — is in [AI architecture and operations](ai-architecture.md).
 
 ## Dataset
 

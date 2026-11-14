@@ -15,6 +15,25 @@ import type { RecipeFormProps } from './RecipeForm'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
+const PAGE_SCROLL_TOLERANCE = 2
+
+function canScrollInDirection(target: Element, direction: 'up' | 'down') {
+  let current: Element | null = target
+  while (current) {
+    if (current instanceof HTMLElement) {
+      const overflowY = window.getComputedStyle(current).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
+        const remaining = direction === 'down'
+          ? current.scrollHeight - current.clientHeight - current.scrollTop
+          : current.scrollTop
+        if (remaining > PAGE_SCROLL_TOLERANCE) return true
+      }
+    }
+    current = current.parentElement
+  }
+  return false
+}
+
 export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, editorTitle, notesSupported = false, renderFrame, notice }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
@@ -164,12 +183,12 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     lastFocusedControl.current = { key: target.dataset.formFocusKey, start, end, direction }
   }
 
-  function turnToPage(page: number) {
-    if (page < 0 || page >= position.total) return
+  function turnToPage(page: number): boolean {
+    if (page < 0 || page >= position.total) return false
     const firstIndex = single ? page : page * 2
     const leaf = leaves[firstIndex]
-    if (!leaf) return
-    requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => {
+    if (!leaf) return false
+    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => {
       requestedStart.current = firstIndex
       setPageAnchor(leafAnchorForPage(leaf))
       focusRequest.current = 'leaf-heading'
@@ -179,11 +198,15 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
 
   function handlePageKeys(event: KeyboardEvent<HTMLFormElement>) {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-    const target = event.target as HTMLElement
-    if (target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return
+    const target = event.target
+    if (!(target instanceof Element) || target.closest('input, textarea, select, button, a, [contenteditable]:not([contenteditable="false"])')) return
+    const direction = event.key === 'ArrowRight' || event.key === 'PageDown' ? 1
+      : event.key === 'ArrowLeft' || event.key === 'PageUp' ? -1 : 0
+    if (!direction) return
+    if (event.key === 'PageDown' && canScrollInDirection(target, 'down')) return
+    if (event.key === 'PageUp' && canScrollInDirection(target, 'up')) return
     const page = single ? requestedStart.current : Math.floor(requestedStart.current / 2)
-    if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); turnToPage(page + 1) }
-    if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); turnToPage(page - 1) }
+    if (turnToPage(page + direction)) event.preventDefault()
   }
 
   function fieldPathExists(path: string) {
