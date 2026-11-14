@@ -1,0 +1,50 @@
+name: Recipe Image Upload Readiness
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recipe-image-upload-readiness
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify protected Supabase readiness
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: recipe-image-upload-production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install verifier dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify protected Supabase readiness
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_CA_CERT: ${{ secrets.SUPABASE_DATABASE_CA_CERT }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UPLOAD_SIGNING_READINESS_ATTESTATION: ${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          ALLOWED_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_URL }}
+        run: node scripts/verify-upload-signing-readiness.mjs

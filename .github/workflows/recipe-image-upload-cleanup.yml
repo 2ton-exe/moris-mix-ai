@@ -14,22 +14,37 @@ concurrency:
 
 jobs:
   cleanup:
-    if: false
+    if: ${{ github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' }}
     runs-on: ubuntu-latest
+    environment: recipe-image-upload-production
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Invoke recipe image cleanup
         env:
           SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
           RECIPE_IMAGE_CLEANUP_TOKEN: ${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${SUPABASE_URL//[[:space:]]/}" || -z "${RECIPE_IMAGE_CLEANUP_TOKEN//[[:space:]]/}" ]]; then
-            echo "::error::Configure VITE_SUPABASE_URL and RECIPE_IMAGE_CLEANUP_TOKEN before enabling cleanup."
+          if [[ -z "${SUPABASE_URL//[[:space:]]/}" || -z "${SUPABASE_PROJECT_REF//[[:space:]]/}" || -z "${RECIPE_IMAGE_CLEANUP_TOKEN//[[:space:]]/}" ]]; then
+            echo "::error::Configure VITE_SUPABASE_URL, SUPABASE_PROJECT_REF, and RECIPE_IMAGE_CLEANUP_TOKEN before enabling cleanup."
             exit 1
           fi
-          if [[ "${SUPABASE_URL,,}" != https://* ]]; then
+          if [[ "$SUPABASE_URL" != https://* ]]; then
             echo "::error::VITE_SUPABASE_URL must use HTTPS."
+            exit 1
+          fi
+          config_project_ref="$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml)"
+          if [[ "$SUPABASE_PROJECT_REF" != "$config_project_ref" ]]; then
+            echo "::error::SUPABASE_PROJECT_REF must match project_id in supabase/config.toml."
+            exit 1
+          fi
+          supabase_url="${SUPABASE_URL%/}"
+          if [[ "$supabase_url" != "https://${SUPABASE_PROJECT_REF}.supabase.co" ]]; then
+            echo "::error::VITE_SUPABASE_URL must target SUPABASE_PROJECT_REF."
             exit 1
           fi
           curl --fail --silent --show-error \

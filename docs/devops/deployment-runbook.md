@@ -105,13 +105,15 @@ Modular main frontend/database/Edge validation completes, including mandatory ho
 ↓\
 All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy `recipes`, `extract-recipe`, and `generate-recipe`, then deploy Cloudflare assets\
+`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
 Verify the production deployment URL, verify unauthenticated AI routes, then run existing runtime smoke for HTML, the referenced JavaScript asset, and the public demo database response; broader journeys require separate verification
 
 The frontend-existence safety mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
+
+The production release deploys the offset-compatible attachment function but leaves `VITE_RECIPE_IMAGES` unset. The separate upload-signing readiness workflow is on-demand from `main` and uses the protected production environment for read-only Supabase checks. Cleanup function deployment remains disabled; its schedule/manual invocation requires the `RECIPE_IMAGE_CLEANUP_ENABLED=true` repository variable and protected production environment. Keep that variable unset until database, token, R2, and quota-recovery prerequisites are independently verified and authorized.
 
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
 
@@ -532,7 +534,9 @@ evidence, not another optimization sample or a merge-to-live measurement. The
 The relevant DevOps files are organized as follows:
 
 - `.github/workflows/modular-main.yml` - Main validation and sole production caller in this proposal
-- `.github/workflows/reusable-production.yml` - Guarded recipes/Cloudflare deployment and runtime evidence
+- `.github/workflows/reusable-production.yml` - Guarded Supabase/Cloudflare deployment and runtime evidence, including recipe-image-attach
+- `.github/workflows/recipe-image-upload-readiness.yml` - On-demand protected, read-only Supabase readiness verifier
+- `.github/workflows/recipe-image-upload-cleanup.yml` - Main-only cleanup invocation behind the protected opt-in gate
 - `.github/workflows/modular-pr-validation.yml` — Modular PR validation and trusted PR staging gate introduced by PR #81
 - `.github/workflows/reusable-staging.yml` — Serialized staging frontend deployment, smoke, and revision summaries
 - `wrangler.jsonc` — Cloudflare Worker configuration
