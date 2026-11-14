@@ -8,12 +8,20 @@ import {
   handler as generateRecipeHandler,
 } from "../generate-recipe/index.ts";
 import { handler as recipesHandler } from "../recipes/index.ts";
-import type { AIProvider } from "../_shared/ai/AIProvider.ts";
+import type {
+  AIProvider,
+  ExtractedRecipe,
+  GeneratedRecipe,
+} from "../_shared/ai/AIProvider.ts";
+import { AIError } from "../_shared/ai/GeminiAdapter.ts";
 import {
   MOCK_EXTRACTED_RECIPE,
   MOCK_GENERATED_RECIPE,
+  MOCK_MALFORMED_GENERATED_RECIPE,
+  MOCK_MALFORMED_RECIPE,
 } from "../_shared/ai/mocks.ts";
 import type { ChefRecipeContextResult } from "../_shared/ai/schemas.ts";
+import type { QuotaCheck } from "../_shared/ai/quota.ts";
 
 const SUPABASE_URL = "https://mock.supabase.co";
 const ANON_KEY = "mock-anon-public-key-value";
@@ -65,11 +73,10 @@ function jsonResponse(value: unknown, status = 200): Response {
 function recipeRow(
   id: string,
   recipe: Record<string, unknown>,
-  userId = USER_ID,
 ): RecipeRow {
   return {
     id,
-    user_id: userId,
+    user_id: USER_ID,
     title: recipe.title,
     raw_input: recipe.raw_input ?? null,
     notes: recipe.notes ?? null,
@@ -90,6 +97,7 @@ function createPostgrestMock(
 ) {
   const recipes = [...initialRecipes];
   const lineage: LineageRow[] = [];
+  const writes: string[] = [];
 
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = new URL(
@@ -101,6 +109,11 @@ function createPostgrestMock(
     );
     const method = (init?.method ?? "GET").toUpperCase();
     const headers = new Headers(init?.headers);
+    if (
+      method !== "GET" &&
+      (url.pathname === "/rest/v1/recipes" ||
+        url.pathname === "/rest/v1/recipe_lineage")
+    ) writes.push(`${method} ${url.pathname}`);
 
     if (url.pathname === "/auth/v1/user") {
       return jsonResponse({
@@ -168,7 +181,7 @@ function createPostgrestMock(
     return new Response(null, { status: 404 });
   };
 
-  return { fetchImpl };
+  return { fetchImpl, writes };
 }
 
 function request(path: string, method: string, body?: unknown): Request {
@@ -206,18 +219,60 @@ async function withEnabled<T>(name: string, run: () => Promise<T>): Promise<T> {
 const allowedQuota = () =>
   Promise.resolve({ status: "allowed" as const, limit: 20, used: 0 });
 
-function provider(): AIProvider {
+function provider(overrides: Partial<AIProvider> = {}): AIProvider {
   return {
     extractRecipe: () => Promise.resolve(MOCK_EXTRACTED_RECIPE),
     generateRecipe: () => Promise.resolve(MOCK_GENERATED_RECIPE),
-    testConnection: () =>
-      Promise.reject(new Error("Not used in journey tests")),
+    testConnection: () => Promise.resolve("mock provider"),
+    ...overrides,
   };
+}
+
+async function runAiHandler(
+  operation: "extract" | "generate",
+  fetchImpl: typeof fetch,
+  aiProvider: AIProvider,
+  quotaCheck: QuotaCheck = allowedQuota,
+): Promise<Response> {
+  const deps = {
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: ANON_KEY,
+    candidateTokenSecret: CANDIDATE_TOKEN_SECRET,
+    fetch: fetchImpl,
+    provider: aiProvider,
+    quotaCheck,
+  };
+
+  if (operation === "extract") {
+    return await withEnabled(EXTRACT_ENABLED_ENV, () =>
+      extractRecipeHandler(
+        request("/functions/v1/extract-recipe", "POST", {
+          notes: "Chicken, garlic, and soy sauce.",
+        }),
+        deps,
+      ));
+  }
+
+  return await withEnabled(GENERATE_ENABLED_ENV, () =>
+    generateRecipeHandler(
+      request("/functions/v1/generate-recipe", "POST", {
+        pantryItems: ["rice", "eggs"],
+      }),
+      {
+        ...deps,
+        buildContext: () => Promise.resolve(MATCHED_CONTEXT),
+      },
+    ));
 }
 
 Deno.test("Extraction stays a preview until the user explicitly creates a recipe", async () => {
   const db = createPostgrestMock(EXTRACTED_RECIPE_ID);
   const providerDouble = provider();
+  const recipesDeps = {
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: ANON_KEY,
+    fetch: db.fetchImpl,
+  };
 
   const previewResponse = await withEnabled(
     EXTRACT_ENABLED_ENV,
@@ -239,13 +294,10 @@ Deno.test("Extraction stays a preview until the user explicitly creates a recipe
 
   assertEquals(previewResponse.status, 200);
   assertEquals(preview.recipe.title, MOCK_EXTRACTED_RECIPE.title);
+  assertEquals(db.writes, []);
   const recipesBeforeSaveResponse = await recipesHandler(
     request("/functions/v1/recipes", "GET"),
-    {
-      supabaseUrl: SUPABASE_URL,
-      supabaseAnonKey: ANON_KEY,
-      fetch: db.fetchImpl,
-    },
+    recipesDeps,
   );
   assertEquals((await recipesBeforeSaveResponse.json()).recipes, []);
 
@@ -255,24 +307,17 @@ Deno.test("Extraction stays a preview until the user explicitly creates a recipe
       "POST",
       recipeSavePayload(preview.recipe, "Chicken, garlic, and soy sauce."),
     ),
-    {
-      supabaseUrl: SUPABASE_URL,
-      supabaseAnonKey: ANON_KEY,
-      fetch: db.fetchImpl,
-    },
+    recipesDeps,
   );
   const saved = await saveResponse.json();
   const recipesAfterSaveResponse = await recipesHandler(
     request("/functions/v1/recipes", "GET"),
-    {
-      supabaseUrl: SUPABASE_URL,
-      supabaseAnonKey: ANON_KEY,
-      fetch: db.fetchImpl,
-    },
+    recipesDeps,
   );
   const savedRecipes = await recipesAfterSaveResponse.json();
 
   assertEquals(saveResponse.status, 201);
+  assertEquals(db.writes, ["POST /rest/v1/recipes"]);
   assertEquals(saved.recipe.title, preview.recipe.title);
   assertEquals(
     savedRecipes.recipes.map((recipe: { id: string }) => recipe.id),
@@ -316,6 +361,7 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
     [PARENT_ID],
   );
   assertEquals(typeof preview.candidate_token, "string");
+  assertEquals(db.writes, []);
   const recipesBeforeSaveResponse = await recipesHandler(
     request("/functions/v1/recipes", "GET"),
     recipesDeps,
@@ -345,6 +391,7 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
   );
 
   assertEquals(saveResponse.status, 201);
+  assertEquals(db.writes, ["POST /rest/v1/recipes"]);
   assertEquals(saved.recipe.id, CHEF_RECIPE_ID);
   assertEquals(saved.recipe.title, preview.recipe.title);
   assertEquals(lineageBeforeSaveResponse.status, 200);
@@ -366,6 +413,10 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
   const savedLineageRead = await lineageAfterSaveResponse.json();
 
   assertEquals(lineageResponse.status, 201);
+  assertEquals(db.writes, [
+    "POST /rest/v1/recipes",
+    "POST /rest/v1/recipe_lineage",
+  ]);
   assertEquals(
     savedLineage.lineage.map((row: LineageRow) => row.parent_recipe_id),
     selectedParentIds,
@@ -376,4 +427,97 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
     selectedParentIds,
   );
   assertEquals(savedLineageRead.lineage[0].child_recipe_id, saved.recipe.id);
+});
+
+Deno.test("Malformed output, provider failure, and quota exhaustion never persist a recipe or lineage", async () => {
+  const failureCases: Array<{
+    operation: "extract" | "generate";
+    aiProvider: AIProvider;
+    quotaCheck?: QuotaCheck;
+    expectedStatus: number;
+    expectedCode: string;
+    expectedRetryAfter?: string;
+  }> = [
+    {
+      operation: "extract",
+      aiProvider: provider({
+        extractRecipe: () =>
+          Promise.resolve(MOCK_MALFORMED_RECIPE as unknown as ExtractedRecipe),
+      }),
+      expectedStatus: 502,
+      expectedCode: "AI_OUTPUT_INVALID",
+    },
+    {
+      operation: "generate",
+      aiProvider: provider({
+        generateRecipe: () =>
+          Promise.resolve(
+            MOCK_MALFORMED_GENERATED_RECIPE as unknown as GeneratedRecipe,
+          ),
+      }),
+      expectedStatus: 502,
+      expectedCode: "AI_OUTPUT_INVALID",
+    },
+    ...(["extract", "generate"] as const).map((operation) => ({
+      operation,
+      aiProvider: provider({
+        [operation === "extract" ? "extractRecipe" : "generateRecipe"]: () =>
+          Promise.reject(
+            new AIError(
+              "provider_unavailable",
+              operation,
+              "private provider detail",
+            ),
+          ),
+      }),
+      expectedStatus: 503,
+      expectedCode: "AI_UNAVAILABLE",
+    })),
+    ...(["extract", "generate"] as const).map((operation) => ({
+      operation,
+      aiProvider: provider({
+        [operation === "extract" ? "extractRecipe" : "generateRecipe"]: () =>
+          Promise.reject(new Error("quota should stop provider work")),
+      }),
+      quotaCheck: () =>
+        Promise.resolve({
+          status: "exceeded" as const,
+          limit: 20,
+          used: 20,
+          retryAfterSeconds: 123,
+        }),
+      expectedStatus: 429,
+      expectedCode: "QUOTA_EXCEEDED",
+      expectedRetryAfter: "123",
+    })),
+  ];
+
+  for (const failureCase of failureCases) {
+    const parent = recipeRow(PARENT_ID, { title: "Garlic Fried Rice" });
+    const db = createPostgrestMock(
+      failureCase.operation === "extract"
+        ? EXTRACTED_RECIPE_ID
+        : CHEF_RECIPE_ID,
+      failureCase.operation === "generate" ? [parent] : [],
+    );
+    const response = await runAiHandler(
+      failureCase.operation,
+      db.fetchImpl,
+      failureCase.aiProvider,
+      failureCase.quotaCheck,
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, failureCase.expectedStatus);
+    assertEquals(body.error?.code, failureCase.expectedCode);
+    assertEquals(
+      JSON.stringify(body).includes("private provider detail"),
+      false,
+    );
+    assertEquals(
+      response.headers.get("retry-after"),
+      failureCase.expectedRetryAfter ?? null,
+    );
+    assertEquals(db.writes, []);
+  }
 });
