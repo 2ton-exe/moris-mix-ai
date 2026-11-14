@@ -61,10 +61,12 @@ available. See the [recipe form handoff](../docs/frontend/recipe-form.md) for
 schema limits and integration status. For a labeled local sample preview, set
 `VITE_RECIPE_PREVIEW=true` and restart Vite; production builds ignore it.
 
-Private recipe image panels and endpoint calls are disabled by default. Set
-`VITE_RECIPE_IMAGES=true` only in an environment where the BE-14 attachment and
-private-read endpoints are deployed. This browser gate does not activate
-production signing or cleanup.
+Private recipe image panels and endpoint calls are disabled by default in
+local builds. The production release build sets `VITE_RECIPE_IMAGES=true` per
+owner direction, exposing the image UI to all production users on the next
+release. This does not verify production R2 access or cleanup readiness, deploy
+the upload-signing or cleanup functions, or enable cleanup. Keep the cleanup
+opt-in unset until its separate readiness checks pass.
 
 FE-03 adds login, signup, email verification, and session handling for the
 protected recipe dashboard. Open `/home` and select **Your cooking journal**, or go to

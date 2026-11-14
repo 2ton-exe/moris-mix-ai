@@ -40,6 +40,7 @@ jobs:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      VITE_RECIPE_IMAGES: "true"
       SMOKE_ENVIRONMENT: production
       SMOKE_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
       SMOKE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -156,6 +157,19 @@ jobs:
             --use-api \
             --yes
 
+      - name: Deploy recipe-image-attach Edge Function
+        id: deploy-recipe-image-attach
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy recipe-image-attach \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
       - name: Deploy recipe image upload cleanup Edge Function
         id: deploy-recipe-image-cleanup
         if: false
@@ -210,6 +224,7 @@ jobs:
         if: always()
         env:
           RECIPES_OUTCOME: ${{ steps.deploy-recipes.outcome }}
+          IMAGE_ATTACH_OUTCOME: ${{ steps.deploy-recipe-image-attach.outcome }}
           IMAGE_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-cleanup.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
           GENERATE_RECIPE_OUTCOME: ${{ steps.deploy-generate-recipe.outcome }}
@@ -223,6 +238,7 @@ jobs:
             echo "### Production delivery"
             echo "- Source revision: ${GITHUB_SHA}"
             echo "- recipes deployment command: ${RECIPES_OUTCOME}"
+            echo "- recipe image attachment deployment command: ${IMAGE_ATTACH_OUTCOME}"
             echo "- recipe image cleanup deployment command: ${IMAGE_CLEANUP_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
             echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"

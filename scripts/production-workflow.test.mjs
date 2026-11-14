@@ -17,6 +17,9 @@ const production = workflow('reusable-production');
 const release = production.jobs.deploy;
 const edge = workflow('reusable-edge-api');
 const scheduledCleanup = workflow('recipe-image-upload-cleanup');
+const uploadReadiness = existsSync('.github/workflows/recipe-image-upload-readiness.yml')
+  ? workflow('recipe-image-upload-readiness')
+  : undefined;
 const step = (job, name) => job.steps.find(s => s.name === name);
 
 // These conditions use only this small subset of Actions expressions. Execute the
@@ -199,6 +202,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
     VITE_SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
+    VITE_RECIPE_IMAGES: 'true',
     SMOKE_ENVIRONMENT: 'production',
     SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
     SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
@@ -207,7 +211,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
-    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
+    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
@@ -217,7 +221,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-cleanup']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-attach', 'recipe-image-upload-cleanup']);
   const migrationStepIds = ['preview-migrations', 'deploy-migrations', 'verify-migrations'];
   if (release.steps.some(item => migrationStepIds.includes(item.id))) {
     const order = migrationStepIds.map(id => release.steps.findIndex(item => item.id === id));
@@ -243,7 +247,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(build.run, 'pnpm build');
   const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
   assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
-  for (const target of ['recipes', 'extract-recipe', 'generate-recipe']) {
+  for (const target of ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-attach']) {
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
     assert.equal(deploy['working-directory'], 'frontend');
@@ -286,6 +290,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    IMAGE_ATTACH_OUTCOME: '${{ steps.deploy-recipe-image-attach.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
@@ -339,26 +344,35 @@ test('upload signing stays hard-disabled independently of migration dispatch', (
   }
 });
 
-test('recipe image cleanup is explicitly disabled for scheduled and manual invocation', () => {
+test('recipe image cleanup requires the explicit production opt-in and unattended cleanup environment', () => {
   assert.deepEqual(scheduledCleanup.on.schedule, [{ cron: '*/15 * * * *' }]);
   assert.equal('workflow_dispatch' in scheduledCleanup.on, true);
   assert.deepEqual(scheduledCleanup.permissions, { contents: 'read' });
   const cleanup = scheduledCleanup.jobs.cleanup;
-  assert.equal(cleanup.if, false);
-  assert.equal(cleanup.steps.length, 1);
-  assert.deepEqual(cleanup.steps[0].env, {
+  assert.equal(cleanup.if, "${{ github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' }}");
+  assert.equal(cleanup.environment, 'recipe-image-cleanup-production');
+  assert.equal(cleanup.steps.length, 2);
+  assert.equal(cleanup.steps[0].uses, 'actions/checkout@v4');
+  const invocation = cleanup.steps[1];
+  assert.equal(invocation.name, 'Invoke recipe image cleanup');
+  assert.deepEqual(invocation.env, {
     SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
     RECIPE_IMAGE_CLEANUP_TOKEN: '${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}',
   });
-  const cleanupCommand = cleanup.steps[0].run;
+  const cleanupCommand = invocation.run;
   assert.doesNotMatch(cleanupCommand, /BE13_CLEANUP|BE-13/);
-  const httpsGuardIndex = cleanupCommand.indexOf('if [[ "${SUPABASE_URL,,}" != https://* ]]');
+  const httpsGuardIndex = cleanupCommand.indexOf('if [[ "$SUPABASE_URL" != https://* ]]');
+  const projectRefGuardIndex = cleanupCommand.indexOf('SUPABASE_URL must target SUPABASE_PROJECT_REF');
+  const configRefGuardIndex = cleanupCommand.indexOf('supabase/config.toml');
   const curlIndex = cleanupCommand.indexOf('curl --fail --silent --show-error');
   assert.notEqual(httpsGuardIndex, -1);
+  assert.notEqual(projectRefGuardIndex, -1);
+  assert.notEqual(configRefGuardIndex, -1);
   assert.notEqual(curlIndex, -1);
-  assert.ok(httpsGuardIndex < curlIndex);
-  assert.match(cleanup.steps[0].run, /functions\/v1\/recipe-image-upload-cleanup/);
-  assert.doesNotMatch(cleanup.steps[0].run, /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)|SUPABASE_SERVICE_ROLE_KEY/);
+  assert.ok(httpsGuardIndex < projectRefGuardIndex && projectRefGuardIndex < curlIndex);
+  assert.match(cleanupCommand, /functions\/v1\/recipe-image-upload-cleanup/);
+  assert.doesNotMatch(cleanupCommand, /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
 test('main validation covers current authoritative Edge/API targets and mandatory hosted RLS', () => {
@@ -568,7 +582,7 @@ test('cutover files contain no literal credential patterns', () => {
     /(?:sb_secret_|sbp_|gh[pousr]_|github_pat_)[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
 });
 
-test('cleanup deployment and invocation stay disabled regardless of configuration', () => {
+test('cleanup deployment stays disabled while scheduled invocation requires exact opt-in', () => {
   const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
   assert.equal(deployment.if, false);
   for (const event_name of ['push', 'schedule', 'workflow_dispatch']) {
@@ -576,20 +590,54 @@ test('cleanup deployment and invocation stay disabled regardless of configuratio
       const vars = value === undefined ? {} : { RECIPE_IMAGE_CLEANUP_ENABLED: value };
       const github = { event_name, ref: 'refs/heads/main' };
       assert.equal(condition(deployment.if, { vars, github }), false);
-      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), false);
+      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, { vars, github }), value?.trim().toLowerCase() === 'true' && value === value.trim());
+      assert.equal(condition(scheduledCleanup.jobs.cleanup.if, {
+        vars,
+        github: { event_name, ref: 'refs/heads/feature' },
+      }), false);
     }
   }
 });
 
-test('cleanup workflow paths contain no variable-based activation bypass', () => {
+test('cleanup invocation uses only the protected opt-in and has no storage credentials', () => {
   const deployment = step(release, 'Deploy recipe image upload cleanup Edge Function');
-  const invocation = step(scheduledCleanup.jobs.cleanup, 'Invoke recipe image cleanup');
+  const cleanup = scheduledCleanup.jobs.cleanup;
+  const invocation = step(cleanup, 'Invoke recipe image cleanup');
   assert.equal(deployment.if, false);
-  assert.equal(scheduledCleanup.jobs.cleanup.if, false);
-  for (const target of [deployment, invocation]) {
-    assert.equal(target.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
-    assert.doesNotMatch(target.run, /RECIPE_IMAGE_CLEANUP_ENABLED/);
-  }
+  assert.equal(cleanup.environment, 'recipe-image-cleanup-production');
+  assert.equal(invocation.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
+  assert.doesNotMatch(invocation.run, /RECIPE_IMAGE_CLEANUP_ENABLED/);
+  assert.doesNotMatch(JSON.stringify(invocation), /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)|SUPABASE_SERVICE_ROLE_KEY/);
+  assert.equal(deployment.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
+});
+
+test('upload-signing readiness workflow is manual, read-only and bound to the protected environment', () => {
+  assert.ok(uploadReadiness, 'protected upload-signing readiness workflow is missing');
+  assert.deepEqual(Object.keys(uploadReadiness.on), ['workflow_dispatch']);
+  assert.deepEqual(uploadReadiness.permissions, { contents: 'read' });
+  const job = uploadReadiness.jobs.verify;
+  assert.equal(job.if, "${{ github.ref == 'refs/heads/main' }}");
+  assert.equal(condition(job.if), true);
+  assert.equal(condition(job.if, { github: { ref: 'refs/heads/feature' } }), false);
+  assert.equal(job.environment, 'recipe-image-upload-production');
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.deepEqual(job.steps.map(item => item.name), [
+    'Checkout repository', 'Set up pnpm', 'Set up Node.js', 'Install verifier dependencies', 'Verify protected Supabase readiness',
+  ]);
+  const verifier = step(job, 'Verify protected Supabase readiness');
+  assert.equal(verifier.run, 'node scripts/verify-upload-signing-readiness.mjs');
+  assert.deepEqual(verifier.env, {
+    SUPABASE_DATABASE_URL: '${{ secrets.SUPABASE_DATABASE_URL }}',
+    SUPABASE_DATABASE_CA_CERT: '${{ secrets.SUPABASE_DATABASE_CA_CERT }}',
+    SUPABASE_SERVICE_ROLE_KEY: '${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}',
+    UPLOAD_SIGNING_READINESS_ATTESTATION: '${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}',
+    SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+    SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
+    SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
+    ALLOWED_ORIGIN: '${{ vars.PRODUCTION_FRONTEND_URL }}',
+  });
+  assert.doesNotMatch(JSON.stringify(uploadReadiness), /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)/);
 });
 
 test('upload-signing activation remains independently hard-disabled', () => {

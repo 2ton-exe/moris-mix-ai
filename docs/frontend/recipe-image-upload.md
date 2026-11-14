@@ -5,9 +5,14 @@
 ## Browser rollout gate
 
 The image panel and all image endpoint requests are disabled unless
-`VITE_RECIPE_IMAGES=true`. Keep the flag off until the BE-14 attachment and
-private-read endpoints are deployed and verified. Enabling the frontend flag
-does not activate production signing or cleanup.
+`VITE_RECIPE_IMAGES=true`. The production build now sets the flag to `true` per
+owner direction, so the next production release exposes the image UI to all
+users. This frontend change does not verify R2 access or cleanup readiness,
+deploy the upload-signing or cleanup functions, or enable cleanup. The main
+production release deploys the offset-compatible `recipe-image-attach` function
+after this change is merged.
+Production R2 behavior and cleanup readiness remain unverified; keep the
+cleanup opt-in unset until its separate checks pass.
 
 ## Upload requirements
 
@@ -32,4 +37,4 @@ Use the returned `upload.url` and its declared method and content type. Send the
 
 The FE-12 author approved authenticated raw-byte requests, supported MIME types, actual size limits, expiry, duplicate responses, ambiguous retries, and preservation of the existing image on failure. Browser integration and live R2 behavior still require independent verification.
 
-This specification replaces the original direct browser-to-R2 presigned PUT requirement with the approved shared contract. BE-13 approval is recorded in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406), and FE-12 author acceptance has been received. These approvals cover the API contract only. Production signing and cleanup remain hard-disabled pending independent readiness verification and separate authorization. See the [API contract and production prerequisites](../api/recipe-images.md#approved-upload-contract-and-migration-ownership-decisions).
+This specification replaces the original direct browser-to-R2 presigned PUT requirement with the approved shared contract. BE-13 approval is recorded in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406), and FE-12 author acceptance has been received. These approvals cover the API contract only. Production signing remains hard-disabled, and scheduled cleanup remains skipped unless the protected production gate is explicitly enabled after independent readiness verification and authorization. See the [API contract and production prerequisites](../api/recipe-images.md#approved-upload-contract-and-migration-ownership-decisions).
