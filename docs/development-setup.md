@@ -2,6 +2,8 @@
 
 This guide uses the local Supabase stack for app development and documents standalone PostgreSQL as an optional path for database tests. The local stack provides the Auth and PostgREST services used by the app; deterministic checks can also run without it.
 
+The local recipe and demo flows use local Supabase keys and do not require hosted Supabase, Gemini, or R2 credentials. AI extraction and generation each need an optional Gemini API key. Image upload, attachment, and private-read requests require server-side R2 configuration; image deletion only clears the association and queues cleanup, while physical cleanup needs R2. Neither is required to start the app or use recipe CRUD and the public demo. See the [AI API guide](api/ai-integration.md) and [recipe image API guide](api/recipe-images.md) before enabling either integration locally.
+
 ## Prerequisites
 
 - [Node.js 24](https://nodejs.org/en/download) and pnpm 10 (`npm install --global pnpm@10`; see the [pnpm 10 installation guide](https://pnpm.io/10.x/installation))
@@ -58,11 +60,11 @@ The local Supabase database is available on loopback port `54322` by default and
    ```sh
    supabase functions serve
    ```
-   The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). Create that gitignored file before serving, because both AI endpoints are **off by default** (AI-05 and AI-06):
+   The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). AI endpoints are **off by default** (AI-05 and AI-06); create this gitignored file only if you want to exercise them locally:
 
    ```sh
    # Required: allow POST /extract-recipe and POST /generate-recipe.
-   # Keep both off in production until BE-12 supplies atomic quota accounting.
+   # These local opt-ins do not change production settings.
    AI_EXTRACT_ENABLED=true
    AI_GENERATE_ENABLED=true
    # development or test permits the demo-only failure drills; production ignores them.
@@ -90,9 +92,9 @@ The local Supabase database is available on loopback port `54322` by default and
    ```
    Open the printed URL (normally `http://localhost:5173`).
 
-## Authenticated recipe and ownership browser journeys
+## Authenticated recipe and AI browser journeys
 
-The Playwright journeys sign in through the UI with dedicated synthetic local accounts. They exercise recipe create, read, update, rating, persistence, delete, and ownership isolation through the application and authenticated Edge Function. The frontend package pins Supabase CLI 2.122.0 and Playwright 1.64.1. The runner explicitly uses Supabase's native experimental stack runtime, so these journeys do not need Docker on supported Linux or Apple silicon macOS hosts.
+The Playwright journeys sign in through the UI with synthetic local accounts. They cover recipe CRUD and ownership isolation, Chef generation with selected lineage, malformed and provider failure recovery, and extraction preview followed by an explicit save. The frontend package pins Supabase CLI 2.122.0 and Playwright 1.64.1. On supported Linux or Apple silicon macOS hosts, the runner uses Supabase's native experimental runtime and does not need Docker.
 
 From the repository root, install the pinned tools and Chromium, then run:
 
@@ -103,9 +105,11 @@ pnpm --dir frontend exec playwright install chromium
 pnpm --dir frontend run test:e2e:local
 ```
 
-The command prepares a dedicated Supabase project in the ignored `.e2e-supabase/` workdir, starts it with `--runtime native`, applies the repository migrations, prepares or reuses `fs03-playwright@example.test` and `fs03-playwright-other@example.test` through the local Auth admin API, starts `supabase functions serve recipes` against that workdir, waits for the handler's unauthenticated response, and starts Vite on `127.0.0.1:4173`. The readiness check expects the recipe handler's 401 response, so it does not mistake the gateway's pre-existing function route for a ready handler. On success, setup/test failure, or SIGINT/SIGTERM, the runner stops the function server's process group and runs `supabase stack stop` for this E2E workdir only. Stopping the stack preserves its local data; the runner never stops all Supabase stacks, resets the database, or destroys the E2E stack. This project has its own stable local project ID and Supabase CLI assigns it separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack. The generated local service key stays in the setup process and the runner refuses a non-loopback Supabase URL. Playwright and Vite receive only an allowlisted process environment, the local Supabase URL and its public key; Vite reads from a separate empty env directory and does not load the developer's `.env.local`. The journeys do not use hosted credentials or invoke Gemini. Playwright retains a trace, screenshot, and video on failure; CI uploads those files as an artifact.
+Each run prepares the dedicated project in the ignored `.e2e-supabase/` workdir, starts it with `--runtime native`, and resets its database with the repository migrations and seed. It then creates the synthetic accounts through the local Auth admin API, serves the recipes, extraction, and generation functions, and starts Vite on `127.0.0.1:4173`. The extraction and generation functions use test-only mocked providers. The journeys do not use hosted credentials, Gemini, or R2. The project has a stable local ID and separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack.
 
-The synthetic accounts remain in the dedicated E2E Auth database for reuse. The runner stores their returned Auth user IDs in the ignored E2E workdir and updates only those accounts on later runs. Each recipe title starts with `FS-03 Playwright` or `FS-03 Ownership` and includes a fresh UUID; successful journeys delete their recipes, while a failed run may leave uniquely named data in the isolated E2E collection.
+The runner checks that the function handlers respond before Playwright starts. It expects `401` from the recipes handler and `405` from the extraction and generation handlers, so the Supabase gateway cannot be mistaken for a ready handler. Playwright and Vite receive an allowlisted environment with only the local Supabase URL and public key. Vite reads from a separate empty env directory and does not load the developer's `.env.local`. The generated local service key stays in the setup process, and the runner refuses a non-loopback Supabase URL. On success, failure, or SIGINT/SIGTERM, the runner stops its function-server process group and only this E2E stack. Stopping the stack preserves its data; the next run resets that database. Playwright retains a trace, screenshot, and video on failure. CI uploads those files as an artifact.
+
+The runner stores the synthetic accounts' Auth user IDs in the ignored E2E workdir. After each database reset, it recreates the accounts and updates the ID files. Test recipe titles include fresh UUIDs. A failed run may leave uniquely named rows in the isolated E2E database; the next run resets it.
 
 If forced termination or a machine shutdown prevents cleanup from completing, stop only the E2E stack from the frontend directory:
 
@@ -115,11 +119,11 @@ export SUPABASE_EXPERIMENTAL_STACK=1
 pnpm exec supabase --workdir ../.e2e-supabase stack stop
 ```
 
-To inspect leftover recipes, start the E2E stack with `stack start --runtime native`, point the local app at its URL and public key from `stack status`, then sign in with the synthetic account that owns the recipe and delete recipes named `FS-03 Playwright <UUID>` or `FS-03 Ownership <UUID>`. To intentionally remove all E2E Auth and recipe data, run `pnpm exec supabase --workdir ../.e2e-supabase stack destroy --yes`; this is destructive and is never run automatically. Do not use `--all` or run the destroy command outside the dedicated E2E workdir.
+To inspect leftover recipes before the next run, start the E2E stack with `stack start --runtime native`, point the local app at its URL and public key from `stack status`, then sign in with the synthetic account that owns the recipe. To intentionally remove all E2E Auth and recipe data, run `pnpm exec supabase --workdir ../.e2e-supabase stack destroy --yes`; this is destructive and is never run automatically. Do not use `--all` or run the destroy command outside the dedicated E2E workdir.
 
 ## Migrations and schema management
 
-The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. For approved remote schema updates, preview and apply migrations with `supabase db push --dry-run --linked` and `supabase db push --linked`.
+The local Supabase stack applies versioned migrations in `supabase/migrations/` on start and when reset locally. For standalone PostgreSQL, use `pnpm db:setup` (`node run-migrations.mjs`). Never run destructive reset commands against remote or production projects. Production schema changes use the separately managed database release process. A merge to `main` deploys Edge Functions but does not apply migrations. Do not use `supabase db push --linked` as a production migration path.
 
 ## Demo API
 
@@ -155,31 +159,19 @@ pnpm build
 
 ### Test suite taxonomy and execution gates
 
-The test suite separates tests into four distinct categories to maintain rigorous verification without requiring unnecessary external services:
+Use separate commands for migration checks, database lifecycle checks, function checks, and live integration:
 
 1. **Migration unit tests (`node test-migrations.mjs` or `pnpm test`):**
    - **Offline execution:** Runs completely offline without database connectivity.
    - **Verification:** Discovers versioned migration files in `supabase/migrations/`, asserts deterministic ascending timestamp sorting, checks filename integrity, validates schema completeness definitions, and tests SQL migration parsing.
 
 2. **Database-backed migration lifecycle integration tests (`node test-migrations.mjs --run-db-tests` or `pnpm run test:lifecycle`):**
-   - **Local PostgreSQL execution:** Runs all 13 migration lifecycle integration scenarios against the local database configured by `DATABASE_URL` (the local Supabase database or a standalone PostgreSQL service).
+   - **Local PostgreSQL execution:** Runs the migration lifecycle scenarios against the local database configured by `DATABASE_URL` (the local Supabase database or a standalone PostgreSQL service).
    - **Verification:** Dynamically provisions an isolated temporary database (`test_mig_suite_<timestamp>_<random>`), verifies initial schema creation, column data types, nullability, constraints, indexes, triggers, functions, RLS policies, advisory locks, idempotency across repeated runs, and rollback state reconciliation. Automatically drops the temporary database upon completion.
    - **Prerequisites:** Requires a local PostgreSQL instance reachable via loopback `DATABASE_URL` (defaults to port `54322`, or a loopback override like port `5432`). Does **not** require Supabase Auth or PostgREST HTTP APIs.
 
-3. **Deterministic Edge Function and contract tests (latest local Edge/API run: 111 passed, 4 ignored):**
-   - **Offline execution:** Fully offline in CI and local environments without database, Auth, or external network dependencies.
-   - **Observed test results:** The latest local Edge/API run reported **111 passed and 4 ignored** across the six test files. Note that test counts reflect the latest observed runs and are not static permanent thresholds; they must be updated when test suites or CI execution changes.
-   - **Test distribution across suite files:**
-     - `demo_recipe_test.ts` (11 passed, 1 ignored): Validates Zod schema against `fixtures/demo-recipe.json`, tests CORS preflight (`204 No Content`), disallowed HTTP methods (`405 METHOD_NOT_ALLOWED`), unapproved recipe rejection (`404`), and safe internal error envelopes (`500`). The live PostgreSQL query test is intentionally ignored by default when local loopback port `54321` is not running.
-     - `auth_test.ts` (15 passed): Validates `extractBearerToken()`, `authenticateRequest()`, `GET /auth-session` contract, error classifications (`401 UNAUTHORIZED`, `405 METHOD_NOT_ALLOWED`, `503 AUTH_SERVICE_RATE_LIMITED` with `Retry-After`), caller ID tampering guards, and client PostgREST JWT forwarding.
-     - `recipes_test.ts` (53 passed, 2 ignored): Validates `CreateRecipeRequestSchema`, `RecipeResponseSchema`, `UpdateRecipeRequestSchema`, and param schemas, CORS preflight (`204`), disallowed methods (`405`), unsupported routes (`404`), ownership and `is_public` tampering prevention, authentication enforcement (`401`), malformed JSON handling (`400`), hosted RLS target HTTPS enforcement, and safe database error redaction (`500`). Two live hosted CRUD and schema preflight tests are intentionally ignored when dedicated cloud test credentials are not provided.
-     - `ai_contracts_test.ts` (4 passed): Validates Zod schema contracts for extracted and generated recipe structures against conforming and malformed mock payloads.
-     - `eval_dataset_test.ts` (1 passed): Validates AI recipe generation evaluation dataset properties and schema integrity.
-     - `cross_user_rls_lineage_test.ts` (27 passed, 1 ignored): Validates HTTPS target safety, credential state machine prefix locking and fail-closed validation, Layer 1 caller-scoped recipe CRUD mocks and 401/404 boundaries, admin client exclusion from assertions, cleanup error chaining, user deletion resilience, PostgREST empty-row RLS semantics, and parent/child cascade evaluation. The live hosted PostgreSQL cross-user RLS and lineage enforcement test is intentionally ignored during offline runs.
-   - **Execution command:**
-     ```sh
-     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
-     ```
+3. **Deterministic Edge Function and contract tests:**
+   The CI command type-checks the implemented handlers and runs the maintained deterministic test list. The suite covers authentication, recipe CRUD and lineage, AI schemas and provider journeys, quotas, and image lifecycle handlers. These checks use local fixtures and mocks; they do not call Gemini or R2. See the [reusable Edge/API workflow](../.github/workflows/reusable-edge-api.yml) for the current Deno version, permissions, and test-file list.
 
 4. **Live integration test gates (Gates A, B, and C):**
    Live integration tests verify real PostgREST queries and PostgreSQL RLS enforcement. They are split into three completely separate gates with distinct prerequisites and failure semantics:
@@ -189,13 +181,14 @@ The test suite separates tests into four distinct categories to maintain rigorou
      - **Prerequisites:** Requires a compatible API endpoint running at the expected local loopback address and port `54321` (e.g. `http://127.0.0.1:54321`) with the seeded public recipe available, plus `SUPABASE_URL` and a valid legacy `service_role` JWT in `SUPABASE_SERVICE_ROLE_KEY`.
      - **Gate isolation:** Hosted project secrets (`NON_PRODUCTION_TEST_DATABASE_*`) **cannot** enable the demo live test. The test runner strictly scrubs and isolates hosted project credentials from the local demo probe, and rejects hosted URLs that attempt to target loopback port `54321`. When a local loopback API on port `54321` is not running, this test is safely ignored by default (`ignore: !hasDbEnv`).
 
-   - **Gate B: Optional Hosted Non-Production Test Database RLS Integration Tests (`auth_rls_integration_test.ts` and `recipes_test.ts`)**
+   - **Gate B: Optional Hosted Non-Production Test Database RLS Integration Tests (`auth_rls_integration_test.ts`, `recipes_test.ts`, and `recipe_context_test.ts`)**
      - **Tests:**
        1. Hosted profile RLS test in `supabase/functions/tests/auth_rls_integration_test.ts` (`Live PostgreSQL RLS enforcement on public.profiles allows own-profile reads and blocks cross-user reads (hosted integration)`)
        2. Hosted POST `/recipes` RLS test in `supabase/functions/tests/recipes_test.ts` (`Live PostgreSQL persistence and RLS enforcement for recipe CRUD (hosted integration)`)
+       3. Hosted Chef recipe-context ownership test in `supabase/functions/tests/recipe_context_test.ts` (`Live PostgreSQL cross-user RLS isolation for AI Chef recipe context retrieval (hosted integration)`)
      - **Prerequisites and supported GitHub Actions secrets:** These tests run optionally within the `test-edge-api` job and require a **dedicated non-production Supabase cloud project** with the repository schema and RLS migrations applied; CI applies pending migrations when `NON_PRODUCTION_TEST_DATABASE_URL` is configured:
        - `NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}`): Project URL of the dedicated non-production test project (rejected if it matches production ref `gtbwblxskctpsqhbpebg` or loopback port `54321`).
-       - `NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}`): Public key for the dedicated test project. accepting either a legacy `anon` JWT or a modern `sb_publishable_*` key. CI workflows and local runners also support `NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY }}`).
+       - `NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}`): Public key for the dedicated test project. It accepts either a legacy `anon` JWT or a modern `sb_publishable_*` key. CI workflows and local runners also support `NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY }}`).
        - `NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY }}`) or `NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY }}`): Administrative credentials (legacy `service_role` JWT or modern `sb_secret_*` key) used strictly for test user setup and teardown cleanup.
        - `NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF` (`${{ vars.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF || vars.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF || secrets.NON_PRODUCTION_TEST_DATABASE_PROJECT_REF }}`): Expected Supabase project reference to verify the target URL and database connection string (supports `NON_PRODUCTION_TEST_DATABASE_PROJECT_REF` variable/secret fallback).
        - `NON_PRODUCTION_TEST_DATABASE_URL` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_URL }}`): Dedicated test project database connection string, used by `run-migrations.mjs --test-target` before the hosted suite to apply pending migrations and reload PostgREST schema cache.
@@ -203,24 +196,19 @@ The test suite separates tests into four distinct categories to maintain rigorou
      - **Supported key formats and Supabase client behavior:**
        - *Public / Anon key:* Accepts either a legacy `anon` JWT (`role: "anon"`) or a modern `sb_publishable_*` key. Test clients set `apikey: <key>` and strip any synthetic `Authorization: Bearer <key>` header to preserve user bearer tokens.
        - *Service-role / Secret key:* Accepts either a legacy `service_role` JWT (`role: "service_role"`) or a modern `sb_secret_*` key. Admin test clients set `apikey: <key>` and omit the synthetic bearer header so the opaque secret key is accepted directly by PostgREST and Auth.
-     - **Skip behavior:** In GitHub Actions CI and local runs, if these dedicated non-production secrets are missing or target safety prechecks fail, the runner outputs an explicit skip reason and registers the tests as ignored (`0 failed | 2 ignored`). Unexecuted tests are never reported as passed, and production credentials are never used.
+     - **Skip behavior:** In GitHub Actions CI and local runs, if these dedicated non-production secrets are missing or target safety prechecks fail, the runner outputs an explicit skip reason and registers the unrun tests as ignored. Unexecuted tests are never reported as passed, and production credentials are never used.
 
-   - **Gate C: BE-07 Hosted RLS Integration Gate (`supabase/functions/tests/cross_user_rls_lineage_test.ts`)**
+   - **Gate C: Hosted RLS Integration Gate (`cross_user_rls_lineage_test.ts` and `recipe_context_test.ts`)**
      - **Job:** `test-hosted-rls` (named **"Hosted RLS Integration"**) in `.github/workflows/reusable-edge-api.yml`, called by modular PR/main validation.
      - **Shared test project:** Gate C uses the same dedicated non-production project and `NON_PRODUCTION_TEST_DATABASE_*` credentials as Gate B. The job waits for `test-edge-api` to finish so its optional migration step completes before the lineage scenario runs. No separate BE-07 credential secrets are needed.
-     - **Required deployment gate:** Unlike the optional non-production test database checks in `test-edge-api`, the proposed modular main production caller requires the aggregate `test-edge-api` reusable workflow (`needs: [frontend, test-db, test-edge-api]`) with `require-hosted-rls: true`. Its nested hosted job must pass before production proceeds.
+     - **Required deployment gate:** The modular main workflow calls the reusable Edge/API workflow with `require-hosted-rls: true`. Production depends on that workflow, so its hosted RLS job must pass before deployment proceeds.
      - **Execution command & test filter:**
        ```sh
-       deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts
+       deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net --filter "hosted integration" supabase/functions/tests/cross_user_rls_lineage_test.ts supabase/functions/tests/recipe_context_test.ts
        ```
-     - **Observed test results and count semantics:**
-       - In CI with complete test credentials configured: **1 passed, 27 filtered out**.
-       - In local or unconfigured environments: **0 passed, 1 ignored, 27 filtered out**.
-       - *Distinction between passed, ignored, and filtered out:*
-         - **1 passed:** The single live scenario (`Live PostgreSQL cross-user authorization, PostgREST RLS, and recipe lineage enforcement (hosted integration)`) executed and passed against the dedicated hosted project.
-         - **27 filtered out:** The 27 other tests in `cross_user_rls_lineage_test.ts` are deterministic unit and mock tests that do not match the `hosted integration` filter. They are filtered out by Deno so the hosted job focuses solely on live integration. These 27 tests did not run or pass in this job; their deterministic verification runs separately in the Edge/API suite (accounting for 27 of the 111 passed tests in the latest local run). Do not mislabel filtered-out tests as ignored or passed.
+     - **Scenarios:** The hosted filter runs live checks for cross-user recipe and lineage access, AI quota atomicity and RLS, and Chef recipe-context isolation. Deno filters out tests that do not match `hosted integration`.
      - **Fail-closed gate behavior:**
-       The workflow exports `REQUIRE_HOSTED_RLS_INTEGRATION="true"`. Main push/manual runs require the shared `NON_PRODUCTION_TEST_DATABASE_*` credentials and fail closed with an explicit error if any required value is missing. The separate hosted job is main-only and skipped for all PRs; optional hosted integration steps inside Edge/API retain their existing behavior. For local opt-in runs, `RUN_BE07_RLS_INTEGRATION=true` runs the lineage scenario against that same non-production test database credential set.
+       The workflow exports `REQUIRE_HOSTED_RLS_INTEGRATION="true"`. Main push and manual runs require the shared `NON_PRODUCTION_TEST_DATABASE_*` credentials and fail closed if a required value is missing. The separate hosted job runs only on `main` and is skipped for PRs; optional hosted integration steps inside Edge/API retain their existing behavior. For a local opt-in, set `RUN_BE07_RLS_INTEGRATION=true` to run the cross-user, lineage, quota, and Chef recipe-context checks against the same non-production test database.
      - **Required credentials and configuration:**
        Configure the `NON_PRODUCTION_TEST_DATABASE_*` secrets and expected project reference listed under Gate B. The lineage test uses the same target safety checks and does not accept a separate BE-07 key namespace.
      - **Security and target safety rules:**
@@ -230,7 +218,7 @@ The test suite separates tests into four distinct categories to maintain rigorou
 
 ### Full local test runner (`pnpm run test:local:all`)
 
-The root command `pnpm run test:local:all` (executing `node run-local-tests.mjs`) orchestrates local database migration lifecycle tests and Edge Function test suites in a single workflow:
+The root command `pnpm run test:local:all` (executing `node run-local-tests.mjs`) runs migration lifecycle tests and a selected Edge Function suite in one workflow:
 
 ```sh
 pnpm run test:local:all
@@ -238,20 +226,15 @@ pnpm run test:local:all
 
 #### Prerequisites and execution behavior
 
-1. **Local PostgreSQL migration lifecycle:** The runner first executes `node test-migrations.mjs --run-db-tests`, which runs all 13 migration lifecycle integration scenarios against an isolated temporary database created on the local PostgreSQL instance configured by `DATABASE_URL`.
+1. **Local PostgreSQL migration lifecycle:** The runner first executes `node test-migrations.mjs --run-db-tests`, which runs the migration lifecycle scenarios against an isolated temporary database created on the local PostgreSQL instance configured by `DATABASE_URL`.
 2. **Default database port and overrides:** `DATABASE_URL` defaults to port `54322` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`), matching the local port configured in `supabase/config.toml` (`[db] port = 54322`). If your native PostgreSQL service runs on port `5432` or uses custom credentials, supply `DATABASE_URL="postgresql://<user>:<password>@127.0.0.1:<port>/postgres"`.
 3. **Connection failure behavior:** If the native local database is unreachable (e.g. `ECONNREFUSED 127.0.0.1:54322`), the runner immediately stops execution and propagates exit code `1`. It never silently skips database verification and never falls back to a remote database.
 4. **Loopback safety and forwarding limitation:** `isAllowedLoopbackDatabaseUrl` restricts local database testing strictly to loopback hostnames (`127.0.0.1`, `localhost`, `::1`), preventing direct connections to remote database hostnames. However, loopback address validation prevents direct remote connections but cannot detect whether local loopback ports are actively forwarded to an external or remote database via SSH tunnels, port forwarding, or network proxies. Developers must ensure local loopback ports target a native local development database.
 5. **Separation of migration tests from live API tests:**
-   - **PostgreSQL Migration Tests:** The local Supabase database or a standalone PostgreSQL instance satisfies the 13 migration lifecycle integration tests by providing standard PostgreSQL database capabilities.
+   - **PostgreSQL Migration Tests:** The local Supabase database or a standalone PostgreSQL instance provides the PostgreSQL capabilities required by the migration lifecycle tests.
    - **Supabase Live API Integration Tests:** A standalone PostgreSQL database alone **does not** provide the Supabase Auth (GoTrue) or PostgREST HTTP APIs required by live API tests.
-   - The runner evaluates the local demo API probe on loopback port `54321` and evaluates hosted RLS test prerequisites independently. In the absence of dedicated non-production cloud credentials or local loopback API services, the runner safely skips the live tests, logs explicit skip explanations, and executes all 94 deterministic offline tests without error.
-6. **Standalone unit testing without database connectivity:** When a local PostgreSQL service is not available, developers can execute offline unit and schema checks without database connectivity:
-   - Migration unit tests: `pnpm test` (or `node test-migrations.mjs`) verifies migration discovery, sorting, and schema assertions without connecting to PostgreSQL.
-   - Edge Function deterministic tests:
-     ```sh
-     deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts
-     ```
+   - The runner checks the local demo API and hosted RLS prerequisites independently. It skips live checks when safe local or dedicated non-production credentials are unavailable. The Deno command in `run-local-tests.mjs` runs selected demo, authentication, recipe, lineage, and Chef context tests. It does not run the complete deterministic Edge/API suite.
+6. **Checks without a local database:** Run `pnpm test` for migration discovery, ordering, and schema assertions. Run the deterministic Deno command from the [reusable Edge/API workflow](../.github/workflows/reusable-edge-api.yml) for the complete function and contract suite.
 
 ## Troubleshooting
 
@@ -264,4 +247,4 @@ pnpm run test:local:all
 | The frontend reports missing configuration | Check the `VITE_` variable names and restart Vite after editing `frontend/.env.local`. Use only a publishable/anon key in this file. |
 | The browser reports a CORS error after changing the frontend origin | The function allows all origins by default. If `ALLOWED_ORIGIN` is set for local function serving, set it to the exact frontend origin and restart the function. |
 
-Gemini credentials are only needed for the separate backend AI connectivity check. Keep those credentials in a server-side environment and never put them in a `VITE_` variable.
+Gemini credentials are required when you exercise the Gemini-backed extraction or generation endpoints, or run the connectivity check. Keep them server-side; never put them in a `VITE_` variable.

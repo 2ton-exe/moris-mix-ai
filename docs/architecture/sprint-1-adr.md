@@ -4,9 +4,9 @@
 
 **Scope:** Target application architecture and development conventions established in Sprint 1 and extended for Sprints 2 and 3. Sprint-by-sprint progress and acceptance evidence belong in the sprint logs.
 
-The target architecture uses a React frontend and Supabase Edge Functions as the boundary for application data. The public demo remains available without sign-in; recipe, AI, and image operations use authenticated server-side handlers.
+The application uses a React frontend and Supabase Edge Functions as the boundary for application data. The public demo remains available without sign-in; recipe, AI, and image operations use authenticated server-side handlers.
 
-## Target architecture
+## Architecture
 
 ```text
 Browser (React/Vite/TypeScript app on Cloudflare Workers)
@@ -17,8 +17,10 @@ Browser (React/Vite/TypeScript app on Cloudflare Workers)
 │       ├── Verify the Bearer token with Supabase Auth
 │       ├── Use a user-scoped Supabase client → PostgreSQL with RLS
 │       ├── Call Gemini for extraction and Chef generation
-│       └── Authorize and verify private R2 image operations
-└── Image bytes → authenticated Edge Function upload ingress → private R2
+│       ├── Authorize and verify private R2 image operations
+│       └── Resolve owned images and sign short-lived private R2 GET URLs
+└── Image bytes → authenticated Edge Function ingress → private R2
+    └── Browser reads image bytes through a short-lived signed GET URL
 ```
 
 The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 signing credentials stay on the server.
@@ -100,13 +102,6 @@ The frontend and repository tooling are separate pnpm projects. Run frontend ins
 
 ## Cloudflare Workers deployment
 
-Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The proposed [modular main caller](../../.github/workflows/modular-main.yml) invokes the shared production release after successful core validation, mandatory hosted RLS, and frontend existence on main. See the [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) for policy and post-merge verification still required.
+Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The [modular main workflow](../../.github/workflows/modular-main.yml) invokes the shared production release after successful frontend, database, Edge/API, and hosted RLS validation on `main`. PR workflows do not deploy production. The [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) records the production caller policy.
 
-The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10 for frontend installs. Its guarded `deploy` job deploys the `recipes` Edge Function to Supabase before deploying the frontend to Cloudflare. The function step uses `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
-
-**Cleanup proposal:** `frontend/package.json` is present. The modular main
-production caller retains main push/manual-only guards, successful frontend,
-database and aggregate Edge/API validation, mandatory nested hosted RLS, and
-frontend existence. PRs cannot call production. Cutover and ownership rollback
-were operator-confirmed on `46809319eb23394a45d6f1ea79f8ee41f541011b`;
-modular-only behavior after merging this cleanup remains unverified.
+The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10 for frontend installs. It deploys the `recipes`, `extract-recipe`, and `generate-recipe` Edge Functions to Supabase before deploying the frontend to Cloudflare. Image cleanup and protected upload signing remain hard-disabled in their respective workflow paths. The Supabase steps use `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
