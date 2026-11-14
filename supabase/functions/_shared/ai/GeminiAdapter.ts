@@ -5,20 +5,27 @@ import {
 } from "npm:@google/generative-ai@0.21.0";
 import type {
   AIProvider,
-  ExtractRecipeInput,
   ExtractedRecipe,
+  ExtractRecipeInput,
+  GeneratedRecipe,
   GenerateRecipeContext,
   GenerateRecipeInput,
-  GeneratedRecipe,
 } from "./AIProvider.ts";
 import {
+  buildChefPrompt,
+  buildExtractionPrompt,
   CHEF_PROMPT,
   EXTRACTION_PROMPT,
   type PromptTemplate,
-  buildChefPrompt,
-  buildExtractionPrompt,
 } from "./prompts.ts";
-import { ExtractedRecipeSchema, GeneratedRecipeSchema } from "./schemas.ts";
+import {
+  AI_OUTPUT_SIZE_LIMIT_MESSAGE,
+  ExtractedRecipeSchema,
+  GeneratedRecipeSchema,
+  MAX_AI_OUTPUT_JSON_BYTES,
+} from "./schemas.ts";
+
+const MAX_AI_OUTPUT_TOKENS = 8192;
 
 /**
  * Pinned extraction model as of Sprint 3. AI_MODEL overrides it, so a model
@@ -84,9 +91,13 @@ function readProviderRetryDelayMs(error: unknown): number | undefined {
   let delayMs: number | undefined;
   for (const detail of details) {
     if (typeof detail !== "object" || detail === null) continue;
-    if (detail["@type"] !== "type.googleapis.com/google.rpc.RetryInfo") continue;
+    if (detail["@type"] !== "type.googleapis.com/google.rpc.RetryInfo") {
+      continue;
+    }
     const duration: unknown = detail.retryDelay;
-    if (typeof duration !== "string" || !/^\d+(?:\.\d{1,9})?s$/.test(duration)) continue;
+    if (
+      typeof duration !== "string" || !/^\d+(?:\.\d{1,9})?s$/.test(duration)
+    ) continue;
     const milliseconds = Math.ceil(Number(duration.slice(0, -1)) * 1000);
     delayMs = Math.max(delayMs ?? 0, milliseconds);
   }
@@ -98,7 +109,9 @@ function readProviderRetryDelayMs(error: unknown): number | undefined {
  * needs. Clamped to [1, 3600] so an absent or overflowing delay can never emit
  * a `Retry-After: 0`/`Infinity` header.
  */
-function retryAfterSecondsFromMs(delayMs: number | undefined): number | undefined {
+function retryAfterSecondsFromMs(
+  delayMs: number | undefined,
+): number | undefined {
   if (delayMs === undefined || Number.isNaN(delayMs)) return undefined;
   if (!Number.isFinite(delayMs)) return 3600;
   return Math.min(3600, Math.max(1, Math.ceil(delayMs / 1000)));
@@ -111,7 +124,9 @@ export type AIErrorCode =
   | "provider_rejected"
   | "provider_timeout"
   | "provider_unavailable"
-  | "rate_limited";
+  | "rate_limited"
+  | "context_too_large"
+  | "output_truncated";
 
 /**
  * Typed AI failure. `code` is stable so callers (the AI-05 endpoint) can map it
@@ -180,7 +195,10 @@ export type AIOperationLog = {
 };
 
 /** Test seam: replaces the real Gemini call. */
-export type GenerateText = (prompt: string) => Promise<string>;
+export type GenerateText = (
+  prompt: string,
+  operation: "extract" | "generate",
+) => Promise<string>;
 
 /** Adapter options. Production reads env vars; tests inject a generator. */
 export type GeminiAdapterConfig = {
@@ -241,7 +259,8 @@ export class GeminiAdapter implements AIProvider {
 
     const client = config.client ?? createGeminiClient(config.apiKey);
     this.client = client;
-    this.generateText = (prompt) => this.callModel(client, prompt);
+    this.generateText = (prompt, operation) =>
+      this.callModel(client, prompt, operation);
   }
 
   /**
@@ -273,7 +292,9 @@ export class GeminiAdapter implements AIProvider {
     _input: GenerateRecipeInput,
     context: GenerateRecipeContext,
   ): Promise<GeneratedRecipe> {
-    const allowedParentIds = new Set(context.recipes.map((recipe) => recipe.id));
+    const allowedParentIds = new Set(
+      context.recipes.map((recipe) => recipe.id),
+    );
     return this.runOperation(
       "generate",
       CHEF_PROMPT,
@@ -303,7 +324,7 @@ export class GeminiAdapter implements AIProvider {
       const startedAt = Date.now();
 
       try {
-        const raw = await this.generateText(prompt);
+        const raw = await this.generateText(prompt, operation);
         const result = parse(raw);
 
         this.safeLog({
@@ -335,8 +356,12 @@ export class GeminiAdapter implements AIProvider {
           [...attempts],
         );
 
-        if (!aiError.retryable || attempt === MAX_ATTEMPTS) throw accumulatedError;
-        const delayMs = retryDelayMs(aiError.code === "rate_limited" ? error : undefined);
+        if (!aiError.retryable || attempt === MAX_ATTEMPTS) {
+          throw accumulatedError;
+        }
+        const delayMs = retryDelayMs(
+          aiError.code === "rate_limited" ? error : undefined,
+        );
         if (delayMs === undefined) throw accumulatedError;
         lastError = accumulatedError;
         await this.sleep(delayMs);
@@ -347,10 +372,14 @@ export class GeminiAdapter implements AIProvider {
       new AIError(
         "provider_unavailable",
         operation,
-        operation === "extract" ? "Gemini extraction failed." : "Gemini generation failed.",
+        operation === "extract"
+          ? "Gemini extraction failed."
+          : "Gemini generation failed.",
         undefined,
         undefined,
-        attempts.length > 0 ? attempts.every((entry) => entry.nonConsuming) : false,
+        attempts.length > 0
+          ? attempts.every((entry) => entry.nonConsuming)
+          : false,
         attempts,
       );
   }
@@ -403,7 +432,11 @@ export class GeminiAdapter implements AIProvider {
   }
 
   /** One Gemini request in JSON mode. The response is validated by the caller. */
-  private async callModel(client: GoogleGenerativeAI, prompt: string): Promise<string> {
+  private async callModel(
+    client: GoogleGenerativeAI,
+    prompt: string,
+    operation: "extract" | "generate",
+  ): Promise<string> {
     const model = client.getGenerativeModel(
       {
         model: this.modelName,
@@ -412,6 +445,7 @@ export class GeminiAdapter implements AIProvider {
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.2,
+          maxOutputTokens: MAX_AI_OUTPUT_TOKENS,
         },
       },
       { timeout: this.timeoutMs },
@@ -420,6 +454,14 @@ export class GeminiAdapter implements AIProvider {
     const result = await model.generateContent(prompt);
     const response = result.response;
     const finishReason = response.candidates?.[0]?.finishReason;
+
+    if (finishReason === "MAX_TOKENS") {
+      throw new AIError(
+        "output_truncated",
+        operation,
+        "Gemini output exceeded the configured token budget.",
+      );
+    }
 
     // SDK 0.21.0 throws for SAFETY/RECITATION/LANGUAGE, but newer block
     // reasons such as PROHIBITED_CONTENT return empty text instead. Without
@@ -437,24 +479,57 @@ export class GeminiAdapter implements AIProvider {
 
 /** Exported for tests. */
 export function parseExtractionResponse(raw: string): ExtractedRecipe {
+  if (new TextEncoder().encode(raw).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
+    throw new AIError(
+      "output_truncated",
+      "extract",
+      "Gemini output exceeded the supported response size.",
+    );
+  }
   const cleaned = stripCodeFence(raw);
 
   let value: unknown;
   try {
     value = JSON.parse(cleaned);
   } catch {
-    throw new AIError("invalid_output", "extract", "Gemini did not return valid JSON.", undefined, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "extract",
+      "Gemini did not return valid JSON.",
+      undefined,
+      undefined,
+      false,
+    );
   }
 
   const parsed = ExtractedRecipeSchema.safeParse(value);
   if (!parsed.success) {
+    if (
+      parsed.error.issues.some((issue) =>
+        issue.code === "custom" &&
+        issue.message === AI_OUTPUT_SIZE_LIMIT_MESSAGE
+      )
+    ) {
+      throw new AIError(
+        "output_truncated",
+        "extract",
+        "Gemini output exceeded the supported response size after normalization.",
+      );
+    }
     const fieldPaths = parsed.error.issues
       .map((issue) => issue.path.join("."))
       .join(", ");
     const message = fieldPaths
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
-    throw new AIError("invalid_output", "extract", message, fieldPaths, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "extract",
+      message,
+      fieldPaths,
+      undefined,
+      false,
+    );
   }
 
   return parsed.data;
@@ -472,24 +547,57 @@ export function parseGenerationResponse(
   raw: string,
   allowedParentIds: ReadonlySet<string>,
 ): GeneratedRecipe {
+  if (new TextEncoder().encode(raw).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
+    throw new AIError(
+      "output_truncated",
+      "generate",
+      "Gemini output exceeded the supported response size.",
+    );
+  }
   const cleaned = stripCodeFence(raw);
 
   let value: unknown;
   try {
     value = JSON.parse(cleaned);
   } catch {
-    throw new AIError("invalid_output", "generate", "Gemini did not return valid JSON.", undefined, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "generate",
+      "Gemini did not return valid JSON.",
+      undefined,
+      undefined,
+      false,
+    );
   }
 
   const parsed = GeneratedRecipeSchema.safeParse(value);
   if (!parsed.success) {
+    if (
+      parsed.error.issues.some((issue) =>
+        issue.code === "custom" &&
+        issue.message === AI_OUTPUT_SIZE_LIMIT_MESSAGE
+      )
+    ) {
+      throw new AIError(
+        "output_truncated",
+        "generate",
+        "Gemini output exceeded the supported response size after normalization.",
+      );
+    }
     const fieldPaths = parsed.error.issues
       .map((issue) => issue.path.join("."))
       .join(", ");
     const message = fieldPaths
       ? `Gemini output did not match the recipe schema (fields: ${fieldPaths}).`
       : "Gemini output did not match the recipe schema.";
-    throw new AIError("invalid_output", "generate", message, fieldPaths, undefined, false);
+    throw new AIError(
+      "invalid_output",
+      "generate",
+      message,
+      fieldPaths,
+      undefined,
+      false,
+    );
   }
 
   const hasUnknownParent = parsed.data.parentRecipeIds
@@ -613,31 +721,41 @@ function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
 function isNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as { code?: unknown }).code;
-  if (typeof code === "string" &&
-    /^(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)$/.test(code)) {
+  if (
+    typeof code === "string" &&
+    /^(?:ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)$/
+      .test(code)
+  ) {
     return true;
   }
 
   // The SDK wraps fetch exceptions and discards their type/cause. Match only
   // known transport messages inside its fetch wrapper, never the wrapper alone.
   const message = error instanceof GoogleGenerativeAIError
-    ? error.message.match(/^\[GoogleGenerativeAI Error\]: Error fetching from https?:\/\/\S+: (.+)$/s)?.[1]
-    : error instanceof TypeError ? error.message : undefined;
+    ? error.message.match(
+      /^\[GoogleGenerativeAI Error\]: Error fetching from https?:\/\/\S+: (.+)$/s,
+    )?.[1]
+    : error instanceof TypeError
+    ? error.message
+    : undefined;
   return message !== undefined &&
-    /^(?:fetch failed|failed to fetch|NetworkError when attempting to fetch resource|Load failed|error sending request for url\b)/i.test(message);
+    /^(?:fetch failed|failed to fetch|NetworkError when attempting to fetch resource|Load failed|error sending request for url\b)/i
+      .test(message);
 }
 
 /** True when the failure looks like a timeout or an abort. */
 function isTimeout(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  return error.name === "AbortError" || /timed? ?out|aborted/i.test(error.message);
+  return error.name === "AbortError" ||
+    /timed? ?out|aborted/i.test(error.message);
 }
 
 /** Reads an HTTP-style numeric `status` without trusting the error's shape. */
 function readStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) return undefined;
   const status = (error as { status?: unknown }).status;
-  return typeof status === "number" && Number.isInteger(status) && status >= 100 && status < 600
+  return typeof status === "number" && Number.isInteger(status) &&
+      status >= 100 && status < 600
     ? status
     : undefined;
 }
