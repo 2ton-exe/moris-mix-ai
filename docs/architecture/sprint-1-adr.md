@@ -17,8 +17,10 @@ Browser (React/Vite/TypeScript app on Cloudflare Workers)
 │       ├── Verify the Bearer token with Supabase Auth
 │       ├── Use a user-scoped Supabase client → PostgreSQL with RLS
 │       ├── Call Gemini for extraction and Chef generation
-│       └── Authorize and verify private R2 image operations
-└── Image bytes → authenticated Edge Function upload ingress → private R2
+│       ├── Authorize and verify private R2 image operations
+│       └── Resolve owned images and sign short-lived private R2 GET URLs
+└── Image bytes → authenticated Edge Function ingress → private R2
+    └── Browser reads image bytes through a short-lived signed GET URL
 ```
 
 The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 signing credentials stay on the server.
