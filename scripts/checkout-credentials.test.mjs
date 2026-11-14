@@ -12,6 +12,7 @@ const validationWorkflows = [
   'reusable-database.yml',
   'reusable-e2e.yml',
   'reusable-staging.yml',
+  'database-backup.yml',
 ];
 
 for (const file of validationWorkflows) {
