@@ -119,4 +119,44 @@ describe('HTTP JSON transport (without a recipe contract)', () => {
     await expect(client.getJson(path)).resolves.toEqual({ transportTest: true })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
+
+  it('uploads a presigned object without Supabase credentials and accepts R2 200', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }))
+    const getSession = vi.fn()
+    const client = createHttpClient({ baseUrl, apiKey: 'publishable-key', fetchImpl, getSession })
+    const image = new Blob(['image'], { type: 'image/png' })
+    const url = 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/bucket/object?X-Amz-Signature=test'
+    const headers = { 'Content-Type': 'image/png', 'If-None-Match': '*' }
+    const controller = new AbortController()
+
+    await expect(client.putPresignedBytes(url, image, headers, { signal: controller.signal })).resolves.toBe(200)
+
+    expect(fetchImpl).toHaveBeenCalledWith(url, {
+      method: 'PUT', headers, body: image, credentials: 'omit', signal: controller.signal,
+    })
+    expect(getSession).not.toHaveBeenCalled()
+  })
+
+  it('returns precondition conflicts for an already-uploaded presigned object', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 412 }))
+    const client = createHttpClient({ baseUrl, fetchImpl })
+
+    await expect(client.putPresignedBytes(
+      'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/bucket/object?signature=test',
+      new Blob(['image'], { type: 'image/png' }),
+      { 'Content-Type': 'image/png', 'If-None-Match': '*' },
+    )).resolves.toBe(412)
+  })
+
+  it('rejects non-HTTPS presigned upload URLs before fetching', async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+    const client = createHttpClient({ baseUrl, fetchImpl })
+
+    await expect(client.putPresignedBytes(
+      'http://r2.example.test/object?signature=test',
+      new Blob(['image'], { type: 'image/png' }),
+      { 'Content-Type': 'image/png' },
+    )).rejects.toMatchObject({ kind: 'configuration' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
 })

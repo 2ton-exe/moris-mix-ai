@@ -7,9 +7,19 @@ const downloadPath = '/functions/v1/recipe-image-download-url'
 const maximumBytes = 10 * 1024 * 1024
 const maximumDimension = 2048
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp']
+const r2HostPattern = /^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const signedUploadHeaders = 'content-length;content-type;host;if-none-match'
 
 type Request = { userId: string; signal?: AbortSignal }
-export type UploadIntent = { id: string; url: string; contentType: string }
+export type UploadIntent = {
+  id: string
+  url: string
+  contentType: string
+  byteSize: number
+  expiresAt: number
+  headers: Record<string, string>
+}
 export type Download = { url: string; expiresAt: number }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -59,25 +69,51 @@ export function createRecipeImageApi(client: typeof apiClient = apiClient) {
         try {
           uploadUrl = new URL(upload.url)
         } catch {
-          // The authenticated transport accepts only configured-origin URLs.
+          // Reject malformed storage capabilities at the API boundary.
         }
       }
-      if (typeof upload?.id !== 'string' || typeof upload.url !== 'string' || upload.method !== 'PUT' ||
-        !uploadUrl || !['https:', 'http:'].includes(uploadUrl.protocol) || uploadUrl.pathname !== uploadPath ||
+      const path = uploadUrl?.pathname.split('/').filter(Boolean) ?? []
+      const signatureExpiry = Number(uploadUrl?.searchParams.get('X-Amz-Expires'))
+      const expiresAt = typeof upload?.expires_at === 'string' ? Date.parse(upload.expires_at) : NaN
+      if (typeof upload?.id !== 'string' || !uuidPattern.test(upload.id) || typeof upload.url !== 'string' || upload.method !== 'PUT' ||
+        !uploadUrl || uploadUrl.protocol !== 'https:' || !r2HostPattern.test(uploadUrl.hostname) || uploadUrl.port ||
         uploadUrl.username || uploadUrl.password || uploadUrl.hash ||
-        !isRecord(upload.headers) || upload.headers['Content-Type'] !== image.type ||
-        typeof upload.expires_at !== 'string' || !Number.isFinite(Date.parse(upload.expires_at)) ||
-        Date.parse(upload.expires_at) <= Date.now()) {
+        path.length !== 6 || path[1] !== 'recipe-images' || path[2] !== 'staging' ||
+        path[3] !== request.userId.toLowerCase() || path[4] !== recipeId.toLowerCase() || path[5] !== upload.id ||
+        uploadUrl.searchParams.get('X-Amz-Algorithm') !== 'AWS4-HMAC-SHA256' ||
+        uploadUrl.searchParams.get('X-Amz-SignedHeaders') !== signedUploadHeaders ||
+        uploadUrl.searchParams.get('X-Amz-Content-Sha256') !== 'UNSIGNED-PAYLOAD' ||
+        !/^[a-f0-9]{64}$/i.test(uploadUrl.searchParams.get('X-Amz-Signature') ?? '') ||
+        !/^\d{8}T\d{6}Z$/.test(uploadUrl.searchParams.get('X-Amz-Date') ?? '') ||
+        !Number.isInteger(signatureExpiry) || signatureExpiry < 1 || signatureExpiry > 600 ||
+        upload.byte_size !== image.size || !isRecord(upload.headers) ||
+        Object.keys(upload.headers).length !== 2 || upload.headers['Content-Type'] !== image.type ||
+        upload.headers['If-None-Match'] !== '*' ||
+        !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         throw new Error('Invalid image upload response.')
       }
-      return { id: upload.id, url: upload.url, contentType: image.type }
+      return {
+        id: upload.id,
+        url: upload.url,
+        contentType: image.type,
+        byteSize: image.size,
+        expiresAt,
+        headers: { 'Content-Type': image.type, 'If-None-Match': '*' },
+      }
     },
 
     async uploadBytes(upload: UploadIntent, image: Blob, request: Request): Promise<void> {
-      if (upload.contentType !== image.type) throw new Error('Invalid image upload response.')
-      const value = await client.putAuthenticatedBytes(upload.url, image, request)
-      const result = isRecord(value) && isRecord(value.upload) ? value.upload : undefined
-      if (result?.id !== upload.id || result.received !== true) throw new Error('Invalid image upload response.')
+      if (upload.contentType !== image.type || upload.byteSize !== image.size) throw new Error('Invalid image upload response.')
+      const expired = () => new HttpError('http', 'The image upload authorization expired.', 410, { error: { code: 'UPLOAD_EXPIRED' } })
+      if (Date.now() >= upload.expiresAt) throw expired()
+      let status: number
+      try {
+        status = await client.putPresignedBytes(upload.url, image, upload.headers, request)
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 403 && Date.now() >= upload.expiresAt) throw expired()
+        throw error
+      }
+      if (status !== 200 && status !== 412) throw new Error('Invalid image upload response.')
     },
 
     async attach(recipeId: string, uploadId: string, image: Blob, request: Request): Promise<void> {

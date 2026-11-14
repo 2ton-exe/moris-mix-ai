@@ -10,9 +10,11 @@ import react from '@vitejs/plugin-react'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiOrigin = 'https://qa04.example.test'
+const r2Origin = 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com'
 const appUserId = '11111111-1111-4111-8111-111111111111'
 const otherUserId = '22222222-2222-4222-8222-222222222222'
 const recipeId = '33333333-3333-4333-8333-333333333333'
+const uploadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const oldImageUrl = 'https://images.qa04.example.test/old.webp'
 const newImageUrl = 'https://images.qa04.example.test/new.webp'
 const imageSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="#52856f"/></svg>'
@@ -61,6 +63,25 @@ try {
           if (url.origin === new URL(oldImageUrl).origin || url.origin === new URL(newImageUrl).origin) {
             return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: imageSvg })
           }
+          if (url.origin === r2Origin) {
+            if (request.method() === 'OPTIONS') {
+              return route.fulfill({ status: 204, headers: {
+                'Access-Control-Allow-Origin': appOrigin,
+                'Access-Control-Allow-Methods': 'PUT',
+                'Access-Control-Allow-Headers': 'content-type,if-none-match',
+              } })
+            }
+            assert.equal(request.method(), 'PUT')
+            putAttempts++
+            assert.equal(request.headers()['content-type'], imageType)
+            assert.equal(request.headers()['if-none-match'], '*')
+            assert.equal(request.headers().authorization, undefined)
+            assert.equal(request.headers().apikey, undefined)
+            const body = request.postDataBuffer()
+            if (body) assert.equal(body.byteLength, intentByteSize)
+            if (putAttempts === 1) return route.fulfill({ status: 503, headers: { 'Access-Control-Allow-Origin': appOrigin } })
+            return route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': appOrigin } })
+          }
           assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
           if (url.pathname === '/auth/v1/user') {
             return route.fulfill({ json: { id: appUserId, aud: 'authenticated', email: 'qa04@example.test' } })
@@ -92,20 +113,13 @@ try {
             intentByteSize = uploadRequest.byte_size
             assert.ok(['image/png', 'image/webp'].includes(imageType), `Unexpected prepared image type: ${imageType}`)
             return route.fulfill({ json: { upload: {
-              id: 'qa04-image-upload',
-              url: `${apiOrigin}/functions/v1/recipe-image-upload-url?upload_id=qa04-image-upload`,
+              id: uploadId,
+              url: `${r2Origin}/qa04-recipe-images/recipe-images/staging/${appUserId}/${recipeId}/${uploadId}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=TESTACCESSKEY%2F20261115%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20261115T000000Z&X-Amz-Expires=600&X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost%3Bif-none-match&X-Amz-Signature=${'a'.repeat(64)}`,
               method: 'PUT',
-              headers: { 'Content-Type': imageType },
+              headers: { 'Content-Type': imageType, 'If-None-Match': '*' },
+              byte_size: intentByteSize,
               expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
             } } })
-          }
-          if (url.pathname === '/functions/v1/recipe-image-upload-url' && request.method() === 'PUT') {
-            putAttempts++
-            assert.equal(request.headers()['content-type'], imageType)
-            if (putAttempts === 1) {
-              return route.fulfill({ status: 503, json: { error: { code: 'STORAGE_UNAVAILABLE' } } })
-            }
-            return route.fulfill({ status: 201, json: { upload: { id: 'qa04-image-upload', received: true } } })
           }
           if (url.pathname === '/functions/v1/recipe-image-attach' && request.method() === 'POST') {
             attached = true

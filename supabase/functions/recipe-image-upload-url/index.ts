@@ -11,6 +11,7 @@ import {
   putRecipeImageStaging,
   type R2Config,
   resolveR2Config,
+  signRecipeImageStagingPutUrl,
 } from "../_shared/recipe-images/r2.ts";
 import {
   createUploadIntent,
@@ -23,7 +24,6 @@ const UPLOAD_FINISH_MARGIN_MS = 30_000;
 
 export type UploadHandlerDeps = AuthDeps & {
   r2Config?: R2Config;
-  uploadOrigin?: string;
   supabaseServiceRoleKey?: string;
   now?: () => Date;
   putUpload?: typeof putRecipeImageStaging;
@@ -449,23 +449,10 @@ export async function handler(
     if (!data || data.id !== request.recipe_id || data.user_id !== user.id) {
       return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     }
-    resolveR2Config(deps.r2Config);
-    const origin = new URL(
-      deps.uploadOrigin ?? Deno.env.get("RECIPE_IMAGE_UPLOAD_ORIGIN") ??
-        deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL") ?? "",
-    );
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
-      origin.hostname,
-    );
-    if (
-      (origin.protocol !== "https:" &&
-        !(origin.protocol === "http:" && loopback)) ||
-      origin.username || origin.password || origin.pathname !== "/" ||
-      origin.search || origin.hash
-    ) {
-      throw new Error("Invalid public upload origin configuration.");
-    }
-    const intent = createUploadIntent(request, user.id, deps.now?.());
+    const now = deps.now?.() ?? new Date();
+    const r2Config = resolveR2Config(deps.r2Config);
+    const intent = createUploadIntent(request, user.id, now);
+    const upload = await signRecipeImageStagingPutUrl(intent, r2Config, now);
     const quota = await persistUploadIntent(intent, deps);
     if (quota === "rate_limited") {
       return error(
@@ -481,17 +468,13 @@ export async function handler(
         429,
       );
     }
-    const uploadUrl = new URL(
-      "/functions/v1/recipe-image-upload-url",
-      origin.origin,
-    );
-    uploadUrl.searchParams.set("upload_id", intent.id);
     return respond({
       upload: {
         id: intent.id,
-        url: uploadUrl.toString(),
+        url: upload.url,
         method: "PUT",
-        headers: { "Content-Type": intent.content_type },
+        headers: upload.headers,
+        byte_size: intent.byte_size,
         expires_at: intent.expires_at,
       },
     }, 200);

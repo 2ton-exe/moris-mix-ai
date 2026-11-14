@@ -12,6 +12,7 @@ import {
   resolveR2Config,
   signRecipeImageStagingDelete,
   signRecipeImageStagingList,
+  signRecipeImageStagingPutUrl,
 } from "../_shared/recipe-images/r2.ts";
 import {
   createUploadIntent,
@@ -298,6 +299,50 @@ Deno.test("conditional R2 conflicts reject replay and payload mismatch fails bef
     )
   );
   assertEquals(called, false);
+});
+
+Deno.test("presigned staging PUT binds exact type, size, and create-only headers", async () => {
+  const imageIntent = intent("image/png");
+  const signed = await signRecipeImageStagingPutUrl(imageIntent, config, now);
+  const url = new URL(signed.url);
+  const headers = new Headers({
+    ...signed.headers,
+    "Content-Length": String(imageIntent.byte_size),
+  });
+  const signature = url.searchParams.get("X-Amz-Signature");
+
+  assertEquals(url.protocol, "https:");
+  assertEquals(url.host, `${config.accountId}.r2.cloudflarestorage.com`);
+  assertEquals(
+    url.pathname,
+    `/${config.bucketName}/${imageIntent.staging_key}`,
+  );
+  assertEquals(url.searchParams.get("X-Amz-Expires"), "600");
+  assertEquals(
+    url.searchParams.get("X-Amz-SignedHeaders"),
+    "content-length;content-type;host;if-none-match",
+  );
+  assertEquals(
+    url.searchParams.get("X-Amz-Content-Sha256"),
+    "UNSIGNED-PAYLOAD",
+  );
+  assertEquals(headers.get("content-type"), "image/png");
+  assertEquals(headers.get("content-length"), "1024");
+  assertEquals(headers.get("if-none-match"), "*");
+  assertEquals(Object.keys(signed.headers).sort(), [
+    "Content-Type",
+    "If-None-Match",
+  ]);
+  assertEquals(signature, referenceSignature(url, "PUT", headers));
+  assertNotEquals(
+    signature,
+    referenceSignature(
+      url,
+      "PUT",
+      new Headers({ ...signed.headers, "Content-Length": "1025" }),
+    ),
+  );
+  assertEquals(signed.url.includes(config.secretAccessKey), false);
 });
 
 Deno.test("R2 signer rejects invalid configuration and altered upload intents", async () => {
