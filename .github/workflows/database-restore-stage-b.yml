@@ -174,12 +174,13 @@ jobs:
           # Ubuntu's psql may be version 16. A patched 17.11 client understands
           # the source dump's restrict/unrestrict guards without stripping them.
           # The container does not receive any R2 or production credentials.
-          # Public output is constructed only from fixed phases/categories and
-          # numeric exit codes. Never echo or parse private command output.
+          # Never echo private output. The bounded classifier may inspect only
+          # stderr and return an allowlisted, untrusted component hint.
           checked() {
-            local phase="$1" rc category
+            local phase="$1" rc category component_hint
             shift
-            if "$@" > "$RUNNER_TEMP/private-restore-result.log" 2>&1; then
+            if "$@" > "$RUNNER_TEMP/private-restore-result.log" \
+                2> "$RUNNER_TEMP/private-restore-stderr.log"; then
               printf 'Restore diagnostic: phase=%s status=passed\n' "$phase"
             else
               rc=$?
@@ -191,12 +192,22 @@ jobs:
                     files:1) category=mounted-files ;;
                     connection:2|restore:2) category=connection ;;
                     restore:3) category=sql-script ;;
-                    connection:1|restore:1) category=client-fatal ;;
+                    connection:1) category=client-fatal ;;
+                    restore:1) category=client-or-sql-action ;;
                     *) category=unclassified ;;
                   esac ;;
               esac
-              printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d; private output suppressed\n' \
-                "$phase" "$category" "$rc"
+              component_hint=unknown
+              if [[ "$phase:$rc" == restore:3 ]]; then
+                component_hint="$(python3 scripts/classify_restore_component.py \
+                  "$RUNNER_TEMP/private-restore-stderr.log" "$rc" 2> /dev/null)" || component_hint=unknown
+              fi
+              case "$component_hint" in
+                roles.sql|schema.sql|history-schema.sql|data.sql|history-data.sql|unknown) ;;
+                *) component_hint=unknown ;;
+              esac
+              printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d component_hint=%s; private output suppressed\n' \
+                "$phase" "$category" "$rc" "$component_hint"
               exit "$rc"
             fi
           }
@@ -215,6 +226,7 @@ jobs:
             -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
           checked restore "${client[@]}" \
               psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
+              -v VERBOSITY=sqlstate \
               -f /backup/roles.sql \
               -f /backup/schema.sql \
               -f /backup/history-schema.sql \
@@ -326,6 +338,7 @@ jobs:
           fi
           rm -rf "$RUNNER_TEMP/restore-verified-sql" "$RUNNER_TEMP/restore-selected.tar.gz" \
             "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/private-restore-result.log" \
+            "$RUNNER_TEMP/private-restore-stderr.log" \
             "$RUNNER_TEMP/private-verify-result.log" "$workdir"
           if [[ "$failure" -ne 0 ]]; then
             echo '::error::Local database shutdown failed; runner teardown will recycle the VM'
