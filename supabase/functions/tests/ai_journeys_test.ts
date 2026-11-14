@@ -31,6 +31,7 @@ const USER_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTk5OTk5OS05OTk5LTk5OTktOTk5OS05OTk5OTk5OTk5OTkiLCJlbWFpbCI6InZlcmlmaWVkQG1vcmlzc2NyYXBzLmxvY2FsIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ.signature_segment_ok";
 const CANDIDATE_TOKEN_SECRET = "test-candidate-token-secret-0123456789abcdef";
 const PARENT_ID = "123e4567-e89b-12d3-a456-426614174000";
+const SECOND_PARENT_ID = "22222222-2222-4222-8222-222222222222";
 const EXTRACTED_RECIPE_ID = "33333333-3333-4333-8333-333333333333";
 const CHEF_RECIPE_ID = "44444444-4444-4444-8444-444444444444";
 const LINEAGE_ID = "55555555-5555-4555-8555-555555555555";
@@ -57,9 +58,19 @@ const MATCHED_CONTEXT: ChefRecipeContextResult = {
     created_at: "2026-10-01T00:00:00.000Z",
     overlap_ratio: 1,
     matched_ingredients: ["rice"],
+  }, {
+    id: SECOND_PARENT_ID,
+    title: "Egg Pancake",
+    ingredients: [{ name: "eggs", quantity: 2, unit: null, inferred: false }],
+    instructions: [{ step: 1, text: "Cook the eggs." }],
+    flavor_scores: null,
+    star_rating: 4,
+    created_at: "2026-10-02T00:00:00.000Z",
+    overlap_ratio: 1,
+    matched_ingredients: ["eggs"],
   }],
-  totalCandidateCount: 1,
-  matchedCandidateCount: 1,
+  totalCandidateCount: 2,
+  matchedCandidateCount: 2,
   truncated: false,
 };
 
@@ -274,21 +285,10 @@ Deno.test("Extraction stays a preview until the user explicitly creates a recipe
     fetch: db.fetchImpl,
   };
 
-  const previewResponse = await withEnabled(
-    EXTRACT_ENABLED_ENV,
-    () =>
-      extractRecipeHandler(
-        request("/functions/v1/extract-recipe", "POST", {
-          notes: "Chicken, garlic, and soy sauce.",
-        }),
-        {
-          supabaseUrl: SUPABASE_URL,
-          supabaseAnonKey: ANON_KEY,
-          fetch: db.fetchImpl,
-          provider: providerDouble,
-          quotaCheck: allowedQuota,
-        },
-      ),
+  const previewResponse = await runAiHandler(
+    "extract",
+    db.fetchImpl,
+    providerDouble,
   );
   const preview = await previewResponse.json();
 
@@ -328,8 +328,15 @@ Deno.test("Extraction stays a preview until the user explicitly creates a recipe
 
 Deno.test("Chef stays a preview until separate recipe and reviewed-lineage requests", async () => {
   const parent = recipeRow(PARENT_ID, { title: "Garlic Fried Rice" });
-  const db = createPostgrestMock(CHEF_RECIPE_ID, [parent]);
-  const providerDouble = provider();
+  const secondParent = recipeRow(SECOND_PARENT_ID, { title: "Egg Pancake" });
+  const db = createPostgrestMock(CHEF_RECIPE_ID, [parent, secondParent]);
+  const providerDouble = provider({
+    generateRecipe: () =>
+      Promise.resolve({
+        ...MOCK_GENERATED_RECIPE,
+        parentRecipeIds: [PARENT_ID, SECOND_PARENT_ID],
+      }),
+  });
   const recipesDeps = {
     supabaseUrl: SUPABASE_URL,
     supabaseAnonKey: ANON_KEY,
@@ -337,20 +344,10 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
     fetch: db.fetchImpl,
   };
 
-  const previewResponse = await withEnabled(
-    GENERATE_ENABLED_ENV,
-    () =>
-      generateRecipeHandler(
-        request("/functions/v1/generate-recipe", "POST", {
-          pantryItems: ["rice", "eggs"],
-        }),
-        {
-          ...recipesDeps,
-          provider: providerDouble,
-          buildContext: () => Promise.resolve(MATCHED_CONTEXT),
-          quotaCheck: allowedQuota,
-        },
-      ),
+  const previewResponse = await runAiHandler(
+    "generate",
+    db.fetchImpl,
+    providerDouble,
   );
   const preview = await previewResponse.json();
 
@@ -358,7 +355,7 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
   assertEquals(preview.recipe.title, MOCK_GENERATED_RECIPE.recipe.title);
   assertEquals(
     preview.parents.map((candidate: { id: string }) => candidate.id),
-    [PARENT_ID],
+    [PARENT_ID, SECOND_PARENT_ID],
   );
   assertEquals(typeof preview.candidate_token, "string");
   assertEquals(db.writes, []);
@@ -370,7 +367,7 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
     (await recipesBeforeSaveResponse.json()).recipes.map((
       recipe: { id: string },
     ) => recipe.id),
-    [PARENT_ID],
+    [PARENT_ID, SECOND_PARENT_ID],
   );
 
   const saveResponse = await recipesHandler(
@@ -397,7 +394,7 @@ Deno.test("Chef stays a preview until separate recipe and reviewed-lineage reque
   assertEquals(lineageBeforeSaveResponse.status, 200);
   assertEquals((await lineageBeforeSaveResponse.json()).lineage, []);
 
-  const selectedParentIds = [preview.parents[0].id];
+  const selectedParentIds = [PARENT_ID];
   const lineageResponse = await recipesHandler(
     request(`/functions/v1/recipes/${saved.recipe.id}/lineage`, "POST", {
       parent_recipe_ids: selectedParentIds,
