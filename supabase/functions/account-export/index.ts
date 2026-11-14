@@ -10,7 +10,7 @@ const PAGE_SIZE = 100;
 const MAX_ROWS = 10000;
 const MAX_BYTES = 10 * 1024 * 1024;
 const RECIPE_FIELDS =
-  "id,user_id,title,raw_input,ingredients,instructions,flavor_scores,star_rating,cooked_at,notes,created_at,updated_at";
+  "id,user_id,title,raw_input,ingredients,instructions,flavor_scores,star_rating,cooked_at,notes,is_public,created_at,updated_at";
 
 function failure(code: string, message: string, status: number): Response {
   return jsonResponse({ error: { code, message } }, {

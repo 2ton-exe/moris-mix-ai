@@ -62,6 +62,7 @@ function mock(
               title: options.oversized
                 ? "x".repeat(10 * 1024 * 1024)
                 : "Recipe",
+              is_public: true,
             }),
           ),
         ),
@@ -105,6 +106,7 @@ Deno.test("export paginates owned recipes and includes only owned lineage", asyn
   assertEquals(response.headers.get("Cache-Control"), "no-store");
   const body = await response.json();
   assertEquals(body.recipes.length, 101);
+  assertEquals(body.recipes[0].is_public, true);
   assertEquals(body.lineage.length, 1);
   assertEquals(body.lineage[0].id, "owned-link");
 });
