@@ -12,6 +12,71 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const RECIPE_FIELDS =
   "id,user_id,title,raw_input,ingredients,instructions,flavor_scores,star_rating,cooked_at,notes,is_public,created_at,updated_at";
 
+function createBoundedExportFetch(baseFetch: typeof fetch): {
+  fetch: typeof fetch;
+  exceeded: () => boolean;
+} {
+  let bytesRead = 0;
+  let limitExceeded = false;
+
+  const boundedFetch: typeof fetch = async (input, init) => {
+    const response = await baseFetch(input, init);
+    const requestUrl = typeof input === "string"
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : input.url;
+    const pathname = new URL(requestUrl).pathname;
+    if (
+      !pathname.endsWith("/rest/v1/recipes") &&
+      !pathname.endsWith("/rest/v1/recipe_lineage")
+    ) return response;
+
+    const contentLength = Number(response.headers.get("Content-Length"));
+    if (
+      Number.isFinite(contentLength) && contentLength > MAX_BYTES - bytesRead
+    ) {
+      limitExceeded = true;
+      await response.body?.cancel();
+      return new Response(null, { status: 413 });
+    }
+    if (!response.body) return response;
+
+    const reader = response.body.getReader();
+    const boundedBody = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            return;
+          }
+          if (bytesRead + value.byteLength > MAX_BYTES) {
+            limitExceeded = true;
+            await reader.cancel();
+            controller.error(new Error("Export response exceeds byte limit"));
+            return;
+          }
+          bytesRead += value.byteLength;
+          controller.enqueue(value);
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      },
+    });
+    return new Response(boundedBody, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  };
+
+  return { fetch: boundedFetch, exceeded: () => limitExceeded };
+}
+
 function failure(code: string, message: string, status: number): Response {
   return jsonResponse({ error: { code, message } }, {
     status,
@@ -32,7 +97,11 @@ export async function handler(
     );
   }
   try {
-    const auth = await authenticateRequest(req, deps);
+    const bounded = createBoundedExportFetch(deps.fetch ?? fetch);
+    const auth = await authenticateRequest(req, {
+      ...deps,
+      fetch: bounded.fetch,
+    });
     if (!auth.ok) {
       const headers = new Headers(auth.response.headers);
       Object.entries(getCorsHeaders(METHODS)).forEach(([name, value]) =>
@@ -64,6 +133,13 @@ export async function handler(
           offset,
           offset + PAGE_SIZE - 1,
         );
+      if (bounded.exceeded()) {
+        return failure(
+          "EXPORT_TOO_LARGE",
+          "Export exceeds the supported limit.",
+          413,
+        );
+      }
       if (
         error || !Array.isArray(data) ||
         data.some((row) => row.user_id !== user.id)
@@ -84,6 +160,13 @@ export async function handler(
       const { data, error } = await supabase.from("recipe_lineage")
         .select("id,parent_recipe_id,child_recipe_id,created_at").order("id")
         .range(offset, offset + PAGE_SIZE - 1);
+      if (bounded.exceeded()) {
+        return failure(
+          "EXPORT_TOO_LARGE",
+          "Export exceeds the supported limit.",
+          413,
+        );
+      }
       if (error || !Array.isArray(data)) throw new Error();
       bytes += encoder.encode(JSON.stringify(data)).byteLength;
       if (offset + data.length > MAX_ROWS || bytes > MAX_BYTES) {
