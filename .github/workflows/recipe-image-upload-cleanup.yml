@@ -1,0 +1,41 @@
+name: Recipe Image Upload Cleanup
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recipe-image-upload-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke recipe image cleanup
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          RECIPE_IMAGE_CLEANUP_TOKEN: ${{ secrets.RECIPE_IMAGE_CLEANUP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPABASE_URL//[[:space:]]/}" || -z "${RECIPE_IMAGE_CLEANUP_TOKEN//[[:space:]]/}" ]]; then
+            echo "::error::Configure VITE_SUPABASE_URL and RECIPE_IMAGE_CLEANUP_TOKEN before enabling cleanup."
+            exit 1
+          fi
+          if [[ "${SUPABASE_URL,,}" != https://* ]]; then
+            echo "::error::VITE_SUPABASE_URL must use HTTPS."
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --max-time 90 \
+            --request POST \
+            --header "Authorization: Bearer ${RECIPE_IMAGE_CLEANUP_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data '{}' \
+            "${SUPABASE_URL%/}/functions/v1/recipe-image-upload-cleanup"

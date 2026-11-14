@@ -4,7 +4,7 @@
 > Workflow/policy descriptions below are dated evidence, not the final required-check
 > policy. See [current proposal and handoff](modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31).
 
-**Project:** Mori's Scraps  
+**Project:** Mori's Mix\
 **Team:** 2ton.exe  
 **Maintainer:** Haresco  
 **Scope:** Continuing weekly and multi-sprint DevOps metrics log\

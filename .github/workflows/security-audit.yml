@@ -1,0 +1,119 @@
+name: Security Audit
+
+# Observation only: do not add these jobs to required merge/release checks.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - frontend/package.json
+      - frontend/pnpm-lock.yaml
+      - frontend/pnpm-workspace.yaml
+      - deno.lock
+      - .github/workflows/security-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pnpm:
+    name: pnpm audit (${{ matrix.project }}, observation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: root
+            directory: .
+          - project: frontend
+            directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      # No project install, lifecycle scripts, automatic fixes or severity exclusions.
+      - name: Audit production and development dependencies
+        id: audit
+        continue-on-error: true
+        working-directory: ${{ matrix.directory }}
+        shell: bash
+        run: |
+          set +e
+          npx --yes pnpm@10.34.9 audit --json > "$RUNNER_TEMP/pnpm-audit.json"
+          audit_exit=$?
+          set -e
+          echo "exit_code=$audit_exit" >> "$GITHUB_OUTPUT"
+          exit "$audit_exit"
+      - name: Summarize observation
+        if: always()
+        env:
+          AUDIT_PROJECT: ${{ matrix.project }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          AUDIT_EXIT: ${{ steps.audit.outputs.exit_code }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const lines = [
+            `## Dependency audit: ${process.env.AUDIT_PROJECT} (observation only)`,
+            `Audit step outcome: ${process.env.AUDIT_OUTCOME || 'not executed'}; exit code: ${process.env.AUDIT_EXIT || 'unavailable'}.`,
+            'Non-required evidence collection. A green job is not a clean audit. High/critical findings require owner triage; no automatic fixes.',
+          ];
+          try {
+            const report = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'pnpm-audit.json'), 'utf8'));
+            if (!report.metadata?.vulnerabilities || !report.advisories || report.error) throw new Error('Unusable report');
+            lines.push('', `Severity counts (registry report): ${JSON.stringify(report.metadata.vulnerabilities)}`, '', 'Affected packages / severity / advisory:');
+            // Escape untrusted report fields before writing Markdown or Actions logs.
+            const safe = value => String(value ?? 'unknown').replace(/[^a-zA-Z0-9@/_.: -]/g, '?').slice(0, 200);
+            for (const advisory of Object.values(report.advisories)) {
+              lines.push(`- ${safe(advisory.module_name)} / ${safe(advisory.severity)} / ${safe(advisory.github_advisory_id || advisory.id)}`);
+            }
+            if (Object.keys(report.advisories).length === 0) lines.push('- No advisories returned in this report; this is not a repository-wide security guarantee.');
+          } catch {
+            lines.push('', 'No usable audit report. Coverage is NOT established; inspect setup/audit errors and rerun.');
+          }
+          const summary = lines.join('\n') + '\n';
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          console.log(summary);
+          NODE
+
+  deno:
+    name: Deno audit (observation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: '2.9.7'
+      - name: Audit locked Deno dependencies
+        id: audit
+        continue-on-error: true
+        run: deno audit --lock=deno.lock
+      - name: Summarize observation
+        if: always()
+        env:
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        shell: bash
+        run: |
+          {
+            echo '## Deno dependency audit (observation only)'
+            printf 'Audit step outcome: %s.\n' "$AUDIT_OUTCOME"
+            echo 'See the audit step log for advisory identifiers, severity counts, or service/tool errors.'
+            echo 'A failed audit may mean findings or incomplete execution; a skipped audit establishes no coverage.'
+            echo 'Non-required evidence collection. A green job is not a clean audit. High/critical findings require owner triage; no automatic fixes.'
+          } >> "$GITHUB_STEP_SUMMARY"
