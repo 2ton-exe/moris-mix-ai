@@ -18,7 +18,8 @@ export async function signIn(page: Page, user: E2eUser) {
 export async function waitForCollection(page: Page) {
   await expect(
     page.getByRole('heading', { name: 'A fresh page for your next favorite.' })
-      .or(page.getByRole('heading', { name: /Saved recipes/ })),
+      .or(page.getByRole('heading', { name: 'No recipes match your search.' }))
+      .or(page.locator('[data-recipe-id]').first()),
   ).toBeVisible({ timeout: 30_000 })
 }
 
