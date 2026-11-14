@@ -5,7 +5,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/database-restore-synthetic.yml
+      - .github/workflows/database-restore-stage-b.yml
       - scripts/test_database_restore_synthetic.sh
+      - scripts/classify_restore_component.py
 
 permissions:
   contents: read

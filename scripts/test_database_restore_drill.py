@@ -13,6 +13,13 @@ import tarfile
 import tempfile
 import unittest
 
+from classify_restore_component import (
+    COMPONENTS,
+    MAX_LOG_BYTES,
+    component_hint,
+    hint_from_file,
+)
+
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/database-restore-stage-b.yml"
 SQL = ("roles.sql", "schema.sql", "data.sql", "history-schema.sql", "history-data.sql")
 
@@ -212,6 +219,99 @@ class StageBOfflineTests(unittest.TestCase):
 
 
 
+class ComponentHintTests(unittest.TestCase):
+    """Invented stderr only; accepted text is never authenticated evidence."""
+
+    def test_each_component_and_recognized_notices(self):
+        for component in COMPONENTS:
+            with self.subTest(component=component):
+                record = b"psql:/backup/" + component + b":12: ERROR:  22012\n"
+                notice = b"psql:/backup/roles.sql:1: NOTICE:  00000\n"
+                self.assertEqual(component_hint(notice + record, 3),
+                                 COMPONENTS[component])
+
+    def test_ambiguous_unattributed_malformed_and_verbose_records(self):
+        record = b"psql:/backup/data.sql:12: ERROR:  22012\n"
+        rejected = [
+            b"", b"ERROR:  42501\n", b"psql: error: connection failed\n",
+            record.rstrip(b"\n"), record + b"\n", record + record,
+            record + record.replace(b"data.sql", b"schema.sql"),
+            record.replace(b"/backup/data.sql", b"/other/data.sql"),
+            record.replace(b"/backup/data.sql", b"/backup/../data.sql"),
+            record.replace(b"data.sql", b"data.sql.extra"),
+            record.replace(b":12:", b":0:"),
+            record.replace(b":12:", b":-1:"),
+            record.replace(b":12:", b":18446744073709551616:"),
+            record.replace(b":12:", b":"),
+            record.replace(b"ERROR", b"error"),
+            record.replace(b"22012", b"division by zero"),
+            record.replace(b"22012", b"22012 trailing text"),
+            record.replace(b"22012", b"\xff\x00bad"),
+            record.replace(b"\n", b"\r\n"),
+            b"\x1b[31m" + record,
+            record + b"DETAIL:  SYNTHETIC_PRIVATE_RECORD\n",
+            b"psql:/backup/schema.sql:1: NOTICE:  invented multiline text\n" + record,
+            b"psql:/backup/roles.sql:1: NOTICE:  00000\n",
+            b"x" * 513 + b"\n",
+            record * (MAX_LOG_BYTES // len(record) + 1),
+        ]
+        for index, payload in enumerate(rejected):
+            with self.subTest(case=index):
+                self.assertEqual(component_hint(payload, 3), "unknown")
+        for code in (0, 1, 2, 42, 125, 137):
+            self.assertEqual(component_hint(record, code), "unknown")
+
+    def test_bounded_read_and_unreadable_log(self):
+        class Source(io.BytesIO):
+            def read(self, size=-1):
+                self.requested_size = size
+                return super().read(size)
+
+        source = Source(b"x" * (MAX_LOG_BYTES + 10))
+
+        class Input:
+            def open(self, mode):
+                self.mode = mode
+                return source
+
+        path = Input()
+        self.assertEqual(hint_from_file(path, 3), "unknown")
+        self.assertEqual(source.requested_size, MAX_LOG_BYTES + 1)
+        self.assertEqual(path.mode, "rb")
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(hint_from_file(Path(td) / "missing", 3), "unknown")
+            self.assertEqual(hint_from_file(Path(td), 3), "unknown")
+
+    def test_cli_emits_only_an_enum_for_private_or_invalid_input(self):
+        classifier = Path(__file__).with_name("classify_restore_component.py")
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "stderr.log"
+            for payload, expected in [
+                (b"psql:/backup/data.sql:1: ERROR:  22012\n", "data.sql"),
+                (b"::error::SYNTHETIC_PRIVATE_SQL credential=invented\n", "unknown"),
+                (b"x" * (MAX_LOG_BYTES + 1), "unknown"),
+            ]:
+                log.write_bytes(payload)
+                result = subprocess.run(
+                    [sys.executable, "-B", str(classifier), str(log), "3"],
+                    text=True, capture_output=True, check=False)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, expected + "\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_identical_forged_record_cannot_be_authenticated(self):
+        forged = b"psql:/backup/data.sql:1: ERROR:  22012\n"
+        # Deliberately document the limitation; do not claim spoof-proof parsing.
+        self.assertEqual(component_hint(forged, 3), "data.sql")
+
+    def test_non_script_exit_does_not_read_a_log(self):
+        class Input:
+            def open(self, mode):
+                raise AssertionError("A non-script failure must not read stderr")
+
+        self.assertEqual(hint_from_file(Input(), 1), "unknown")
+
+
 class RestoreDiagnosticTests(unittest.TestCase):
     """Execute actual workflow Bash with synthetic Docker results, offline."""
 
@@ -230,7 +330,7 @@ class RestoreDiagnosticTests(unittest.TestCase):
         cls.script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
 
     def run_diagnostic(self, phase="none", code=0, missing_file=False,
-                       temp_prefix="tmp"):
+                       temp_prefix="tmp", stderr=None, helper_mode="normal"):
         # No Docker daemon, network, or SQL execution. Both streams deliberately
         # contain synthetic private markers, including annotation-like content.
         stub = r'''
@@ -245,7 +345,8 @@ docker() {
   done
   printf '%s\n' "$phase" "$@" END >> "$RUNNER_TEMP/trace"
   printf 'SYNTHETIC_PRIVATE_SQL credential=synthetic row=synthetic\n'
-  printf '::error::SYNTHETIC_PRIVATE_STDERR SELECT secret FROM synthetic;\n' >&2
+  printf 'psql:/backup/roles.sql:1: ERROR:  22012\n'
+  printf '%s' "$DIAG_STDERR" >&2
   if [[ "$phase" == "$FAIL_PHASE" ]]; then return "$FAIL_CODE"; fi
   if [[ "$phase" == files ]]; then
     # Exercise the actual mounted-file probe against synthetic local files.
@@ -255,6 +356,13 @@ docker() {
     return $?
   fi
   return 0
+}
+python3() {
+  case "$HELPER_MODE" in
+    crash) printf 'SYNTHETIC_PRIVATE_EXCEPTION\n' >&2; return 77 ;;
+    invalid) printf '::error::SYNTHETIC_PRIVATE_HELPER_OUTPUT\n'; return 0 ;;
+    *) "$TEST_PYTHON" -B "$@" ;;
+  esac
 }
 '''
         with tempfile.TemporaryDirectory(prefix=temp_prefix) as td:
@@ -266,15 +374,20 @@ docker() {
                     (backup / name).write_text("SYNTHETIC_PRIVATE_DUMP")
             env = dict(os.environ, RUNNER_TEMP=root.as_posix(),
                        PSQL_IMAGE="synthetic-pinned-image", FAIL_PHASE=phase,
-                       FAIL_CODE=str(code))
+                       FAIL_CODE=str(code), TEST_PYTHON=sys.executable,
+                       HELPER_MODE=helper_mode, DIAG_STDERR=stderr if stderr is not None
+                       else "::error::SYNTHETIC_PRIVATE_STDERR SELECT secret FROM synthetic;\n")
             result = subprocess.run([self.bash, "--noprofile", "--norc"],
                                     input=stub + self.script, text=True,
                                     capture_output=True, env=env, check=False)
             private_log = root / "private-restore-result.log"
+            private_stderr = root / "private-restore-stderr.log"
             self.assertIn("SYNTHETIC_PRIVATE_SQL", private_log.read_text())
-            self.assertIn("SYNTHETIC_PRIVATE_STDERR", private_log.read_text())
+            self.assertNotIn("SYNTHETIC_PRIVATE_STDERR", private_log.read_text())
+            self.assertEqual(private_stderr.read_text(), env["DIAG_STDERR"])
             if os.name != "nt":
                 self.assertEqual(private_log.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(private_stderr.stat().st_mode & 0o777, 0o600)
             trace = (root / "trace").read_text().split("END\n")[:-1]
             calls = [record.strip().splitlines() for record in trace]
             self.assertEqual({path.name for path in backup.iterdir()},
@@ -304,6 +417,7 @@ docker() {
         restore = calls[-1]
         self.assertEqual(restore[restore.index("psql"):], [
             "psql", "-X", "-q", "--single-transaction", "-v", "ON_ERROR_STOP=1",
+            "-v", "VERBOSITY=sqlstate",
             "-f", "/backup/roles.sql", "-f", "/backup/schema.sql",
             "-f", "/backup/history-schema.sql",
             "-c", "SET session_replication_role = replica",
@@ -321,7 +435,7 @@ docker() {
                  ("files", 1, "mounted-files"),
                  ("connection", 1, "client-fatal"),
                  ("connection", 2, "connection"),
-                 ("restore", 1, "client-fatal"),
+                 ("restore", 1, "client-or-sql-action"),
                  ("restore", 2, "connection"),
                  ("restore", 3, "sql-script"),
                  ("restore", 42, "unclassified"),
@@ -343,7 +457,37 @@ docker() {
                 self.assertEqual(result.stdout, "".join(
                     f"Restore diagnostic: phase={p} status=passed\n" for p in preceding) +
                     f"::error::Restore diagnostic: phase={phase} category={category} "
-                    f"exit_code={code}; private output suppressed\n")
+                    f"exit_code={code} component_hint=unknown; private output suppressed\n")
+
+    def test_actual_classifier_ignores_stdout_and_preserves_exit_three(self):
+        for component in COMPONENTS.values():
+            with self.subTest(component=component):
+                result, _ = self.run_diagnostic(
+                    "restore", 3,
+                    stderr=f"psql:/backup/{component}:12: ERROR:  22012\n")
+                self.assertEqual(result.returncode, 3)
+                self.assertIn(f"exit_code=3 component_hint={component};", result.stdout)
+
+    def test_classifier_failure_or_unexpected_output_is_unknown(self):
+        for mode in ("crash", "invalid"):
+            result, _ = self.run_diagnostic("restore", 3, helper_mode=mode)
+            self.assertEqual(result.returncode, 3)
+            self.assertIn("component_hint=unknown;", result.stdout)
+
+    def test_other_phases_and_exit_codes_never_attribute_a_file(self):
+        for phase, code in (("client", 3), ("connection", 3),
+                            ("restore", 1), ("restore", 2)):
+            result, _ = self.run_diagnostic(
+                phase, code, stderr="psql:/backup/data.sql:1: ERROR:  22012\n")
+            self.assertEqual(result.returncode, code)
+            self.assertIn("component_hint=unknown;", result.stdout)
+
+    def test_both_private_logs_remain_in_always_cleanup(self):
+        cleanup = WORKFLOW.read_text(encoding="utf-8").split(
+            "      - name: Stop isolated database and delete private files", 1)[1]
+        self.assertIn("if: always()", cleanup)
+        self.assertIn('"$RUNNER_TEMP/private-restore-result.log"', cleanup)
+        self.assertIn('"$RUNNER_TEMP/private-restore-stderr.log"', cleanup)
 
     def test_missing_mounted_file_stops_before_connection_or_restore(self):
         result, calls = self.run_diagnostic(missing_file=True)
