@@ -36,6 +36,7 @@ test('production pins the repository production project and requires its own fro
     SMOKE_SUPABASE_URL: 'https://gtbwblxskctpsqhbpebg.supabase.co', SMOKE_FRONTEND_URL: 'https://production.example.com' };
   assert.equal(configuration(prod).frontend, prod.SMOKE_FRONTEND_URL);
   assert.throws(() => configuration({ ...prod, SMOKE_FRONTEND_URL: '' }));
+  assert.throws(() => configuration({ ...prod, SMOKE_PUBLIC_KEY: '' }));
   assert.throws(() => configuration({ ...env, SMOKE_ENVIRONMENT: 'production' }));
 });
 
@@ -158,6 +159,56 @@ test('full smoke records separate outcomes and never emits key/response data', a
   assert.match(result.backend_revision_evidence, /operator-attested/);
   assert.ok(!JSON.stringify(result).includes(env.SMOKE_PUBLIC_KEY));
   assert.ok(!JSON.stringify(result).includes(fixture.recipe.title));
+  assert.equal(result.checks.account_export, 'not applicable (production only)');
+});
+
+test('production smoke verifies account-export is deployed and rejects unauthenticated access', async () => {
+  const prod = { ...env, SMOKE_ENVIRONMENT: 'production', SMOKE_PROJECT_REF: 'gtbwblxskctpsqhbpebg',
+    SMOKE_SUPABASE_URL: 'https://gtbwblxskctpsqhbpebg.supabase.co', SMOKE_FRONTEND_URL: 'https://production.example.com' };
+  const calls = [];
+  const data = structuredClone(fixture);
+  const result = await runSmoke(prod, { ...offline, fetchImpl: async (url, options) => {
+    calls.push([url, options]);
+    if (url.pathname === '/functions/v1/account-export') {
+      assert.equal(options.headers.Origin, prod.SMOKE_FRONTEND_URL);
+      assert.equal(new Headers(options.headers).has('Authorization'), false);
+      assert.equal(options.body, undefined);
+      if (options.method === 'OPTIONS') {
+        assert.equal(options.headers['Access-Control-Request-Method'], 'GET');
+        assert.equal(options.headers['Access-Control-Request-Headers'], 'authorization, apikey, content-type');
+        assert.equal(options.headers.apikey, undefined);
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'access-control-allow-origin': '*',
+            'access-control-allow-methods': 'GET, OPTIONS',
+            'access-control-allow-headers': 'authorization, x-client-info, apikey, content-type',
+            'x-content-type-options': 'nosniff',
+          },
+        });
+      }
+      assert.equal(options.method, 'GET');
+      assert.equal(options.headers.apikey, prod.SMOKE_PUBLIC_KEY);
+      return new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header.' } }), {
+        status: 401,
+        headers: {
+          'content-type': 'application/json',
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET, OPTIONS',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
+    if (url.pathname === '/functions/v1/demo-recipe') return response(JSON.stringify(data), 'application/json');
+    return url.pathname === '/home' ? response(html, 'text/html') : response('export {}', 'application/javascript');
+  } });
+  assert.equal(result.outcome, 'passed');
+  assert.match(result.checks.account_export, /^passed/);
+  assert.deepEqual(calls.filter(([url]) => url.pathname === '/functions/v1/account-export').map(([, options]) => [
+    options.method, options.headers.apikey ?? null,
+  ]), [['OPTIONS', null], ['GET', prod.SMOKE_PUBLIC_KEY]]);
+  assert.ok(calls.filter(([url]) => url.pathname === '/functions/v1/account-export').every(([url]) => !url.search));
+  assert.ok(!JSON.stringify(result).includes(prod.SMOKE_PUBLIC_KEY));
 });
 
 test('missing backend/function fails smoke while frontend successes remain evidence', async () => {
