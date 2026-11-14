@@ -6,11 +6,24 @@
 **Sprint:** 1–2\
 **Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
 
+> **Issue #73 status (verified 2026-11-14):** [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142)
+> merged as `8747e6e605c5eda358c1bb77b27d3d120c87bddc`, retiring `ci.yml`;
+> [issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73) is closed.
+> [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+> ran on that merge SHA and passed core validation, Hosted RLS, production
+> deployment, URL verification, runtime smoke and evidence preservation.
+> The three modular PR checks replaced the legacy required contexts. The
+> 2026-10-31 cleanup proposal below preserves its original pending conditions;
+> they are not current instructions or evidence gaps. Current production workflow
+> targets include `recipes`, `extract-recipe` and `generate-recipe`, rather
+> than the proposal's recipes-only scope; this does not expand run #29's proof.
+
 ## Issue #73 final cleanup proposal (2026-10-31)
 
 Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
-This branch proposes repository cleanup; it is not merged-main verification and
-issue #73 is not complete. No GitHub settings are changed here.
+At this 2026-10-31 proposal checkpoint, the branch had not yet provided
+merged-main verification and issue #73 remained open. This proposal itself
+made no GitHub settings changes.
 
 Operator-provided evidence at that main SHA already proves both ownership modes:
 
@@ -37,18 +50,23 @@ frontend existence, exact caller identity, main push/manual-only restrictions,
 explicit production secrets, recipes-only targeting, URL verification, runtime
 smoke/evidence, and serialized production concurrency remain. E2E is non-gating.
 
-The six-context overlap remains unchanged until a separate GitHub handoff after
-healthy PR checks. Intended final contexts are `Modular Frontend / Frontend Checks`,
-`Modular Database / Database Tests`, and `Modular Edge/API / Edge/API Tests`.
-Legacy requirements may remain pending after their producer is removed; coordinate
-the handoff without a protection gap. PR Secretary uses modular runs and an
-explicitly unconfirmed intended-policy fallback; live rules take precedence.
+At this proposal checkpoint, the six-context overlap and separate GitHub
+handoff were still being described as planned work. The intended final contexts
+were `Modular Frontend / Frontend Checks`, `Modular Database / Database Tests`,
+and `Modular Edge/API / Edge/API Tests`. The handoff subsequently completed
+without a required-check gap (2026-11-01 PHT), and these three modular contexts
+replaced the legacy requirements. PR Secretary's intended-policy fallback does
+not substitute for checking live GitHub rules.
 
 The [full cleanup contract and GitHub handoff](../../.github/production-cutover.md#issue-73-final-cleanup-proposal-2026-10-31)
 records production targets, release safeguards, and outstanding verification.
-After an authorized merge, observe the new main SHA's modular-only release,
-mandatory hosted RLS, deployment/smoke/artifact outcomes, and Secretary refresh.
-No modular-only post-merge verification or issue #73 completion is claimed.
+At the 2026-10-31 proposal checkpoint, post-merge modular-only validation,
+mandatory Hosted RLS, deployment, smoke, artifacts and Secretary refresh still
+required verification. The former release-verification gap was subsequently
+closed by [main run #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+on the [PR #142 merge SHA](https://github.com/2ton-exe/moris-mix-ai/commit/8747e6e605c5eda358c1bb77b27d3d120c87bddc);
+issue #73 is closed. This run does not independently establish PR Secretary
+verification on the new default-branch code.
 After retirement, a variable flip cannot restore legacy production; rollback
 requires a reviewed repository change. Do not rerun stale production revisions.
 
@@ -902,7 +920,7 @@ The following limitations or pending items remain:
 - The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
 - On 2026-10-30, production `demo-recipe` preflight was reconciled separately: only `demo-recipe` was targeted for deployment to project `gtbwblxskctpsqhbpebg` from reviewed source `d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` using the repository-pinned Supabase CLI 2.122.0 and the explicit production project reference. Supabase subsequently reported the function as ACTIVE version 2 with `verify_jwt=false`; the deployed bundle contains the reviewed `.eq("is_public", true)` boundary, and a post-deployment GET returned HTTP 200 for recipe `11111111-1111-1111-1111-111111111111` (`Classic Tomato Scraps Pasta`). Repository variables `PRODUCTION_FRONTEND_URL=https://moris-mix-ai.diofelgwenharesco.workers.dev` and `PRODUCTION_DEMO_RECIPE_REVISION=d54e0f1d76f4a2215aa70ae4ce9cf6ec3e8c53a6` are operator-confirmed configured, not independently API-observed through the GitHub connector. The backend revision remains operator-attested rather than runtime-observed; this is production preflight evidence, not PR #88 production runtime-smoke evidence.
 - A read-only production migration-ledger query on 2026-10-26 confirmed `20261023000002_add_notes_to_recipes.sql` is applied and `public.recipes.notes` exists. CI does not apply production migrations.
-- Production ownership rollback was operator-confirmed at the baseline SHA above. Application/data recovery and the modular-only post-merge architecture remain separately unverified.
+- Production ownership rollback was operator-confirmed at the historical baseline SHA above. Modular-only post-merge deployment and runtime smoke were subsequently verified by main run #29 (linked in the issue #73 status note); application/data recovery remains separately unverified. That earlier ownership rollback is not proof of a tested rollback after retiring legacy CI.
 - The historical preliminary Sprint 1 metrics baseline has a small sample. A separate preliminary current three-job sample now exists, including successful-gate evidence from run #90; more comparable observations are needed. Failed-dependency blocking is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
 - The deployment log reported that the configured Wrangler version is out of date; upgrading it should be evaluated separately rather than mixed into Sprint 1 verification unless necessary.
 - Docs-only main pushes can currently proceed through the gated deployment job. Evaluate trigger scope later as a possible efficiency improvement; this is not a correctness failure or a proven optimization opportunity.
