@@ -75,6 +75,27 @@ function response(
   });
 }
 
+async function logR2Rejection(
+  operation: "LIST" | "DELETE",
+  result: Response,
+): Promise<void> {
+  let errorCode: string | null = null;
+  try {
+    const body = await result.clone().text();
+    const match = body.match(
+      /<(?:[A-Za-z0-9_]+:)?Code>([A-Za-z0-9_-]{1,64})<\/(?:[A-Za-z0-9_]+:)?Code>/,
+    );
+    errorCode = match?.[1] ?? null;
+  } catch {
+    errorCode = null;
+  }
+  console.error("R2 staging request rejected", {
+    operation,
+    status: result.status,
+    error_code: errorCode,
+  });
+}
+
 function createRpc(deps: UploadCleanupDeps) {
   if (deps.rpc) return deps.rpc;
   const url = deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
@@ -170,6 +191,7 @@ async function deleteStagingObject(
     });
     if (result.ok) return "deleted";
     if (result.status === 404) return "missing";
+    await logR2Rejection("DELETE", result);
     return result.status >= 500 ? "r2_unavailable" : "r2_rejected";
   } catch {
     return "network";
@@ -194,6 +216,7 @@ async function listStagingObjects(
       signal: AbortSignal.timeout(8_000),
     });
     if (!result.ok) {
+      await logR2Rejection("LIST", result);
       return result.status >= 500 ? "r2_unavailable" : "r2_rejected";
     }
     if (!result.body) return "unexpected";
