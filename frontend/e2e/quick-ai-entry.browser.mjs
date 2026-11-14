@@ -11,6 +11,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
+import { settleJournalLayout } from './journal-geometry.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userId = '33333333-3333-4333-8333-333333333333'
@@ -232,6 +233,7 @@ try {
 
   for (const width of [1440, 375, 320]) {
     await storageFailurePage.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(storageFailurePage)
     await expect(storageWarning).toBeVisible()
     assert.equal(await storageFailurePage.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Storage warning overflow at ${width}px`)
     assert.equal(await storageWarning.evaluate((element) => element.getBoundingClientRect().right <= globalThis.innerWidth), true, `Storage warning extends beyond ${width}px viewport`)
@@ -330,11 +332,13 @@ try {
 
   for (const width of [1440, 768, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(page)
     await expect(page.getByLabel('Recipe title')).toBeVisible()
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Recipe review horizontal overflow at ${width}px`)
     await page.screenshot({ path: path.join(outputDir, `recipe-review-${width}.png`), fullPage: true })
   }
   await page.setViewportSize({ width: 720, height: 450 })
+  await settleJournalLayout(page)
   assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, 'Recipe review horizontal overflow at 200% equivalent reflow')
   await page.reload()
   await expect(page.getByLabel('Recipe title')).toHaveValue('Garlic soy chicken, corrected')
@@ -421,6 +425,7 @@ try {
 
   for (const width of [1440, 768, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(page)
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeVisible()
     const overflowElements = await page.evaluate(() => Array.from(globalThis.document.querySelectorAll('body *'))
@@ -434,6 +439,7 @@ try {
 
   // A 720px CSS viewport is the app's established 200% zoom-equivalent reflow check.
   await page.setViewportSize({ width: 720, height: 450 })
+  await settleJournalLayout(page)
   assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, 'Horizontal overflow at 200% equivalent reflow')
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeVisible()
   await page.screenshot({ path: path.join(outputDir, 'quick-entry-zoom-200-equivalent.png'), fullPage: true })
