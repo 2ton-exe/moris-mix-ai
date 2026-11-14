@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini provider transport, model availability, and SDK compatibility were verified locally on 2026-11-14 (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)); production generation remains unverified because the AI enable flags are not set.
 
 ## Issue #73 final cleanup proposal (2026-10-31)
 
@@ -203,7 +203,11 @@ AI is disabled merely because this branch does not set the opt-ins. Actual AI
 enablement remains separately reviewed. `AI_CANDIDATE_TOKEN_SECRET` is required
 before actual Chef generation is enabled; `GEMINI_API_KEY` is required when the
 provider is actually reached. Those prerequisites require separate operational
-review, not values copied into workflow logs or this document.
+review, not values copied into workflow logs or this document. As of 2026-11-14,
+the production Supabase project has `GEMINI_API_KEY`, `AI_CANDIDATE_TOKEN_SECRET`,
+`AI_DAILY_LIMIT` and `ALLOWED_ORIGIN` configured (secret names were verified
+without reading values); `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` remain
+unset, so production AI stays off until a reviewed demo-window change.
 
 BE-12 implementation is merged, but the current mandatory main Hosted RLS job
 does not execute the BE-12 hosted quota tests. Its success must not be described
@@ -623,7 +627,7 @@ The production root route was verified to serve the Mori's Mix React application
 
 The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully. On 2026-10-17, the production UI loaded the demo recipe through the Supabase Edge Function, and a direct endpoint request returned the seeded PostgreSQL row with `200 OK`. Full response and qualification notes are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
-The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). Gemini generation returned `403 PERMISSION_DENIED` and remains unverified.
+The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). A historical Gemini generation attempt returned `403 PERMISSION_DENIED`. On 2026-11-14 the dedicated Gemini project was re-verified locally: the API is enabled, the pinned `gemini-3.5-flash-lite` model is available, and the live extraction suite passed 3/3 with the legacy SDK (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)). Production generation remains unverified because `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` are unset; a cost-guarded production call is still required.
 
 ## 8. Deployment Credentials
 
@@ -896,7 +900,8 @@ The following limitations or pending items remain:
 - Automated Cloudflare frontend deployment has been verified.
 - Production routing has been manually verified.
 - The production Supabase Edge Function and PostgreSQL demo-row read passed the 2026-10-17 smoke check; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
-- Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
+- A historical Gemini `generateContent` call returned `403 PERMISSION_DENIED`. Local provider transport was re-verified on 2026-11-14: the dedicated project has the Gemini API enabled, `models.list` returned the pinned `gemini-3.5-flash-lite`, and the live extraction suite passed 3/3 with the legacy `@google/generative-ai@0.21.0` SDK. Production backend AI generation remains unverified until the enable flags are set and a cost-guarded production call is observed. See the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14).
+- On 2026-11-14, production Supabase secret names `GEMINI_API_KEY`, `AI_CANDIDATE_TOKEN_SECRET`, `AI_DAILY_LIMIT` and `ALLOWED_ORIGIN` were confirmed present without reading values; `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were absent. Enabling the AI routes remains a separate, reviewed demo-window action.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
 - The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
@@ -939,4 +944,4 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 
 The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
-Sprint 1 delivery tracking remains open for Gemini generation verification and further comparable pipeline measurements. The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-dependency blocking mechanism is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
+Sprint 1 delivery tracking remains open for production Gemini generation verification (provider transport is verified locally, and the production enable flags are still unset) and further comparable pipeline measurements. The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-dependency blocking mechanism is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).

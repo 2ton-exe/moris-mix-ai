@@ -127,6 +127,31 @@ with no provider errors (3 of the roughly 20 daily calls):
 
 This matches the historical 3/3 note in the adapter's model-selection comment.
 
+### Dedicated Gemini project re-verification (2026-11-14)
+
+The separate Gemini API project `gen-lang-client-0591557078` (project number
+`127829836695`) was checked for production readiness on 2026-11-14. The Gemini
+API (`generativelanguage.googleapis.com`) is enabled on the project, and the
+existing `Gemini API Key` is restricted to that API. The key uses the newer
+`AQ.` format (53 characters) rather than the legacy `AIza` format.
+
+A `models.list` call returned `gemini-3.5-flash-lite`, so the pinned model is
+available to the project. The live extraction suite then passed **3/3 in about
+4 seconds** at commit `b297977` on 2026-11-14, with the pinned model
+(`AI_MODEL` unset) and the existing legacy `@google/generative-ai@0.21.0` SDK.
+The run made 3 `generateContent` calls.
+
+| Case | Input summary | Expected result | Observed |
+| ---- | ------------- | --------------- | -------- |
+| Vague amounts stay null instead of being invented | Adobo note with "maybe a kilo", "a splash" and "a handful" | Title present; at least 3 ingredients; soy sauce present with `quantity: null`, `inferred: true` and a `quantityText` value | Pass |
+| Omits flavour scores when taste is never described | Boiled kamote note with no taste description | Title present; at least 1 instruction; `flavor_scores` is undefined | Pass |
+| Keeps described flavours and steps | Sinigang note described as "sour and a little salty" | At least 4 ingredients; at least 1 instruction; `flavor_scores` present with `sour >= 1` | Pass |
+
+This verifies provider transport, model availability and SDK compatibility for
+the shared `generateContent` path. It does not evaluate generation quality, and
+the legacy SDK remains deprecated; migrating to `@google/genai` is still a
+follow-up task.
+
 ## Limitations
 
 - **Contract, not model quality.** The offline fixtures are hand-crafted to
