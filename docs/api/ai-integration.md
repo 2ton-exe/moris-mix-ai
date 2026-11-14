@@ -127,8 +127,14 @@ output is limited to 8,192 tokens, and accepted extraction/generation JSON is at
 most 8 KiB. Oversized saved-recipe context is rejected before provider dispatch and
 rolls back the daily reservation.
 
-Apply migration `20261107000017_ai_short_window_rate_limit.sql` through the normal
-non-production validation and deployment workflow before deploying these handlers.
+Before recipe bodies are returned to the Edge Function, the caller-scoped
+candidate RPC measures their aggregate JSON size and returns no bodies above
+64 KiB. This bounds candidate loading before prompt assembly; an oversized set
+uses the same `422 AI_CONTEXT_TOO_LARGE` response.
+
+Apply migrations `20261107000017_ai_short_window_rate_limit.sql` and
+`20261114000018_bounded_chef_candidate_retrieval.sql` through the normal non-production
+validation and deployment workflow before deploying these handlers.
 The short-window guard requires no new environment setting; `AI_DAILY_LIMIT` retains
 its existing behavior.
 

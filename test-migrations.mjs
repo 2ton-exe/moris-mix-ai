@@ -195,6 +195,18 @@ function runDiscoveryAndIntegrityUnitTests() {
   const shortWindowRateMigration = migrations.find((migration) => migration.version === '20261107000017');
   assert.ok(shortWindowRateMigration, 'short-window AI rate-limit migration is present');
   const shortWindowRateSql = fs.readFileSync(shortWindowRateMigration.filePath, 'utf8');
+  const boundedChefCandidates = migrations.find((migration) => migration.version === '20261114000018');
+  assert.ok(boundedChefCandidates, 'bounded Chef candidate retrieval migration is present');
+  const boundedChefCandidatesSql = fs.readFileSync(boundedChefCandidates.filePath, 'utf8');
+  assert.match(boundedChefCandidatesSql, /create or replace function public\.get_chef_recipe_context_candidates\([\s\S]*?returns jsonb[\s\S]*?security invoker/i);
+  assert.match(boundedChefCandidatesSql, /auth\.uid\(\)/i);
+  assert.match(boundedChefCandidatesSql, /octet_length\(to_jsonb\(v_candidate\)::text\)/i);
+  assert.match(boundedChefCandidatesSql, /if v_candidate_bytes \+ 256 > p_max_bytes then[\s\S]*?exit;/i);
+  assert.match(boundedChefCandidatesSql, /if v_candidate_count > 0 and v_candidate_bytes \+ 256 > p_max_bytes then[\s\S]*?'candidates', '\[\]'::jsonb[\s\S]*?'too_large', true/i);
+  assert.match(boundedChefCandidatesSql, /p_max_bytes > 65536/);
+  assert.match(boundedChefCandidatesSql, /revoke all on function public\.get_chef_recipe_context_candidates\(integer, integer\) from public, anon/i);
+  assert.match(boundedChefCandidatesSql, /grant execute on function public\.get_chef_recipe_context_candidates\(integer, integer\) to authenticated/i);
+  assert.doesNotMatch(boundedChefCandidatesSql, /security definer/i);
   assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_started_at timestamptz/i);
   assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_count integer not null default 0/i);
   assert.match(shortWindowRateSql, /pg_advisory_xact_lock\(hashtext\('ai-rate:' \|\| p_user_id::text\)\)/i);

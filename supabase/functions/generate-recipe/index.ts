@@ -30,7 +30,10 @@ import {
   withAiCorsMethods,
 } from "../_shared/ai/http.ts";
 import { consumeDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
-import { buildChefRecipeContext } from "../_shared/ai/recipeContext.ts";
+import {
+  buildChefRecipeContext,
+  ChefCandidateContextTooLargeError,
+} from "../_shared/ai/recipeContext.ts";
 import {
   buildChefPrompt,
   isWithinAiPromptBudget,
@@ -319,10 +322,25 @@ async function handleRequest(
 
     let providerStarted = false;
     try {
-      const context = await (deps.buildContext ?? buildChefRecipeContext)(
-        auth.context,
-        input,
-      );
+      let context: ChefRecipeContextResult;
+      try {
+        context = await (deps.buildContext ?? buildChefRecipeContext)(
+          auth.context,
+          input,
+        );
+      } catch (contextError) {
+        if (contextError instanceof ChefCandidateContextTooLargeError) {
+          throw new AIError(
+            "context_too_large",
+            "generate",
+            "The saved recipe context exceeds the model input budget.",
+            undefined,
+            undefined,
+            true,
+          );
+        }
+        throw contextError;
+      }
 
       if (!isWithinAiPromptBudget(buildChefPrompt(context))) {
         throw new AIError(

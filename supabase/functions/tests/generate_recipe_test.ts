@@ -33,6 +33,7 @@ import type {
 import type { AuthContext } from "../_shared/auth.ts";
 import type { ChefRecipeContextResult } from "../_shared/ai/schemas.ts";
 import { GenerateRecipeResponseSchema } from "../_shared/ai/schemas.ts";
+import { ChefCandidateContextTooLargeError } from "../_shared/ai/recipeContext.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
 import {
   checkDailyQuota,
@@ -200,9 +201,24 @@ function createFetchMock(
       );
     }
 
-    if (url.pathname === "/rest/v1/recipes") {
+    if (url.pathname === "/rest/v1/rpc/get_chef_recipe_context_candidates") {
+      let reqBody: Record<string, unknown> = {};
+      try {
+        if (typeof init?.body === "string") reqBody = JSON.parse(init.body);
+      } catch {
+      }
+      const recipes = Array.isArray(options.recipes) ? options.recipes : [];
+      const limit = typeof reqBody.p_max_candidates === "number"
+        ? reqBody.p_max_candidates
+        : 1000;
+      const candidates = recipes.slice(0, limit);
       return Promise.resolve(
-        new Response(JSON.stringify(options.recipes ?? []), {
+        new Response(JSON.stringify({
+          candidates,
+          candidate_count: candidates.length,
+          truncated: recipes.length > candidates.length,
+          too_large: false,
+        }), {
           status: 200,
           headers: jsonHeaders(),
         }),
@@ -530,6 +546,7 @@ function assertNoRecipeOrLineageAccess(requests: RecordedRequest[]): void {
   const touched = requests.filter(
     (request) =>
       request.path.startsWith("/rest/v1/recipes") ||
+      request.path.startsWith("/rest/v1/rpc/get_chef_recipe_context_candidates") ||
       request.path.startsWith("/rest/v1/recipe_lineage"),
   );
   assertEquals(touched, []);
@@ -1427,9 +1444,9 @@ Deno.test("The real BE-10 retrieval feeds the endpoint and returns a resolved pa
   });
 
   const recipeRead = requests.find((request) =>
-    request.path === "/rest/v1/recipes"
+    request.path === "/rest/v1/rpc/get_chef_recipe_context_candidates"
   );
-  assertEquals(recipeRead?.method, "GET");
+  assertEquals(recipeRead?.method, "POST");
   assertEquals(recipeRead?.authorization, `Bearer ${VALID_TEST_JWT}`);
   assertNoDatabaseWrites(requests);
   assertEquals(
@@ -1958,6 +1975,35 @@ Deno.test("Generated prompt context over the fixed byte budget is rejected and t
   assertEquals(providerCalled, false);
   assertEquals(rollbackCalled, true);
   assertEquals(confirmCalled, false);
+});
+
+Deno.test("Aggregate candidate data over the byte budget is rejected before provider dispatch", async () => {
+  let providerCalled = false;
+  let rollbackCalled = false;
+  const response = await handler(generateRequest(validBody()), {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: createFetchMock().fetchImpl,
+    provider: providerThrowing(
+      new Error("must not run"),
+      () => providerCalled = true,
+    ),
+    buildContext: () => Promise.reject(new ChefCandidateContextTooLargeError()),
+    quotaCheck: () =>
+      Promise.resolve({
+        status: "allowed",
+        limit: 20,
+        used: 1,
+        rollback: async () => {
+          rollbackCalled = true;
+        },
+      }),
+  });
+
+  assertEquals(response.status, 422);
+  assertEquals((await response.json()).error?.code, "AI_CONTEXT_TOO_LARGE");
+  assertEquals(providerCalled, false);
+  assertEquals(rollbackCalled, true);
 });
 
 Deno.test("A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never retrieves or calls the provider", async () => {
