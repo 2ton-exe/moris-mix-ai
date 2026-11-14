@@ -9,7 +9,7 @@ export function getCorsHeaders(
     "Access-Control-Allow-Methods": allowedMethods,
     "Access-Control-Allow-Headers":
       "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Expose-Headers": "X-Request-ID",
+    "Access-Control-Expose-Headers": "X-Request-ID, Retry-After",
     "X-Content-Type-Options": "nosniff",
   };
   if (isCustomOrigin) {
@@ -23,6 +23,7 @@ export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Expose-Headers": "X-Request-ID, Retry-After",
   "X-Content-Type-Options": "nosniff",
 };
 

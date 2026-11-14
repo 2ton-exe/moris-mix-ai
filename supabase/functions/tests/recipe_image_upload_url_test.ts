@@ -24,6 +24,7 @@ const config = {
   accessKeyId: "TESTACCESSKEY",
   secretAccessKey: "synthetic-r2-secret-key",
 };
+const uploadRecords = new Map<string, Record<string, unknown>>();
 
 function request(
   body: unknown = payload,
@@ -32,6 +33,7 @@ function request(
     method?: string;
     query?: string;
     raw?: boolean;
+    uploadBody?: Uint8Array<ArrayBuffer>;
   } = {},
 ): Request {
   const method = options.method ?? "POST";
@@ -49,6 +51,8 @@ function request(
       },
       ...(method === "POST"
         ? { body: options.raw ? String(body) : JSON.stringify(body) }
+        : method === "PUT"
+        ? { body: options.uploadBody ?? new Uint8Array() }
         : {}),
     },
   );
@@ -65,10 +69,15 @@ function mock(
     persistenceFailure?: boolean;
     networkFailure?: boolean;
     quota?: "allowed" | "rate_limited" | "pending_limit";
+    putResult?: "stored" | "already_exists" | "failed";
+    staleAfterPut?: boolean;
   } = {},
 ) {
+  const reservations = new Map<string, string>();
   const calls: { url: URL; method: string; headers: Headers }[] = [];
   const intents: UploadIntent[] = [];
+  const stored: Uint8Array<ArrayBuffer>[] = [];
+  const removed: string[] = [];
   const deps: UploadHandlerDeps = {
     supabaseUrl: "https://mock.supabase.co",
     supabaseAnonKey: "synthetic-anon-key",
@@ -150,6 +159,19 @@ function mock(
             expires_at: args.p_expires_at,
             state: "pending",
           });
+          uploadRecords.set(args.p_id, {
+            id: args.p_id,
+            user_id: args.p_user_id,
+            recipe_id: args.p_recipe_id,
+            staging_key: args.p_staging_key,
+            final_key: args.p_final_key,
+            content_type: args.p_content_type,
+            byte_size: args.p_byte_size,
+            created_at: args.p_created_at,
+            expires_at: args.p_expires_at,
+            state: "pending",
+            cleanup_status: "waiting",
+          });
           if (options.persistenceFailure) {
             return Response.json({ message: "private storage information" }, {
               status: 500,
@@ -157,10 +179,78 @@ function mock(
           }
           return Response.json(options.quota ?? "allowed");
         }
+        if (url.pathname.endsWith("_recipe_image_upload_reservation")) {
+          assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
+          const args = JSON.parse(String(init?.body));
+          if (url.pathname.includes("/claim_")) {
+            if (reservations.has(args.p_id)) return Response.json(false);
+            reservations.set(args.p_id, args.p_token);
+            return Response.json(true);
+          }
+          const matches = reservations.get(args.p_id) === args.p_token;
+          if (matches) reservations.delete(args.p_id);
+          return Response.json(matches);
+        }
+        if (url.pathname === "/rest/v1/recipe_image_upload_intents") {
+          assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
+          assertEquals(headers.get("apikey"), SERVICE_KEY);
+          const id = url.searchParams.get("id")?.slice(3) ?? "";
+          assertEquals(url.searchParams.get("user_id"), `eq.${USER}`);
+          const record = uploadRecords.get(id);
+          if (options.staleAfterPut && stored.length > 0 && record) {
+            record.state = "expired";
+            record.cleanup_status = "complete";
+          }
+          return Response.json(record ? [record] : []);
+        }
         throw new Error("Unexpected network request");
       }),
+    checkUpload: () => Promise.resolve("missing"),
+    putUpload: (_intent, _configuration, body) => {
+      stored.push(body);
+      return Promise.resolve(options.putResult ?? "stored");
+    },
+    deleteUpload: (key) => {
+      removed.push(key);
+      return Promise.resolve(true);
+    },
   };
-  return { deps, calls, intents };
+  return { deps, calls, intents, stored, removed };
+}
+
+function putRequest(
+  uploadId: string,
+  body: Uint8Array<ArrayBuffer>,
+  contentType = "image/jpeg",
+  declaredSize: number | null = body.byteLength,
+  token: string | null = TOKEN,
+): Request {
+  return new Request(
+    `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`,
+    {
+      method: "PUT",
+      headers: {
+        ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+        "Content-Type": contentType,
+        ...(declaredSize === null
+          ? {}
+          : { "Content-Length": String(declaredSize) }),
+      },
+      body,
+    },
+  );
+}
+
+async function createUpload(
+  deps: UploadHandlerDeps,
+  byteSize = 1024,
+): Promise<string> {
+  const response = await handler(
+    request({ ...payload, byte_size: byteSize }),
+    deps,
+  );
+  assertEquals(response.status, 200);
+  return (await response.json()).upload.id;
 }
 
 async function expectError(
@@ -173,7 +263,7 @@ async function expectError(
   assertEquals(response.headers.get("X-Content-Type-Options"), "nosniff");
   assertEquals(
     response.headers.get("Access-Control-Allow-Methods"),
-    "POST, OPTIONS",
+    "POST, PUT, OPTIONS",
   );
   const body = await response.json();
   assertEquals(body.error.code, code);
@@ -206,7 +296,7 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
     assertEquals(response.headers.get("X-Content-Type-Options"), "nosniff");
     assertEquals(
       response.headers.get("Access-Control-Allow-Methods"),
-      "POST, OPTIONS",
+      "POST, PUT, OPTIONS",
     );
     const body = await response.json();
     assertEquals(Object.keys(body), ["upload"]);
@@ -232,12 +322,10 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
     assertEquals(body.upload.method, "PUT");
     assertEquals(body.upload.headers, { "Content-Type": content_type });
     const url = new URL(body.upload.url);
-    assertEquals(url.pathname, `/${config.bucketName}/${intent.staging_key}`);
-    assertEquals(url.searchParams.get("X-Amz-Expires"), "600");
-    assertEquals(
-      url.searchParams.get("X-Amz-SignedHeaders"),
-      "content-type;host",
-    );
+    assertEquals(url.origin, "https://mock.supabase.co");
+    assertEquals(url.pathname, "/functions/v1/recipe-image-upload-url");
+    assertEquals(url.searchParams.get("upload_id"), intent.id);
+    assertEquals(url.searchParams.has("X-Amz-Signature"), false);
     const serialized = JSON.stringify(body);
     for (
       const secret of [
@@ -254,7 +342,7 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
   });
 }
 
-Deno.test("each signing request creates a fresh staging capability without modifying recipes", async () => {
+Deno.test("each upload authorization creates a fresh intent without modifying recipes", async () => {
   const { deps, intents, calls } = mock();
   assertEquals((await handler(request(), deps)).status, 200);
   assertEquals((await handler(request(), deps)).status, 200);
@@ -266,6 +354,223 @@ Deno.test("each signing request creates a fresh staging capability without modif
     ) => call.method === "GET"),
     true,
   );
+});
+
+Deno.test("upload ingress accepts the exact limit and rejects oversize or mismatched bodies before R2", async () => {
+  const { deps, stored } = mock();
+  const uploadId = await createUpload(deps, 10_485_760);
+  const exact = await handler(
+    putRequest(uploadId, new Uint8Array(10_485_760)),
+    deps,
+  );
+  assertEquals(exact.status, 201);
+  assertEquals(stored[0].byteLength, 10_485_760);
+
+  const { deps: oversizedDeps, stored: oversizedStored } = mock();
+  const oversizedId = await createUpload(oversizedDeps, 10_485_760);
+  await expectError(
+    await handler(
+      putRequest(oversizedId, new Uint8Array(10_485_761), "image/jpeg", null),
+      oversizedDeps,
+    ),
+    400,
+    "VALIDATION_ERROR",
+  );
+  assertEquals(oversizedStored.length, 0);
+
+  const { deps: shortDeps, stored: shortStored } = mock();
+  const shortId = await createUpload(shortDeps, 1024);
+  await expectError(
+    await handler(
+      putRequest(shortId, new Uint8Array(1023), "image/jpeg", null),
+      shortDeps,
+    ),
+    400,
+    "VALIDATION_ERROR",
+  );
+  assertEquals(shortStored.length, 0);
+});
+
+Deno.test("upload ingress assembles streamed chunks in order and cancels oversized streams", async () => {
+  const { deps, stored } = mock();
+  const uploadId = await createUpload(deps, 4);
+  function streamedRequest(body: ReadableStream<Uint8Array>): Request {
+    return new Request(
+      `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/jpeg",
+        },
+        body,
+      },
+    );
+  }
+  const valid = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3, 4]));
+      controller.close();
+    },
+  });
+  assertEquals((await handler(streamedRequest(valid), deps)).status, 201);
+  assertEquals(stored[0], new Uint8Array([1, 2, 3, 4]));
+  let cancelled = false;
+  const oversized = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3, 4, 5]));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  await expectError(
+    await handler(streamedRequest(oversized), deps),
+    400,
+    "VALIDATION_ERROR",
+  );
+  assertEquals(cancelled, true);
+  assertEquals(stored.length, 1);
+});
+
+Deno.test("upload ingress rejects mismatched headers, expired intents, and cleanup-completed replay", async () => {
+  const { deps, stored } = mock();
+  const uploadId = await createUpload(deps);
+  await expectError(
+    await handler(
+      putRequest(uploadId, new Uint8Array(1024), "image/png"),
+      deps,
+    ),
+    400,
+    "VALIDATION_ERROR",
+  );
+  assertEquals(stored.length, 0);
+
+  await expectError(
+    await handler(
+      putRequest(uploadId, new Uint8Array(1024), "image/jpeg", 1023),
+      deps,
+    ),
+    400,
+    "VALIDATION_ERROR",
+  );
+  assertEquals(stored.length, 0);
+
+  const { deps: expiredDeps, stored: expiredStored } = mock();
+  const expiredId = await createUpload(expiredDeps);
+  expiredDeps.now = () => new Date("2026-11-02T00:09:31Z");
+  await expectError(
+    await handler(putRequest(expiredId, new Uint8Array(1024)), expiredDeps),
+    410,
+    "UPLOAD_EXPIRED",
+  );
+  assertEquals(expiredStored.length, 0);
+
+  const { deps: cleanedDeps, stored: cleanedStored } = mock();
+  const cleanedId = await createUpload(cleanedDeps);
+  const record = uploadRecords.get(cleanedId)!;
+  record.state = "expired";
+  record.cleanup_status = "complete";
+  await expectError(
+    await handler(putRequest(cleanedId, new Uint8Array(1024)), cleanedDeps),
+    410,
+    "UPLOAD_EXPIRED",
+  );
+  assertEquals(cleanedStored.length, 0);
+
+  const { deps: foreignDeps, stored: foreignStored } = mock();
+  const foreignId = await createUpload(foreignDeps);
+  uploadRecords.get(foreignId)!.user_id = OTHER;
+  await expectError(
+    await handler(putRequest(foreignId, new Uint8Array(1024)), foreignDeps),
+    404,
+    "UPLOAD_NOT_FOUND",
+  );
+  assertEquals(foreignStored.length, 0);
+});
+
+Deno.test("upload ingress rejects unauthenticated and interrupted streamed bodies before R2", async () => {
+  const { deps, stored } = mock();
+  const uploadId = await createUpload(deps);
+  await expectError(
+    await handler(
+      putRequest(uploadId, new Uint8Array(1024), "image/jpeg", 1024, null),
+      deps,
+    ),
+    401,
+    "UNAUTHORIZED",
+  );
+  const interrupted = new Request(
+    `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "image/jpeg",
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(128));
+          controller.error(new Error("synthetic interrupted body"));
+        },
+      }),
+    },
+  );
+  await expectError(await handler(interrupted, deps), 400, "VALIDATION_ERROR");
+  assertEquals(stored.length, 0);
+});
+
+Deno.test("conditional object creation blocks replay and stale post-upload cleanup is compensated", async () => {
+  const { deps, stored } = mock();
+  const uploadId = await createUpload(deps);
+  let attempts = 0;
+  deps.putUpload = (_intent, _configuration, body) => {
+    attempts++;
+    if (attempts > 1) return Promise.resolve("already_exists");
+    stored.push(body);
+    return Promise.resolve("stored");
+  };
+  assertEquals(
+    (await handler(putRequest(uploadId, new Uint8Array(1024)), deps)).status,
+    201,
+  );
+  await expectError(
+    await handler(putRequest(uploadId, new Uint8Array(1024)), deps),
+    409,
+    "UPLOAD_ALREADY_USED",
+  );
+  assertEquals(attempts, 2);
+
+  const { deps: concurrentDeps, stored: concurrentStored } = mock();
+  const concurrentId = await createUpload(concurrentDeps);
+  let occupied = false;
+  concurrentDeps.putUpload = async (_intent, _configuration, body) => {
+    if (occupied) return "already_exists";
+    occupied = true;
+    await Promise.resolve();
+    concurrentStored.push(body);
+    return "stored";
+  };
+  const concurrent = await Promise.all([
+    handler(putRequest(concurrentId, new Uint8Array(1024)), concurrentDeps),
+    handler(putRequest(concurrentId, new Uint8Array(1024)), concurrentDeps),
+  ]);
+  assertEquals(concurrent.map((response) => response.status).sort(), [
+    201,
+    409,
+  ]);
+  assertEquals(concurrentStored.length, 1);
+
+  const { deps: staleDeps, removed } = mock({ staleAfterPut: true });
+  const staleId = await createUpload(staleDeps);
+  await expectError(
+    await handler(putRequest(staleId, new Uint8Array(1024)), staleDeps),
+    410,
+    "UPLOAD_EXPIRED",
+  );
+  assertEquals(removed.length, 1);
 });
 
 Deno.test("signing quotas reject without returning a capability", async () => {
@@ -332,17 +637,11 @@ Deno.test("foreign and nonexistent recipes return identical errors without signi
   const bodies: unknown[] = [];
   for (const recipe of ["foreign", "missing"] as const) {
     const { deps, calls, intents } = mock({ recipe });
-    let signed = false;
-    deps.signUpload = () => {
-      signed = true;
-      throw new Error("Must not sign");
-    };
     const response = await handler(request(), deps);
     bodies.push(await response.clone().json());
     await expectError(response, 404, "RECIPE_NOT_FOUND");
     assertEquals(calls.length, 2);
     assertEquals(intents.length, 0);
-    assertEquals(signed, false);
   }
   assertEquals(bodies[0], bodies[1]);
 });
@@ -453,20 +752,26 @@ Deno.test("preflight and unsupported methods do not authenticate or access stora
   assertEquals(response.status, 204);
   assertEquals(
     response.headers.get("Access-Control-Allow-Methods"),
-    "POST, OPTIONS",
+    "POST, PUT, OPTIONS",
   );
   assertEquals(
     response.headers.get("Access-Control-Allow-Headers"),
     "authorization, x-client-info, apikey, content-type",
   );
-  for (const method of ["GET", "PUT", "PATCH", "DELETE"]) {
+  for (const method of ["GET", "PATCH", "DELETE"]) {
     const result = await handler(
       request(undefined, { method, token: null }),
       deps,
     );
-    assertEquals(result.headers.get("Allow"), "POST, OPTIONS");
+    assertEquals(result.headers.get("Allow"), "POST, PUT, OPTIONS");
     await expectError(result, 405, "METHOD_NOT_ALLOWED");
   }
+  assertEquals(calls.length, 0);
+  await expectError(
+    await handler(request(undefined, { method: "PUT", token: null }), deps),
+    401,
+    "UNAUTHORIZED",
+  );
   assertEquals(calls.length, 0);
 });
 
@@ -539,16 +844,288 @@ Deno.test("signing failures expose no credentials, keys, URLs or raw exceptions 
   console.error = (...values) => {
     logs.push(values);
   };
-  deps.signUpload = (intent) => {
+  const authorization = await handler(request(), deps);
+  const upload = await authorization.json();
+  deps.putUpload = (intent) => {
     throw new Error(
-      `${config.secretAccessKey} ${intent.final_key} private https://signed.invalid?X-Amz-Credential=secret`,
+      `${config.secretAccessKey} ${intent.staging_key} private https://signed.invalid?X-Amz-Credential=secret`,
     );
   };
   try {
-    await expectError(await handler(request(), deps), 500, "INTERNAL_ERROR");
+    await expectError(
+      await handler(putRequest(upload.upload.id, new Uint8Array(1024)), deps),
+      500,
+      "INTERNAL_ERROR",
+    );
     assertEquals(logs, [["Recipe image upload signing failed"]]);
-    assertEquals(intents.length, 0);
+    assertEquals(intents.length, 1);
   } finally {
     console.error = original;
   }
+});
+
+Deno.test("upload URLs use the configured public origin while server requests stay internal", async () => {
+  const { deps, intents, calls } = mock();
+  deps.supabaseUrl = "http://kong:8000";
+  deps.uploadOrigin = "http://127.0.0.1:54321";
+  const response = await handler(
+    request({
+      recipe_id: RECIPE,
+      content_type: "image/png",
+      byte_size: 1024,
+    }),
+    deps,
+  );
+  assertEquals(response.status, 200);
+  const url = new URL((await response.json()).upload.url);
+  assertEquals(url.origin, "http://127.0.0.1:54321");
+  assertEquals(url.pathname, "/functions/v1/recipe-image-upload-url");
+  assertEquals(intents.length, 1);
+  assertEquals(
+    calls.every((call) => call.url.origin === "http://kong:8000"),
+    true,
+  );
+});
+
+Deno.test("invalid public upload origins fail before consuming intent quota", async () => {
+  for (
+    const origin of [
+      "http://kong:8000",
+      "https://user:password@example.com",
+      "https://example.com/path",
+      "https://example.com?query=1",
+      "https://example.com#fragment",
+      "ftp://example.com",
+      "invalid",
+    ]
+  ) {
+    const { deps, intents } = mock();
+    deps.uploadOrigin = origin;
+    await expectError(
+      await handler(
+        request({
+          recipe_id: RECIPE,
+          content_type: "image/png",
+          byte_size: 1024,
+        }),
+        deps,
+      ),
+      500,
+      "INTERNAL_ERROR",
+    );
+    assertEquals(intents.length, 0);
+  }
+});
+
+Deno.test("replays and unavailable storage are rejected before reading upload bytes", async () => {
+  for (const state of ["exists", "failed"] as const) {
+    const { deps, stored } = mock();
+    const id = await createUpload(deps, 1024);
+    deps.checkUpload = () => Promise.resolve(state);
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads += 1;
+        controller.enqueue(new Uint8Array(1024));
+        controller.close();
+      },
+    }, { highWaterMark: 0 });
+    const req = new Request(putRequest(id, new Uint8Array(1024)), { body });
+    const response = await handler(req, deps);
+    assertEquals(response.status, state === "exists" ? 409 : 503);
+    assertEquals(reads, 0);
+    assertEquals(stored.length, 0);
+    await req.body?.cancel();
+  }
+});
+
+Deno.test("an upload with no stored object can retry after a failed PUT", async () => {
+  const { deps } = mock({ putResult: "failed" });
+  const id = await createUpload(deps, 1024);
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    503,
+  );
+  deps.putUpload = () => Promise.resolve("stored");
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    201,
+  );
+});
+
+Deno.test("reservation rejects a concurrent request before reading its stream and releases on failure", async () => {
+  const { deps } = mock();
+  const id = await createUpload(deps);
+  let enter!: () => void;
+  const entered = new Promise<void>((resolve) => enter = resolve);
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => finish = resolve);
+  deps.checkUpload = async () => {
+    enter();
+    await finished;
+    return "missing";
+  };
+  const first = handler(
+    putRequest(id, new Uint8Array(1), "image/jpeg", 1024),
+    deps,
+  );
+  await entered;
+  let reads = 0;
+  const second = new Request(
+    `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${id}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "image/jpeg",
+      },
+      body: new ReadableStream<Uint8Array>({
+        pull() {
+          reads++;
+        },
+      }, { highWaterMark: 0 }),
+    },
+  );
+  await expectError(await handler(second, deps), 409, "UPLOAD_IN_PROGRESS");
+  assertEquals(reads, 0);
+  finish();
+  await expectError(await first, 400, "VALIDATION_ERROR");
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    201,
+  );
+});
+
+Deno.test("reservation failures prevent body reads and storage access", async () => {
+  for (
+    const [result, status] of [[Response.json(false), 409], [
+      new Response(null, { status: 500 }),
+      500,
+    ], [Response.json("invalid"), 500]] as const
+  ) {
+    const { deps } = mock();
+    const id = await createUpload(deps);
+    const original = deps.fetch!;
+    deps.fetch = (input, init) =>
+      String(input).includes("/claim_recipe_image_upload_reservation")
+        ? Promise.resolve(result)
+        : original(input, init);
+    let reads = 0;
+    const req = new Request(
+      `https://edge.invalid/functions/v1/recipe-image-upload-url?upload_id=${id}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/jpeg",
+        },
+        body: new ReadableStream<Uint8Array>({
+          pull() {
+            reads++;
+          },
+        }, { highWaterMark: 0 }),
+      },
+    );
+    const response = await handler(req, deps);
+    assertEquals(response.status, status);
+    assertEquals(reads, 0);
+  }
+});
+
+Deno.test("release failures preserve upload outcomes and keep reservations closed", async () => {
+  for (const failure of ["rejected", "http", "network"] as const) {
+    for (const outcome of ["stored", "invalid", "failed"] as const) {
+      const { deps, stored } = mock({
+        putResult: outcome === "failed" ? "failed" : "stored",
+      });
+      const id = await createUpload(deps);
+      const original = deps.fetch!;
+      deps.fetch = (input, init) => {
+        if (
+          !String(input).includes("/release_recipe_image_upload_reservation")
+        ) return original(input, init);
+        if (failure === "network") {
+          return Promise.reject(new Error("private release failure"));
+        }
+        return Promise.resolve(
+          failure === "http"
+            ? new Response("private release failure", { status: 500 })
+            : Response.json(false),
+        );
+      };
+      const logs: unknown[][] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => {
+        logs.push(args);
+      };
+      try {
+        const response = await handler(
+          putRequest(
+            id,
+            new Uint8Array(outcome === "invalid" ? 1 : 1024),
+            "image/jpeg",
+            1024,
+          ),
+          deps,
+        );
+        if (outcome === "stored") {
+          assertEquals(response.status, 201);
+          assertEquals(await response.json(), {
+            upload: { id, received: true },
+          });
+        } else {
+          await expectError(
+            response,
+            outcome === "invalid" ? 400 : 503,
+            outcome === "invalid" ? "VALIDATION_ERROR" : "STORAGE_UNAVAILABLE",
+          );
+        }
+        await expectError(
+          await handler(putRequest(id, new Uint8Array(1024)), deps),
+          409,
+          "UPLOAD_IN_PROGRESS",
+        );
+        assertEquals(stored.length, outcome === "invalid" ? 0 : 1);
+        assertEquals(logs, [[
+          "Recipe image upload reservation release failed",
+        ]]);
+      } finally {
+        console.error = originalError;
+      }
+    }
+  }
+});
+
+Deno.test("a committed claim with a lost response is released before retry", async () => {
+  const { deps, stored } = mock();
+  const id = await createUpload(deps);
+  const original = deps.fetch!;
+  let loseResponse = true;
+  let releases = 0;
+  deps.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/release_recipe_image_upload_reservation")) releases++;
+    const response = await original(input, init);
+    if (
+      loseResponse && url.includes("/claim_recipe_image_upload_reservation")
+    ) {
+      loseResponse = false;
+      assertEquals(await response.json(), true);
+      throw new Error("synthetic response loss after commit");
+    }
+    return response;
+  };
+  await expectError(
+    await handler(putRequest(id, new Uint8Array(1024)), deps),
+    500,
+    "INTERNAL_ERROR",
+  );
+  assertEquals(releases, 1);
+  assertEquals(stored.length, 0);
+  assertEquals(
+    (await handler(putRequest(id, new Uint8Array(1024)), deps)).status,
+    201,
+  );
+  assertEquals(releases, 2);
+  assertEquals(stored.length, 1);
 });

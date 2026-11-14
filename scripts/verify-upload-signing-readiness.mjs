@@ -57,10 +57,10 @@ try {
   await client.connect();
   const migrations = await client.query(
     `select version from supabase_migrations.schema_migrations where version = any($1::text[])`,
-    [['20261102000009', '20261102000010']],
+    [['20261102000009', '20261102000010', '20261108152005']],
   );
   const applied = new Set(migrations.rows.map(row => row.version));
-  for (const version of ['20261102000009', '20261102000010']) {
+  for (const version of ['20261102000009', '20261102000010', '20261108152005']) {
     if (!applied.has(version)) throw new Error(`Required migration is not applied: ${version}`);
   }
   const table = await client.query(
@@ -76,7 +76,7 @@ try {
     `select attname from pg_attribute where attrelid = $1 and attnum > 0 and not attisdropped`, [relation],
   );
   const columnNames = new Set(columns.rows.map(row => row.attname));
-  for (const name of ['id', 'user_id', 'recipe_id', 'staging_key', 'final_key', 'content_type', 'byte_size', 'created_at', 'expires_at', 'state', 'cleanup_status']) {
+  for (const name of ['id', 'user_id', 'recipe_id', 'staging_key', 'final_key', 'content_type', 'byte_size', 'created_at', 'expires_at', 'state', 'cleanup_status', 'upload_reservation']) {
     if (!columnNames.has(name)) throw new Error(`Required upload-intent column is missing: ${name}`);
   }
   const checks = await client.query(
@@ -115,6 +115,22 @@ try {
   for (const role of ['anon', 'authenticated']) {
     const access = await client.query('select has_function_privilege($1, $2::oid, $3) as allowed', [role, rpcOid, 'EXECUTE']);
     if (access.rows[0].allowed) throw new Error(`Unexpected upload-intent RPC privilege for ${role}.`);
+  }
+  for (const name of ['claim_recipe_image_upload_reservation', 'release_recipe_image_upload_reservation']) {
+    const signature = `public.${name}(uuid,uuid,uuid)`;
+    const reservation = await client.query(
+      `select p.oid, p.prosecdef, pg_get_functiondef(p.oid) as definition from pg_proc p where p.oid = to_regprocedure($1)`, [signature],
+    );
+    if (reservation.rowCount !== 1 || !reservation.rows[0].prosecdef || !reservation.rows[0].definition.includes("auth.role() is distinct from 'service_role'")) throw new Error('Upload reservation RPC is missing or has invalid authorization.');
+    for (const role of ['service_role', 'anon', 'authenticated', 'public']) {
+      const access = await client.query(
+        role === 'public'
+          ? `select exists(select 1 from pg_proc p, lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = $1::oid and a.grantee = 0 and a.privilege_type = 'EXECUTE') as allowed`
+          : `select has_function_privilege($2, $1::oid, 'EXECUTE') as allowed`,
+        role === 'public' ? [reservation.rows[0].oid] : [reservation.rows[0].oid, role],
+      );
+      if (access.rows[0].allowed !== (role === 'service_role')) throw new Error('Upload reservation RPC privileges are invalid.');
+    }
   }
   const grants = await client.query(
     `select has_table_privilege('service_role', $1::oid, 'SELECT') as can_select,

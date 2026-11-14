@@ -59,6 +59,17 @@ describe('HTTP JSON transport (without a recipe contract)', () => {
     })
   })
 
+  it('preserves Retry-After for endpoint-specific cooldown handling', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(
+      { error: { code: 'AI_RATE_LIMITED', message: 'Try later.' } },
+      { status: 429, headers: { 'Retry-After': '45' } },
+    ))
+
+    await expect(createHttpClient({ baseUrl, fetchImpl }).getJson(path)).rejects.toMatchObject({
+      status: 429, retryAfter: '45',
+    })
+  })
+
   it.each(['', '{broken JSON'])('rejects malformed success bodies: %s', async (body) => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(body))
     await expect(createHttpClient({ baseUrl, fetchImpl }).getJson(path)).rejects.toMatchObject({

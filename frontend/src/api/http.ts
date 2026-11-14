@@ -7,14 +7,16 @@ export class HttpError extends Error {
   readonly kind: HttpErrorKind
   readonly status?: number
   readonly payload?: unknown
+  readonly retryAfter?: string
   readonly retryable: boolean
 
-  constructor(kind: HttpErrorKind, message: string, status?: number, payload?: unknown) {
+  constructor(kind: HttpErrorKind, message: string, status?: number, payload?: unknown, retryAfter?: string) {
     super(message)
     this.name = 'HttpError'
     this.kind = kind
     this.status = status
     this.payload = payload
+    this.retryAfter = retryAfter
     this.retryable = kind === 'network' || (kind === 'http' && (
       status === 408 || status === 429 || (status !== undefined && status >= 500 && status < 600)
     ))
@@ -33,6 +35,8 @@ interface JsonRequestOptions {
   accessToken?: string
   method?: RequestInit['method']
   body?: unknown
+  rawBody?: BodyInit
+  rawContentType?: string
   expectedStatus?: number
 }
 
@@ -42,11 +46,12 @@ interface AuthenticatedRequestOptions {
 }
 
 export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSession }: HttpClientOptions = {}) {
-  async function requestJson(path: string, { signal, accessToken, method = 'GET', body: jsonBody, expectedStatus }: JsonRequestOptions): Promise<unknown> {
+  async function requestJson(path: string, { signal, accessToken, method = 'GET', body: jsonBody, rawBody, rawContentType, expectedStatus }: JsonRequestOptions): Promise<unknown> {
     let url: URL
     try {
-      if (!baseUrl?.trim() || (apiKey !== undefined && !apiKey.trim()) ||
-        !path.startsWith('/') || path.startsWith('//')) {
+      const relativePath = path.startsWith('/') && !path.startsWith('//')
+      const absoluteUrl = /^https?:\/\//i.test(path)
+      if (!baseUrl?.trim() || (apiKey !== undefined && !apiKey.trim()) || (!relativePath && !absoluteUrl)) {
         throw new Error('Missing base URL or invalid API path')
       }
       const base = new URL(baseUrl.trim())
@@ -55,19 +60,25 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
         throw new Error('Expected an HTTP(S) API origin')
       }
       url = new URL(path, base)
-      if (url.origin !== base.origin) throw new Error('API path changed origin')
+      if (url.origin !== base.origin || url.username || url.password || url.hash) throw new Error('API path changed origin')
     } catch {
       throw new HttpError('configuration', 'The API connection is not configured correctly.')
     }
 
-    let requestBody: string | undefined
-    if (method === 'POST' || method === 'PATCH') {
+    let requestBody: BodyInit | undefined
+    let requestContentType: string | undefined
+    if (rawBody !== undefined) {
+      if (method !== 'PUT' || !rawContentType) throw new HttpError('configuration', 'The request could not be prepared.')
+      requestBody = rawBody
+      requestContentType = rawContentType
+    } else if (method === 'POST' || method === 'PATCH') {
       try {
         requestBody = JSON.stringify(jsonBody)
         if (requestBody === undefined) throw new Error('Request body is not JSON serializable')
       } catch {
         throw new HttpError('configuration', 'The request could not be prepared.')
       }
+      requestContentType = 'application/json'
     }
 
     let response: Response
@@ -81,7 +92,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
             apikey: apiKey.trim(),
           }),
           ...(accessToken === undefined ? {} : { Authorization: `Bearer ${accessToken}` }),
-          ...(requestBody === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(requestContentType === undefined ? {} : { 'Content-Type': requestContentType }),
         },
         ...(requestBody === undefined ? {} : { body: requestBody }),
         credentials: 'omit',
@@ -102,7 +113,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
       // Preserve HTTP status even when a failed response contains HTML or no body.
     }
     if (!response.ok) {
-      throw new HttpError('http', 'The server could not complete the request.', response.status, payload)
+      throw new HttpError('http', 'The server could not complete the request.', response.status, payload, response.headers.get('Retry-After') ?? undefined)
     }
     if (expectedStatus !== undefined && response.status !== expectedStatus) {
       throw new HttpError('http', 'The server could not confirm the operation.', response.status, payload)
@@ -118,7 +129,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
 
   async function authenticatedJson(
     path: string,
-    { userId, signal, method, body, expectedStatus }: AuthenticatedRequestOptions & { method: RequestInit['method']; body?: unknown; expectedStatus?: number },
+    { userId, signal, method, body, rawBody, rawContentType, expectedStatus }: AuthenticatedRequestOptions & Omit<JsonRequestOptions, 'accessToken'> & { method: RequestInit['method'] },
   ): Promise<unknown> {
     let session: Session | null | undefined
     let abortListener: (() => void) | undefined
@@ -148,7 +159,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
       !Number.isFinite(session.expires_at) || session.expires_at * 1000 <= Date.now() || session.user.id !== userId) {
       throw authenticationRequired()
     }
-    return requestJson(path, { signal, accessToken: session.access_token, method, body, expectedStatus })
+    return requestJson(path, { signal, accessToken: session.access_token, method, body, rawBody, rawContentType, expectedStatus })
   }
 
   return {
@@ -164,6 +175,9 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     },
     patchAuthenticatedJson(path: string, body: unknown, options: AuthenticatedRequestOptions): Promise<unknown> {
       return authenticatedJson(path, { ...options, method: 'PATCH', body })
+    },
+    putAuthenticatedBytes(path: string, body: Blob, options: AuthenticatedRequestOptions): Promise<unknown> {
+      return authenticatedJson(path, { ...options, method: 'PUT', rawBody: body, rawContentType: body.type, expectedStatus: 201 })
     },
     deleteAuthenticatedJson(path: string, options: AuthenticatedRequestOptions): Promise<unknown> {
       return authenticatedJson(path, { ...options, method: 'DELETE', expectedStatus: 204 })

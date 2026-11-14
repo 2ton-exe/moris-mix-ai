@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { journalReturnTo } from '../journal/indexNavigation'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { ErrorState } from '../components/ErrorState'
@@ -9,6 +10,7 @@ import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import type { RecipeEditorRecord, SaveRecipeDraft } from '../recipe-form/submission'
 import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
+import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import { useRecipe } from '../recipes/queries'
 
 export default function EditRecipePage({ record, isLoading = false, loadError, onRetry, save, notesSupported = true }: {
@@ -18,10 +20,11 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const { recipeId = '' } = useParams()
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [dirty, setDirty] = useState(false)
   const query = useRecipe(recipeId, !record && !isLoading && !loadError)
   const submit = useRecipeSave(save, recipeId)
-  useUnsavedChangesGuard(dirty)
+  const navigationConfirmation = useUnsavedChangesGuard(dirty)
   const loadedRecord = query.data && user?.id ? {
     id: query.data.id,
     userId: user.id,
@@ -47,11 +50,14 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const available = activeRecord && activeRecord.id === recipeId && activeRecord.userId === user?.id
   const accessDenied = activeError instanceof HttpError && [401, 403, 404].includes(activeError.status ?? 0)
   const canEdit = available && !accessDenied
-  return <RecipeEditorFrame mode="edit" connected>
-    {activeLoading && !canEdit && <LoadingState message="Loading recipe for editing…" />}
+  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
+    notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
+    supplement={<RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
+    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
+  return <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>
+    {activeLoading && <LoadingState message="Loading recipe for editing…" />}
     {activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
-    {canEdit && <RecipeForm key={activeRecord.id} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate('/app')} />}
-    {!canEdit && !activeLoading && !activeError && <p className="request-state" role="status">This recipe is not available for editing yet. Please return when your journal is connected.</p>}
-    {!canEdit && <div className="actions"><Link className="button button-secondary" to="/app">Back to journal</Link></div>}
+    {!activeLoading && !activeError && <p className="request-state" role="status">This recipe is not available for editing yet. Please return when your journal is connected.</p>}
+    <div className="actions"><Link className="button button-secondary" to="/app">Back to journal</Link></div>
   </RecipeEditorFrame>
 }

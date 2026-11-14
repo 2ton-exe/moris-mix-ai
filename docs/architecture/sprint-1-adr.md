@@ -18,7 +18,7 @@ Browser (React/Vite/TypeScript app on Cloudflare Workers)
 │       ├── Use a user-scoped Supabase client → PostgreSQL with RLS
 │       ├── Call Gemini for extraction and Chef generation
 │       └── Authorize and verify private R2 image operations
-└── Image bytes → private R2 through a short-lived, backend-signed PUT URL
+└── Image bytes → authenticated Edge Function upload ingress → private R2
 ```
 
 The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 signing credentials stay on the server.
@@ -29,7 +29,7 @@ Version-controlled Supabase migrations define the recipe, lineage, and AI quota 
 
 Document each Edge Function endpoint under `docs/api/`. Its contract must state the method and path, access level, query parameters and body, successful response shape, HTTP status and error codes, CORS behavior, and frontend loading and error behavior.
 
-Use JSON for request and response bodies. Return errors with a stable `error.code` and user-safe `error.message`; never expose secrets, database details, or stack traces. Validate untrusted function input at the boundary with Zod. The Sprint 1 demo route is public and may use the Supabase anon key without a signed-in user. Never put a service-role key in the browser. Restrict the demo query to approved sample rows so it cannot return private user data.
+Use JSON for request and response bodies, except the recipe-image upload PUT request, which carries raw JPEG, PNG, or WebP bytes under the image API contract. Return errors with a stable `error.code` and user-safe `error.message`; never expose secrets, database details, or stack traces. Validate untrusted function input at the boundary with Zod. The Sprint 1 demo route is public and may use the Supabase anon key without a signed-in user. Never put a service-role key in the browser. Restrict the demo query to approved sample rows so it cannot return private user data.
 
 The frontend handles pending requests, successful responses, non-2xx responses, network failures, and invalid JSON. It shows a user-safe, retryable error rather than raw backend details. Handle `OPTIONS` preflight for the configured frontend origin and allow only the methods and headers the endpoint needs.
 
@@ -39,7 +39,7 @@ The demo recipe's full response schema, error table, CORS details, and fixture a
 
 - Supabase Auth owns session restoration, refresh, and sign-out. For each protected API request, the frontend reads the current session token and sends it as a Bearer token; it does not create a second auth state or its own refresh mechanism.
 - If there is no usable session, protected navigation and requests stop in the shared auth flow. A rejected or expired token follows that flow; an authenticated permission denial remains an access error and does not by itself sign the user out.
-- Protected Edge Functions authenticate through the shared server helper, derive the owner from the verified user context, and use a user-scoped Supabase client so PostgreSQL RLS remains in force. Client-supplied owner IDs are never trusted, and user-owned operations do not use a service-role client.
+- Protected Edge Functions authenticate through the shared server helper, derive the owner from the verified user context, and use a user-scoped Supabase client for user-owned reads and ordinary CRUD so PostgreSQL RLS remains in force. Client-supplied owner IDs are never trusted. Service-role access is limited to the allowlisted public demo read, per-user AI quota operations, and dedicated image lifecycle/upload/cleanup operations; it is not used for general recipe reads or CRUD.
 - Recipe CRUD stays behind the authenticated REST API. The public demo remains anonymous and does not receive an Authorization header.
 - The authenticated critical browser journey should use isolated Supabase test resources. Local Playwright E2E runs use the dedicated stack's native runtime on supported hosts, so they do not require Docker. Hosted Auth/RLS integration runs use the dedicated non-production project, dedicated synthetic accounts, unique test data, an explicitly configured and verified project reference, and cleanup safeguards. These checks do not use production credentials or data, reset a developer's database, or invoke Gemini.
 
@@ -54,8 +54,10 @@ The reusable authentication contract and protected session endpoint are document
 
 ## Private recipe images
 
-- Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived, object-specific presigned `PUT`; the browser uploads bytes directly to R2 without receiving storage credentials.
-- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. Because `byte_size` is a client declaration and does not cap R2 ingress, enforce the 10 MiB cap before R2 accepts the `PUT` body or apply the contract's agreed quota or rate-limit mitigation with reliable cleanup of oversized or rejected staging objects.
+- Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived upload URL for its authenticated Edge Function. The browser sends bytes to that function; only the backend sends the bounded, create-only `PUT` to R2. The browser never receives storage credentials or an R2 object key.
+- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. The Edge Function must count the incoming bytes, enforce the 10 MiB limit and the declared size before contacting R2, and reject expired or reused upload intents. It must preserve safe cleanup of failed or abandoned staging objects.
+- The bounded ingress revision counts at most 10 MiB, verifies the intent size, binds the payload hash, and uses create-only writes. BE-13 and FE-12 owner approvals for that upload transport are recorded in the image API contract. Production upload-signing deployment remains hard-disabled.
+- Recipe-image finalization, deletion, private-read resolution, and cleanup use service-role-only RPCs for atomic transitions across recipe and lifecycle state. User-facing handlers authenticate and verify recipe ownership with a user-scoped client; RPCs recheck ownership at association boundaries and fence worker operations by upload and attempt state. This is a narrow exception to the user-scoped CRUD rule above. Do not use the service role for general recipe access.
 - Before attachment, verify the R2 object's stored content-type metadata and actual byte size against the upload intent and allowed limits, then recheck recipe ownership. Metadata alone does not validate image bytes; a trusted processing or rendering boundary must decode or normalize them.
 - Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged. After replacement commits, delete only the previous final key recorded by that transaction; after recipe deletion commits, delete only the current final key captured by that transaction. Cleanup of expired staging objects and orphan final keys follows the [image contract](../api/recipe-images.md).
 

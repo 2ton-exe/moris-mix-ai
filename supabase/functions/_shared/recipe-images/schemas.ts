@@ -19,6 +19,15 @@ export const RecipeImageAttachRequestSchema = z.object({
   upload_id: z.guid(),
 }).strict();
 
+export const RecipeImageRecipeRequestSchema = z.object({
+  recipe_id: z.string().uuid(),
+}).strict();
+
+export const RecipeImageDownloadResponseSchema = z.object({
+  url: z.string().url(),
+  expires_at: z.string().datetime(),
+}).strict();
+
 export const RecipeImageMetadataSchema = z.object({
   recipe_id: z.guid(),
   content_type: RecipeImageContentTypeSchema,

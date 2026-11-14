@@ -493,6 +493,10 @@ Deno.test("CORS OPTIONS preflight on /extract-recipe returns 204 without authent
     "POST, OPTIONS",
   );
   assertEquals(
+    preflight.headers.get("access-control-expose-headers"),
+    "X-Request-ID, Retry-After",
+  );
+  assertEquals(
     preflight.headers.get("access-control-allow-headers"),
     "authorization, x-client-info, apikey, content-type",
   );
@@ -513,6 +517,10 @@ Deno.test("CORS OPTIONS preflight on /extract-recipe returns 204 without authent
     assertEquals(
       scoped.headers.get("access-control-allow-methods"),
       "POST, OPTIONS",
+    );
+    assertEquals(
+      scoped.headers.get("access-control-expose-headers"),
+      "X-Request-ID, Retry-After",
     );
     assertEquals(scoped.headers.get("vary"), "Origin");
   } finally {
@@ -546,6 +554,10 @@ Deno.test("Unsupported methods return 405 with Allow: POST, OPTIONS and never au
     assertEquals(
       res.headers.get("access-control-allow-methods"),
       "POST, OPTIONS",
+    );
+    assertEquals(
+      res.headers.get("access-control-expose-headers"),
+      "X-Request-ID, Retry-After",
     );
     assertEquals(res.headers.get("cache-control"), "no-store");
     assertEquals(res.headers.get("x-content-type-options"), "nosniff");
@@ -643,6 +655,11 @@ Deno.test("Unauthenticated requests return 401 UNAUTHORIZED before quota or prov
       "POST, OPTIONS",
     );
     assertEquals(res.headers.get("cache-control"), "no-store");
+    assertEquals(res.headers.get("retry-after"), null);
+    assertEquals(
+      res.headers.get("access-control-expose-headers"),
+      "X-Request-ID, Retry-After",
+    );
     const body = await res.json();
     assertEquals(body.error?.code, "UNAUTHORIZED");
   }
@@ -678,6 +695,10 @@ Deno.test("An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-
   assertEquals(
     res.headers.get("access-control-allow-methods"),
     "POST, OPTIONS",
+  );
+  assertEquals(
+    res.headers.get("access-control-expose-headers"),
+    "X-Request-ID, Retry-After",
   );
   assertEquals(res.headers.get("cache-control"), "no-store");
   const body = await res.json();
@@ -1257,6 +1278,10 @@ Deno.test("Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and neve
     res.headers.get("access-control-allow-methods"),
     "POST, OPTIONS",
   );
+  assertEquals(
+    res.headers.get("access-control-expose-headers"),
+    "X-Request-ID, Retry-After",
+  );
   const body = await res.json();
   assertEquals(body.error?.code, "QUOTA_EXCEEDED");
   assertEquals(providerCalled, false);
@@ -1622,6 +1647,10 @@ Deno.test("Provider failures map to safe, recoverable errors without leaking det
     assertEquals(body.error?.code, testCase.expectedCode);
     assertEquals(typeof body.error?.message, "string");
     assertEquals(body.error?.message.includes(secretMessage), false);
+    assertEquals(
+      res.headers.get("access-control-expose-headers"),
+      "X-Request-ID, Retry-After",
+    );
 
     if (testCase.expectedRetryAfter) {
       assertEquals(res.headers.get("retry-after"), testCase.expectedRetryAfter);

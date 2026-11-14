@@ -1,0 +1,114 @@
+/*
+ * MORI'S MIX tokens adapted from the verified Figma Make reference.
+ * Earthy palette: burgundy leather, espresso ink, parchment paper,
+ * sage + mustard accents, brass hardware.
+ */
+:root {
+  --mm-space-1: 4px;
+  --mm-space-2: 8px;
+  --mm-space-3: 12px;
+  --mm-space-4: 16px;
+  --mm-space-6: 24px;
+  --mm-space-8: 32px;
+  --mm-text-xs: 12px;
+  --mm-text-sm: 14px;
+  --mm-text-base: 16px;
+  --mm-text-hand: 24px;
+  --mm-radius-paper: 3px;
+  --mm-radius-control: 6px;
+  --mm-border-paper: rgb(120 90 50 / .24);
+  --mm-duration-fast: 180ms;
+  --mm-font-serif: 'Fraunces', ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+  --mm-font-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mm-font-hand: 'Caveat', 'Segoe Print', 'Bradley Hand', cursive;
+  --mm-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Ink (text on paper) */
+  --mm-color-ink: #2b211b;
+  --mm-color-ink-soft: #5b4a3d;
+  --mm-color-ink-faint: #85725f;
+
+  --mm-color-burgundy-50: #faf0f1;
+  --mm-color-burgundy-100: #f2dadd;
+  --mm-color-burgundy-200: #e3b4bb;
+  --mm-color-burgundy-300: #ca8290;
+  --mm-color-burgundy-400: #ad5668;
+  --mm-color-burgundy-500: #8f3b4e;
+  --mm-color-burgundy-600: #772a3d;
+  --mm-color-burgundy-700: #622031;
+  --mm-color-burgundy-800: #4c1825;
+  --mm-color-burgundy-900: #39111c;
+  --mm-color-burgundy-950: #250a12;
+
+  --mm-color-espresso-50: #f7f2ed;
+  --mm-color-espresso-100: #ebe0d5;
+  --mm-color-espresso-200: #d6c1ad;
+  --mm-color-espresso-300: #b99c80;
+  --mm-color-espresso-400: #98785a;
+  --mm-color-espresso-500: #785c43;
+  --mm-color-espresso-600: #5f4835;
+  --mm-color-espresso-700: #4a382a;
+  --mm-color-espresso-800: #372920;
+  --mm-color-espresso-900: #271d17;
+  --mm-color-espresso-950: #18110d;
+
+  --mm-color-parchment-50: #fdfaf3;
+  --mm-color-parchment-100: #f8f1e1;
+  --mm-color-parchment-200: #f0e4c8;
+  --mm-color-parchment-300: #e5d3ac;
+  --mm-color-parchment-400: #d4ba8a;
+  --mm-color-parchment-500: #bc9f6c;
+  --mm-color-parchment-600: #9c8052;
+
+  --mm-color-sage-50: #f2f4ee;
+  --mm-color-sage-100: #e1e7d8;
+  --mm-color-sage-200: #c7d2b7;
+  --mm-color-sage-300: #a9b896;
+  --mm-color-sage-400: #8c9e78;
+  --mm-color-sage-500: #71855f;
+  --mm-color-sage-600: #596a4b;
+  --mm-color-sage-700: #46543c;
+  --mm-color-sage-800: #364030;
+  --mm-color-sage-900: #283024;
+
+  --mm-color-mustard-50: #fcf6e6;
+  --mm-color-mustard-100: #f7e8bf;
+  --mm-color-mustard-200: #efd48f;
+  --mm-color-mustard-300: #e5bb5d;
+  --mm-color-mustard-400: #d8a23a;
+  --mm-color-mustard-500: #bf8826;
+  --mm-color-mustard-600: #9b6b1d;
+  --mm-color-mustard-700: #7a5319;
+  --mm-color-mustard-800: #5c3f15;
+
+  --mm-color-brick-50: #fbeeec;
+  --mm-color-brick-100: #f5d4cf;
+  --mm-color-brick-200: #eaaaa0;
+  --mm-color-brick-500: #b3402f;
+  --mm-color-brick-600: #9a3324;
+  --mm-color-brick-700: #7f281b;
+
+  --mm-color-brass-200: #f3e2ad;
+  --mm-color-brass-300: #e8cd88;
+  --mm-color-brass-400: #cfa95b;
+  --mm-color-brass-500: #b28a3d;
+  --mm-color-brass-600: #8b6a2b;
+  --mm-color-brass-700: #65491c;
+
+  --mm-color-kraft-100: #e9d8b9;
+  --mm-color-kraft-200: #dac093;
+  --mm-color-kraft-300: #c9a674;
+  --mm-color-kraft-400: #b48d5c;
+  --mm-color-kraft-500: #98734a;
+
+  --mm-color-fresh: #fffcf3;
+
+  --mm-shadow-paper: 0 1px 1px rgb(54 36 20 / 0.14), 0 3px 8px -2px rgb(54 36 20 / 0.2);
+  --mm-shadow-lifted: 0 2px 4px rgb(40 24 12 / 0.18), 0 14px 28px -8px rgb(40 24 12 / 0.42);
+  --mm-shadow-desk: 0 2px 3px rgb(30 18 8 / 0.28), 0 18px 40px -10px rgb(30 18 8 / 0.5);
+
+  --mm-ease-page: cubic-bezier(0.45, 0.05, 0.22, 1);
+  --mm-ease-soft: cubic-bezier(0.3, 0.7, 0.2, 1);
+  --mm-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+}
