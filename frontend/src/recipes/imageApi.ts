@@ -36,7 +36,7 @@ export async function prepareRecipeImage(file: File): Promise<Blob> {
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((value) => value ? resolve(value) : reject(new Error('encode-failed')), 'image/webp', 0.82)
     })
-    if (blob.type !== 'image/webp' || blob.size === 0 || blob.size > maximumBytes) throw new Error('invalid-output')
+    if (!imageTypes.includes(blob.type) || blob.size === 0 || blob.size > maximumBytes) throw new Error('invalid-output')
     return blob
   } catch {
     throw new Error('Could not prepare this image for upload.')
