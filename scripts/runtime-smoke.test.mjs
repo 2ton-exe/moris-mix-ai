@@ -170,11 +170,11 @@ test('production smoke verifies account-export is deployed and rejects unauthent
   const result = await runSmoke(prod, { ...offline, fetchImpl: async (url, options) => {
     calls.push([url, options]);
     if (url.pathname === '/functions/v1/account-export') {
-      assert.equal(options.method, undefined);
       assert.equal(options.headers.Origin, prod.SMOKE_FRONTEND_URL);
       assert.equal(new Headers(options.headers).has('Authorization'), false);
       assert.equal(options.body, undefined);
-      if (options.headers['Access-Control-Request-Method'] === 'GET') {
+      if (options.method === 'OPTIONS') {
+        assert.equal(options.headers['Access-Control-Request-Method'], 'GET');
         assert.equal(options.headers['Access-Control-Request-Headers'], 'authorization, apikey, content-type');
         assert.equal(options.headers.apikey, undefined);
         return new Response(null, {
@@ -187,6 +187,7 @@ test('production smoke verifies account-export is deployed and rejects unauthent
           },
         });
       }
+      assert.equal(options.method, 'GET');
       assert.equal(options.headers.apikey, prod.SMOKE_PUBLIC_KEY);
       return new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header.' } }), {
         status: 401,
@@ -204,8 +205,8 @@ test('production smoke verifies account-export is deployed and rejects unauthent
   assert.equal(result.outcome, 'passed');
   assert.match(result.checks.account_export, /^passed/);
   assert.deepEqual(calls.filter(([url]) => url.pathname === '/functions/v1/account-export').map(([, options]) => [
-    options.headers['Access-Control-Request-Method'] ?? 'GET', options.headers.apikey ?? null,
-  ]), [['GET', null], ['GET', prod.SMOKE_PUBLIC_KEY]]);
+    options.method, options.headers.apikey ?? null,
+  ]), [['OPTIONS', null], ['GET', prod.SMOKE_PUBLIC_KEY]]);
   assert.ok(calls.filter(([url]) => url.pathname === '/functions/v1/account-export').every(([url]) => !url.search));
   assert.ok(!JSON.stringify(result).includes(prod.SMOKE_PUBLIC_KEY));
 });

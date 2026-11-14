@@ -119,13 +119,13 @@ export function assetURL(html, home) {
  * @throws {Error} Errors from the injected sleep function propagate unchanged.
  */
 export async function request(url, contentTypes, validate, {
-  fetchImpl = fetch, attempts = 3, timeout = 10000,
+  fetchImpl = fetch, method = 'GET', attempts = 3, timeout = 10000,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), headers = {}, expectedStatus = 200,
 } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const response = await fetchImpl(url, {
-        redirect: 'manual', signal: AbortSignal.timeout(timeout),
+        method, redirect: 'manual', signal: AbortSignal.timeout(timeout),
         headers: { 'Cache-Control': 'no-cache', ...headers },
       });
       requireValue(response.status === expectedStatus, `Expected HTTP ${expectedStatus}; received ${response.status}`);
@@ -221,7 +221,7 @@ export async function runSmoke(env, options = {}) {
           const allowedHeaders = new Set((response.headers.get('access-control-allow-headers') ?? '').split(',').map(value => value.trim().toLowerCase()));
           requireValue(['authorization', 'apikey', 'content-type'].every(name => allowedHeaders.has(name)), 'Account export CORS is missing required request headers');
         }, {
-          ...options, expectedStatus: 204,
+          ...options, method: 'OPTIONS', expectedStatus: 204,
           headers: {
             Origin: urls.frontend,
             'Access-Control-Request-Method': 'GET',
