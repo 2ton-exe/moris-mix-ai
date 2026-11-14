@@ -126,9 +126,6 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
       const lines = [spawnError, ...logTail.slice(-5)].filter(Boolean)
       return lines.map(redactSensitiveOutput).join(' | ')
     },
-    recentOutput() {
-      return [spawnError, ...logTail].filter(Boolean).map(redactSensitiveOutput).join(' | ')
-    },
   }
 }
 
@@ -208,13 +205,7 @@ async function main() {
     process.stdout.write('Local function handlers are responding. Starting Playwright.\n')
 
     const playwrightArguments = process.argv.slice(2).filter((argument) => argument !== '--')
-    try {
-      await run('pnpm', ['exec', 'playwright', 'test', ...playwrightArguments], frontendDir, playwrightEnv, true)
-    } catch (error) {
-      const detail = functionServer?.recentOutput()
-      if (detail) process.stderr.write(`Local function server output: ${detail}\n`)
-      throw error
-    }
+    await run('pnpm', ['exec', 'playwright', 'test', ...playwrightArguments], frontendDir, playwrightEnv, true)
   }
   const stopStackAndFunctionServer = async (signal) => {
     const errors = []

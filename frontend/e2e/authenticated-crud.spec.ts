@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
+import { createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeContents(page) {
   await expect(
@@ -9,21 +9,6 @@ async function expectRecipeContents(page) {
   await expect(
     page.getByRole('region', { name: 'In the kitchen', exact: true }).getByRole('listitem'),
   ).toContainText('Warm the oil and fold in the herbs.')
-}
-
-async function createRecipe(page, recipeTitle) {
-  await page.getByRole('link', { name: 'Start a recipe' }).click()
-  await page.getByLabel('Recipe title').fill(recipeTitle)
-  const ingredients = await navigateToRecipeSection(page, 'Ingredients')
-  await ingredients.getByRole('button', { name: 'Add ingredient' }).click()
-  await ingredients.getByLabel('Ingredient 1 name').fill('olive oil')
-  await ingredients.getByLabel('Ingredient 1 quantity').fill('2')
-  await ingredients.getByLabel('Ingredient 1 unit').fill('tablespoons')
-  const cookingMethod = await navigateToRecipeSection(page, 'Cooking method')
-  await cookingMethod.getByRole('button', { name: 'Add cooking step' }).click()
-  await cookingMethod.getByLabel('Step 1 description').fill('Warm the oil and fold in the herbs.')
-  await page.getByRole('button', { name: 'Save recipe' }).click()
-  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 }
 
 test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async ({ page }) => {
