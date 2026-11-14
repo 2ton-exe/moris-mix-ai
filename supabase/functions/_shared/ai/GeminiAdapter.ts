@@ -478,14 +478,14 @@ export class GeminiAdapter implements AIProvider {
 
 /** Exported for tests. */
 export function parseExtractionResponse(raw: string): ExtractedRecipe {
-  const cleaned = stripCodeFence(raw);
-  if (new TextEncoder().encode(cleaned).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
+  if (new TextEncoder().encode(raw).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
     throw new AIError(
       "output_truncated",
       "extract",
       "Gemini output exceeded the supported response size.",
     );
   }
+  const cleaned = stripCodeFence(raw);
 
   let value: unknown;
   try {
@@ -534,14 +534,14 @@ export function parseGenerationResponse(
   raw: string,
   allowedParentIds: ReadonlySet<string>,
 ): GeneratedRecipe {
-  const cleaned = stripCodeFence(raw);
-  if (new TextEncoder().encode(cleaned).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
+  if (new TextEncoder().encode(raw).byteLength > MAX_AI_OUTPUT_JSON_BYTES) {
     throw new AIError(
       "output_truncated",
       "generate",
       "Gemini output exceeded the supported response size.",
     );
   }
+  const cleaned = stripCodeFence(raw);
 
   let value: unknown;
   try {
