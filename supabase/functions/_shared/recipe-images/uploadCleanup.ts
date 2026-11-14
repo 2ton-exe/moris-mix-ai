@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import {
+  getR2ConfigInvalidFields,
   type R2Config,
   resolveR2Config,
   signRecipeImageStagingDelete,
@@ -181,6 +182,9 @@ async function deleteStagingObject(
   try {
     config = resolveR2Config(deps.r2Config);
   } catch {
+    console.error("R2 staging configuration invalid", {
+      fields: getR2ConfigInvalidFields(deps.r2Config),
+    });
     return "configuration";
   }
   try {
@@ -207,6 +211,9 @@ async function listStagingObjects(
   try {
     config = resolveR2Config(deps.r2Config);
   } catch {
+    console.error("R2 staging configuration invalid", {
+      fields: getR2ConfigInvalidFields(deps.r2Config),
+    });
     return "configuration";
   }
   try {

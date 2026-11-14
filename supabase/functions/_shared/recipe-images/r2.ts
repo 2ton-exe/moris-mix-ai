@@ -34,15 +34,28 @@ export type R2Config = z.infer<typeof R2ConfigSchema>;
 
 export type StagingPutResult = "stored" | "already_exists" | "failed";
 
+function getR2ConfigCandidate(explicit?: R2Config): unknown {
+  return explicit ?? {
+    accountId: Deno.env.get("R2_ACCOUNT_ID"),
+    bucketName: Deno.env.get("R2_BUCKET_NAME"),
+    accessKeyId: Deno.env.get("R2_ACCESS_KEY_ID"),
+    secretAccessKey: Deno.env.get("R2_SECRET_ACCESS_KEY"),
+  };
+}
+
+export function getR2ConfigInvalidFields(explicit?: R2Config): string[] {
+  const result = R2ConfigSchema.safeParse(getR2ConfigCandidate(explicit));
+  if (result.success) return [];
+  return [
+    ...new Set(result.error.issues.flatMap((issue) => {
+      const field = issue.path[0];
+      return typeof field === "string" ? [field] : [];
+    })),
+  ].sort();
+}
+
 export function resolveR2Config(explicit?: R2Config): R2Config {
-  const result = R2ConfigSchema.safeParse(
-    explicit ?? {
-      accountId: Deno.env.get("R2_ACCOUNT_ID"),
-      bucketName: Deno.env.get("R2_BUCKET_NAME"),
-      accessKeyId: Deno.env.get("R2_ACCESS_KEY_ID"),
-      secretAccessKey: Deno.env.get("R2_SECRET_ACCESS_KEY"),
-    },
-  );
+  const result = R2ConfigSchema.safeParse(getR2ConfigCandidate(explicit));
   if (!result.success) {
     throw new Error("Invalid image storage configuration.");
   }

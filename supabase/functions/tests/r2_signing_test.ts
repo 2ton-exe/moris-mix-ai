@@ -7,6 +7,7 @@ import {
 import { createHash, createHmac } from "node:crypto";
 import {
   checkRecipeImageStaging,
+  getR2ConfigInvalidFields,
   putRecipeImageStaging,
   type R2Config,
   resolveR2Config,
@@ -48,6 +49,7 @@ Deno.test("R2 configuration resolves only backend environment settings and rejec
       Error,
       "Invalid image storage configuration.",
     );
+    assertEquals(getR2ConfigInvalidFields(), ["secretAccessKey"]);
   } finally {
     for (const [name, value] of Object.entries(previous)) {
       if (value === undefined) Deno.env.delete(name);
