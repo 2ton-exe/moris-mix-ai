@@ -1,39 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-
-async function signIn(page, user) {
-  await page.goto('/app')
-  await expect(page).toHaveURL(/\/login$/)
-  await page.getByLabel('Email').fill(user.email)
-  await page.getByRole('textbox', { name: 'Password' }).fill(user.password)
-  await page.getByRole('button', { name: 'Log in' }).click()
-  await expect(page).toHaveURL(/\/app\/?$/)
-  await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
-}
-
-async function waitForCollection(page) {
-  await expect(
-    page.getByRole('heading', { name: 'A fresh page for your next favorite.' })
-      .or(page.getByRole('heading', { name: /Saved recipes/ })),
-  ).toBeVisible({ timeout: 30_000 })
-}
-
-async function navigateToRecipeSection(page, sectionName) {
-  const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
-  const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
-  const nextPage = pageNavigation.getByRole('button', { name: /^Next Pages?$/ })
-  const pagePosition = pageNavigation.getByText(/of \d+$/)
-
-  while (!(await section.isVisible())) {
-    await expect(nextPage).toBeEnabled()
-    const currentPosition = await pagePosition.innerText()
-    await nextPage.click()
-    await expect(pagePosition).not.toHaveText(currentPosition)
-  }
-
-  await expect(section).toBeVisible()
-  return section
-}
+import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeContents(page) {
   await expect(

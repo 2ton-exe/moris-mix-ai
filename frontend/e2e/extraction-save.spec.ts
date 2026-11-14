@@ -1,43 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { localE2eUser } from './local-user.mjs'
-
-async function signIn(page) {
-  await page.goto('/app')
-  await expect(page).toHaveURL(/\/login$/)
-  await page.getByLabel('Email').fill(localE2eUser.email)
-  await page.getByRole('textbox', { name: 'Password' }).fill(localE2eUser.password)
-  await page.getByRole('button', { name: 'Log in' }).click()
-  await expect(page).toHaveURL(/\/app\/?$/)
-  await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
-}
-
-async function waitForCollection(page) {
-  await expect(
-    page.getByRole('heading', { name: 'A fresh page for your next favorite.' })
-      .or(page.getByRole('heading', { name: /Saved recipes/ })),
-  ).toBeVisible({ timeout: 30_000 })
-}
+import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeAbsentInCollection(page, title) {
   await page.goto('/app/recipes')
   await waitForCollection(page)
-  await expect(page.getByRole('link', { name: title, exact: true })).toHaveCount(0)
-}
-
-async function navigateToRecipeSection(page, sectionName) {
-  const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
-  const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
-  const nextPage = pageNavigation.getByRole('button', { name: /^Next Pages?$/ })
-  const pagePosition = pageNavigation.getByText(/of \d+$/)
-
-  while (!(await section.isVisible())) {
-    await expect(nextPage).toBeEnabled()
-    const currentPosition = await pagePosition.innerText()
-    await nextPage.click()
-    await expect(pagePosition).not.toHaveText(currentPosition)
-  }
-
-  return section
+  await expect(page.getByRole('link', { name: title })).toHaveCount(0)
 }
 
 test('an edited extraction stays unsaved until a successful explicit retry', async ({ page }) => {
@@ -82,7 +50,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
   })
 
   await test.step('sign in and extract a unique preview without creating a recipe', async () => {
-    await signIn(page)
+    await signIn(page, localE2eUser)
     await page.goto('/app/quick-entry')
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
     await page.getByRole('button', { name: 'Organize my notes' }).click()
