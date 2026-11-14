@@ -10,8 +10,8 @@ const ingredientSchema = z.object({
   unit: z.string().nullable(),
   quantityText: z.string().optional(),
   inferred: z.boolean().default(false),
-}) satisfies z.ZodType<Ingredient, z.ZodTypeDef, unknown>
-const instructionSchema = z.object({ step: z.number().finite(), text: z.string() }) satisfies z.ZodType<Instruction, z.ZodTypeDef, unknown>
+}) satisfies z.ZodType<Ingredient>
+const instructionSchema = z.object({ step: z.number().finite(), text: z.string() }) satisfies z.ZodType<Instruction>
 
 function calendarDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -58,7 +58,7 @@ export const recipeEditorStateSchema = z.object({
   rating: z.string(),
   cookedDate: z.string(),
   notes: z.string(),
-}) satisfies z.ZodType<RecipeEditorState, z.ZodTypeDef, unknown>
+}) satisfies z.ZodType<RecipeEditorState>
 
 export const emptyRecipeDraft = (): RecipeDraft => ({
   title: '', ingredients: [], instructions: [], star_rating: null, cooked_at: null, notes: '',
