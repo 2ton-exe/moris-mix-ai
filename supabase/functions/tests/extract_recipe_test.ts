@@ -2415,6 +2415,36 @@ Deno.test("Missing service role credentials fail closed with QUOTA_UNAVAILABLE b
   }
 });
 
+Deno.test("Quota RPC failures log only safe diagnostic metadata", async () => {
+  const errors: unknown[][] = [];
+  const originalError = console.error;
+  try {
+    console.error = (...args) => errors.push(args);
+    const { fetchImpl } = createFetchMock({ usageError: true });
+    const decision = await consumeDailyQuota(
+      VERIFIED_USER_ID,
+      {} as SupabaseClient,
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+        fetch: fetchImpl,
+      },
+    );
+
+    assertEquals(decision.status, "unavailable");
+    assertEquals(errors.length, 1);
+    const log = JSON.parse(String(errors[0][0]));
+    assertEquals(log.event, "ai_quota_rpc_failed");
+    assertEquals(log.stage, "response");
+    assertEquals(log.code, "PGRST500");
+    for (const value of ["database is down", TEST_SERVICE_ROLE_KEY]) {
+      assertEquals(JSON.stringify(log).includes(value), false);
+    }
+  } finally {
+    console.error = originalError;
+  }
+});
+
 Deno.test("HTTP 503 provider failure across retries confirms quota without refund using GeminiAdapter", async () => {
   let attemptsCount = 0;
   const adapter = new GeminiAdapter({

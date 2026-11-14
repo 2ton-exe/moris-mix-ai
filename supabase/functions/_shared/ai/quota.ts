@@ -72,6 +72,37 @@ function readOperationCount(row: unknown): number | null {
   return value;
 }
 
+function readSafeErrorMetadata(error: unknown): {
+  code?: string;
+  status?: number;
+} {
+  if (typeof error !== "object" || error === null) return {};
+  const candidate = error as { code?: unknown; status?: unknown };
+  const metadata: { code?: string; status?: number } = {};
+  if (
+    typeof candidate.code === "string" &&
+    /^[A-Za-z0-9_]{1,32}$/.test(candidate.code)
+  ) {
+    metadata.code = candidate.code;
+  }
+  if (
+    typeof candidate.status === "number" &&
+    Number.isInteger(candidate.status) &&
+    candidate.status >= 100 && candidate.status < 600
+  ) {
+    metadata.status = candidate.status;
+  }
+  return metadata;
+}
+
+function logQuotaRpcFailure(stage: string, error?: unknown): void {
+  console.error(JSON.stringify({
+    event: "ai_quota_rpc_failed",
+    stage,
+    ...readSafeErrorMetadata(error),
+  }));
+}
+
 export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
   const limit = resolveDailyLimit();
 
@@ -140,10 +171,8 @@ export const consumeDailyQuota: QuotaCheck = async (
       },
       ...(deps?.fetch ? { global: { fetch: deps.fetch } } : {}),
     });
-  } catch {
-    console.error(
-      "Failed to initialize service role client for quota consumption",
-    );
+  } catch (error) {
+    logQuotaRpcFailure("client_initialization", error);
     return { status: "unavailable", limit };
   }
 
@@ -155,13 +184,13 @@ export const consumeDailyQuota: QuotaCheck = async (
       p_daily_limit: limit,
       p_usage_date: usageDate,
     });
-  } catch {
-    console.error("RPC consume_ai_quota network or execution failure");
+  } catch (error) {
+    logQuotaRpcFailure("request", error);
     return { status: "unavailable", limit };
   }
 
   if (rpcResult.error) {
-    console.error("RPC consume_ai_quota returned error");
+    logQuotaRpcFailure("response", rpcResult.error);
     return { status: "unavailable", limit };
   }
 

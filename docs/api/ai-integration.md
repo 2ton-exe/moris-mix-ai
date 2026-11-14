@@ -119,8 +119,9 @@ The same locked per-user daily row also carries a five-request fixed window meas
 from the first admitted call, then reset after 60 seconds. The service-role RPC
 serializes reservations by user and preserves the active window when UTC usage rows roll over. A blocked request returns
 `429 AI_REQUEST_RATE_LIMITED` with a bounded `Retry-After`; unavailable quota state
-continues to fail closed. Short-window slots are not refunded on provider failures,
-while existing daily reservation rollback and confirmation rules remain unchanged.
+continues to fail closed. Short-window slots are not refunded on provider failures
+or the pre-provider 422 context-size rejection; that rejection rolls back only the
+daily reservation. The active window carries across UTC usage-row rollovers.
 AI prompt input is capped at 64 KiB after server-side context assembly. Gemini
 output is limited to 8,192 tokens, and accepted extraction/generation JSON is at
 most 8 KiB. Oversized saved-recipe context is rejected before provider dispatch and
