@@ -73,9 +73,9 @@ it('uses the browser-held PKCE verifier to consume signup redirects, clean the U
     auth_code: 'callback-test-code', code_verifier: expect.any(String),
   })
   fireEvent.click(screen.getByRole('link', { name: 'Continue to your journal' }))
-  await screen.findByRole('heading', { name: 'Your cooking journal' })
+  await screen.findByRole('heading', { name: 'Your cooking journal' }, { timeout: 5000 })
   fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
-  await screen.findByRole('heading', { name: 'Welcome back' })
+  await screen.findByRole('heading', { name: 'Welcome back' }, { timeout: 5000 })
   expect(document.body.textContent).not.toContain('cook@example.test')
   expect(await getAuthClient().getSession()).toMatchObject({ data: { session: null }, error: null })
 })

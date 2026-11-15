@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import fixture from '../../../fixtures/demo-recipe.json'
@@ -24,6 +24,7 @@ it('shows loading then renders the validated recipe from the API', async () => {
   mockedGetDemoRecipe.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve }))
   renderPage()
   expect(screen.getByRole('status').textContent).toContain('Loading demonstration recipe')
+  await waitFor(() => expect(mockedGetDemoRecipe).toHaveBeenCalledOnce())
   resolveRequest(parseDemoRecipeResponse(fixture).recipe)
   await screen.findByRole('heading', { name: fixture.recipe.title })
   expect(screen.getByText('200 g spaghetti')).toBeTruthy()
