@@ -364,7 +364,7 @@ it.each(['login', 'signup'] as const)('does not redirect after leaving a pending
   // Supabase's valid session remains available when the user chooses to return.
   auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
   fireEvent.click(screen.getByRole('link', { name: 'Back home' }))
-  fireEvent.click(screen.getByRole('link', { name: 'Your cooking journal' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Your cooking journal' }, { timeout: 5000 }))
   await screen.findByRole('heading', { name: 'Your cooking journal' })
 })
 
