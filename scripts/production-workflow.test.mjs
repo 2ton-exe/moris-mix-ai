@@ -122,7 +122,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(callers, ['modular-main.yml']);
 });
 
-test('modular PR remains PR-only, with staging and no production call or credentials', () => {
+test('modular PR is isolated from hosted credentials and deployment', () => {
   const pr = workflow('modular-pr-validation');
   assert.deepEqual(Object.keys(pr.on), ['pull_request']);
   assert.deepEqual(pr.on.pull_request.branches, ['main']);
@@ -136,7 +136,11 @@ test('modular PR remains PR-only, with staging and no production call or credent
     assert.equal(main.jobs[id].uses, pr.jobs[id].uses);
     assert.equal(workflow(reusable).jobs[id].name, calleeName);
   }
-  assert.equal(pr.jobs.staging.uses, './.github/workflows/reusable-staging.yml');
+  assert.equal(pr.jobs.staging.if, '${{ false }}');
+  assert.equal(pr.jobs.staging.uses, undefined);
+  assert.equal(pr.jobs.staging.secrets, undefined);
+  assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
+  assert.doesNotMatch(readFileSync('.github/workflows/modular-pr-validation.yml', 'utf8'), /secrets\./);
   for (const job of Object.values(pr.jobs)) {
     assert.notEqual(job.uses, './.github/workflows/reusable-production.yml');
     assert.notEqual(job.uses, './.github/workflows/reusable-cloudflare.yml');
@@ -489,7 +493,7 @@ test('docs-only paths execute successful core jobs; main and hosted RLS cannot n
       job.steps.filter(s => s.name !== 'Checkout repository' && s !== noop).map(s => s.name);
     for (const name of skippedNames) {
       const expression = step(job, name).if;
-      const context = { steps: { frontend: { outputs: { exists: 'true' } }, 'hosted-migration': { outputs: { run: 'true' } } } };
+      const context = { github: { event_name: 'push' }, steps: { frontend: { outputs: { exists: 'true' } }, 'hosted-migration': { outputs: { run: 'true' } } } };
       // Actual conditions contain hyphenated Actions identifiers.
       const source = expression.replace(/steps\.hosted-migration/g, 'steps["hosted-migration"]');
       assert.equal(condition(source, { ...context, env: { DOCS_ONLY: 'true' } }), false, name);
@@ -510,10 +514,17 @@ test('docs-only paths execute successful core jobs; main and hosted RLS cannot n
   assert.doesNotMatch(edge.jobs['test-hosted-rls'].if, /docs-only|DOCS_ONLY/);
 });
 
-test('E2E and staging skip only on successful explicit docs-only decisions', () => {
+test('E2E skips only on successful explicit docs-only decisions', () => {
   const pr = workflow('modular-pr-validation');
   assert.equal(pr.jobs['test-e2e'].needs, 'classify');
-  assert.deepEqual(pr.jobs.staging.needs, ['classify', 'frontend', 'test-db', 'test-edge-api']);
+  assert.equal(pr.jobs.staging.if, '${{ false }}');
+  assert.equal(pr.jobs.staging.uses, undefined);
+  assert.equal(pr.jobs.staging.secrets, undefined);
+  assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
+  const migration = step(edge.jobs['test-edge-api'], 'Check hosted migration configuration');
+  assert.equal(condition(migration.if, { env: { DOCS_ONLY: 'false' }, github: { event_name: 'pull_request' } }), false);
+  assert.equal(condition(migration.if, { env: { DOCS_ONLY: 'false' }, github: { event_name: 'push' } }), true);
+  assert.match(step(edge.jobs['test-edge-api'], 'Run non-production test database RLS integration test').run, /github.event_name.*!=.*pull_request/);
   for (const output of ['e2e', 'staging']) {
     assert.equal(pr.jobs.classify.outputs[output], '${{ steps.classify.outputs.' + output + ' }}');
   }
@@ -529,22 +540,11 @@ test('E2E and staging skip only on successful explicit docs-only decisions', () 
             draft: false, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } },
           } } } };
         const skip = result === 'success' && docs_only === 'true' && decision === 'skip';
-        for (const id of ['test-e2e', 'staging']) {
+        for (const id of ['test-e2e']) {
           assert.equal(condition(pr.jobs[id].if, overrides), !skip, `${id}: ${result}/${docs_only}/${decision}`);
           assert.equal(condition(pr.jobs[id].if, { ...overrides, cancelled: () => true }), false);
         }
         assert.equal(condition(marker.if, { steps: { classify: { outputs } } }), docs_only === 'true' && decision === 'skip');
-        for (const dependency of ['frontend', 'test-db', 'test-edge-api']) {
-          for (const coreResult of ['failure', 'skipped', 'cancelled', undefined]) {
-            assert.equal(condition(pr.jobs.staging.if, { ...overrides,
-              needs: { ...needs, [dependency]: { result: coreResult } } }), false);
-          }
-        }
-        for (const pull_request of [{ draft: true, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } } },
-          { draft: false, head: { repo: { full_name: 'fork/repo' } } }]) {
-          assert.equal(condition(pr.jobs.staging.if, { ...overrides,
-            github: { repository: '2ton-exe/moris-mix-ai', event: { pull_request } } }), false);
-        }
       }
     }
   }
