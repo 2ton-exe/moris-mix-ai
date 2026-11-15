@@ -400,7 +400,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
               setAnnouncement('Ingredient ' + (rowIndex + 1) + ' marked as reviewed.')
             }}>Mark as reviewed</button>
           </div>}
-          {showExtractionHints && (!item.quantity.trim() || !item.unit.trim()) && <p className="recipe-ai-gap" role="note">
+          {showExtractionHints && !item.quantityText.trim() && (!item.quantity.trim() || !item.unit.trim()) && <p className="recipe-ai-gap" role="note">
             {!item.quantity.trim() && !item.unit.trim() ? 'Quantity and unit not specified.' : !item.quantity.trim() ? 'Quantity not specified.' : 'Unit not specified.'}
           </p>}
           <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>name</>} error={errors['ingredients.' + rowIndex + '.name']}>
