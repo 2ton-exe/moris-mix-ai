@@ -1,6 +1,7 @@
 import type { AIProvider, GeneratedRecipe } from "../_shared/ai/AIProvider.ts";
 import { AIError } from "../_shared/ai/GeminiAdapter.ts";
 import { MOCK_EXTRACTED_RECIPE, MOCK_MALFORMED_GENERATED_RECIPE } from "../_shared/ai/mocks.ts";
+import { consumeDailyQuota } from "../_shared/ai/quota.ts";
 import { handler } from "./handler.ts";
 
 const provider: AIProvider = {
@@ -34,8 +35,11 @@ Deno.serve(async (request) => {
 
   return await handler(request, {
     provider,
-    quotaCheck: async () => shouldExhaustQuota
-      ? { status: "exceeded", limit: 20, used: 20, retryAfterSeconds: 60 }
-      : { status: "allowed", limit: 20, used: 0 },
+    quotaCheck: async (userId, supabase, deps) => {
+      if (shouldExhaustQuota) {
+        return { status: "exceeded", limit: 20, used: 20, retryAfterSeconds: 60 };
+      }
+      return await consumeDailyQuota(userId, supabase, deps);
+    },
   });
 });
