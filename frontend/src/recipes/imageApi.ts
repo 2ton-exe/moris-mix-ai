@@ -10,6 +10,7 @@ const imageTypes = ['image/jpeg', 'image/png', 'image/webp']
 const r2HostPattern = /^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const signedUploadHeaders = 'content-length;content-type;host;if-none-match'
+const missingImageCacheMs = 15_000
 
 type Request = { userId: string; signal?: AbortSignal }
 type UploadRequest = Request & { requestId: string }
@@ -57,7 +58,26 @@ export async function prepareRecipeImage(file: File): Promise<Blob> {
 }
 
 export function createRecipeImageApi(client: typeof apiClient = apiClient) {
+  const downloads = new Map<string, { download: Download | null; expiresAt: number; timer: number }>()
+  const downloadRevisions = new Map<string, number>()
+  let cacheEpoch = 0
+  const downloadKey = (userId: string, recipeId: string) => JSON.stringify([userId, recipeId])
+  const invalidateDownload = (recipeId: string, userId: string) => {
+    const key = downloadKey(userId, recipeId)
+    const cached = downloads.get(key)
+    if (cached) window.clearTimeout(cached.timer)
+    downloads.delete(key)
+    downloadRevisions.set(key, (downloadRevisions.get(key) ?? 0) + 1)
+  }
+
   return {
+    clearDownloads() {
+      for (const cached of downloads.values()) window.clearTimeout(cached.timer)
+      downloads.clear()
+      downloadRevisions.clear()
+      cacheEpoch++
+    },
+
     async createUpload(recipeId: string, image: Blob, request: UploadRequest): Promise<UploadIntent> {
       const value = await client.postAuthenticatedJson(uploadPath, {
         recipe_id: recipeId,
@@ -129,28 +149,53 @@ export function createRecipeImageApi(client: typeof apiClient = apiClient) {
       }
     },
 
-    async getDownload(recipeId: string, request: Request): Promise<Download | null> {
+    async getDownload(recipeId: string, request: Request, forceRefresh = false): Promise<Download | null> {
+      const key = downloadKey(request.userId, recipeId)
+      if (forceRefresh) invalidateDownload(recipeId, request.userId)
+      const cached = downloads.get(key)
+      if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.download
+      if (cached || !forceRefresh) invalidateDownload(recipeId, request.userId)
+      const epoch = cacheEpoch
+      const revision = downloadRevisions.get(key) ?? 0
+
       let value: unknown
+      let missingImage = false
       try {
         value = await client.postAuthenticatedJson(downloadPath, { recipe_id: recipeId }, request)
       } catch (error) {
-        if (error instanceof HttpError && error.status === 404 && recipeImageErrorCode(error) === 'IMAGE_NOT_FOUND') return null
-        throw error
+        if (error instanceof HttpError && error.status === 404 && recipeImageErrorCode(error) === 'IMAGE_NOT_FOUND') missingImage = true
+        else throw error
       }
-      if (!isRecord(value) || typeof value.url !== 'string' || typeof value.expires_at !== 'string') {
-        throw new Error('Invalid image download response.')
+      let download: Download | null = null
+      if (!missingImage) {
+        if (!isRecord(value) || typeof value.url !== 'string' || typeof value.expires_at !== 'string') {
+          throw new Error('Invalid image download response.')
+        }
+        let url: URL
+        try {
+          url = new URL(value.url)
+        } catch {
+          throw new Error('Invalid image download response.')
+        }
+        const expiresAt = Date.parse(value.expires_at)
+        if (url.protocol !== 'https:' || url.username || url.password || url.hash || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+          throw new Error('Invalid image download response.')
+        }
+        download = { url: url.toString(), expiresAt }
       }
-      let url: URL
-      try {
-        url = new URL(value.url)
-      } catch {
-        throw new Error('Invalid image download response.')
+      if (!request.signal?.aborted && epoch === cacheEpoch && revision === (downloadRevisions.get(key) ?? 0)) {
+        // shortcut: cache missing images for 15 seconds, shorten if another tab must show new uploads sooner.
+        const expiresAt = download?.expiresAt ?? Date.now() + missingImageCacheMs
+        const entry = { download, expiresAt, timer: 0 }
+        entry.timer = window.setTimeout(() => {
+          if (downloads.get(key) === entry) {
+            downloads.delete(key)
+            if ((downloadRevisions.get(key) ?? 0) === revision) downloadRevisions.delete(key)
+          }
+        }, Math.max(0, expiresAt - Date.now()))
+        downloads.set(key, entry)
       }
-      const expiresAt = Date.parse(value.expires_at)
-      if (url.protocol !== 'https:' || url.username || url.password || url.hash || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-        throw new Error('Invalid image download response.')
-      }
-      return { url: url.toString(), expiresAt }
+      return download
     },
   }
 }

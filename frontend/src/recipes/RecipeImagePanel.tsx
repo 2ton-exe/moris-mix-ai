@@ -38,7 +38,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const currentUserId = useRef(user?.id)
   const imageLoadSequence = useRef(0)
 
-  const loadImage = useCallback(async (signal?: AbortSignal, resetRefreshAttempt = true) => {
+  const loadImage = useCallback(async (signal?: AbortSignal, resetRefreshAttempt = true, forceRefresh = false) => {
     const sequence = ++imageLoadSequence.current
     if (!featureEnabled) return false
     if (!user?.id) {
@@ -54,7 +54,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       setLoading(false)
     }, IMAGE_OPERATION_TIMEOUT_MS)
     try {
-      const result = await recipeImageApi.getDownload(recipeId, { userId: user.id, signal })
+      const result = await recipeImageApi.getDownload(recipeId, { userId: user.id, signal }, forceRefresh)
       if (signal?.aborted || sequence !== imageLoadSequence.current) return false
       setDownload(result ? { ...result, userId: user.id } : null)
       setDownloadError(false)
@@ -178,7 +178,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     }, IMAGE_OPERATION_TIMEOUT_MS)
     try {
       if (attached) {
-        const refreshed = await loadImage(controller.signal)
+        const refreshed = await loadImage(controller.signal, true, true)
         if (controller.signal.aborted) return
         if (refreshed) {
           setSelected(null)
@@ -229,7 +229,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       await recipeImageApi.attach(recipeId, activeIntent.id, selected, { userId: user.id, signal: controller.signal })
       if (controller.signal.aborted) return
       setAttached(true)
-      const refreshed = await loadImage(controller.signal)
+      const refreshed = await loadImage(controller.signal, true, true)
       if (controller.signal.aborted) return
       if (refreshed) {
         setSelected(null)
@@ -285,7 +285,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       return
     }
     refreshAttempted.current = true
-    void loadImage(undefined, false)
+    void loadImage(undefined, false, true)
   }
 
   if (!featureEnabled) return framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail" /> : null
@@ -303,7 +303,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     {!loading && !currentDownload && !downloadError && (allowUpload || showEmpty) && <p role="status">No recipe photo has been added yet.</p>}
     {downloadError && <div className="recipe-image-error">
       <p aria-live="polite">Could not load this recipe image.</p>
-      <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void loadImage() }}>Refresh photo</button>
+      <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void loadImage(undefined, true, true) }}>Refresh photo</button>
     </div>}
     {allowUpload && <div className="recipe-image-controls">
       <label htmlFor={`${id}-file`}>Choose recipe image</label>

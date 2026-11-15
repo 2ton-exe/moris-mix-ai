@@ -1,5 +1,8 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { useAuth } from '../auth/context'
 import type { RecipeSummary } from './types'
+import { recipeImageApi } from './imageApi'
 import { RecipeScrapArtwork } from './RecipeScrapArtwork'
 import { formatCookedDate } from './recipePresentation'
 
@@ -18,13 +21,50 @@ export function RecipeMetadata({ recipe, showCookedAt = true }: { recipe: Recipe
 }
 
 export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean }) {
+  const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const imageEnabled = import.meta.env.VITE_RECIPE_IMAGES === 'true'
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const photoRequest = useRef<AbortController | null>(null)
+  const refreshAttempted = useRef(false)
   const number = String(folio).padStart(2, '0')
   const returnParams = new URLSearchParams(location.search)
   if (indexCard || folio > 1 || returnParams.has('entry')) returnParams.set('entry', String(folio - 1))
   const returnSearch = returnParams.toString()
   const journalReturn = location.pathname + (returnSearch ? `?${returnSearch}` : '')
+
+  useEffect(() => {
+    setPhotoUrl(null)
+    refreshAttempted.current = false
+    photoRequest.current?.abort()
+    if (indexCard || !imageEnabled || !user?.id) return
+    const controller = new AbortController()
+    photoRequest.current = controller
+    void recipeImageApi.getDownload(recipe.id, { userId: user.id, signal: controller.signal })
+      .then((download) => { if (!controller.signal.aborted) setPhotoUrl(download?.url ?? null) })
+      .catch(() => undefined)
+    return () => {
+      controller.abort()
+      photoRequest.current?.abort()
+      photoRequest.current = null
+    }
+  }, [imageEnabled, indexCard, recipe.id, user?.id])
+
+  function refreshPhoto() {
+    if (!photoUrl || refreshAttempted.current || !user?.id) {
+      if (refreshAttempted.current || !user?.id) setPhotoUrl(null)
+      return
+    }
+    refreshAttempted.current = true
+    const controller = new AbortController()
+    photoRequest.current?.abort()
+    photoRequest.current = controller
+    void recipeImageApi.getDownload(recipe.id, { userId: user.id, signal: controller.signal }, true)
+      .then((download) => { if (!controller.signal.aborted) setPhotoUrl(download?.url ?? null) })
+      .catch(() => { if (!controller.signal.aborted) setPhotoUrl(null) })
+  }
+
   return (
     <li className="mm-recipe-card-slot">
       <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}`} onClick={(event) => {
@@ -32,7 +72,8 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {!indexCard && <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} />}
+        {!indexCard && <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at}
+          image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
         <div className="mm-recipe-card__copy">
           {!indexCard && <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>}
           <h2>{recipe.title.length > 100 ? `${recipe.title.slice(0, 100)}…` : recipe.title}</h2>
