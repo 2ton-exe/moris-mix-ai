@@ -11,6 +11,12 @@ signer and R2 access and bucket CORS have not been verified. Keep the UI off
 until the production signing path and required upload readiness checks are
 complete; enabling the flag alone does not deploy the signer or enable cleanup.
 
+This changes the earlier authenticated Edge Function byte-upload path to a
+direct browser-to-R2 `PUT`. The browser sends the signed `Content-Type` and
+`If-None-Match` headers and derives the signed `Content-Length` from its Blob;
+R2 bucket CORS must allow the app origin, `PUT`, and those headers. No signed
+upload from the app origin or live same-key retry rejection has been verified.
+
 ## Upload requirements
 
 Request an upload intent for an owned, saved recipe through authenticated

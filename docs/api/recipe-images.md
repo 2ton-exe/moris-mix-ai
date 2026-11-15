@@ -65,7 +65,7 @@ Returns `Cache-Control: no-store` and a JSON `upload` object:
 
 The backend generates a fresh staging key and a distinct server-only final key, and binds both keys to the upload UUID, verified owner, recipe UUID, content type, declared size, and expiry. The URL is a bearer capability for only that staging object; the final key is never returned or exposed to client writes. The signature binds the exact declared byte count, content type, and create-only condition.
 
-The attachment handler verifies the stored owner, pending state, cleanup state, content type, actual byte size, image structure, and expiry before finalization. A conditional R2 `PUT` allows one successful object creation for a key while that object exists; repeats return `412 Precondition Failed`. The signed URL expires with its ten-minute intent. R2 CORS, the presigned request behavior, and conditional-write compatibility require non-production verification before production enablement.
+The attachment handler verifies the stored owner, pending state, cleanup state, content type, actual byte size, image structure, and expiry before finalization. A conditional R2 `PUT` allows one successful object creation for a key while that object exists; repeats return `412 Precondition Failed`. The signed URL expires with its ten-minute intent. Before production enablement, verify from the configured app origin that a signed upload succeeds and a second write to the same staging key is rejected. Current browser tests mock storage responses and do not establish R2 CORS or conditional-write behavior.
 
 The signed URL is returned only after the upload intent and quota reservation have been persisted successfully.
 
