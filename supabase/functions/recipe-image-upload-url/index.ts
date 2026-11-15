@@ -481,18 +481,38 @@ export async function handler(
         429,
       );
     }
+    if (quota === "conflict") {
+      return error(
+        "UPLOAD_REQUEST_CONFLICT",
+        "This upload request can no longer be resumed. Please retry the upload.",
+        409,
+      );
+    }
+    const storedIntent = await loadStoredIntent(intent.id, user.id, deps);
+    if (
+      !storedIntent || storedIntent.recipe_id !== intent.recipe_id ||
+      storedIntent.content_type !== intent.content_type ||
+      storedIntent.byte_size !== intent.byte_size ||
+      !intentIsUploadable(storedIntent, deps.now?.() ?? new Date())
+    ) {
+      return error(
+        "UPLOAD_REQUEST_CONFLICT",
+        "This upload request can no longer be resumed. Please retry the upload.",
+        409,
+      );
+    }
     const uploadUrl = new URL(
       "/functions/v1/recipe-image-upload-url",
       origin.origin,
     );
-    uploadUrl.searchParams.set("upload_id", intent.id);
+    uploadUrl.searchParams.set("upload_id", storedIntent.id);
     return respond({
       upload: {
-        id: intent.id,
+        id: storedIntent.id,
         url: uploadUrl.toString(),
         method: "PUT",
-        headers: { "Content-Type": intent.content_type },
-        expires_at: intent.expires_at,
+        headers: { "Content-Type": storedIntent.content_type },
+        expires_at: storedIntent.expires_at,
       },
     }, 200);
   } catch {

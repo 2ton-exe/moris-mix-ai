@@ -433,7 +433,7 @@ describe('Quick AI Entry', () => {
       renderEntry({ extract })
       enterNotes('rice and eggs')
       fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
-      await act(async () => { vi.advanceTimersByTime(45_000) })
+      await act(async () => { vi.advanceTimersByTime(120_000) })
       expect(screen.getByRole('alert').textContent).toContain('took too long')
       expect(notesField().value).toBe('rice and eggs')
       expect(extract.mock.calls[0][1].signal.aborted).toBe(true)
@@ -442,6 +442,25 @@ describe('Quick AI Entry', () => {
       expect(screen.getByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
       await act(async () => resolve({ ...recipe, title: 'Late result' }))
       expect(screen.queryByRole('heading', { name: 'Late result' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a valid result that arrives after the backend retry window', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (value: typeof recipe) => void
+      const extract = vi.fn<Extract>().mockImplementation(() => new Promise((done) => { resolve = done }))
+      renderEntry({ extract })
+      enterNotes('rice and eggs')
+      fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+
+      await act(async () => { vi.advanceTimersByTime(55_000) })
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.getByRole('status').textContent).toContain('Mori is organizing your notes')
+      await act(async () => resolve(recipe))
+      expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }

@@ -26,6 +26,8 @@ interface EntryError {
 }
 
 type ExtractRecipe = typeof extractRecipeApi.extract
+// Leave 55s beyond Gemini's 65s maximum attempt and retry budget for auth/quota work.
+const EXTRACTION_TIMEOUT_MS = 120_000
 
 function errorCode(error: unknown) {
   if (error instanceof InvalidExtractionResponse) return 'INVALID_EXTRACTION_RESPONSE'
@@ -278,7 +280,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       inFlight.current = false
       setLoading(false)
       setError({ code: 'TIMEOUT', message: 'Mori took too long to organize your notes. Your notes are still here; please try again.', retryable: true })
-    }, 45_000)
+    }, EXTRACTION_TIMEOUT_MS)
     try {
       const recipe = await extract(sourceNotes, { userId, signal: controller.signal })
       if (controller.signal.aborted || !mounted.current || requestNumber.current !== currentRequest) return

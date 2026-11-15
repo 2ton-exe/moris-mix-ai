@@ -37,12 +37,19 @@ let resolvePutStarted: (() => void) | undefined
 let putStarted: Promise<void>
 let attachFailureCode = 'TEMPORARY_UNAVAILABLE'
 let attachFailureStatus = 503
+let loseFirstIntentResponse = false
 let delayFirstDownload = false
+let delayPostAttachDownload = false
 let resolveFirstDownloadStarted: (() => void) | undefined
 let firstDownloadStarted: Promise<void>
 let resolveInitialDownload: ((response: Response) => void) | undefined
+let resolvePostAttachDownloadStarted: (() => void) | undefined
+let postAttachDownloadStarted: Promise<void>
+let resolvePostAttachDownload: ((response: Response) => void) | undefined
 let downloadCount = 0
 let intentCount = 0
+let intentRequests: Array<{ recipe_id: string; content_type: string; byte_size: number; request_id: string }> = []
+let intentIdsByRequestId = new Map<string, string>()
 let putCount = 0
 let attachCount = 0
 let attachFailuresRemaining = 0
@@ -108,13 +115,19 @@ beforeEach(async () => {
   putStarted = new Promise((resolve) => { resolvePutStarted = resolve })
   attachFailureCode = 'TEMPORARY_UNAVAILABLE'
   attachFailureStatus = 503
+  loseFirstIntentResponse = false
   delayFirstDownload = false
+  delayPostAttachDownload = false
   firstDownloadStarted = new Promise((resolve) => { resolveFirstDownloadStarted = resolve })
   resolveInitialDownload = undefined
+  postAttachDownloadStarted = new Promise((resolve) => { resolvePostAttachDownloadStarted = resolve })
+  resolvePostAttachDownload = undefined
   attachFailuresRemaining = 0
   attachedUploadIds = []
   downloadCount = 0
   intentCount = 0
+  intentRequests = []
+  intentIdsByRequestId = new Map()
   putCount = 0
   attachCount = 0
   fetchImpl.mockImplementation(async (input, init) => {
@@ -126,6 +139,10 @@ beforeEach(async () => {
         resolveFirstDownloadStarted?.()
         return await new Promise<Response>((resolve) => { resolveInitialDownload = resolve })
       }
+      if (delayPostAttachDownload && downloadCount === 2) {
+        resolvePostAttachDownloadStarted?.()
+        return await new Promise<Response>((resolve) => { resolvePostAttachDownload = resolve })
+      }
       if (noImage) return Response.json({ error: { code: 'IMAGE_NOT_FOUND' } }, { status: 404 })
       return Response.json({
         url: activeImage === 'new' || (refreshOnFailure && downloadCount > 1) ? newImageUrl : oldImageUrl,
@@ -134,7 +151,16 @@ beforeEach(async () => {
     }
     if (url.pathname === '/functions/v1/recipe-image-upload-url' && method === 'POST') {
       intentCount++
-      const id = intentCount === 1 ? uploadId : retryUploadId
+      const request = JSON.parse(String(init?.body)) as { recipe_id: string; content_type: string; byte_size: number; request_id: string }
+      intentRequests.push(request)
+      let id = intentIdsByRequestId.get(request.request_id)
+      if (!id) {
+        id = intentCount === 1 ? uploadId : retryUploadId
+        intentIdsByRequestId.set(request.request_id, id)
+      }
+      if (loseFirstIntentResponse && intentCount === 1) {
+        return Response.json({ error: { code: 'INTERNAL_ERROR' } }, { status: 500 })
+      }
       return Response.json({ upload: {
         id,
         url: `${apiUrl}/functions/v1/recipe-image-upload-url?upload_id=${id}`,
@@ -573,7 +599,9 @@ it('uploads optimized bytes through authenticated ingress and preserves the curr
   expect(downloadCount).toBe(2)
   const intentRequest = fetchImpl.mock.calls.find(([input, init]) =>
     new URL(String(input)).pathname.endsWith('recipe-image-upload-url') && init?.method === 'POST')
-  expect(JSON.parse(intentRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId, content_type: 'image/webp', byte_size: 10 })
+  const intentBody = JSON.parse(intentRequest?.[1]?.body as string)
+  expect(intentBody).toMatchObject({ recipe_id: recipeId, content_type: 'image/webp', byte_size: 10 })
+  expect(intentBody.request_id).toMatch(/^[0-9a-f-]{36}$/i)
 
   const putRequests = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT')
   const putRequest = putRequests[0]
@@ -588,4 +616,58 @@ it('uploads optimized bytes through authenticated ingress and preserves the curr
   expect(putRequests[1]?.[1]?.signal).toBe(attachRequest?.[1]?.signal)
   await waitFor(() => expect(testURL.revokeObjectURL).toHaveBeenCalledWith('blob:recipe-preview'))
   expect(screen.getByText('Recipe image saved.')).toBeTruthy()
+})
+
+it('reuses the same upload request ID after the authorization response is lost', async () => {
+  loseFirstIntentResponse = true
+  putFirstFails = false
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('Could not upload this image. Try again.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry upload' }))
+  await screen.findByText('Recipe image saved.')
+
+  expect(intentRequests).toHaveLength(2)
+  expect(intentRequests[1].request_id).toBe(intentRequests[0].request_id)
+  expect(intentIdsByRequestId.get(intentRequests[0].request_id)).toBe(uploadId)
+  expect(putCount).toBe(1)
+  expect(attachCount).toBe(1)
+})
+
+it('clears image loading when the upload deadline aborts a post-attachment refresh', async () => {
+  delayPostAttachDownload = true
+  downloadLifetimeMs = 60 * 60_000
+  putFirstFails = false
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  vi.useFakeTimers()
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+    await act(async () => { await postAttachDownloadStarted })
+
+    expect(screen.getByText('Loading current recipe image…')).toBeTruthy()
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })
+
+    expect(screen.queryByText('Loading current recipe image…')).toBeNull()
+    expect(document.querySelector('.recipe-image-panel')?.getAttribute('aria-busy')).toBe('false')
+    expect(screen.getByRole('alert').textContent).toContain('took too long')
+    resolvePostAttachDownload?.(Response.json({
+      url: newImageUrl,
+      expires_at: new Date(Date.now() + downloadLifetimeMs).toISOString(),
+    }))
+    await act(async () => { await Promise.resolve() })
+  } finally {
+    vi.useRealTimers()
+  }
 })

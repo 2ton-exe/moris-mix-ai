@@ -9,6 +9,7 @@ const maximumDimension = 2048
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp']
 
 type Request = { userId: string; signal?: AbortSignal }
+type UploadRequest = Request & { requestId: string }
 export type UploadIntent = { id: string; url: string; contentType: string }
 export type Download = { url: string; expiresAt: number }
 
@@ -47,11 +48,12 @@ export async function prepareRecipeImage(file: File): Promise<Blob> {
 
 export function createRecipeImageApi(client: typeof apiClient = apiClient) {
   return {
-    async createUpload(recipeId: string, image: Blob, request: Request): Promise<UploadIntent> {
+    async createUpload(recipeId: string, image: Blob, request: UploadRequest): Promise<UploadIntent> {
       const value = await client.postAuthenticatedJson(uploadPath, {
         recipe_id: recipeId,
         content_type: image.type,
         byte_size: image.size,
+        request_id: request.requestId,
       }, request)
       const upload = isRecord(value) && isRecord(value.upload) ? value.upload : undefined
       let uploadUrl: URL | undefined

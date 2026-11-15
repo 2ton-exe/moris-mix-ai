@@ -30,6 +30,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const refreshAttempted = useRef(false)
   const busy = useRef(false)
   const selectionVersion = useRef(0)
+  const uploadRequestId = useRef<string | null>(null)
   const uploadController = useRef<AbortController | null>(null)
   const currentUserId = useRef(user?.id)
   const imageLoadSequence = useRef(0)
@@ -44,7 +45,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     }
     setLoading(true)
     const timer = window.setTimeout(() => {
-      if (sequence !== imageLoadSequence.current || signal?.aborted) return
+      if (sequence !== imageLoadSequence.current) return
       imageLoadSequence.current++
       setDownloadError(true)
       setLoading(false)
@@ -62,24 +63,30 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       return false
     } finally {
       window.clearTimeout(timer)
-      if (!signal?.aborted && sequence === imageLoadSequence.current) setLoading(false)
+      if (sequence === imageLoadSequence.current) setLoading(false)
     }
   }, [featureEnabled, recipeId, user?.id])
 
   useEffect(() => {
     if (!featureEnabled) return
+    const imageLoadSequenceRef = imageLoadSequence
     const controller = new AbortController()
     void loadImage(controller.signal)
-    return () => controller.abort()
+    return () => {
+      imageLoadSequenceRef.current++
+      controller.abort()
+    }
   }, [featureEnabled, loadImage])
 
   useEffect(() => {
     if (!featureEnabled || !download || download.userId !== user?.id) return
+    const imageLoadSequenceRef = imageLoadSequence
     const controller = new AbortController()
     const delay = Math.max(0, download.expiresAt - Date.now())
     const timer = window.setTimeout(() => { void loadImage(controller.signal) }, delay)
     return () => {
       window.clearTimeout(timer)
+      imageLoadSequenceRef.current++
       controller.abort()
     }
   }, [download, featureEnabled, loadImage, user?.id])
@@ -93,6 +100,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       setDownloadError(false)
       setLoading(true)
       setSelected(null)
+      uploadRequestId.current = null
       setPreviewUrl(null)
       setPreparing(false)
       setSelectionError(null)
@@ -119,6 +127,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   async function chooseImage(file: File | undefined) {
     if (!file) return
     const version = ++selectionVersion.current
+    uploadRequestId.current = crypto.randomUUID()
     setSelected(null)
     setIntent(null)
     setBytesUploaded(false)
@@ -174,6 +183,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
           setIntent(null)
           setBytesUploaded(false)
           setAttached(false)
+          uploadRequestId.current = null
           setUploadSuccess(true)
         } else {
           setUploadError('The image is attached, but could not be refreshed. Try again.')
@@ -183,7 +193,12 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
 
       let activeIntent = intent
       if (!activeIntent) {
-        activeIntent = await recipeImageApi.createUpload(recipeId, selected, { userId: user.id, signal: controller.signal })
+        uploadRequestId.current ??= crypto.randomUUID()
+        activeIntent = await recipeImageApi.createUpload(recipeId, selected, {
+          userId: user.id,
+          signal: controller.signal,
+          requestId: uploadRequestId.current,
+        })
         if (controller.signal.aborted) return
         setIntent(activeIntent)
       }
@@ -200,6 +215,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
           } else if (recipeImageErrorCode(error) === 'UPLOAD_EXPIRED') {
             setIntent(null)
             setBytesUploaded(false)
+            uploadRequestId.current = crypto.randomUUID()
             throw error
           } else {
             throw error
@@ -218,6 +234,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         setIntent(null)
         setBytesUploaded(false)
         setAttached(false)
+        uploadRequestId.current = null
         setUploadSuccess(true)
       } else {
         setUploadError('The image is attached, but could not be refreshed. Try again.')
@@ -229,6 +246,13 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         setIntent(null)
         setBytesUploaded(false)
         setAttached(false)
+        uploadRequestId.current = crypto.randomUUID()
+        setUploadError('This upload is no longer available. Retry to start a new upload.')
+      } else if (code === 'UPLOAD_REQUEST_CONFLICT') {
+        setIntent(null)
+        setBytesUploaded(false)
+        setAttached(false)
+        uploadRequestId.current = crypto.randomUUID()
         setUploadError('This upload is no longer available. Retry to start a new upload.')
       } else if (code === 'UPLOAD_BYTES_MISSING') {
         setBytesUploaded(false)
