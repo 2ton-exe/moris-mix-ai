@@ -177,12 +177,32 @@ they consumed no daily quota.
 
 The operator reviewed both results in the deployed UI and confirmed the
 returned recipes were usable. No prompt, key or recipe text is recorded here.
-Both flags were removed after the run, and their names are absent from the
-production secret list.
+Both flags were removed after the run and later restored during the production
+incident documented below.
 
 This is a single cost-guarded observation of each route. It verifies production
 enablement, key configuration, quota accounting and the validated response
 path; it is not a load, quality or safety benchmark.
+
+### Production restoration verification (2026-11-15)
+
+Both Edge Functions were active on the Supabase project used by the production
+frontend. Signed-in requests returned `503 AI_DISABLED` on both routes, and Quick
+AI Entry displayed its unavailable state. Both enable flags were absent.
+
+The operator restored `AI_EXTRACT_ENABLED=true` and `AI_GENERATE_ENABLED=true` in
+production Supabase. Authenticated requests with empty JSON bodies then reached
+request validation and returned `400 VALIDATION_ERROR` on both routes. The
+subsequent browser checks used the existing Google Cloud Gemini configuration.
+
+| Production frontend flow | Observed result |
+| --- | --- |
+| Quick AI Entry | The notes that previously failed produced an unsaved preview with ingredients and method steps. |
+| AI Chef | Pantry items and preferences opened an editable, unsaved recipe preview with ingredients. |
+
+The test account recorded two confirmed quota reservations for the two browser
+requests. The flags stayed enabled. The live check ended at the previews and
+covered Chef's pantry-only path.
 
 ## Limitations
 
