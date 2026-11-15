@@ -15,6 +15,7 @@ security definer
 set search_path = public, extensions, pg_temp
 as $$
 declare
+    v_existing public.recipe_image_upload_intents%rowtype;
     v_hourly_count integer;
     v_outstanding_count integer;
 begin
@@ -23,6 +24,24 @@ begin
     end if;
 
     perform pg_advisory_xact_lock(hashtext('recipe-image-upload:' || p_user_id::text));
+
+    select * into v_existing
+    from public.recipe_image_upload_intents
+    where id = p_id
+    for update;
+
+    if found then
+        if v_existing.user_id = p_user_id
+          and v_existing.recipe_id = p_recipe_id
+          and v_existing.content_type = p_content_type
+          and v_existing.byte_size = p_byte_size
+          and v_existing.state = 'pending'
+          and v_existing.cleanup_status = 'waiting'
+          and v_existing.expires_at > clock_timestamp() + interval '30 seconds' then
+            return 'allowed';
+        end if;
+        return 'conflict';
+    end if;
 
     select count(*) into v_hourly_count
     from public.recipe_image_upload_intents
