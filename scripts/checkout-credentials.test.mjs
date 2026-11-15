@@ -11,7 +11,7 @@ const validationWorkflows = [
   'reusable-frontend.yml',
   'reusable-database.yml',
   'reusable-edge-api.yml',
-  'reusable-e2e.yml',
+  'reusable-e2e-browser.yml',
   'reusable-staging.yml',
   'database-backup.yml',
 ];
