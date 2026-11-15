@@ -11,6 +11,8 @@ import {
   initializeMigrationHistory,
   verifyInitialSchemaCompleteness,
   verifyOwnerEqualityPredicate,
+  verifyLineageParentPredicate,
+  verifyLineageInsertPredicate,
   reconcileMigrationState,
   runMigrations,
   extractProjectRefFromDatabaseUrl,
@@ -928,6 +930,18 @@ async function runRecipeSearchMigrationDatabaseTests(client) {
 }
 
 async function runSchemaVerificationUnitTests() {
+  assert.equal(verifyOwnerEqualityPredicate('(select auth.uid()) = user_id', 'user_id', 'recipes'), true);
+  assert.equal(verifyOwnerEqualityPredicate('user_id = ( SELECT auth.uid() AS uid )', 'user_id', 'recipes'), true);
+  assert.equal(verifyOwnerEqualityPredicate('(select auth.uid() from recipes) = user_id', 'user_id', 'recipes'), false);
+  assert.equal(verifyOwnerEqualityPredicate('((select auth.uid()) = user_id) OR true', 'user_id', 'recipes'), false);
+  assert.equal(
+    verifyLineageParentPredicate('(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = ( SELECT auth.uid() AS uid)))'),
+    true
+  );
+  assert.equal(
+    verifyLineageInsertPredicate('(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = (select auth.uid())) AND EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.child_recipe_id AND user_id = (select auth.uid())))'),
+    true
+  );
   assert.equal(
     verifyOwnerEqualityPredicate("coalesce(user_id::text, '') = auth.uid()::text OR true", 'user_id', 'recipes'),
     false

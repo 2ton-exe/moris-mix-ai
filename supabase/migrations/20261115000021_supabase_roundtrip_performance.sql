@@ -6,7 +6,7 @@ create index if not exists recipe_image_upload_intents_open_user_idx
     where cleanup_status <> 'complete';
 
 drop index if exists public.idx_lineage_child;
-create index idx_lineage_child_created
+create index idx_lineage_child
     on public.recipe_lineage (child_recipe_id, created_at, id);
 
 drop policy if exists "profiles_select_own" on public.profiles;
