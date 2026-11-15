@@ -1,5 +1,10 @@
 import type { AIProvider } from "../_shared/ai/AIProvider.ts";
 import { AIError } from "../_shared/ai/GeminiAdapter.ts";
+import {
+  AI_MAX_REQUEST_BYTES,
+  isPlainObject,
+  readBodyWithinByteLimit,
+} from "../_shared/ai/http.ts";
 import { MOCK_EXTRACTED_RECIPE, MOCK_MALFORMED_RECIPE } from "../_shared/ai/mocks.ts";
 import { handler } from "./handler.ts";
 
@@ -27,9 +32,20 @@ const quotaDrillMarker = "QA05_QUOTA_EXHAUSTED";
 Deno.serve(async (request) => {
   let shouldExhaustQuota = false;
   if (request.method === "POST") {
-    const body = await request.clone().json().catch(() => null);
-    shouldExhaustQuota = typeof body?.notes === "string" &&
-      body.notes.split(/\r?\n/, 1)[0] === quotaDrillMarker;
+    const boundedBody = await readBodyWithinByteLimit(
+      request.clone(),
+      AI_MAX_REQUEST_BYTES,
+    );
+    if (boundedBody.ok) {
+      try {
+        const body: unknown = JSON.parse(boundedBody.text);
+        shouldExhaustQuota = isPlainObject(body) &&
+          typeof body.notes === "string" &&
+          body.notes.split(/\r?\n/, 1)[0] === quotaDrillMarker;
+      } catch {
+        // Let the handler report malformed JSON.
+      }
+    }
   }
 
   return await handler(request, {
