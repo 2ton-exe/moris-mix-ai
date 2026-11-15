@@ -472,7 +472,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
         {single && <h1 className="mm-writing-mobile-title" tabIndex={-1}>{editorTitle ?? (mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'A recipe of your own.' : 'Make it your own.')}</h1>}
         <span className="mm-writing-folio" aria-label={'Physical page ' + leafNumber}>Leaf {leafNumber}</span>
         {overflowing && <p className="mm-writing-overflow" role="note">This writing leaf needs a little scrolling. Every field stays together and complete.</p>}
-        <div className="mm-writing-leaf__content">{pageContent}</div>
+        <div className="mm-writing-leaf__content">{(single || leafNumber % 2 === 0 || pageIndex === undefined || !leaves[pageIndex]) && notice}{pageContent}</div>
       </div>
     </fieldset>
   }
@@ -488,7 +488,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       {message && <p className="field-error" role="alert">{message}</p>}
       {saved && <p className="recipe-save-success" role="status">{saveSuccessMessage ?? confirmationMessage}</p>}
       {pending && <p role="status">Saving your recipe…</p>}
-      {notice}
       {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + (otherErrorLeafIndices.length === 1 ? ' other page has' : ' other pages have') + ' errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
       <RecipeWritingTurns page={position.page} total={position.total} text={position.text} single={single} onTurn={turnToPage} />
       <div className="actions recipe-form-actions">

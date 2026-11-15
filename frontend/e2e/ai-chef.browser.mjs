@@ -279,6 +279,22 @@ try {
   await expect(page).toHaveURL(`${origin}app/chef`)
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 
+  // The input must retain a usable width even when the leaf is narrower than
+  // the viewport breakpoint; preferences should wrap in the same available space.
+  for (const width of [1440, 1100, 768, 400, 375, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(page)
+    const dimensions = await page.locator('.mm-ai-chef__ingredient-entry').evaluate((entry) => {
+      const input = entry.querySelector('input').getBoundingClientRect()
+      const button = entry.querySelector('button').getBoundingClientRect()
+      const textarea = entry.closest('fieldset').querySelector('textarea').getBoundingClientRect()
+      return { row: entry.clientWidth, input: input.width, buttonTop: button.top, inputTop: input.top, textarea: textarea.width }
+    })
+    assert.ok(dimensions.input >= Math.min(140, dimensions.row - 2), `Pantry input collapsed at ${width}px: ${JSON.stringify(dimensions)}`)
+    assert.ok(dimensions.textarea >= dimensions.row - 2, `Preferences collapsed at ${width}px`)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
   const pantryInput = page.getByRole('textbox', { name: 'Pantry ingredient' })
   await pantryInput.fill('rice')
   await pantryInput.press('Enter')
@@ -297,6 +313,18 @@ try {
   assert.equal(generation.authorization, `Bearer ${session.access_token}`)
   assert.deepEqual(generation.body, { pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
   assert.equal(recipeWrites.length, 0, 'Generation saved a recipe before review')
+  // The long review notice and recipe fields share a bounded leaf scrollport.
+  const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
+  const bounds = await reviewLeaf.evaluate((leaf) => {
+    const spread = leaf.closest('.mm-journal-spread').getBoundingClientRect()
+    const rect = leaf.getBoundingClientRect()
+    leaf.scrollTop = leaf.scrollHeight
+    const bottom = leaf.scrollTop
+    leaf.scrollTop = 0
+    return { height: leaf.clientHeight, scrollHeight: leaf.scrollHeight, bottom, top: leaf.scrollTop, inside: rect.top >= spread.top && rect.bottom <= spread.bottom + 1 }
+  })
+  assert.ok(bounds.height > 100 && bounds.scrollHeight > bounds.height && bounds.inside, `Review leaf is not bounded: ${JSON.stringify(bounds)}`)
+  assert.ok(bounds.bottom > 0 && bounds.top === 0, `Review leaf cannot scroll both ways: ${JSON.stringify(bounds)}`)
   await assertJournalSemantics(page, 'AI Chef recipe review')
   await expect(page.getByLabel('Recipe title')).toHaveValue('Egg and rice skillet')
   await expect(page.getByRole('region', { name: 'Suggested substitutions' })).toContainText('firm tofu')
