@@ -49,6 +49,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      deployments: read
     with:
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
     secrets:
