@@ -288,7 +288,14 @@ export class SqlExpressionParser {
 
 export function parseAst(sql) {
   if (!sql || typeof sql !== 'string') return null;
-  const tokens = tokenizeSql(sql);
+  // Postgres deparses the RLS performance form as a scalar SELECT, sometimes
+  // with the output alias `uid`; normalize only that exact wrapper before the
+  // existing strict predicate parser checks the authorization expression.
+  const normalizedSql = sql.replace(
+    /\(\s*select\s+auth\.uid\(\)(?:\s+as\s+uid)?\s*\)/gi,
+    'auth.uid()'
+  );
+  const tokens = tokenizeSql(normalizedSql);
   const parser = new SqlExpressionParser(tokens);
   return parser.parse();
 }

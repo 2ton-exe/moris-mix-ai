@@ -18,10 +18,14 @@ export type UploadIntent = Omit<RecipeImageUploadRequest, "request_id"> & {
 };
 
 export type UploadIntentQuotaResult =
-  | "allowed"
   | "rate_limited"
   | "pending_limit"
+  | "recipe_not_found"
   | "conflict";
+
+export type UploadIntentPersistenceResult =
+  | { status: "allowed"; intent: unknown }
+  | { status: UploadIntentQuotaResult };
 
 export function createUploadIntent(
   request: RecipeImageUploadRequest,
@@ -79,7 +83,7 @@ export async function persistUploadIntent(
     supabaseServiceRoleKey?: string;
     fetch?: typeof fetch;
   } = {},
-): Promise<UploadIntentQuotaResult> {
+): Promise<UploadIntentPersistenceResult> {
   validateUploadIntent(intent);
   const url = deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
   const key = deps.supabaseServiceRoleKey ??
@@ -96,7 +100,7 @@ export async function persistUploadIntent(
     global: { ...(deps.fetch ? { fetch: deps.fetch } : {}) },
   });
   const { data, error } = await client.rpc(
-    "create_recipe_image_upload_intent",
+    "create_recipe_image_upload_intent_v2",
     {
       p_id: intent.id,
       p_user_id: intent.user_id,
@@ -112,11 +116,17 @@ export async function persistUploadIntent(
   if (error) {
     throw new Error("Upload intent persistence failed.");
   }
-  if (
-    data !== "allowed" && data !== "rate_limited" && data !== "pending_limit" &&
-    data !== "conflict"
-  ) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("Upload intent persistence failed.");
   }
-  return data;
+  const result = data as { status?: unknown; intent?: unknown };
+  if (
+    result.status === "allowed" && result.intent !== null &&
+    typeof result.intent === "object" && !Array.isArray(result.intent)
+  ) return { status: "allowed", intent: result.intent };
+  if (
+    result.status === "rate_limited" || result.status === "pending_limit" ||
+    result.status === "recipe_not_found" || result.status === "conflict"
+  ) return { status: result.status };
+  throw new Error("Upload intent persistence failed.");
 }

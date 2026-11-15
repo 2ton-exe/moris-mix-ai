@@ -95,16 +95,6 @@ export async function handler(
   }
   try {
     const recipeId = parsed.data.recipe_id.toLowerCase();
-    const { data: recipe, error } = await auth.context.supabase.from("recipes")
-      .select("id,user_id").eq("id", recipeId).eq(
-        "user_id",
-        auth.context.user.id,
-      ).maybeSingle();
-    if (error) throw new Error("Recipe lookup failed.");
-    if (
-      !recipe || recipe.id !== recipeId ||
-      recipe.user_id !== auth.context.user.id
-    ) return failure("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     const resolved = await createLifecycleRpc(deps)(
       "resolve_recipe_image_download",
       { p_user_id: auth.context.user.id, p_recipe_id: recipeId },
@@ -113,6 +103,30 @@ export async function handler(
       resolved.error || !isRecord(resolved.data) ||
       typeof resolved.data.status !== "string"
     ) throw new Error("Recipe image resolution failed.");
+    if (resolved.data.status === "recipe_not_found") {
+      return failure("RECIPE_NOT_FOUND", "Recipe not found.", 404);
+    }
+    if (resolved.data.status === "image_not_found") {
+      return failure("IMAGE_NOT_FOUND", "Recipe image not found.", 404);
+    }
+    if (resolved.data.status === "not_found") {
+      // Older migrations do not distinguish missing recipes from missing images.
+      const { data: recipe, error } = await auth.context.supabase.from(
+        "recipes",
+      )
+        .select("id,user_id").eq("id", recipeId).eq(
+          "user_id",
+          auth.context.user.id,
+        ).maybeSingle();
+      if (error) throw new Error("Recipe lookup failed.");
+      if (
+        !recipe || recipe.id !== recipeId ||
+        recipe.user_id !== auth.context.user.id
+      ) {
+        return failure("RECIPE_NOT_FOUND", "Recipe not found.", 404);
+      }
+      return failure("IMAGE_NOT_FOUND", "Recipe image not found.", 404);
+    }
     if (
       resolved.data.status !== "found" ||
       typeof resolved.data.object_key !== "string" ||

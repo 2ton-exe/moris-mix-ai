@@ -157,10 +157,23 @@ function createPostgrestMock(
       const matches = recipes.filter((recipe) =>
         (!ids || ids.has(recipe.id)) && (!owner || recipe.user_id === owner)
       );
+      const includesLineage = url.searchParams.get("select")?.includes(
+        "lineage:",
+      );
+      const selectedRecipes = includesLineage
+        ? matches.map((recipe) => ({
+          ...recipe,
+          lineage: lineage.filter((row) => row.child_recipe_id === recipe.id)
+            .sort((left, right) =>
+              left.created_at.localeCompare(right.created_at) ||
+              left.id.localeCompare(right.id)
+            ),
+        }))
+        : matches;
       return jsonResponse(
         headers.get("accept")?.includes("application/vnd.pgrst.object+json")
-          ? matches[0] ?? null
-          : matches,
+          ? selectedRecipes[0] ?? null
+          : selectedRecipes,
       );
     }
 

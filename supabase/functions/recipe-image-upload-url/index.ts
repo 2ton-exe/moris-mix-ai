@@ -116,32 +116,15 @@ async function readBoundedBody(
   return body;
 }
 
-async function loadStoredIntent(
+function parseStoredIntent(
+  value: unknown,
   id: string,
   userId: string,
-  deps: UploadHandlerDeps,
-): Promise<StoredUploadIntent | null> {
-  const base = deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
-  const serviceKey = deps.supabaseServiceRoleKey ??
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!base?.trim() || !serviceKey?.trim()) {
-    throw new Error("Missing upload intent configuration.");
+): StoredUploadIntent | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
   }
-  const url = new URL("/rest/v1/recipe_image_upload_intents", base);
-  url.searchParams.set(
-    "select",
-    "id,user_id,recipe_id,staging_key,final_key,content_type,byte_size,created_at,expires_at,state,cleanup_status",
-  );
-  url.searchParams.set("id", `eq.${id}`);
-  url.searchParams.set("user_id", `eq.${userId}`);
-  const response = await (deps.fetch ?? fetch)(url, {
-    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!response.ok) throw new Error("Upload intent lookup failed.");
-  const rows: unknown = await response.json();
-  if (!Array.isArray(rows) || rows.length !== 1) return null;
-  const row = rows[0] as Partial<StoredUploadIntent>;
+  const row = value as Partial<StoredUploadIntent>;
   const contentType = RecipeImageContentTypeSchema.safeParse(row.content_type);
   if (
     row.id !== id || row.user_id !== userId ||
@@ -167,6 +150,34 @@ async function loadStoredIntent(
     created_at: new Date(createdAt).toISOString(),
     expires_at: new Date(expiresAt).toISOString(),
   };
+}
+
+async function loadStoredIntent(
+  id: string,
+  userId: string,
+  deps: UploadHandlerDeps,
+): Promise<StoredUploadIntent | null> {
+  const base = deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
+  const serviceKey = deps.supabaseServiceRoleKey ??
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!base?.trim() || !serviceKey?.trim()) {
+    throw new Error("Missing upload intent configuration.");
+  }
+  const url = new URL("/rest/v1/recipe_image_upload_intents", base);
+  url.searchParams.set(
+    "select",
+    "id,user_id,recipe_id,staging_key,final_key,content_type,byte_size,created_at,expires_at,state,cleanup_status",
+  );
+  url.searchParams.set("id", `eq.${id}`);
+  url.searchParams.set("user_id", `eq.${userId}`);
+  const response = await (deps.fetch ?? fetch)(url, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) throw new Error("Upload intent lookup failed.");
+  const rows: unknown = await response.json();
+  if (!Array.isArray(rows) || rows.length !== 1) return null;
+  return parseStoredIntent(rows[0], id, userId);
 }
 
 function intentIsUploadable(
@@ -447,46 +458,49 @@ export async function handler(
     if (!validation.success || new URL(req.url).search !== "") {
       return error("VALIDATION_ERROR", "Invalid recipe image request.", 400);
     }
-    const { user, supabase } = auth.context;
+    const { user } = auth.context;
     const request = {
       ...validation.data,
       recipe_id: validation.data.recipe_id.toLowerCase(),
     };
-    const { data, error: queryError } = await supabase.from("recipes")
-      .select("id, user_id")
-      .eq("id", request.recipe_id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (queryError) throw new Error("Recipe ownership lookup failed.");
-    if (!data || data.id !== request.recipe_id || data.user_id !== user.id) {
-      return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
-    }
     const now = deps.now?.() ?? new Date();
     const r2Config = resolveR2Config(deps.r2Config);
     const intent = createUploadIntent(request, user.id, now);
-    const quota = await persistUploadIntent(intent, deps);
-    if (quota === "rate_limited") {
+    const persistence = await persistUploadIntent(intent, deps);
+    if (persistence.status === "rate_limited") {
       return error(
         "UPLOAD_RATE_LIMITED",
         "Upload signing limit reached. Please try again later.",
         429,
       );
     }
-    if (quota === "pending_limit") {
+    if (persistence.status === "pending_limit") {
       return error(
         "UPLOAD_QUOTA_EXCEEDED",
         "Too many image uploads are pending. Please try again later.",
         429,
       );
     }
-    if (quota === "conflict") {
+    if (persistence.status === "recipe_not_found") {
+      return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
+    }
+    if (persistence.status === "conflict") {
       return error(
         "UPLOAD_REQUEST_CONFLICT",
         "This upload request can no longer be resumed. Please retry the upload.",
         409,
       );
     }
-    const storedIntent = await loadStoredIntent(intent.id, user.id, deps);
+    if (persistence.status !== "allowed") {
+      throw new Error(
+        "Upload intent persistence returned an unexpected status.",
+      );
+    }
+    const storedIntent = parseStoredIntent(
+      persistence.intent,
+      intent.id,
+      user.id,
+    );
     if (
       !storedIntent || storedIntent.recipe_id !== intent.recipe_id ||
       storedIntent.content_type !== intent.content_type ||

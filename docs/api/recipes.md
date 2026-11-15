@@ -402,10 +402,9 @@ Token validity (signature, user, expiry) is checked before step 1. The candidate
 membership check runs after step 2, so a foreign or missing parent keeps the `404`
 behavior and membership never reveals another user's data.
 
-1. **Child recipe ownership:** The handler verifies that `:id` exists and belongs to the authenticated user (`.eq("id", childId).eq("user_id", user.id)`). If not found or owned by another user, returns `404 Not Found` before querying parents or attempting insertion.
-2. **Parent recipes ownership:** The handler verifies that every ID in `parent_recipe_ids` exists and belongs to the authenticated user (`.in("id", parentIds).eq("user_id", user.id)`). If any parent recipe is missing or owned by another user, returns `404 Not Found` without inserting any rows.
-3. **Atomic batch persistence:** Lineage relationships are written in a single PostgREST batch `INSERT` through the user-scoped client. Because PostgreSQL executes multi-row insert statements in an all-or-nothing transaction, any database failure (e.g., concurrent conflict or foreign key constraint) rolls back the entire batch, ensuring zero partial lineage persistence.
-4. **Database constraint mapping:**
+1. **Ownership validation:** In one PostgREST read, the handler checks that the child and every requested parent ID belong to the authenticated user (`.in("id", [childId, ...parentIds]).eq("user_id", user.id)`). If any recipe is missing or belongs to another user, it returns `404 Not Found` without inserting rows.
+2. **Atomic batch persistence:** Lineage relationships are written in a single PostgREST batch `INSERT` through the user-scoped client. Because PostgreSQL executes multi-row insert statements in an all-or-nothing transaction, any database failure (e.g., concurrent conflict or foreign key constraint) rolls back the entire batch, ensuring zero partial lineage persistence.
+3. **Database constraint mapping:**
    - Duplicate relationship (unique constraint `unique_parent_child_pair`, code `23505`): mapped to `409 Conflict` with `CONFLICT`.
    - Self-reference (check constraint `check_parent_child_distinct`, code `23514`): mapped to `400 Bad Request` with `VALIDATION_ERROR`.
    - Row-level security denial (RLS policy violation, code `42501`): mapped to `404 Not Found` with `NOT_FOUND`.
@@ -446,8 +445,8 @@ Retrieves the parent recipe relationships for an owned child recipe, ordered det
 
 ### Ownership and ordering rules
 
-- **Ownership verification:** Verifies that `:id` belongs to the authenticated caller before querying relationships. If the child recipe does not exist or belongs to another user, returns `404 Not Found` without querying `recipe_lineage`.
-- **Deterministic ordering:** Results are queried from `public.recipe_lineage` ordered by `created_at ASC, id ASC`, ensuring stable and repeatable retrieval order across requests.
+- **Ownership verification:** One PostgREST read selects the owned child and embeds its `recipe_lineage` rows. If the child recipe does not exist or belongs to another user, the handler returns `404 Not Found` without making another database request.
+- **Deterministic ordering:** The embedded `public.recipe_lineage` rows are ordered by `created_at ASC, id ASC`, ensuring stable and repeatable retrieval order across requests.
 
 ### Response (`200 OK`)
 
@@ -458,14 +457,14 @@ Returns `200 OK` with `{ "lineage": LineageRecord[] }` matching `LineageResponse
 - Recipe ownership (`user_id`) is derived exclusively from `auth.context.user.id` after verifying the Bearer token.
 - Any client attempts to supply or modify `user_id`, `userId`, `owner_id`, `is_public`, `id`, `created_at`, or `updated_at` are rejected during validation or ignored.
 - Database operations run through the request-scoped RLS-aware Supabase client (`auth.context.supabase`), enforcing PostgreSQL Row-Level Security:
-  - `recipes_select_own`: `USING (auth.uid() = user_id)`
-  - `recipes_insert_own`: `WITH CHECK (auth.uid() = user_id)`
-  - `recipes_update_own`: `USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id)`
-  - `recipes_delete_own`: `USING (auth.uid() = user_id)`
+  - `recipes_select_own`: `USING ((SELECT auth.uid()) = user_id)`
+  - `recipes_insert_own`: `WITH CHECK ((SELECT auth.uid()) = user_id)`
+  - `recipes_update_own`: `USING ((SELECT auth.uid()) = user_id) WITH CHECK ((SELECT auth.uid()) = user_id)`
+  - `recipes_delete_own`: `USING ((SELECT auth.uid()) = user_id)`
 - Lineage table operations on `public.recipe_lineage` strictly enforce independent PostgreSQL Row-Level Security:
-  - `lineage_select_own`: `USING (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = auth.uid()))`
-  - `lineage_insert_own`: `WITH CHECK (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = auth.uid()) AND EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.child_recipe_id AND r.user_id = auth.uid()))`
-  - `lineage_delete_own`: `USING (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = auth.uid()))`
+  - `lineage_select_own`: `USING (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = (SELECT auth.uid())))`
+  - `lineage_insert_own`: `WITH CHECK (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = (SELECT auth.uid())) AND EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.child_recipe_id AND r.user_id = (SELECT auth.uid())))`
+  - `lineage_delete_own`: `USING (EXISTS (SELECT 1 FROM public.recipes r WHERE r.id = recipe_lineage.parent_recipe_id AND r.user_id = (SELECT auth.uid())))`
 
 ## Errors
 
@@ -510,7 +509,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 ## Verification and testing (`supabase/functions/tests/recipes_test.ts` and `cross_user_rls_lineage_test.ts`)
 
 Verification is organized into deterministic offline tests and optional live hosted RLS integration testing:
-- **Deterministic Edge Function offline tests (70 tests in `recipes_test.ts`):** Run completely offline without external database or Auth network dependencies, verifying lineage persistence, deterministic retrieval ordering, array limits, duplicate rejection, CORS, method handling, search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
+- **Deterministic Edge Function offline tests (`recipes_test.ts`):** Run completely offline without external database or Auth network dependencies, verifying lineage persistence, deterministic retrieval ordering, array limits, duplicate rejection, CORS, method handling, search filtering, sorting, cursor keyset pagination, schema envelopes, CRUD behavior, validation, and owner isolation.
 - **RLS and cross-user authorization tests (28 offline tests in `cross_user_rls_lineage_test.ts`):** Verify multi-parent atomic batch insert semantics, cross-user isolation, target safety guards, and cleanup guarantees.
 - **Database migration tests:** Run offline via `node test-migrations.mjs`.
 - **RLS remote guard test:** Run offline via `node test-rls-guard.mjs`.

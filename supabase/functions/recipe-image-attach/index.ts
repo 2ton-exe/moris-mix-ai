@@ -98,16 +98,6 @@ export async function handler(
   const recipeId = parsed.data.recipe_id.toLowerCase();
   const uploadId = parsed.data.upload_id.toLowerCase();
   try {
-    const { data: recipe, error: recipeError } = await auth.context.supabase
-      .from("recipes").select("id,user_id").eq("id", recipeId).eq(
-        "user_id",
-        auth.context.user.id,
-      ).maybeSingle();
-    if (recipeError) throw new Error("Recipe lookup failed.");
-    if (
-      !recipe || recipe.id !== recipeId ||
-      recipe.user_id !== auth.context.user.id
-    ) return failure("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     const rpc = createLifecycleRpc(deps);
     const attemptToken = crypto.randomUUID();
     const claimed = await rpc("claim_recipe_image_finalization", {
@@ -121,6 +111,19 @@ export async function handler(
       typeof claimed.data.status !== "string"
     ) throw new Error("Finalization claim failed.");
     if (claimed.data.status === "not_found") {
+      // The current RPC combines a missing recipe and an unavailable upload.
+      const { data: recipe, error } = await auth.context.supabase.from(
+        "recipes",
+      )
+        .select("id,user_id").eq("id", recipeId).eq(
+          "user_id",
+          auth.context.user.id,
+        ).maybeSingle();
+      if (error) throw new Error("Recipe lookup failed.");
+      if (
+        !recipe || recipe.id !== recipeId ||
+        recipe.user_id !== auth.context.user.id
+      ) return failure("RECIPE_NOT_FOUND", "Recipe not found.", 404);
       return failure("UPLOAD_NOT_FOUND", "Upload not found.", 404);
     }
     if (claimed.data.status === "conflict") {

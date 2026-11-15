@@ -1718,47 +1718,14 @@ async function handleRequest(
           );
         }
 
-        const { data: childData, error: childError } = await supabase
+        const { data: ownedRecipes, error: ownershipError } = await supabase
           .from("recipes")
           .select("id, user_id")
-          .eq("id", childId)
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (childError) {
-          console.error("Database child recipe verification failed");
-          return recipesJsonResponse(
-            {
-              error: {
-                code: "INTERNAL_ERROR",
-                message: "Internal server error.",
-              },
-            },
-            { status: 500 },
-          );
-        }
-
-        const childRecord = normalizeRecord(childData);
-        if (!childRecord || childRecord.user_id !== user.id) {
-          return recipesJsonResponse(
-            {
-              error: {
-                code: "NOT_FOUND",
-                message: "Recipe not found.",
-              },
-            },
-            { status: 404 },
-          );
-        }
-
-        const { data: parentsData, error: parentsError } = await supabase
-          .from("recipes")
-          .select("id, user_id")
-          .in("id", parentIds)
+          .in("id", [childId, ...parentIds])
           .eq("user_id", user.id);
 
-        if (parentsError || !Array.isArray(parentsData)) {
-          console.error("Database parent recipes verification failed");
+        if (ownershipError || !Array.isArray(ownedRecipes)) {
+          console.error("Database recipe ownership verification failed");
           return recipesJsonResponse(
             {
               error: {
@@ -1770,9 +1737,14 @@ async function handleRequest(
           );
         }
 
+        const ownedIds = new Set(
+          ownedRecipes.filter((recipe: { user_id: string }) =>
+            recipe.user_id === user.id
+          ).map((recipe: { id: string }) => recipe.id.toLowerCase()),
+        );
         if (
-          parentsData.length !== parentIds.length ||
-          parentsData.some((p: { user_id: string }) => p.user_id !== user.id)
+          !ownedIds.has(childId.toLowerCase()) ||
+          parentIds.some((id) => !ownedIds.has(id.toLowerCase()))
         ) {
           return recipesJsonResponse(
             {
@@ -1902,9 +1874,13 @@ async function handleRequest(
 
       const { data: childData, error: childError } = await supabase
         .from("recipes")
-        .select("id, user_id")
+        .select(
+          "id, user_id, lineage:recipe_lineage!recipe_lineage_child_recipe_id_fkey(id, parent_recipe_id, child_recipe_id, created_at)",
+        )
         .eq("id", childId)
         .eq("user_id", user.id)
+        .order("created_at", { ascending: true, foreignTable: "lineage" })
+        .order("id", { ascending: true, foreignTable: "lineage" })
         .maybeSingle();
 
       if (childError) {
@@ -1933,28 +1909,8 @@ async function handleRequest(
         );
       }
 
-      const { data: lineageData, error: lineageError } = await supabase
-        .from("recipe_lineage")
-        .select("id, parent_recipe_id, child_recipe_id, created_at")
-        .eq("child_recipe_id", childId)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true });
-
-      if (lineageError || !Array.isArray(lineageData)) {
-        console.error("Database lineage query failed");
-        return recipesJsonResponse(
-          {
-            error: {
-              code: "INTERNAL_ERROR",
-              message: "Internal server error.",
-            },
-          },
-          { status: 500 },
-        );
-      }
-
       const getResponseValidation = LineageResponseSchema.safeParse({
-        lineage: lineageData,
+        lineage: childRecord.lineage,
       });
       if (!getResponseValidation.success) {
         console.error("Lineage response validation failed");
