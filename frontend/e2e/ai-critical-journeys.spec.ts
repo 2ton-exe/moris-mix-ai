@@ -302,3 +302,107 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     await expect(readSavedRecipeState(page, recipeReadContext)).resolves.toEqual(savedRecipeState)
   })
 })
+
+test('QA-05 quota exhaustion keeps Quick AI and Chef drafts unsaved', async ({ page }) => {
+  test.setTimeout(90_000)
+  const { recipeWrites, lineageWrites } = trackRecipeAndLineageWrites(page)
+  const quotaNotes = 'QA05_QUOTA_EXHAUSTED\nrough cooking notes remain available'
+  let recipeReadContext: Awaited<ReturnType<typeof freshRecipeReadContext>>
+  let savedRecipeState: Awaited<ReturnType<typeof readSavedRecipeState>>
+
+  await signIn(page, localE2eUser)
+  recipeReadContext = await freshRecipeReadContext(page)
+  savedRecipeState = await readSavedRecipeState(page, recipeReadContext)
+
+  await test.step('Keep Quick AI notes after quota exhaustion', async () => {
+    await page.goto('/app/quick-entry')
+    const notes = page.getByRole('textbox', { name: 'Cooking notes' })
+    await notes.fill(quotaNotes)
+    const responsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/extract-recipe',
+    )
+    await page.getByRole('button', { name: 'Organize my notes' }).click()
+    const response = await responsePromise
+    expect(response.status()).toBe(429)
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'QUOTA_EXCEEDED' } })
+    await expect(page.getByRole('alert')).toContainText("You've reached today's AI organizing limit.")
+    await expect(notes).toHaveValue(quotaNotes)
+    expect(recipeWrites).toHaveLength(0)
+    expect(lineageWrites).toHaveLength(0)
+  })
+
+  await test.step('Keep Chef input after quota exhaustion with no persistence', async () => {
+    await page.goto('/app/chef')
+    await addPantryItem(page, 'rice')
+    const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
+    await preferences.fill('QA05_QUOTA_EXHAUSTED')
+    const responsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/generate-recipe',
+    )
+    await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+    const response = await responsePromise
+    expect(response.status()).toBe(429)
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'QUOTA_EXCEEDED' } })
+    await expect(page.getByRole('alert')).toContainText('reached today’s AI Chef limit')
+    await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
+    await expect(preferences).toHaveValue('QA05_QUOTA_EXHAUSTED')
+    expect(recipeWrites).toHaveLength(0)
+    expect(lineageWrites).toHaveLength(0)
+    await expect(readSavedRecipeState(page, recipeReadContext)).resolves.toEqual(savedRecipeState)
+  })
+})
+
+test('QA-05 deterministic fallback browser walkthrough uses a prepared Quick AI result', async ({ page }) => {
+  test.setTimeout(90_000)
+
+  const fallbackTitle = `QA05 prepared fallback ${crypto.randomUUID()}`
+  const reviewedTitle = `${fallbackTitle} reviewed`
+  const notes = `${fallbackTitle}\nchicken, garlic, and soy sauce; cook slowly`
+  const recipeWrites = []
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/functions/v1/recipes') {
+      recipeWrites.push(request)
+    }
+  })
+
+  await test.step('Sign in and preview prepared fixture output without saving', async () => {
+    await signIn(page, localE2eUser)
+    await page.goto('/app/quick-entry')
+    await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
+
+    const extractionResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/extract-recipe',
+    )
+    await page.getByRole('button', { name: 'Organize my notes' }).click()
+    const extractionResponse = await extractionResponsePromise
+    expect(extractionResponse.status()).toBe(200)
+    await expect(page.getByRole('heading', { name: fallbackTitle })).toBeVisible()
+    await expect(page.getByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeVisible()
+    expect(recipeWrites).toHaveLength(0)
+  })
+
+  await test.step('Edit, explicitly save, and reopen the prepared recipe', async () => {
+    await page.getByRole('link', { name: 'Review & Edit Recipe' }).click()
+    await expect(page.getByLabel('Recipe title')).toHaveValue(fallbackTitle)
+    await page.getByLabel('Recipe title').fill(reviewedTitle)
+    const saveResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/recipes',
+    )
+    await page.getByRole('button', { name: 'Save recipe' }).click()
+    await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
+    expect((await saveResponsePromise).status()).toBe(201)
+
+    await page.goto('/app/recipes')
+    await waitForCollection(page)
+    await page.getByRole('link', { name: reviewedTitle }).click()
+    await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Delete recipe' }).click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog.getByRole('heading', { name: `Delete “${reviewedTitle}”?` })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Delete recipe' }).click()
+    await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
+  })
+})

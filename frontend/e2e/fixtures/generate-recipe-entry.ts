@@ -23,4 +23,19 @@ const provider: AIProvider = {
   testConnection: async () => "Local QA-03 test provider is available.",
 };
 
-Deno.serve((request) => handler(request, { provider }));
+const quotaDrillMarker = "QA05_QUOTA_EXHAUSTED";
+
+Deno.serve(async (request) => {
+  let shouldExhaustQuota = false;
+  if (request.method === "POST") {
+    const body = await request.clone().json().catch(() => null);
+    shouldExhaustQuota = body?.preferences === quotaDrillMarker;
+  }
+
+  return await handler(request, {
+    provider,
+    quotaCheck: async () => shouldExhaustQuota
+      ? { status: "exceeded", limit: 20, used: 20, retryAfterSeconds: 60 }
+      : { status: "allowed", limit: 20, used: 0 },
+  });
+});
