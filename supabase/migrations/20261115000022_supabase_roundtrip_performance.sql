@@ -84,25 +84,55 @@ create or replace function public.create_recipe_image_upload_intent_v2(
     p_created_at timestamptz,
     p_expires_at timestamptz
 )
-returns text
+returns jsonb
 language plpgsql
 security definer
 set search_path = public, extensions, pg_temp
 as $$
+declare
+    v_status text;
+    v_intent jsonb;
 begin
     if auth.role() is distinct from 'service_role' then
         raise exception 'Unauthorized upload intent operation' using errcode = '42501';
     end if;
 
+    perform pg_advisory_xact_lock(hashtext('recipe-image-upload:' || p_user_id::text));
+    -- Match finalization's intent-before-recipe lock order on idempotent retries.
+    perform 1 from public.recipe_image_upload_intents where id = p_id for update;
     perform 1 from public.recipes
     where id = p_recipe_id and user_id = p_user_id
     for share;
-    if not found then return 'recipe_not_found'; end if;
+    if not found then return jsonb_build_object('status', 'recipe_not_found'); end if;
 
-    return public.create_recipe_image_upload_intent(
+    v_status := public.create_recipe_image_upload_intent(
         p_id, p_user_id, p_recipe_id, p_staging_key, p_final_key,
         p_content_type, p_byte_size, p_created_at, p_expires_at
     );
+    if v_status is distinct from 'allowed' then
+        return jsonb_build_object('status', v_status);
+    end if;
+
+    select jsonb_build_object(
+        'id', intent.id,
+        'user_id', intent.user_id,
+        'recipe_id', intent.recipe_id,
+        'staging_key', intent.staging_key,
+        'final_key', intent.final_key,
+        'content_type', intent.content_type,
+        'byte_size', intent.byte_size,
+        'created_at', intent.created_at,
+        'expires_at', intent.expires_at,
+        'state', intent.state,
+        'cleanup_status', intent.cleanup_status
+    ) into v_intent
+    from public.recipe_image_upload_intents as intent
+    where intent.id = p_id and intent.user_id = p_user_id;
+
+    if v_intent is null then
+        raise exception 'Upload intent persistence failed';
+    end if;
+    return jsonb_build_object('status', 'allowed', 'intent', v_intent);
 end;
 $$;
 

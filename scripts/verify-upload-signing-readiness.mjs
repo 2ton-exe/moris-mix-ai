@@ -57,10 +57,10 @@ try {
   await client.connect();
   const migrations = await client.query(
     `select version from supabase_migrations.schema_migrations where version = any($1::text[])`,
-    [['20261102000009', '20261102000010', '20261108152005', '20261115000020']],
+    [['20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022']],
   );
   const applied = new Set(migrations.rows.map(row => row.version));
-  for (const version of ['20261102000009', '20261102000010', '20261108152005', '20261115000020']) {
+  for (const version of ['20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022']) {
     if (!applied.has(version)) throw new Error(`Required migration is not applied: ${version}`);
   }
   const table = await client.query(
@@ -100,21 +100,26 @@ try {
     }
   }
   const rpc = await client.query(
-    `select p.oid, p.prosecdef, pg_get_functiondef(p.oid) as definition
+    `select p.oid, p.prosecdef, p.proname, pg_get_functiondef(p.oid) as definition,
+       pg_get_function_result(p.oid) as result
      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public' and p.proname = 'create_recipe_image_upload_intent'
+     where n.nspname = 'public' and p.proname = any($1::text[])
        and pg_get_function_identity_arguments(p.oid) =
        'p_id uuid, p_user_id uuid, p_recipe_id uuid, p_staging_key text, p_final_key text, p_content_type text, p_byte_size integer, p_created_at timestamp with time zone, p_expires_at timestamp with time zone'`,
+    [['create_recipe_image_upload_intent', 'create_recipe_image_upload_intent_v2']],
   );
-  if (rpc.rowCount !== 1 || !rpc.rows[0].prosecdef || !rpc.rows[0].definition.includes("auth.role() is distinct from 'service_role'")) {
-    throw new Error('Upload-intent RPC is missing or has unexpected authorization behavior.');
-  }
-  const rpcOid = rpc.rows[0].oid;
-  const serviceExec = await client.query('select has_function_privilege($1, $2::oid, $3) as allowed', ['service_role', rpcOid, 'EXECUTE']);
-  if (!serviceExec.rows[0].allowed) throw new Error('service_role cannot execute create_recipe_image_upload_intent.');
-  for (const role of ['anon', 'authenticated']) {
-    const access = await client.query('select has_function_privilege($1, $2::oid, $3) as allowed', [role, rpcOid, 'EXECUTE']);
-    if (access.rows[0].allowed) throw new Error(`Unexpected upload-intent RPC privilege for ${role}.`);
+  if (rpc.rowCount !== 2) throw new Error('Upload-intent RPCs are missing.');
+  for (const entry of rpc.rows) {
+    const expectedResult = entry.proname.endsWith('_v2') ? 'jsonb' : 'text';
+    if (!entry.prosecdef || entry.result !== expectedResult || !entry.definition.includes("auth.role() is distinct from 'service_role'")) {
+      throw new Error('Upload-intent RPC is missing or has unexpected authorization behavior.');
+    }
+    const serviceExec = await client.query('select has_function_privilege($1, $2::oid, $3) as allowed', ['service_role', entry.oid, 'EXECUTE']);
+    if (!serviceExec.rows[0].allowed) throw new Error(`service_role cannot execute ${entry.proname}.`);
+    for (const role of ['anon', 'authenticated']) {
+      const access = await client.query('select has_function_privilege($1, $2::oid, $3) as allowed', [role, entry.oid, 'EXECUTE']);
+      if (access.rows[0].allowed) throw new Error(`Unexpected upload-intent RPC privilege for ${role}.`);
+    }
   }
   for (const name of ['claim_recipe_image_upload_reservation', 'release_recipe_image_upload_reservation']) {
     const signature = `public.${name}(uuid,uuid,uuid)`;

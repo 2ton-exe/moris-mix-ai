@@ -22,8 +22,9 @@ Upload authorization idempotency has a separate compatibility gate:
 `request_id` unless the flag is exactly `true`. Production reads the same-named
 repository variable and falls back to `false`, so this client remains compatible
 with a deployed signer that still has the older strict request schema. Keep the
-variable unset or `false` until migration `20261115000020` and its prerequisite
-upload-intent migrations are applied, the updated `recipe-image-upload-url`
+variable unset or `false` until migrations `20261115000020` through
+`20261115000022` and their prerequisite upload-intent migrations are applied,
+the updated `recipe-image-upload-url`
 signer is deployed and verified to accept `request_id`, and the protected
 readiness workflow passes. That workflow verifies database state; it does not
 verify the deployed signer code. The current production workflow still keeps
