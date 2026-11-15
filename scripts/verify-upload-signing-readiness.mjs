@@ -60,10 +60,10 @@ try {
   await client.connect();
   const migrations = await client.query(
     `select version from supabase_migrations.schema_migrations where version = any($1::text[])`,
-    [['20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022']],
+    [['20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022', '20261116000023']],
   );
   const applied = new Set(migrations.rows.map(row => row.version));
-  for (const version of ['20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022']) {
+  for (const version of ['20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022', '20261116000023']) {
     if (!applied.has(version)) throw new Error(`Required migration is not applied: ${version}`);
   }
   const table = await client.query(
