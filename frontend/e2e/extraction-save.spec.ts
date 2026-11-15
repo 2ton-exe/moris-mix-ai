@@ -87,7 +87,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
 
   await test.step('preserve the review after one safe save failure', async () => {
     await page.getByRole('button', { name: 'Save recipe' }).click()
-    await expect(page.getByRole('alert')).toHaveText('Could not save your recipe. Your changes are still here. Please try again.')
+    await expect(page.getByRole('alert')).toHaveText('Could not confirm whether your recipe was saved. Your changes are still here. Check your journal before retrying to avoid creating a duplicate.')
     expect(createAttempts).toBe(1)
     expect(createRequests[0].postDataJSON()).toMatchObject({
       title: reviewedTitle,
