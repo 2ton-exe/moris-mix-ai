@@ -49,6 +49,14 @@ function condition(expression, overrides = {}) {
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
 
+test('production deployment pins every external action to a commit', () => {
+  const actions = release.steps.filter(step => step.uses && !step.uses.startsWith('./'));
+  assert.ok(actions.length > 0);
+  for (const step of actions) {
+    assert.match(step.uses, /^[^@\s]+@[a-f0-9]{40}$/, step.name);
+  }
+});
+
 test('all workflow YAML parses, including the reusable production contract', () => {
   for (const name of readdirSync('.github/workflows').filter(n => /\.ya?ml$/.test(n))) {
     assert.ok(load(readFileSync(`.github/workflows/${name}`, 'utf8')).jobs, name);
@@ -280,7 +288,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.match(cleanup.run, /--no-verify-jwt[\s\S]*--use-api[\s\S]*--yes/);
   assert.doesNotMatch(cleanup.run, /--prune|--all|latest|npx/);
   assert.equal(step(release, 'Deploy to Cloudflare Workers').id, 'deploy-cloudflare');
-  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@v3');
+  assert.equal(step(release, 'Deploy to Cloudflare Workers').uses, 'cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd');
   assert.equal(step(release, 'Deploy to Cloudflare Workers').with.command, 'deploy --config wrangler.jsonc');
   const verify = step(release, 'Verify production deployment URL');
   assert.equal(verify.id, 'verify-deployment');
@@ -317,12 +325,12 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_OUTCOME: '${{ steps.runtime-smoke.outcome }}',
   });
   const artifact = step(release, 'Preserve production runtime evidence');
-  assert.equal(artifact.uses, 'actions/upload-artifact@v4');
+  assert.equal(artifact.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
   assert.equal(artifact.with.path, 'runtime-smoke.json');
   assert.equal(artifact.with.name, 'production-runtime-smoke-${{ github.run_id }}-${{ github.run_attempt }}');
   assert.equal(artifact.with['if-no-files-found'], 'warn');
   const aiArtifact = step(release, 'Preserve production AI route evidence');
-  assert.equal(aiArtifact.uses, 'actions/upload-artifact@v4');
+  assert.equal(aiArtifact.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
   assert.equal(aiArtifact.with.path, 'ai-route-smoke.json');
   assert.equal(aiArtifact.with.name, 'production-ai-route-smoke-${{ github.run_id }}-${{ github.run_attempt }}');
   assert.equal(aiArtifact.with['if-no-files-found'], 'warn');

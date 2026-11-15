@@ -13,6 +13,7 @@ const validationWorkflows = [
   'reusable-edge-api.yml',
   'reusable-e2e-browser.yml',
   'reusable-staging.yml',
+  'reusable-production.yml',
   'database-backup.yml',
 ];
 
