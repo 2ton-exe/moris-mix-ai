@@ -145,6 +145,7 @@ it('prevents duplicate login submissions while pending and handles a network rej
   submit('Log in')
   const button = screen.getByRole('button', { name: 'Logging in…' }) as HTMLButtonElement
   expect(button.disabled).toBe(true)
+  expect(screen.getByRole('status').textContent).toBe('Logging in…')
   fireEvent.submit(button.closest('form')!)
   expect(auth.signInWithPassword).toHaveBeenCalledOnce()
   await act(async () => request.reject(new TypeError('private network detail')))

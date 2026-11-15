@@ -399,10 +399,19 @@ it('shows an attached private image on the recipe detail page', async () => {
   renderDetailPage()
 
   expect(await screen.findByRole('img', { name: 'Ginger rice photo' })).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Recipe image' })).toBeTruthy()
   expect(screen.getByRole('region', { name: 'Recipe identity and details' }).contains(screen.getByRole('img', { name: 'Ginger rice photo' }))).toBe(true)
   const downloadRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-download-url'))
   expect(JSON.parse(downloadRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId })
   expect(new Headers(downloadRequest?.[1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
+})
+
+it('names the photo region when no heading is shown', async () => {
+  const { RecipeImagePanel } = await import('./RecipeImagePanel')
+  render(createElement(modules.AuthContext.Provider, { value: authState },
+    createElement(RecipeImagePanel, { recipeId, recipeTitle: 'Ginger rice' })))
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  expect(screen.getByRole('region', { name: 'Recipe photo for Ginger rice' })).toBeTruthy()
 })
 
 it('requests another private URL when the current URL expires', async () => {
