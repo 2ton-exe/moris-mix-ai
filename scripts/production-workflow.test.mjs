@@ -202,7 +202,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
     VITE_SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
-    VITE_RECIPE_IMAGES: 'true',
+    VITE_RECIPE_IMAGES: 'false',
     SMOKE_ENVIRONMENT: 'production',
     SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
     SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
