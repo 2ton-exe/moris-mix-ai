@@ -139,7 +139,9 @@ A `models.list` call returned `gemini-3.5-flash-lite`, so the pinned model is
 available to the project. The live extraction suite then passed **3/3 in about
 4 seconds** at commit `b297977` on 2026-11-14, with the pinned model
 (`AI_MODEL` unset) and the existing legacy `@google/generative-ai@0.21.0` SDK.
-The run made 3 `generateContent` calls.
+The run recorded three passing extraction cases. The adapter may retry a failed
+request, so provider request attempts were not independently counted in this
+run; the table below reports case outcomes, not a call count.
 
 | Case | Input summary | Expected result | Observed |
 | ---- | ------------- | --------------- | -------- |
