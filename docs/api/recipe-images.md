@@ -323,13 +323,12 @@ This API document is the repository-local backend contract for BE-09. The [FE-12
 | Lifetime and types | Ten minutes; JPEG, PNG, WebP | Ten minutes; JPEG, PNG, WebP |
 | Attachment | Separate verified operation | Separate BE-14 verified operation |
 
-Issues [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104) and [#106](https://github.com/2ton-exe/moris-mix-ai/issues/106) record acceptance of the revised transport, while issue #51 retains the original direct-to-R2 requirement. The repository-local BE-09 and FE-12 specifications define the accepted shared contract. Ramos approved the BE-13 backend revision in the [owner approval record](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406), and the FE-12 owner approved upload behavior in [issue #106](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6723073867) and private reads in [issue #106](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6846170189). These approvals are limited to API behavior; they do not authorize production deployment or cleanup.
-The table above records the proxy transport accepted for PR #190. This follow-up reopens that transport decision per [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md): new upload responses return direct R2 capabilities, with no Supabase credentials on the byte `PUT`. The earlier approvals remain historical and do not authorize production deployment, R2 CORS configuration, or cleanup.
+The table above records the proxy transport accepted for PR #190. PR #210 proposes reopening that transport decision per [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md): new upload responses return direct R2 capabilities, with no Supabase credentials on the byte `PUT`. The existing BE-13 and FE-12 upload approvals cover only the authenticated proxy and remain historical; they do not authorize production deployment, R2 CORS configuration, or cleanup.
 
 | Required decision | Owner | Recorded acceptance |
 | --- | --- | --- |
-| BE-13 upload transport and backend contract | Ramos (`DanielRamos1186`) | Approved 2026-11-08 — [record](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406) |
-| FE-12 authenticated raw-byte upload, error, and retry behavior | FE-12 owner | Approved — API-contract approval only |
+| BE-13 direct-to-R2 upload transport and backend contract | Ramos (`DanielRamos1186`) | Pending fresh acceptance; [2026-11-08 approval](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406) covers authenticated Edge Function ingress only |
+| FE-12 direct-to-R2 browser upload, error, and retry behavior | FE-12 owner | Pending fresh acceptance; [prior approval](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6723073867) covers authenticated Edge Function ingress only |
 | FE-12 private image-read contract | FE-12 owner | Approved — [record](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6846170189); API-contract approval only |
 
 Production upload-signing deployment remains hard-disabled pending independent production readiness verification and separate deployment authorization. Verify R2 CORS and direct signed `PUT` behavior in a non-production bucket before enabling it.

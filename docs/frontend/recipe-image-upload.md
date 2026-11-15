@@ -1,6 +1,6 @@
 # FE-12 private recipe-image upload integration
 
-**Status** — New uploads use object-scoped, presigned R2 `PUT` URLs. This direct-upload revision supersedes the authenticated proxy transport documented in PR #190; see [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Production signing and cleanup remain disabled pending their separate readiness checks and authorization.
+**Status** — PR #210 proposes object-scoped, presigned R2 `PUT` URLs for new uploads; fresh BE-13 and FE-12 acceptance is pending. The approvals recorded for PR #190 cover authenticated Edge Function ingress only. See [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Production signing and cleanup remain disabled pending separate readiness checks and authorization.
 
 ## Browser rollout gate
 
@@ -59,8 +59,9 @@ object. The URL expires with its ten-minute upload intent.
 - Preserve the current recipe image until verification and attachment succeed.
   A successful upload alone does not update recipe metadata.
 
-The existing authenticated-proxy behavior recorded in [the API contract](../api/recipe-images.md)
+The authenticated-proxy behavior recorded in [the API contract](../api/recipe-images.md)
 and [owner decision #104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406)
-is historical. This revision restores direct R2 uploads at the user's explicit
-direction; it does not authorize production deployment or configure bucket
-CORS.
+is historical for this proposal. Fresh BE-13 acceptance and FE-12 upload
+acceptance are pending; the prior upload approvals do not cover direct R2
+transport. This proposal does not authorize production deployment or configure
+bucket CORS.
