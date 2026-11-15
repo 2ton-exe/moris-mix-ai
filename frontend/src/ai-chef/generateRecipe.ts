@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { apiClient } from '../api/config'
 import { HttpError } from '../api/http'
+import { retryAfterMessage } from '../api/retryAfter'
 import { extractedRecipeSchema } from '../quick-ai/extractRecipe'
 import type { RecipeRequest } from '../recipes/types'
 
@@ -107,17 +108,6 @@ function apiErrorCode(error: HttpError): string | undefined {
   return typeof code === 'string' ? code : undefined
 }
 
-function retryAfterCopy(value?: string) {
-  const seconds = Number(value)
-  if (!Number.isFinite(seconds) || seconds <= 0) return 'Try again later.'
-  const rounded = Math.ceil(seconds)
-  if (rounded < 60) return `Try again in ${rounded} ${rounded === 1 ? 'second' : 'seconds'}.`
-  const minutes = Math.ceil(rounded / 60)
-  if (minutes < 60) return `Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`
-  const hours = Math.ceil(minutes / 60)
-  return `Try again in about ${hours} ${hours === 1 ? 'hour' : 'hours'}.`
-}
-
 /** User-safe messages for the documented AI-06 error envelope. */
 export function generateRecipeErrorMessage(error: unknown, timedOut = false) {
   if (timedOut) return 'Mori took too long to answer. Your ingredients and preferences are still here; try again.'
@@ -127,9 +117,10 @@ export function generateRecipeErrorMessage(error: unknown, timedOut = false) {
 
   const code = apiErrorCode(error)
   if (error.status === 401 || code === 'UNAUTHORIZED') return 'Your session could not be verified. Sign in again before asking Mori. Your request is still here.'
-  if (code === 'QUOTA_EXCEEDED') return `You have reached today’s AI Chef limit. ${retryAfterCopy(error.retryAfter)}`
+  if (error.status === 403) return 'You do not have permission to use AI Chef. Your ingredients and preferences are still here.'
+  if (code === 'QUOTA_EXCEEDED') return `You have reached today’s AI Chef limit. ${retryAfterMessage(error.retryAfter)}`
   if (code === 'QUOTA_UNAVAILABLE') return 'Mori could not check today’s AI usage limit. Your request is still here; try again shortly.'
-  if (code === 'AI_RATE_LIMITED') return `AI Chef is briefly rate-limited. ${retryAfterCopy(error.retryAfter)}`
+  if (code === 'AI_RATE_LIMITED') return `AI Chef is briefly rate-limited. ${retryAfterMessage(error.retryAfter)}`
   if (code === 'AI_DISABLED') return 'AI Chef is temporarily unavailable. Your ingredients and preferences are still here.'
   if (code === 'AI_TIMEOUT' || error.status === 408 || error.status === 504) return 'The AI service took too long to answer. Your request is still here; try again.'
   if (code === 'AI_OUTPUT_INVALID' || error.kind === 'invalid-json') return 'Mori returned a recipe that could not be checked safely. Your request is still here; try again.'
@@ -140,6 +131,6 @@ export function generateRecipeErrorMessage(error: unknown, timedOut = false) {
   if (code === 'INPUT_TOO_LARGE') return 'This pantry request is too large. Shorten a pantry item or preference and try again.'
   if (error.kind === 'network') return 'Mori could not reach the service. Your ingredients and preferences are still here; check your connection and retry.'
   if (error.kind === 'configuration') return 'AI Chef is not connected in this environment. Your request is still here.'
-  if (error.status === 429) return `AI Chef is temporarily limited. ${retryAfterCopy(error.retryAfter)}`
+  if (error.status === 429) return `AI Chef is temporarily limited. ${retryAfterMessage(error.retryAfter)}`
   return 'AI Chef could not finish the request. Your ingredients and preferences are still here; try again.'
 }

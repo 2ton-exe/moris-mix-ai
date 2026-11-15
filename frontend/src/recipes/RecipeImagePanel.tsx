@@ -3,6 +3,8 @@ import { useAuth } from '../auth/context'
 import { prepareRecipeImage, recipeImageApi, recipeImageErrorCode } from './imageApi'
 import type { Download, UploadIntent } from './imageApi'
 
+const IMAGE_OPERATION_TIMEOUT_MS = 90_000
+
 export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, showEmpty = false }: {
   recipeId: string
   recipeTitle: string
@@ -41,6 +43,12 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       return false
     }
     setLoading(true)
+    const timer = window.setTimeout(() => {
+      if (sequence !== imageLoadSequence.current || signal?.aborted) return
+      imageLoadSequence.current++
+      setDownloadError(true)
+      setLoading(false)
+    }, IMAGE_OPERATION_TIMEOUT_MS)
     try {
       const result = await recipeImageApi.getDownload(recipeId, { userId: user.id, signal })
       if (signal?.aborted || sequence !== imageLoadSequence.current) return false
@@ -53,6 +61,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       setDownloadError(true)
       return false
     } finally {
+      window.clearTimeout(timer)
       if (!signal?.aborted && sequence === imageLoadSequence.current) setLoading(false)
     }
   }, [featureEnabled, recipeId, user?.id])
@@ -119,6 +128,12 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     setUploadError(null)
     setUploadSuccess(false)
     setPreparing(true)
+    const timer = window.setTimeout(() => {
+      if (version !== selectionVersion.current) return
+      selectionVersion.current++
+      setPreparing(false)
+      setSelectionError('Preparing this image took too long. Please choose it again.')
+    }, IMAGE_OPERATION_TIMEOUT_MS)
     try {
       const image = await prepareRecipeImage(file)
       if (version !== selectionVersion.current) return
@@ -129,6 +144,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         setSelectionError('Choose a JPEG, PNG, or WebP image that can be prepared within 10 MiB.')
       }
     } finally {
+      window.clearTimeout(timer)
       if (version === selectionVersion.current) setPreparing(false)
     }
   }
@@ -140,6 +156,14 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     busy.current = true
     setUploading(true)
     setUploadError(null)
+    const timer = window.setTimeout(() => {
+      if (uploadController.current !== controller) return
+      controller.abort()
+      uploadController.current = null
+      busy.current = false
+      setUploading(false)
+      setUploadError('The image request took too long. Check the current photo, then try again.')
+    }, IMAGE_OPERATION_TIMEOUT_MS)
     try {
       if (attached) {
         const refreshed = await loadImage(controller.signal)
@@ -219,6 +243,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
               : 'Could not upload this image. Try again.')
       }
     } finally {
+      window.clearTimeout(timer)
       if (uploadController.current === controller) {
         uploadController.current = null
         busy.current = false

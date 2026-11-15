@@ -64,7 +64,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(dialog.getByRole('heading', { name: `Delete “${updatedTitle}”?` })).toBeVisible()
     await dialog.getByRole('button', { name: 'Delete recipe' }).click()
     await expect(page).toHaveURL(/\/app(?:\/recipes)?$/)
-    await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
 
     await page.reload()
@@ -129,5 +129,5 @@ test('a signed-in cook cannot view, update, or delete another cook’s recipe', 
   const dialog = page.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Delete recipe' }).click()
   await expect(page).toHaveURL(/\/app\/recipes$/)
-  await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible()
 })

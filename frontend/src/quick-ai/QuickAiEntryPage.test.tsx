@@ -423,6 +423,30 @@ describe('Quick AI Entry', () => {
     expect(extract.mock.calls.map(([notes]) => notes)).toEqual([sourceNotes, sourceNotes])
   })
 
+  it('times out an unresponsive extraction, retains notes and ignores a late result', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (value: typeof recipe) => void
+      const extract = vi.fn<Extract>()
+        .mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+        .mockResolvedValueOnce(recipe)
+      renderEntry({ extract })
+      enterNotes('rice and eggs')
+      fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+      await act(async () => { vi.advanceTimersByTime(45_000) })
+      expect(screen.getByRole('alert').textContent).toContain('took too long')
+      expect(notesField().value).toBe('rice and eggs')
+      expect(extract.mock.calls[0][1].signal.aborted).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Retry extraction' }))
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
+      await act(async () => resolve({ ...recipe, title: 'Late result' }))
+      expect(screen.queryByRole('heading', { name: 'Late result' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('maps provider failure safely and allows editing or retrying', async () => {
     const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('http', 'private provider response', 503, {
       error: { code: 'AI_UNAVAILABLE', message: 'provider internals' },
@@ -451,7 +475,7 @@ describe('Quick AI Entry', () => {
     expect((await screen.findByRole('alert')).textContent).toContain("You've reached today's AI organizing limit")
     expect(screen.queryByRole('button', { name: 'Retry extraction' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('status').textContent).toContain('AI limit is still in effect')
+    expect(screen.getByRole('timer').textContent).toContain('AI limit is still in effect')
     expect(notesField().value).toBe('family soup notes')
     expect(extract).toHaveBeenCalledOnce()
   })
@@ -465,6 +489,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
 
     expect((await screen.findByRole('alert')).textContent).toContain('provider cooldown')
+    expect(screen.getByRole('timer').getAttribute('aria-live')).toBe('off')
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
     expect(readQuickAiEntryDraft('cook-a').blockedReason).toBe('provider-rate-limit')
     expect(readQuickAiEntryDraft('cook-a').blockedUntil).toBeGreaterThan(Date.now())
@@ -481,7 +506,7 @@ describe('Quick AI Entry', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('could not verify your session')
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('status').textContent).toContain('wait 60 seconds')
+    expect(screen.getByRole('timer').textContent).toContain('wait 60 seconds')
     expect(readQuickAiEntryDraft('cook-a').blockedReason).toBe('auth-service-rate-limit')
     expect(readQuickAiEntryDraft('cook-a').blockedUntil).toBeGreaterThan(Date.now())
     expect(notesField().value).toBe('notes remain safe while auth recovers')
@@ -621,4 +646,30 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('link', { name: /Back to journal/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Organize my notes' })).toBeTruthy()
   })
+})
+
+
+it('preserves notes and gives access-denied feedback without a misleading retry', async () => {
+  const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('http', 'private access error', 403))
+  renderEntry({ extract })
+  enterNotes('My original notes')
+  fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('do not have permission')
+  expect(notesField().value).toBe('My original notes')
+  expect(screen.queryByRole('button', { name: 'Retry extraction' })).toBeNull()
+  expect(extract).toHaveBeenCalledOnce()
+})
+
+it('does not invent a cooldown when a provider gives no Retry-After', async () => {
+  const extract = vi.fn<Extract>()
+    .mockRejectedValueOnce(new HttpError('http', 'private', 429, { error: { code: 'AI_RATE_LIMITED' } }))
+    .mockResolvedValueOnce(recipe)
+  renderEntry({ extract })
+  enterNotes('Notes kept for a manual retry')
+  fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+  await screen.findByRole('alert')
+  expect(screen.queryByRole('button', { name: 'Please wait to retry' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry extraction' }))
+  await screen.findByRole('heading', { name: recipe.title })
+  expect(extract.mock.calls.map(([notes]) => notes)).toEqual(['Notes kept for a manual retry', 'Notes kept for a manual retry'])
 })

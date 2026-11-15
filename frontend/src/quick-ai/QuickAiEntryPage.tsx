@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useId, useRef, useState } from 'rea
 import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { HttpError } from '../api/http'
+import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { Mori } from '../journal/Mori'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
@@ -35,15 +36,10 @@ function errorCode(error: unknown) {
 }
 
 function parseRetryAfterSeconds(error: unknown): number | undefined {
-  const raw = error instanceof HttpError ? error.retryAfter : undefined
-  if (raw === undefined || !raw.trim()) return undefined
-  const seconds = Number(raw)
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds)
-  const date = Date.parse(raw)
-  return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined
+  return parseRetryAfter(error instanceof HttpError ? error.retryAfter : undefined)
 }
 
-function retryAfterSeconds(error: unknown, fallback: number) {
+function retryAfterSeconds(error: unknown, fallback?: number) {
   return parseRetryAfterSeconds(error) ?? fallback
 }
 
@@ -61,15 +57,25 @@ function describeExtractionError(error: unknown): EntryError {
     return { code: 'SERVICE_CONFIGURATION', message: 'The recipe organizer is not configured yet. Your notes are still here.', retryable: false }
   }
 
+  if (error instanceof HttpError && error.status === 401) {
+    return { code: 'UNAUTHORIZED', message: 'Your session could not be verified. Sign out and sign in again to continue. Your notes are still here.', retryable: false }
+  }
+  if (error instanceof HttpError && error.status === 403) {
+    return { code: 'FORBIDDEN', message: 'You do not have permission to organize these notes. Your notes are still here.', retryable: false }
+  }
+  if (error instanceof HttpError && error.status === 429 && !code) {
+    return { code: 'RATE_LIMITED', message: 'AI organizing is temporarily limited. Your notes are still here; try again later.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: parseRetryAfterSeconds(error) }
+  }
+
   switch (code) {
     case 'UNAUTHORIZED':
       return { code, message: 'Your session could not be verified. Sign out and sign in again to continue. Your notes are still here.', retryable: false }
     case 'QUOTA_EXCEEDED':
       return { code, message: "You've reached today's AI organizing limit. Keep editing your notes and return after the daily limit resets.", retryable: false, blockReason: 'quota', retryAfterSeconds: retryAfterSeconds(error, secondsUntilUtcReset()) }
     case 'AI_RATE_LIMITED':
-      return { code, message: 'Mori is temporarily busy. Your notes remain in the editor; wait for the provider cooldown before retrying.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
+      return { code, message: 'Mori is temporarily busy. Your notes remain in the editor; wait for the provider cooldown before retrying.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error) }
     case 'AUTH_SERVICE_RATE_LIMITED':
-      return { code, message: 'Mori could not verify your session just now. Your notes remain in the editor; please try again when authentication is available.', retryable: true, blockReason: 'auth-service-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
+      return { code, message: 'Mori could not verify your session just now. Your notes remain in the editor; please try again when authentication is available.', retryable: true, blockReason: 'auth-service-rate-limit', retryAfterSeconds: retryAfterSeconds(error) }
     case 'AI_OUTPUT_INVALID':
     case 'INVALID_EXTRACTION_RESPONSE':
       return { code, message: "Mori couldn't validate the recipe it returned. Your notes are still here; you can edit them or retry.", retryable: true }
@@ -263,6 +269,16 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setDraft(pendingDraft)
     persistDraft(pendingDraft)
     setHandoff(null)
+    const timeoutId = window.setTimeout(() => {
+      if (!mounted.current || requestNumber.current !== currentRequest) return
+      // Invalidate even a transport that ignores abort, so its late result cannot replace a retry.
+      requestNumber.current++
+      controller.abort()
+      requestRef.current = null
+      inFlight.current = false
+      setLoading(false)
+      setError({ code: 'TIMEOUT', message: 'Mori took too long to organize your notes. Your notes are still here; please try again.', retryable: true })
+    }, 45_000)
     try {
       const recipe = await extract(sourceNotes, { userId, signal: controller.signal })
       if (controller.signal.aborted || !mounted.current || requestNumber.current !== currentRequest) return
@@ -287,6 +303,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         setNow(Date.now())
       }
     } finally {
+      window.clearTimeout(timeoutId)
       if (mounted.current && requestNumber.current === currentRequest) {
         inFlight.current = false
         requestRef.current = null
@@ -408,9 +425,9 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         </form>
 
         {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite"><Mori mood="stir" size={40} animated /> Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
-        {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="status" aria-live="polite">
+        {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
           {draft.blockedReason === 'quota'
-            ? `Today's AI limit is still in effect. You can organize notes again in ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'}.`
+            ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
             : draft.blockedReason === 'auth-service-rate-limit'
               ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
               : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}

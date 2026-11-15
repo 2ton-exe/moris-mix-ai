@@ -493,6 +493,26 @@ it('requests a fresh intent after attachment reports that the old intent was not
   expect(attachedUploadIds).toEqual([uploadId, retryUploadId])
 })
 
+it('recovers from a stalled upload without claiming success', async () => {
+  waitForPutAbort = true
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  vi.useFakeTimers()
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+  await act(async () => { await putStarted })
+  await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })
+  expect(putSignal?.aborted).toBe(true)
+  expect(attachCount).toBe(0)
+  expect(screen.getByRole('alert').textContent).toContain('took too long')
+  expect(screen.getByRole('button', { name: 'Retry upload' })).toBeTruthy()
+  expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(oldImageUrl)
+  vi.useRealTimers()
+})
+
 it('aborts an in-flight byte PUT when the recipe image panel unmounts', async () => {
   waitForPutAbort = true
   const view = renderEditPage()

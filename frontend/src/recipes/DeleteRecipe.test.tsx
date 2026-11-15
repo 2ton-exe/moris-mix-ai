@@ -147,7 +147,7 @@ it('shows pending feedback, locks both actions, blocks duplicate submits, and na
 
   await act(async () => request.resolve())
   expect(serverDeleted).toBe(true)
-  expect((await screen.findByRole('status')).textContent).toContain('Recipe deleted. Your collection has been updated.')
+  expect((await screen.findByRole('status')).textContent).toContain('Recipe deleted.')
   expect(screen.queryByRole('heading', { name: recipe.title, level: 1 })).toBeNull()
 })
 
@@ -178,12 +178,12 @@ it('does not carry a confirmed deletion notice into another account', async () =
   await waitForDetail()
   fireEvent.click(screen.getByRole('button', { name: 'Delete recipe' }))
   fireEvent.click(confirmButton(screen.getByRole('alertdialog')))
-  await screen.findByText('Recipe deleted. Your collection has been updated.')
+  await screen.findByText('Recipe deleted.')
 
   const previousClient = currentClient
   view.rerender(tree('/app/recipes', authState('cook-b'), source))
   await waitFor(() => expect(currentClient).not.toBe(previousClient))
-  expect(screen.queryByText('Recipe deleted. Your collection has been updated.')).toBeNull()
+  expect(screen.queryByText('Recipe deleted.')).toBeNull()
 })
 
 it('reconciles an interrupted network outcome and allows a deliberate retry', async () => {
@@ -199,7 +199,7 @@ it('reconciles an interrupted network outcome and allows a deliberate retry', as
   expect(document.body.textContent).not.toContain('private transport message')
   expect(screen.queryByText(/Recipe deleted/)).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByText('Recipe deleted. Your collection has been updated.')
+  await screen.findByText('Recipe deleted.')
   expect(deleteHandler).toHaveBeenCalledTimes(2)
 })
 
@@ -213,7 +213,7 @@ it('allows retry when DELETE returns an unexpected successful HTTP status', asyn
 
   expect((await screen.findByRole('alert')).textContent).toMatch(/could not confirm whether this recipe was deleted/i)
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByText('Recipe deleted. Your collection has been updated.')
+  await screen.findByText('Recipe deleted.')
   expect(deleteHandler).toHaveBeenCalledTimes(2)
 })
 
@@ -414,7 +414,7 @@ it('passes the current account identity and abort signal to the injected adapter
   fireEvent.click(screen.getByRole('button', { name: 'Delete recipe' }))
   fireEvent.click(confirmButton(screen.getByRole('alertdialog')))
 
-  await screen.findByText('Recipe deleted. Your collection has been updated.')
+  await screen.findByText('Recipe deleted.')
   expect(deleteHandler).toHaveBeenCalledWith(recipe.id, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
 })
 
