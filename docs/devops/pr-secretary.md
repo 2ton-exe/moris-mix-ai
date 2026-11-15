@@ -213,11 +213,13 @@ Expected skips follow the inspected existing workflows:
   or incomplete conclusion data. Absence is NOT RUN. Validation never establishes
   production execution or success.
 - **Staging:** `modular-pr-validation.yml` currently disables its staging job
-  for every PR. A skip is `SKIPPED — EXPECTED` only when the same-run, successful
-  `Classify PR paths` job contains the successful `Record intentionally disabled
-  PR staging` step. Missing, failed, stale, or mismatched evidence remains
-  `SKIPPED — INVESTIGATE`. This reports the intentional shutdown; it does not
-  imply that staging deployment or smoke ran or passed.
+  for every PR. Draft and fork skips remain expected under the existing
+  eligibility rules. For an otherwise eligible same-repository PR, the skip is
+  `SKIPPED — EXPECTED` only when the same-run, successful `Classify PR paths`
+  job contains the successful `Record intentionally disabled PR staging` step.
+  Missing, failed, stale, or mismatched evidence remains `SKIPPED — INVESTIGATE`.
+  This reports the intentional shutdown; it does not imply that staging
+  deployment or smoke ran or passed.
 - **Hosted RLS:** `Modular Edge/API / Hosted RLS Integration` is a separate
   main-only job, enabled by the main caller's mandatory input. An observed skip
   is expected on both internal and fork PRs. Missing main hosted credentials fail

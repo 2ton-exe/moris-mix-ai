@@ -143,11 +143,12 @@ remain present and must succeed; they are never skipped at the caller level.
 
 Secretary uses successful classifier step evidence from the same workflow run:
 the documentation-only marker explains E2E skips, while the explicit staging
-shutdown marker explains staging skips for all PRs. Both remain `SKIPPED —
-EXPECTED`, never passed executions. Missing or unsuccessful marker evidence does
-not excuse an otherwise unexpected skip. The markers and job metadata are
-available from the Jobs API; no extra permissions or deployment behavior are
-introduced.
+shutdown marker explains skips for otherwise eligible same-repository PRs.
+Draft and fork skips remain expected under the existing eligibility rules.
+These are `SKIPPED — EXPECTED`, never passed executions. Missing or unsuccessful
+marker evidence on an otherwise eligible PR does not excuse an unexpected skip.
+The markers and job metadata are available from the Jobs API; no extra
+permissions or deployment behavior are introduced.
 
 ### Measured hosted Stage A result
 
