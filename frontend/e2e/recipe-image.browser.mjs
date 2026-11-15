@@ -45,7 +45,7 @@ try {
   for (const [browserName, browserType] of Object.entries(matrix)) {
     const browser = await browserType.launch({ headless: true })
     try {
-      for (const width of [1280, 375]) {
+      for (const width of [1280, 768, 375, 320]) {
         const context = await browser.newContext({ viewport: { width, height: 844 } })
         const page = await context.newPage()
         const pageErrors = []
@@ -170,6 +170,20 @@ try {
         assert.deepEqual(pageErrors, [], `Browser page errors at ${width}px in ${browserName}`)
         assert.equal(putAttempts, 2)
         await page.goto(`${appOrigin}/app/recipes/${recipeId}`)
+        const bookmarks = page.getByRole('navigation', { name: 'Journal bookmarks' })
+        await expect(bookmarks).toBeVisible()
+        for (const name of ['Home', 'About', 'Demo recipe']) {
+          const link = bookmarks.getByRole('link', { name, exact: true })
+          await expect(link).toBeVisible()
+          const box = await link.boundingBox()
+          assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.y >= 0, 'Bookmarks must stay in the viewport')
+          const toolbarBox = await page.locator('.mm-desk-toolbar').boundingBox()
+          assert.ok(toolbarBox && (box.y >= toolbarBox.y + toolbarBox.height || box.x >= toolbarBox.x + toolbarBox.width), 'Bookmarks must not overlap the toolbar')
+          assert.equal(await link.evaluate((element) => {
+            const rect = element.getBoundingClientRect()
+            return element.contains(globalThis.document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+          }), true, 'Bookmarks must be clickable above the journal')
+        }
         const identity = page.getByRole('region', { name: 'Recipe identity and details' })
         const frame = identity.locator('figure.mm-recipe-artwork--detail')
         const photo = frame.getByRole('img', { name: 'Ginger rice photo' })

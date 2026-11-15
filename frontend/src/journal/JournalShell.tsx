@@ -26,13 +26,13 @@ export function JournalPageContainer({ className = '', children, ...props }: Com
   </div>
 }
 
-function JournalNavigation({ publicNavigation = false }: { publicNavigation?: boolean }) {
+function JournalNavigation({ publicNavigation = false, label = 'Journal sections' }: { publicNavigation?: boolean; label?: string }) {
   const location = useLocation()
   const { pathname } = location
   const creating = pathname === '/app/recipes/new'
   const editing = /^\/app\/recipes\/[^/]+\/edit\/?$/.test(pathname)
   const aiWorkflow = /^\/app\/(?:quick-entry|chef)(?:\/|$)/.test(pathname)
-  if (publicNavigation) return <nav className="mm-bookmarks" aria-label="Journal sections">
+  if (publicNavigation) return <nav className="mm-bookmarks" aria-label={label}>
     <Link className="mm-bookmark" to="/home" aria-current={pathname === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
     <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={pathname === '/about' ? 'page' : undefined}><Info size={16} aria-hidden="true" />About</Link>
     <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={pathname === '/demo-recipe' ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />Demo recipe</Link>
@@ -93,7 +93,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         <div className="mm-journal-ring-plate" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--left" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--right" aria-hidden="true" />
-        {publicNavigation && <JournalNavigation publicNavigation />}
+        <JournalNavigation publicNavigation label={publicNavigation ? 'Journal sections' : 'Journal bookmarks'} />
         <main className="mm-journal-spread" id="journal-content" tabIndex={-1}>
           <section className="mm-journal-flyleaf" aria-label="Facing journal page" tabIndex={0}>
             <PaperCard className="mm-bookplate" surface="fresh">
