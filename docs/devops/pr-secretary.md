@@ -13,9 +13,8 @@ The comment workflow remains informational and non-gating. Its deterministic
 regression tests run inside `reusable-frontend.yml`, producing the composed
 modular frontend check for each caller, from the repository root, using Node's
 built-in test runner with no added dependencies. A regression fails that existing
-modular frontend check. Staging skips are reported as expected only when the
-current PR workflow's same-run classifier evidence confirms the intentional
-shutdown; the Secretary does not change staging configuration or branch rules.
+modular frontend check. The retirement compatibility update changes the displayed
+workflow/check mapping; staging configuration and branch rules are unchanged.
 
 - `.github/workflows/pr-secretary.yml` resolves event metadata in a read-only job,
   then renders and upserts a comment in a separate per-PR job.
@@ -212,14 +211,13 @@ Expected skips follow the inspected existing workflows:
   including queued, requested, waiting, in progress, success, failure, cancelled,
   or incomplete conclusion data. Absence is NOT RUN. Validation never establishes
   production execution or success.
-- **Staging:** `modular-pr-validation.yml` currently disables its staging job
-  for every PR. Draft and fork skips remain expected under the existing
-  eligibility rules. For an otherwise eligible same-repository PR, the skip is
-  `SKIPPED — EXPECTED` only when the same-run, successful `Classify PR paths`
-  job contains the successful `Record intentionally disabled PR staging` step.
-  Missing, failed, stale, or mismatched evidence remains `SKIPPED — INVESTIGATE`.
-  This reports the intentional shutdown; it does not imply that staging
-  deployment or smoke ran or passed.
+- **Staging:** `modular-pr-validation.yml` requires a non-draft PR whose head
+  repository matches this repository, plus successful frontend/database/Edge
+  dependencies. Draft/fork skips are expected; author-association labels do
+  not affect eligibility. Restricted repository write access is the trust
+  boundary for same-repository staging branches. An otherwise eligible PR's
+  skip is investigated, with an upstream-check reminder; the Secretary does
+  not invent credential or deployment evidence.
 - **Hosted RLS:** `Modular Edge/API / Hosted RLS Integration` is a separate
   main-only job, enabled by the main caller's mandatory input. An observed skip
   is expected on both internal and fork PRs. Missing main hosted credentials fail
@@ -412,9 +410,8 @@ observed gate names for:
 3. CI/modular start/completion and reruns, including failed/pending/missing
    required contexts, app identity bindings (including unknown/wrong app evidence),
    and actual nested reusable check names. Confirm expected
-   fork/draft staging and hosted skips, and confirm the same-run marker for the
-   intentionally disabled staging job. Missing marker evidence remains an
-   investigation. Never trigger production as a Secretary test.
+   fork/draft staging and hosted skips, and investigate eligible skips using
+   existing workflow evidence. Never trigger production as a Secretary test.
 4. CodeRabbit absence, conversation-only activity, current-revision review,
    unresolved/resolved threads, path routing, and scheduled refresh. Confirm
    ordinary user comments and Secretary updates cause no writer loop.

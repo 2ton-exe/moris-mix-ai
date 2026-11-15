@@ -26,6 +26,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const [handoff, setHandoff] = useState<ChefReviewHandoff | null>(initialRead.draft.handoff)
   const [pending, setPending] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
+  const [requestErrorForPantry, setRequestErrorForPantry] = useState(false)
   const [entryError, setEntryError] = useState<string | null>(null)
   const [entryStatus, setEntryStatus] = useState('')
   const [storageIssue, setStorageIssue] = useState<string | null>(initialRead.status === 'available' ? null : initialRead.status)
@@ -43,14 +44,19 @@ function AIChefSession({ userId }: { userId: string }) {
     setStorageIssue(result.persisted ? null : result.reason)
   }
 
+  function clearRequestError() {
+    setRequestError(null)
+    setRequestErrorForPantry(false)
+  }
+
   function updatePantryItems(next: string[]) {
     setPantryItems(next)
-    setRequestError(null)
+    clearRequestError()
     persistInput({ pantryItems: next, pantryInput, preferences })
   }
 
   function addCurrentIngredient() {
-    setRequestError(null)
+    clearRequestError()
     const result = addPantryItems(pantryItems, splitPastedPantryText(pantryInput))
     if (result.error) {
       setEntryError(pantryEntryErrorMessage(result.error) ?? 'Check this pantry item.')
@@ -76,19 +82,19 @@ function AIChefSession({ userId }: { userId: string }) {
     setPantryInput(value)
     persistInput({ pantryItems, pantryInput: value, preferences })
     setEntryError(null)
-    setRequestError(null)
+    clearRequestError()
   }
 
   function updatePreferences(value: string) {
     setPreferences(value)
     persistInput({ pantryItems, pantryInput, preferences: value })
-    setRequestError(null)
+    clearRequestError()
   }
 
   async function requestSuggestion(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault()
     if (inFlight.current || handoff) return
-    setRequestError(null)
+    clearRequestError()
     setEntryError(null)
 
     const requestBody = {
@@ -98,6 +104,7 @@ function AIChefSession({ userId }: { userId: string }) {
     const parsed = generateRecipeRequestSchema.safeParse(requestBody)
     if (!parsed.success) {
       const pantryIssue = parsed.error.issues.some((issue) => issue.path[0] === 'pantryItems')
+      setRequestErrorForPantry(pantryIssue)
       setRequestError(pantryIssue
         ? pantryItems.length === 0
           ? 'Add at least one pantry ingredient before asking Mori.'
@@ -211,7 +218,7 @@ function AIChefSession({ userId }: { userId: string }) {
             type="text"
             value={pantryInput}
             aria-invalid={entryError ? 'true' : undefined}
-            aria-describedby={entryError ? 'pantry-help pantry-entry-error' : 'pantry-help'}
+            aria-describedby={`pantry-help${entryError ? ' pantry-entry-error' : ''}${requestErrorForPantry ? ' ai-chef-request-error' : ''}`}
             placeholder="e.g. rice, eggs, tomatoes"
             onChange={(event) => updatePantryInput(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -224,7 +231,7 @@ function AIChefSession({ userId }: { userId: string }) {
               const pasted = event.clipboardData.getData('text')
               if (!/[,\r\n]/.test(pasted)) return
               event.preventDefault()
-              setRequestError(null)
+              clearRequestError()
               const result = addPantryItems(pantryItems, splitPastedPantryText(pasted))
               if (result.error) {
                 setEntryError(pantryEntryErrorMessage(result.error) ?? 'Check these pantry items.')
@@ -263,7 +270,7 @@ function AIChefSession({ userId }: { userId: string }) {
         <p id="ai-chef-preferences-help" className="mm-ai-chef__help">Preferences apply to this request only. {preferences.length} / {MAX_PREFERENCES_CHARS} characters.</p>
       </fieldset>
 
-      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
+      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
       <div className="mm-ai-chef__actions">
         <button className="button button-primary" type="submit" disabled={pending || handoff !== null}>{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
         {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your pantry and preparing a recipe. This can take a little while.</p>}

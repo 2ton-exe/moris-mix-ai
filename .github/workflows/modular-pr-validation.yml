@@ -1,6 +1,6 @@
 name: Modular PR Validation
 
-# PR validation; staging and production delivery are disabled for PRs.
+# PR validation and eligible staging delivery; production belongs to modular-main.yml.
 on:
   pull_request:
     branches: [main]
@@ -42,9 +42,6 @@ jobs:
       - name: Record documentation-only E2E/staging skips
         if: steps.classify.outputs.docs_only == 'true' && steps.classify.outputs.e2e == 'skip' && steps.classify.outputs.staging == 'skip'
         run: echo "Verified documentation-only decision; E2E and staging will not execute."
-      - name: Record intentionally disabled PR staging
-        run: echo "Staging deploy and smoke are intentionally disabled for pull requests."
-
   frontend:
     name: Modular Frontend
     needs: classify
@@ -75,11 +72,25 @@ jobs:
 
   staging:
     name: Modular Staging
-    # Keep the existing check visible as skipped; PR validation cannot deploy.
-    if: ${{ false }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "PR staging deployment is disabled."
+    needs:
+      - classify
+      - frontend
+      - test-db
+      - test-edge-api
+
+    if: >
+      !cancelled() &&
+      needs.frontend.result == 'success' &&
+      needs.test-db.result == 'success' &&
+      needs.test-edge-api.result == 'success' &&
+      !(needs.classify.result == 'success' && needs.classify.outputs.docs_only == 'true' && needs.classify.outputs.staging == 'skip') &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    uses: ./.github/workflows/reusable-staging.yml
+    secrets:
+      STAGING_CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+      STAGING_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.STAGING_CLOUDFLARE_ACCOUNT_ID }}
 
   test-e2e:
     name: Modular E2E

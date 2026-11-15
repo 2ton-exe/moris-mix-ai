@@ -120,7 +120,11 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toContain('Add at least one pantry ingredient')
-    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Pantry ingredient' }))
+    const pantryInput = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+    expect(document.activeElement).toBe(pantryInput)
+    expect(screen.getByRole('textbox', {
+      name: 'Pantry ingredient', description: /Add at least one pantry ingredient/,
+    })).toBe(pantryInput)
     expect(generate).not.toHaveBeenCalled()
 
     addIngredient('rice')

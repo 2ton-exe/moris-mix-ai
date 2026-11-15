@@ -97,12 +97,12 @@ function gateChecks(checks, workflow, name) {
     (!c.app || c.app.slug === 'github-actions') && !c.context);
 }
 
-function classifierStepSucceeded(checks, check, stepName) {
+function docsOnlySkip(checks, check) {
   return Number.isSafeInteger(check?.run_id) && checks.some(c =>
     c.name === 'Classify PR paths' && c.workflow === 'Modular PR Validation' &&
     c.app?.slug === 'github-actions' && c.run_id === check.run_id &&
     c.status === 'completed' && c.conclusion === 'success' &&
-    c.steps?.some(s => s.name === stepName &&
+    c.steps?.some(s => s.name === 'Record documentation-only E2E/staging skips' &&
       s.status === 'completed' && s.conclusion === 'success'));
 }
 
@@ -181,9 +181,7 @@ export function summarize(data) {
     const check = unexpectedProduction ?? evidence[0];
     const staging = label.startsWith('Staging');
     const expectedSkip = label === 'Production deploy' || (staging && !stagingEligible(pr, repository)) ||
-      ((staging || label === 'E2E (non-gating)') && classifierStepSucceeded(checks, check,
-        'Record documentation-only E2E/staging skips')) ||
-      (staging && classifierStepSucceeded(checks, check, 'Record intentionally disabled PR staging')) ||
+      ((staging || label === 'E2E (non-gating)') && docsOnlySkip(checks, check)) ||
       label === 'Hosted RLS';
     const applicable = pr.base.ref === 'main';
     const state = normalize(check, { expectedSkip, applicable });
