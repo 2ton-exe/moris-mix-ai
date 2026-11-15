@@ -43,7 +43,7 @@ Run on candidate `0ccdc563b1131cb2ca14fec4f99d538eb39bc44f` on 2026-11-15:
 - [x] Exercise malformed output and provider failures with preserved input and no unintended writes.
 - [x] Exercise quota exhaustion for Quick AI and Chef with safe messages and no recipe or lineage writes.
 - [x] Run the prepared Quick AI fallback headed through preview, edit, save, reopen, and cleanup.
-- [ ] Rehearse the presenter’s spoken order and timing with the intended audience.
+- [ ] Human presenter rehearsal: confirm the spoken order and timing with the intended audience. This remains required before any live-presentation claims; neither the automated nor headed Playwright runs established it.
 - [ ] Verify live Gemini behavior separately if the presentation intends to claim live generation.
 
 Present only the checked local behavior as verified. The unchecked items remain outside this automated record.
