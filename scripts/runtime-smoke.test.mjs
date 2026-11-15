@@ -164,7 +164,8 @@ test('full smoke records separate outcomes and never emits key/response data', a
 
 test('production smoke verifies account-export is deployed and rejects unauthenticated access', async () => {
   const prod = { ...env, SMOKE_ENVIRONMENT: 'production', SMOKE_PROJECT_REF: 'gtbwblxskctpsqhbpebg',
-    SMOKE_SUPABASE_URL: 'https://gtbwblxskctpsqhbpebg.supabase.co', SMOKE_FRONTEND_URL: 'https://production.example.com' };
+    SMOKE_SUPABASE_URL: 'https://gtbwblxskctpsqhbpebg.supabase.co', SMOKE_FRONTEND_URL: 'https://production.example.com',
+    SMOKE_ACCOUNT_EXPORT_OUTCOME: 'success' };
   const calls = [];
   const data = structuredClone(fixture);
   const result = await runSmoke(prod, { ...offline, fetchImpl: async (url, options) => {
@@ -209,6 +210,21 @@ test('production smoke verifies account-export is deployed and rejects unauthent
   ]), [['OPTIONS', null], ['GET', prod.SMOKE_PUBLIC_KEY]]);
   assert.ok(calls.filter(([url]) => url.pathname === '/functions/v1/account-export').every(([url]) => !url.search));
   assert.ok(!JSON.stringify(result).includes(prod.SMOKE_PUBLIC_KEY));
+});
+
+test('production smoke skips account-export when its release gate is disabled', async () => {
+  const prod = { ...env, SMOKE_ENVIRONMENT: 'production', SMOKE_PROJECT_REF: 'gtbwblxskctpsqhbpebg',
+    SMOKE_SUPABASE_URL: 'https://gtbwblxskctpsqhbpebg.supabase.co', SMOKE_FRONTEND_URL: 'https://production.example.com',
+    SMOKE_ACCOUNT_EXPORT_OUTCOME: 'skipped' };
+  const calls = [];
+  const result = await runSmoke(prod, { ...offline, fetchImpl: async url => {
+    calls.push(url);
+    if (url.pathname === '/functions/v1/demo-recipe') return response(JSON.stringify(fixture), 'application/json');
+    return url.pathname === '/home' ? response(html, 'text/html') : response('export {}', 'application/javascript');
+  } });
+  assert.equal(result.outcome, 'passed');
+  assert.equal(result.checks.account_export, 'not deployed (release gate disabled)');
+  assert.equal(calls.some(url => url.pathname === '/functions/v1/account-export'), false);
 });
 
 test('missing backend/function fails smoke while frontend successes remain evidence', async () => {

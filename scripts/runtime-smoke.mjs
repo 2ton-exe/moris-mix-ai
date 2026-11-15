@@ -156,8 +156,8 @@ export async function request(url, contentTypes, validate, {
  * while still allowing the demo check. The overall outcome passes only if every
  * check passes. Backend revision evidence remains operator-attested.
  *
- * @param {object} env Settings for configuration(), plus optional SMOKE_PR_HEAD_SHA
- * and SMOKE_DEPLOYMENT_OUTCOME metadata and SMOKE_PUBLIC_KEY for public API probes.
+ * @param {object} env Settings for configuration(), plus optional SMOKE_PR_HEAD_SHA,
+ * SMOKE_DEPLOYMENT_OUTCOME, SMOKE_ACCOUNT_EXPORT_OUTCOME, and SMOKE_PUBLIC_KEY metadata.
  * @param {object} [options] Overrides for request(); API probe headers are replaced with the required public key.
  * @returns {Promise<object>} Evidence with timestamps, revision metadata, check results, and overall outcome.
  */
@@ -206,7 +206,7 @@ export async function runSmoke(env, options = {}) {
         });
       evidence.checks.demo_database = `passed (${result.attempts} attempt(s))`;
     } catch (error) { evidence.checks.demo_database = `failed (${failure(error)})`; }
-    if (env.SMOKE_ENVIRONMENT === 'production') {
+    if (env.SMOKE_ENVIRONMENT === 'production' && env.SMOKE_ACCOUNT_EXPORT_OUTCOME === 'success') {
       try {
         const exportUrl = new URL('/functions/v1/account-export', urls.api);
         const validateExportCors = response => {
@@ -237,11 +237,15 @@ export async function runSmoke(env, options = {}) {
         });
         evidence.checks.account_export = `passed (${result.attempts} attempt(s))`;
       } catch (error) { evidence.checks.account_export = `failed (${failure(error)})`; }
+    } else if (env.SMOKE_ENVIRONMENT === 'production') {
+      evidence.checks.account_export = 'not deployed (release gate disabled)';
     } else {
       evidence.checks.account_export = 'not applicable (production only)';
     }
   }
-  evidence.outcome = Object.values(evidence.checks).every(value => value.startsWith('passed') || value === 'not applicable (production only)') ? 'passed' : 'failed';
+  evidence.outcome = Object.values(evidence.checks).every(value =>
+    value.startsWith('passed') || value === 'not applicable (production only)' || value === 'not deployed (release gate disabled)'
+  ) ? 'passed' : 'failed';
   evidence.finished_at = new Date().toISOString();
   return evidence;
 }

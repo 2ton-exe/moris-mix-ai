@@ -218,7 +218,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
-  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function')) {
+  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function' && name !== 'Deploy account-export Edge Function')) {
     assert.equal(step(release, name).if, undefined);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
@@ -253,6 +253,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   for (const target of ['recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach']) {
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
+    assert.equal(deploy.if, target === 'account-export' ? false : undefined);
     assert.equal(deploy['working-directory'], 'frontend');
     assert.deepEqual(deploy.env, configuration.env);
     assert.ok(deploy.run.includes(`pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy ${target}`));
@@ -287,6 +288,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(step(release, 'Production runtime smoke').id, 'runtime-smoke');
   assert.equal(step(release, 'Production runtime smoke').run, 'node scripts/runtime-smoke.mjs');
   assert.equal(step(release, 'Production runtime smoke').env.SMOKE_DEPLOYMENT_OUTCOME, '${{ steps.deploy-cloudflare.outcome }}');
+  assert.equal(step(release, 'Production runtime smoke').env.SMOKE_ACCOUNT_EXPORT_OUTCOME, '${{ steps.deploy-account-export.outcome }}');
   for (const name of ordered.slice(-3)) {
     assert.equal(step(release, name).if, 'always()');
     assert.notEqual(step(release, name)['continue-on-error'], true);

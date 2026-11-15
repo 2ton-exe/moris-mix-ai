@@ -134,6 +134,8 @@ jobs:
 
       - name: Deploy account-export Edge Function
         id: deploy-account-export
+        # Keep the capacity-gated BE-16 endpoint off production until its acceptance gates pass.
+        if: false
         working-directory: frontend
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -232,6 +234,7 @@ jobs:
         id: runtime-smoke
         env:
           SMOKE_DEPLOYMENT_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
+          SMOKE_ACCOUNT_EXPORT_OUTCOME: ${{ steps.deploy-account-export.outcome }}
         run: node scripts/runtime-smoke.mjs
 
       - name: Record production deployment and runtime outcomes
