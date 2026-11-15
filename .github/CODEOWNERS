@@ -3,5 +3,6 @@
 
 /.github/CODEOWNERS @DaeSaster @myntchoc
 /.github/workflows/** @DaeSaster @myntchoc
+/scripts/classify_restore_component.py @DaeSaster @myntchoc
 /scripts/ci-path-classifier.mjs @DaeSaster @myntchoc
 /scripts/ci-path-classifier.test.mjs @DaeSaster @myntchoc

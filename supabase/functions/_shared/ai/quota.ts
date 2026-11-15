@@ -1,17 +1,26 @@
-import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.39.8";
+import {
+  createClient,
+  type SupabaseClient,
+} from "npm:@supabase/supabase-js@2.39.8";
 
 export const DEFAULT_AI_DAILY_LIMIT = 20;
 export const AI_DAILY_LIMIT_ENV = "AI_DAILY_LIMIT";
 
 export type QuotaDecision =
   | {
-      status: "allowed";
-      limit: number;
-      used: number;
-      confirm?: () => Promise<void>;
-      rollback?: () => Promise<void>;
-    }
-  | { status: "exceeded"; limit: number; used: number; retryAfterSeconds: number }
+    status: "allowed";
+    limit: number;
+    used: number;
+    confirm?: () => Promise<void>;
+    rollback?: () => Promise<void>;
+  }
+  | {
+    status: "exceeded";
+    limit: number;
+    used: number;
+    retryAfterSeconds: number;
+  }
+  | { status: "rate_limited"; retryAfterSeconds: number }
   | { status: "unavailable"; limit: number };
 
 export type QuotaCheckDeps = {
@@ -28,12 +37,16 @@ export type QuotaCheck = (
   deps?: QuotaCheckDeps,
 ) => Promise<QuotaDecision>;
 
-export function resolveDailyLimit(raw: string | undefined = Deno.env.get(AI_DAILY_LIMIT_ENV)): number {
+export function resolveDailyLimit(
+  raw: string | undefined = Deno.env.get(AI_DAILY_LIMIT_ENV),
+): number {
   if (typeof raw !== "string") return DEFAULT_AI_DAILY_LIMIT;
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) return DEFAULT_AI_DAILY_LIMIT;
   const parsed = Number(trimmed);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) return DEFAULT_AI_DAILY_LIMIT;
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    return DEFAULT_AI_DAILY_LIMIT;
+  }
   return parsed;
 }
 
@@ -42,15 +55,52 @@ export function utcDateString(now: Date = new Date()): string {
 }
 
 export function secondsUntilNextUtcDay(now: Date = new Date()): number {
-  const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  const nextMidnight = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  );
   return Math.max(1, Math.ceil((nextMidnight - now.getTime()) / 1000));
 }
 
 function readOperationCount(row: unknown): number | null {
   if (typeof row !== "object" || row === null) return null;
   const value = (row as { operation_count?: unknown }).operation_count;
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    return null;
+  }
   return value;
+}
+
+function readSafeErrorMetadata(error: unknown): {
+  code?: string;
+  status?: number;
+} {
+  if (typeof error !== "object" || error === null) return {};
+  const candidate = error as { code?: unknown; status?: unknown };
+  const metadata: { code?: string; status?: number } = {};
+  if (
+    typeof candidate.code === "string" &&
+    /^[A-Za-z0-9_]{1,32}$/.test(candidate.code)
+  ) {
+    metadata.code = candidate.code;
+  }
+  if (
+    typeof candidate.status === "number" &&
+    Number.isInteger(candidate.status) &&
+    candidate.status >= 100 && candidate.status < 600
+  ) {
+    metadata.status = candidate.status;
+  }
+  return metadata;
+}
+
+export function logQuotaRpcFailure(stage: string, error?: unknown): void {
+  console.error(JSON.stringify({
+    event: "ai_quota_rpc_failed",
+    stage,
+    ...readSafeErrorMetadata(error),
+  }));
 }
 
 export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
@@ -67,7 +117,11 @@ export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
     return { status: "unavailable", limit };
   }
 
-  const rows = Array.isArray(data) ? data : data === null || data === undefined ? [] : [data];
+  const rows = Array.isArray(data)
+    ? data
+    : data === null || data === undefined
+    ? []
+    : [data];
   if (rows.length === 0) {
     return { status: "allowed", limit, used: 0 };
   }
@@ -78,19 +132,29 @@ export const checkDailyQuota: QuotaCheck = async (userId, supabase) => {
   }
 
   if (used >= limit) {
-    return { status: "exceeded", limit, used, retryAfterSeconds: secondsUntilNextUtcDay() };
+    return {
+      status: "exceeded",
+      limit,
+      used,
+      retryAfterSeconds: secondsUntilNextUtcDay(),
+    };
   }
 
   return { status: "allowed", limit, used };
 };
 
-export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => {
+export const consumeDailyQuota: QuotaCheck = async (
+  userId,
+  _supabase,
+  deps,
+) => {
   const limit = resolveDailyLimit();
   const usageDate = deps?.usageDate ?? utcDateString();
   const reservationId = deps?.reservationId ?? crypto.randomUUID();
 
   const supabaseUrl = deps?.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
-  const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ??
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     console.error("Missing service role configuration for quota consumption");
@@ -107,8 +171,8 @@ export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => 
       },
       ...(deps?.fetch ? { global: { fetch: deps.fetch } } : {}),
     });
-  } catch (err) {
-    console.error("Failed to initialize service role client for quota consumption", err);
+  } catch (error) {
+    logQuotaRpcFailure("client_initialization", error);
     return { status: "unavailable", limit };
   }
 
@@ -120,13 +184,13 @@ export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => 
       p_daily_limit: limit,
       p_usage_date: usageDate,
     });
-  } catch (err) {
-    console.error("RPC consume_ai_quota network or execution failure", err);
+  } catch (error) {
+    logQuotaRpcFailure("request", error);
     return { status: "unavailable", limit };
   }
 
   if (rpcResult.error) {
-    console.error("RPC consume_ai_quota returned error", rpcResult.error);
+    logQuotaRpcFailure("response", rpcResult.error);
     return { status: "unavailable", limit };
   }
 
@@ -135,6 +199,7 @@ export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => 
     is_new?: boolean;
     limit?: number;
     used?: number;
+    retry_after_seconds?: number;
   } | null;
 
   if (!res || typeof res !== "object") {
@@ -148,6 +213,15 @@ export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => 
       used: typeof res.used === "number" ? res.used : limit,
       retryAfterSeconds: secondsUntilNextUtcDay(),
     };
+  }
+
+  if (res.status === "rate_limited") {
+    const retryAfter = typeof res.retry_after_seconds === "number" &&
+        Number.isSafeInteger(res.retry_after_seconds) &&
+        res.retry_after_seconds >= 1
+      ? Math.min(60, res.retry_after_seconds)
+      : 60;
+    return { status: "rate_limited", retryAfterSeconds: retryAfter };
   }
 
   if (res.status === "conflict") {
@@ -169,27 +243,43 @@ export const consumeDailyQuota: QuotaCheck = async (userId, _supabase, deps) => 
       used,
       confirm: async () => {
         try {
-          const { error: confirmError } = await serviceClient.rpc("confirm_ai_quota", {
-            p_reservation_id: reservationId,
-          });
+          const { error: confirmError } = await serviceClient.rpc(
+            "confirm_ai_quota",
+            {
+              p_reservation_id: reservationId,
+            },
+          );
           if (confirmError) {
             throw confirmError;
           }
         } catch (error) {
-          console.error(JSON.stringify({ event: "ai_quota_confirmation_failed", reservationId }));
+          console.error(
+            JSON.stringify({
+              event: "ai_quota_confirmation_failed",
+              reservationId,
+            }),
+          );
           throw error;
         }
       },
       rollback: async () => {
         try {
-          const { error: rollbackError } = await serviceClient.rpc("reconcile_ai_quota", {
-            p_reservation_id: reservationId,
-          });
+          const { error: rollbackError } = await serviceClient.rpc(
+            "reconcile_ai_quota",
+            {
+              p_reservation_id: reservationId,
+            },
+          );
           if (rollbackError) {
             throw rollbackError;
           }
         } catch (error) {
-          console.error(JSON.stringify({ event: "ai_quota_rollback_failed", reservationId }));
+          console.error(
+            JSON.stringify({
+              event: "ai_quota_rollback_failed",
+              reservationId,
+            }),
+          );
           throw error;
         }
       },
@@ -205,10 +295,13 @@ export async function reconcileUnconfirmedReservation(
   deps?: QuotaCheckDeps,
 ): Promise<{ reconciled: boolean; status: string; used?: number }> {
   const supabaseUrl = deps?.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
-  const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ??
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error("Missing service role credentials for administrative reconciliation");
+    throw new Error(
+      "Missing service role credentials for administrative reconciliation",
+    );
   }
 
   const serviceClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -220,10 +313,13 @@ export async function reconcileUnconfirmedReservation(
     ...(deps?.fetch ? { global: { fetch: deps.fetch } } : {}),
   });
 
-  const { data, error } = await serviceClient.rpc("reconcile_unconfirmed_reservation", {
-    p_reservation_id: reservationId,
-    p_reason: reason,
-  });
+  const { data, error } = await serviceClient.rpc(
+    "reconcile_unconfirmed_reservation",
+    {
+      p_reservation_id: reservationId,
+      p_reason: reason,
+    },
+  );
 
   if (error) {
     throw error;

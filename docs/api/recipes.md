@@ -19,7 +19,9 @@ This contract defines the authenticated recipe REST endpoints (`supabase/functio
 
 - **Authentication:** `Authorization: Bearer <supabase-access-token>` is required and verified by the handler.
 - **API key:** `apikey` is optional for this handler and is not used to authenticate the caller. Supabase clients may send the project key alongside the user token.
-- **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended but the handler does not enforce the header.
+- **Request body:** `POST` and `PATCH` require a valid JSON object. `Content-Type: application/json` is recommended; if supplied, it must be JSON. Bodies are read as a stream and capped at **256 KiB**; an oversized declared length is rejected early, and the streamed byte count remains authoritative when the header is missing or inaccurate. Lineage POST remains capped at **16 KiB**.
+- **Field limits:** Recipe title is at most 200 characters; raw input and notes are each at most 20,000 characters; each ingredient and instruction collection is at most 100 entries; ingredient names, units, and quantity text are capped at 200, 100, and 200 characters; instruction text is at most 2,000 characters. Search terms are at most 200 characters and encoded cursors at most 4,096 characters. Limits are checked before database writes or search RPC calls.
+- **Request IDs:** Every handler response includes a server-generated `X-Request-ID`, exposed to browsers through CORS. Server failures emit a metadata-only diagnostic with the same ID, endpoint, and status. Client-supplied IDs are not trusted or reused.
 - **Query parameters:** collection `GET` accepts `search`, `searchMode`, `title`, `ingredient`, `sort`, `pagination`, `limit`, `cursor`, and legacy `offset`.
 - **Access control:** authenticated users only. Verified through `authenticateRequest(req, deps)` (`supabase/functions/_shared/auth.ts`). All queries and database operations are strictly scoped to the authenticated caller (`auth.uid() = user_id`).
 - **Preflight exception:** `OPTIONS` preflight requests are handled before authentication and return `204 No Content` with CORS headers.
@@ -477,6 +479,9 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | `400 Bad Request` | `VALIDATION_ERROR` | `A recipe cannot be its own parent.` | Lineage `parent_recipe_ids` contains child recipe ID or database check `23514` fails. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid recipe ID.` | Route parameter `:id` is not a valid UUID string. Includes `error.details` array with `path: "id"`. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination parameters.` | Collection `GET` has invalid or duplicate `pagination`, invalid, duplicate, or out-of-range `limit` or `offset`, or incompatible cursor/offset pagination parameters. |
+| `400 Bad Request` | `VALIDATION_ERROR` | `Invalid search parameter.` | Search/title/ingredient values exceed 200 characters. |
+| `413 Payload Too Large` | `INPUT_TOO_LARGE` | `Request body is too large.` | Request body exceeds the applicable recipe or lineage byte limit. |
+| `415 Unsupported Media Type` | `UNSUPPORTED_MEDIA_TYPE` | `Content-Type must be application/json.` | A body-bearing route was sent an explicit non-JSON content type. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid pagination cursor.` | Collection `GET` has a malformed, corrupt, or incompatible `cursor`. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid sort parameter.` | Collection `GET` has an invalid or duplicate `sort` query parameter. |
 | `400 Bad Request` | `VALIDATION_ERROR` | `Invalid search parameter.` | Collection `GET` has duplicate `search`, `title`, or `ingredient` parameters, or combines a non-empty `search` with either non-empty legacy filter. |

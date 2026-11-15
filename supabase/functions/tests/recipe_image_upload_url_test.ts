@@ -147,7 +147,19 @@ function mock(
           assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
           assertEquals(headers.get("apikey"), SERVICE_KEY);
           const args = JSON.parse(String(init?.body));
-          intents.push({
+          const existing = uploadRecords.get(args.p_id);
+          if (existing) {
+            const retryable = existing.user_id === args.p_user_id &&
+              existing.recipe_id === args.p_recipe_id &&
+              existing.content_type === args.p_content_type &&
+              existing.byte_size === args.p_byte_size &&
+              existing.state === "pending" &&
+              existing.cleanup_status === "waiting" &&
+              Date.parse(String(existing.expires_at)) >
+                Date.parse("2026-11-02T00:00:00Z") + 30_000;
+            return Response.json(retryable ? "allowed" : "conflict");
+          }
+          const intent = {
             id: args.p_id,
             user_id: args.p_user_id,
             recipe_id: args.p_recipe_id,
@@ -157,19 +169,11 @@ function mock(
             byte_size: args.p_byte_size,
             created_at: args.p_created_at,
             expires_at: args.p_expires_at,
-            state: "pending",
-          });
+            state: "pending" as const,
+          };
+          intents.push(intent);
           uploadRecords.set(args.p_id, {
-            id: args.p_id,
-            user_id: args.p_user_id,
-            recipe_id: args.p_recipe_id,
-            staging_key: args.p_staging_key,
-            final_key: args.p_final_key,
-            content_type: args.p_content_type,
-            byte_size: args.p_byte_size,
-            created_at: args.p_created_at,
-            expires_at: args.p_expires_at,
-            state: "pending",
+            ...intent,
             cleanup_status: "waiting",
           });
           if (options.persistenceFailure) {
@@ -301,13 +305,14 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
     const body = await response.json();
     assertEquals(Object.keys(body), ["upload"]);
     assertEquals(Object.keys(body.upload).sort(), [
+      "byte_size",
       "expires_at",
       "headers",
       "id",
       "method",
       "url",
     ]);
-    assertEquals(calls.length, 3);
+    assertEquals(calls.length, 4);
     assertEquals(intents.length, 1);
     const intent = intents[0];
     assertEquals(intent.user_id, USER);
@@ -318,22 +323,36 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
     assertEquals(intent.created_at, "2026-11-02T00:00:00.000Z");
     assertEquals(intent.expires_at, "2026-11-02T00:10:00.000Z");
     assertEquals(body.upload.id, intent.id);
+    assertEquals(body.upload.byte_size, intent.byte_size);
     assertEquals(body.upload.expires_at, intent.expires_at);
     assertEquals(body.upload.method, "PUT");
-    assertEquals(body.upload.headers, { "Content-Type": content_type });
+    assertEquals(body.upload.headers, {
+      "Content-Type": content_type,
+      "If-None-Match": "*",
+    });
     const url = new URL(body.upload.url);
-    assertEquals(url.origin, "https://mock.supabase.co");
-    assertEquals(url.pathname, "/functions/v1/recipe-image-upload-url");
-    assertEquals(url.searchParams.get("upload_id"), intent.id);
-    assertEquals(url.searchParams.has("X-Amz-Signature"), false);
+    assertEquals(
+      url.origin,
+      `https://${config.accountId}.r2.cloudflarestorage.com`,
+    );
+    assertEquals(
+      url.pathname,
+      `/${config.bucketName}/${intent.staging_key}`,
+    );
+    assertEquals(url.searchParams.get("X-Amz-Expires"), "600");
+    assertEquals(
+      url.searchParams.get("X-Amz-SignedHeaders"),
+      "content-length;content-type;host;if-none-match",
+    );
+    assertEquals(url.searchParams.has("X-Amz-Signature"), true);
     const serialized = JSON.stringify(body);
+    assertEquals(serialized.includes(intent.staging_key), true);
     for (
       const secret of [
         SERVICE_KEY,
         config.secretAccessKey,
         intent.final_key,
         "user_id",
-        "staging_key",
         "final_key",
       ]
     ) {
@@ -354,6 +373,43 @@ Deno.test("each upload authorization creates a fresh intent without modifying re
     ) => call.method === "GET"),
     true,
   );
+});
+
+Deno.test("a retry after a lost authorization response reuses the pending intent", async () => {
+  const options = { persistenceFailure: true };
+  const { deps, intents } = mock(options);
+  const requestId = crypto.randomUUID();
+  const retryRequest = () => request({ ...payload, request_id: requestId });
+
+  await expectError(await handler(retryRequest(), deps), 500, "INTERNAL_ERROR");
+  options.persistenceFailure = false;
+  const response = await handler(retryRequest(), deps);
+  assertEquals(response.status, 200);
+
+  const upload = (await response.json()).upload;
+  assertEquals(upload.id, requestId);
+  assertEquals(upload.expires_at, "2026-11-02T00:10:00.000Z");
+  assertEquals(intents.length, 1);
+});
+
+Deno.test("reusing a request ID for different image metadata returns a conflict", async () => {
+  const { deps, intents } = mock();
+  const requestId = crypto.randomUUID();
+
+  assertEquals(
+    (await handler(request({ ...payload, request_id: requestId }), deps))
+      .status,
+    200,
+  );
+  await expectError(
+    await handler(
+      request({ ...payload, byte_size: 11, request_id: requestId }),
+      deps,
+    ),
+    409,
+    "UPLOAD_REQUEST_CONFLICT",
+  );
+  assertEquals(intents.length, 1);
 });
 
 Deno.test("upload ingress accepts the exact limit and rejects oversize or mismatched bodies before R2", async () => {
@@ -861,59 +917,6 @@ Deno.test("signing failures expose no credentials, keys, URLs or raw exceptions 
     assertEquals(intents.length, 1);
   } finally {
     console.error = original;
-  }
-});
-
-Deno.test("upload URLs use the configured public origin while server requests stay internal", async () => {
-  const { deps, intents, calls } = mock();
-  deps.supabaseUrl = "http://kong:8000";
-  deps.uploadOrigin = "http://127.0.0.1:54321";
-  const response = await handler(
-    request({
-      recipe_id: RECIPE,
-      content_type: "image/png",
-      byte_size: 1024,
-    }),
-    deps,
-  );
-  assertEquals(response.status, 200);
-  const url = new URL((await response.json()).upload.url);
-  assertEquals(url.origin, "http://127.0.0.1:54321");
-  assertEquals(url.pathname, "/functions/v1/recipe-image-upload-url");
-  assertEquals(intents.length, 1);
-  assertEquals(
-    calls.every((call) => call.url.origin === "http://kong:8000"),
-    true,
-  );
-});
-
-Deno.test("invalid public upload origins fail before consuming intent quota", async () => {
-  for (
-    const origin of [
-      "http://kong:8000",
-      "https://user:password@example.com",
-      "https://example.com/path",
-      "https://example.com?query=1",
-      "https://example.com#fragment",
-      "ftp://example.com",
-      "invalid",
-    ]
-  ) {
-    const { deps, intents } = mock();
-    deps.uploadOrigin = origin;
-    await expectError(
-      await handler(
-        request({
-          recipe_id: RECIPE,
-          content_type: "image/png",
-          byte_size: 1024,
-        }),
-        deps,
-      ),
-      500,
-      "INTERNAL_ERROR",
-    );
-    assertEquals(intents.length, 0);
   }
 });
 

@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
-import { z } from "npm:zod@3.22.4";
+import { z } from "npm:zod@4.6.6";
 import {
   type RecipeImageUploadRequest,
   RecipeImageUploadRequestSchema,
@@ -7,7 +7,7 @@ import {
 
 export const UPLOAD_TTL_SECONDS = 600;
 
-export type UploadIntent = RecipeImageUploadRequest & {
+export type UploadIntent = Omit<RecipeImageUploadRequest, "request_id"> & {
   id: string;
   user_id: string;
   staging_key: string;
@@ -20,7 +20,8 @@ export type UploadIntent = RecipeImageUploadRequest & {
 export type UploadIntentQuotaResult =
   | "allowed"
   | "rate_limited"
-  | "pending_limit";
+  | "pending_limit"
+  | "conflict";
 
 export function createUploadIntent(
   request: RecipeImageUploadRequest,
@@ -29,10 +30,12 @@ export function createUploadIntent(
   uploadId: string = crypto.randomUUID(),
   finalObjectId: string = crypto.randomUUID(),
 ): UploadIntent {
-  const metadata = RecipeImageUploadRequestSchema.parse(request);
-  const user_id = z.string().uuid().parse(userId).toLowerCase();
-  const id = z.string().uuid().parse(uploadId).toLowerCase();
-  const finalId = z.string().uuid().parse(finalObjectId).toLowerCase();
+  const { request_id, ...metadata } = RecipeImageUploadRequestSchema.parse(
+    request,
+  );
+  const user_id = z.guid().parse(userId).toLowerCase();
+  const id = z.guid().parse(request_id ?? uploadId).toLowerCase();
+  const finalId = z.guid().parse(finalObjectId).toLowerCase();
   const recipe_id = metadata.recipe_id.toLowerCase();
   const created = new Date(Math.floor(now.getTime() / 1000) * 1000);
   const suffix = `${user_id}/${recipe_id}/${id}`;
@@ -110,7 +113,8 @@ export async function persistUploadIntent(
     throw new Error("Upload intent persistence failed.");
   }
   if (
-    data !== "allowed" && data !== "rate_limited" && data !== "pending_limit"
+    data !== "allowed" && data !== "rate_limited" && data !== "pending_limit" &&
+    data !== "conflict"
   ) {
     throw new Error("Upload intent persistence failed.");
   }

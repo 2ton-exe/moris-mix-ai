@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini generation remains pending.
+**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini provider transport, model availability, and SDK compatibility were verified locally on 2026-11-14 (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)); production extraction and Chef generation were observed succeeding in a cost-guarded enable window on 2026-11-15, and the enable flags are unset again outside such windows (see the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15)).
 
 ## Issue #73 final cleanup proposal (2026-10-31)
 
@@ -72,10 +72,12 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Supabase CLI and Wrangler             |
 
-The validated-main deployment job sends the five explicit Edge Function targets
-`recipes`, `account-export`, `extract-recipe`, `generate-recipe`, and
-`recipe-image-upload-cleanup` to the configured production Supabase project, in
-that order, then deploys the frontend to Cloudflare.
+The validated-main deployment job sends five active explicit Edge Function targets
+(`recipes`, `account-export`, `extract-recipe`, `generate-recipe`, and
+`recipe-image-attach`) to the configured production Supabase project. The
+`recipe-image-upload-cleanup` target remains in the workflow but is disabled until
+its unattended production gate is enabled. The frontend deploys to Cloudflare only
+after the active function deployments succeed.
 Production database migrations remain a separate process and are not applied by CI.
 
 ## 3. CI/CD Pipeline Architecture
@@ -106,13 +108,17 @@ Modular main frontend/database/Edge validation completes, including mandatory ho
 ↓\
 All deploy dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy `recipes`, `account-export`, `extract-recipe`, `generate-recipe`, and `recipe-image-upload-cleanup`, then deploy Cloudflare assets\
+`Modular Main Production` calls `reusable-production.yml` (`deploy`): validate target, build frontend, deploy `recipes`, `account-export`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`; the cleanup target remains disabled, then deploy Cloudflare assets\
 ↓\
 Wrangler uploads static assets to Cloudflare Workers\
 ↓\
 Verify the production deployment URL and unauthenticated AI routes, then run runtime smoke for HTML, the referenced JavaScript asset, the public demo response, and account-export's preflight and unauthenticated 401 contract; authenticated export ownership remains a separate hosted validation
 
 The frontend-existence safety mechanism remains: `frontend` exposes the detection result as a job output. If `frontend/package.json` is absent, frontend validation steps and deployment are skipped. Since FE-01 is merged into `main`, this behavior should eventually become a hard failure if the required frontend project disappears.
+
+The production release deploys the offset-compatible attachment function but builds the frontend with `VITE_RECIPE_IMAGES=false`. This keeps the image UI and endpoint requests disabled while upload signing, R2 access, bucket CORS, and quota recovery remain unverified. The separate upload-signing readiness workflow is on-demand from `main` and uses the protected production environment for read-only Supabase checks. Cleanup function deployment remains disabled; its schedule/manual invocation requires the `RECIPE_IMAGE_CLEANUP_ENABLED=true` repository variable and a separate `recipe-image-cleanup-production` environment restricted to `main` without required reviewers, so scheduled jobs do not wait for approval. Configure its cleanup token and project variables only after database, R2, and quota-recovery prerequisites are independently verified and authorized. Keep the opt-in variable unset until that point.
+
+The production release also defaults `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` to `false`. Migration `20261115000020` adds server-side reuse only when a client sends `request_id`; it does not enable that client behavior. Keep the variable false until the migration is applied and the matching upload signer is separately deployed and verified to accept `request_id`.
 
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
 
@@ -133,14 +139,15 @@ The production release order is:
 5. Deploy `account-export` (`deploy-account-export`).
 6. Deploy `extract-recipe` (`deploy-extract-recipe`).
 7. Deploy `generate-recipe` (`deploy-generate-recipe`).
-8. Deploy `recipe-image-upload-cleanup` (`deploy-recipe-image-upload-cleanup`).
-9. Deploy Cloudflare Workers assets.
-10. Verify the production deployment URL.
-11. Verify deployed AI routes (`ai-route-smoke`).
-12. Run production runtime smoke (`runtime-smoke`), including account-export preflight and unauthenticated access rejection.
-13. Record each deployment, URL verification, AI route smoke, and runtime smoke
+8. Deploy `recipe-image-attach` (`deploy-recipe-image-attach`).
+9. Keep `recipe-image-upload-cleanup` (`deploy-recipe-image-cleanup`) disabled until its unattended production gate is enabled.
+10. Deploy Cloudflare Workers assets.
+11. Verify the production deployment URL.
+12. Verify deployed AI routes (`ai-route-smoke`).
+13. Run production runtime smoke (`runtime-smoke`), including account-export preflight and unauthenticated access rejection.
+14. Record each deployment, URL verification, AI route smoke, and runtime smoke
     outcome independently, including failures or skipped downstream steps.
-14. Preserve the separate runtime and AI route evidence artifacts.
+15. Preserve the separate runtime and AI route evidence artifacts.
 
 Each Supabase deployment is a separate explicit target using the repository-pinned
 CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
@@ -206,7 +213,11 @@ AI is disabled merely because this branch does not set the opt-ins. Actual AI
 enablement remains separately reviewed. `AI_CANDIDATE_TOKEN_SECRET` is required
 before actual Chef generation is enabled; `GEMINI_API_KEY` is required when the
 provider is actually reached. Those prerequisites require separate operational
-review, not values copied into workflow logs or this document.
+review, not values copied into workflow logs or this document. As of 2026-11-14,
+the production Supabase project has `GEMINI_API_KEY`, `AI_CANDIDATE_TOKEN_SECRET`,
+`AI_DAILY_LIMIT` and `ALLOWED_ORIGIN` configured (secret names were verified
+without reading values); `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` remain
+unset, so production AI stays off until a reviewed demo-window change.
 
 BE-12 implementation is merged, but the current mandatory main Hosted RLS job
 does not execute the BE-12 hosted quota tests. Its success must not be described
@@ -376,9 +387,10 @@ checks do not establish that backend code matches the PR merge SHA, prove all
 backend functions, or cryptographically identify served frontend bytes. The
 frontend SHA records the checked-out build/deployment input; the smoke verifies
 the deployed origin and referenced bundle. Production smoke stays inside the
-`cloudflare-production` deployment lock, after all five Supabase deployments,
-Cloudflare deployment, URL verification, and AI route smoke succeed. Staging
-keeps the existing workflow-wide lock and trust gate.
+`cloudflare-production` deployment lock and runs after all five active Supabase
+function deployments, the Cloudflare deployment, URL verification, and AI route
+smoke succeed. The recipe image cleanup target remains disabled. Staging keeps
+the existing workflow-wide lock and trust gate.
 
 ### Manual staging backend evidence (2026-10-28)
 
@@ -535,7 +547,9 @@ evidence, not another optimization sample or a merge-to-live measurement. The
 The relevant DevOps files are organized as follows:
 
 - `.github/workflows/modular-main.yml` - Main validation and sole production caller in this proposal
-- `.github/workflows/reusable-production.yml` - Guarded explicit Edge Function/Cloudflare deployment and runtime evidence
+- `.github/workflows/reusable-production.yml` - Guarded Supabase/Cloudflare deployment and runtime evidence, including account-export and recipe-image-attach
+- `.github/workflows/recipe-image-upload-readiness.yml` - On-demand protected, read-only Supabase readiness verifier
+- `.github/workflows/recipe-image-upload-cleanup.yml` - Main-only cleanup invocation behind an unattended opt-in gate
 - `.github/workflows/modular-pr-validation.yml` — Modular PR validation and trusted PR staging gate introduced by PR #81
 - `.github/workflows/reusable-staging.yml` — Serialized staging frontend deployment, smoke, and revision summaries
 - `wrangler.jsonc` — Cloudflare Worker configuration
@@ -626,7 +640,7 @@ The production root route was verified to serve the Mori's Mix React application
 
 The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully. On 2026-10-17, the production UI loaded the demo recipe through the Supabase Edge Function, and a direct endpoint request returned the seeded PostgreSQL row with `200 OK`. Full response and qualification notes are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
-The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). Gemini generation returned `403 PERMISSION_DENIED` and remains unverified.
+The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). A historical Gemini generation attempt returned `403 PERMISSION_DENIED`. On 2026-11-14 the dedicated Gemini project was re-verified locally: the API is enabled, the pinned `gemini-3.5-flash-lite` model is available, and the live extraction suite passed 3/3 with the legacy SDK (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)). Production extraction and Chef generation were observed succeeding on 2026-11-15 in a cost-guarded window; `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were removed afterwards and remain unset outside approved windows (see the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15)).
 
 ## 8. Deployment Credentials
 
@@ -682,13 +696,14 @@ manual dispatch on `main` follows the same production path:
 5. Deploy the explicit `account-export` Edge Function target.
 6. Deploy the explicit `extract-recipe` Edge Function target.
 7. Deploy the explicit `generate-recipe` Edge Function target.
-8. Deploy the explicit `recipe-image-upload-cleanup` Edge Function target. All five targets use the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; each handler enforces authentication.
-9. Deploy to Cloudflare only after all five function deployments succeed.
-10. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
-11. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
-12. Run production runtime smoke. It verifies the public demo response and account-export's preflight and unauthenticated 401 contract; it does not verify authenticated recipe CRUD or export ownership.
-13. Inspect the production summary's separate outcomes for recipes, account-export, extract-recipe, generate-recipe, recipe-image-upload-cleanup, Cloudflare, URL verification, AI route smoke, and existing runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
-14. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
+8. Deploy the explicit `recipe-image-attach` Edge Function target.
+9. Keep the explicit `recipe-image-upload-cleanup` target disabled until its unattended production gate is enabled. The five active targets use the pinned Supabase CLI and `--project-ref`, `--no-verify-jwt`, `--use-api`, and `--yes`; each handler enforces authentication.
+10. Deploy to Cloudflare only after all five active function deployments succeed.
+11. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
+12. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
+13. Run production runtime smoke. It verifies the public demo response and account-export's preflight and unauthenticated 401 contract; it does not verify authenticated recipe CRUD or export ownership.
+14. Inspect the production summary's separate outcomes for recipes, account-export, extract-recipe, generate-recipe, recipe-image-attach, cleanup, Cloudflare, URL verification, AI route smoke, and existing runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
+15. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 
 The deployment does not apply database migrations. Before relying on recipe CRUD, verify the production migration ledger and apply any pending recipe migrations through the separately managed database release process.
 
@@ -901,7 +916,8 @@ The following limitations or pending items remain:
 - Automated Cloudflare frontend deployment has been verified.
 - Production routing has been manually verified.
 - The production Supabase Edge Function and PostgreSQL demo-row read passed the 2026-10-17 smoke check; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
-- Gemini `generateContent` returned `403 PERMISSION_DENIED`; backend AI generation is not verified.
+- A historical Gemini `generateContent` call returned `403 PERMISSION_DENIED`. Local provider transport was re-verified on 2026-11-14: the dedicated project has the Gemini API enabled, `models.list` returned the pinned `gemini-3.5-flash-lite`, and the live extraction suite passed 3/3 with the legacy `@google/generative-ai@0.21.0` SDK. Production backend extraction and Chef generation were observed succeeding on 2026-11-15 with the enable flags set, and the flags were removed immediately afterwards. See the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15).
+- On 2026-11-14, production Supabase secret names `GEMINI_API_KEY`, `AI_CANDIDATE_TOKEN_SECRET`, `AI_DAILY_LIMIT` and `ALLOWED_ORIGIN` were confirmed present without reading values; `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were absent. Enabling the AI routes remains a separate, reviewed demo-window action.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
 - The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
@@ -944,4 +960,4 @@ The Sprint 1 DevOps delivery setup currently has the following evidence:
 
 The frontend delivery path from an approved merge into `main` to a running production frontend has now been verified. The demo UI/API/PostgreSQL read path also passed on 2026-10-17.
 
-Sprint 1 delivery tracking remains open for Gemini generation verification and further comparable pipeline measurements. The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-dependency blocking mechanism is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).
+Sprint 1 delivery tracking remains open for broader provider acceptance (generation quality, repeated reliability, load/safety, and hosted quota/concurrency) and further comparable pipeline measurements. One production extraction and one Chef generation succeeded in a cost-guarded enable window on 2026-11-15, and the enable flags were removed afterwards (see the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15)). The all-checks deployment gate is merged and its successful main path is verified by run #90; the failed-dependency blocking mechanism is verified separately by the controlled non-production PR #68 experiment (run `39279387584`).

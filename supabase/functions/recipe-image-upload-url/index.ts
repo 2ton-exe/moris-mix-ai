@@ -4,13 +4,18 @@ import {
   handleCorsPreflight,
   jsonResponse,
 } from "../_shared/cors.ts";
-import { RecipeImageUploadRequestSchema } from "../_shared/recipe-images/schemas.ts";
+import {
+  type RecipeImageContentType,
+  RecipeImageContentTypeSchema,
+  RecipeImageUploadRequestSchema,
+} from "../_shared/recipe-images/schemas.ts";
 import {
   checkRecipeImageStaging,
   deleteRecipeImageStaging,
   putRecipeImageStaging,
   type R2Config,
   resolveR2Config,
+  signRecipeImageStagingPutUrl,
 } from "../_shared/recipe-images/r2.ts";
 import {
   createUploadIntent,
@@ -23,7 +28,6 @@ const UPLOAD_FINISH_MARGIN_MS = 30_000;
 
 export type UploadHandlerDeps = AuthDeps & {
   r2Config?: R2Config;
-  uploadOrigin?: string;
   supabaseServiceRoleKey?: string;
   now?: () => Date;
   putUpload?: typeof putRecipeImageStaging;
@@ -37,7 +41,7 @@ type StoredUploadIntent = {
   recipe_id: string;
   staging_key: string;
   final_key: string;
-  content_type: string;
+  content_type: RecipeImageContentType;
   byte_size: number;
   created_at: string;
   expires_at: string;
@@ -138,13 +142,14 @@ async function loadStoredIntent(
   const rows: unknown = await response.json();
   if (!Array.isArray(rows) || rows.length !== 1) return null;
   const row = rows[0] as Partial<StoredUploadIntent>;
+  const contentType = RecipeImageContentTypeSchema.safeParse(row.content_type);
   if (
     row.id !== id || row.user_id !== userId ||
     typeof row.recipe_id !== "string" ||
     row.staging_key !==
       `recipe-images/staging/${userId}/${row.recipe_id}/${id}` ||
     typeof row.final_key !== "string" ||
-    typeof row.content_type !== "string" ||
+    !contentType.success ||
     typeof row.byte_size !== "number" ||
     typeof row.created_at !== "string" ||
     typeof row.expires_at !== "string" ||
@@ -158,12 +163,19 @@ async function loadStoredIntent(
   }
   return {
     ...row as StoredUploadIntent,
+    content_type: contentType.data,
     created_at: new Date(createdAt).toISOString(),
     expires_at: new Date(expiresAt).toISOString(),
   };
 }
 
-function intentIsUploadable(intent: StoredUploadIntent, now: Date): boolean {
+function intentIsUploadable(
+  intent: StoredUploadIntent,
+  now: Date,
+): intent is StoredUploadIntent & {
+  state: "pending";
+  cleanup_status: "waiting";
+} {
   const expiry = Date.parse(intent.expires_at);
   return intent.state === "pending" && intent.cleanup_status === "waiting" &&
     Number.isFinite(expiry) && expiry - now.getTime() > UPLOAD_FINISH_MARGIN_MS;
@@ -449,23 +461,9 @@ export async function handler(
     if (!data || data.id !== request.recipe_id || data.user_id !== user.id) {
       return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     }
-    resolveR2Config(deps.r2Config);
-    const origin = new URL(
-      deps.uploadOrigin ?? Deno.env.get("RECIPE_IMAGE_UPLOAD_ORIGIN") ??
-        deps.supabaseUrl ?? Deno.env.get("SUPABASE_URL") ?? "",
-    );
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
-      origin.hostname,
-    );
-    if (
-      (origin.protocol !== "https:" &&
-        !(origin.protocol === "http:" && loopback)) ||
-      origin.username || origin.password || origin.pathname !== "/" ||
-      origin.search || origin.hash
-    ) {
-      throw new Error("Invalid public upload origin configuration.");
-    }
-    const intent = createUploadIntent(request, user.id, deps.now?.());
+    const now = deps.now?.() ?? new Date();
+    const r2Config = resolveR2Config(deps.r2Config);
+    const intent = createUploadIntent(request, user.id, now);
     const quota = await persistUploadIntent(intent, deps);
     if (quota === "rate_limited") {
       return error(
@@ -481,18 +479,39 @@ export async function handler(
         429,
       );
     }
-    const uploadUrl = new URL(
-      "/functions/v1/recipe-image-upload-url",
-      origin.origin,
+    if (quota === "conflict") {
+      return error(
+        "UPLOAD_REQUEST_CONFLICT",
+        "This upload request can no longer be resumed. Please retry the upload.",
+        409,
+      );
+    }
+    const storedIntent = await loadStoredIntent(intent.id, user.id, deps);
+    if (
+      !storedIntent || storedIntent.recipe_id !== intent.recipe_id ||
+      storedIntent.content_type !== intent.content_type ||
+      storedIntent.byte_size !== intent.byte_size ||
+      !intentIsUploadable(storedIntent, deps.now?.() ?? new Date())
+    ) {
+      return error(
+        "UPLOAD_REQUEST_CONFLICT",
+        "This upload request can no longer be resumed. Please retry the upload.",
+        409,
+      );
+    }
+    const upload = await signRecipeImageStagingPutUrl(
+      storedIntent,
+      r2Config,
+      deps.now?.() ?? new Date(),
     );
-    uploadUrl.searchParams.set("upload_id", intent.id);
     return respond({
       upload: {
-        id: intent.id,
-        url: uploadUrl.toString(),
+        id: storedIntent.id,
+        url: upload.url,
         method: "PUT",
-        headers: { "Content-Type": intent.content_type },
-        expires_at: intent.expires_at,
+        headers: upload.headers,
+        byte_size: storedIntent.byte_size,
+        expires_at: storedIntent.expires_at,
       },
     }, 200);
   } catch {

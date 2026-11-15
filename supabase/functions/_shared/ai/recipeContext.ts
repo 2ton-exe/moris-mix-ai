@@ -20,8 +20,14 @@ import {
 
 export type RecipeCandidate = ChefContextCandidate;
 
-export const CHEF_CANDIDATE_SELECT_COLUMNS =
-  "id, user_id, title, ingredients, instructions, flavor_scores, star_rating, created_at";
+export const CHEF_CANDIDATE_CONTEXT_MAX_BYTES = 64 * 1024;
+
+export class ChefCandidateContextTooLargeError extends Error {
+  constructor() {
+    super("CANDIDATE_CONTEXT_TOO_LARGE");
+    this.name = "ChefCandidateContextTooLargeError";
+  }
+}
 
 export type BuildChefRecipeContextOptions = {
   topK?: number;
@@ -333,19 +339,42 @@ export async function retrieveCandidateRecipes(
   const { userId, supabase } = validateAuthContext(auth);
   const boundedLimit = ChefMaxCandidatesSchema.parse(maxLimit);
 
-  const { data, error } = await supabase
-    .from("recipes")
-    .select(CHEF_CANDIDATE_SELECT_COLUMNS)
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: true })
-    .limit(boundedLimit);
+  const { data, error } = await supabase.rpc(
+    "get_chef_recipe_context_candidates",
+    {
+      p_max_candidates: boundedLimit,
+      p_max_bytes: CHEF_CANDIDATE_CONTEXT_MAX_BYTES,
+    },
+  );
 
-  if (error || !Array.isArray(data)) {
+  if (
+    error || !data || typeof data !== "object" || Array.isArray(data)
+  ) {
     throw new Error(`CANDIDATE_RETRIEVAL_FAILED: ${error?.message ?? "invalid response"}`);
   }
 
-  for (const row of data) {
+  const result = data as Record<string, unknown>;
+  const candidates = result.candidates;
+  const candidateCount = result.candidate_count;
+  const truncated = result.truncated;
+  const tooLarge = result.too_large;
+  if (
+    !Array.isArray(candidates) ||
+    typeof candidateCount !== "number" || !Number.isInteger(candidateCount) ||
+    candidateCount < 0 ||
+    candidateCount > boundedLimit || typeof truncated !== "boolean" ||
+    typeof tooLarge !== "boolean" ||
+    candidates.length !== (tooLarge ? 0 : candidateCount) ||
+    (truncated && candidateCount !== boundedLimit) ||
+    (tooLarge && candidateCount === 0)
+  ) {
+    throw new Error("CANDIDATE_RETRIEVAL_FAILED: invalid response");
+  }
+  if (tooLarge) {
+    throw new ChefCandidateContextTooLargeError();
+  }
+
+  for (const row of candidates) {
     if (
       typeof row !== "object" ||
       row === null ||
@@ -358,47 +387,7 @@ export async function retrieveCandidateRecipes(
     }
   }
 
-  const validatedCandidates = data.map((row) => validateCandidateRecipe(row));
-
-  let truncated = false;
-  if (validatedCandidates.length === boundedLimit) {
-    const lastCandidate = validatedCandidates[validatedCandidates.length - 1];
-    const keysetFilter =
-      `created_at.lt.${lastCandidate.created_at},and(created_at.eq.${lastCandidate.created_at},id.gt.${lastCandidate.id})`;
-
-    const { data: probeData, error: probeError } = await supabase
-      .from("recipes")
-      .select("id, user_id")
-      .eq("user_id", userId)
-      .or(keysetFilter)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .limit(1);
-
-    if (probeError || !Array.isArray(probeData)) {
-      throw new Error(`PROBE_QUERY_FAILED: ${probeError?.message ?? "invalid probe response"}`);
-    }
-
-    for (const probeRow of probeData) {
-      if (
-        typeof probeRow !== "object" ||
-        probeRow === null ||
-        typeof (probeRow as { user_id?: unknown }).user_id !== "string"
-      ) {
-        throw new Error("PROBE_QUERY_FAILED: malformed probe row");
-      }
-      if ((probeRow as { user_id: string }).user_id.toLowerCase() !== userId.toLowerCase()) {
-        throw new Error("OWNER_MISMATCH_DETECTED");
-      }
-      if (!RecipeIdParamSchema.safeParse((probeRow as { id?: unknown }).id).success) {
-        throw new Error("PROBE_QUERY_FAILED: invalid probe recipe id");
-      }
-    }
-
-    truncated = probeData.length > 0;
-  }
-
-  return { candidates: validatedCandidates, truncated };
+  return { candidates: candidates.map((row) => validateCandidateRecipe(row)), truncated };
 }
 
 export async function buildChefRecipeContext(

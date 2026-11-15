@@ -1,4 +1,4 @@
-import { z } from "npm:zod@3.22.4";
+import { z } from "npm:zod@4.6.6";
 import { MAX_PARENT_RECIPE_IDS } from "./schemas.ts";
 
 /**
@@ -82,14 +82,14 @@ export function findDisallowedParentIds(
 
 export const CandidateTokenClaimsSchema = z.object({
   /** Generation identifier: random per issued token, safe to log. */
-  jti: z.string().uuid(),
+  jti: z.guid(),
   /** Authenticated user the generation belongs to. */
-  sub: z.string().uuid(),
+  sub: z.guid(),
   aud: z.literal(CANDIDATE_TOKEN_AUDIENCE),
   iat: z.number().int().nonnegative(),
   exp: z.number().int().positive(),
   parent_recipe_ids: z
-    .array(z.string().uuid())
+    .array(z.guid())
     .min(1)
     .max(MAX_PARENT_RECIPE_IDS)
     .refine(

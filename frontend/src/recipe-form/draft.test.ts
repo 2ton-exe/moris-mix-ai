@@ -16,7 +16,7 @@ it('normalizes editor fields and preserves nullable quantities and inferred meta
   expect(result.data.ingredients[1]).toMatchObject({ quantity: null, unit: null, inferred: true, quantityText: 'A small piece' })
 })
 
-it.each(['many', '1/2', 'Infinity', 'NaN', '0x10', '1e999'])('rejects an invalid numeric quantity: %s', (quantity) => {
+it.each(['many', '1/2', 'Infinity', 'NaN', '0x10', '1e999', '-2'])('rejects an invalid numeric quantity: %s', (quantity) => {
   const state = editorState(recipeFormFixture)
   state.ingredients[0].quantity = quantity
   const result = validateEditor(state)
@@ -24,7 +24,7 @@ it.each(['many', '1/2', 'Infinity', 'NaN', '0x10', '1e999'])('rejects an invalid
   if (!result.success) expect(result.error.issues[0].path).toEqual(['ingredients', 0, 'quantity'])
 })
 
-it.each(['0', '-2', '.5', '2.5', '1e2', ''])('accepts finite or blank quantity without inventing bounds: %s', (quantity) => {
+it.each(['0', '.5', '2.5', '1e2', ''])('accepts finite nonnegative or blank quantity: %s', (quantity) => {
   const state = editorState(recipeFormFixture)
   state.ingredients[0].quantity = quantity
   expect(validateEditor(state).success).toBe(true)
@@ -60,10 +60,14 @@ it('keeps stable row identities and regenerates contiguous step numbers after ed
   ] } })
 })
 
-it('honors shared empty arrays/text and has no invented text-length caps', () => {
+it('honors the recipe API text and collection limits', () => {
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, ingredients: [], instructions: [], notes: '' }).success).toBe(true)
   expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, instructions: [{ step: 1, text: '' }] }).success).toBe(true)
-  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, title: 'a'.repeat(2000), notes: 'n'.repeat(20000) }).success).toBe(true)
+  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, title: 'a'.repeat(200), notes: 'n'.repeat(20000) }).success).toBe(true)
+  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, ingredients: Array(101).fill(recipeFormFixture.ingredients[0]) }).success).toBe(false)
+  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, instructions: Array(101).fill(recipeFormFixture.instructions[0]) }).success).toBe(false)
+  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, title: 'a'.repeat(201) }).success).toBe(false)
+  expect(recipeDraftSchema.safeParse({ ...recipeFormFixture, notes: 'n'.repeat(20001) }).success).toBe(false)
 })
 
 it('rejects a blank title and malformed nested values', () => {

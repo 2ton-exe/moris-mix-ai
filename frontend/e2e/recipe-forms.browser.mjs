@@ -299,7 +299,7 @@ try {
   await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled()
   assert.equal(saveRequests.length, 1)
   saveGate.release()
-  await expect(page.getByRole('alert')).toContainText('Could not save your recipe')
+  await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByText('private save payload')).toHaveCount(0)
   await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   await expect(page.getByLabel('Recipe title')).toHaveValue('Mori’s tomato supper')
@@ -357,7 +357,7 @@ try {
   await page.getByLabel('Recipe title').fill('A favorite revisited')
   saveFailures = 1
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page.getByRole('alert')).toContainText('Could not save your recipe')
+  await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByLabel('Recipe title')).toHaveValue('A favorite revisited')
   assert.equal(saveRequests.at(-1).method, 'PATCH')
   await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))

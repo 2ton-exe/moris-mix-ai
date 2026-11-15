@@ -527,6 +527,7 @@ Deno.test("GET signer is limited to final keys, GET, and 60 seconds", async () =
 
 Deno.test("attachment authenticates and atomically replays an attached result", async () => {
   const calls: string[] = [];
+  const uploadedAt = "2026-10-26T10:04:00+00:00";
   const deps = handlerDeps({
     rpc: (name) => {
       calls.push(name);
@@ -535,7 +536,7 @@ Deno.test("attachment authenticates and atomically replays an attached result", 
           status: "attached",
           content_type: "image/png",
           byte_size: pngBytes().byteLength,
-          uploaded_at: NOW.toISOString(),
+          uploaded_at: uploadedAt,
         },
         error: null,
       });
@@ -549,12 +550,15 @@ Deno.test("attachment authenticates and atomically replays an attached result", 
     deps,
   );
   assertEquals(response.status, 200);
-  assertEquals((await response.json()).image.recipe_id, RECIPE);
+  const body = await response.json();
+  assertEquals(body.image.recipe_id, RECIPE);
+  assertEquals(body.image.uploaded_at, uploadedAt);
   assertEquals(calls, ["claim_recipe_image_finalization"]);
 });
 
 Deno.test("attachment verifies and copies before fenced association commit", async () => {
   const calls: string[] = [];
+  const uploadedAt = "2026-10-26T10:04:00+00:00";
   const deps = handlerDeps({
     r2Fetch: metadataFetch(),
     rpc: (name, args) => {
@@ -578,7 +582,7 @@ Deno.test("attachment verifies and copies before fenced association commit", asy
             status: "attached",
             content_type: "image/png",
             byte_size: pngBytes().byteLength,
-            uploaded_at: NOW.toISOString(),
+            uploaded_at: uploadedAt,
           },
           error: null,
         });
@@ -600,6 +604,7 @@ Deno.test("attachment verifies and copies before fenced association commit", asy
     deps,
   );
   assertEquals(response.status, 200);
+  assertEquals((await response.json()).image.uploaded_at, uploadedAt);
   assertEquals(calls, [
     "claim_recipe_image_finalization",
     "start_recipe_image_final_copy",

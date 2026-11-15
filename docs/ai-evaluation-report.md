@@ -127,6 +127,63 @@ with no provider errors (3 of the roughly 20 daily calls):
 
 This matches the historical 3/3 note in the adapter's model-selection comment.
 
+### Dedicated Gemini project re-verification (2026-11-14)
+
+The separate Gemini API project `gen-lang-client-0591557078` (project number
+`127829836695`) was checked for production readiness on 2026-11-14. The Gemini
+API (`generativelanguage.googleapis.com`) is enabled on the project, and the
+existing `Gemini API Key` is restricted to that API. The key uses the newer
+`AQ.` format (53 characters) rather than the legacy `AIza` format.
+
+A `models.list` call returned `gemini-3.5-flash-lite`, so the pinned model is
+available to the project. The live extraction suite then passed **3/3 in about
+4 seconds** at commit `b297977` on 2026-11-14, with the pinned model
+(`AI_MODEL` unset) and the existing legacy `@google/generative-ai@0.21.0` SDK.
+The run recorded three passing extraction cases. The adapter may retry a failed
+request, so provider request attempts were not independently counted in this
+run; the table below reports case outcomes, not a call count.
+
+| Case | Input summary | Expected result | Observed |
+| ---- | ------------- | --------------- | -------- |
+| Vague amounts stay null instead of being invented | Adobo note with "maybe a kilo", "a splash" and "a handful" | Title present; at least 3 ingredients; soy sauce present with `quantity: null`, `inferred: true` and a `quantityText` value | Pass |
+| Omits flavour scores when taste is never described | Boiled kamote note with no taste description | Title present; at least 1 instruction; `flavor_scores` is undefined | Pass |
+| Keeps described flavours and steps | Sinigang note described as "sour and a little salty" | At least 4 ingredients; at least 1 instruction; `flavor_scores` present with `sour >= 1` | Pass |
+
+This verifies provider transport, model availability and SDK compatibility for
+the shared `generateContent` path. It does not evaluate generation quality, and
+the legacy SDK remains deprecated; migrating to `@google/genai` is still a
+follow-up task.
+
+### Production enablement verification (2026-11-15)
+
+Both deployed routes were exercised against production inside one cost-guarded
+enable window: `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were set at
+2026-11-15 00:15:49 UTC and removed again at 2026-11-15 02:32:44 UTC.
+
+The first three extraction attempts returned `AI_PROVIDER_REJECTED` (HTTP 502):
+the adapter logged `provider_rejected` after a Gemini 4xx, and production's
+`GEMINI_API_KEY` was not the key verified locally. After the production secret
+was replaced with the verified key, both routes succeeded on the first attempt:
+
+| Route | UTC time | HTTP | Request ID | Model | Prompt | Attempt | Latency | Outcome |
+| ----- | -------- | ---- | ---------- | ----- | ------ | ------- | ------- | ------- |
+| `extract-recipe` | 2026-11-15 00:31:27 | 200 | `01a1dc9d-b537-7af2-994d-1542d0554ed9` | `gemini-3.5-flash-lite` | `extraction` v1.0.0 | 1 | 1,076 ms | `success` |
+| `generate-recipe` | 2026-11-15 01:23:39 | 200 | `01a1dccd-7a33-741b-8e5b-c4b37878b5ac` | `gemini-3.5-flash-lite` | `chef` v1.1.0 | 1 | 1,576 ms | `success` |
+
+Quota accounting matched the calls: `ai_usage_daily` recorded
+`operation_count = 2` for 2026-11-15, two reservations were `confirmed`, and
+the three failed attempts were `refunded` with `provider_failure_rollback`, so
+they consumed no daily quota.
+
+The operator reviewed both results in the deployed UI and confirmed the
+returned recipes were usable. No prompt, key or recipe text is recorded here.
+Both flags were removed after the run, and their names are absent from the
+production secret list.
+
+This is a single cost-guarded observation of each route. It verifies production
+enablement, key configuration, quota accounting and the validated response
+path; it is not a load, quality or safety benchmark.
+
 ## Limitations
 
 - **Contract, not model quality.** The offline fixtures are hand-crafted to
@@ -135,9 +192,10 @@ This matches the historical 3/3 note in the adapter's model-selection comment.
 - **Small live sample.** Three live extraction cases are a spot check, not a
   statistically meaningful benchmark. Results can vary with model updates,
   region and free-tier load.
-- **Live generation is not harnessed.** The live spot check covers extraction
-  only. Generation is covered by the offline fixtures and endpoint tests; a
-  live generation quality run would need its own opt-in harness and quota.
+- **Live generation is not harnessed.** The automated live spot check covers
+  extraction only. One production Chef generation was observed on 2026-11-15
+  (see above); a live generation quality run would still need its own opt-in
+  harness and quota.
 - **Single model, one language.** The dataset is English-only and synthetic, and
   the pinned model is one Flash-Lite version. A different `AI_MODEL` is not
   covered by these numbers.

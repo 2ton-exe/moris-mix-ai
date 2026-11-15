@@ -45,13 +45,14 @@ export type AuthResult = AuthSuccess | AuthFailure;
 
 - **Method and path:** `GET /functions/v1/auth-session`
 - **Headers:** `Authorization: Bearer <supabase-access-token>`, `apikey: <supabase-anon-or-publishable-key>`
+- **Response diagnostics:** Every response includes a server-generated `X-Request-ID`, exposed through CORS. Server failures log the same ID with endpoint and status only; caller-supplied IDs are not trusted.
 - **Query parameters:** none (any caller-supplied identity parameters are ignored)
 - **Request body:** none
 - **Access:** authenticated users only.
 
 ## Successful response
 
-Return `200 OK` with `Content-Type: application/json`, `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`:
+Return `200 OK` with `Content-Type: application/json`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and `X-Request-ID`:
 
 ```json
 {
