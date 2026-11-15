@@ -119,7 +119,9 @@ The response contains no standalone object key or URL. The temporary `PUT` URL i
 
 ## Request a private image download URL
 
-`POST /functions/v1/recipe-image-download-url` accepts `{ "recipe_id": "<uuid>" }`. The authenticated caller must own the recipe. The server reads `recipes.image_path` internally and signs only a valid `recipe-images/final/` key; callers cannot select object keys. A recipe with no finalized image returns `404 IMAGE_NOT_FOUND`.
+`POST /functions/v1/recipe-image-download-url` accepts `{ "recipe_id": "<uuid>" }`. The authenticated caller must own the recipe. The server resolves ownership and attached-image metadata in one service-role-only database RPC, which receives the user ID from verified auth context and checks recipe ownership before returning the internal image key. The handler signs only a valid `recipe-images/final/` key; callers cannot select object keys. A recipe with no finalized image returns `404 IMAGE_NOT_FOUND`, and a missing or foreign recipe returns `404 RECIPE_NOT_FOUND`.
+
+During migration rollout, an older resolver may return the ambiguous `not_found` status for either outcome. Until the resolver migration is applied, the handler performs the existing user-scoped ownership check only for that legacy response so the public error code remains stable. With the updated resolver, image, no-image, and missing/foreign outcomes each use one database request.
 
 The `200 OK` JSON response contains a presigned R2 `GET` URL and `expires_at`. It has `Cache-Control: no-store`; the URL expires after 60 seconds and pins the verified `Content-Type` and a generic inline filename in its signed response overrides. BE-14 owns private GET signing. An issued URL is a temporary bearer capability and remains usable until expiry, subject to the object still existing. Clearing or replacing the association does not revoke an issued URL. Signed URLs are never logged or included in recipe responses.
 
@@ -257,7 +259,7 @@ R2 listing capability has not been verified for the configured access key. Befor
 
 The production schema, RPCs, grants, function deployment, cleanup secrets, and bucket-scoped delete/list permissions have not been independently verified. Cleanup remains skipped by default until operator checks are recorded and the repository opt-in is set through the authorized process. No live infrastructure is modified here. The attach handler verifies the stored object's type, size, and image structure before association; production readiness remains blocked on independent verification of the deployed configuration and R2 behavior. Client compression is not an enforcement control.
 
-Private reads are implemented by `POST /functions/v1/recipe-image-download-url`, owned by BE-14. The handler verifies recipe ownership, resolves the current finalized key server-side, and returns a 60-second signed R2 `GET` URL. The client cannot choose the object key and should request URLs on demand without persisting or logging them. BE-13 remains responsible for upload authorization, upload intents, and staging cleanup.
+Private reads are implemented by `POST /functions/v1/recipe-image-download-url`, owned by BE-14. The handler verifies recipe ownership through the single current resolver RPC, resolves the current finalized key server-side, and returns a 60-second signed R2 `GET` URL. The client cannot choose the object key and should request URLs on demand without persisting or logging them. BE-13 remains responsible for upload authorization, upload intents, and staging cleanup.
 
 ## BE-13 verification
 
