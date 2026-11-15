@@ -4,7 +4,7 @@
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
 **Sprint:** 1–2\
-**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini provider transport, model availability, and SDK compatibility were verified locally on 2026-11-14 (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)); production extraction and Chef generation were observed succeeding in a cost-guarded enable window on 2026-11-15, and the enable flags are unset again outside such windows (see the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15)).
+**Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini provider transport, model availability, and SDK compatibility were verified locally on 2026-11-14 (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)); Quick AI Entry and AI Chef are enabled and were verified on the deployed site on 2026-11-15. See [production AI runtime configuration](#production-ai-runtime-configuration).
 
 ## Issue #73 final cleanup proposal (2026-10-31)
 
@@ -120,13 +120,11 @@ The production release also defaults `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` to `
 
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
 
-### DEVOPS-10 / #130: AI function delivery without AI enablement
+### DEVOPS-10 / #130: AI function delivery
 
 `modular-main.yml` remains the sole production caller. Successful core validation,
 mandatory main Hosted RLS, frontend existence, the main-only caller guards, and
-the existing `cloudflare-production` concurrency lock remain unchanged. This
-section describes the implementation; it does not claim a hosted #130 release
-or route-smoke result before a reviewed merge and observed main run.
+the `cloudflare-production` concurrency lock gate production releases.
 
 The production release order is:
 
@@ -188,38 +186,43 @@ The existing `runtime-smoke.json` schema and
 remain unchanged. If a prior deployment fails, the summary records the skipped
 smoke; no missing artifact is represented as a successful check.
 
-**Before this branch is authorized to merge into `main`, an authorized operator
-must verify the current production Supabase Edge Function secret/configuration
-state without exposing values.** Merge to main automatically invokes production
-delivery, so this verification must precede merge. The required conditions are:
+### Production AI runtime configuration
 
-- `AI_EXTRACT_ENABLED` is not truthy, OR `AI_EXTRACT_DISABLED` is truthy.
-- `AI_GENERATE_ENABLED` is not truthy, OR `AI_GENERATE_DISABLED` is truthy.
+Quick AI Entry and AI Chef are enabled on the production Supabase project as of
+2026-11-15. The release workflow deploys both function bundles and leaves their
+runtime settings in Supabase. A working route with an authenticated
+`503 AI_DISABLED` response points to an unset opt-in or an active kill switch.
 
-Truthy follows the handlers' current switch semantics: trimmed, case-insensitive
-`1`, `true`, `yes`, or `on`. Prefer both opt-ins to remain unset/false for this
-deployment. Record only the verification result/status and timestamp in release
-evidence, never secret values. This is an operational prerequisite, not a new
-GitHub variable or permanent workflow gate.
+1. Confirm `PRODUCTION_FRONTEND_URL` and `VITE_SUPABASE_URL` identify the deployed
+   site and the project in `supabase/config.toml`. Confirm `extract-recipe` and
+   `generate-recipe` are active on that project, and check that `ALLOWED_ORIGIN`
+   permits the frontend origin.
+2. Verify the quota, bounded Chef retrieval, and short-window rate-limit migrations
+   (`20261031000007`, `20261114000018`, `20261114000019`) are applied. Confirm the
+   backend has its Gemini key, configured daily quota, and Chef candidate token
+   secret. Production database migrations are operated separately.
+3. Restore both opt-ins if they are missing. An active `AI_EXTRACT_DISABLED` or
+   `AI_GENERATE_DISABLED` takes precedence. Use the kill switches for an
+   intentional pause and inspect their operational status before restoring service.
 
-**Deployed route does not mean enabled AI execution.** This workflow does not set
-or modify these flags or Supabase secrets/settings. Existing secret values are
-operational state rather than repository state: the workflow cannot infer that
-AI is disabled merely because this branch does not set the opt-ins. Actual AI
-enablement remains separately reviewed. `AI_CANDIDATE_TOKEN_SECRET` is required
-before actual Chef generation is enabled; `GEMINI_API_KEY` is required when the
-provider is actually reached. Those prerequisites require separate operational
-review, not values copied into workflow logs or this document. As of 2026-11-14,
-the production Supabase project has `GEMINI_API_KEY`, `AI_CANDIDATE_TOKEN_SECRET`,
-`AI_DAILY_LIMIT` and `ALLOWED_ORIGIN` configured (secret names were verified
-without reading values); `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` remain
-unset, so production AI stays off until a reviewed demo-window change.
+   ```sh
+   supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" \
+     AI_EXTRACT_ENABLED=true AI_GENERATE_ENABLED=true
+   ```
 
-BE-12 implementation is merged, but the current mandatory main Hosted RLS job
-does not execute the BE-12 hosted quota tests. Its success must not be described
-as full hosted quota/concurrency acceptance. Separate evidence for that behavior
-and any required production database migrations must precede real AI enablement.
-Production database migrations remain separately reviewed and operated.
+4. Sign in to the deployed frontend using a test account. Open **Talk to Mori**
+   and choose **Help me organize my cooking notes**. Enter synthetic notes, select
+   **Organize my notes**, and check that an unsaved preview has ingredients and
+   steps. Then choose **Let's figure out what to cook!**, add pantry items, and
+   select **Ask Mori for a recipe**. Check that the generated preview opens in
+   the recipe editor. Stop at the previews for this smoke check.
+5. Confirm the successful requests settled their quota reservations. If either
+   preview fails, use the route's status, application error code, and
+   `X-Request-Id` to distinguish enablement, quota, and provider failures.
+   Record only those diagnostics and the outcome.
+
+This authenticated check invokes Gemini for each flow and uses the test account's
+quota. See the [2026-11-15 restoration evidence](../ai-evaluation-report.md#production-restoration-verification-2026-11-15).
 
 ### PR Staging Delivery (PR #81 / #76)
 
@@ -635,7 +638,7 @@ The production root route was verified to serve the Mori's Mix React application
 
 The `/app` client-side route was also verified to load successfully during the historical FE-01 verification. After run #48, the production URL was manually opened again and the React frontend loaded successfully. On 2026-10-17, the production UI loaded the demo recipe through the Supabase Edge Function, and a direct endpoint request returned the seeded PostgreSQL row with `200 OK`. Full response and qualification notes are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 
-The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). A historical Gemini generation attempt returned `403 PERMISSION_DENIED`. On 2026-11-14 the dedicated Gemini project was re-verified locally: the API is enabled, the pinned `gemini-3.5-flash-lite` model is available, and the live extraction suite passed 3/3 with the legacy SDK (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)). Production extraction and Chef generation were observed succeeding on 2026-11-15 in a cost-guarded window; `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were removed afterwards and remain unset outside approved windows (see the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15)).
+The smoke check verifies the runtime schema and demo-row state required by the `is_public` migration. A read-only query of the production migration ledger confirmed version `20261017000001` is applied; the query and result are in the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17). A historical Gemini generation attempt returned `403 PERMISSION_DENIED`. On 2026-11-14 the dedicated Gemini project was re-verified locally: the API is enabled, the pinned `gemini-3.5-flash-lite` model is available, and the live extraction suite passed 3/3 with the legacy SDK (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)). Production extraction and Chef generation succeeded in a cost-guarded window on 2026-11-15, and the enable flags were removed afterwards. The flags were later restored and both flows verified in the deployed frontend. See the [production restoration evidence](../ai-evaluation-report.md#production-restoration-verification-2026-11-15).
 
 ## 8. Deployment Credentials
 
@@ -910,7 +913,6 @@ The following limitations or pending items remain:
 - Production routing has been manually verified.
 - The production Supabase Edge Function and PostgreSQL demo-row read passed the 2026-10-17 smoke check; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - A historical Gemini `generateContent` call returned `403 PERMISSION_DENIED`. Local provider transport was re-verified on 2026-11-14: the dedicated project has the Gemini API enabled, `models.list` returned the pinned `gemini-3.5-flash-lite`, and the live extraction suite passed 3/3 with the legacy `@google/generative-ai@0.21.0` SDK. Production backend extraction and Chef generation were observed succeeding on 2026-11-15 with the enable flags set, and the flags were removed immediately afterwards. See the [production enablement verification](../ai-evaluation-report.md#production-enablement-verification-2026-11-15).
-- On 2026-11-14, production Supabase secret names `GEMINI_API_KEY`, `AI_CANDIDATE_TOKEN_SECRET`, `AI_DAILY_LIMIT` and `ALLOWED_ORIGIN` were confirmed present without reading values; `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were absent. Enabling the AI routes remains a separate, reviewed demo-window action.
 - The production migration ledger records `20261017000001_add_is_public_to_recipes.sql` as applied; see the [Sprint 1 QA-01 record](../sprints/sprint-1.md#qa-01-smoke-test-record-2026-10-17).
 - The linked repository Projects page has no project board, so board status could not be verified.
 - The gated `recipes` production deployment executed successfully on `main` in CI #284 at PR #125 merge SHA `7278f92e0fc67348efa60a14293dcdfde9329709`; that run did not perform PR #88's runtime smoke. After PR #88 merged, [CI #290](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41007655750) successfully executed production deployment and automated post-deployment runtime smoke at `4cfaf2d5c70634e5c849f34c51668dd1432d8b63`. The smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public `demo-recipe` API/database response. Full authenticated CRUD remains separate and unverified; backend source revision remains **operator-attested; not observed from runtime**.
