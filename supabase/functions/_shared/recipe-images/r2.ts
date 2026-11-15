@@ -175,6 +175,13 @@ export async function signRecipeImageStagingPutUrl(
   const path = `/${config.bucketName}/${
     intent.staging_key.split("/").map(encode).join("/")
   }`;
+  const expiresInSeconds = Math.min(
+    UPLOAD_TTL_SECONDS,
+    Math.floor((Date.parse(intent.expires_at) - now.getTime()) / 1000),
+  );
+  if (expiresInSeconds < 1) {
+    throw new Error("Upload intent has expired.");
+  }
   const signedHeaders = "content-length;content-type;host;if-none-match";
   const canonicalHeaders = [
     `content-length:${intent.byte_size}`,
@@ -187,7 +194,7 @@ export async function signRecipeImageStagingPutUrl(
     "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
     "X-Amz-Credential": `${config.accessKeyId}/${scope}`,
     "X-Amz-Date": timestamp,
-    "X-Amz-Expires": String(UPLOAD_TTL_SECONDS),
+    "X-Amz-Expires": String(expiresInSeconds),
     "X-Amz-SignedHeaders": signedHeaders,
   }).map(([key, value]) => `${encode(key)}=${encode(value)}`).sort().join("&");
   const canonicalRequest = [

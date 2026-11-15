@@ -56,7 +56,7 @@ jobs:
         run: deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-read=fixtures/demo-recipe.json supabase/functions/tests/demo_recipe_test.ts supabase/functions/tests/auth_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/ai_contracts_test.ts supabase/functions/tests/ai_journeys_test.ts supabase/functions/tests/candidate_token_test.ts supabase/functions/tests/eval_dataset_test.ts supabase/functions/tests/cross_user_rls_lineage_test.ts supabase/functions/tests/recipe_image_schemas_test.ts supabase/functions/tests/r2_signing_test.ts supabase/functions/tests/recipe_image_upload_url_test.ts supabase/functions/tests/recipe_image_upload_cleanup_test.ts supabase/functions/tests/recipe_image_lifecycle_test.ts supabase/functions/tests/gemini_adapter_test.ts supabase/functions/tests/extract_recipe_test.ts supabase/functions/tests/generate_recipe_test.ts supabase/functions/tests/recipe_context_test.ts
 
       - name: Check hosted migration configuration
-        if: env.DOCS_ONLY != 'true'
+        if: env.DOCS_ONLY != 'true' && github.event_name != 'pull_request'
         id: hosted-migration
         env:
           NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}
@@ -69,7 +69,7 @@ jobs:
           NON_PRODUCTION_TEST_DATABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_URL }}
         shell: bash
         run: |
-          if [[ -n "${NON_PRODUCTION_TEST_DATABASE_URL//[[:space:]]/}" && -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL//[[:space:]]/}" && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_PROJECT_REF//[[:space:]]/}" ) ]]; then
+          if [[ "${{ github.event_name }}" != "pull_request" && -n "${NON_PRODUCTION_TEST_DATABASE_URL//[[:space:]]/}" && -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL//[[:space:]]/}" && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_PROJECT_REF//[[:space:]]/}" ) ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -118,7 +118,7 @@ jobs:
           NON_PRODUCTION_TEST_DATABASE_URL: ${{ secrets.NON_PRODUCTION_TEST_DATABASE_URL }}
         shell: bash
         run: |
-          if [[ -n "${NON_PRODUCTION_TEST_DATABASE_URL//[[:space:]]/}" && -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL//[[:space:]]/}" && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_PROJECT_REF//[[:space:]]/}" ) ]]; then
+          if [[ "${{ github.event_name }}" != "pull_request" && -n "${NON_PRODUCTION_TEST_DATABASE_URL//[[:space:]]/}" && -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL//[[:space:]]/}" && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_SUPABASE_SECRET_KEY//[[:space:]]/}" ) && ( -n "${NON_PRODUCTION_TEST_DATABASE_EXPECTED_PROJECT_REF//[[:space:]]/}" || -n "${NON_PRODUCTION_TEST_DATABASE_PROJECT_REF//[[:space:]]/}" ) ]]; then
             RUN_NON_PRODUCTION_TEST_DATABASE_RLS_INTEGRATION=true deno test --frozen-lockfile --node-modules-dir=auto --allow-env --allow-net supabase/functions/tests/auth_rls_integration_test.ts supabase/functions/tests/recipes_test.ts supabase/functions/tests/recipe_context_test.ts
           elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
             echo "SKIPPED: Non-production test database RLS integration test safely skipped for untrusted fork pull request where repository secrets are withheld."

@@ -116,6 +116,8 @@ The frontend-existence safety mechanism remains: `frontend` exposes the detectio
 
 The production release deploys the offset-compatible attachment function but builds the frontend with `VITE_RECIPE_IMAGES=false`. This keeps the image UI and endpoint requests disabled while upload signing, R2 access, bucket CORS, and quota recovery remain unverified. The separate upload-signing readiness workflow is on-demand from `main` and uses the protected production environment for read-only Supabase checks. Cleanup function deployment remains disabled; its schedule/manual invocation requires the `RECIPE_IMAGE_CLEANUP_ENABLED=true` repository variable and a separate `recipe-image-cleanup-production` environment restricted to `main` without required reviewers, so scheduled jobs do not wait for approval. Configure its cleanup token and project variables only after database, R2, and quota-recovery prerequisites are independently verified and authorized. Keep the opt-in variable unset until that point.
 
+The production release also defaults `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` to `false`. Migration `20261115000020` adds server-side reuse only when a client sends `request_id`; it does not enable that client behavior. Keep the variable false until the migration is applied and the matching upload signer is separately deployed and verified to accept `request_id`.
+
 A green workflow alone is not considered sufficient deployment evidence. The relevant build and deployment steps must actually execute.
 
 ### DEVOPS-10 / #130: AI function delivery without AI enablement

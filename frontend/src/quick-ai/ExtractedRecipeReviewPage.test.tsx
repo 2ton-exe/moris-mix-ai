@@ -192,7 +192,7 @@ it('shows accessible validation feedback and keeps corrections after failed save
 
   fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'Corrected recipe' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
-  expect((await screen.findByRole('alert')).textContent).toContain('Could not save your recipe')
+  expect((await screen.findByRole('alert')).textContent).toContain('Could not confirm whether your recipe was saved')
   expect(screen.getByDisplayValue('Corrected recipe')).toBeTruthy()
   expect(document.body.textContent).not.toContain('private save detail')
   expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)

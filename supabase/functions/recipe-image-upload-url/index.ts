@@ -4,7 +4,11 @@ import {
   handleCorsPreflight,
   jsonResponse,
 } from "../_shared/cors.ts";
-import { RecipeImageUploadRequestSchema } from "../_shared/recipe-images/schemas.ts";
+import {
+  type RecipeImageContentType,
+  RecipeImageContentTypeSchema,
+  RecipeImageUploadRequestSchema,
+} from "../_shared/recipe-images/schemas.ts";
 import {
   checkRecipeImageStaging,
   deleteRecipeImageStaging,
@@ -37,7 +41,7 @@ type StoredUploadIntent = {
   recipe_id: string;
   staging_key: string;
   final_key: string;
-  content_type: string;
+  content_type: RecipeImageContentType;
   byte_size: number;
   created_at: string;
   expires_at: string;
@@ -112,6 +116,42 @@ async function readBoundedBody(
   return body;
 }
 
+function parseStoredIntent(
+  value: unknown,
+  id: string,
+  userId: string,
+): StoredUploadIntent | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Partial<StoredUploadIntent>;
+  const contentType = RecipeImageContentTypeSchema.safeParse(row.content_type);
+  if (
+    row.id !== id || row.user_id !== userId ||
+    typeof row.recipe_id !== "string" ||
+    row.staging_key !==
+      `recipe-images/staging/${userId}/${row.recipe_id}/${id}` ||
+    typeof row.final_key !== "string" ||
+    !contentType.success ||
+    typeof row.byte_size !== "number" ||
+    typeof row.created_at !== "string" ||
+    typeof row.expires_at !== "string" ||
+    typeof row.state !== "string" ||
+    typeof row.cleanup_status !== "string"
+  ) return null;
+  const createdAt = Date.parse(row.created_at);
+  const expiresAt = Date.parse(row.expires_at);
+  if (!Number.isFinite(createdAt) || expiresAt - createdAt !== 600_000) {
+    return null;
+  }
+  return {
+    ...row as StoredUploadIntent,
+    content_type: contentType.data,
+    created_at: new Date(createdAt).toISOString(),
+    expires_at: new Date(expiresAt).toISOString(),
+  };
+}
+
 async function loadStoredIntent(
   id: string,
   userId: string,
@@ -137,33 +177,16 @@ async function loadStoredIntent(
   if (!response.ok) throw new Error("Upload intent lookup failed.");
   const rows: unknown = await response.json();
   if (!Array.isArray(rows) || rows.length !== 1) return null;
-  const row = rows[0] as Partial<StoredUploadIntent>;
-  if (
-    row.id !== id || row.user_id !== userId ||
-    typeof row.recipe_id !== "string" ||
-    row.staging_key !==
-      `recipe-images/staging/${userId}/${row.recipe_id}/${id}` ||
-    typeof row.final_key !== "string" ||
-    typeof row.content_type !== "string" ||
-    typeof row.byte_size !== "number" ||
-    typeof row.created_at !== "string" ||
-    typeof row.expires_at !== "string" ||
-    typeof row.state !== "string" ||
-    typeof row.cleanup_status !== "string"
-  ) return null;
-  const createdAt = Date.parse(row.created_at);
-  const expiresAt = Date.parse(row.expires_at);
-  if (!Number.isFinite(createdAt) || expiresAt - createdAt !== 600_000) {
-    return null;
-  }
-  return {
-    ...row as StoredUploadIntent,
-    created_at: new Date(createdAt).toISOString(),
-    expires_at: new Date(expiresAt).toISOString(),
-  };
+  return parseStoredIntent(rows[0], id, userId);
 }
 
-function intentIsUploadable(intent: StoredUploadIntent, now: Date): boolean {
+function intentIsUploadable(
+  intent: StoredUploadIntent,
+  now: Date,
+): intent is StoredUploadIntent & {
+  state: "pending";
+  cleanup_status: "waiting";
+} {
   const expiry = Date.parse(intent.expires_at);
   return intent.state === "pending" && intent.cleanup_status === "waiting" &&
     Number.isFinite(expiry) && expiry - now.getTime() > UPLOAD_FINISH_MARGIN_MS;
@@ -443,33 +466,66 @@ export async function handler(
     const now = deps.now?.() ?? new Date();
     const r2Config = resolveR2Config(deps.r2Config);
     const intent = createUploadIntent(request, user.id, now);
-    const upload = await signRecipeImageStagingPutUrl(intent, r2Config, now);
-    const quota = await persistUploadIntent(intent, deps);
-    if (quota === "rate_limited") {
+    const persistence = await persistUploadIntent(intent, deps);
+    if (persistence.status === "rate_limited") {
       return error(
         "UPLOAD_RATE_LIMITED",
         "Upload signing limit reached. Please try again later.",
         429,
       );
     }
-    if (quota === "pending_limit") {
+    if (persistence.status === "pending_limit") {
       return error(
         "UPLOAD_QUOTA_EXCEEDED",
         "Too many image uploads are pending. Please try again later.",
         429,
       );
     }
-    if (quota === "recipe_not_found") {
+    if (persistence.status === "recipe_not_found") {
       return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     }
+    if (persistence.status === "conflict") {
+      return error(
+        "UPLOAD_REQUEST_CONFLICT",
+        "This upload request can no longer be resumed. Please retry the upload.",
+        409,
+      );
+    }
+    if (persistence.status !== "allowed") {
+      throw new Error(
+        "Upload intent persistence returned an unexpected status.",
+      );
+    }
+    const storedIntent = parseStoredIntent(
+      persistence.intent,
+      intent.id,
+      user.id,
+    );
+    if (
+      !storedIntent || storedIntent.recipe_id !== intent.recipe_id ||
+      storedIntent.content_type !== intent.content_type ||
+      storedIntent.byte_size !== intent.byte_size ||
+      !intentIsUploadable(storedIntent, deps.now?.() ?? new Date())
+    ) {
+      return error(
+        "UPLOAD_REQUEST_CONFLICT",
+        "This upload request can no longer be resumed. Please retry the upload.",
+        409,
+      );
+    }
+    const upload = await signRecipeImageStagingPutUrl(
+      storedIntent,
+      r2Config,
+      deps.now?.() ?? new Date(),
+    );
     return respond({
       upload: {
-        id: intent.id,
+        id: storedIntent.id,
         url: upload.url,
         method: "PUT",
         headers: upload.headers,
-        byte_size: intent.byte_size,
-        expires_at: intent.expires_at,
+        byte_size: storedIntent.byte_size,
+        expires_at: storedIntent.expires_at,
       },
     }, 200);
   } catch {
