@@ -596,12 +596,31 @@ test('image releases check the ledger whenever publishing the UI or deploying cl
 test('image release rejects missing migrations, unavailable history and uploads without cleanup', () => {
   const gate = step(release, 'Verify recipe image release prerequisites');
   const versions = readdirSync('supabase/migrations').filter(name => name.endsWith('.sql')).map(name => name.split('_')[0]);
-  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0' } = {}) => spawnSync('bash', [
+  const successfulReadiness = {
+    head_sha: 'readiness-test-sha',
+    head_branch: 'main',
+    event: 'workflow_dispatch',
+    status: 'completed',
+    conclusion: 'success',
+    created_at: '2026-11-15T00:00:00Z',
+  };
+  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0',
+    readinessRuns = { workflow_runs: [successfulReadiness] }, readinessCurlStatus = '0' } = {}) => spawnSync('bash', [
     '-c',
     `curl() {
-      [[ "$*" == *"https://api.supabase.com/v1/projects/test-project/database/migrations" ]] || return 1
-      printf '%s' "$TEST_LEDGER"
-      return "$TEST_CURL_STATUS"
+      local url
+      for url in "$@"; do :; done
+      case "$url" in
+        https://api.github.com/repos/test/repo/actions/workflows/recipe-image-upload-readiness.yml/runs)
+          printf '%s' "$TEST_READINESS_RUNS"
+          return "$TEST_READINESS_CURL_STATUS"
+          ;;
+        https://api.supabase.com/v1/projects/test-project/database/migrations)
+          printf '%s' "$TEST_LEDGER"
+          return "$TEST_CURL_STATUS"
+          ;;
+        *) return 1 ;;
+      esac
     }
     ${gate.run}`,
   ], {
@@ -612,8 +631,13 @@ test('image release rejects missing migrations, unavailable history and uploads 
       SUPABASE_ACCESS_TOKEN: 'test-token',
       VITE_RECIPE_IMAGES: images,
       RECIPE_IMAGE_CLEANUP_ENABLED: cleanup,
+      GH_TOKEN: 'test-token',
+      GITHUB_REPOSITORY: 'test/repo',
+      GITHUB_SHA: 'readiness-test-sha',
       TEST_LEDGER: response ?? JSON.stringify(versions.filter(version => version !== missing).map(version => ({ version }))),
       TEST_CURL_STATUS: curlStatus,
+      TEST_READINESS_RUNS: JSON.stringify(readinessRuns),
+      TEST_READINESS_CURL_STATUS: readinessCurlStatus,
     },
   });
 
@@ -629,6 +653,21 @@ test('image release rejects missing migrations, unavailable history and uploads 
   const noCleanup = check({ cleanup: 'false' });
   assert.equal(noCleanup.status, 1);
   assert.match(noCleanup.stdout, /Enable and verify staging cleanup/);
+  for (const readinessRuns of [
+    { workflow_runs: [] },
+    { workflow_runs: [{ ...successfulReadiness, conclusion: 'failure' }] },
+    { workflow_runs: [{ ...successfulReadiness, status: 'in_progress', conclusion: null }] },
+    { workflow_runs: [{ ...successfulReadiness, head_sha: 'previous-main-sha' }] },
+    { workflow_runs: [
+      successfulReadiness,
+      { ...successfulReadiness, conclusion: 'failure', created_at: '2026-11-15T00:01:00Z' },
+    ] },
+  ]) {
+    const result = check({ readinessRuns });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /successful protected Recipe Image Upload Readiness run is required/);
+  }
+  assert.notEqual(check({ readinessCurlStatus: '22' }).status, 0);
 });
 
 test('cleanup deployment and schedule require the same opt-in', () => {
