@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router'
 import { BookOpen, House, Info, NotebookPen } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
-import { TalkToMoriBookmark } from './TalkToMoriBookmark'
+import { MoriAssistant } from './MoriAssistant'
 import { JournalSurface, PaperCard } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
 import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
@@ -26,22 +26,20 @@ export function JournalPageContainer({ className = '', children, ...props }: Com
   </div>
 }
 
-function JournalBookmarks({ publicNavigation = false }: { publicNavigation?: boolean }) {
+function JournalNavigation({ publicNavigation = false }: { publicNavigation?: boolean }) {
   const location = useLocation()
   const { pathname } = location
   const creating = pathname === '/app/recipes/new'
   const editing = /^\/app\/recipes\/[^/]+\/edit\/?$/.test(pathname)
   const aiWorkflow = /^\/app\/(?:quick-entry|chef)(?:\/|$)/.test(pathname)
-  const className = 'mm-bookmarks'
-  if (publicNavigation) return <nav className={className} aria-label="Journal sections">
+  if (publicNavigation) return <nav className="mm-bookmarks" aria-label="Journal sections">
     <Link className="mm-bookmark" to="/home" aria-current={pathname === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
     <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={pathname === '/about' ? 'page' : undefined}><Info size={16} aria-hidden="true" />About</Link>
     <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={pathname === '/demo-recipe' ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />Demo recipe</Link>
   </nav>
-  return <nav className={className} aria-label="Journal sections">
-    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !editing && !aiWorkflow ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
-    <TalkToMoriBookmark />
-    <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
+  return <nav className="mm-global-nav" aria-label="Journal sections">
+    <Link className="mm-global-nav__link" to="/app/recipes" aria-current={!creating && !editing && !aiWorkflow ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
+    <Link className="mm-global-nav__link" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
   </nav>
 }
 
@@ -84,6 +82,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     <a className="mm-skip-link" href="#journal-content">Skip to journal content</a>
     <header className="mm-desk-toolbar">
       <Link className="mm-desk-brand" to={publicNavigation ? '/home' : '/app/recipes'}><BrandMark /></Link>
+      {!publicNavigation && <JournalNavigation />}
       {account}
     </header>
     <div className="mm-journal-stage" id="journal">
@@ -94,7 +93,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         <div className="mm-journal-ring-plate" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--left" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--right" aria-hidden="true" />
-        <JournalBookmarks publicNavigation={publicNavigation} />
+        {publicNavigation && <JournalNavigation publicNavigation />}
         <main className="mm-journal-spread" id="journal-content" tabIndex={-1}>
           <section className="mm-journal-flyleaf" aria-label="Facing journal page" tabIndex={0}>
             <PaperCard className="mm-bookplate" surface="fresh">
@@ -124,6 +123,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         </div>
       </div>
     </div>
+    {!publicNavigation && <MoriAssistant />}
     <div ref={setCompanion} className="mm-desk-companion" />
     {/* Portalled confirmations stay above the physical leaves and rings. */}
     <div id="journal-overlays" />

@@ -52,8 +52,8 @@ export async function createRecipe(page: Page, title: string): Promise<string> {
 export async function navigateToRecipeSection(page: Page, sectionName: string) {
   const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
   const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
-  const nextPage = pageNavigation.getByRole('button', { name: /^Next Pages?$/ })
-  const pagePosition = pageNavigation.getByText(/of \d+$/)
+  const nextPage = pageNavigation.getByRole('button', { name: /^Next(?: Pages?$|:)/ })
+  const pagePosition = pageNavigation.getByText(/of \d+$/).or(page.locator('.mm-review-progress'))
 
   while (!(await section.isVisible())) {
     await expect(nextPage).toBeEnabled()
@@ -64,4 +64,15 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
 
   await expect(section).toBeVisible()
   return section
+}
+
+export async function finishRecipeReview(page: Page) {
+  const next = page.getByRole('button', { name: /^Next:/ })
+  while (await next.isVisible()) {
+    const progress = page.locator('.mm-review-progress')
+    const current = await progress.innerText()
+    await next.click()
+    await expect(progress).not.toHaveText(current)
+  }
+  await expect(page.getByRole('button', { name: 'Save recipe' })).toBeVisible()
 }

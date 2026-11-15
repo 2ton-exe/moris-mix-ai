@@ -65,35 +65,54 @@ function renderReview({ userId = 'cook-a', save = vi.fn<SaveRecipeDraft>().mockR
   return { ...view, router, save, queryClient, logoutGuard, auth }
 }
 
+function saveRecipe() {
+  let next = screen.queryByRole('button', { name: /^Next:/ })
+  while (next) {
+    fireEvent.click(next)
+    next = screen.queryByRole('button', { name: /^Next:/ })
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+}
+
 beforeEach(() => {
   vi.stubGlobal('Request', class TestRequest extends NativeRequest {
     constructor(input: RequestInfo | URL, init?: RequestInit) {
       super(input, init ? { ...init, signal: undefined } : undefined)
     }
   })
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('prefers-reduced-motion'), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }))
   sessionStorage.clear()
   seed()
 })
 afterEach(() => { sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-it('opens the existing form with extraction fields and original notes kept separate', () => {
+it('opens the review workflow with extraction fields and original notes kept separate', () => {
   const { save } = renderReview()
 
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('2')
   expect((screen.getByLabelText('Ingredient 1 unit') as HTMLInputElement).value).toBe('cups')
-  expect((screen.getByLabelText('Ingredient 2 amount description') as HTMLInputElement).value).toBe('a splash')
-  expect((screen.getByLabelText('Mori estimated ingredient 2') as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText('Ingredient 2 amount description (optional)') as HTMLInputElement).value).toBe('a splash')
+  expect(screen.getByText('2 to review')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Mark as reviewed: ingredient 2' }))
+  expect(screen.getByText('1 to review')).toBeTruthy()
+  expect(document.activeElement).toBe(screen.getByLabelText('Ingredient 2 name'))
+  expect(readQuickAiEntryDraft('cook-a').reviewDraft?.ingredients[1].inferred).toBe(false)
   expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
   expect((screen.getByLabelText('Cooked date') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
-  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
-  expect(screen.getAllByText(/No amount was extracted/).length).toBeGreaterThan(0)
-  const details = within(screen.getByRole('region', { name: 'AI extraction details' }))
+  const details = within(screen.getByRole('region', { name: "Mori's extraction notes" }))
   expect(details.getByText(sourceNotes)).toBeTruthy()
-  expect(screen.getAllByRole('note').some((note) => note.textContent?.includes('No amount was extracted'))).toBe(true)
-  expect(details.getByText(/informational only/)).toBeTruthy()
-  expect(screen.getAllByText(/AI-extracted, unsaved recipe/).length).toBeGreaterThan(0)
+  expect(details.getByText(/preview only/)).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Review your recipe' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Save recipe' })).toBeNull()
+  fireEvent.submit(screen.getByRole('form', { name: 'Create recipe' }))
+  expect(within(screen.getByRole('group', { name: 'soy sauce' })).queryByText('Quantity and unit not specified.')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /^Next: Ingredients and Instructions$/ }))
+  expect(screen.getByText('Quantity and unit not specified.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Save recipe' })).toBeTruthy()
   expect(save).not.toHaveBeenCalled()
 })
 
@@ -167,7 +186,7 @@ it('warns if a confirmed save cannot clear its old handoff and retries the clean
   const save = vi.fn<SaveRecipeDraft>().mockResolvedValue({ id: 'saved-recipe' })
   renderReview({ save })
   failClear = true
-  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  saveRecipe()
   await screen.findByText('Recipe saved.')
 
   expect(screen.getByRole('alert').textContent).toContain('recipe was saved, but this browser could not clear the old extraction')
@@ -186,14 +205,15 @@ it('shows accessible validation feedback and keeps corrections after failed save
   const save = vi.fn<SaveRecipeDraft>().mockRejectedValue(new Error('private save detail'))
   renderReview({ save })
   fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: '' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  saveRecipe()
   expect(await screen.findByRole('alert')).toBeTruthy()
   expect(screen.getByLabelText('Recipe title').getAttribute('aria-invalid')).toBe('true')
   expect(save).not.toHaveBeenCalled()
 
   fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'Corrected recipe' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  saveRecipe()
   expect((await screen.findByRole('alert')).textContent).toContain('Could not confirm whether your recipe was saved')
+  fireEvent.click(screen.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }))
   expect(screen.getByDisplayValue('Corrected recipe')).toBeTruthy()
   expect(document.body.textContent).not.toContain('private save detail')
   expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
@@ -207,7 +227,7 @@ it('uses the authenticated existing save hook only on explicit Save and consumes
 
   fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'Saved garlic rice' } })
   expect(save).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  saveRecipe()
   await screen.findByText('Recipe saved.')
 
   expect(save).toHaveBeenCalledOnce()
@@ -222,9 +242,10 @@ it('uses the authenticated existing save hook only on explicit Save and consumes
 
 it('confirms logout when the saved recipe has newer unsaved edits', async () => {
   const { logoutGuard } = renderReview()
-  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  saveRecipe()
   await screen.findByText('Recipe saved.')
 
+  fireEvent.click(screen.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }))
   fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'A newer title' } })
   act(() => { expect(logoutGuard.current?.()).toBe(false) })
   expect(screen.getByRole('alertdialog', { name: 'Leave without saving your changes?' }).textContent)
@@ -235,7 +256,7 @@ it('confirms logout when the saved recipe has newer unsaved edits', async () => 
 
 it('blocks leaving even before the user edits AI-prefilled values and keeps notes on return', async () => {
   renderReview()
-  fireEvent.click(screen.getByRole('link', { name: 'Back to Mori notes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Back to Mori notes' }))
   expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
   expect(screen.getByDisplayValue('Garlic soy rice')).toBeTruthy()

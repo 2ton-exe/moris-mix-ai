@@ -125,7 +125,7 @@ it('keeps the search-cleared conversation and focus while the replacement query 
     ? Promise.resolve({ recipes: [], nextPage: null }) : replacement.promise)
   render(tree('cook-a', '/app/recipes?view=index&q=missing'))
   await screen.findByRole('heading', { name: 'No recipes match your search.' })
-  fireEvent.click(screen.getByRole('button', { name: 'Open a note from Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Journal tips' }))
   const dialogue = screen.getByRole('region', { name: 'Mori' })
   const choice = within(dialogue).getByRole('button', { name: 'Clear my search' })
   choice.focus()
@@ -149,7 +149,7 @@ it('keeps the search-cleared conversation and focus while the replacement query 
   expect(within(dialogue).getByRole('status').textContent).toContain('Whenever you are ready')
   fireEvent.click(within(dialogue).getByRole('button', { name: "Close Mori's note" }))
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull())
-  const trigger = await screen.findByRole('button', { name: 'Open a note from Mori' })
+  const trigger = await screen.findByRole('button', { name: 'Journal tips', expanded: false })
   expect(document.activeElement).toBe(trigger)
   fireEvent.click(trigger)
   expect(screen.getByRole('button', { name: 'Show me the collection' })).toBeTruthy()
@@ -367,7 +367,7 @@ it('returns keyboard focus to the next pagination action or end state after a pa
   expect(document.activeElement).toBe(end)
 })
 
-it('enables confirmed live search and sorting while keeping unsupported filters disabled', async () => {
+it('enables confirmed live search and sorting while omitting unsupported filters', async () => {
   const live = createRecipeSource()
   source.discovery = { ...live.discovery!, page }
   render(tree())
@@ -375,8 +375,7 @@ it('enables confirmed live search and sorting while keeping unsupported filters 
   expect((screen.getByRole('searchbox') as HTMLInputElement).disabled).toBe(false)
   expect((screen.getByRole('combobox', { name: 'Search in' }) as HTMLSelectElement).disabled).toBe(false)
   expect((screen.getByRole('option', { name: 'Rating' }) as HTMLOptionElement).disabled).toBe(false)
-  expect((screen.getByRole('combobox', { name: 'Filters' }) as HTMLSelectElement).disabled).toBe(true)
-  expect(screen.getByText(/No recipe filters are connected/)).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Filters' })).toBeNull()
 })
 
 it.each([

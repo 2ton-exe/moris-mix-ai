@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { localE2eUser } from './local-user.mjs'
-import { navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
+import { finishRecipeReview, navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function expectRecipeAbsentInCollection(page, ...titles) {
   const collectionResponse = page.waitForResponse((response) =>
@@ -61,19 +61,19 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
     await page.getByRole('button', { name: 'Organize my notes' }).click()
     await expect(page.getByRole('heading', { name: extractedTitle })).toBeVisible()
-    await expect(page.getByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeVisible()
+    await expect(page.getByText('Unsaved preview')).toBeVisible()
     expect(createRequests).toHaveLength(0)
   })
 
   await test.step('edit the reviewed fields and verify the collection is still empty for this recipe', async () => {
-    await page.getByRole('link', { name: 'Review & Edit Recipe' }).click()
+    await page.getByRole('link', { name: 'Review recipe draft' }).click()
     await expect(page.getByLabel('Recipe title')).toHaveValue(extractedTitle)
     await page.getByLabel('Recipe title').fill(reviewedTitle)
 
     const ingredients = await navigateToRecipeSection(page, 'Ingredients')
     await ingredients.getByLabel('Ingredient 1 name').fill('free-range chicken')
 
-    const cookingMethod = await navigateToRecipeSection(page, 'Cooking method')
+    const cookingMethod = await navigateToRecipeSection(page, 'Instructions')
     await cookingMethod.getByLabel('Step 1 description').fill('Cook the chicken slowly until tender.')
 
     expect(createRequests).toHaveLength(0)
@@ -86,6 +86,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
   })
 
   await test.step('preserve the review after one safe save failure', async () => {
+    await finishRecipeReview(page)
     await page.getByRole('button', { name: 'Save recipe' }).click()
     await expect(page.getByRole('alert')).toHaveText('Could not confirm whether your recipe was saved. Your changes are still here. Check your journal before retrying to avoid creating a duplicate.')
     expect(createAttempts).toBe(1)
@@ -97,9 +98,9 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
 
     await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
     const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
-    const pagePosition = pageNavigation.getByText(/of \d+$/)
+    const pagePosition = page.locator('.mm-review-progress')
     const currentPosition = await pagePosition.innerText()
-    await pageNavigation.getByRole('button', { name: /^Previous Pages?$/ }).click()
+    await pageNavigation.getByRole('button', { name: /^Previous:/ }).click()
     await expect(pagePosition).not.toHaveText(currentPosition)
     await expect(page.getByLabel('Recipe title')).toHaveValue(reviewedTitle)
     await expect(page.getByRole('textbox', { name: 'Ingredient 1 name' }).filter({ visible: true })).toHaveValue('free-range chicken')
@@ -113,6 +114,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
   })
 
   await test.step('retry through the real recipe API and reload the saved recipe', async () => {
+    await finishRecipeReview(page)
     await page.getByRole('button', { name: 'Save recipe' }).click()
     await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
     expect(createAttempts).toBe(2)

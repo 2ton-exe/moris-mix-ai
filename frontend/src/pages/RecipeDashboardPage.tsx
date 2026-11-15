@@ -202,10 +202,10 @@ export default function RecipeDashboardPage() {
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className="button mm-button--ghost mm-button--small" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Quick AI Entry</Link>
-        <Link className="button mm-button--ghost mm-button--small" to="/app/recipes/new" state={{ journalReturn: location.pathname + location.search }}>Start a recipe</Link>
-        <Link className="button mm-button--ghost mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}>{indexView ? 'My scraps' : 'Search & index'}</Link>
-        {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
+        <Link className="button button-primary mm-button--small" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Quick AI Entry</Link>
+        <Link className="button button-secondary mm-button--small" to="/app/recipes/new" state={{ journalReturn: location.pathname + location.search }}>Start a recipe</Link>
+        <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}>{indexView ? 'My scraps' : 'Search & index'}</Link>
+        {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>
@@ -235,7 +235,7 @@ export default function RecipeDashboardPage() {
             event.preventDefault()
             turnCollectionPage(single ? leaf + 1 : rightPage + 1, 'forward')
           }}>Next page →</Link>}
-        {!canNext && <span className="mm-collection-last">Last loaded page</span>}
+        {!canNext && !source.discovery && <span className="mm-collection-last">Last page</span>}
         {rightPage > 1 && <Link className="button mm-button--page-turn" to={viewLink('index')} state={{ journalAccount: user?.id }}>Search &amp; index</Link>}
       </>}
     />

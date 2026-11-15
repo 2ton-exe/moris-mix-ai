@@ -248,3 +248,41 @@
   .mm-button, .mm-paper-card, :is(.mm-desk, .mm-auth-desk) .button.button { border: 1px solid CanvasText; }
   .mm-tape { display: none; }
 }
+
+.mm-desk select:enabled { cursor: pointer; }
+
+@supports (appearance: base-select) and selector(::picker(select)) {
+  .mm-desk select,
+  .mm-desk select::picker(select) {
+    appearance: base-select;
+  }
+
+  .mm-desk select::picker(select) {
+    margin-block-start: 4px;
+    padding: 4px;
+    border: 1px solid var(--mm-color-parchment-500);
+    border-radius: 8px;
+    background: var(--mm-color-fresh) var(--mm-tex-grain);
+    color: var(--mm-color-ink);
+    box-shadow: var(--mm-shadow-paper);
+  }
+
+  .mm-desk select::picker-icon { color: var(--mm-color-burgundy-700); }
+  .mm-desk select option {
+    min-height: 36px;
+    padding: 6px 9px;
+    border-radius: 4px;
+  }
+  .mm-desk select option:checked {
+    background: var(--mm-color-sage-100);
+    color: var(--mm-color-sage-900);
+  }
+  .mm-desk select option:enabled:is(:hover, :focus-visible) {
+    background: var(--mm-color-mustard-100);
+    color: var(--mm-color-ink);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-button, :is(.mm-desk, .mm-auth-desk) .button { transition: none; }
+}

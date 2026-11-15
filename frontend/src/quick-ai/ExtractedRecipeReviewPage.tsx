@@ -149,8 +149,9 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   }
 
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
+  const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
+  const editorIntro = consumed ? undefined : "Check Mori's suggestions and fill in missing details before saving."
   const pageNotice = <>
-    <ExtractionNotice handoff={handoff} saved={consumed} />
     {storageNotice}
     {logoutError && <p className="field-error" role="alert">{logoutError}</p>}
   </>
@@ -170,7 +171,10 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       initialEditorState={stored.reviewDraft ?? undefined}
       initialValuesAreUnsaved
       showExtractionHints
-      editorTitle={consumed ? 'Your recipe is saved.' : "Review Mori's recipe."}
+      reviewWorkflow
+      draftKeptInSession={!consumed && storageIssue === null}
+      editorTitle={editorTitle}
+      editorIntro={editorIntro}
       notesSupported
       onSubmit={submit}
       onDirtyChange={setDirty}
@@ -178,12 +182,10 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       cancelLabel="Back to Mori notes"
       onCancel={() => navigate('/app/quick-entry', { state: returnState })}
       notice={pageNotice}
-      renderFrame={(content) => <RecipeEditorFrame mode="create" connected
-        headingEyebrow={consumed ? 'Saved to your journal' : 'AI-extracted, unsaved recipe'}
-        headingTitle={consumed ? 'Your recipe is saved.' : "Review Mori's recipe."}
-        headingIntro={<p className="intro">{consumed ? 'You can continue editing and choose Save changes to update this recipe.' : 'Check estimates and incomplete details, then save only when you are satisfied.'}</p>}
-        navigationConfirmation={{ ...navigationConfirmation, discardChanges: discardAndLeave }}
-        backTo="/app/quick-entry" backState={returnState} backLabel="Back to Mori notes">{content}</RecipeEditorFrame>} />
+      supplement={<ExtractionNotice handoff={handoff} saved={consumed} />}
+      renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
+        headingTitle={editorTitle} headingIntro={editorIntro}
+        navigationConfirmation={{ ...navigationConfirmation, discardChanges: discardAndLeave }}>{content}</RecipeEditorFrame>} />
   </>
 }
 
@@ -203,17 +205,20 @@ function ReviewStorageWarning({ issue, saved, onRetry }: { issue: ReviewStorageI
 
 function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; saved: boolean }) {
   const flavorScores = handoff.recipe.flavor_scores
-  return <section className="recipe-form-notice" aria-label="AI extraction details">
-    <strong>{saved ? 'AI-extracted recipe saved to your journal' : 'AI-extracted, unsaved recipe'}</strong>
-    <p>{saved ? 'Mori organized your original cooking notes into this saved recipe. The notes and optional flavor estimates remain separate.' : 'Mori organized your cooking notes into this editable draft. Review estimated and incomplete details before choosing Save recipe.'}</p>
+  const words = (value: string) => value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
+  const source = ` ${words(handoff.sourceNotes)} `
+  const ingredientsToCompare = [...new Set(handoff.recipe.ingredients.map(({ name }) => name))]
+    .filter((name) => words(name) && !source.includes(` ${words(name)} `))
+  return <section className="mm-extraction-notes" aria-label="Mori's extraction notes">
+    {!saved && ingredientsToCompare.length > 0 && <p><strong>Check against your notes</strong><br />These ingredient names use different wording: {ingredientsToCompare.join(', ')}.</p>}
     <details>
       <summary>Original cooking notes</summary>
       <blockquote>{handoff.sourceNotes}</blockquote>
     </details>
     {flavorScores && <details>
-      <summary>Mori’s optional flavor estimates</summary>
-      <p>These AI estimates are informational only. They are not recipe fields and will not be saved.</p>
-      <ul>{Object.entries(flavorScores).map(([flavor, score]) => <li key={flavor}>{flavor}: {score} / 5</li>)}</ul>
+      <summary>Flavor estimates</summary>
+      <p>Flavor estimates are preview only.</p>
+      <dl>{Object.entries(flavorScores).map(([flavor, score]) => <div key={flavor}><dt>{flavor}</dt><dd>{score} / 5</dd></div>)}</dl>
     </details>}
   </section>
 }

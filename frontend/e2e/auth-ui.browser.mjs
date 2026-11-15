@@ -110,7 +110,7 @@ try {
   await page.getByLabel('Email').fill('cook@example.test')
   await page.getByRole('button', { name: 'Log in' }).click()
   await expect(page).toHaveURL(`${origin}app/recipes/new`)
-  await expect(page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
   assert.equal(authRequests.filter((request) => request.path === '/auth/v1/token').length, 2)
   assert.equal(authRequests.find((request) => request.path === '/auth/v1/token').body.email, 'wrong@example.test')
   await context.close()

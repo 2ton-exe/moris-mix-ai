@@ -297,7 +297,7 @@ try {
   await expect(add).toHaveAttribute('href', '/app/recipes/new')
   await add.click()
   await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
-  await expect(empty.page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
+  await expect(empty.page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
   assert.deepEqual(empty.pageErrors, [])
   await empty.context.close()
   process.stdout.write(`Empty journal to create route passed. Screenshots: ${outputDir}\n`)
