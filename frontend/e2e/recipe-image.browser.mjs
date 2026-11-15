@@ -4,12 +4,13 @@ import { Buffer } from 'node:buffer'
 import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
 import path from 'node:path'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { chromium, expect, firefox, webkit } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const demoFixture = JSON.parse(await readFile(path.join(root, '../fixtures/demo-recipe.json'), 'utf8'))
 const apiOrigin = 'https://qa04.example.test'
 const r2Origin = 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com'
 const appUserId = '11111111-1111-4111-8111-111111111111'
@@ -85,6 +86,7 @@ try {
             return route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': appOrigin } })
           }
           assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
+          if (url.pathname === '/functions/v1/demo-recipe') return route.fulfill({ json: demoFixture })
           if (url.pathname === '/auth/v1/user') {
             return route.fulfill({ json: { id: appUserId, aud: 'authenticated', email: 'qa04@example.test' } })
           }
@@ -204,6 +206,24 @@ try {
         await page.reload()
         await expect(identity.getByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeVisible()
         await expect(identity.getByRole('img', { name: 'Ginger rice photo' })).toHaveCount(0)
+        await page.goto(`${appOrigin}/demo-recipe`)
+        await expect(page.getByRole('heading', { name: demoFixture.recipe.title })).toBeVisible()
+        const pages = page.getByRole('navigation', { name: 'Recipe reading pages' })
+        await pages.scrollIntoViewIfNeeded()
+        await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveCount(1)
+        await expect(page.getByRole('link', { name: 'Home →' })).toHaveCount(0)
+        await expect(page.getByRole('navigation', { name: 'Recipe actions' })).toHaveCount(0)
+        assert.equal(await pages.evaluate((element) => {
+          const footer = element.parentElement
+          const rect = element.getBoundingClientRect()
+          return footer.lastElementChild === element && Math.abs(rect.bottom - (footer.getBoundingClientRect().bottom - Number.parseFloat(globalThis.getComputedStyle(footer).paddingBottom))) < 2
+        }), true, 'Pagination must be the bottom row of the footer')
+        const rowCenters = await pages.locator(':scope > *').evaluateAll((elements) => elements.map((element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.y + rect.height / 2
+        }))
+        assert.ok(Math.max(...rowCenters) - Math.min(...rowCenters) < 2, 'Page controls must align on one row')
+        await page.screenshot({ path: path.join(root, 'test-results', `demo-reading-footer-${browserName}-${width}.png`) })
         assert.deepEqual(pageErrors, [])
         await context.close()
         process.stdout.write(`${browserName} ${browser.version()} at ${width}px (${imageType}): private image load, failed replacement recovery, retry, and layout passed.\n`)

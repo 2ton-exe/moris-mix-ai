@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type Ref } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalReadingTurns } from '../journal/JournalReadingTurns'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -161,11 +161,10 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     </div>
     <div ref={bankRef} className="mm-reading-measure" aria-hidden="true" inert>{measurable && <ReadingUnits units={units} prefix="measure" measured />}</div>
     <JournalPageFooter>
-      <JournalReadingTurns page={current} total={spreads.length} onTurn={turn} />
-      <nav className="mm-reading-footer" aria-label="Recipe actions">
+      {actions && <nav className="mm-reading-footer" aria-label="Recipe actions">
         <div className="mm-reading-footer__actions">{actions}</div>
-        {publicDemo && <Link className="button mm-button--page-turn" to="/home">Home →</Link>}
-      </nav>
+      </nav>}
+      <JournalReadingTurns page={current} total={spreads.length} onTurn={turn} />
     </JournalPageFooter>
   </article>
 }
