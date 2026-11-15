@@ -290,7 +290,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const currentDownload = download?.userId === user?.id ? download : null
   if (!allowUpload && !showEmpty && !loading && !currentDownload && !downloadError) return null
 
-  return <section className="recipe-image-panel" aria-labelledby={`${id}-heading`} aria-busy={loading || preparing || uploading}>
+  return <section className="recipe-image-panel" aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
     {(allowUpload || showEmpty) && <h2 id={`${id}-heading`}>Recipe image</h2>}
     {loading && (allowUpload || showEmpty) && <p role="status">Loading current recipe image…</p>}
     {currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
