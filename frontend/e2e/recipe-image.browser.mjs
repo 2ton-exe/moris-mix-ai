@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
 import path from 'node:path'
+import { mkdir } from 'node:fs/promises'
 import { chromium, expect, firefox, webkit } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -49,6 +50,7 @@ try {
         const page = await context.newPage()
         const pageErrors = []
         let attached = false
+        let noPhoto = false
         let imageType = ''
         let intentByteSize = 0
         let putAttempts = 0
@@ -102,6 +104,7 @@ try {
             } } })
           }
           if (url.pathname === '/functions/v1/recipe-image-download-url' && request.method() === 'POST') {
+            if (noPhoto) return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND' } } })
             return route.fulfill({ json: {
               url: attached ? newImageUrl : oldImageUrl,
               expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -166,6 +169,28 @@ try {
         assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Document overflow at ${width}px in ${browserName}`)
         assert.deepEqual(pageErrors, [], `Browser page errors at ${width}px in ${browserName}`)
         assert.equal(putAttempts, 2)
+        await page.goto(`${appOrigin}/app/recipes/${recipeId}`)
+        const identity = page.getByRole('region', { name: 'Recipe identity and details' })
+        const frame = identity.locator('figure.mm-recipe-artwork--detail')
+        const photo = frame.getByRole('img', { name: 'Ginger rice photo' })
+        await expect(photo).toHaveAttribute('src', newImageUrl)
+        await photo.scrollIntoViewIfNeeded()
+        await expect(photo).toBeVisible()
+        await expect(frame.locator('.mm-tape')).toHaveCount(2)
+        await expect(frame.locator('figcaption')).toHaveText('No date recorded')
+        await expect(page.getByRole('img', { name: /Illustrated placeholder/ })).toHaveCount(0)
+        await expect(page.getByRole('heading', { name: 'Recipe image' })).toHaveCount(0)
+        const photoBox = await photo.boundingBox()
+        assert.ok(photoBox && photoBox.width > 100 && Math.abs(photoBox.width - photoBox.height) < 2, 'Photo must fill the square placeholder')
+        assert.ok(photoBox.x >= 0 && photoBox.x + photoBox.width <= width, 'Framed photo must stay inside the viewport')
+        assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
+        await mkdir(path.join(root, 'test-results'), { recursive: true })
+        await page.screenshot({ path: path.join(root, 'test-results', `recipe-image-frame-${browserName}-${width}.png`) })
+        noPhoto = true
+        await page.reload()
+        await expect(identity.getByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeVisible()
+        await expect(identity.getByRole('img', { name: 'Ginger rice photo' })).toHaveCount(0)
+        assert.deepEqual(pageErrors, [])
         await context.close()
         process.stdout.write(`${browserName} ${browser.version()} at ${width}px (${imageType}): private image load, failed replacement recovery, retry, and layout passed.\n`)
 

@@ -60,9 +60,9 @@ function ReadingUnits({ units, prefix, measured = false, capacity, width, oversi
 }
 
 /** Shared physical reading leaves. Backend cursors never enter this component. */
-export function RecipeReading({ recipe, titleRef, folio, back, actions, status, supplement, publicDemo = false }: {
+export function RecipeReading({ recipe, titleRef, folio, back, actions, status, artwork, publicDemo = false }: {
   recipe: RecipeDetail; titleRef?: Ref<HTMLHeadingElement>; folio?: number
-  back: ReactNode; actions?: ReactNode; status?: ReactNode; supplement?: ReactNode; publicDemo?: boolean
+  back: ReactNode; actions?: ReactNode; status?: ReactNode; artwork?: ReactNode; publicDemo?: boolean
 }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -131,14 +131,13 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
 
   const identity = <div className="mm-recipe-identity mm-reading-identity" role="region" aria-label="Recipe identity and details" tabIndex={0}>
     {publicDemo && <h1 className="mm-demo-title" tabIndex={-1}>Demonstration recipe</h1>}
-    <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} size="detail" />
+    {artwork ?? <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} size="detail" />}
     <header className="mm-recipe-detail__summary">
       {publicDemo ? <h2>{recipe.title}</h2> : <h1 ref={titleRef} tabIndex={-1}>{recipe.title}</h1>}
       <span className="mm-title-swash" aria-hidden="true" />
       <RecipeMetadata recipe={recipe} />
       {recipe.star_rating == null && <p className="mm-recipe-unrated">Not rated</p>}
     </header>
-    {supplement}
   </div>
   return <article data-reading-ready={ready} data-reading-capacity={layout?.capacity} data-reading-width={layout?.width} className={`journal-recipe mm-recipe-detail__article mm-page-column mm-continuation ${layout ? 'is-measured' : 'is-fallback'}`}>
     <JournalFacingPage className="mm-facing-content--recipe mm-page-column mm-continuation-facing">

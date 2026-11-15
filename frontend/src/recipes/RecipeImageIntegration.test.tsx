@@ -395,15 +395,51 @@ it('refreshes the private display URL after an image load failure', async () => 
   expect(downloadCount).toBe(2)
 })
 
-it('shows an attached private image on the recipe detail page', async () => {
+it('shows the private image in the taped frame above the recipe title', async () => {
   renderDetailPage()
 
   expect(await screen.findByRole('img', { name: 'Ginger rice photo' })).toBeTruthy()
-  expect(screen.getByRole('region', { name: 'Recipe image' })).toBeTruthy()
+  const photo = screen.getByRole('img', { name: 'Ginger rice photo' })
+  const frame = photo.closest('figure')
+  expect(frame?.classList.contains('mm-recipe-artwork--detail')).toBe(true)
+  expect(frame?.querySelectorAll('.mm-tape')).toHaveLength(2)
+  expect(frame?.querySelector('figcaption')?.textContent).toBe('No date recorded')
+  expect(screen.queryByRole('img', { name: /Illustrated placeholder/ })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Recipe image' })).toBeNull()
+  expect(frame && (frame.compareDocumentPosition(screen.getByRole('heading', { name: 'Ginger rice' })) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy()
   expect(screen.getByRole('region', { name: 'Recipe identity and details' }).contains(screen.getByRole('img', { name: 'Ginger rice photo' }))).toBe(true)
   const downloadRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-download-url'))
   expect(JSON.parse(downloadRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId })
   expect(new Headers(downloadRequest?.[1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
+})
+
+it('keeps the framed illustration when the recipe has no photo', async () => {
+  noImage = true
+  renderDetailPage()
+  await waitFor(() => expect(downloadCount).toBe(1))
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Recipe photo for Ginger rice' }).getAttribute('aria-busy')).toBe('false'))
+  expect(screen.getByRole('img', { name: /Illustrated placeholder for Ginger rice/ }).closest('figure')?.querySelector('figcaption')?.textContent).toBe('No date recorded')
+  expect(screen.queryByRole('img', { name: 'Ginger rice photo' })).toBeNull()
+})
+
+it('keeps the illustration without private reads when images are disabled', async () => {
+  vi.stubEnv('VITE_RECIPE_IMAGES', 'false')
+  renderDetailPage()
+  expect(await screen.findByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeTruthy()
+  expect(fetchImpl).not.toHaveBeenCalled()
+})
+
+it('restores the illustration after repeated photo failures and allows a manual refresh', async () => {
+  renderDetailPage()
+  fireEvent.error(await screen.findByRole('img', { name: 'Ginger rice photo' }))
+  await waitFor(() => expect(downloadCount).toBe(2))
+  await waitFor(() => expect(screen.getByRole('region', { name: 'Recipe photo for Ginger rice' }).getAttribute('aria-busy')).toBe('false'))
+  fireEvent.error(screen.getByRole('img', { name: 'Ginger rice photo' }))
+  expect(screen.getByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeTruthy()
+  expect(screen.queryByRole('img', { name: 'Ginger rice photo' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh photo' }))
+  expect(await screen.findByRole('img', { name: 'Ginger rice photo' })).toBeTruthy()
+  expect(downloadCount).toBe(3)
 })
 
 it('names the photo region when no heading is shown', async () => {
