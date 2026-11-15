@@ -104,6 +104,7 @@ pnpm install --frozen-lockfile
 pnpm --dir frontend install --frozen-lockfile
 pnpm --dir frontend exec playwright install chromium firefox webkit
 pnpm --dir frontend run test:e2e:local -- --browser all
+pnpm --dir frontend run test:e2e:qa04:images
 ```
 
 To run a single browser locally, pass `--browser chromium`, `--browser firefox`,
@@ -111,7 +112,9 @@ or `--browser webkit` instead of `--browser all`.
 
 CI runs one browser per parallel job, with a fresh isolated local Supabase stack
 for each engine. Running `--browser all` locally executes those browsers
-sequentially against one local stack.
+sequentially against one local stack. The private-image journey also runs in all
+three browsers by default; set `QA04_BROWSER=chromium`, `firefox`, or `webkit`
+to run only one.
 
 Each run prepares the dedicated project in the ignored `.e2e-supabase/` workdir, starts it with `--runtime native`, and resets its database with the repository migrations and seed. It then creates the synthetic accounts through the local Auth admin API, serves the recipes, extraction, and generation functions, and starts Vite on `127.0.0.1:4173`. The extraction and generation functions use test-only mocked providers. The journeys do not use hosted credentials, Gemini, or R2. The project has a stable local ID and separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack.
 
