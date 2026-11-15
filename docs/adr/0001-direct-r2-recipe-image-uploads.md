@@ -46,10 +46,9 @@ guards remain unchanged.
   image structure. The signature binds the request's content length to the
   authorized 10 MiB maximum, and attachment independently checks R2 metadata
   and bytes.
-- R2 bucket CORS and direct signed PUT behavior are not verified against live
-  storage. Production upload signing remains hard-disabled until an operator
-  verifies the bucket configuration and performs the required non-production
-  upload checks.
+- Verify live R2 bucket CORS and direct signed PUT behavior in non-production
+  before enabling images through the
+  [production rollout](../devops/deployment-runbook.md#enable-private-recipe-images).
 - The authenticated-proxy transport accepted for PR #190 remains historical;
   its approval does not cover this direct-upload proposal or authorize
   production deployment.
