@@ -160,6 +160,73 @@ export async function putRecipeImageStaging(
   }
 }
 
+export async function signRecipeImageStagingPutUrl(
+  intent: UploadIntent,
+  configuration: R2Config,
+  now: Date = new Date(),
+): Promise<{ url: string; headers: Record<string, string> }> {
+  validateUploadIntent(intent);
+  const config = resolveR2Config(configuration);
+  const endpoint = r2Endpoint(config.accountId);
+  const timestamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "");
+  const date = timestamp.slice(0, 8);
+  const scope = `${date}/auto/s3/aws4_request`;
+  const host = endpoint.host;
+  const path = `/${config.bucketName}/${
+    intent.staging_key.split("/").map(encode).join("/")
+  }`;
+  const expiresInSeconds = Math.min(
+    UPLOAD_TTL_SECONDS,
+    Math.floor((Date.parse(intent.expires_at) - now.getTime()) / 1000),
+  );
+  if (expiresInSeconds < 1) {
+    throw new Error("Upload intent has expired.");
+  }
+  const signedHeaders = "content-length;content-type;host;if-none-match";
+  const canonicalHeaders = [
+    `content-length:${intent.byte_size}`,
+    `content-type:${intent.content_type}`,
+    `host:${host}`,
+    "if-none-match:*",
+  ].join("\n") + "\n";
+  const query = Object.entries({
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
+    "X-Amz-Credential": `${config.accessKeyId}/${scope}`,
+    "X-Amz-Date": timestamp,
+    "X-Amz-Expires": String(expiresInSeconds),
+    "X-Amz-SignedHeaders": signedHeaders,
+  }).map(([key, value]) => `${encode(key)}=${encode(value)}`).sort().join("&");
+  const canonicalRequest = [
+    "PUT",
+    path,
+    query,
+    canonicalHeaders,
+    signedHeaders,
+    "UNSIGNED-PAYLOAD",
+  ].join("\n");
+  const requestHash = hex(
+    await crypto.subtle.digest("SHA-256", encoder.encode(canonicalRequest)),
+  );
+  const stringToSign =
+    `AWS4-HMAC-SHA256\n${timestamp}\n${scope}\n${requestHash}`;
+  let signingKey = await hmac(
+    encoder.encode(`AWS4${config.secretAccessKey}`),
+    date,
+  );
+  for (const component of ["auto", "s3", "aws4_request"]) {
+    signingKey = await hmac(signingKey, component);
+  }
+  const signature = hex((await hmac(signingKey, stringToSign)).buffer);
+  return {
+    url: `${endpoint.origin}${path}?${query}&X-Amz-Signature=${signature}`,
+    headers: {
+      "Content-Type": intent.content_type,
+      "If-None-Match": "*",
+    },
+  };
+}
+
 async function signRecipeImageStagingRequest(
   method: "DELETE" | "HEAD",
   stagingKey: string,

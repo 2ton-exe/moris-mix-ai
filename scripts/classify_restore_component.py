@@ -78,7 +78,7 @@ def component_hint(stderr: bytes, exit_code: int) -> str:
 
 
 def _ends_with_complete_statement(line: bytes) -> bool:
-    """Recognize a terminating semicolon outside quotes and line comments."""
+    """Accept a single terminated statement, allowing a trailing line comment."""
     quote = None
     terminated = False
     index = 0
@@ -87,6 +87,8 @@ def _ends_with_complete_statement(line: bytes) -> bool:
         if quote is None:
             if byte == ord("-") and index + 1 < len(line) and line[index + 1] == ord("-"):
                 break
+            if terminated and byte not in (ord(" "), ord("\t")):
+                return False
             if byte in (ord("'"), ord('"')):
                 quote = byte
                 terminated = False

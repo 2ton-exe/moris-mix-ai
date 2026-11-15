@@ -369,22 +369,22 @@ class ComponentHintTests(unittest.TestCase):
                     self.assertEqual(statement, "unknown")
 
             misleading = [
-                b"-- GRANT synthetic_group TO synthetic_member;\n",
-                b"SELECT 'GRANT synthetic_group TO synthetic_member;';\n",
-                b"COPY synthetic_roles FROM stdin;\n"
-                b"GRANT synthetic_group TO synthetic_member;\n\\.\n",
-                b"/* open comment\nGRANT synthetic_group TO synthetic_member;\n*/\n",
-                b"ALTER ROLE synthetic_member SET application_name TO 'unterminated\n"
-                b"GRANT synthetic_group TO synthetic_member;\n",
-                b"ALTER ROLE synthetic_member SET\n"
-                b"statement_timeout TO '15s';\n",
+                (1, b"-- GRANT synthetic_group TO synthetic_member;\n"),
+                (1, b"SELECT 'GRANT synthetic_group TO synthetic_member;';\n"),
+                (2, b"COPY synthetic_roles FROM stdin;\n"
+                    b"GRANT synthetic_group TO synthetic_member;\n\\.\n"),
+                (2, b"SELECT 1; COPY synthetic_roles FROM stdin;\n"
+                    b"GRANT synthetic_group TO synthetic_member;\n\\.\n"),
+                (2, b"/* open comment\nGRANT synthetic_group TO synthetic_member;\n*/\n"),
+                (2, b"ALTER ROLE synthetic_member SET application_name TO 'unterminated\n"
+                    b"GRANT synthetic_group TO synthetic_member;\n"),
+                (2, b"ALTER ROLE synthetic_member SET\n"
+                    b"statement_timeout TO '15s';\n"),
             ]
-            for payload in misleading:
+            for line_number, payload in misleading:
                 with self.subTest(payload=payload):
                     roles.write_bytes(payload)
-                    # The referenced physical line is the GRANT-looking line
-                    # (or the multiline continuation), as psql can report an end line.
-                    line_number = 2 if b"\n" in payload else 1
+                    self.assertLessEqual(line_number, len(payload.splitlines()))
                     record = f"psql:/backup/roles.sql:{line_number}: ERROR:  42501\n".encode()
                     self.assertEqual(diagnostic_hints(record, 3, roles),
                                      ("roles.sql", "insufficient-privilege", "unknown"))
@@ -401,7 +401,7 @@ class ComponentHintTests(unittest.TestCase):
                              ("roles.sql", "insufficient-privilege", "unknown"))
 
             # A genuine standalone grant after a complete statement still matches.
-            roles.write_bytes(b"SELECT 1;\nGRANT \"g\" TO \"m\";\n")
+            roles.write_bytes(b"SELECT ';'; -- trailing ;\nGRANT \"g\" TO \"m\";\n")
             self.assertEqual(diagnostic_hints(record, 3, roles),
                              ("roles.sql", "insufficient-privilege", "role-membership-grant"))
 

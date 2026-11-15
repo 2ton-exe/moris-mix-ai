@@ -193,6 +193,18 @@ SQL
 expect_failure role-setting-undefined-parameter 3 roles.sql undefined-object alter-role-set
 cp "$root/roles-base.sql" "$fixture/roles.sql"
 
+# The named grantor exists but has no ADMIN OPTION on the group.
+cat >> "$fixture/roles.sql" <<'SQL'
+CREATE ROLE devops_synthetic_group NOLOGIN;
+CREATE ROLE devops_synthetic_member NOLOGIN;
+GRANT devops_restore_synthetic TO postgres WITH SET TRUE;
+SET ROLE devops_restore_synthetic;
+SELECT 'SYNTHETIC_FAILURE_REACHED';
+GRANT "devops_synthetic_group" TO "devops_synthetic_member" WITH INHERIT TRUE GRANTED BY "devops_restore_synthetic";
+SQL
+expect_failure role-membership-insufficient-privilege 3 roles.sql insufficient-privilege role-membership-grant
+cp "$root/roles-base.sql" "$fixture/roles.sql"
+
 # The separate -c SQL action returns 1 in pinned psql; it has no file context.
 replication_command="SET session_replication_role = 'synthetic_invalid_role'"
 expect_failure replication-command 1 unknown

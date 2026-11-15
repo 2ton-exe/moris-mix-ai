@@ -158,8 +158,8 @@ identify the statement's ending line. Unsupported forms and unreadable role
 files produce an `unknown` statement class; malformed or ambiguous records and
 over-bound stderr produce only `unknown` labels. The labels
 are investigative leads, not proof of the original failing statement; a forged
-matching diagnostic cannot be distinguished from a real one. Private stderr,
-SQLSTATEs, line numbers, SQL, and identifiers remain suppressed. Any diagnostic
+matching diagnostic cannot be distinguished from a real one. The three public error categories each identify one allowlisted SQLSTATE.
+Raw diagnostic records, line numbers, SQL, and identifiers stay private. Any diagnostic
 failure preserves the restore's original exit status, and the disposable target
 cleanup remains an always-run step.
 
