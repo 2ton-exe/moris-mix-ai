@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, Ref } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { HttpError } from '../api/http'
+import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { Mori } from '../journal/Mori'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
@@ -25,6 +26,8 @@ interface EntryError {
 }
 
 type ExtractRecipe = typeof extractRecipeApi.extract
+// Leave 55s beyond Gemini's 65s maximum attempt and retry budget for auth/quota work.
+const EXTRACTION_TIMEOUT_MS = 120_000
 
 function errorCode(error: unknown) {
   if (error instanceof InvalidExtractionResponse) return 'INVALID_EXTRACTION_RESPONSE'
@@ -35,15 +38,10 @@ function errorCode(error: unknown) {
 }
 
 function parseRetryAfterSeconds(error: unknown): number | undefined {
-  const raw = error instanceof HttpError ? error.retryAfter : undefined
-  if (raw === undefined || !raw.trim()) return undefined
-  const seconds = Number(raw)
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds)
-  const date = Date.parse(raw)
-  return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined
+  return parseRetryAfter(error instanceof HttpError ? error.retryAfter : undefined)
 }
 
-function retryAfterSeconds(error: unknown, fallback: number) {
+function retryAfterSeconds(error: unknown, fallback?: number) {
   return parseRetryAfterSeconds(error) ?? fallback
 }
 
@@ -61,15 +59,25 @@ function describeExtractionError(error: unknown): EntryError {
     return { code: 'SERVICE_CONFIGURATION', message: 'The recipe organizer is not configured yet. Your notes are still here.', retryable: false }
   }
 
+  if (error instanceof HttpError && error.status === 401) {
+    return { code: 'UNAUTHORIZED', message: 'Your session could not be verified. Sign out and sign in again to continue. Your notes are still here.', retryable: false }
+  }
+  if (error instanceof HttpError && error.status === 403) {
+    return { code: 'FORBIDDEN', message: 'You do not have permission to organize these notes. Your notes are still here.', retryable: false }
+  }
+  if (error instanceof HttpError && error.status === 429 && !code) {
+    return { code: 'RATE_LIMITED', message: 'AI organizing is temporarily limited. Your notes are still here; try again later.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: parseRetryAfterSeconds(error) }
+  }
+
   switch (code) {
     case 'UNAUTHORIZED':
       return { code, message: 'Your session could not be verified. Sign out and sign in again to continue. Your notes are still here.', retryable: false }
     case 'QUOTA_EXCEEDED':
       return { code, message: "You've reached today's AI organizing limit. Keep editing your notes and return after the daily limit resets.", retryable: false, blockReason: 'quota', retryAfterSeconds: retryAfterSeconds(error, secondsUntilUtcReset()) }
     case 'AI_RATE_LIMITED':
-      return { code, message: 'Mori is temporarily busy. Your notes remain in the editor; wait for the provider cooldown before retrying.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
+      return { code, message: 'Mori is temporarily busy. Your notes remain in the editor; wait for the provider cooldown before retrying.', retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error) }
     case 'AUTH_SERVICE_RATE_LIMITED':
-      return { code, message: 'Mori could not verify your session just now. Your notes remain in the editor; please try again when authentication is available.', retryable: true, blockReason: 'auth-service-rate-limit', retryAfterSeconds: retryAfterSeconds(error, 30) }
+      return { code, message: 'Mori could not verify your session just now. Your notes remain in the editor; please try again when authentication is available.', retryable: true, blockReason: 'auth-service-rate-limit', retryAfterSeconds: retryAfterSeconds(error) }
     case 'AI_OUTPUT_INVALID':
     case 'INVALID_EXTRACTION_RESPONSE':
       return { code, message: "Mori couldn't validate the recipe it returned. Your notes are still here; you can edit them or retry.", retryable: true }
@@ -99,16 +107,15 @@ function renderIngredient(ingredient: ExtractedRecipe['ingredients'][number]) {
   return [amount, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
 }
 
-function RecipePreview({ handoff, reviewState }: { handoff: QuickAiEntryHandoff; reviewState: { journalReturn: string; sourceJournalReturn: string } }) {
+function RecipePreview({ handoff, reviewState, headingRef }: { handoff: QuickAiEntryHandoff; reviewState: { journalReturn: string; sourceJournalReturn: string }; headingRef: Ref<HTMLHeadingElement> }) {
   return <section className="mm-quick-ai__preview" aria-labelledby="quick-ai-preview-title">
     <div className="mm-quick-ai__preview-header">
-      <div>
-        <p className="mm-quick-ai__eyebrow">Ready for your review</p>
-        <h2 id="quick-ai-preview-title">{handoff.recipe.title}</h2>
-      </div>
+      <h2 id="quick-ai-preview-title" ref={headingRef} tabIndex={-1}>{handoff.recipe.title}</h2>
       <ScrapLabel tone="sage">Unsaved preview</ScrapLabel>
     </div>
-    <p className="mm-quick-ai__unsaved">This recipe is only a preview. Nothing has been saved to your journal.</p>
+    <div className="mm-quick-ai__preview-actions">
+      <Link className="button button-primary" to="/app/quick-entry/review" state={reviewState}>Review recipe draft</Link>
+    </div>
     <h3>Ingredients</h3>
     {handoff.recipe.ingredients.length > 0
       ? <ul>{handoff.recipe.ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>
@@ -123,9 +130,6 @@ function RecipePreview({ handoff, reviewState }: { handoff: QuickAiEntryHandoff;
       <summary>View original notes</summary>
       <blockquote>{handoff.sourceNotes}</blockquote>
     </details>
-    <div className="mm-quick-ai__preview-actions">
-      <Link className="button button-primary" to="/app/quick-entry/review" state={reviewState}>Review &amp; Edit Recipe</Link>
-    </div>
   </section>
 }
 
@@ -165,6 +169,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const validationId = useId()
   const persistenceWarningId = useId()
   const notesRef = useRef<HTMLTextAreaElement>(null)
+  const previewHeadingRef = useRef<HTMLHeadingElement>(null)
+  const focusNewPreview = useRef(false)
   const requestRef = useRef<AbortController | null>(null)
   const requestNumber = useRef(0)
   const inFlight = useRef(false)
@@ -184,6 +190,15 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setLogoutConfirmationOpen(true)
     return false
   }, [hasUnsavedContent, persistenceFailed])
+
+  useEffect(() => {
+    if (!handoff || !focusNewPreview.current) return
+    focusNewPreview.current = false
+    const active = document.activeElement
+    if (active === document.body || notesRef.current?.form?.contains(active)) {
+      previewHeadingRef.current?.focus()
+    }
+  }, [handoff])
 
   useEffect(() => {
     if (!registerLogoutGuard) return
@@ -263,6 +278,16 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setDraft(pendingDraft)
     persistDraft(pendingDraft)
     setHandoff(null)
+    const timeoutId = window.setTimeout(() => {
+      if (!mounted.current || requestNumber.current !== currentRequest) return
+      // Invalidate even a transport that ignores abort, so its late result cannot replace a retry.
+      requestNumber.current++
+      controller.abort()
+      requestRef.current = null
+      inFlight.current = false
+      setLoading(false)
+      setError({ code: 'TIMEOUT', message: 'Mori took too long to organize your notes. Your notes are still here; please try again.', retryable: true })
+    }, EXTRACTION_TIMEOUT_MS)
     try {
       const recipe = await extract(sourceNotes, { userId, signal: controller.signal })
       if (controller.signal.aborted || !mounted.current || requestNumber.current !== currentRequest) return
@@ -270,6 +295,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       const completedDraft = { ...pendingDraft, handoff: nextHandoff }
       setDraft(completedDraft)
       persistDraft(completedDraft)
+      focusNewPreview.current = true
       setHandoff(nextHandoff)
       onExtracted?.(nextHandoff)
     } catch (requestError) {
@@ -287,6 +313,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         setNow(Date.now())
       }
     } finally {
+      window.clearTimeout(timeoutId)
       if (mounted.current && requestNumber.current === currentRequest) {
         inFlight.current = false
         requestRef.current = null
@@ -345,9 +372,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     <JournalFacingPage className="mm-facing-content--quick-ai">
       <header className="mm-quick-ai-intro">
         <div>
-          <p className="mm-quick-ai-intro__eyebrow">Kitchen scraps, welcome</p>
           <h1 tabIndex={-1}>Quick AI Entry</h1>
-          <p className="mm-quick-ai-intro__copy">Jot down the bits you remember. Mori will organize your rough cooking notes into an unsaved recipe preview.</p>
+          <p className="mm-quick-ai-intro__copy">Turn cooking notes into a recipe draft.</p>
         </div>
         <Mori mood="think" size={58} />
       </header>
@@ -358,11 +384,6 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         <Link to={journalReturnTo(location.state)}><span aria-hidden="true">←</span> Back to journal</Link>
       </nav>
       <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet">
-        <div className="mm-quick-ai__sheet-header">
-          <p className="mm-quick-ai__eyebrow">Your scratch page</p>
-          <h2>Write it the way you remember it.</h2>
-          <p>Ingredients, quantities, little tricks, or half-finished thoughts are all useful. You can tidy everything up later.</p>
-        </div>
         <form onSubmit={handleSubmit} noValidate>
           <div className="mm-quick-ai__field">
             <label htmlFor={notesId}>Cooking notes</label>
@@ -377,7 +398,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               disabled={loading}
               aria-invalid={validationMessage ? 'true' : undefined}
               aria-describedby={describedBy}
-              placeholder="e.g. leftover rice, two eggs, a splash of soy sauce and garlic. Fry the eggs first, then toss everything together; add scallions if we have them."
+              placeholder="e.g. Fry two eggs with garlic, then toss with leftover rice and a splash of soy sauce."
               onChange={(event) => updateNotes(event.currentTarget.value)}
             />
             {persistenceFailed && <div className="mm-quick-ai__storage-warning" id={persistenceWarningId} role="alert" aria-atomic="true">
@@ -404,13 +425,12 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
             </button>
           </div>
-          <p className="mm-quick-ai__preservation">Your original notes stay separate from the recipe and are never cleared when you submit.</p>
         </form>
 
         {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite"><Mori mood="stir" size={40} animated /> Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
-        {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="status" aria-live="polite">
+        {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
           {draft.blockedReason === 'quota'
-            ? `Today's AI limit is still in effect. You can organize notes again in ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'}.`
+            ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
             : draft.blockedReason === 'auth-service-rate-limit'
               ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
               : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
@@ -424,7 +444,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         </div>}
       </PaperCard>
 
-      {handoff && <RecipePreview handoff={handoff} reviewState={{
+      {handoff && <RecipePreview handoff={handoff} headingRef={previewHeadingRef} reviewState={{
         journalReturn: '/app/quick-entry',
         sourceJournalReturn: journalReturnTo(location.state),
       }} />}

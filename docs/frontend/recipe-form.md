@@ -49,28 +49,27 @@ failures remove the form; account and recipe identity changes remount or hide it
 
 The available shared Zod source is
 `supabase/functions/_shared/ai/schemas.ts`, imported through Deno's
-`npm:zod@3.22.4`. It defines extraction/demo shapes and cannot be imported
+`npm:zod@4.6.6`. It defines extraction/demo shapes and cannot be imported
 directly into Vite. The BE-05 create contract is documented in
-[`docs/api/recipes.md`](../api/recipes.md); FE-05 pins browser Zod to the same
-version and provides a draft-validation bridge, with ingredient/instruction
+[`docs/api/recipes.md`](../api/recipes.md); the browser also pins Zod 4.6.6
+and provides a draft-validation bridge, with ingredient/instruction
 output types checked against FE-02's existing types. The form draft is not the
 BE-05 transport schema. Backend validation remains authoritative.
 
 | Field | Implemented behavior | Published basis / pending decision |
 | --- | --- | --- |
-| Title | Trimmed, required, field-level error and focus | Demo schema requires a nonempty title; no published maximum |
-| Ingredients | Add/edit/remove/reorder; stable keys; name, optional numeric amount/unit/amount description; inferred flag preserved | Shared ingredient fields; no required units, enum or item minimum |
-| Quantity | Blank becomes null; finite decimal number; zero and negative values allowed because no shared lower bound exists | Shared nullable number; fractional text such as `1/2` belongs in amount description rather than a numeric guess |
-| Steps | Add/edit/delete/reorder; multiline text; serialize contiguous positions 1..n | Shared `{ step, text }` objects; no published text/item minimum |
+| Title | Trimmed, required, 200-character maximum, field-level error and focus | Recipe create/update contract |
+| Ingredients | Add/edit/remove/reorder; stable keys; name, optional numeric amount/unit/amount description; inferred flag preserved; at most 100 items | Recipe create/update contract: name 200, unit 100, amount description 200 characters |
+| Quantity | Blank becomes null; finite nonnegative decimal number | Recipe create/update contract; fractional text such as `1/2` belongs in amount description rather than a numeric guess |
+| Steps | Add/edit/delete/reorder; multiline text up to 2,000 characters; at most 100 items; serialize contiguous positions 1..n | Recipe create/update contract |
 | Rating | Unrated/null or integer 1–5; existing values retained | BE-05 create and BE-06 update contracts use this scale |
 | Cooked date | Optional/null or real `YYYY-MM-DD` calendar date; no timezone conversion | Shared date-only shape; no invented future/past restriction |
-| Notes | Optional multiline value, default empty, rendered as plain text and persisted | BE-06 accepts nullable notes; no maximum length is published |
+| Notes | Optional multiline value up to 20,000 characters, default empty, rendered as plain text and persisted | Recipe create/update contract |
 
-The published shared schemas allow empty arrays and empty nested ingredient/step
-text. The editor shows empty-state guidance and validates types but does not
-invent nonempty-list/text requirements. It also imposes no arbitrary character
-caps. Tests record these boundaries explicitly; no minimum item counts,
-required nested text, or maximum lengths are published for those fields.
+The published recipe schemas allow empty arrays and empty instruction text.
+The editor validates the published field and collection caps and does not
+invent minimum item counts or required instruction text. Tests record these
+boundaries explicitly.
 Normalized server validation codes support `required`, `invalid` and `too-long`
 feedback without rendering raw backend messages.
 
@@ -138,7 +137,7 @@ process crashes; drafts are memory-only.
 | Severity | Location | Finding and evidence | Impact | Disposition |
 | --- | --- | --- | --- | --- |
 | Medium | `frontend/src/recipe-form/RecipeForm.tsx:62` | The first fresh test run showed the `beforeunload` listener could remain active immediately after a confirmed save because a passive effect had not removed it yet. | A clean form could still show a browser leave warning just after save. | Fixed by attaching/removing the listener in a layout effect; the existing regression now passes. |
-| Medium (contract dependency) | `frontend/src/recipe-form/draft.ts:30` | The published BE-06 notes field has no maximum-length rule. | The UI accepts the API's current contract without inventing a client-only limit. | Add a shared limit and field feedback if the backend publishes one. |
+| Resolved | `frontend/src/recipe-form/draft.ts` | Recipe title, notes, ingredient fields, and collection sizes now match the published API caps. | The draft schema and editor controls mirror the backend limits. | None |
 | Low | `frontend/src/App.tsx:8` | The form pages are statically imported into the shared application entry. The fresh Vite build reports a 643.42 kB minified entry chunk (185.71 kB gzip), above the 500 kB warning threshold. | Larger initial download on routes that do not use the form. | Follow up with route-level code splitting if the bundle budget requires it; no unrelated bundler change was made in FE-05. |
 
 Review also confirmed stable ingredient and step row keys, contiguous step

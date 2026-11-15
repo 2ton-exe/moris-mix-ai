@@ -33,7 +33,7 @@ export default function RecipeDetailPage() {
 
   const journalReturn = journalReturnTo(routeState)
 
-  const retry = () => { focusAfterRequest.current = true; void query.refetch() }
+  const retry = () => { focusAfterRequest.current = !hasRecipe; void query.refetch() }
 
   return <div className="mm-recipe-detail mm-page-column">
     {!recipe && <JournalFacingPage className="mm-facing-content--recipe">
@@ -45,16 +45,15 @@ export default function RecipeDetailPage() {
     {query.isPaused && <p className="mm-recipe-detail__offline" role="status">You appear to be offline. This recipe will load when you reconnect.</p>}
     {!recipe && query.isError && <><h1 ref={titleRef} tabIndex={-1}>Recipe unavailable</h1><RecipeError detail error={query.error} onRetry={retry} /></>}
     {recipe && <RecipeReading recipe={recipe} titleRef={titleRef} folio={folio}
-      supplement={<RecipeImagePanel key={`image-${recipe.id}`} recipeId={recipe.id} recipeTitle={recipe.title} showEmpty />}
+      artwork={<RecipeImagePanel key={`image-${recipe.id}`} recipeId={recipe.id} recipeTitle={recipe.title} cookedAt={recipe.cooked_at} framed />}
       back={<Link to={journalReturn} state={{ focusRecipe: recipeId }}><span aria-hidden="true">←</span> Back to recipes</Link>}
       status={<>
         {query.isFetching && <p role="status" className="recipe-update">Updating recipe…</p>}
-        {query.isError && <><RecipeError detail error={query.error} onRetry={retry} /><p className="recipe-update">Showing the last loaded recipe.</p></>}
+        {query.isError && <><RecipeError detail error={query.error} onRetry={retry} /><p className="recipe-update" role="status">Showing the last loaded recipe. Its latest changes could not be checked.</p></>}
       </>}
       actions={<>
-        {source.mode === 'live' && <Link className="button button-secondary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Edit recipe</Link>}
+        {source.mode === 'live' && <Link className="button button-primary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Edit recipe</Link>}
         <RecipeDeletionControl recipeId={recipe.id} recipeTitle={recipe.title} />
-        <Link className="button mm-button--page-turn" to={journalReturn} state={{ focusRecipe: recipeId }}>Collection →</Link>
       </>}
     />}
   </div>

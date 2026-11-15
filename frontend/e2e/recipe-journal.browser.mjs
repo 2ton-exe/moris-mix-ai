@@ -55,6 +55,7 @@ async function newJournalContext(width, { empty = false, holdList = false } = {}
   const page = await context.newPage()
   page.setDefaultTimeout(10_000)
   const pageErrors = []
+  let activeUserId = userId
   let listHeld = holdList
   let releaseList
   let listFailures = 0
@@ -70,7 +71,7 @@ async function newJournalContext(width, { empty = false, holdList = false } = {}
     if (url.origin === appOrigin) return route.continue()
     assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
     if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204 })
-    if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'recipe-journal@example.test' } })
+    if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: activeUserId, aud: 'authenticated', email: 'recipe-journal@example.test' } })
     if (url.pathname === '/functions/v1/recipes' && route.request().method() === 'GET') {
       recipeRequests.push(url.search)
       if (listHeld) await new Promise((resolve) => { releaseList = resolve })
@@ -78,7 +79,7 @@ async function newJournalContext(width, { empty = false, holdList = false } = {}
         listFailures--
         return route.fulfill({ status: 503, json: { error: { code: 'TEST_UNAVAILABLE', message: 'private list detail' } } })
       }
-      const list = empty ? [] : recipes.map(({ id, title, user_id, star_rating, cooked_at }) => ({ id, title, user_id, star_rating, cooked_at }))
+      const list = empty || activeUserId !== userId ? [] : recipes.map(({ id, title, user_id, star_rating, cooked_at }) => ({ id, title, user_id, star_rating, cooked_at }))
       return route.fulfill({ json: { recipes: list, has_more: false, next_cursor: null } })
     }
     const detailPrefix = '/functions/v1/recipes/'
@@ -104,6 +105,19 @@ async function newJournalContext(width, { empty = false, holdList = false } = {}
   }, { userId })
   return {
     context, page, pageErrors, recipeRequests, brokenResources,
+    switchAccount: async () => {
+      activeUserId = '66666666-6666-4666-8666-666666666666'
+      await page.evaluate(async (nextId) => {
+        const key = 'sb-recipe-journal-auth-token'
+        const oldValue = globalThis.localStorage.getItem(key)
+        const next = JSON.parse(oldValue)
+        next.user = { ...next.user, id: nextId, email: 'next-account@example.test' }
+        next.access_token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: nextId, exp: next.expires_at }))}.test-signature`
+        const { getAuthClient } = await import('/src/auth/client.ts')
+        const { error } = await getAuthClient().setSession({ access_token: next.access_token, refresh_token: next.refresh_token })
+        if (error) throw error
+      }, activeUserId)
+    },
     releaseList: () => { listHeld = false; releaseList?.() },
     failNextLists: (count) => { listFailures = count },
     failNextDetails: (id, count) => detailFailures.set(id, count),
@@ -115,7 +129,7 @@ try {
   const origin = server.resolvedUrls.local[0]
   appOrigin = new URL(origin).origin
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  for (const width of [1440, 768, 390, 320]) {
+  for (const width of [1440, 768, 375, 320]) {
     const app = await newJournalContext(width, { holdList: width === 1440 })
     const { context, page } = app
     await page.goto(`${origin}app/recipes`)
@@ -135,6 +149,18 @@ try {
     assert.equal(await firstCard.locator('img').count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Dashboard overflow at ${width}px`)
     await page.screenshot({ path: path.join(outputDir, `${width}-dashboard.png`), fullPage: true })
+
+    app.failNextLists(3)
+    await page.getByRole('button', { name: 'Refresh recipes' }).click()
+    await expect(page.getByRole('alert')).toContainText('Could not load your recipes')
+    await expect(firstCard).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: 'Showing your last loaded collection' })).toBeVisible()
+    await expect(page.getByText('private list detail')).toHaveCount(0)
+    app.failNextLists(0)
+    await page.getByRole('button', { name: 'Try again' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    await expect(firstCard).toBeVisible()
 
     await firstCard.focus()
     await page.keyboard.press('Enter')
@@ -236,6 +262,33 @@ try {
     process.stdout.write(`${width}px: populated index, illustrated cards, detail/notes, long content, focus/history, edit/delete controls and no horizontal overflow passed.\n`)
   }
 
+  const switched = await newJournalContext(375)
+  await switched.page.goto(`${origin}app/recipes`)
+  await expect(switched.page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
+  await switched.page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
+  await switched.page.getByRole('textbox', { name: 'Cooking notes' }).fill('Private notes from the first account')
+  await switched.switchAccount()
+  await expect(switched.page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('')
+  await expect(switched.page.getByText('Private notes from the first account')).toHaveCount(0)
+  await switched.page.getByRole('link', { name: 'Back to journal' }).click()
+  await expect(switched.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
+  await expect(switched.page.getByRole('link', { name: `Open recipe ${recipe.title}` })).toHaveCount(0)
+  assert.deepEqual(switched.pageErrors, [])
+  await switched.context.close()
+  process.stdout.write('FE-13 account switch hides prior notes and cached private recipes.\n')
+
+  const failed = await newJournalContext(375)
+  failed.failNextLists(3)
+  await failed.page.goto(`${origin}app/recipes`)
+  await expect(failed.page.getByRole('alert')).toContainText('Could not load your recipes')
+  await expect(failed.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toHaveCount(0)
+  failed.failNextLists(0)
+  await failed.page.getByRole('button', { name: 'Try again' }).click()
+  await expect(failed.page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
+  assert.deepEqual(failed.pageErrors, [])
+  await failed.context.close()
+  process.stdout.write('FE-13 initial-list failure and cached-refresh recovery passed.\n')
+
   const empty = await newJournalContext(390, { empty: true })
   await empty.page.goto(`${origin}app/recipes`)
   await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
@@ -244,7 +297,7 @@ try {
   await expect(add).toHaveAttribute('href', '/app/recipes/new')
   await add.click()
   await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
-  await expect(empty.page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
+  await expect(empty.page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
   assert.deepEqual(empty.pageErrors, [])
   await empty.context.close()
   process.stdout.write(`Empty journal to create route passed. Screenshots: ${outputDir}\n`)

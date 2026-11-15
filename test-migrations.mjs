@@ -11,6 +11,8 @@ import {
   initializeMigrationHistory,
   verifyInitialSchemaCompleteness,
   verifyOwnerEqualityPredicate,
+  verifyLineageParentPredicate,
+  verifyLineageInsertPredicate,
   reconcileMigrationState,
   runMigrations,
   extractProjectRefFromDatabaseUrl,
@@ -79,6 +81,26 @@ function runDiscoveryAndIntegrityUnitTests() {
     assert.match(reservationSql, new RegExp(`revoke all on function public\\.${operation}_recipe_image_upload_reservation\\(uuid, uuid, uuid\\) from public`));
   }
   assert.doesNotMatch(reservationSql, /grant[^;]+to (anon|authenticated|public)\b/i);
+  const uploadIdempotency = migrations.find(migration => migration.version === '20261115000020');
+  assert.equal(uploadIdempotency?.file, '20261115000020_recipe_image_upload_idempotency.sql');
+  const uploadIdempotencySql = fs.readFileSync(uploadIdempotency.filePath, 'utf8');
+  assert.match(uploadIdempotencySql, /security definer[\s\S]*set search_path = public, extensions, pg_temp/i);
+  assert.match(uploadIdempotencySql, /auth\.role\(\) is distinct from 'service_role'/);
+  assert.match(uploadIdempotencySql, /select \* into v_existing[\s\S]*where id = p_id[\s\S]*for update/i);
+  assert.match(uploadIdempotencySql, /v_existing\.user_id = p_user_id[\s\S]*v_existing\.recipe_id = p_recipe_id[\s\S]*v_existing\.content_type = p_content_type[\s\S]*v_existing\.byte_size = p_byte_size/);
+  assert.match(uploadIdempotencySql, /v_existing\.state = 'pending'[\s\S]*v_existing\.cleanup_status = 'waiting'[\s\S]*v_existing\.expires_at > clock_timestamp\(\) \+ interval '30 seconds'/);
+  assert.match(uploadIdempotencySql, /return 'conflict'/);
+  const imageDownloadOutcomes = migrations.find(migration => migration.version === '20261115000021');
+  assert.equal(imageDownloadOutcomes?.file, '20261115000021_recipe_image_download_outcomes.sql');
+  const roundtripPerformance = migrations.find(migration => migration.version === '20261115000022');
+  assert.equal(roundtripPerformance?.file, '20261115000022_supabase_roundtrip_performance.sql');
+  const roundtripSql = fs.readFileSync(roundtripPerformance.filePath, 'utf8');
+  assert.match(roundtripSql, /create index idx_lineage_child\s+on public\.recipe_lineage \(child_recipe_id, created_at, id\)/i);
+  assert.match(roundtripSql, /create or replace function public\.create_recipe_image_upload_intent_v2\([\s\S]*?\)\s*returns jsonb/i);
+  assert.match(roundtripSql, /return jsonb_build_object\('status', 'recipe_not_found'\)/i);
+  assert.match(roundtripSql, /pg_advisory_xact_lock\(hashtext\('recipe-image-upload:' \|\| p_user_id::text\)\)[\s\S]*perform 1 from public\.recipe_image_upload_intents where id = p_id for update[\s\S]*perform 1 from public\.recipes[\s\S]*for share/i);
+  assert.match(roundtripSql, /for share;[\s\S]*v_status := public\.create_recipe_image_upload_intent\(/i);
+  assert.match(roundtripSql, /jsonb_build_object\('status', 'allowed', 'intent', v_intent\)/i);
   const lifecycleMigration = migrations.find((migration) => migration.version === '20261102000010');
   assert.equal(lifecycleMigration?.file, '20261102000010_recipe_image_upload_lifecycle.sql');
   const lifecycleSql = fs.readFileSync(lifecycleMigration.filePath, 'utf8');
@@ -192,6 +214,31 @@ function runDiscoveryAndIntegrityUnitTests() {
     assert.match(definition, /begin\s+if auth\.role\(\) IS DISTINCT FROM 'service_role' then\s+raise exception 'Unauthorized quota operation' using errcode = '42501';/);
     assert.doesNotMatch(definition, /auth\.role\(\)\s*<>/);
   }
+  const shortWindowRateMigration = migrations.find((migration) => migration.version === '20261114000019');
+  assert.ok(shortWindowRateMigration, 'short-window AI rate-limit migration is present');
+  const shortWindowRateSql = fs.readFileSync(shortWindowRateMigration.filePath, 'utf8');
+  const boundedChefCandidates = migrations.find((migration) => migration.version === '20261114000018');
+  assert.ok(boundedChefCandidates, 'bounded Chef candidate retrieval migration is present');
+  const boundedChefCandidatesSql = fs.readFileSync(boundedChefCandidates.filePath, 'utf8');
+  assert.match(boundedChefCandidatesSql, /create or replace function public\.get_chef_recipe_context_candidates\([\s\S]*?returns jsonb[\s\S]*?security invoker/i);
+  assert.match(boundedChefCandidatesSql, /auth\.uid\(\)/i);
+  assert.match(boundedChefCandidatesSql, /octet_length\(to_jsonb\(v_candidate\)::text\)/i);
+  assert.match(boundedChefCandidatesSql, /if v_candidate_bytes \+ 256 > p_max_bytes then[\s\S]*?exit;/i);
+  assert.match(boundedChefCandidatesSql, /if v_candidate_count > 0 and v_candidate_bytes \+ 256 > p_max_bytes then[\s\S]*?'candidates', '\[\]'::jsonb[\s\S]*?'too_large', true/i);
+  assert.match(boundedChefCandidatesSql, /p_max_bytes > 65536/);
+  assert.match(boundedChefCandidatesSql, /revoke all on function public\.get_chef_recipe_context_candidates\(integer, integer\) from public, anon/i);
+  assert.match(boundedChefCandidatesSql, /grant execute on function public\.get_chef_recipe_context_candidates\(integer, integer\) to authenticated/i);
+  assert.doesNotMatch(boundedChefCandidatesSql, /security definer/i);
+  assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_started_at timestamptz/i);
+  assert.match(shortWindowRateSql, /add column if not exists ai_rate_window_count integer not null default 0/i);
+  assert.match(shortWindowRateSql, /pg_advisory_xact_lock\(hashtext\('ai-rate:' \|\| p_user_id::text\)\)/i);
+  assert.match(shortWindowRateSql, /for update/i);
+  assert.match(shortWindowRateSql, /v_rate_window_count >= 5/i);
+  assert.match(shortWindowRateSql, /interval '60 seconds'/i);
+  assert.match(shortWindowRateSql, /'status', 'rate_limited'/i);
+  assert.match(shortWindowRateSql, /'retry_after_seconds', v_retry_after/i);
+  assert.match(shortWindowRateSql, /auth\.role\(\) IS DISTINCT FROM 'service_role'/i);
+  assert.doesNotMatch(shortWindowRateSql, /^\s*grant\b[^;]*\b(?:public|anon|authenticated)\b[^;]*;/im);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moris-mig-unit-'));
   try {
     fs.writeFileSync(path.join(tempDir, '20261020000000_second.sql'), 'SELECT 2;');
@@ -273,15 +320,23 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
   const seededRecipe = crypto.randomUUID();
   const deletedRecipe = crypto.randomUUID();
   const setServiceRole = (target) => target.query("SELECT set_config('request.jwt.claim.role', 'service_role', false)");
-  const createIntent = async (target, userId, createdAt = new Date(), recipeId = crypto.randomUUID()) => {
-    const id = crypto.randomUUID();
+  const createIntent = async (
+    target,
+    userId,
+    createdAt = new Date(),
+    recipeId = crypto.randomUUID(),
+    id = crypto.randomUUID(),
+    byteSize = 1024,
+    contentType = 'image/jpeg'
+  ) => {
     const created = new Date(Math.floor(createdAt.getTime() / 1000) * 1000);
     const suffix = `${userId}/${recipeId}/${id}`;
+    const finalKey = `recipe-images/final/${suffix}/${crypto.randomUUID()}`;
     const result = await target.query(
       'SELECT public.create_recipe_image_upload_intent($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz) AS status',
-      [id, userId, recipeId, `recipe-images/staging/${suffix}`, `recipe-images/final/${suffix}/${crypto.randomUUID()}`, 'image/jpeg', 1024, created.toISOString(), new Date(created.getTime() + 600000).toISOString()]
+      [id, userId, recipeId, `recipe-images/staging/${suffix}`, finalKey, contentType, byteSize, created.toISOString(), new Date(created.getTime() + 600000).toISOString()]
     );
-    return { id, stagingKey: `recipe-images/staging/${suffix}`, status: result.rows[0].status };
+    return { id, stagingKey: `recipe-images/staging/${suffix}`, finalKey, status: result.rows[0].status };
   };
 
   try {
@@ -295,6 +350,67 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       'INSERT INTO public.recipes (id, user_id, title) VALUES ($1::uuid, $2::uuid, $3)',
       [seededRecipe, seededUser, 'recipe image lifecycle migration test']
     );
+    const rpcIntentId = crypto.randomUUID();
+    const rpcCreatedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const rpcSuffix = `${seededUser}/${seededRecipe}/${rpcIntentId}`;
+    const rpcFinalKey = `recipe-images/final/${rpcSuffix}/${crypto.randomUUID()}`;
+    const rpcExpiresAt = new Date(rpcCreatedAt.getTime() + 600000).toISOString();
+    const rpcArgs = [
+      rpcIntentId, seededUser, seededRecipe,
+      `recipe-images/staging/${rpcSuffix}`, rpcFinalKey, 'image/jpeg', 1024,
+      rpcCreatedAt.toISOString(), rpcExpiresAt
+    ];
+    const v2Result = (await client.query(
+      'SELECT public.create_recipe_image_upload_intent_v2($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz) AS result',
+      rpcArgs
+    )).rows[0].result;
+    assert.equal(v2Result.status, 'allowed');
+    assert.equal(v2Result.intent.id, rpcIntentId);
+    assert.equal(v2Result.intent.recipe_id, seededRecipe);
+    assert.equal(v2Result.intent.final_key, rpcFinalKey);
+    assert.equal(v2Result.intent.cleanup_status, 'waiting');
+    const replayResult = (await client.query(
+      'SELECT public.create_recipe_image_upload_intent_v2($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz) AS result',
+      [...rpcArgs.slice(0, 4), `recipe-images/final/${rpcSuffix}/${crypto.randomUUID()}`, ...rpcArgs.slice(5)]
+    )).rows[0].result;
+    assert.equal(replayResult.status, 'allowed');
+    assert.equal(replayResult.intent.final_key, rpcFinalKey);
+    assert.equal(replayResult.intent.expires_at, v2Result.intent.expires_at);
+    const missingRecipeResult = (await client.query(
+      'SELECT public.create_recipe_image_upload_intent_v2($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz) AS result',
+      [crypto.randomUUID(), seededUser, crypto.randomUUID(), ...rpcArgs.slice(3)]
+    )).rows[0].result;
+    assert.deepEqual(missingRecipeResult, { status: 'recipe_not_found' });
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [rpcIntentId]);
+    await client.query('BEGIN');
+    try {
+      await client.query("SELECT set_config('request.jwt.claim.role', 'anon', true)");
+      await assert.rejects(
+        () => client.query(
+          'SELECT public.create_recipe_image_upload_intent_v2($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz)',
+          [crypto.randomUUID(), ...rpcArgs.slice(1)]
+        ),
+        (error) => error.code === '42501'
+      );
+    } finally {
+      await client.query('ROLLBACK');
+    }
+    await setServiceRole(client);
+    const retryIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const retryIntents = [];
+    for (const id of retryIds) {
+      const intent = await createIntent(client, seededUser, new Date(), seededRecipe, id);
+      assert.equal(intent.status, 'allowed');
+      retryIntents.push(intent);
+    }
+    const replay = await createIntent(client, seededUser, new Date(), seededRecipe, retryIds[0]);
+    assert.equal(replay.status, 'allowed');
+    assert.equal((await client.query('SELECT count(*)::integer AS count FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[])', [retryIds])).rows[0].count, 3);
+    assert.equal((await client.query('SELECT final_key FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [retryIds[0]])).rows[0].final_key, retryIntents[0].finalKey);
+    assert.equal((await createIntent(client, seededUser, new Date(), seededRecipe, retryIds[0], 2048)).status, 'conflict');
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() WHERE id = $1::uuid", [retryIds[1]]);
+    assert.equal((await createIntent(client, seededUser, new Date(), seededRecipe, retryIds[1])).status, 'conflict');
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[])', [retryIds]);
     await client.query('BEGIN');
     try {
       await client.query("SELECT set_config('request.jwt.claim.role', 'authenticated', true)");
@@ -903,6 +1019,18 @@ async function runRecipeSearchMigrationDatabaseTests(client) {
 }
 
 async function runSchemaVerificationUnitTests() {
+  assert.equal(verifyOwnerEqualityPredicate('(select auth.uid()) = user_id', 'user_id', 'recipes'), true);
+  assert.equal(verifyOwnerEqualityPredicate('user_id = ( SELECT auth.uid() AS uid )', 'user_id', 'recipes'), true);
+  assert.equal(verifyOwnerEqualityPredicate('(select auth.uid() from recipes) = user_id', 'user_id', 'recipes'), false);
+  assert.equal(verifyOwnerEqualityPredicate('((select auth.uid()) = user_id) OR true', 'user_id', 'recipes'), false);
+  assert.equal(
+    verifyLineageParentPredicate('(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = ( SELECT auth.uid() AS uid)))'),
+    true
+  );
+  assert.equal(
+    verifyLineageInsertPredicate('(EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.parent_recipe_id AND user_id = (select auth.uid())) AND EXISTS (SELECT 1 FROM public.recipes WHERE id = public.recipe_lineage.child_recipe_id AND user_id = (select auth.uid())))'),
+    true
+  );
   assert.equal(
     verifyOwnerEqualityPredicate("coalesce(user_id::text, '') = auth.uid()::text OR true", 'user_id', 'recipes'),
     false

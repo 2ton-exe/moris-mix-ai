@@ -2743,6 +2743,33 @@ Deno.test({
       assertEquals(batchReservations.error, null);
       assertEquals(batchReservations.data?.length, 2);
       for (const row of batchReservations.data ?? []) assertEquals(row.status, "reserved");
+
+      const rateReservationIds = Array.from({ length: 4 }, () => crypto.randomUUID());
+      const rateBatch = await Promise.all(rateReservationIds.map((id) =>
+        adminClient.rpc("consume_ai_quota", {
+          p_user_id: newUserId,
+          p_reservation_id: id,
+          p_daily_limit: 20,
+          p_usage_date: usageDate,
+        })
+      ));
+      for (const result of rateBatch) assertEquals(result.error, null);
+      assertEquals(rateBatch.filter((result) => result.data?.status === "allowed").length, 3);
+      const rateLimited = rateBatch.find((result) => result.data?.status === "rate_limited");
+      assertEquals(typeof rateLimited?.data?.retry_after_seconds, "number");
+      assertEquals(rateLimited!.data.retry_after_seconds >= 1 && rateLimited!.data.retry_after_seconds <= 60, true);
+      await assertUsage(5, newUserId);
+
+      const isolatedRateBatch = await Promise.all(Array.from({ length: 2 }, () =>
+        adminClient.rpc("consume_ai_quota", {
+          p_user_id: userId,
+          p_reservation_id: crypto.randomUUID(),
+          p_daily_limit: 20,
+          p_usage_date: usageDate,
+        })
+      ));
+      assertEquals(isolatedRateBatch.every((result) => result.error === null && result.data?.status === "allowed"), true);
+      await assertUsage(3, userId, usageDate);
     } finally {
       for (const uid of createdUserIds) {
         await adminClient.auth.admin.deleteUser(uid);

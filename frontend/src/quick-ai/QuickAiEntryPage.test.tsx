@@ -194,7 +194,7 @@ describe('Quick AI Entry', () => {
     })
     const { router } = renderEntry({ initialEntry: '/app/recipes' })
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
     const sourceNotes = 'notes before browser back'
     enterNotes(sourceNotes)
 
@@ -283,8 +283,8 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
 
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
-    expect((await screen.findByText(/only a preview/i)).textContent).toContain('Nothing has been saved')
-    expect(screen.getByRole('link', { name: 'Review & Edit Recipe' }).getAttribute('href')).toBe('/app/quick-entry/review')
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Review recipe draft' }).getAttribute('href')).toBe('/app/quick-entry/review')
     expect(notesField().value).toBe(sourceNotes)
     expect(document.querySelector('blockquote')?.textContent).toBe(sourceNotes)
     expect(extract).toHaveBeenCalledWith(sourceNotes, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
@@ -302,13 +302,13 @@ describe('Quick AI Entry', () => {
     enterNotes('rice, eggs, and garlic')
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
-    expect(await screen.findByRole('link', { name: 'Review & Edit Recipe' })).toBeTruthy()
+    expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toContain('preserved in memory for this account')
     expect(readQuickAiEntryDraft('cook-a').handoff?.recipe.title).toBe('Garlic soy chicken')
 
     failWrites = false
     fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
-    expect(await screen.findByRole('link', { name: 'Review & Edit Recipe' })).toHaveProperty('href', expect.stringContaining('/app/quick-entry/review'))
+    expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toHaveProperty('href', expect.stringContaining('/app/quick-entry/review'))
   })
 
   it('restores the validated unsaved handoff after route navigation and a page remount', async () => {
@@ -321,7 +321,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
     expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
     fireEvent.click(screen.getByRole('link', { name: 'Return to Quick AI Entry' }))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
 
     unmount()
@@ -345,8 +345,8 @@ describe('Quick AI Entry', () => {
     moriBookmark.focus()
     expect(document.activeElement).toBe(moriBookmark)
     fireEvent.click(moriBookmark)
-    expect(screen.getByRole('dialog', { name: 'Mori' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
+    expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
 
     expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Talk to Mori' }).getAttribute('aria-current')).toBe('page')
@@ -356,7 +356,7 @@ describe('Quick AI Entry', () => {
     const sourceNotes = 'rice, egg, soy sauce; fry egg first'
     enterNotes(sourceNotes)
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(extract).toHaveBeenCalledOnce()
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
@@ -364,8 +364,8 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
 
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()
   })
@@ -403,7 +403,7 @@ describe('Quick AI Entry', () => {
     expect(notesField().disabled).toBe(true)
     expect(extract).toHaveBeenCalledOnce()
     await act(async () => resolve(recipe))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
   })
 
   it('preserves original notes after a network failure and retries the same text', async () => {
@@ -421,6 +421,49 @@ describe('Quick AI Entry', () => {
 
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
     expect(extract.mock.calls.map(([notes]) => notes)).toEqual([sourceNotes, sourceNotes])
+  })
+
+  it('times out an unresponsive extraction, retains notes and ignores a late result', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (value: typeof recipe) => void
+      const extract = vi.fn<Extract>()
+        .mockImplementationOnce(() => new Promise((done) => { resolve = done }))
+        .mockResolvedValueOnce(recipe)
+      renderEntry({ extract })
+      enterNotes('rice and eggs')
+      fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+      await act(async () => { vi.advanceTimersByTime(120_000) })
+      expect(screen.getByRole('alert').textContent).toContain('took too long')
+      expect(notesField().value).toBe('rice and eggs')
+      expect(extract.mock.calls[0][1].signal.aborted).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Retry extraction' }))
+      await act(async () => { await Promise.resolve() })
+      expect(screen.getByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
+      await act(async () => resolve({ ...recipe, title: 'Late result' }))
+      expect(screen.queryByRole('heading', { name: 'Late result' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a valid result that arrives after the backend retry window', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolve!: (value: typeof recipe) => void
+      const extract = vi.fn<Extract>().mockImplementation(() => new Promise((done) => { resolve = done }))
+      renderEntry({ extract })
+      enterNotes('rice and eggs')
+      fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+
+      await act(async () => { vi.advanceTimersByTime(55_000) })
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.getByRole('status').textContent).toContain('Mori is organizing your notes')
+      await act(async () => resolve(recipe))
+      expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('maps provider failure safely and allows editing or retrying', async () => {
@@ -451,7 +494,7 @@ describe('Quick AI Entry', () => {
     expect((await screen.findByRole('alert')).textContent).toContain("You've reached today's AI organizing limit")
     expect(screen.queryByRole('button', { name: 'Retry extraction' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('status').textContent).toContain('AI limit is still in effect')
+    expect(screen.getByRole('timer').textContent).toContain('AI limit is still in effect')
     expect(notesField().value).toBe('family soup notes')
     expect(extract).toHaveBeenCalledOnce()
   })
@@ -465,6 +508,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
 
     expect((await screen.findByRole('alert')).textContent).toContain('provider cooldown')
+    expect(screen.getByRole('timer').getAttribute('aria-live')).toBe('off')
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
     expect(readQuickAiEntryDraft('cook-a').blockedReason).toBe('provider-rate-limit')
     expect(readQuickAiEntryDraft('cook-a').blockedUntil).toBeGreaterThan(Date.now())
@@ -481,7 +525,7 @@ describe('Quick AI Entry', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('could not verify your session')
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('status').textContent).toContain('wait 60 seconds')
+    expect(screen.getByRole('timer').textContent).toContain('wait 60 seconds')
     expect(readQuickAiEntryDraft('cook-a').blockedReason).toBe('auth-service-rate-limit')
     expect(readQuickAiEntryDraft('cook-a').blockedUntil).toBeGreaterThan(Date.now())
     expect(notesField().value).toBe('notes remain safe while auth recovers')
@@ -621,4 +665,30 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('link', { name: /Back to journal/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Organize my notes' })).toBeTruthy()
   })
+})
+
+
+it('preserves notes and gives access-denied feedback without a misleading retry', async () => {
+  const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('http', 'private access error', 403))
+  renderEntry({ extract })
+  enterNotes('My original notes')
+  fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('do not have permission')
+  expect(notesField().value).toBe('My original notes')
+  expect(screen.queryByRole('button', { name: 'Retry extraction' })).toBeNull()
+  expect(extract).toHaveBeenCalledOnce()
+})
+
+it('does not invent a cooldown when a provider gives no Retry-After', async () => {
+  const extract = vi.fn<Extract>()
+    .mockRejectedValueOnce(new HttpError('http', 'private', 429, { error: { code: 'AI_RATE_LIMITED' } }))
+    .mockResolvedValueOnce(recipe)
+  renderEntry({ extract })
+  enterNotes('Notes kept for a manual retry')
+  fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+  await screen.findByRole('alert')
+  expect(screen.queryByRole('button', { name: 'Please wait to retry' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry extraction' }))
+  await screen.findByRole('heading', { name: recipe.title })
+  expect(extract.mock.calls.map(([notes]) => notes)).toEqual(['Notes kept for a manual retry', 'Notes kept for a manual retry'])
 })

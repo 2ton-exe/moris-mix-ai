@@ -220,7 +220,7 @@ try {
 
   // Invalid form feedback, dynamic fields, ordering, pending, failure, retry, and create.
   await page.goto(createUrl)
-  await expect(page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
   await assertJournalSemantics(page, 'create recipe form')
   await expect(page.getByLabel('Recipe title')).toBeVisible()
   await expect(page.getByRole('form', { name: 'Create recipe' })).toBeVisible()
@@ -299,7 +299,7 @@ try {
   await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled()
   assert.equal(saveRequests.length, 1)
   saveGate.release()
-  await expect(page.getByRole('alert')).toContainText('Could not save your recipe')
+  await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByText('private save payload')).toHaveCount(0)
   await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   await expect(page.getByLabel('Recipe title')).toHaveValue('Mori’s tomato supper')
@@ -357,7 +357,7 @@ try {
   await page.getByLabel('Recipe title').fill('A favorite revisited')
   saveFailures = 1
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page.getByRole('alert')).toContainText('Could not save your recipe')
+  await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByLabel('Recipe title')).toHaveValue('A favorite revisited')
   assert.equal(saveRequests.at(-1).method, 'PATCH')
   await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
@@ -370,7 +370,7 @@ try {
   await page.goto(detailUrl(initialRecipe.id))
   await expect(page.getByRole('heading', { name: 'A favorite revisited', level: 1 })).toBeVisible()
   await page.getByRole('link', { name: 'Edit recipe' }).click()
-  await page.getByRole('link', { name: 'Back to journal', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
   await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
 
@@ -425,6 +425,9 @@ try {
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
   for (const width of [1440, 1280, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    // The preceding row controls and the previous viewport may have scrolled the document.
+    // Check the journal's layout from the top of the page at each viewport.
+    await page.evaluate(() => globalThis.scrollTo(0, 0))
     await settleJournalLayout(page)
     await assertJournalGeometry(page, `recipe editor ${width}×900`)
     await assertJournalSemantics(page, `recipe editor ${width}×900`)

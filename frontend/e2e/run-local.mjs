@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { cp, copyFile, mkdir, rm } from 'node:fs/promises'
+import { cp, copyFile, mkdir, rm, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import process from 'node:process'
@@ -19,6 +19,8 @@ import {
   createSupabaseCliEnvironment,
   parseSupabaseStatus,
   prepareLocalE2eAccount,
+  waitForExtractionHandler,
+  waitForMethodNotAllowedHandler,
   waitForRecipesHandler,
 } from './local-supabase.mjs'
 
@@ -95,7 +97,8 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
     e2eWorkdir,
     'functions',
     'serve',
-    'recipes',
+    '--env-file',
+    path.join(e2eSupabaseDir, 'functions.env'),
   ], {
     cwd: frontendDir,
     env: cliEnv,
@@ -128,15 +131,32 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
 
 async function prepareIsolatedProjectFiles() {
   await mkdir(e2eSupabaseDir, { recursive: true })
-  await mkdir(path.join(e2eWorkdir, 'vite-env'), { recursive: true })
+  await writeFile(path.join(e2eSupabaseDir, 'functions.env'), [
+    'AI_EXTRACT_ENABLED=true',
+    'AI_EXTRACT_DISABLED=false',
+    'AI_GENERATE_ENABLED=true',
+    'AI_GENERATE_DISABLED=false',
+    'AI_CANDIDATE_TOKEN_SECRET=qa03-local-candidate-token-secret-only',
+  ].join('\n') + '\n', { mode: 0o600 })
+  const viteEnvDirectory = path.join(e2eWorkdir, 'vite-env')
+  await rm(viteEnvDirectory, { recursive: true, force: true })
+  await mkdir(viteEnvDirectory, { recursive: true })
   await copyFile(path.join(frontendDir, 'e2e', 'supabase', 'config.toml'), path.join(e2eSupabaseDir, 'config.toml'))
 
   const functionsTarget = path.join(e2eSupabaseDir, 'functions')
   await rm(functionsTarget, { recursive: true, force: true })
   await mkdir(functionsTarget, { recursive: true })
-  for (const directory of ['_shared', 'recipes']) {
+  for (const directory of ['_shared', 'recipes', 'extract-recipe', 'generate-recipe']) {
     await cp(path.join(projectRoot, 'supabase', 'functions', directory), path.join(functionsTarget, directory), { recursive: true })
   }
+
+  const extractionFunction = path.join(functionsTarget, 'extract-recipe')
+  await copyFile(path.join(extractionFunction, 'index.ts'), path.join(extractionFunction, 'handler.ts'))
+  await copyFile(path.join(frontendDir, 'e2e', 'fixtures', 'extract-recipe-entry.ts'), path.join(extractionFunction, 'index.ts'))
+
+  const generationFunction = path.join(functionsTarget, 'generate-recipe')
+  await copyFile(path.join(generationFunction, 'index.ts'), path.join(generationFunction, 'handler.ts'))
+  await copyFile(path.join(frontendDir, 'e2e', 'fixtures', 'generate-recipe-entry.ts'), path.join(generationFunction, 'index.ts'))
 
   const migrationsTarget = path.join(e2eSupabaseDir, 'migrations')
   await rm(migrationsTarget, { recursive: true, force: true })
@@ -166,6 +186,7 @@ async function main() {
     process.stdout.write('Starting the isolated local E2E Supabase project with the native runtime.\n')
     markStackMayHaveStarted()
     await run('pnpm', [...supabaseArgs, 'stack', 'start', '--runtime', 'native'], frontendDir, cliEnv)
+    await run('pnpm', [...supabaseArgs, 'db', 'reset', '--local', '--yes'], frontendDir, cliEnv)
 
     const status = parseSupabaseStatus(await run('pnpm', [...supabaseArgs, 'status', '--env', '--output-format', 'text'], frontendDir, cliEnv))
     const apiUrl = assertLocalSupabaseUrl(status.API_URL)
@@ -174,14 +195,17 @@ async function main() {
     if (!publicKey || !serviceRoleKey) throw new Error('Supabase CLI did not return local Auth keys.')
 
     await prepareAccounts(apiUrl, serviceRoleKey)
-    process.stdout.write('Prepared the local-only E2E accounts. Starting the recipes function server.\n')
+    process.stdout.write('Prepared the local-only E2E accounts. Starting local function handlers.\n')
 
     const playwrightEnv = createPlaywrightEnvironment(apiUrl, publicKey)
     functionServer = startFunctionServer(frontendDir, e2eWorkdir, cliEnv)
     await waitForRecipesHandler(apiUrl, publicKey, functionServer)
-    process.stdout.write('Recipes handler is responding. Starting Playwright.\n')
+    await waitForExtractionHandler(apiUrl, publicKey, functionServer)
+    await waitForMethodNotAllowedHandler(apiUrl, publicKey, functionServer, 'generate-recipe')
+    process.stdout.write('Local function handlers are responding. Starting Playwright.\n')
 
-    await run('pnpm', ['exec', 'playwright', 'test'], frontendDir, playwrightEnv, true)
+    const playwrightArguments = process.argv.slice(2).filter((argument) => argument !== '--')
+    await run('pnpm', ['exec', 'playwright', 'test', ...playwrightArguments], frontendDir, playwrightEnv, true)
   }
   const stopStackAndFunctionServer = async (signal) => {
     const errors = []

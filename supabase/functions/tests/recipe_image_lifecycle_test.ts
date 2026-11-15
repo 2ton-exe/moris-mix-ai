@@ -201,6 +201,7 @@ function imageRequest(
 function authFetch(
   recipe: Record<string, unknown> | null,
   authStatus = 200,
+  onRecipeLookup?: () => void,
 ): typeof fetch {
   return (input, _init) =>
     Promise.resolve().then(() => {
@@ -219,7 +220,10 @@ function authFetch(
           { status: authStatus },
         );
       }
-      if (url.pathname === "/rest/v1/recipes") return Response.json(recipe);
+      if (url.pathname === "/rest/v1/recipes") {
+        onRecipeLookup?.();
+        return Response.json(recipe);
+      }
       throw new Error(`Unexpected request ${url.pathname}`);
     });
 }
@@ -527,6 +531,7 @@ Deno.test("GET signer is limited to final keys, GET, and 60 seconds", async () =
 
 Deno.test("attachment authenticates and atomically replays an attached result", async () => {
   const calls: string[] = [];
+  const uploadedAt = "2026-10-26T10:04:00+00:00";
   const deps = handlerDeps({
     rpc: (name) => {
       calls.push(name);
@@ -535,7 +540,7 @@ Deno.test("attachment authenticates and atomically replays an attached result", 
           status: "attached",
           content_type: "image/png",
           byte_size: pngBytes().byteLength,
-          uploaded_at: NOW.toISOString(),
+          uploaded_at: uploadedAt,
         },
         error: null,
       });
@@ -549,12 +554,15 @@ Deno.test("attachment authenticates and atomically replays an attached result", 
     deps,
   );
   assertEquals(response.status, 200);
-  assertEquals((await response.json()).image.recipe_id, RECIPE);
+  const body = await response.json();
+  assertEquals(body.image.recipe_id, RECIPE);
+  assertEquals(body.image.uploaded_at, uploadedAt);
   assertEquals(calls, ["claim_recipe_image_finalization"]);
 });
 
 Deno.test("attachment verifies and copies before fenced association commit", async () => {
   const calls: string[] = [];
+  const uploadedAt = "2026-10-26T10:04:00+00:00";
   const deps = handlerDeps({
     r2Fetch: metadataFetch(),
     rpc: (name, args) => {
@@ -578,7 +586,7 @@ Deno.test("attachment verifies and copies before fenced association commit", asy
             status: "attached",
             content_type: "image/png",
             byte_size: pngBytes().byteLength,
-            uploaded_at: NOW.toISOString(),
+            uploaded_at: uploadedAt,
           },
           error: null,
         });
@@ -600,6 +608,7 @@ Deno.test("attachment verifies and copies before fenced association commit", asy
     deps,
   );
   assertEquals(response.status, 200);
+  assertEquals((await response.json()).image.uploaded_at, uploadedAt);
   assertEquals(calls, [
     "claim_recipe_image_finalization",
     "start_recipe_image_final_copy",
@@ -617,14 +626,32 @@ Deno.test("attachment rejects unauthenticated, cross-owner, cross-intent, and ac
     handlerDeps(),
   );
   assertEquals(unauth.status, 401);
+  const foreignCalls: string[] = [];
+  let ownershipLookups = 0;
   const foreign = await attachHandler(
     imageRequest("recipe-image-attach", {
       recipe_id: RECIPE,
       upload_id: UPLOAD,
     }),
-    handlerDeps({ recipe: { id: RECIPE, user_id: OTHER } }),
+    {
+      ...handlerDeps({
+        rpc: (name) => {
+          foreignCalls.push(name);
+          return Promise.resolve({
+            data: { status: "not_found" },
+            error: null,
+          });
+        },
+      }),
+      fetch: authFetch(null, 200, () => {
+        ownershipLookups++;
+      }),
+    },
   );
   assertEquals(foreign.status, 404);
+  assertEquals((await foreign.json()).error.code, "RECIPE_NOT_FOUND");
+  assertEquals(foreignCalls, ["claim_recipe_image_finalization"]);
+  assertEquals(ownershipLookups, 1);
   let touched = false;
   const conflict = await attachHandler(
     imageRequest("recipe-image-attach", {
@@ -1061,21 +1088,32 @@ Deno.test("late copy attempts stay isolated and their abandoned keys remain watc
   assertEquals(queue.get(replacementKey)?.state, "complete");
 });
 
-Deno.test("private read signs only the owned recipe's final image and does not cache", async () => {
+Deno.test("private image reads resolve ownership and image state in one database roundtrip", async () => {
   let signedKey = "";
+  let resolverCalls = 0;
+  let ownershipLookups = 0;
+  let resolverArgs: Record<string, unknown> | undefined;
   const deps = {
     ...handlerDeps({
-      recipe: { id: RECIPE, user_id: USER, image_path: FINAL },
-      rpc: () =>
-        Promise.resolve({
+      rpc: async (name, args) => {
+        assertEquals(name, "resolve_recipe_image_download");
+        resolverCalls++;
+        resolverArgs = args;
+        return {
           data: {
             status: "found",
             object_key: FINAL,
             content_type: "image/png",
           },
           error: null,
-        }),
+        };
+      },
     }),
+    fetch: authFetch(
+      { id: RECIPE, user_id: USER, image_path: FINAL },
+      200,
+      () => ownershipLookups++,
+    ),
     signGet: (key: string) => {
       signedKey = key;
       return Promise.resolve(`https://r2.invalid/${key}?X-Amz-Expires=60`);
@@ -1088,51 +1126,183 @@ Deno.test("private read signs only the owned recipe's final image and does not c
   assertEquals(response.status, 200);
   assertEquals(response.headers.get("Cache-Control"), "no-store");
   assertEquals(signedKey, FINAL);
+  assertEquals(resolverCalls, 1);
+  assertEquals(ownershipLookups, 0);
+  assertEquals(resolverArgs, { p_user_id: USER, p_recipe_id: RECIPE });
   assertEquals((await response.json()).expires_at, "2026-11-07T10:01:00.000Z");
+
+  resolverCalls = 0;
+  ownershipLookups = 0;
+  const empty = await downloadHandler(
+    imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
+    {
+      ...deps,
+      rpc: async () => {
+        resolverCalls++;
+        return { data: { status: "image_not_found" }, error: null };
+      },
+      signGet: () => {
+        throw new Error("must not sign an image that is absent");
+      },
+    },
+  );
+  assertEquals(empty.status, 404);
+  assertEquals((await empty.json()).error.code, "IMAGE_NOT_FOUND");
+  assertEquals(resolverCalls, 1);
+  assertEquals(ownershipLookups, 0);
+
+  resolverCalls = 0;
+  ownershipLookups = 0;
   const foreign = await downloadHandler(
     imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
     {
       ...deps,
-      fetch: authFetch({ id: RECIPE, user_id: OTHER }),
-      rpc: () => Promise.reject(new Error("must not resolve a foreign recipe")),
+      fetch: authFetch(null, 200, () => ownershipLookups++),
+      rpc: async () => {
+        resolverCalls++;
+        return { data: { status: "recipe_not_found" }, error: null };
+      },
+      signGet: () => {
+        throw new Error("must not sign an inaccessible recipe");
+      },
     },
   );
   assertEquals(foreign.status, 404);
+  assertEquals((await foreign.json()).error.code, "RECIPE_NOT_FOUND");
+  assertEquals(resolverCalls, 1);
+  assertEquals(ownershipLookups, 0);
+
+  resolverCalls = 0;
+  ownershipLookups = 0;
   const staging = await downloadHandler(
     imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
     {
       ...deps,
-      rpc: () =>
-        Promise.resolve({
+      rpc: async () => {
+        resolverCalls++;
+        return {
           data: {
             status: "found",
             object_key: STAGING,
             content_type: "image/png",
           },
           error: null,
-        }),
+        };
+      },
+      fetch: authFetch(
+        { id: RECIPE, user_id: USER },
+        200,
+        () => ownershipLookups++,
+      ),
     },
   );
   assertEquals(staging.status, 404);
-  const missing = await downloadHandler(
+  assertEquals((await staging.json()).error.code, "IMAGE_NOT_FOUND");
+  assertEquals(resolverCalls, 1);
+  assertEquals(ownershipLookups, 0);
+});
+
+Deno.test("old image resolver responses retain not-found behavior during migration rollout", async () => {
+  let ownershipLookups = 0;
+  const foreign = await downloadHandler(
     imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
     {
-      ...deps,
-      rpc: () =>
-        Promise.resolve({ data: { status: "not_found" }, error: null }),
+      ...handlerDeps({
+        rpc: () =>
+          Promise.resolve({ data: { status: "not_found" }, error: null }),
+      }),
+      fetch: authFetch(null, 200, () => ownershipLookups++),
     },
   );
-  assertEquals(missing.status, 404);
+  assertEquals(foreign.status, 404);
+  assertEquals((await foreign.json()).error.code, "RECIPE_NOT_FOUND");
+  assertEquals(ownershipLookups, 1);
+
+  ownershipLookups = 0;
+  const empty = await downloadHandler(
+    imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
+    {
+      ...handlerDeps({
+        rpc: () =>
+          Promise.resolve({ data: { status: "not_found" }, error: null }),
+      }),
+      fetch: authFetch(
+        { id: RECIPE, user_id: USER },
+        200,
+        () => ownershipLookups++,
+      ),
+    },
+  );
+  assertEquals(empty.status, 404);
+  assertEquals((await empty.json()).error.code, "IMAGE_NOT_FOUND");
+  assertEquals(ownershipLookups, 1);
+});
+
+Deno.test("private image download rejects a request without authentication before resolving", async () => {
+  let resolverCalls = 0;
+  const response = await downloadHandler(
+    imageRequest("recipe-image-download-url", { recipe_id: RECIPE }, null),
+    {
+      ...handlerDeps({
+        rpc: async () => {
+          resolverCalls++;
+          return { data: { status: "image_not_found" }, error: null };
+        },
+      }),
+      fetch: () => {
+        throw new Error("missing credentials must not reach Supabase Auth");
+      },
+    },
+  );
+  assertEquals(response.status, 401);
+  assertEquals((await response.json()).error.code, "UNAUTHORIZED");
+  assertEquals(resolverCalls, 0);
+});
+
+Deno.test("private image download fails safely when the resolver response is malformed", async () => {
+  let ownershipLookups = 0;
+  let signerCalls = 0;
+  const response = await downloadHandler(
+    imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
+    {
+      ...handlerDeps({
+        rpc: () =>
+          Promise.resolve({
+            data: { object_key: FINAL, content_type: "image/png" },
+            error: null,
+          }),
+      }),
+      fetch: authFetch(
+        { id: RECIPE, user_id: USER },
+        200,
+        () => ownershipLookups++,
+      ),
+      signGet: () => {
+        signerCalls++;
+        return Promise.resolve(`https://r2.invalid/${FINAL}?X-Amz-Expires=60`);
+      },
+    },
+  );
+  const result = await response.json();
+  assertEquals(response.status, 500);
+  assertEquals(result.error.code, "INTERNAL_ERROR");
+  assertEquals(JSON.stringify(result).includes(FINAL), false);
+  assertEquals(ownershipLookups, 0);
+  assertEquals(signerCalls, 0);
 });
 
 Deno.test("image deletion is owner-authorized and returns 204 for an already-empty image", async () => {
   const calls: string[] = [];
+  let ownershipLookups = 0;
   const deps = handlerDeps({
     recipe: { id: RECIPE, user_id: USER },
     rpc: (name) => {
       calls.push(name);
       return Promise.resolve({ data: "deleted", error: null });
     },
+  });
+  deps.fetch = authFetch({ id: RECIPE, user_id: USER }, 200, () => {
+    ownershipLookups++;
   });
   const response = await deleteHandler(
     imageRequest("recipe-image-delete", { recipe_id: RECIPE }),
@@ -1141,14 +1311,26 @@ Deno.test("image deletion is owner-authorized and returns 204 for an already-emp
   assertEquals(response.status, 204);
   assertEquals(response.headers.get("Cache-Control"), "no-store");
   assertEquals(calls, ["delete_recipe_image_association"]);
+  assertEquals(ownershipLookups, 0);
+  const foreignCalls: string[] = [];
   const foreign = await deleteHandler(
     imageRequest("recipe-image-delete", { recipe_id: RECIPE }),
-    handlerDeps({
-      recipe: { id: RECIPE, user_id: OTHER },
-      rpc: () => Promise.reject(new Error("must not call RPC")),
-    }),
+    {
+      ...handlerDeps({
+        rpc: (name) => {
+          foreignCalls.push(name);
+          return Promise.resolve({ data: "not_found", error: null });
+        },
+      }),
+      fetch: authFetch({ id: RECIPE, user_id: OTHER }, 200, () => {
+        ownershipLookups++;
+      }),
+    },
   );
   assertEquals(foreign.status, 404);
+  assertEquals((await foreign.json()).error.code, "RECIPE_NOT_FOUND");
+  assertEquals(foreignCalls, ["delete_recipe_image_association"]);
+  assertEquals(ownershipLookups, 0);
   const unauth = await deleteHandler(
     imageRequest("recipe-image-delete", { recipe_id: RECIPE }, null),
     handlerDeps(),

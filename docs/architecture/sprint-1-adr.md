@@ -4,9 +4,9 @@
 
 **Scope:** Target application architecture and development conventions established in Sprint 1 and extended for Sprints 2 and 3. Sprint-by-sprint progress and acceptance evidence belong in the sprint logs.
 
-The target architecture uses a React frontend and Supabase Edge Functions as the boundary for application data. The public demo remains available without sign-in; recipe, AI, and image operations use authenticated server-side handlers.
+The application uses a React frontend and Supabase Edge Functions as the boundary for application data. The public demo remains available without sign-in; recipe, AI, and image operations use authenticated server-side handlers.
 
-## Target architecture
+## Architecture
 
 ```text
 Browser (React/Vite/TypeScript app on Cloudflare Workers)
@@ -17,11 +17,13 @@ Browser (React/Vite/TypeScript app on Cloudflare Workers)
 │       ├── Verify the Bearer token with Supabase Auth
 │       ├── Use a user-scoped Supabase client → PostgreSQL with RLS
 │       ├── Call Gemini for extraction and Chef generation
-│       └── Authorize and verify private R2 image operations
-└── Image bytes → authenticated Edge Function upload ingress → private R2
+│       ├── Authorize and verify private R2 image operations
+│       └── Resolve owned images and sign short-lived private R2 GET URLs
+└── Image bytes → short-lived presigned R2 PUT → private R2
+    └── Browser reads image bytes through a short-lived signed GET URL
 ```
 
-The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 signing credentials stay on the server.
+The browser may use Supabase Auth and public client configuration. Protected requests carry the active session's access token; Edge Functions verify it and derive identity from the verified user. Route guards support navigation but do not grant backend access. PostgreSQL RLS remains active for user-owned data. The demo endpoint stays public and anonymous. Browser code does not query application tables or call Gemini directly. Service-role credentials, Gemini keys, and R2 secret signing keys stay on the server; the non-secret R2 access-key ID appears inside presigned URLs.
 
 Version-controlled Supabase migrations define the recipe, lineage, and AI quota schema, indexes, and RLS. Keep the public demo seed separate and non-sensitive; the endpoint may return only records approved for public demonstration.
 
@@ -50,14 +52,17 @@ The reusable authentication contract and protected session endpoint are document
 - Quick AI Entry and Chef are authenticated Edge Function workflows. The backend bounds and validates input, calls Gemini through the server-side AI provider, validates model output against shared schemas, and returns safe errors. Prompts are versioned; automated checks use injected or mocked providers rather than paid live calls.
 - Extraction returns an editable preview only. Creating a recipe uses the existing authenticated recipe API after explicit user confirmation; generation and preview edits do not write recipe or lineage rows.
 - Chef retrieval is limited to the signed-in user's eligible saved recipes and ranks candidates deterministically by pantry overlap, rating, and recency. Gemini receives that candidate context. The backend rejects proposed parent IDs outside that context, and the lineage save boundary re-checks that the authenticated user owns the child and every parent.
+- Lineage creation checks ownership of the child and all selected parents in one read before its existing batch insert. Lineage retrieval embeds the related rows in the child recipe read and preserves stable timestamp/ID ordering.
+- Keep `auth.uid()` wrapped in a scalar subquery in user-scoped RLS policies so PostgreSQL can evaluate it once per statement. The upload quota and lineage-order indexes follow their query predicates and ordering.
 - AI usage quotas are per user and mutated only by backend operations against `ai_usage_daily`; browser clients have no quota-write access. Quota enforcement must remain safe under concurrent requests.
 
 ## Private recipe images
 
-- Keep the recipe image bucket private. The backend authorizes an owned recipe and issues a short-lived upload URL for its authenticated Edge Function. The browser sends bytes to that function; only the backend sends the bounded, create-only `PUT` to R2. The browser never receives storage credentials or an R2 object key.
-- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. The Edge Function must count the incoming bytes, enforce the 10 MiB limit and the declared size before contacting R2, and reject expired or reused upload intents. It must preserve safe cleanup of failed or abandoned staging objects.
-- The bounded ingress revision counts at most 10 MiB, verifies the intent size, binds the payload hash, and uses create-only writes. BE-13 and FE-12 owner approvals for that upload transport are recorded in the image API contract. Production upload-signing deployment remains hard-disabled.
-- Recipe-image finalization, deletion, private-read resolution, and cleanup use service-role-only RPCs for atomic transitions across recipe and lifecycle state. User-facing handlers authenticate and verify recipe ownership with a user-scoped client; RPCs recheck ownership at association boundaries and fence worker operations by upload and attempt state. This is a narrow exception to the user-scoped CRUD rule above. Do not use the service role for general recipe access.
+- Keep the recipe image bucket private. The backend authorizes an owned recipe, persists its upload intent and quota, and issues a short-lived presigned R2 `PUT` limited to one staging object. The browser sends the raw bytes directly to R2 without Supabase credentials. It receives neither the R2 secret signing key nor a final object key; the presigned URL contains the non-secret access-key ID and signature.
+- Follow the image contract's 10-minute URL lifetime and JPEG/PNG/WebP allowlist. Bind the declared byte size, content type, and create-only `If-None-Match: *` condition into the signature. Attachment verifies the stored object's actual size, type, and image structure before associating it. Preserve safe cleanup of failed or abandoned staging objects.
+- Configure R2 bucket CORS for the deployed frontend origin, `PUT`, `Content-Type`, and `If-None-Match`. The proxy transport accepted in PR #190 remains historical and its old URL path is retained only for in-flight compatibility during rollout. The transport revision and production CORS gate are recorded in [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Follow the [production rollout runbook](../devops/deployment-runbook.md#enable-private-recipe-images) before enabling signing.
+- Image upload authorization, attachment, private-read resolution, and deletion use ownership-checking service-role RPCs instead of normal-path ownership pre-reads. Upload authorization checks and locks the owned recipe while reserving quota and inserting its intent in one RPC. Attachment claims remain atomic with their ownership checks; handlers derive the user ID from verified auth context. The RPCs keep internal keys server-side and remain inaccessible to browser roles. Ambiguous not-found results may use one fallback read to preserve the API's error distinction. Do not use the service role for general recipe access.
+- Private image download uses the service-role-only resolver RPC to check ownership and resolve attached-image metadata in one database request. The RPC rechecks ownership before returning an internal object key. Until its migration is applied, the handler uses a user-scoped read only for the old ambiguous `not_found` response.
 - Before attachment, verify the R2 object's stored content-type metadata and actual byte size against the upload intent and allowed limits, then recheck recipe ownership. Metadata alone does not validate image bytes; a trusted processing or rendering boundary must decode or normalize them.
 - Private reads and deletion stay behind authenticated backend operations. A failed or incomplete upload leaves the current image unchanged. After replacement commits, delete only the previous final key recorded by that transaction; after recipe deletion commits, delete only the current final key captured by that transaction. Cleanup of expired staging objects and orphan final keys follows the [image contract](../api/recipe-images.md).
 
@@ -100,17 +105,10 @@ The frontend and repository tooling are separate pnpm projects. Run frontend ins
 
 ## Cloudflare Workers deployment
 
-Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior. The [modular main caller](../../.github/workflows/modular-main.yml) is the sole production caller and invokes the shared production release after successful core validation, mandatory hosted RLS, and frontend existence on main. See the historical [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) for pre-merge cutover and rollback context.
+Cloudflare Workers serves the frontend's static build. [`wrangler.jsonc`](../../wrangler.jsonc) reads assets from `frontend/dist` and uses single-page application fallback behavior.
 
-The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10 for frontend installs. Its guarded `deploy` job deploys the `recipes`, `extract-recipe`, and `generate-recipe` Edge Functions to Supabase before deploying the frontend to Cloudflare. The function steps use `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; the Cloudflare step uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Keep secret values out of Git and logs. Production database migrations remain a separate process.
+**Current workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** [Modular Main Validation](../../.github/workflows/modular-main.yml) is the sole production caller after [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) retired `ci.yml`. It runs on pushes to `main` and manual dispatches from `main`. Production requires successful frontend, database, and Edge/API validation plus `frontend/package.json`; the Edge/API reusable workflow requires its nested Hosted RLS job on `main`. Main E2E runs separately and is not a production dependency. PR workflows do not call production; their local validation, E2E, and trusted staging paths are controlled by the path classifier and PR trust conditions. The [issue #73 handoff](../devops/modular-workflows.md#issue-73-final-cleanup-proposal-2026-10-31) retains the historical cutover and rollback context.
 
-**Verified production path:** `frontend/package.json` is present. The modular main
-production caller retains main push/manual-only guards, successful frontend,
-database and aggregate Edge/API validation, mandatory nested hosted RLS, and
-frontend existence. PRs cannot call production. Cutover and ownership rollback
-were operator-confirmed on `46809319eb23394a45d6f1ea79f8ee41f541011b` before legacy retirement.
-[PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) retired `ci.yml`.
-[Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
-on merge SHA `8747e6e605c5eda358c1bb77b27d3d120c87bddc` passed core validation,
-mandatory hosted RLS, production deployment, and production runtime smoke,
-verifying the modular-only path after merge.
+The [reusable production release](../../.github/workflows/reusable-production.yml) uses Node.js 24 and pnpm 10. It deploys `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`; `account-export` is explicitly disabled with `if: false` pending its acceptance gates. `recipe-image-upload-url` and `recipe-image-download-url` deploy only when `VITE_RECIPE_IMAGES` is `true`; `recipe-image-upload-cleanup` deploys only when `RECIPE_IMAGE_CLEANUP_ENABLED` is `true`. Enabling the image UI also requires cleanup enabled, a successful protected readiness run for the exact `main` SHA with its environment URL matching `PRODUCTION_FRONTEND_URL`, and the required image migrations present in the production ledger. The separate cleanup workflow runs only on `main` with its opt-in enabled and uses its protected environment. The release then deploys the frontend to Cloudflare, verifies the deployment URL and AI routes, and runs the production runtime smoke. It does not apply production database migrations. Supabase and Cloudflare credentials are supplied through Actions secrets; their values must stay out of Git and logs.
+
+**Historical execution evidence:** Cutover and ownership rollback were operator-confirmed on `46809319eb23394a45d6f1ea79f8ee41f541011b` before legacy retirement. [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150) on merge SHA `8747e6e605c5eda358c1bb77b27d3d120c87bddc` passed core validation, mandatory Hosted RLS, production deployment, and production runtime smoke, verifying the modular-only path after merge. That run is historical evidence and does not establish execution of the current conditional image release path.

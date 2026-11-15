@@ -122,6 +122,13 @@ async function handleApiRequest(request, response) {
     return
   }
   if (url.pathname === '/functions/v1/generate-recipe' && request.method === 'POST') {
+    if (activeScenario === 'generation-failure') {
+      response.setHeader('Retry-After', '2')
+      response.setHeader('Access-Control-Expose-Headers', 'Retry-After')
+      sendJson(request, response, 429, { error: { code: 'AI_RATE_LIMITED', message: 'private provider detail' } })
+      return
+    }
+
     sendJson(request, response, 200, activeScenario === 'no-parents' ? {
       ...generated,
       parents: [],
@@ -246,32 +253,43 @@ try {
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
   const moriBookmark = page.getByRole('button', { name: 'Talk to Mori' })
   await moriBookmark.click()
-  const chooser = page.getByRole('dialog', { name: 'Mori' })
+  const chooser = page.getByRole('region', { name: 'Mori' })
   await expect(chooser).toBeVisible()
-  await expect(chooser).toHaveAttribute('aria-modal', 'true')
-  await expect(chooser).toContainText('Hey, chef! What are we cooking up today?')
-  await expect(chooser.getByRole('button', { name: 'Close Talk to Mori' })).toBeVisible()
+  await expect(chooser).toContainText('What are we cooking today?')
+  await expect(chooser.getByRole('button', { name: 'Close Mori' })).toBeVisible()
   assert.equal(requests.filter((request) => request.path === '/functions/v1/generate-recipe' ||
     (request.path === '/functions/v1/recipes' && request.method !== 'GET')).length, 0,
   'Opening Talk to Mori initiated AI generation or a recipe write')
-  for (let index = 0; index < 8; index += 1) {
-    await page.keyboard.press('Tab')
-    const focusState = await chooser.evaluate((element) => ({
-      contained: element.contains(globalThis.document.activeElement),
-      open: element.open,
-      modal: element.matches(':modal'),
-      active: globalThis.document.activeElement?.outerHTML.slice(0, 180),
-    }))
-    assert.equal(focusState.contained, true, `Keyboard focus escaped the Talk to Mori modal on Tab ${index + 1}: ${JSON.stringify(focusState)}`)
-  }
+  await page.keyboard.press('Tab')
+  await expect(chooser.getByRole('button', { name: 'Organize cooking notes' })).toBeFocused()
+  await page.getByRole('link', { name: 'My recipes' }).focus()
+  await expect(page.getByRole('link', { name: 'My recipes' })).toBeFocused()
+  await expect(chooser).toBeVisible()
+  await chooser.getByRole('button', { name: 'Close Mori' }).focus()
   await page.keyboard.press('Escape')
   await expect(chooser).toHaveCount(0)
   await expect(moriBookmark).toBeFocused()
   await moriBookmark.click()
-  await page.getByRole('button', { name: "2. Let's figure out what to cook!" }).click()
+  await page.getByRole('button', { name: "Find something to cook" }).click()
   await expect(page).toHaveURL(`${origin}app/chef`)
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 
+  // The input must retain a usable width even when the leaf is narrower than
+  // the viewport breakpoint; preferences should wrap in the same available space.
+  for (const width of [1440, 1100, 768, 400, 375, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await settleJournalLayout(page)
+    const dimensions = await page.locator('.mm-ai-chef__ingredient-entry').evaluate((entry) => {
+      const input = entry.querySelector('input').getBoundingClientRect()
+      const button = entry.querySelector('button').getBoundingClientRect()
+      const textarea = entry.closest('fieldset').querySelector('textarea').getBoundingClientRect()
+      return { row: entry.clientWidth, input: input.width, buttonTop: button.top, inputTop: input.top, textarea: textarea.width }
+    })
+    assert.ok(dimensions.input >= Math.min(140, dimensions.row - 2), `Pantry input collapsed at ${width}px: ${JSON.stringify(dimensions)}`)
+    assert.ok(dimensions.textarea >= dimensions.row - 2, `Preferences collapsed at ${width}px`)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
   const pantryInput = page.getByRole('textbox', { name: 'Pantry ingredient' })
   await pantryInput.fill('rice')
   await pantryInput.press('Enter')
@@ -290,6 +308,18 @@ try {
   assert.equal(generation.authorization, `Bearer ${session.access_token}`)
   assert.deepEqual(generation.body, { pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
   assert.equal(recipeWrites.length, 0, 'Generation saved a recipe before review')
+  // The long review notice and recipe fields share a bounded leaf scrollport.
+  const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
+  const bounds = await reviewLeaf.evaluate((leaf) => {
+    const spread = leaf.closest('.mm-journal-spread').getBoundingClientRect()
+    const rect = leaf.getBoundingClientRect()
+    leaf.scrollTop = leaf.scrollHeight
+    const bottom = leaf.scrollTop
+    leaf.scrollTop = 0
+    return { height: leaf.clientHeight, scrollHeight: leaf.scrollHeight, bottom, top: leaf.scrollTop, inside: rect.top >= spread.top && rect.bottom <= spread.bottom + 1 }
+  })
+  assert.ok(bounds.height > 100 && bounds.scrollHeight > bounds.height && bounds.inside, `Review leaf is not bounded: ${JSON.stringify(bounds)}`)
+  assert.ok(bounds.bottom > 0 && bounds.top === 0, `Review leaf cannot scroll both ways: ${JSON.stringify(bounds)}`)
   await assertJournalSemantics(page, 'AI Chef recipe review')
   await expect(page.getByLabel('Recipe title')).toHaveValue('Egg and rice skillet')
   await expect(page.getByRole('region', { name: 'Suggested substitutions' })).toContainText('firm tofu')
@@ -464,6 +494,28 @@ try {
     }))))
   assert.equal(requests.filter((request) => request.path.endsWith('/lineage') && request.method === 'GET').length, 1)
   assert.equal(lineageWrites[0].childRecipeId, scenarioRecipeIds.uncertain)
+  await page.evaluate(() => globalThis.sessionStorage.clear())
+  resetScenario('generation-failure')
+  await page.goto(`${origin}app/chef`)
+  await page.getByRole('textbox', { name: 'Pantry ingredient' }).fill('rice')
+  await page.getByRole('textbox', { name: 'Pantry ingredient' }).press('Enter')
+  await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill('keep this preference')
+  await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+  await expect(page.getByRole('alert')).toContainText('rate-limited')
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeDisabled()
+  await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
+  await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toHaveValue('keep this preference')
+  await expect(page.getByText('private provider detail')).toHaveCount(0)
+  assert.equal(recipeWrites.length, 0)
+  activeScenario = 'success'
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  const attempts = requests.filter((request) => request.path === '/functions/v1/generate-recipe')
+  assert.equal(attempts.length, 2)
+  assert.deepEqual(attempts[0].body, attempts[1].body)
+  assert.equal(recipeWrites.length, 0)
+  process.stdout.write('FE-13 generation failure: server cooldown, retained inputs, same-request retry and unsaved preview passed.\n')
   assert.deepEqual(errors, [])
   await context.close()
   process.stdout.write('AI Chef browser acceptance Scenario E passed: lost lineage response reconciled through GET without a duplicate POST.\n')

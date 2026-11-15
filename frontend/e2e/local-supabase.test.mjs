@@ -11,6 +11,8 @@ import {
   createSupabaseCliEnvironment,
   parseSupabaseStatus,
   prepareLocalE2eAccount,
+  waitForExtractionHandler,
+  waitForMethodNotAllowedHandler,
   waitForRecipesHandler,
 } from './local-supabase.mjs'
 
@@ -103,15 +105,24 @@ test('retries readiness timeouts while the native function server starts', async
   t.mock.method(globalThis, 'fetch', async () => {
     calls += 1
     if (calls === 1) throw Object.assign(new Error('startup timeout'), { name: 'TimeoutError' })
-    return { status: 401, json: async () => ({ error: { code: 'UNAUTHORIZED' } }) }
+    if (calls === 2) return { status: 401, json: async () => ({ error: { code: 'UNAUTHORIZED' } }) }
+    return { status: 405, json: async () => ({ error: { code: 'METHOD_NOT_ALLOWED' } }) }
   })
 
   await waitForRecipesHandler('http://127.0.0.1:23123', 'local-key', {
     child: { pid: 1, exitCode: null, signalCode: null },
     failureDetail: () => '',
   })
+  await waitForExtractionHandler('http://127.0.0.1:23123', 'local-key', {
+    child: { pid: 1, exitCode: null, signalCode: null },
+    failureDetail: () => '',
+  })
+  await waitForMethodNotAllowedHandler('http://127.0.0.1:23123', 'local-key', {
+    child: { pid: 1, exitCode: null, signalCode: null },
+    failureDetail: () => '',
+  }, 'generate-recipe')
 
-  assert.equal(calls, 2)
+  assert.equal(calls, 4)
 })
 
 test('E2E Supabase configuration uses an isolated project and dynamically assigned ports', async () => {

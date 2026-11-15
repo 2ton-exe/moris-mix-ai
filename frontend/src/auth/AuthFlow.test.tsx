@@ -145,6 +145,7 @@ it('prevents duplicate login submissions while pending and handles a network rej
   submit('Log in')
   const button = screen.getByRole('button', { name: 'Logging in…' }) as HTMLButtonElement
   expect(button.disabled).toBe(true)
+  expect(screen.getByRole('status').textContent).toBe('Logging in…')
   fireEvent.submit(button.closest('form')!)
   expect(auth.signInWithPassword).toHaveBeenCalledOnce()
   await act(async () => request.reject(new TypeError('private network detail')))
@@ -363,7 +364,7 @@ it.each(['login', 'signup'] as const)('does not redirect after leaving a pending
   // Supabase's valid session remains available when the user chooses to return.
   auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
   fireEvent.click(screen.getByRole('link', { name: 'Back home' }))
-  fireEvent.click(screen.getByRole('link', { name: 'Your cooking journal' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Your cooking journal' }, { timeout: 5000 }))
   await screen.findByRole('heading', { name: 'Your cooking journal' })
 })
 

@@ -11,7 +11,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
   const heading = <header className="mm-collection-heading">
-    <p className="mm-recipe-index__eyebrow">{index ? 'Index insert' : `${recipes?.length ?? 0} scraps${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>
+    {!index && <p className="mm-recipe-index__eyebrow">{`${recipes?.length ?? 0} scraps${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
     {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}. A place for the meals that become yours.</p>}

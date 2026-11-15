@@ -1,9 +1,14 @@
-import { authenticateRequest, type AuthDeps } from "../_shared/auth.ts";
+import { type AuthDeps, authenticateRequest } from "../_shared/auth.ts";
 import { handleCorsPreflight, jsonResponse } from "../_shared/cors.ts";
+import {
+  createRequestId,
+  logRequestFailure,
+  withRequestId,
+} from "../_shared/requestId.ts";
 
 export type AuthSessionHandlerDeps = AuthDeps;
 
-export async function handler(
+async function handleRequest(
   req: Request,
   deps?: AuthSessionHandlerDeps,
 ): Promise<Response> {
@@ -43,7 +48,7 @@ export async function handler(
       .maybeSingle();
 
     if (error) {
-      console.error("Database query failed", error.code ? `code: ${error.code}` : "");
+      console.error("Database query failed");
       return jsonResponse(
         {
           error: {
@@ -73,8 +78,12 @@ export async function handler(
         user: {
           id: user.id,
           email: user.email,
-          display_name: typeof profile?.display_name === "string" ? profile.display_name : null,
-          avatar_url: typeof profile?.avatar_url === "string" ? profile.avatar_url : null,
+          display_name: typeof profile?.display_name === "string"
+            ? profile.display_name
+            : null,
+          avatar_url: typeof profile?.avatar_url === "string"
+            ? profile.avatar_url
+            : null,
         },
       },
       { status: 200 },
@@ -91,6 +100,18 @@ export async function handler(
       { status: 500 },
     );
   }
+}
+
+export async function handler(
+  req: Request,
+  deps?: AuthSessionHandlerDeps,
+): Promise<Response> {
+  const requestId = createRequestId();
+  const response = await handleRequest(req, deps);
+  if (response.status >= 500) {
+    logRequestFailure(requestId, "auth-session", response.status);
+  }
+  return withRequestId(response, requestId);
 }
 
 if (import.meta.main) {

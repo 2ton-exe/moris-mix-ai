@@ -28,7 +28,7 @@ function renderLauncher(onChoice = vi.fn()) {
 
 it('opens as a non-modal note, focuses its heading, and restores trigger focus on dismissal', async () => {
   renderLauncher()
-  const trigger = screen.getByRole('button', { name: 'Open a note from Mori' })
+  const trigger = screen.getByRole('button', { name: 'Journal tips' })
   fireEvent.click(trigger)
 
   const region = screen.getByRole('region', { name: 'Mori' })
@@ -42,7 +42,7 @@ it('opens as a non-modal note, focuses its heading, and restores trigger focus o
 it('renders choices, invokes the supplied callback, advances, reveals text, and completes', () => {
   const onChoice = vi.fn()
   renderLauncher(onChoice)
-  fireEvent.click(screen.getByRole('button', { name: 'Open a note from Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Journal tips' }))
 
   fireEvent.click(screen.getByRole('button', { name: 'Tell me more' }))
   expect(onChoice).toHaveBeenCalledWith(lines[0].choices?.[0], lines[0])
@@ -89,7 +89,7 @@ it('respects reduced motion and shows the complete line immediately', () => {
     removeEventListener: vi.fn(),
   })))
   renderLauncher()
-  fireEvent.click(screen.getByRole('button', { name: 'Open a note from Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Journal tips' }))
   expect(document.querySelector('.mm-mori-dialogue__text')?.textContent).toBe(lines[0].text)
   expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
 })
@@ -113,7 +113,7 @@ it('navigates through the existing recipe route and makes no network or recipe w
   const fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
   renderLauncher()
-  fireEvent.click(screen.getByRole('button', { name: 'Open a note from Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Journal tips' }))
   fireEvent.click(screen.getByRole('button', { name: 'Write a recipe' }))
   await screen.findByRole('heading', { name: 'A recipe of your own.' })
   expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()

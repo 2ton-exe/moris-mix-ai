@@ -112,7 +112,7 @@ try {
     await assertNoOverflow(page, 'Recipe detail', width)
     if (phase === 'after') await assertPaperControls(page, `${width}px recipe detail`)
     await page.goto(`${origin}app/recipes/new`)
-    await expect(page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
     await page.screenshot({ path: path.join(outputDir, `${width}-create.png`), fullPage: true })
     await assertNoOverflow(page, 'Recipe form', width)
     if (phase === 'after') await assertPaperControls(page, `${width}px recipe form`)

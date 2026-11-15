@@ -1,6 +1,18 @@
-import { authenticateRequest, type AuthContext, type AuthDeps } from "../_shared/auth.ts";
+import {
+  type AuthContext,
+  type AuthDeps,
+  authenticateRequest,
+} from "../_shared/auth.ts";
 import { handleCorsPreflight } from "../_shared/cors.ts";
-import type { AIProvider, GenerateRecipeInput } from "../_shared/ai/AIProvider.ts";
+import {
+  createRequestId,
+  logRequestFailure,
+  withRequestId,
+} from "../_shared/requestId.ts";
+import type {
+  AIProvider,
+  GenerateRecipeInput,
+} from "../_shared/ai/AIProvider.ts";
 import { AIError, GeminiAdapter } from "../_shared/ai/GeminiAdapter.ts";
 import { createFailureDrillProvider } from "../_shared/ai/drills.ts";
 import {
@@ -10,24 +22,36 @@ import {
   aiErrorResponse,
   aiJsonResponse,
   isEnvEnabled,
+  isJsonRequest,
   isPlainObject,
   mapAiError,
   normalizeQuotaRetryAfterSeconds,
   readBodyWithinByteLimit,
   withAiCorsMethods,
 } from "../_shared/ai/http.ts";
-import { consumeDailyQuota, type QuotaCheck } from "../_shared/ai/quota.ts";
-import { buildChefRecipeContext } from "../_shared/ai/recipeContext.ts";
+import {
+  consumeDailyQuota,
+  logQuotaRpcFailure,
+  type QuotaCheck,
+} from "../_shared/ai/quota.ts";
+import {
+  buildChefRecipeContext,
+  ChefCandidateContextTooLargeError,
+} from "../_shared/ai/recipeContext.ts";
+import {
+  buildChefPrompt,
+  isWithinAiPromptBudget,
+} from "../_shared/ai/prompts.ts";
 import {
   resolveCandidateTokenSecret,
   signCandidateToken,
 } from "../_shared/ai/candidateToken.ts";
 import {
-  GenerateRecipeRequestSchema,
-  GenerateRecipeResponseSchema,
-  GeneratedRecipeSchema,
   type ChefRecipeContextResult,
+  GeneratedRecipeSchema,
+  GenerateRecipeRequestSchema,
   type GenerateRecipeResponse,
+  GenerateRecipeResponseSchema,
   type SuggestedParent,
 } from "../_shared/ai/schemas.ts";
 
@@ -78,14 +102,17 @@ function shouldRefundQuota(error: unknown, providerStarted: boolean): boolean {
 }
 
 function resolveProvider(deps: GenerateRecipeDeps): AIProvider {
-  return deps.provider ?? createFailureDrillProvider("generate") ?? new GeminiAdapter();
+  return deps.provider ?? createFailureDrillProvider("generate") ??
+    new GeminiAdapter();
 }
 
 function resolveParents(
   parentRecipeIds: string[],
   context: ChefRecipeContextResult,
 ): SuggestedParent[] {
-  const candidates = new Map(context.recipes.map((recipe) => [recipe.id, recipe]));
+  const candidates = new Map(
+    context.recipes.map((recipe) => [recipe.id, recipe]),
+  );
   const parents: SuggestedParent[] = [];
   const seen = new Set<string>();
 
@@ -113,7 +140,7 @@ function resolveParents(
   return parents;
 }
 
-export async function handler(
+async function handleRequest(
   req: Request,
   deps: GenerateRecipeDeps = {},
 ): Promise<Response> {
@@ -146,7 +173,9 @@ export async function handler(
 
     const { user, supabase } = auth.context;
 
-    if (!isEnvEnabled(GENERATE_ENABLED_ENV) || isEnvEnabled(GENERATE_DISABLED_ENV)) {
+    if (
+      !isEnvEnabled(GENERATE_ENABLED_ENV) || isEnvEnabled(GENERATE_DISABLED_ENV)
+    ) {
       return errorResponse(
         "AI_DISABLED",
         "AI recipe generation is temporarily disabled.",
@@ -154,10 +183,20 @@ export async function handler(
       );
     }
 
+    if (!isJsonRequest(req)) {
+      return errorResponse(
+        "UNSUPPORTED_MEDIA_TYPE",
+        "Content-Type must be application/json.",
+        415,
+      );
+    }
+
     const declaredLength = req.headers.get("content-length");
     if (declaredLength !== null) {
       const declaredBytes = Number(declaredLength);
-      if (Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_REQUEST_BYTES) {
+      if (
+        Number.isSafeInteger(declaredBytes) && declaredBytes > MAX_REQUEST_BYTES
+      ) {
         return errorResponse(
           "INPUT_TOO_LARGE",
           `Request body must be at most ${MAX_REQUEST_BYTES} bytes.`,
@@ -175,23 +214,39 @@ export async function handler(
           413,
         );
       }
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     const rawBody = read.text;
     if (!rawBody || rawBody.trim().length === 0) {
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     let parsedBody: unknown;
     try {
       parsedBody = JSON.parse(rawBody);
     } catch {
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     if (!isPlainObject(parsedBody)) {
-      return errorResponse("INVALID_JSON", "Request body must be a valid JSON object.", 400);
+      return errorResponse(
+        "INVALID_JSON",
+        "Request body must be a valid JSON object.",
+        400,
+      );
     }
 
     const validation = GenerateRecipeRequestSchema.safeParse(parsedBody);
@@ -222,17 +277,25 @@ export async function handler(
 
     let candidateTokenSecret: string;
     try {
-      candidateTokenSecret = resolveCandidateTokenSecret(deps.candidateTokenSecret);
+      candidateTokenSecret = resolveCandidateTokenSecret(
+        deps.candidateTokenSecret,
+      );
     } catch {
-      console.error("AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing generation.");
+      console.error(
+        "AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing generation.",
+      );
       return errorResponse("INTERNAL_ERROR", "Internal server error.", 500);
     }
 
-    const quota = await (deps.quotaCheck ?? consumeDailyQuota)(user.id, supabase, {
-      supabaseUrl: deps.supabaseUrl,
-      supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
-      fetch: deps.fetch,
-    });
+    const quota = await (deps.quotaCheck ?? consumeDailyQuota)(
+      user.id,
+      supabase,
+      {
+        supabaseUrl: deps.supabaseUrl,
+        supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
+        fetch: deps.fetch,
+      },
+    );
     if (quota.status === "unavailable") {
       return errorResponse(
         "QUOTA_UNAVAILABLE",
@@ -245,16 +308,54 @@ export async function handler(
         "QUOTA_EXCEEDED",
         "Daily AI usage limit reached. Please try again after the quota resets.",
         429,
-        { "Retry-After": String(normalizeQuotaRetryAfterSeconds(quota.retryAfterSeconds)) },
+        {
+          "Retry-After": String(
+            normalizeQuotaRetryAfterSeconds(quota.retryAfterSeconds),
+          ),
+        },
+      );
+    }
+    if (quota.status === "rate_limited") {
+      return errorResponse(
+        "AI_REQUEST_RATE_LIMITED",
+        "AI requests are temporarily limited. Please try again shortly.",
+        429,
+        { "Retry-After": String(quota.retryAfterSeconds) },
       );
     }
 
     let providerStarted = false;
     try {
-      const context = await (deps.buildContext ?? buildChefRecipeContext)(
-        auth.context,
-        input,
-      );
+      let context: ChefRecipeContextResult;
+      try {
+        context = await (deps.buildContext ?? buildChefRecipeContext)(
+          auth.context,
+          input,
+        );
+      } catch (contextError) {
+        if (contextError instanceof ChefCandidateContextTooLargeError) {
+          throw new AIError(
+            "context_too_large",
+            "generate",
+            "The saved recipe context exceeds the model input budget.",
+            undefined,
+            undefined,
+            true,
+          );
+        }
+        throw contextError;
+      }
+
+      if (!isWithinAiPromptBudget(buildChefPrompt(context))) {
+        throw new AIError(
+          "context_too_large",
+          "generate",
+          "The saved recipe context exceeds the model input budget.",
+          undefined,
+          undefined,
+          true,
+        );
+      }
 
       const provider = resolveProvider(deps);
       providerStarted = true;
@@ -262,7 +363,14 @@ export async function handler(
 
       const revalidated = GeneratedRecipeSchema.safeParse(generated);
       if (!revalidated.success) {
-        throw new AIError("invalid_output", "generate", "Generation failed schema validation.", undefined, undefined, false);
+        throw new AIError(
+          "invalid_output",
+          "generate",
+          "Generation failed schema validation.",
+          undefined,
+          undefined,
+          false,
+        );
       }
 
       const parents = resolveParents(revalidated.data.parentRecipeIds, context);
@@ -286,15 +394,24 @@ export async function handler(
         },
       };
 
-      const responseValidation = GenerateRecipeResponseSchema.safeParse(response);
+      const responseValidation = GenerateRecipeResponseSchema.safeParse(
+        response,
+      );
       if (!responseValidation.success) {
-        throw new AIError("invalid_output", "generate", "Generation failed response validation.", undefined, undefined, false);
+        throw new AIError(
+          "invalid_output",
+          "generate",
+          "Generation failed response validation.",
+          undefined,
+          undefined,
+          false,
+        );
       }
 
       try {
         await quota.confirm?.();
       } catch (confirmError) {
-        console.error("Quota confirmation failed", confirmError);
+        logQuotaRpcFailure("confirmation", confirmError);
       }
 
       return generateJsonResponse(responseValidation.data, { status: 200 });
@@ -303,13 +420,13 @@ export async function handler(
         try {
           await quota.rollback?.();
         } catch (rollbackError) {
-          console.error("Quota rollback failed", rollbackError);
+          logQuotaRpcFailure("rollback", rollbackError);
         }
       } else {
         try {
           await quota.confirm?.();
         } catch (confirmError) {
-          console.error("Quota confirmation failed", confirmError);
+          logQuotaRpcFailure("confirmation", confirmError);
         }
       }
       throw opError;
@@ -322,6 +439,18 @@ export async function handler(
     console.error("Unhandled exception in generate-recipe handler");
     return errorResponse("INTERNAL_ERROR", "Internal server error.", 500);
   }
+}
+
+export async function handler(
+  req: Request,
+  deps: GenerateRecipeDeps = {},
+): Promise<Response> {
+  const requestId = createRequestId();
+  const response = await handleRequest(req, deps);
+  if (response.status >= 500) {
+    logRequestFailure(requestId, "generate-recipe", response.status);
+  }
+  return withRequestId(response, requestId);
 }
 
 if (import.meta.main) {
