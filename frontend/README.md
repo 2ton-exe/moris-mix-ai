@@ -62,11 +62,12 @@ schema limits and integration status. For a labeled local sample preview, set
 `VITE_RECIPE_PREVIEW=true` and restart Vite; production builds ignore it.
 
 Private recipe image panels and endpoint calls are disabled by default in
-local builds. The production release build sets `VITE_RECIPE_IMAGES=true` per
-owner direction, exposing the image UI to all production users on the next
-release. This does not verify production R2 access or cleanup readiness, deploy
-the upload-signing or cleanup functions, or enable cleanup. Keep the cleanup
-opt-in unset until its separate readiness checks pass.
+local builds. Production builds also keep `VITE_RECIPE_IMAGES=false` while the
+upload-signing deployment and R2 readiness checks remain blocked. This prevents
+the image UI from calling a production handler that still uses the legacy
+upload contract. Keep the flag off until the matching signer and upload
+readiness are verified; keep the cleanup opt-in unset until its separate
+readiness checks pass.
 
 FE-03 adds login, signup, email verification, and session handling for the
 protected recipe dashboard. Open `/home` and select **Your cooking journal**, or go to

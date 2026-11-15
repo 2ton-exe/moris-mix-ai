@@ -5,11 +5,11 @@
 ## Browser rollout gate
 
 The image panel and image endpoint requests are disabled unless
-`VITE_RECIPE_IMAGES=true`. The production build sets the flag to `true` per
-owner direction, so the next production release exposes the image UI to users.
-This does not verify R2 access or bucket CORS, deploy the upload-signing or
-cleanup functions, or enable cleanup. Production R2 behavior and cleanup
-readiness remain unverified.
+`VITE_RECIPE_IMAGES=true`. Production builds currently set the flag to
+`false` because the production release still hard-disables the matching upload
+signer and R2 access and bucket CORS have not been verified. Keep the UI off
+until the production signing path and required upload readiness checks are
+complete; enabling the flag alone does not deploy the signer or enable cleanup.
 
 ## Upload requirements
 
