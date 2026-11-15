@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EXPECTED_PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+
 concurrency:
   group: recipe-image-upload-readiness
   cancel-in-progress: false
@@ -16,7 +19,9 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: recipe-image-upload-production
+    environment:
+      name: recipe-image-upload-production
+      url: ${{ vars.PRODUCTION_FRONTEND_URL }}
     permissions:
       contents: read
     steps:

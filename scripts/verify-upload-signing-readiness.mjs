@@ -4,7 +4,7 @@ import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from
 
 const required = [
   'SUPABASE_DATABASE_URL', 'SUPABASE_DATABASE_CA_CERT', 'SUPABASE_URL', 'SUPABASE_PROJECT_REF',
-  'SUPABASE_SERVICE_ROLE_KEY', 'ALLOWED_ORIGIN',
+  'SUPABASE_SERVICE_ROLE_KEY', 'ALLOWED_ORIGIN', 'EXPECTED_PRODUCTION_FRONTEND_URL',
 ];
 for (const name of required) {
   if (!process.env[name]?.trim()) throw new Error(`Missing required protected configuration: ${name}`);
@@ -23,7 +23,10 @@ const supabaseUrl = new URL(process.env.SUPABASE_URL);
 const databaseConnection = getSupabaseDatabaseConnection(process.env.SUPABASE_DATABASE_URL, projectRef);
 const databaseCa = getSupabaseDatabaseCaCertificates(process.env.SUPABASE_DATABASE_CA_CERT);
 if (supabaseUrl.origin !== `https://${projectRef}.supabase.co`) throw new Error('SUPABASE_URL targets a different project.');
-if (new URL(process.env.ALLOWED_ORIGIN).protocol !== 'https:') throw new Error('ALLOWED_ORIGIN must use HTTPS.');
+const allowedOrigin = new URL(process.env.ALLOWED_ORIGIN);
+const expectedOrigin = new URL(process.env.EXPECTED_PRODUCTION_FRONTEND_URL);
+if (allowedOrigin.protocol !== 'https:' || expectedOrigin.protocol !== 'https:') throw new Error('Production origins must use HTTPS.');
+if (allowedOrigin.origin !== expectedOrigin.origin) throw new Error('ALLOWED_ORIGIN must match the expected production origin.');
 
 const publicKey = process.env.SUPABASE_ANON_KEY?.trim() || process.env.SUPABASE_PUBLISHABLE_KEY.trim();
 const publicKeyCheck = await fetch(new URL('/auth/v1/settings', supabaseUrl), {
