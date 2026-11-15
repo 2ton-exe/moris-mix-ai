@@ -61,7 +61,9 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
     photoRequest.current?.abort()
     photoRequest.current = controller
     void recipeImageApi.getDownload(recipe.id, { userId: user.id, signal: controller.signal }, true)
-      .then((download) => { if (!controller.signal.aborted) setPhotoUrl(download?.url ?? null) })
+      .then((download) => {
+        if (!controller.signal.aborted) setPhotoUrl(download?.url === photoUrl ? null : download?.url ?? null)
+      })
       .catch(() => { if (!controller.signal.aborted) setPhotoUrl(null) })
   }
 

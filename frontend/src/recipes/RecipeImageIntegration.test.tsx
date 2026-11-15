@@ -445,6 +445,15 @@ it('shows the private image on the journal card and reuses its fresh URL on deta
   expect(downloadCount).toBe(1)
 })
 
+it('falls back to the illustration when a failed card photo is re-signed with the same URL', async () => {
+  renderCollectionCard()
+  fireEvent.error(await screen.findByRole('img', { name: 'Ginger rice photo' }))
+
+  expect(await screen.findByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeTruthy()
+  await waitFor(() => expect(downloadCount).toBe(2))
+  expect(screen.queryByRole('img', { name: 'Ginger rice photo' })).toBeNull()
+})
+
 it('keeps the illustrated journal card when no private photo is attached', async () => {
   noImage = true
   renderCollectionCard()
