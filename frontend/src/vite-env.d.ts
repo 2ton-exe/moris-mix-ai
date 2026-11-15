@@ -6,4 +6,5 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_ANON_KEY?: string
   readonly VITE_RECIPE_PREVIEW?: string
   readonly VITE_RECIPE_IMAGES?: string
+  readonly VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY?: string
 }

@@ -12,6 +12,7 @@ export const RecipeImageUploadRequestSchema = z.object({
   recipe_id: z.guid(),
   content_type: RecipeImageContentTypeSchema,
   byte_size: z.number().int().positive().max(MAX_RECIPE_IMAGE_BYTES),
+  request_id: z.guid().optional(),
 }).strict();
 
 export const RecipeImageAttachRequestSchema = z.object({

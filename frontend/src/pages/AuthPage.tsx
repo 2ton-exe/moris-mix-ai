@@ -89,6 +89,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             </button>
           </fieldset>
         </form>
+        {pending && <p role="status">{isSignup ? 'Creating account…' : 'Logging in…'}</p>}
         {isSignup ? <JournalAuthFooter>
           <p>Already have an account? <Link to="/login" state={location.state}>Log in</Link></p>
         </JournalAuthFooter> : <JournalAuthFooter>

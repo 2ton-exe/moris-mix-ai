@@ -299,7 +299,7 @@ try {
   await expect(page.getByRole('button', { name: 'Saving…' })).toBeDisabled()
   assert.equal(saveRequests.length, 1)
   saveGate.release()
-  await expect(page.getByRole('alert')).toContainText('Could not save your recipe')
+  await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByText('private save payload')).toHaveCount(0)
   await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   await expect(page.getByLabel('Recipe title')).toHaveValue('Mori’s tomato supper')
@@ -357,7 +357,7 @@ try {
   await page.getByLabel('Recipe title').fill('A favorite revisited')
   saveFailures = 1
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page.getByRole('alert')).toContainText('Could not save your recipe')
+  await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByLabel('Recipe title')).toHaveValue('A favorite revisited')
   assert.equal(saveRequests.at(-1).method, 'PATCH')
   await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
@@ -425,6 +425,9 @@ try {
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
   for (const width of [1440, 1280, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    // The preceding row controls and the previous viewport may have scrolled the document.
+    // Check the journal's layout from the top of the page at each viewport.
+    await page.evaluate(() => globalThis.scrollTo(0, 0))
     await settleJournalLayout(page)
     await assertJournalGeometry(page, `recipe editor ${width}×900`)
     await assertJournalSemantics(page, `recipe editor ${width}×900`)

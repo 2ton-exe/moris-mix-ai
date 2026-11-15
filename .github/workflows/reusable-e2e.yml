@@ -47,15 +47,20 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Install Chromium
+      - name: Install Playwright browsers
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm exec playwright install --with-deps --only-shell chromium
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
-      - name: Run Playwright E2E against local Supabase
+      - name: Run Playwright E2E across browsers against local Supabase
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm run test:e2e:local
+        run: pnpm run test:e2e:local -- --browser all
+
+      - name: Run private-image browser journey
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm run test:e2e:qa04:images
 
       - name: Upload Playwright failure artifacts
         if: failure()

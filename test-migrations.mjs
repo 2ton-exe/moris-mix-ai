@@ -79,6 +79,15 @@ function runDiscoveryAndIntegrityUnitTests() {
     assert.match(reservationSql, new RegExp(`revoke all on function public\\.${operation}_recipe_image_upload_reservation\\(uuid, uuid, uuid\\) from public`));
   }
   assert.doesNotMatch(reservationSql, /grant[^;]+to (anon|authenticated|public)\b/i);
+  const uploadIdempotency = migrations.find(migration => migration.version === '20261115000020');
+  assert.equal(uploadIdempotency?.file, '20261115000020_recipe_image_upload_idempotency.sql');
+  const uploadIdempotencySql = fs.readFileSync(uploadIdempotency.filePath, 'utf8');
+  assert.match(uploadIdempotencySql, /security definer[\s\S]*set search_path = public, extensions, pg_temp/i);
+  assert.match(uploadIdempotencySql, /auth\.role\(\) is distinct from 'service_role'/);
+  assert.match(uploadIdempotencySql, /select \* into v_existing[\s\S]*where id = p_id[\s\S]*for update/i);
+  assert.match(uploadIdempotencySql, /v_existing\.user_id = p_user_id[\s\S]*v_existing\.recipe_id = p_recipe_id[\s\S]*v_existing\.content_type = p_content_type[\s\S]*v_existing\.byte_size = p_byte_size/);
+  assert.match(uploadIdempotencySql, /v_existing\.state = 'pending'[\s\S]*v_existing\.cleanup_status = 'waiting'[\s\S]*v_existing\.expires_at > clock_timestamp\(\) \+ interval '30 seconds'/);
+  assert.match(uploadIdempotencySql, /return 'conflict'/);
   const lifecycleMigration = migrations.find((migration) => migration.version === '20261102000010');
   assert.equal(lifecycleMigration?.file, '20261102000010_recipe_image_upload_lifecycle.sql');
   const lifecycleSql = fs.readFileSync(lifecycleMigration.filePath, 'utf8');
@@ -298,15 +307,23 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
   const seededRecipe = crypto.randomUUID();
   const deletedRecipe = crypto.randomUUID();
   const setServiceRole = (target) => target.query("SELECT set_config('request.jwt.claim.role', 'service_role', false)");
-  const createIntent = async (target, userId, createdAt = new Date(), recipeId = crypto.randomUUID()) => {
-    const id = crypto.randomUUID();
+  const createIntent = async (
+    target,
+    userId,
+    createdAt = new Date(),
+    recipeId = crypto.randomUUID(),
+    id = crypto.randomUUID(),
+    byteSize = 1024,
+    contentType = 'image/jpeg'
+  ) => {
     const created = new Date(Math.floor(createdAt.getTime() / 1000) * 1000);
     const suffix = `${userId}/${recipeId}/${id}`;
+    const finalKey = `recipe-images/final/${suffix}/${crypto.randomUUID()}`;
     const result = await target.query(
       'SELECT public.create_recipe_image_upload_intent($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text, $6::text, $7::integer, $8::timestamptz, $9::timestamptz) AS status',
-      [id, userId, recipeId, `recipe-images/staging/${suffix}`, `recipe-images/final/${suffix}/${crypto.randomUUID()}`, 'image/jpeg', 1024, created.toISOString(), new Date(created.getTime() + 600000).toISOString()]
+      [id, userId, recipeId, `recipe-images/staging/${suffix}`, finalKey, contentType, byteSize, created.toISOString(), new Date(created.getTime() + 600000).toISOString()]
     );
-    return { id, stagingKey: `recipe-images/staging/${suffix}`, status: result.rows[0].status };
+    return { id, stagingKey: `recipe-images/staging/${suffix}`, finalKey, status: result.rows[0].status };
   };
 
   try {
@@ -320,6 +337,21 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
       'INSERT INTO public.recipes (id, user_id, title) VALUES ($1::uuid, $2::uuid, $3)',
       [seededRecipe, seededUser, 'recipe image lifecycle migration test']
     );
+    const retryIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const retryIntents = [];
+    for (const id of retryIds) {
+      const intent = await createIntent(client, seededUser, new Date(), seededRecipe, id);
+      assert.equal(intent.status, 'allowed');
+      retryIntents.push(intent);
+    }
+    const replay = await createIntent(client, seededUser, new Date(), seededRecipe, retryIds[0]);
+    assert.equal(replay.status, 'allowed');
+    assert.equal((await client.query('SELECT count(*)::integer AS count FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[])', [retryIds])).rows[0].count, 3);
+    assert.equal((await client.query('SELECT final_key FROM public.recipe_image_upload_intents WHERE id = $1::uuid', [retryIds[0]])).rows[0].final_key, retryIntents[0].finalKey);
+    assert.equal((await createIntent(client, seededUser, new Date(), seededRecipe, retryIds[0], 2048)).status, 'conflict');
+    await client.query("UPDATE public.recipe_image_upload_intents SET state = 'expired', cleanup_status = 'complete', cleanup_completed_at = now() WHERE id = $1::uuid", [retryIds[1]]);
+    assert.equal((await createIntent(client, seededUser, new Date(), seededRecipe, retryIds[1])).status, 'conflict');
+    await client.query('DELETE FROM public.recipe_image_upload_intents WHERE id = ANY($1::uuid[])', [retryIds]);
     await client.query('BEGIN');
     try {
       await client.query("SELECT set_config('request.jwt.claim.role', 'authenticated', true)");

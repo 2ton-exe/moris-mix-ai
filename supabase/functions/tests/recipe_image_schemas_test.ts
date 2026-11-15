@@ -26,6 +26,11 @@ Deno.test("recipe image upload request accepts supported image metadata", () => 
     RecipeImageUploadRequestSchema.parse(uploadRequest),
     uploadRequest,
   );
+  const retry = {
+    ...uploadRequest,
+    request_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  };
+  assertEquals(RecipeImageUploadRequestSchema.parse(retry), retry);
 });
 
 Deno.test("recipe image upload request accepts the 10 MiB limit", () => {
@@ -73,6 +78,12 @@ Deno.test("recipe image upload request rejects caller-selected ownership and sto
     RecipeImageUploadRequestSchema.parse({
       ...uploadRequest,
       object_key: "user/recipe/image.jpg",
+    })
+  );
+  assertThrows(() =>
+    RecipeImageUploadRequestSchema.parse({
+      ...uploadRequest,
+      request_id: "not-a-uuid",
     })
   );
 });

@@ -11,6 +11,10 @@ async function expectRecipeContents(page) {
   ).toContainText('Warm the oil and fold in the herbs.')
 }
 
+async function expectNoHorizontalOverflow(page) {
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+}
+
 test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async ({ page }) => {
   test.setTimeout(90_000)
 
@@ -64,7 +68,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(dialog.getByRole('heading', { name: `Delete “${updatedTitle}”?` })).toBeVisible()
     await dialog.getByRole('button', { name: 'Delete recipe' }).click()
     await expect(page).toHaveURL(/\/app(?:\/recipes)?$/)
-    await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
 
     await page.reload()
@@ -73,6 +77,42 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await page.goto(deletedRecipeUrl, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible({ timeout: 30_000 })
   })
+})
+
+test('a cook can complete recipe CRUD at a mobile viewport', async ({ page }) => {
+  test.setTimeout(90_000)
+  await page.setViewportSize({ width: 375, height: 812 })
+  const recipeTitle = `QA-04 mobile ${crypto.randomUUID()}`
+  const updatedTitle = `${recipeTitle} revised`
+
+  await signIn(page, localE2eUser)
+  await waitForCollection(page)
+  await expectNoHorizontalOverflow(page)
+  await createRecipe(page, recipeTitle)
+  await expectNoHorizontalOverflow(page)
+
+  await page.getByRole('button', { name: 'Back to journal' }).click()
+  const recipeCard = page.getByRole('link', { name: recipeTitle })
+  await expect(recipeCard).toBeVisible()
+  await recipeCard.click()
+  await expect(page.getByRole('heading', { name: recipeTitle })).toBeVisible({ timeout: 30_000 })
+  await expectNoHorizontalOverflow(page)
+
+  await page.getByRole('link', { name: 'Edit recipe' }).click()
+  await page.getByLabel('Recipe title').fill(updatedTitle)
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'Back to journal' }).click()
+  await page.getByRole('link', { name: updatedTitle }).click()
+  await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
+  await expectNoHorizontalOverflow(page)
+
+  await page.getByRole('button', { name: 'Delete recipe' }).click()
+  const dialog = page.getByRole('alertdialog')
+  await dialog.getByRole('button', { name: 'Delete recipe' }).click()
+  await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
 })
 
 test('a signed-in cook cannot view, update, or delete another cook’s recipe', async ({ page }) => {
@@ -129,5 +169,5 @@ test('a signed-in cook cannot view, update, or delete another cook’s recipe', 
   const dialog = page.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Delete recipe' }).click()
   await expect(page).toHaveURL(/\/app\/recipes$/)
-  await expect(page.getByText('Recipe deleted. Your collection has been updated.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible()
 })

@@ -137,6 +137,7 @@ test('modular PR remains PR-only, with staging and no production call or credent
     assert.equal(workflow(reusable).jobs[id].name, calleeName);
   }
   assert.equal(pr.jobs.staging.uses, './.github/workflows/reusable-staging.yml');
+  assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
   for (const job of Object.values(pr.jobs)) {
     assert.notEqual(job.uses, './.github/workflows/reusable-production.yml');
     assert.notEqual(job.uses, './.github/workflows/reusable-cloudflare.yml');
@@ -202,7 +203,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     VITE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
     VITE_SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
-    VITE_RECIPE_IMAGES: 'true',
+    VITE_RECIPE_IMAGES: 'false',
+    VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY: "${{ vars.VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY || 'false' }}",
     SMOKE_ENVIRONMENT: 'production',
     SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
     SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
@@ -489,7 +491,7 @@ test('docs-only paths execute successful core jobs; main and hosted RLS cannot n
       job.steps.filter(s => s.name !== 'Checkout repository' && s !== noop).map(s => s.name);
     for (const name of skippedNames) {
       const expression = step(job, name).if;
-      const context = { steps: { frontend: { outputs: { exists: 'true' } }, 'hosted-migration': { outputs: { run: 'true' } } } };
+      const context = { github: { event_name: 'push' }, steps: { frontend: { outputs: { exists: 'true' } }, 'hosted-migration': { outputs: { run: 'true' } } } };
       // Actual conditions contain hyphenated Actions identifiers.
       const source = expression.replace(/steps\.hosted-migration/g, 'steps["hosted-migration"]');
       assert.equal(condition(source, { ...context, env: { DOCS_ONLY: 'true' } }), false, name);
@@ -514,6 +516,11 @@ test('E2E and staging skip only on successful explicit docs-only decisions', () 
   const pr = workflow('modular-pr-validation');
   assert.equal(pr.jobs['test-e2e'].needs, 'classify');
   assert.deepEqual(pr.jobs.staging.needs, ['classify', 'frontend', 'test-db', 'test-edge-api']);
+  assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
+  const migration = step(edge.jobs['test-edge-api'], 'Check hosted migration configuration');
+  assert.equal(condition(migration.if, { env: { DOCS_ONLY: 'false' }, github: { event_name: 'pull_request' } }), false);
+  assert.equal(condition(migration.if, { env: { DOCS_ONLY: 'false' }, github: { event_name: 'push' } }), true);
+  assert.match(step(edge.jobs['test-edge-api'], 'Run non-production test database RLS integration test').run, /github.event_name.*!=.*pull_request/);
   for (const output of ['e2e', 'staging']) {
     assert.equal(pr.jobs.classify.outputs[output], '${{ steps.classify.outputs.' + output + ' }}');
   }
