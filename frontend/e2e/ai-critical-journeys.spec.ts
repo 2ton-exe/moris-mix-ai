@@ -307,12 +307,10 @@ test('QA-05 quota exhaustion keeps Quick AI and Chef drafts unsaved', async ({ p
   test.setTimeout(90_000)
   const { recipeWrites, lineageWrites } = trackRecipeAndLineageWrites(page)
   const quotaNotes = 'QA05_QUOTA_EXHAUSTED\nrough cooking notes remain available'
-  let recipeReadContext: Awaited<ReturnType<typeof freshRecipeReadContext>>
-  let savedRecipeState: Awaited<ReturnType<typeof readSavedRecipeState>>
 
   await signIn(page, localE2eUser)
-  recipeReadContext = await freshRecipeReadContext(page)
-  savedRecipeState = await readSavedRecipeState(page, recipeReadContext)
+  const recipeReadContext = await freshRecipeReadContext(page)
+  const savedRecipeState = await readSavedRecipeState(page, recipeReadContext)
 
   await test.step('Keep Quick AI notes after quota exhaustion', async () => {
     await page.goto('/app/quick-entry')
