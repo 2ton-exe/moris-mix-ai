@@ -1,9 +1,6 @@
 # Modular workflow architecture and migration evidence - issue #73
 
-> **Current status (verified 2026-11-14):** PR #142 merged and issue #73 is
-> closed. `modular-main.yml` is the sole production caller on main. The dated
-> cleanup proposal and its original pending statements below are historical;
-> post-merge verification is recorded in this section.
+> **Current workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** PR #142 merged and issue #73 is closed. `modular-main.yml` is the sole production caller on main. Production requires successful frontend, database and aggregate Edge/API validation, including its nested mandatory Hosted RLS job, plus frontend existence. Main E2E runs separately and is not a production dependency. The active `Protect main` ruleset requires the three modular core contexts, one approving review and resolved review conversations. PR validation uses the complete-diff classifier; verified documentation-only diffs skip E2E and staging, while other PR diffs run three-browser E2E. Staging runs only after core validation succeeds for a non-draft, same-repository PR. The production release always targets `recipes`, `extract-recipe`, `generate-recipe` and `recipe-image-attach`; image upload/download and cleanup targets are conditional, and `account-export` is explicitly disabled. The dated cleanup proposal and its original pending statements below are historical; [runbook](deployment-runbook.md) details current release prerequisites and post-merge verification is recorded in this section.
 
 ## Issue #73 final cleanup proposal (2026-10-31)
 
