@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { RecipeScrapArtwork } from './RecipeScrapArtwork'
 import { useAuth } from '../auth/context'
 import { prepareRecipeImage, recipeImageApi, recipeImageErrorCode } from './imageApi'
 import type { Download, UploadIntent } from './imageApi'
 
 const IMAGE_OPERATION_TIMEOUT_MS = 90_000
 
-export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, showEmpty = false }: {
+export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, showEmpty = false, framed = false, cookedAt }: {
+  framed?: boolean
+  cookedAt?: string | null
   recipeId: string
   recipeTitle: string
   allowUpload?: boolean
@@ -285,15 +288,17 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     void loadImage(undefined, false)
   }
 
-  if (!featureEnabled) return null
+  if (!featureEnabled) return framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail" /> : null
 
   const currentDownload = download?.userId === user?.id ? download : null
-  if (!allowUpload && !showEmpty && !loading && !currentDownload && !downloadError) return null
+  if (!framed && !allowUpload && !showEmpty && !loading && !currentDownload && !downloadError) return null
 
-  return <section className="recipe-image-panel" aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
+  return <section className={`recipe-image-panel${framed ? ' recipe-image-panel--framed' : ''}`} aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
     {(allowUpload || showEmpty) && <h2 id={`${id}-heading`}>Recipe image</h2>}
     {loading && (allowUpload || showEmpty) && <p role="status">Loading current recipe image…</p>}
-    {currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
+    {framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail"
+      image={currentDownload && !downloadError ? <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} /> : undefined} />
+      : currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
     {previewUrl && <img className="recipe-image" src={previewUrl} alt="Selected recipe image preview" />}
     {!loading && !currentDownload && !downloadError && (allowUpload || showEmpty) && <p role="status">No recipe photo has been added yet.</p>}
     {downloadError && <div className="recipe-image-error">

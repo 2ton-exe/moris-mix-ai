@@ -4,11 +4,13 @@ import { Buffer } from 'node:buffer'
 import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
 import path from 'node:path'
+import { mkdir, readFile } from 'node:fs/promises'
 import { chromium, expect, firefox, webkit } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const demoFixture = JSON.parse(await readFile(path.join(root, '../fixtures/demo-recipe.json'), 'utf8'))
 const apiOrigin = 'https://qa04.example.test'
 const r2Origin = 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com'
 const appUserId = '11111111-1111-4111-8111-111111111111'
@@ -44,11 +46,12 @@ try {
   for (const [browserName, browserType] of Object.entries(matrix)) {
     const browser = await browserType.launch({ headless: true })
     try {
-      for (const width of [1280, 375]) {
+      for (const width of [1280, 768, 375, 320]) {
         const context = await browser.newContext({ viewport: { width, height: 844 } })
         const page = await context.newPage()
         const pageErrors = []
         let attached = false
+        let noPhoto = false
         let imageType = ''
         let intentByteSize = 0
         let putAttempts = 0
@@ -83,6 +86,7 @@ try {
             return route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': appOrigin } })
           }
           assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
+          if (url.pathname === '/functions/v1/demo-recipe') return route.fulfill({ json: demoFixture })
           if (url.pathname === '/auth/v1/user') {
             return route.fulfill({ json: { id: appUserId, aud: 'authenticated', email: 'qa04@example.test' } })
           }
@@ -102,6 +106,7 @@ try {
             } } })
           }
           if (url.pathname === '/functions/v1/recipe-image-download-url' && request.method() === 'POST') {
+            if (noPhoto) return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND' } } })
             return route.fulfill({ json: {
               url: attached ? newImageUrl : oldImageUrl,
               expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -166,6 +171,60 @@ try {
         assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Document overflow at ${width}px in ${browserName}`)
         assert.deepEqual(pageErrors, [], `Browser page errors at ${width}px in ${browserName}`)
         assert.equal(putAttempts, 2)
+        await page.goto(`${appOrigin}/app/recipes/${recipeId}`)
+        const bookmarks = page.getByRole('navigation', { name: 'Journal bookmarks' })
+        await expect(bookmarks).toBeVisible()
+        for (const name of ['Home', 'About', 'Demo recipe']) {
+          const link = bookmarks.getByRole('link', { name, exact: true })
+          await expect(link).toBeVisible()
+          const box = await link.boundingBox()
+          assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.y >= 0, 'Bookmarks must stay in the viewport')
+          const toolbarBox = await page.locator('.mm-desk-toolbar').boundingBox()
+          assert.ok(toolbarBox && (box.y >= toolbarBox.y + toolbarBox.height || box.x >= toolbarBox.x + toolbarBox.width), 'Bookmarks must not overlap the toolbar')
+          assert.equal(await link.evaluate((element) => {
+            const rect = element.getBoundingClientRect()
+            return element.contains(globalThis.document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+          }), true, 'Bookmarks must be clickable above the journal')
+        }
+        const identity = page.getByRole('region', { name: 'Recipe identity and details' })
+        const frame = identity.locator('figure.mm-recipe-artwork--detail')
+        const photo = frame.getByRole('img', { name: 'Ginger rice photo' })
+        await expect(photo).toHaveAttribute('src', newImageUrl)
+        await photo.scrollIntoViewIfNeeded()
+        await expect(photo).toBeVisible()
+        await expect(frame.locator('.mm-tape')).toHaveCount(2)
+        await expect(frame.locator('figcaption')).toHaveText('No date recorded')
+        await expect(page.getByRole('img', { name: /Illustrated placeholder/ })).toHaveCount(0)
+        await expect(page.getByRole('heading', { name: 'Recipe image' })).toHaveCount(0)
+        const photoBox = await photo.boundingBox()
+        assert.ok(photoBox && photoBox.width > 100 && Math.abs(photoBox.width - photoBox.height) < 2, 'Photo must fill the square placeholder')
+        assert.ok(photoBox.x >= 0 && photoBox.x + photoBox.width <= width, 'Framed photo must stay inside the viewport')
+        assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
+        await mkdir(path.join(root, 'test-results'), { recursive: true })
+        await page.screenshot({ path: path.join(root, 'test-results', `recipe-image-frame-${browserName}-${width}.png`) })
+        noPhoto = true
+        await page.reload()
+        await expect(identity.getByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeVisible()
+        await expect(identity.getByRole('img', { name: 'Ginger rice photo' })).toHaveCount(0)
+        await page.goto(`${appOrigin}/demo-recipe`)
+        await expect(page.getByRole('heading', { name: demoFixture.recipe.title })).toBeVisible()
+        const pages = page.getByRole('navigation', { name: 'Recipe reading pages' })
+        await pages.scrollIntoViewIfNeeded()
+        await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveCount(1)
+        await expect(page.getByRole('link', { name: 'Home →' })).toHaveCount(0)
+        await expect(page.getByRole('navigation', { name: 'Recipe actions' })).toHaveCount(0)
+        assert.equal(await pages.evaluate((element) => {
+          const footer = element.parentElement
+          const rect = element.getBoundingClientRect()
+          return footer.lastElementChild === element && Math.abs(rect.bottom - (footer.getBoundingClientRect().bottom - Number.parseFloat(globalThis.getComputedStyle(footer).paddingBottom))) < 2
+        }), true, 'Pagination must be the bottom row of the footer')
+        const rowCenters = await pages.locator(':scope > *').evaluateAll((elements) => elements.map((element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.y + rect.height / 2
+        }))
+        assert.ok(Math.max(...rowCenters) - Math.min(...rowCenters) < 2, 'Page controls must align on one row')
+        await page.screenshot({ path: path.join(root, 'test-results', `demo-reading-footer-${browserName}-${width}.png`) })
+        assert.deepEqual(pageErrors, [])
         await context.close()
         process.stdout.write(`${browserName} ${browser.version()} at ${width}px (${imageType}): private image load, failed replacement recovery, retry, and layout passed.\n`)
 
