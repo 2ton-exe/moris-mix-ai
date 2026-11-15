@@ -7,9 +7,10 @@ const sessionProvider = vi.hoisted(() => ({ getSession: vi.fn() }))
 const recipeId = '33333333-3333-4333-8333-333333333333'
 const uploadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const retryUploadId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-const userId = 'cook-a'
+const userId = '11111111-1111-4111-8111-111111111111'
 const oldImageUrl = 'https://images.example.test/old-signed-image'
 const newImageUrl = 'https://images.example.test/new-signed-image'
+const r2Origin = 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.r2.cloudflarestorage.com'
 
 let fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>
 let apiUrl = ''
@@ -28,9 +29,11 @@ let activeImage: 'old' | 'new' = 'old'
 let noImage = false
 let refreshOnFailure = false
 let downloadLifetimeMs = 60_000
-let putFirstErrorCode = 'STORAGE_UNAVAILABLE'
 let putFirstErrorStatus = 503
 let putFirstFails = true
+let expireFirstUpload = false
+let uploadExpiresAt = 0
+let uploadUrlOverride = ''
 let waitForPutAbort = false
 let putSignal: AbortSignal | undefined
 let resolvePutStarted: (() => void) | undefined
@@ -100,9 +103,11 @@ beforeEach(async () => {
   noImage = false
   refreshOnFailure = false
   downloadLifetimeMs = 60_000
-  putFirstErrorCode = 'STORAGE_UNAVAILABLE'
   putFirstErrorStatus = 503
   putFirstFails = true
+  expireFirstUpload = false
+  uploadExpiresAt = 0
+  uploadUrlOverride = ''
   waitForPutAbort = false
   putSignal = undefined
   putStarted = new Promise((resolve) => { resolvePutStarted = resolve })
@@ -135,15 +140,17 @@ beforeEach(async () => {
     if (url.pathname === '/functions/v1/recipe-image-upload-url' && method === 'POST') {
       intentCount++
       const id = intentCount === 1 ? uploadId : retryUploadId
+      uploadExpiresAt = Date.now() + 10 * 60_000
       return Response.json({ upload: {
         id,
-        url: `${apiUrl}/functions/v1/recipe-image-upload-url?upload_id=${id}`,
+        url: uploadUrlOverride || `${r2Origin}/mock-recipe-images/recipe-images/staging/${userId}/${recipeId}/${id}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=TESTACCESSKEY%2F20261115%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20261115T000000Z&X-Amz-Expires=600&X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost%3Bif-none-match&X-Amz-Signature=${'a'.repeat(64)}`,
         method: 'PUT',
-        headers: { 'Content-Type': 'image/webp' },
-        expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+        headers: { 'Content-Type': 'image/webp', 'If-None-Match': '*' },
+        byte_size: 10,
+        expires_at: new Date(uploadExpiresAt).toISOString(),
       } })
     }
-    if (url.pathname === '/functions/v1/recipe-image-upload-url' && method === 'PUT') {
+    if (url.origin === r2Origin && method === 'PUT') {
       putCount++
       putSignal = init?.signal as AbortSignal | undefined
       if (waitForPutAbort) {
@@ -153,8 +160,11 @@ beforeEach(async () => {
           putSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
         })
       }
-      if (putCount === 1 && putFirstFails) return Response.json({ error: { code: putFirstErrorCode } }, { status: putFirstErrorStatus })
-      return Response.json({ upload: { id: url.searchParams.get('upload_id'), received: true } }, { status: 201 })
+      if (putCount === 1 && putFirstFails) {
+        if (expireFirstUpload) vi.spyOn(Date, 'now').mockReturnValue(uploadExpiresAt + 1)
+        return new Response(null, { status: putFirstErrorStatus })
+      }
+      return new Response(null, { status: 200 })
     }
     if (url.pathname === '/functions/v1/recipe-image-attach') {
       attachCount++
@@ -317,6 +327,21 @@ it('rejects unsupported files before requesting an upload intent', async () => {
   expect(intentCount).toBe(0)
 })
 
+it('rejects an upload URL outside the request-scoped R2 staging object', async () => {
+  uploadUrlOverride = `https://evil.example.test/mock-recipe-images/recipe-images/staging/${userId}/${recipeId}/${uploadId}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=TESTACCESSKEY%2F20261115%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20261115T000000Z&X-Amz-Expires=600&X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost%3Bif-none-match&X-Amz-Signature=${'a'.repeat(64)}`
+  renderEditPage()
+  await screen.findByRole('img', { name: 'Ginger rice photo' })
+  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
+    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
+  })
+  await screen.findByRole('img', { name: 'Selected recipe image preview' })
+  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
+
+  expect((await screen.findByRole('alert')).textContent).toContain('Could not upload this image. Try again.')
+  expect(putCount).toBe(0)
+  expect(attachCount).toBe(0)
+})
+
 it('rejects converted images larger than 10 MiB before requesting an upload intent', async () => {
   vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
     callback(new Blob([new Uint8Array(10 * 1024 * 1024 + 1)], { type: 'image/webp' }))
@@ -384,33 +409,8 @@ it('keeps the new private URL when an older initial read finishes after attachme
   expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl)
 })
 
-it('retries bytes with the same intent after an in-progress reservation clears', async () => {
-  putFirstErrorCode = 'UPLOAD_IN_PROGRESS'
-  putFirstErrorStatus = 409
-  renderEditPage()
-  await screen.findByRole('img', { name: 'Ginger rice photo' })
-  fireEvent.change(screen.getByLabelText('Choose recipe image'), {
-    target: { files: [new File(['source-image'], 'lunch.jpg', { type: 'image/jpeg' })] },
-  })
-  await screen.findByRole('img', { name: 'Selected recipe image preview' })
-  fireEvent.click(screen.getByRole('button', { name: 'Upload image' }))
-
-  expect((await screen.findByRole('alert')).textContent).toContain('Wait, then retry the upload.')
-  expect(putCount).toBe(1)
-  expect(attachCount).toBe(0)
-  expect(screen.getByRole('button', { name: 'Retry upload' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Retry upload' }))
-  await waitFor(() => expect(screen.getByRole('img', { name: 'Ginger rice photo' }).getAttribute('src')).toBe(newImageUrl))
-  expect(putCount).toBe(2)
-  expect(attachCount).toBe(1)
-  expect(intentCount).toBe(1)
-  const putRequests = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT')
-  expect(putRequests[0]?.[0]).toBe(putRequests[1]?.[0])
-})
-
-it('does not resend bytes when the upload intent was already used', async () => {
-  putFirstErrorCode = 'UPLOAD_ALREADY_USED'
-  putFirstErrorStatus = 409
+it('continues to verified attachment after a repeated signed PUT returns 412', async () => {
+  putFirstErrorStatus = 412
   renderEditPage()
   await screen.findByRole('img', { name: 'Ginger rice photo' })
   fireEvent.change(screen.getByLabelText('Choose recipe image'), {
@@ -424,9 +424,9 @@ it('does not resend bytes when the upload intent was already used', async () => 
   expect(attachCount).toBe(1)
 })
 
-it('requests a new upload intent after the current one expires', async () => {
-  putFirstErrorCode = 'UPLOAD_EXPIRED'
-  putFirstErrorStatus = 410
+it('requests a new upload intent after a presigned URL expires', async () => {
+  putFirstErrorStatus = 403
+  expireFirstUpload = true
   renderEditPage()
   await screen.findByRole('img', { name: 'Ginger rice photo' })
   fireEvent.change(screen.getByLabelText('Choose recipe image'), {
@@ -530,7 +530,7 @@ it('aborts an in-flight byte PUT when the authenticated account changes', async 
   expect(screen.queryByLabelText('Choose recipe image')).toBeNull()
 })
 
-it('uploads optimized bytes through authenticated ingress and preserves the current image until attachment', async () => {
+it('uploads optimized bytes directly to the signed R2 URL and preserves the current image until attachment', async () => {
   renderEditPage()
   await screen.findByRole('img', { name: 'Ginger rice photo' })
 
@@ -558,12 +558,13 @@ it('uploads optimized bytes through authenticated ingress and preserves the curr
   const putRequests = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT')
   const putRequest = putRequests[0]
   const attachRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-attach'))
-  expect(putRequest?.[0]).toBe(`${apiUrl}/functions/v1/recipe-image-upload-url?upload_id=${uploadId}`)
+  expect(putRequest?.[0]).toContain(`${r2Origin}/mock-recipe-images/recipe-images/staging/${userId}/${recipeId}/${uploadId}?`)
   expect(putRequest?.[1]?.body).toBeInstanceOf(Blob)
   expect((putRequest?.[1]?.body as Blob).type).toBe('image/webp')
-  expect(new Headers(putRequest?.[1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
-  expect(new Headers(putRequest?.[1]?.headers).get('apikey')).toBe('public-test-key')
   expect(new Headers(putRequest?.[1]?.headers).get('Content-Type')).toBe('image/webp')
+  expect(new Headers(putRequest?.[1]?.headers).get('If-None-Match')).toBe('*')
+  expect(new Headers(putRequest?.[1]?.headers).has('Authorization')).toBe(false)
+  expect(new Headers(putRequest?.[1]?.headers).has('apikey')).toBe(false)
   expect(intentRequest?.[1]?.signal).toBe(putRequest?.[1]?.signal)
   expect(putRequests[1]?.[1]?.signal).toBe(attachRequest?.[1]?.signal)
   await waitFor(() => expect(testURL.revokeObjectURL).toHaveBeenCalledWith('blob:recipe-preview'))

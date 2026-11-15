@@ -8,6 +8,10 @@ async function addPantryItem(page: Page, item: string) {
   await input.press('Enter')
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+}
+
 function trackRecipeAndLineageWrites(page: Page) {
   const recipeWrites = []
   const lineageWrites = []
@@ -54,7 +58,7 @@ async function readSavedRecipeState(page: Page, context: Awaited<ReturnType<type
   return { recipes, lineage: Object.fromEntries(lineage) }
 }
 
-test('AI Chef saves a reviewed recipe and only the selected parent lineage', async ({ page }) => {
+test('AI Chef saves a reviewed recipe and only the selected parent lineage at a mobile viewport', async ({ page }) => {
   test.setTimeout(120_000)
 
   const marker = `QA03 Chef ${crypto.randomUUID()}`
@@ -96,7 +100,9 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     candidate_token: string | null
   }
   await test.step('Generate an unsaved preview from only owned recipes', async () => {
+    await page.setViewportSize({ width: 375, height: 812 })
     await page.goto('/app/chef')
+    await expectNoHorizontalOverflow(page)
     await addPantryItem(page, 'olive oil')
     await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill(marker)
     const generationResponse = page.waitForResponse((response) =>
@@ -106,6 +112,7 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     generated = await (await generationResponse).json()
 
     await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+    await expectNoHorizontalOverflow(page)
     await expect(page.getByRole('region', { name: 'AI Chef generation details' })).toContainText('unsaved preview')
     await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText(parentTitle)
     await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText(secondParentTitle)
@@ -135,7 +142,8 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
       response.request().method() === 'POST' && /\/functions\/v1\/recipes\/[^/]+\/lineage$/.test(new URL(response.url()).pathname),
     )
     await page.getByRole('button', { name: 'Save recipe' }).click()
-    await expect(page.getByText('Recipe and selected parent links saved.')).toBeVisible()
+    await expect(page.getByText('Recipe and selected parent links saved.')).toBeVisible({ timeout: 30_000 })
+    await expectNoHorizontalOverflow(page)
 
     const recipeRequest = recipeWrites[0]
     const lineageRequest = lineageWrites[0]
@@ -218,8 +226,10 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
 
     await page.goto(`/app/recipes/${savedRecipe.recipe.id}`)
     await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible({ timeout: 30_000 })
+    await expectNoHorizontalOverflow(page)
     await page.reload()
     await expect(page.getByRole('heading', { name: reviewedTitle })).toBeVisible({ timeout: 30_000 })
+    await expectNoHorizontalOverflow(page)
     await otherPage!.close()
   })
 })

@@ -253,7 +253,32 @@ Deno.test("Recipe request schemas bound text fields and collection sizes", () =>
     false,
   );
   assertEquals(
+    CreateRecipeRequestSchema.safeParse({
+      ...validRecipePayload(),
+      instructions: Array.from(
+        { length: 101 },
+        (_, i) => ({ step: i + 1, text: "x" }),
+      ),
+    }).success,
+    false,
+  );
+  assertEquals(
     UpdateRecipeRequestSchema.safeParse({ notes: "x".repeat(20_001) }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({
+      ingredients: Array.from({ length: 101 }, () => ({ name: "x" })),
+    }).success,
+    false,
+  );
+  assertEquals(
+    UpdateRecipeRequestSchema.safeParse({
+      instructions: Array.from(
+        { length: 101 },
+        (_, i) => ({ step: i + 1, text: "x" }),
+      ),
+    }).success,
     false,
   );
   assertEquals(MAX_RECIPE_SEARCH_CHARS, 200);
@@ -794,6 +819,23 @@ Deno.test("Recipe request body byte limit enforces the exact boundary and reques
   );
   assertEquals(oversized.status, 413);
   assertEquals((await oversized.json()).error?.code, "INPUT_TOO_LARGE");
+
+  const oversizedPatch = await handler(
+    new Request(
+      `http://localhost/functions/v1/recipes/${CREATED_RECIPE_ID}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${VALID_TEST_JWT}`,
+          "Content-Type": "application/json",
+        },
+        body: `${exactBody} `,
+      },
+    ),
+    deps,
+  );
+  assertEquals(oversizedPatch.status, 413);
+  assertEquals((await oversizedPatch.json()).error?.code, "INPUT_TOO_LARGE");
   assertEquals(postgrestCalled, false);
 });
 
