@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { HttpError } from '../api/http'
+import { retryAfterSeconds } from '../api/retryAfter'
 import { Mori } from '../journal/Mori'
 import { PaperCard } from '../journal/Scrapbook'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
@@ -27,6 +29,9 @@ function AIChefSession({ userId }: { userId: string }) {
   const [pending, setPending] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [requestErrorForPantry, setRequestErrorForPantry] = useState(false)
+  const [retryAt, setRetryAt] = useState(0)
+  const [now, setNow] = useState(Date.now)
+  const retryBlocked = retryAt > now
   const [entryError, setEntryError] = useState<string | null>(null)
   const [entryStatus, setEntryStatus] = useState('')
   const [storageIssue, setStorageIssue] = useState<string | null>(initialRead.status === 'available' ? null : initialRead.status)
@@ -36,6 +41,12 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => () => controller.current?.abort(), [])
+
+  useEffect(() => {
+    if (!retryBlocked) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [retryBlocked])
 
   function persistInput(next: { pantryItems: string[]; pantryInput: string; preferences: string }) {
     if (handoff) return
@@ -47,6 +58,16 @@ function AIChefSession({ userId }: { userId: string }) {
   function clearRequestError() {
     setRequestError(null)
     setRequestErrorForPantry(false)
+  }
+
+  function retryDraftStorage() {
+    const current = readChefDraftResult(userId)
+    if (JSON.stringify(current.draft.handoff) !== JSON.stringify(handoff)) {
+      setStorageIssue('handoff-changed')
+      return
+    }
+    const result = writeChefDraft(userId, { input: { pantryItems, pantryInput, preferences }, handoff })
+    setStorageIssue(result.persisted ? null : result.reason)
   }
 
   function updatePantryItems(next: string[]) {
@@ -93,7 +114,7 @@ function AIChefSession({ userId }: { userId: string }) {
 
   async function requestSuggestion(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault()
-    if (inFlight.current || handoff) return
+    if (inFlight.current || handoff || Date.now() < retryAt) return
     clearRequestError()
     setEntryError(null)
 
@@ -129,6 +150,7 @@ function AIChefSession({ userId }: { userId: string }) {
         userId,
         signal: requestController.signal,
       })
+      requestController.signal.throwIfAborted()
       const nextHandoff: ChefReviewHandoff = { request: parsed.data, response, selectedParentIds: [], saved: false }
       const nextDraft = {
         input: { pantryItems, pantryInput, preferences },
@@ -139,6 +161,12 @@ function AIChefSession({ userId }: { userId: string }) {
       navigate('/app/chef/review')
     } catch (error) {
       if (requestController.signal.aborted && !timedOut) return
+      const wait = error instanceof HttpError ? retryAfterSeconds(error.retryAfter) : undefined
+      if (wait !== undefined) {
+        const currentTime = Date.now()
+        setNow(currentTime)
+        setRetryAt(currentTime + wait * 1000)
+      }
       setRequestError(generateRecipeErrorMessage(error, timedOut))
     } finally {
       window.clearTimeout(timeoutId)
@@ -158,10 +186,14 @@ function AIChefSession({ userId }: { userId: string }) {
 
   const savedInputCount = pantryItems.length
   const storageWarning = storageIssue && <div className="mm-ai-chef__storage-warning" role="alert">
-    <p>{storageIssue === 'read-failed'
+    <p>{storageIssue === 'handoff-changed'
+      ? 'The saved preview changed elsewhere. Return to recipe review to use its latest recovery details.'
+      : storageIssue === 'read-failed'
       ? 'Mori could not read the last browser draft. This request is still available in this page while you work.'
       : 'This browser could not confirm the saved draft. Your request is available in this page; a reload may lose recent changes.'}</p>
-    <button className="button button-secondary mm-button--small" type="button" onClick={() => persistInput({ pantryItems, pantryInput, preferences })}>Try saving this request again</button>
+    {storageIssue === 'handoff-changed'
+      ? <Link className="button button-secondary mm-button--small" to="/app/chef/review">Open current recipe review</Link>
+      : <button className="button button-secondary mm-button--small" type="button" onClick={retryDraftStorage}>Try saving this request again</button>}
   </div>
 
   return <section className="mm-ai-chef" aria-labelledby="ai-chef-title">
@@ -270,9 +302,10 @@ function AIChefSession({ userId }: { userId: string }) {
         <p id="ai-chef-preferences-help" className="mm-ai-chef__help">Preferences apply to this request only. {preferences.length} / {MAX_PREFERENCES_CHARS} characters.</p>
       </fieldset>
 
-      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
+      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending || retryBlocked} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
       <div className="mm-ai-chef__actions">
-        <button className="button button-primary" type="submit" disabled={pending || handoff !== null}>{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
+        <button className="button button-primary" type="submit" disabled={pending || retryBlocked || handoff !== null}>{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
+        {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
         {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your pantry and preparing a recipe. This can take a little while.</p>}
       </div>
     </form>

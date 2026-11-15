@@ -11,6 +11,7 @@ import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { lineageApi, LineageApiError } from './lineage'
 import type { GenerateRecipeResponse } from './generateRecipe'
 import { generateRecipeApi } from './generateRecipe'
+import { writeChefDraft } from './draft'
 import { AIChefPage } from './AIChefPage'
 import { ChefRecipeReviewPage } from './ChefRecipeReviewPage'
 
@@ -134,8 +135,14 @@ describe('AI Chef pantry and review workflow', () => {
     expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
     expect((screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value).toBe('spicy')
 
+    expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.submit(document.querySelector('.mm-ai-chef__form')!)
+    expect(generate).toHaveBeenCalledOnce()
+    const realNow = Date.now.bind(Date)
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 61_000)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(false), { timeout: 2000 })
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('heading', { name: "Review Mori's recipe." })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: "Review Mori's recipe." }, { timeout: 5000 })).toBeTruthy()
     expect(generate).toHaveBeenCalledTimes(2)
     expect(generate.mock.calls[1]?.[0]).toEqual(['rice'])
     expect(generate.mock.calls[1]?.[1]).toBe('spicy')
@@ -584,4 +591,61 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByText('10 of 10 parent recipes selected.')).toBeTruthy()
     expect(screen.getAllByRole('checkbox')[10]).toHaveProperty('disabled', true)
   })
+})
+
+
+it('ignores a generation completion after the session page unmounts', async () => {
+  let resolve!: (value: GenerateRecipeResponse) => void
+  const generate = vi.spyOn(generateRecipeApi, 'generate').mockReturnValue(new Promise((done) => { resolve = done }))
+  const view = renderChef()
+  addIngredient('rice')
+  fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+  view.unmount()
+  expect(generate.mock.calls[0][2].signal.aborted).toBe(true)
+  await act(async () => resolve(response))
+  expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull()
+  expect(view.router.state.location.pathname).toBe('/app/chef')
+})
+
+
+it('retries a real storage write for a resumed preview without losing saved-child or parent recovery', async () => {
+  const userId = 'chef-storage-retry'
+  const draft = {
+    input: { pantryItems: ['rice'], pantryInput: '', preferences: 'quick' },
+    handoff: { request: { pantryItems: ['rice'] }, response, selectedParentIds: [response.parents[0].id], savedRecipeId, lineageStatus: 'pending' as const, saved: false as const },
+  }
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage unavailable') })
+  expect(writeChefDraft(userId, draft).persisted).toBe(false)
+  storage.mockRestore()
+  const writes = vi.spyOn(Storage.prototype, 'setItem')
+  const generate = vi.spyOn(generateRecipeApi, 'generate')
+  renderChef({ userId })
+  fireEvent.click(screen.getByRole('button', { name: 'Try saving this request again' }))
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  expect(writes).toHaveBeenCalled()
+  const recovered = JSON.parse(sessionStorage.getItem(`moris-mix:ai-chef:v1:${userId}`) ?? 'null')
+  expect(recovered.handoff).toMatchObject({ savedRecipeId, selectedParentIds: [response.parents[0].id], lineageStatus: 'pending' })
+  expect(generate).not.toHaveBeenCalled()
+  writeChefDraft(userId, { ...draft, handoff: null })
+})
+
+
+it('does not overwrite a newer preview while retrying failed storage', async () => {
+  const userId = 'chef-storage-conflict'
+  const draft = {
+    input: { pantryItems: ['rice'], pantryInput: '', preferences: '' },
+    handoff: { request: { pantryItems: ['rice'] }, response, selectedParentIds: [], saved: false as const },
+  }
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('storage unavailable') })
+  writeChefDraft(userId, draft)
+  storage.mockRestore()
+  renderChef({ userId })
+  const newer = { ...draft, handoff: { ...draft.handoff, response: { ...response, recipe: { ...response.recipe, title: 'Newer preview' } } } }
+  expect(writeChefDraft(userId, newer).persisted).toBe(true)
+  const writes = vi.spyOn(Storage.prototype, 'setItem')
+  fireEvent.click(screen.getByRole('button', { name: 'Try saving this request again' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('changed elsewhere')
+  expect(writes).not.toHaveBeenCalled()
+  expect(JSON.parse(sessionStorage.getItem(`moris-mix:ai-chef:v1:${userId}`) ?? 'null').handoff.response.recipe.title).toBe('Newer preview')
+  expect(screen.getByRole('link', { name: 'Open current recipe review' })).toBeTruthy()
 })

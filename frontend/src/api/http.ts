@@ -162,6 +162,43 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     return requestJson(path, { signal, accessToken: session.access_token, method, body, rawBody, rawContentType, expectedStatus })
   }
 
+  async function putPresignedBytes(
+    path: string,
+    body: Blob,
+    headers: Record<string, string>,
+    { signal }: { signal?: AbortSignal } = {},
+  ): Promise<number> {
+    let url: URL
+    try {
+      url = new URL(path)
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error('Invalid presigned URL')
+    } catch {
+      throw new HttpError('configuration', 'The upload URL is not valid.')
+    }
+
+    let response: Response
+    try {
+      signal?.throwIfAborted()
+      response = await fetchImpl(url.toString(), {
+        method: 'PUT',
+        headers,
+        body,
+        credentials: 'omit',
+        signal,
+      })
+    } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error
+      throw new HttpError('network', 'Unable to reach the image storage. Check your connection and try again.')
+    }
+
+    const status = response.status
+    await response.body?.cancel().catch(() => undefined)
+    if (!response.ok && status !== 412) {
+      throw new HttpError('http', 'The image storage could not complete the upload.', status)
+    }
+    return status
+  }
+
   return {
     // Return unknown until a contract-specific adapter validates the payload.
     getJson(path: string, { signal }: { signal?: AbortSignal } = {}): Promise<unknown> {
@@ -179,6 +216,7 @@ export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSessio
     putAuthenticatedBytes(path: string, body: Blob, options: AuthenticatedRequestOptions): Promise<unknown> {
       return authenticatedJson(path, { ...options, method: 'PUT', rawBody: body, rawContentType: body.type, expectedStatus: 201 })
     },
+    putPresignedBytes,
     deleteAuthenticatedJson(path: string, options: AuthenticatedRequestOptions): Promise<unknown> {
       return authenticatedJson(path, { ...options, method: 'DELETE', expectedStatus: 204 })
     },

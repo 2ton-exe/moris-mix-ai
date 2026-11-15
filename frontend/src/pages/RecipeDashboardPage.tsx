@@ -209,7 +209,7 @@ export default function RecipeDashboardPage() {
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>
-      {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted. Your collection has been updated.</p>}
+      {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
       {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
       {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
@@ -217,7 +217,7 @@ export default function RecipeDashboardPage() {
         void query.refetch()
       }} />}
       {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update" role="status">Updating your collection…</p>}
-      {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update">Showing your last loaded collection. Refresh to try again.</p>}
+      {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
       empty={recipes ? empty : null} pagination={recipes ? pagination : null}
       turns={<>

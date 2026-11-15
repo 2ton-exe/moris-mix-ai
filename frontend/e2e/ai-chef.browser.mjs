@@ -122,6 +122,13 @@ async function handleApiRequest(request, response) {
     return
   }
   if (url.pathname === '/functions/v1/generate-recipe' && request.method === 'POST') {
+    if (activeScenario === 'generation-failure') {
+      response.setHeader('Retry-After', '2')
+      response.setHeader('Access-Control-Expose-Headers', 'Retry-After')
+      sendJson(request, response, 429, { error: { code: 'AI_RATE_LIMITED', message: 'private provider detail' } })
+      return
+    }
+
     sendJson(request, response, 200, activeScenario === 'no-parents' ? {
       ...generated,
       parents: [],
@@ -464,6 +471,28 @@ try {
     }))))
   assert.equal(requests.filter((request) => request.path.endsWith('/lineage') && request.method === 'GET').length, 1)
   assert.equal(lineageWrites[0].childRecipeId, scenarioRecipeIds.uncertain)
+  await page.evaluate(() => globalThis.sessionStorage.clear())
+  resetScenario('generation-failure')
+  await page.goto(`${origin}app/chef`)
+  await page.getByRole('textbox', { name: 'Pantry ingredient' }).fill('rice')
+  await page.getByRole('textbox', { name: 'Pantry ingredient' }).press('Enter')
+  await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill('keep this preference')
+  await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+  await expect(page.getByRole('alert')).toContainText('rate-limited')
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeDisabled()
+  await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
+  await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toHaveValue('keep this preference')
+  await expect(page.getByText('private provider detail')).toHaveCount(0)
+  assert.equal(recipeWrites.length, 0)
+  activeScenario = 'success'
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  const attempts = requests.filter((request) => request.path === '/functions/v1/generate-recipe')
+  assert.equal(attempts.length, 2)
+  assert.deepEqual(attempts[0].body, attempts[1].body)
+  assert.equal(recipeWrites.length, 0)
+  process.stdout.write('FE-13 generation failure: server cooldown, retained inputs, same-request retry and unsaved preview passed.\n')
   assert.deepEqual(errors, [])
   await context.close()
   process.stdout.write('AI Chef browser acceptance Scenario E passed: lost lineage response reconciled through GET without a duplicate POST.\n')

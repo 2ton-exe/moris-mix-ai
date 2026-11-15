@@ -1,5 +1,7 @@
 import type { Ref } from 'react'
 import { HttpError } from '../api/http'
+import { retryAfterMessage } from '../api/retryAfter'
+import { InvalidRecipeData } from './validation'
 import { ErrorState } from '../components/ErrorState'
 import { RecipeIntegrationUnavailable } from './source'
 
@@ -11,6 +13,9 @@ export function RecipeError({ error, onRetry, detail = false, retryButtonRef }: 
 }) {
   let message = detail ? 'Could not load this recipe. Please try again.' : 'Could not load your recipes. Please try again.'
   let canRetry = true
+  if (error instanceof InvalidRecipeData || (error instanceof HttpError && error.kind === 'invalid-json')) {
+    message = `${detail ? 'Could not load this recipe.' : 'Could not load your recipes.'} The returned information could not be checked safely. Please try again.`
+  }
   if (error instanceof RecipeIntegrationUnavailable) {
     message = 'Your recipe journal is not connected yet. Please check back soon. You can still explore the demonstration recipe.'
     return <div className="request-state request-error"><p role="status">{message}</p></div>
@@ -24,6 +29,8 @@ export function RecipeError({ error, onRetry, detail = false, retryButtonRef }: 
     } else if (error.status === 404) {
       message = detail ? 'This recipe could not be found. It may have been removed or may not be available to you.' : 'Your recipe collection is currently unavailable.'
       canRetry = false
+    } else if (error.status === 429) {
+      message = `The recipe service is temporarily limited. ${retryAfterMessage(error.retryAfter)}`
     } else if (error.kind === 'configuration') {
       message = 'The recipe service is not configured. Please contact the site owner.'
       canRetry = false

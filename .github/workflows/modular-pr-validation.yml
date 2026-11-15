@@ -42,6 +42,7 @@ jobs:
       - name: Record documentation-only E2E/staging skips
         if: steps.classify.outputs.docs_only == 'true' && steps.classify.outputs.e2e == 'skip' && steps.classify.outputs.staging == 'skip'
         run: echo "Verified documentation-only decision; E2E and staging will not execute."
+
   frontend:
     name: Modular Frontend
     needs: classify
