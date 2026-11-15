@@ -1,0 +1,88 @@
+name: Reusable Playwright E2E Browser
+
+on:
+  workflow_call:
+    inputs:
+      browser:
+        required: true
+        type: string
+
+jobs:
+  e2e-browser:
+    name: Playwright E2E (${{ inputs.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check for frontend project
+        id: frontend
+        shell: bash
+        run: |
+          if [ -f frontend/package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Frontend project not added yet."
+          fi
+
+      - name: Set up pnpm
+        if: steps.frontend.outputs.exists == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        if: steps.frontend.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium headless shell
+        if: steps.frontend.outputs.exists == 'true' && inputs.browser == 'chromium'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+
+      - name: Install Firefox
+        if: steps.frontend.outputs.exists == 'true' && inputs.browser == 'firefox'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps firefox
+
+      - name: Install WebKit
+        if: steps.frontend.outputs.exists == 'true' && inputs.browser == 'webkit'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps webkit
+
+      - name: Run Playwright E2E against local Supabase
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm run test:e2e:local -- --browser ${{ inputs.browser }}
+
+      - name: Run private-image browser journey
+        if: steps.frontend.outputs.exists == 'true'
+        working-directory: frontend
+        run: pnpm run test:e2e:qa04:images
+        env:
+          QA04_BROWSER: ${{ inputs.browser }}
+
+      - name: Upload Playwright failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-03-playwright-failure-artifacts-${{ inputs.browser }}
+          path: frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

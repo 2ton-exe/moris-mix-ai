@@ -4,69 +4,40 @@ on:
   workflow_call:
 
 jobs:
+  e2e-chromium:
+    name: Playwright E2E (chromium)
+    uses: ./.github/workflows/reusable-e2e-browser.yml
+    with:
+      browser: chromium
+
+  e2e-firefox:
+    name: Playwright E2E (firefox)
+    uses: ./.github/workflows/reusable-e2e-browser.yml
+    with:
+      browser: firefox
+
+  e2e-webkit:
+    name: Playwright E2E (webkit)
+    uses: ./.github/workflows/reusable-e2e-browser.yml
+    with:
+      browser: webkit
+
   e2e:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    needs: [e2e-chromium, e2e-firefox, e2e-webkit]
+    if: always()
     permissions:
       contents: read
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Check for frontend project
-        id: frontend
-        shell: bash
+      - name: Require every browser job to pass
+        env:
+          E2E_CHROMIUM_RESULT: ${{ needs.e2e-chromium.result }}
+          E2E_FIREFOX_RESULT: ${{ needs.e2e-firefox.result }}
+          E2E_WEBKIT_RESULT: ${{ needs.e2e-webkit.result }}
         run: |
-          if [ -f frontend/package.json ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Frontend project not added yet."
+          if [[ "$E2E_CHROMIUM_RESULT" != "success" || "$E2E_FIREFOX_RESULT" != "success" || "$E2E_WEBKIT_RESULT" != "success" ]]; then
+            echo "Browser E2E results: chromium=$E2E_CHROMIUM_RESULT firefox=$E2E_FIREFOX_RESULT webkit=$E2E_WEBKIT_RESULT"
+            exit 1
           fi
-
-      - name: Set up pnpm
-        if: steps.frontend.outputs.exists == 'true'
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Set up Node.js
-        if: steps.frontend.outputs.exists == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Install frontend dependencies
-        if: steps.frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browsers
-        if: steps.frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium firefox webkit
-
-      - name: Run Playwright E2E across browsers against local Supabase
-        if: steps.frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: pnpm run test:e2e:local -- --browser all
-
-      - name: Run private-image browser journey
-        if: steps.frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: pnpm run test:e2e:qa04:images
-
-      - name: Upload Playwright failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fs-03-playwright-failure-artifacts
-          path: frontend/test-results/
-          if-no-files-found: ignore
-          retention-days: 7

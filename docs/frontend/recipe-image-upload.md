@@ -1,15 +1,15 @@
 # FE-12 private recipe-image upload integration
 
-**Status** — PR #210 uses object-scoped, presigned R2 `PUT` URLs for new uploads. The PR owner confirmed fresh BE-13 and FE-12 acceptance on 2026-11-15; owner-specific confirmation URLs were not supplied. The approvals recorded for PR #190 cover authenticated Edge Function ingress only. See [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Production signing and cleanup remain disabled pending separate readiness checks and authorization.
+**Status** — PR #210 uses object-scoped, presigned R2 `PUT` URLs for new uploads. The PR owner confirmed fresh BE-13 and FE-12 acceptance on 2026-11-15; owner-specific confirmation URLs were not supplied. The approvals recorded for PR #190 cover authenticated Edge Function ingress only. See [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md).
 
 ## Browser rollout gates
 
 The image panel and image endpoint requests are disabled unless
-`VITE_RECIPE_IMAGES=true`. Production builds currently set the flag to
-`false` because the production release still hard-disables the matching upload
-signer and R2 access and bucket CORS have not been verified. Keep the UI off
-until the production signing path and required upload readiness checks are
-complete; enabling the flag alone does not deploy the signer or enable cleanup.
+`VITE_RECIPE_IMAGES=true`. Production builds default to `false`. On an enabled
+release the production workflow checks the deployed database migrations and
+deploys the matching image handlers before it publishes the build. Follow the
+[production rollout](../devops/deployment-runbook.md#enable-private-recipe-images)
+to verify R2 and bring up staging cleanup before enabling the UI.
 
 This changes the earlier authenticated Edge Function byte-upload path to a
 direct browser-to-R2 `PUT`. The browser sends the signed `Content-Type` and
@@ -26,13 +26,9 @@ variable unset or `false` until migrations `20261115000020` through
 `20261115000022` and their prerequisite upload-intent migrations are applied,
 the updated `recipe-image-upload-url`
 signer is deployed and verified to accept `request_id`, and the protected
-readiness workflow passes. That workflow verifies database state; it does not
-verify the deployed signer code. The current production workflow still keeps
-signer deployment disabled, so enabling this client flag requires a separately
-authorized signer rollout first. After that rollout is independently verified,
-an authorized operator can set the repository variable to `true` and run a
-production release to deliver the idempotency-aware client. Do not enable the
-flag based only on this PR or on migration history.
+readiness workflow passes. That workflow verifies database state. After
+verifying the deployed signer, an authorized operator can set the repository
+variable to `true` and run a production release to deliver the idempotency-aware client.
 
 ## Upload requirements
 
