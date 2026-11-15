@@ -1220,6 +1220,59 @@ Deno.test("old image resolver responses retain not-found behavior during migrati
   assertEquals(ownershipLookups, 1);
 });
 
+Deno.test("private image download rejects a request without authentication before resolving", async () => {
+  let resolverCalls = 0;
+  const response = await downloadHandler(
+    imageRequest("recipe-image-download-url", { recipe_id: RECIPE }, null),
+    {
+      ...handlerDeps({
+        rpc: async () => {
+          resolverCalls++;
+          return { data: { status: "image_not_found" }, error: null };
+        },
+      }),
+      fetch: () => {
+        throw new Error("missing credentials must not reach Supabase Auth");
+      },
+    },
+  );
+  assertEquals(response.status, 401);
+  assertEquals((await response.json()).error.code, "UNAUTHORIZED");
+  assertEquals(resolverCalls, 0);
+});
+
+Deno.test("private image download fails safely when the resolver response is malformed", async () => {
+  let ownershipLookups = 0;
+  let signerCalls = 0;
+  const response = await downloadHandler(
+    imageRequest("recipe-image-download-url", { recipe_id: RECIPE }),
+    {
+      ...handlerDeps({
+        rpc: () =>
+          Promise.resolve({
+            data: { object_key: FINAL, content_type: "image/png" },
+            error: null,
+          }),
+      }),
+      fetch: authFetch(
+        { id: RECIPE, user_id: USER },
+        200,
+        () => ownershipLookups++,
+      ),
+      signGet: () => {
+        signerCalls++;
+        return Promise.resolve(`https://r2.invalid/${FINAL}?X-Amz-Expires=60`);
+      },
+    },
+  );
+  const result = await response.json();
+  assertEquals(response.status, 500);
+  assertEquals(result.error.code, "INTERNAL_ERROR");
+  assertEquals(JSON.stringify(result).includes(FINAL), false);
+  assertEquals(ownershipLookups, 0);
+  assertEquals(signerCalls, 0);
+});
+
 Deno.test("image deletion is owner-authorized and returns 204 for an already-empty image", async () => {
   const calls: string[] = [];
   const deps = handlerDeps({
