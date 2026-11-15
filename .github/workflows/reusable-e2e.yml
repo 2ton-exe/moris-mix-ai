@@ -4,12 +4,16 @@ on:
   workflow_call:
 
 jobs:
-  e2e:
-    name: Playwright E2E Tests
+  e2e-browser:
+    name: Playwright E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
 
     steps:
       - name: Checkout repository
@@ -47,26 +51,56 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browsers
-        if: steps.frontend.outputs.exists == 'true'
+      - name: Install Chromium headless shell
+        if: steps.frontend.outputs.exists == 'true' && matrix.browser == 'chromium'
         working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium firefox webkit
+        run: pnpm exec playwright install --with-deps --only-shell chromium
 
-      - name: Run Playwright E2E across browsers against local Supabase
+      - name: Install Firefox
+        if: steps.frontend.outputs.exists == 'true' && matrix.browser == 'firefox'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps firefox
+
+      - name: Install WebKit
+        if: steps.frontend.outputs.exists == 'true' && matrix.browser == 'webkit'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps webkit
+
+      - name: Run Playwright E2E against local Supabase
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm run test:e2e:local -- --browser all
+        run: pnpm run test:e2e:local -- --browser ${{ matrix.browser }}
 
       - name: Run private-image browser journey
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
         run: pnpm run test:e2e:qa04:images
+        env:
+          QA04_BROWSER: ${{ matrix.browser }}
 
       - name: Upload Playwright failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fs-03-playwright-failure-artifacts
+          name: fs-03-playwright-failure-artifacts-${{ matrix.browser }}
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  e2e:
+    name: Playwright E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: e2e-browser
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Require every browser job to pass
+        env:
+          E2E_BROWSER_RESULT: ${{ needs.e2e-browser.result }}
+        run: |
+          if [[ "$E2E_BROWSER_RESULT" != "success" ]]; then
+            echo "Browser E2E matrix result: $E2E_BROWSER_RESULT"
+            exit 1
+          fi

@@ -96,14 +96,22 @@ The local Supabase database is available on loopback port `54322` by default and
 
 The Playwright journeys sign in through the UI with synthetic local accounts. They cover recipe CRUD and ownership isolation, Chef generation with selected lineage, malformed and provider failure recovery, and extraction preview followed by an explicit save. The frontend package pins Supabase CLI 2.122.0 and Playwright 1.64.1. On supported Linux or Apple silicon macOS hosts, the runner uses Supabase's native experimental runtime and does not need Docker.
 
-From the repository root, install the pinned tools and Chromium, then run:
+From the repository root, install the pinned tools and all three Playwright
+browser engines, then run the same browser coverage as CI:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm --dir frontend install --frozen-lockfile
-pnpm --dir frontend exec playwright install chromium
-pnpm --dir frontend run test:e2e:local
+pnpm --dir frontend exec playwright install chromium firefox webkit
+pnpm --dir frontend run test:e2e:local -- --browser all
 ```
+
+To run a single browser locally, pass `--browser chromium`, `--browser firefox`,
+or `--browser webkit` instead of `--browser all`.
+
+CI runs one browser per parallel job, with a fresh isolated local Supabase stack
+for each engine. Running `--browser all` locally executes those browsers
+sequentially against one local stack.
 
 Each run prepares the dedicated project in the ignored `.e2e-supabase/` workdir, starts it with `--runtime native`, and resets its database with the repository migrations and seed. It then creates the synthetic accounts through the local Auth admin API, serves the recipes, extraction, and generation functions, and starts Vite on `127.0.0.1:4173`. The extraction and generation functions use test-only mocked providers. The journeys do not use hosted credentials, Gemini, or R2. The project has a stable local ID and separate API, database, Studio, and mail ports. It does not attach to or stop the developer's regular Supabase stack.
 
