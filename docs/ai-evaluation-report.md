@@ -154,6 +154,36 @@ the shared `generateContent` path. It does not evaluate generation quality, and
 the legacy SDK remains deprecated; migrating to `@google/genai` is still a
 follow-up task.
 
+### Production enablement verification (2026-11-15)
+
+Both deployed routes were exercised against production inside one cost-guarded
+enable window: `AI_EXTRACT_ENABLED` and `AI_GENERATE_ENABLED` were set at
+2026-11-15 00:15:49 UTC and removed again at 2026-11-15 02:32:44 UTC.
+
+The first three extraction attempts returned `AI_PROVIDER_REJECTED` (HTTP 502):
+the adapter logged `provider_rejected` after a Gemini 4xx, and production's
+`GEMINI_API_KEY` was not the key verified locally. After the production secret
+was replaced with the verified key, both routes succeeded on the first attempt:
+
+| Route | UTC time | HTTP | Request ID | Model | Prompt | Attempt | Latency | Outcome |
+| ----- | -------- | ---- | ---------- | ----- | ------ | ------- | ------- | ------- |
+| `extract-recipe` | 2026-11-15 00:31:27 | 200 | `01a1dc9d-b537-7af2-994d-1542d0554ed9` | `gemini-3.5-flash-lite` | `extraction` v1.0.0 | 1 | 1,076 ms | `success` |
+| `generate-recipe` | 2026-11-15 01:23:39 | 200 | `01a1dccd-7a33-741b-8e5b-c4b37878b5ac` | `gemini-3.5-flash-lite` | `chef` v1.1.0 | 1 | 1,576 ms | `success` |
+
+Quota accounting matched the calls: `ai_usage_daily` recorded
+`operation_count = 2` for 2026-11-15, two reservations were `confirmed`, and
+the three failed attempts were `refunded` with `provider_failure_rollback`, so
+they consumed no daily quota.
+
+The operator reviewed both results in the deployed UI and confirmed the
+returned recipes were usable. No prompt, key or recipe text is recorded here.
+Both flags were removed after the run, and their names are absent from the
+production secret list.
+
+This is a single cost-guarded observation of each route. It verifies production
+enablement, key configuration, quota accounting and the validated response
+path; it is not a load, quality or safety benchmark.
+
 ## Limitations
 
 - **Contract, not model quality.** The offline fixtures are hand-crafted to
@@ -162,9 +192,10 @@ follow-up task.
 - **Small live sample.** Three live extraction cases are a spot check, not a
   statistically meaningful benchmark. Results can vary with model updates,
   region and free-tier load.
-- **Live generation is not harnessed.** The live spot check covers extraction
-  only. Generation is covered by the offline fixtures and endpoint tests; a
-  live generation quality run would need its own opt-in harness and quota.
+- **Live generation is not harnessed.** The automated live spot check covers
+  extraction only. One production Chef generation was observed on 2026-11-15
+  (see above); a live generation quality run would still need its own opt-in
+  harness and quota.
 - **Single model, one language.** The dataset is English-only and synthetic, and
   the pinned model is one Flash-Lite version. A different `AI_MODEL` is not
   covered by these numbers.
