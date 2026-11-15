@@ -149,14 +149,14 @@ test('modular PR remains PR-only, with staging and no production call or credent
 });
 
 test('actual modular caller and callee guards reject PRs, other refs and failed validation', () => {
-  assert.deepEqual(main.jobs.production.needs, ['frontend', 'test-db', 'test-edge-api']);
+  assert.deepEqual(main.jobs.production.needs, ['frontend', 'test-db', 'test-edge-api', 'recipe-image-readiness']);
   assert.equal(main.jobs.production.uses, './.github/workflows/reusable-production.yml');
   assert.deepEqual(main.jobs.production.with, {
     'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
   });
   for (const expression of [main.jobs.production.if, release.if]) {
     assert.equal(condition(expression), true);
-    assert.equal(condition(expression, { success: () => false }), false);
+    if (expression === release.if) assert.equal(condition(expression, { success: () => false }), false);
     for (const event_name of ['pull_request', 'pull_request_target', 'workflow_run']) {
       assert.equal(condition(expression, { github: { event_name, ref: 'refs/heads/main' } }), false);
     }
@@ -171,13 +171,14 @@ test('actual modular caller and callee guards reject PRs, other refs and failed 
   }
   assert.equal(condition(release.if, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main',
     repository: '2ton-exe/moris-mix-ai', workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main' } }), true);
-  for (const job of [main.jobs.production, main.jobs['test-edge-api'], edge.jobs['test-hosted-rls']]) {
+  assert.match(main.jobs.production.if, /always\(\).*!cancelled\(\)/s);
+  for (const job of [main.jobs['test-edge-api'], edge.jobs['test-hosted-rls']]) {
     assert.notEqual(job['continue-on-error'], true);
     assert.doesNotMatch(job.if ?? '', /always\(|!cancelled\(/);
   }
 });
 
-test('failed/cancelled/skipped gating dependencies block production; E2E remains non-gating', () => {
+test('failed/cancelled/skipped required dependencies block production; E2E remains non-gating', () => {
   const caller = main.jobs.production;
   assert.ok(main.jobs['test-e2e']);
   assert.ok(!caller.needs.includes('test-e2e'));
@@ -187,11 +188,18 @@ test('failed/cancelled/skipped gating dependencies block production; E2E remains
       const needs = Object.fromEntries(caller.needs.map(name => [name, { result: 'success', outputs: {} }]));
       needs.frontend.outputs.exists = 'true';
       needs[dependency].result = result;
-      assert.equal(condition(caller.if, { needs, success: () => Object.values(needs).every(n => n.result === 'success') }), false);
+      assert.equal(condition(caller.if, {
+        needs,
+        vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+        success: () => Object.values(needs).every(n => n.result === 'success'),
+      }), false);
     }
   }
   for (const result of ['failure', 'cancelled', 'skipped']) {
-    assert.equal(condition(caller.if, { needs: { frontend: { outputs: { exists: 'true' } }, 'test-e2e': { result } } }), true);
+    const needs = Object.fromEntries(caller.needs.map(name => [name, { result: 'success', outputs: {} }]));
+    needs.frontend.outputs.exists = 'true';
+    needs['test-e2e'] = { result };
+    assert.equal(condition(caller.if, { needs }), true);
   }
   assert.notEqual(caller['continue-on-error'], true);
   assert.equal(main.jobs['test-edge-api'].with['require-hosted-rls'], true);
@@ -233,8 +241,11 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.equal(step(release, name).if, guarded[name]);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
-  assert.equal(step(release, 'Verify recipe image release prerequisites').env.PRODUCTION_FRONTEND_URL,
-    '${{ vars.PRODUCTION_FRONTEND_URL }}');
+  assert.deepEqual(step(release, 'Verify recipe image release prerequisites').env, {
+    RECIPE_IMAGE_CLEANUP_ENABLED: "${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}",
+    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+  });
   const commands = release.steps.map(s => s.run ?? '').join('\n');
   assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), [
     'recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach',
@@ -335,7 +346,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const summary = step(release, 'Record production deployment and runtime outcomes');
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
-  assert.deepEqual(release.permissions, { actions: 'read', contents: 'read', deployments: 'read' });
+  assert.deepEqual(release.permissions, { contents: 'read' });
   for (const caller of [main.jobs.production]) {
     assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
