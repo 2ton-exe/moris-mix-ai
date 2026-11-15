@@ -4,7 +4,7 @@ Status: automated local rehearsal passed; human presentation rehearsal remains o
 
 ## Candidate and controls
 
-- Candidate code revision: `c4a04525924c1b3dd4442727058f2f57e4edd827`.
+- Candidate code revision: `0ccdc563b1131cb2ca14fec4f99d538eb39bc44f`.
 - Environment: isolated local Supabase Auth, database, and Edge Functions started by `frontend/e2e/run-local.mjs`.
 - Accounts and recipe data are local synthetic fixtures. No hosted Supabase project, production data, Gemini credentials, or paid AI calls are used.
 - The quota drill uses the exact `QA05_QUOTA_EXHAUSTED` input marker in the copied local function fixtures. Those fixtures return a quota-exceeded decision for the marked request; production handlers and quota policy are unchanged.
@@ -28,7 +28,7 @@ The local runner provisions the synthetic account, starts the isolated stack, dr
 
 ## Result record
 
-Run on candidate `c4a04525924c1b3dd4442727058f2f57e4edd827` on 2026-11-15:
+Run on candidate `0ccdc563b1131cb2ca14fec4f99d538eb39bc44f` on 2026-11-15:
 
 - `pnpm test:e2e:local -- e2e/authenticated-crud.spec.ts e2e/extraction-save.spec.ts e2e/ai-critical-journeys.spec.ts` — **passed, 7/7**.
 - `pnpm test:e2e:local -- --headed --grep "QA-05 deterministic fallback browser walkthrough"` — **passed, 1/1**.
