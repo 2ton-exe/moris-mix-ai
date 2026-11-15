@@ -111,7 +111,7 @@ SQL
 
 replication_command='SET session_replication_role = replica'
 restore() {
-  "${client[@]}" psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
+  "${client[@]}" psql -X -q -A -t --single-transaction -v ON_ERROR_STOP=1 \
     -v VERBOSITY=sqlstate \
     -f /backup/roles.sql \
     -f /backup/schema.sql \
@@ -123,7 +123,9 @@ restore() {
 }
 
 expect_failure() {
-  local case_name="$1" expected_code="$2" expected_hint="$3" code hint rolled_back
+  local case_name="$1" expected_code="$2" expected_component="$3"
+  local expected_category="${4:-unknown}" expected_statement="${5:-unknown}"
+  local code details component category statement rolled_back
   if restore > "$root/negative.log" 2> "$root/negative.stderr"; then
     echo '::error::Deliberate synthetic SQL failure unexpectedly succeeded'
     exit 1
@@ -139,16 +141,19 @@ expect_failure() {
     echo '::error::Synthetic trial stopped before the intended failing statement'
     exit 1
   fi
-  hint=unknown
+  details='unknown unknown unknown'
   if [[ "$code" == 3 ]]; then
-    hint="$(python3 "$classifier" "$root/negative.stderr" "$code" 2> /dev/null)" || hint=unknown
+    details="$(python3 "$classifier" --details "$root/negative.stderr" "$code" \
+      "$fixture/roles.sql" 2> /dev/null)" || details='unknown unknown unknown'
   fi
-  case "$hint" in
-    roles.sql|schema.sql|history-schema.sql|data.sql|history-data.sql|unknown) ;;
-    *) hint=unknown ;;
-  esac
-  [[ "$hint" == "$expected_hint" ]] || {
-    printf '::error::Synthetic case %s returned unexpected component_hint=%s\n' "$case_name" "$hint"
+  read -r component category statement extra <<< "$details"
+  [[ -z "${extra:-}" ]] || {
+    echo '::error::Synthetic classifier returned unexpected output'
+    exit 1
+  }
+  [[ "$component $category $statement" == \
+     "$expected_component $expected_category $expected_statement" ]] || {
+    printf '::error::Synthetic case %s returned unexpected fixed diagnostic labels\n' "$case_name"
     exit 1
   }
   rolled_back="$("${client[@]}" psql -X -A -t -v ON_ERROR_STOP=1 \
@@ -160,7 +165,8 @@ expect_failure() {
     echo '::error::Synthetic restore did not roll back created tables/role'
     exit 1
   }
-  printf 'Synthetic case %s: exit=%d component_hint=%s; rollback verified.\n' "$case_name" "$code" "$hint"
+  printf 'Synthetic case %s: exit=%d component_hint=%s untrusted_error_category_hint=%s untrusted_statement_class_hint=%s; rollback verified.\n' \
+    "$case_name" "$code" "$component" "$category" "$statement"
 }
 
 # Each failure uses the unchanged command order and a clean rolled-back baseline.
@@ -170,6 +176,22 @@ for component in roles.sql schema.sql history-schema.sql data.sql history-data.s
   expect_failure "$component" 3 "$component"
   cp "$root/component-base.sql" "$fixture/$component"
 done
+
+# Exercise actual psql role-file errors with invented names/settings. The marker
+# is a complete one-line SQL statement so the bounded lookup can validate its prefix.
+cp "$fixture/roles.sql" "$root/roles-base.sql"
+cat >> "$fixture/roles.sql" <<'SQL'
+SELECT 'SYNTHETIC_FAILURE_REACHED';
+GRANT devops_restore_synthetic_missing_group TO devops_restore_synthetic;
+SQL
+expect_failure role-membership-undefined-role 3 roles.sql undefined-object role-membership-grant
+cp "$root/roles-base.sql" "$fixture/roles.sql"
+cat >> "$fixture/roles.sql" <<'SQL'
+SELECT 'SYNTHETIC_FAILURE_REACHED';
+ALTER ROLE devops_restore_synthetic SET moris_mix_missing_restore_setting TO 'x';
+SQL
+expect_failure role-setting-undefined-parameter 3 roles.sql undefined-object alter-role-set
+cp "$root/roles-base.sql" "$fixture/roles.sql"
 
 # The separate -c SQL action returns 1 in pinned psql; it has no file context.
 replication_command="SET session_replication_role = 'synthetic_invalid_role'"
