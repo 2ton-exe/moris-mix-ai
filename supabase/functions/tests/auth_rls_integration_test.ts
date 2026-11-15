@@ -1,6 +1,7 @@
 import { assertEquals, assertNotEquals, assertRejects, assertThrows } from "jsr:@std/assert@1";
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import { authenticateRequest } from "../_shared/auth.ts";
+import { handler as accountExportHandler } from "../account-export/index.ts";
 import { handler } from "../auth-session/index.ts";
 import {
   evaluateHostedRlsPrerequisites,
@@ -546,7 +547,7 @@ Deno.test("RLS test client configuration normalizes modern secret keys and prese
 });
 
 Deno.test({
-  name: "Live PostgreSQL RLS enforcement on public.profiles allows own-profile reads and blocks cross-user reads (hosted integration)",
+  name: "Live RLS keeps profile and account export data user-scoped and paginates recipe exports (hosted integration)",
   ignore: !canRunLiveRlsIntegration,
   fn: async () => {
     const knownSecrets = [testAnonKey, testServiceRoleKey];
@@ -718,6 +719,80 @@ Deno.test({
         throw new Error(`authenticateRequest failed for User B with status ${authB.response.status}`);
       }
       assertEquals(authB.context.user.id, userBId);
+
+      const exportRecipeIdsA = Array.from({ length: 101 }, () => crypto.randomUUID());
+      const exportRecipeIdB = crypto.randomUUID();
+      const { error: seedRecipesError } = await adminClient.from("recipes").insert([
+        ...exportRecipeIdsA.map((id, index) => ({
+          id,
+          user_id: userAId,
+          title: `Account export test recipe A ${runId} ${index}`,
+        })),
+        {
+          id: exportRecipeIdB,
+          user_id: userBId,
+          title: `Account export test recipe B ${runId}`,
+        },
+      ]);
+      if (seedRecipesError) {
+        throw new Error(
+          `Failed to prepare account export test recipes: ${redactSecrets(seedRecipesError.message, knownSecrets)}`,
+        );
+      }
+
+      const ownedLineageId = crypto.randomUUID();
+      const crossUserLineageId = crypto.randomUUID();
+      const { error: seedLineageError } = await adminClient.from("recipe_lineage").insert([
+        {
+          id: ownedLineageId,
+          parent_recipe_id: exportRecipeIdsA[0],
+          child_recipe_id: exportRecipeIdsA[1],
+        },
+        {
+          id: crossUserLineageId,
+          parent_recipe_id: exportRecipeIdsA[0],
+          child_recipe_id: exportRecipeIdB,
+        },
+      ]);
+      if (seedLineageError) {
+        throw new Error(
+          `Failed to prepare account export test lineage: ${redactSecrets(seedLineageError.message, knownSecrets)}`,
+        );
+      }
+
+      const exportFor = (accessToken: string, requestFetch: typeof fetch) =>
+        accountExportHandler(
+          new Request("http://localhost/functions/v1/account-export", {
+            method: "GET",
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }),
+          {
+            supabaseUrl: testSupabaseUrl,
+            supabaseAnonKey: testAnonKey,
+            fetch: requestFetch,
+          },
+        );
+
+      const exportAResponse = await exportFor(userAAccessToken, trackedFetchA);
+      assertEquals(exportAResponse.status, 200);
+      const exportA = await exportAResponse.json();
+      assertEquals(exportA.recipes.length, 101);
+      assertEquals(exportA.recipes.every((recipe: { user_id: string }) => recipe.user_id === userAId), true);
+      assertEquals(exportA.recipes.some((recipe: { id: string }) => recipe.id === exportRecipeIdB), false);
+      assertEquals(exportA.lineage.length, 1);
+      assertEquals(exportA.lineage[0].id, ownedLineageId);
+      assertEquals(
+        exportA.lineage.some((lineage: { id: string }) => lineage.id === crossUserLineageId),
+        false,
+      );
+
+      const exportBResponse = await exportFor(userBAccessToken, trackedFetchB);
+      assertEquals(exportBResponse.status, 200);
+      const exportB = await exportBResponse.json();
+      assertEquals(exportB.recipes.length, 1);
+      assertEquals(exportB.recipes[0].id, exportRecipeIdB);
+      assertEquals(exportB.recipes[0].user_id, userBId);
+      assertEquals(exportB.lineage, []);
 
       const { data: ownProfileRowsA, error: ownProfileErrorA } = await authA.context.supabase
         .from("profiles")
