@@ -47,6 +47,7 @@ jobs:
       github.ref == 'refs/heads/main'
     uses: ./.github/workflows/reusable-production.yml
     permissions:
+      actions: read
       contents: read
     with:
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
