@@ -1,18 +1,21 @@
 # FE-12 private recipe-image upload integration
 
-**Status** — BE-13 backend contract approved by Ramos on 2026-11-08 in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406). The FE-12 author has approved this revised upload contract. This is API-contract approval only; it does not authorize production deployment or cleanup.
+**Status** — PR #210 uses object-scoped, presigned R2 `PUT` URLs for new uploads. The PR owner confirmed fresh BE-13 and FE-12 acceptance on 2026-11-15; owner-specific confirmation URLs were not supplied. The approvals recorded for PR #190 cover authenticated Edge Function ingress only. See [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Production signing and cleanup remain disabled pending separate readiness checks and authorization.
 
 ## Browser rollout gates
 
-The image panel and all image endpoint requests are disabled unless
-`VITE_RECIPE_IMAGES=true`. The production build now sets the flag to `true` per
-owner direction, so the next production release exposes the image UI to all
-users. This frontend change does not verify R2 access or cleanup readiness,
-deploy the upload-signing or cleanup functions, or enable cleanup. The main
-production release deploys the offset-compatible `recipe-image-attach` function
-after this change is merged.
-Production R2 behavior and cleanup readiness remain unverified; keep the
-cleanup opt-in unset until its separate checks pass.
+The image panel and image endpoint requests are disabled unless
+`VITE_RECIPE_IMAGES=true`. Production builds currently set the flag to
+`false` because the production release still hard-disables the matching upload
+signer and R2 access and bucket CORS have not been verified. Keep the UI off
+until the production signing path and required upload readiness checks are
+complete; enabling the flag alone does not deploy the signer or enable cleanup.
+
+This changes the earlier authenticated Edge Function byte-upload path to a
+direct browser-to-R2 `PUT`. The browser sends the signed `Content-Type` and
+`If-None-Match` headers and derives the signed `Content-Length` from its Blob;
+R2 bucket CORS must allow the app origin, `PUT`, and those headers. No signed
+upload from the app origin or live same-key retry rejection has been verified.
 
 Upload authorization idempotency has a separate compatibility gate:
 `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` defaults to `false`, and the browser omits
@@ -32,25 +35,49 @@ flag based only on this PR or on migration history.
 
 ## Upload requirements
 
-The browser requests an upload intent for an owned, saved recipe through authenticated `POST /functions/v1/recipe-image-upload-url`. Send the selected file's actual byte size and supported MIME type using the [backend API contract](../api/recipe-images.md). The file must be JPEG, PNG, or WebP and at most 10 MiB. If an approved client conversion policy is used, complete conversion before declaring size and type, then upload those exact bytes.
+Request an upload intent for an owned, saved recipe through authenticated
+`POST /functions/v1/recipe-image-upload-url`. Send the selected image's actual
+byte size and supported MIME type. Images must be JPEG, PNG, or WebP and no
+larger than 10 MiB. The response contains an R2 URL scoped to one staging
+object, the exact signed `Content-Type` and `If-None-Match: *` headers, the
+declared byte size, and its expiry.
 
-Use the returned `upload.url` and its declared method and content type. Send the raw file bytes with `PUT`, the signed-in user's Bearer token, and the Supabase project API key. The upload destination is the authenticated Edge Function. All R2 signing and storage requests occur on the backend. The URL expires after ten minutes and the server stops admitting uploads during its final 30 seconds.
+Validate that the URL uses the Cloudflare R2 endpoint and matches the current
+owner, recipe, and upload IDs before sending bytes. Upload the exact `Blob`
+using `PUT` and the returned headers. Send no Supabase Bearer token or project
+API key to R2. The browser sets `Content-Length` from the Blob; its value is
+bound into the signature. Do not send JSON or multipart form data, and never
+log or display the presigned URL.
+
+R2 bucket CORS must allow the deployed frontend origin, `PUT`, and the
+`Content-Type` and `If-None-Match` request headers. The bucket remains private;
+the presigned URL is a short-lived bearer capability for only one staging
+object. The URL expires with its ten-minute upload intent.
 
 ## Results and retry requirements
 
-- Show pending state until the upload request completes.
-- On `201`, retain the returned upload ID and proceed through the separately approved BE-14 verification and attachment contract.
-- On attachment `409 UPLOAD_BYTES_MISSING`, retry the byte upload with the same intent, then retry attachment. The backend returns this only after confirming the staging object is absent and the intent is pending again.
-- On attachment `409 UPLOAD_NOT_READY`, do not resend bytes; wait and retry attachment.
-- On `409 UPLOAD_ALREADY_USED`, stop resending bytes. An object already exists for that intent. Recover through the approved verification/attachment flow, which must validate that object before showing it as the saved recipe image.
-- On `409 UPLOAD_IN_PROGRESS`, do not treat the reservation as proof that bytes were received or attach it. Wait before retrying the same intent; the backend decides whether it remains in progress, was received, or can accept another send. A crashed request can retain its reservation until expiry, so request a new intent only when backend quota permits.
-- On `410 UPLOAD_EXPIRED`, stop using the expired intent. Request another only if the backend quota permits.
-- On an ambiguous network failure or `503 STORAGE_UNAVAILABLE`, allow a bounded user-controlled retry of the same eligible intent. The backend permits a retry only after confirming the staging object is missing. If the previous write succeeded, recovery returns `409`.
-- On validation or authorization failure, show the safe API error and require correction or authentication before retry.
-- Preserve the current recipe image until verification and attachment succeed. A successful upload alone does not update recipe metadata.
+- Show pending state until the upload and attachment requests complete.
+- On R2 `200 OK`, continue through the separate BE-14 verification and
+  attachment request.
+- On R2 `412 Precondition Failed`, treat the write as a possible successful
+  prior attempt and continue to attachment. BE-14 verifies the stored bytes
+  before the image is shown.
+- On a network failure or storage `5xx`, allow a bounded user-controlled retry
+  of the same URL. If the first request stored the object, the retry returns
+  `412` and follows the verification path above.
+- If the URL has expired, request a new intent only if backend quota permits.
+- On attachment `409 UPLOAD_BYTES_MISSING`, upload the bytes again using the
+  same intent, then retry attachment.
+- On attachment `409 UPLOAD_NOT_READY`, do not resend bytes; wait and retry
+  attachment.
+- On attachment `404 UPLOAD_NOT_FOUND`, request a new intent only if backend
+  quota permits.
+- Preserve the current recipe image until verification and attachment succeed.
+  A successful upload alone does not update recipe metadata.
 
-## Acceptance and rollout evidence
-
-The FE-12 author approved authenticated raw-byte requests, supported MIME types, actual size limits, expiry, duplicate responses, ambiguous retries, and preservation of the existing image on failure. Browser integration and live R2 behavior still require independent verification.
-
-This specification replaces the original direct browser-to-R2 presigned PUT requirement with the approved shared contract. BE-13 approval is recorded in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406), and FE-12 author acceptance has been received. These approvals cover the API contract only. Production signing remains hard-disabled, and scheduled cleanup remains skipped unless the protected production gate is explicitly enabled after independent readiness verification and authorization. See the [API contract and production prerequisites](../api/recipe-images.md#approved-upload-contract-and-migration-ownership-decisions).
+The authenticated-proxy behavior recorded in [the API contract](../api/recipe-images.md)
+and [owner decision #104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406)
+is historical for this transport. The PR owner confirmed the BE-13 and FE-12
+owners' acceptance on 2026-11-15; the prior upload approvals do not cover
+direct R2 transport. This acceptance does not authorize production deployment
+or configure bucket CORS.
