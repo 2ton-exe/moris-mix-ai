@@ -123,7 +123,7 @@ The repository separates backend verification into distinct offline and live cat
 
 ### 2. Hosted PostgreSQL RLS integration test (`supabase/functions/tests/auth_rls_integration_test.ts`)
 
-- **Purpose:** Exercises real Supabase Auth and live PostgreSQL RLS enforcement on `public.profiles` (`profiles_select_own`: `auth.uid() = id`) against a dedicated hosted, non-production Supabase test project without using Docker or local containers.
+- **Purpose:** Exercises real Supabase Auth and live PostgreSQL RLS enforcement on `public.profiles` (`profiles_select_own`: `(SELECT auth.uid()) = id`) against a dedicated hosted, non-production Supabase test project without using Docker or local containers.
 - **Prerequisites and supported GitHub Actions secrets:**
   - `NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_URL }}`) — project URL of the dedicated non-production Supabase test project (must have the repository's `public.profiles` schema and RLS policies applied).
   - `NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY` (`${{ secrets.NON_PRODUCTION_TEST_DATABASE_SUPABASE_ANON_KEY }}`) — public key for the dedicated test project. In modular CI (`.github/workflows/reusable-edge-api.yml`), this accepts either a legacy `anon` JWT or a modern `sb_publishable_*` key. CI and local runs also accept `NON_PRODUCTION_TEST_DATABASE_SUPABASE_PUBLISHABLE_KEY`.
