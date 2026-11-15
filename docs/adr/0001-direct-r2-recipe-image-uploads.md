@@ -1,6 +1,6 @@
 # ADR-0001: Direct presigned uploads for recipe images
 
-**Status:** Proposed; BE-13 and FE-12 acceptance pending; production deployment remains blocked
+**Status:** Accepted for implementation per PR-owner confirmation (2026-11-15); production deployment remains blocked
 **Date:** 2026-11-15
 
 ## Context
@@ -56,11 +56,12 @@ guards remain unchanged.
 
 ## Acceptance status
 
-The BE-13 approval in [issue #104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406)
+On 2026-11-15, the PR owner confirmed that BE-13 and FE-12 owners accept this
+direct-to-R2 transport. Owner-specific confirmation URLs were not supplied.
+The earlier BE-13 approval in [issue #104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406)
 and FE-12 upload approval in [issue #106](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6723073867)
-cover authenticated Edge Function ingress. Fresh BE-13 and FE-12 acceptance
-for this direct-to-R2 transport is pending. FE-12's separate private-read
-acceptance remains recorded in [issue #106](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6846170189).
+remain scoped to authenticated Edge Function ingress. FE-12's separate
+private-read acceptance remains recorded in [issue #106](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6846170189).
 
 ## References
 

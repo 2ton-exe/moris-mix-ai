@@ -327,8 +327,8 @@ The table above records the proxy transport accepted for PR #190. PR #210 propos
 
 | Required decision | Owner | Recorded acceptance |
 | --- | --- | --- |
-| BE-13 direct-to-R2 upload transport and backend contract | Ramos (`DanielRamos1186`) | Pending fresh acceptance; [2026-11-08 approval](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406) covers authenticated Edge Function ingress only |
-| FE-12 direct-to-R2 browser upload, error, and retry behavior | FE-12 owner | Pending fresh acceptance; [prior approval](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6723073867) covers authenticated Edge Function ingress only |
+| BE-13 direct-to-R2 upload transport and backend contract | Ramos (`DanielRamos1186`) | Accepted 2026-11-15 per PR-owner confirmation; owner-specific link not supplied. The [2026-11-08 approval](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406) covers authenticated Edge Function ingress only |
+| FE-12 direct-to-R2 browser upload, error, and retry behavior | FE-12 owner | Accepted 2026-11-15 per PR-owner confirmation; owner-specific link not supplied. The [prior approval](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6723073867) covers authenticated Edge Function ingress only |
 | FE-12 private image-read contract | FE-12 owner | Approved — [record](https://github.com/2ton-exe/moris-mix-ai/issues/106#issuecomment-6846170189); API-contract approval only |
 
 Production upload-signing deployment remains hard-disabled pending independent production readiness verification and separate deployment authorization. Verify R2 CORS and direct signed `PUT` behavior in a non-production bucket before enabling it.
