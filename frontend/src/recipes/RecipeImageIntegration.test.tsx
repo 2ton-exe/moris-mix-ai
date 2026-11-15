@@ -20,6 +20,7 @@ let modules: {
   CreateRecipePage: typeof import('../pages/CreateRecipePage').default
   RecipeDetailPage: typeof import('../pages/RecipeDetailPage').default
   EditRecipePage: typeof import('../pages/EditRecipePage').default
+  RecipeCard: typeof import('./RecipeCard').RecipeCard
   RecipeQueryProvider: typeof import('./RecipeQueryProvider').RecipeQueryProvider
   createMemoryRouter: typeof import('react-router').createMemoryRouter
   RouterProvider: typeof import('react-router').RouterProvider
@@ -86,12 +87,12 @@ beforeEach(async () => {
     token_type: 'bearer',
   } as Session
   sessionProvider.getSession.mockReset().mockResolvedValue({ data: { session }, error: null })
-  const [{ AuthContext }, { getAuthClient }, { default: CreateRecipePage }, { default: RecipeDetailPage }, { default: EditRecipePage }, { RecipeQueryProvider }, router] = await Promise.all([
+  const [{ AuthContext }, { getAuthClient }, { default: CreateRecipePage }, { default: RecipeDetailPage }, { default: EditRecipePage }, { RecipeCard }, { RecipeQueryProvider }, router] = await Promise.all([
     import('../auth/context'), import('../auth/client'), import('../pages/CreateRecipePage'), import('../pages/RecipeDetailPage'), import('../pages/EditRecipePage'),
-    import('./RecipeQueryProvider'), import('react-router'),
+    import('./RecipeCard'), import('./RecipeQueryProvider'), import('react-router'),
   ])
   vi.spyOn(getAuthClient(), 'getSession').mockImplementation(() => sessionProvider.getSession())
-  modules = { AuthContext, CreateRecipePage, RecipeDetailPage, EditRecipePage, RecipeQueryProvider, createMemoryRouter: router.createMemoryRouter, RouterProvider: router.RouterProvider }
+  modules = { AuthContext, CreateRecipePage, RecipeDetailPage, EditRecipePage, RecipeCard, RecipeQueryProvider, createMemoryRouter: router.createMemoryRouter, RouterProvider: router.RouterProvider }
   authState = {
     user: session.user,
     session,
@@ -283,6 +284,25 @@ function renderDetailPage() {
     createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) })))
 }
 
+function renderCollectionCard() {
+  const recipeSummary = { id: recipeId, title: 'Ginger rice', cooked_at: null }
+  const recipe = {
+    ...recipeSummary,
+    ingredients: [{ name: 'rice', quantity: 2, unit: 'cups', inferred: false }],
+    instructions: [{ step: 1, text: 'Cook the rice.' }],
+  }
+  const source = { mode: 'live' as const, list: async () => [recipeSummary], detail: async () => recipe }
+  const router = modules.createMemoryRouter([{
+    path: '/app/recipes',
+    element: createElement('ul', null, createElement(modules.RecipeCard, { recipe: recipeSummary, folio: 1 })),
+  }, {
+    path: '/app/recipes/:recipeId',
+    element: createElement(modules.RecipeDetailPage),
+  }], { initialEntries: ['/app/recipes'] })
+  return render(createElement(modules.AuthContext.Provider, { value: authState },
+    createElement(modules.RecipeQueryProvider, { source, children: createElement(modules.RouterProvider, { router }) })))
+}
+
 it('keeps image panels and endpoint calls disabled unless recipe images are explicitly enabled', () => {
   vi.stubEnv('VITE_RECIPE_IMAGES', 'false')
   renderEditPage()
@@ -411,6 +431,36 @@ it('shows the private image in the taped frame above the recipe title', async ()
   const downloadRequest = fetchImpl.mock.calls.find(([input]) => new URL(String(input)).pathname.endsWith('recipe-image-download-url'))
   expect(JSON.parse(downloadRequest?.[1]?.body as string)).toEqual({ recipe_id: recipeId })
   expect(new Headers(downloadRequest?.[1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
+})
+
+it('shows the private image on the journal card and reuses its fresh URL on detail navigation', async () => {
+  renderCollectionCard()
+  const cardPhoto = await screen.findByRole('img', { name: 'Ginger rice photo' })
+  expect(cardPhoto.closest('figure')?.classList.contains('mm-recipe-artwork--card')).toBe(true)
+  expect(downloadCount).toBe(1)
+
+  fireEvent.click(screen.getByRole('link', { name: 'Open recipe Ginger rice' }))
+  await screen.findByRole('heading', { name: 'Ginger rice', level: 1 })
+  expect((await screen.findByRole('img', { name: 'Ginger rice photo' })).getAttribute('src')).toBe(oldImageUrl)
+  expect(downloadCount).toBe(1)
+})
+
+it('falls back to the illustration when a failed card photo is re-signed with the same URL', async () => {
+  renderCollectionCard()
+  fireEvent.error(await screen.findByRole('img', { name: 'Ginger rice photo' }))
+
+  expect(await screen.findByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeTruthy()
+  await waitFor(() => expect(downloadCount).toBe(2))
+  expect(screen.queryByRole('img', { name: 'Ginger rice photo' })).toBeNull()
+})
+
+it('keeps the illustrated journal card when no private photo is attached', async () => {
+  noImage = true
+  renderCollectionCard()
+
+  expect(await screen.findByRole('img', { name: /Illustrated placeholder for Ginger rice/ })).toBeTruthy()
+  await waitFor(() => expect(downloadCount).toBe(1))
+  expect(screen.queryByRole('img', { name: 'Ginger rice photo' })).toBeNull()
 })
 
 it('keeps the framed illustration when the recipe has no photo', async () => {

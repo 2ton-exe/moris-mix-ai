@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuth } from '../auth/context'
 import { defaultRecipeSource, RecipeSourceContext } from './source'
 import { retryRecipeQuery } from './queryOptions'
+import { recipeImageApi } from './imageApi'
 import type { RecipeSource } from './types'
 
 function AccountQueries({ children }: { children: ReactNode }) {
@@ -18,6 +19,7 @@ function AccountQueries({ children }: { children: ReactNode }) {
     // account's client, even if a transport ignores cancellation.
     void client.cancelQueries()
     client.clear()
+    recipeImageApi.clearDownloads()
   }, [client])
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
