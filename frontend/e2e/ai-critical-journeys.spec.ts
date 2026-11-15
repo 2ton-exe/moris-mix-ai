@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
+import { finishRecipeReview, createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function addPantryItem(page: Page, item: string) {
   const input = page.getByRole('textbox', { name: 'Pantry ingredient' })
@@ -396,6 +396,7 @@ test('QA-05 deterministic fallback browser walkthrough uses a prepared Quick AI 
     const saveResponsePromise = page.waitForResponse((response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/recipes',
     )
+    await finishRecipeReview(page)
     await page.getByRole('button', { name: 'Save recipe' }).click()
     await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
     expect((await saveResponsePromise).status()).toBe(201)

@@ -13,11 +13,12 @@ type NavigationConfirmation = {
   discardChanges: () => void
 }
 
-export function RecipeEditorFrame({ mode, connected, children, navigationConfirmation, showBack = true, headingTitle }: {
+export function RecipeEditorFrame({ mode, connected, children, navigationConfirmation, showBack = true, headingTitle, headingIntro }: {
   mode: 'create' | 'edit'; connected: boolean; children: ReactNode
   navigationConfirmation?: NavigationConfirmation
   showBack?: boolean
   headingTitle?: string
+  headingIntro?: string
 }) {
   const { user } = useAuth()
   const location = useLocation()
@@ -33,6 +34,7 @@ export function RecipeEditorFrame({ mode, connected, children, navigationConfirm
     </nav>}
     <header className="mm-recipe-editor-heading">
       <h1 ref={heading} tabIndex={-1}>{headingTitle ?? (mode === 'create' ? 'New recipe' : 'Edit recipe')}</h1>
+      {headingIntro && <p className="intro">{headingIntro}</p>}
     </header>
     {!connected && <p className="recipe-form-notice" role="note">Recipe saving is not connected yet. Nothing on this page is saved to your journal.</p>}
     </JournalFacingPage>

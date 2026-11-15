@@ -66,7 +66,7 @@ async function measure(page, reference = false) {
     const paper = reference ? right : (globalThis.getComputedStyle(spread).display === 'grid' ? right : spread)
     const paperRect = rect(paper)
     const single = reference ? !!globalThis.document.querySelector('.page--single') : globalThis.getComputedStyle(spread).display !== 'grid'
-    const nav = select('.mm-bookmarks', '.bookmarks')
+    const nav = select('.mm-global-nav, .mm-bookmarks', '.bookmarks')
     const style = (element) => {
       const css = globalThis.getComputedStyle(element)
       return { zIndex: css.zIndex, position: css.position, transform: css.transform, fontFamily: css.fontFamily, fontSize: css.fontSize, padding: css.padding, backgroundColor: css.backgroundColor, textDecoration: css.textDecorationLine, overflowY: css.overflowY }
@@ -213,7 +213,6 @@ try {
           await bookmarks.screenshot({ path: path.join(output, phase, `${width}-bookmarks.png`), animations: 'disabled' })
           const inactive = bookmarks.getByRole('link', { name: 'New recipe', exact: true })
           await inactive.hover()
-          await expect(inactive).toHaveCSS('transform', width >= 1100 ? 'matrix(1, 0, 0, 1, 3, 0)' : 'matrix(1, 0, 0, 1, 0, -3)')
           await assertJournalGeometry(page, `${width}px hover`)
           await bookmarks.screenshot({ path: path.join(output, phase, `${width}-bookmarks-hover.png`), animations: 'disabled' })
           await page.mouse.move(0, 0)

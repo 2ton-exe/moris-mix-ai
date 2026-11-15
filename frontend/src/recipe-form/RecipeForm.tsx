@@ -19,6 +19,9 @@ export type RecipeFormProps = {
   onDirtyChange?: (dirty: boolean) => void
   onEditorStateChange?: (state: RecipeEditorState) => void
   showExtractionHints?: boolean
+  reviewWorkflow?: boolean
+  editorIntro?: string
+  draftKeptInSession?: boolean
   editorTitle?: string
   notesSupported?: boolean
   renderFrame?: (content: ReactNode) => ReactNode

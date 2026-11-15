@@ -149,6 +149,8 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   }
 
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
+  const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
+  const editorIntro = consumed ? undefined : "Check Mori's suggestions and fill in missing details before saving."
   const pageNotice = <>
     {storageNotice}
     {logoutError && <p className="field-error" role="alert">{logoutError}</p>}
@@ -169,7 +171,10 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       initialEditorState={stored.reviewDraft ?? undefined}
       initialValuesAreUnsaved
       showExtractionHints
-      editorTitle={consumed ? 'Edit saved recipe' : 'Review recipe draft'}
+      reviewWorkflow
+      draftKeptInSession={!consumed && storageIssue === null}
+      editorTitle={editorTitle}
+      editorIntro={editorIntro}
       notesSupported
       onSubmit={submit}
       onDirtyChange={setDirty}
@@ -179,7 +184,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       notice={pageNotice}
       supplement={<ExtractionNotice handoff={handoff} saved={consumed} />}
       renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
-        headingTitle={consumed ? 'Edit saved recipe' : 'Review recipe draft'}
+        headingTitle={editorTitle} headingIntro={editorIntro}
         navigationConfirmation={{ ...navigationConfirmation, discardChanges: discardAndLeave }}>{content}</RecipeEditorFrame>} />
   </>
 }
@@ -200,8 +205,12 @@ function ReviewStorageWarning({ issue, saved, onRetry }: { issue: ReviewStorageI
 
 function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; saved: boolean }) {
   const flavorScores = handoff.recipe.flavor_scores
+  const words = (value: string) => value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
+  const source = ` ${words(handoff.sourceNotes)} `
+  const ingredientsToCompare = [...new Set(handoff.recipe.ingredients.map(({ name }) => name))]
+    .filter((name) => words(name) && !source.includes(` ${words(name)} `))
   return <section className="mm-extraction-notes" aria-label="Mori's extraction notes">
-    {!saved && <p>Check Mori's estimates and any missing amounts before saving.</p>}
+    {!saved && ingredientsToCompare.length > 0 && <p><strong>Check against your notes</strong><br />These ingredient names use different wording: {ingredientsToCompare.join(', ')}.</p>}
     <details>
       <summary>Original cooking notes</summary>
       <blockquote>{handoff.sourceNotes}</blockquote>
@@ -209,7 +218,7 @@ function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<
     {flavorScores && <details>
       <summary>Flavor estimates</summary>
       <p>Flavor estimates are preview only.</p>
-      <ul>{Object.entries(flavorScores).map(([flavor, score]) => <li key={flavor}>{flavor}: {score} / 5</li>)}</ul>
+      <dl>{Object.entries(flavorScores).map(([flavor, score]) => <div key={flavor}><dt>{flavor}</dt><dd>{score} / 5</dd></div>)}</dl>
     </details>}
   </section>
 }

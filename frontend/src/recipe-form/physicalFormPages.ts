@@ -78,3 +78,8 @@ export function formPagePosition(pageIndex: number, leafCount: number, single: b
     text: first === last ? `Page ${first + 1} of ${leafCount}` : `Pages ${first + 1}–${last + 1} of ${leafCount}`,
   }
 }
+
+export function recipeFormSection(leaf: RecipeFormLeaf) {
+  if (leaf.kind === 'identity') return 'Recipe details'
+  return leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Instructions'
+}

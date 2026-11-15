@@ -102,7 +102,7 @@ describe('AI Chef pantry and review workflow', () => {
       ['Rice', 'tomatoes'], 'quick, no frying', expect.objectContaining({ userId: 'chef-cook', signal: expect.any(AbortSignal) }),
     ])
     expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Tomato egg rice')
-    expect((screen.getByLabelText('Ingredient 1 amount description') as HTMLInputElement).value).toBe('leftover')
+    expect((screen.getByLabelText('Ingredient 1 amount description (optional)') as HTMLInputElement).value).toBe('leftover')
     expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('')
     expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
     fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
