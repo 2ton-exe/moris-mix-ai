@@ -34,9 +34,7 @@ jobs:
       queue: max
 
     permissions:
-      actions: read
       contents: read
-      deployments: read
 
     env:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -125,8 +123,6 @@ jobs:
         if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
         env:
           RECIPE_IMAGE_CLEANUP_ENABLED: ${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}
-          GH_TOKEN: ${{ github.token }}
-          PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         shell: bash
@@ -135,52 +131,6 @@ jobs:
           if [[ "$VITE_RECIPE_IMAGES" == true && "$RECIPE_IMAGE_CLEANUP_ENABLED" != true ]]; then
             echo "::error::Enable and verify staging cleanup before enabling recipe images. See docs/devops/deployment-runbook.md."
             exit 1
-          fi
-          if [[ "$VITE_RECIPE_IMAGES" == true ]]; then
-            readiness_runs="$(curl --fail --silent --show-error --max-time 30 \
-              --get \
-              --data-urlencode "branch=main" \
-              --data-urlencode "event=workflow_dispatch" \
-              --data-urlencode "head_sha=$GITHUB_SHA" \
-              --data-urlencode "per_page=100" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/recipe-image-upload-readiness.yml/runs")"
-            if ! jq -e --arg sha "$GITHUB_SHA" \
-              '[.workflow_runs[]? | select(.head_sha == $sha and .head_branch == "main" and .event == "workflow_dispatch")] | sort_by(.created_at) | last | (.status == "completed" and .conclusion == "success")' \
-              <<< "$readiness_runs" >/dev/null; then
-              echo "::error::A successful protected Recipe Image Upload Readiness run is required for main commit $GITHUB_SHA before enabling recipe images."
-              exit 1
-            fi
-            readiness_deployments="$(curl --fail --silent --show-error --max-time 30 \
-              --get \
-              --data-urlencode "sha=$GITHUB_SHA" \
-              --data-urlencode "environment=recipe-image-upload-production" \
-              --data-urlencode "per_page=100" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/deployments")"
-            if ! deployment_id="$(jq -er --arg sha "$GITHUB_SHA" \
-              '[.[]? | select(.sha == $sha and .environment == "recipe-image-upload-production")] | sort_by(.created_at) | last | .id' \
-              <<< "$readiness_deployments")"; then
-              echo "::error::No protected image readiness deployment exists for main commit $GITHUB_SHA."
-              exit 1
-            fi
-            readiness_statuses="$(curl --fail --silent --show-error --max-time 30 \
-              --get \
-              --data-urlencode "per_page=100" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses")"
-            if ! jq -e --arg expected_url "$PRODUCTION_FRONTEND_URL" \
-              '[.[]?] | sort_by(.created_at) | last | (.state == "success" and ((.environment_url // "" | sub("/+$"; "")) == ($expected_url | sub("/+$"; ""))))' \
-              <<< "$readiness_statuses" >/dev/null; then
-              echo "::error::Protected image readiness origin does not match PRODUCTION_FRONTEND_URL."
-              exit 1
-            fi
           fi
           migrations="$(curl --fail --silent --show-error --max-time 30 \
             --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
