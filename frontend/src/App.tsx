@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router'
 import { AuthProvider } from './auth/AuthProvider'
 import { AuthReady, GuestRoute, ProtectedRoute } from './auth/AuthRoutes'
 import { LoadingState } from './components/LoadingState'
+import { RouteLoadBoundary } from './components/RouteLoadBoundary'
 import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
 const AuthPage = lazy(() => import('./pages/AuthPage'))
@@ -27,8 +28,11 @@ const HomePage = lazy(() => import('./pages/PublicJournalPages').then(({ HomePag
 const AboutPage = lazy(() => import('./pages/PublicJournalPages').then(({ AboutPage }) => ({ default: AboutPage })))
 const NotFoundPage = lazy(() => import('./pages/PublicJournalPages').then(({ NotFoundPage }) => ({ default: NotFoundPage })))
 
-const routeElement = (element: ReactNode, message = 'Loading…') =>
-  <Suspense fallback={<LoadingState message={message} />}>{element}</Suspense>
+const routeElement = (element: ReactNode, message = 'Loading…') => (
+  <RouteLoadBoundary>
+    <Suspense fallback={<LoadingState message={message} />}>{element}</Suspense>
+  </RouteLoadBoundary>
+)
 
 // Keep BrowserRouter tests and the production data-router entry on one route tree.
 // eslint-disable-next-line react-refresh/only-export-components -- route config is shared with main.tsx
