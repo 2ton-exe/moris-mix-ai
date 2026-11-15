@@ -1,7 +1,8 @@
 import { Component, type ReactNode } from 'react'
+import { useLocation } from 'react-router'
 import { ErrorState } from './ErrorState'
 
-export class RouteLoadBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+class RouteLoadErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
 
   static getDerivedStateFromError() {
@@ -14,4 +15,9 @@ export class RouteLoadBoundary extends Component<{ children: ReactNode }, { hasE
     }
     return this.props.children
   }
+}
+
+export function RouteLoadBoundary({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  return <RouteLoadErrorBoundary key={pathname}>{children}</RouteLoadErrorBoundary>
 }
