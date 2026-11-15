@@ -2,7 +2,7 @@
 
 **Status** — BE-13 backend contract approved by Ramos on 2026-11-08 in [#104](https://github.com/2ton-exe/moris-mix-ai/issues/104#issuecomment-6721071406). The FE-12 author has approved this revised upload contract. This is API-contract approval only; it does not authorize production deployment or cleanup.
 
-## Browser rollout gate
+## Browser rollout gates
 
 The image panel and all image endpoint requests are disabled unless
 `VITE_RECIPE_IMAGES=true`. The production build now sets the flag to `true` per
@@ -13,6 +13,22 @@ production release deploys the offset-compatible `recipe-image-attach` function
 after this change is merged.
 Production R2 behavior and cleanup readiness remain unverified; keep the
 cleanup opt-in unset until its separate checks pass.
+
+Upload authorization idempotency has a separate compatibility gate:
+`VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` defaults to `false`, and the browser omits
+`request_id` unless the flag is exactly `true`. Production reads the same-named
+repository variable and falls back to `false`, so this client remains compatible
+with a deployed signer that still has the older strict request schema. Keep the
+variable unset or `false` until migration `20261115000020` and its prerequisite
+upload-intent migrations are applied, the updated `recipe-image-upload-url`
+signer is deployed and verified to accept `request_id`, and the protected
+readiness workflow passes. That workflow verifies database state; it does not
+verify the deployed signer code. The current production workflow still keeps
+signer deployment disabled, so enabling this client flag requires a separately
+authorized signer rollout first. After that rollout is independently verified,
+an authorized operator can set the repository variable to `true` and run a
+production release to deliver the idempotency-aware client. Do not enable the
+flag based only on this PR or on migration history.
 
 ## Upload requirements
 

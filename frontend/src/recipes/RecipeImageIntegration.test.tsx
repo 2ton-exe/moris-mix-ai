@@ -48,7 +48,7 @@ let postAttachDownloadStarted: Promise<void>
 let resolvePostAttachDownload: ((response: Response) => void) | undefined
 let downloadCount = 0
 let intentCount = 0
-let intentRequests: Array<{ recipe_id: string; content_type: string; byte_size: number; request_id: string }> = []
+let intentRequests: Array<{ recipe_id: string; content_type: string; byte_size: number; request_id?: string }> = []
 let intentIdsByRequestId = new Map<string, string>()
 let putCount = 0
 let attachCount = 0
@@ -63,6 +63,7 @@ beforeEach(async () => {
   vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'public-test-key')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
   vi.stubEnv('VITE_RECIPE_IMAGES', 'true')
+  vi.stubEnv('VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY', 'false')
   fetchImpl = vi.fn<typeof fetch>()
   vi.stubGlobal('fetch', fetchImpl)
 
@@ -151,12 +152,12 @@ beforeEach(async () => {
     }
     if (url.pathname === '/functions/v1/recipe-image-upload-url' && method === 'POST') {
       intentCount++
-      const request = JSON.parse(String(init?.body)) as { recipe_id: string; content_type: string; byte_size: number; request_id: string }
+      const request = JSON.parse(String(init?.body)) as { recipe_id: string; content_type: string; byte_size: number; request_id?: string }
       intentRequests.push(request)
-      let id = intentIdsByRequestId.get(request.request_id)
+      let id = request.request_id ? intentIdsByRequestId.get(request.request_id) : undefined
       if (!id) {
         id = intentCount === 1 ? uploadId : retryUploadId
-        intentIdsByRequestId.set(request.request_id, id)
+        if (request.request_id) intentIdsByRequestId.set(request.request_id, id)
       }
       if (loseFirstIntentResponse && intentCount === 1) {
         return Response.json({ error: { code: 'INTERNAL_ERROR' } }, { status: 500 })
@@ -601,7 +602,7 @@ it('uploads optimized bytes through authenticated ingress and preserves the curr
     new URL(String(input)).pathname.endsWith('recipe-image-upload-url') && init?.method === 'POST')
   const intentBody = JSON.parse(intentRequest?.[1]?.body as string)
   expect(intentBody).toMatchObject({ recipe_id: recipeId, content_type: 'image/webp', byte_size: 10 })
-  expect(intentBody.request_id).toMatch(/^[0-9a-f-]{36}$/i)
+  expect(intentBody).not.toHaveProperty('request_id')
 
   const putRequests = fetchImpl.mock.calls.filter(([, init]) => init?.method === 'PUT')
   const putRequest = putRequests[0]
@@ -619,6 +620,7 @@ it('uploads optimized bytes through authenticated ingress and preserves the curr
 })
 
 it('reuses the same upload request ID after the authorization response is lost', async () => {
+  vi.stubEnv('VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY', 'true')
   loseFirstIntentResponse = true
   putFirstFails = false
   renderEditPage()
@@ -635,8 +637,11 @@ it('reuses the same upload request ID after the authorization response is lost',
   await screen.findByText('Recipe image saved.')
 
   expect(intentRequests).toHaveLength(2)
-  expect(intentRequests[1].request_id).toBe(intentRequests[0].request_id)
-  expect(intentIdsByRequestId.get(intentRequests[0].request_id)).toBe(uploadId)
+  const requestId = intentRequests[0].request_id
+  expect(requestId).toMatch(/^[0-9a-f-]{36}$/i)
+  expect(intentRequests[1].request_id).toBe(requestId)
+  if (!requestId) throw new Error('The enabled idempotency gate did not send a request ID.')
+  expect(intentIdsByRequestId.get(requestId)).toBe(uploadId)
   expect(putCount).toBe(1)
   expect(attachCount).toBe(1)
 })

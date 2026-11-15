@@ -53,7 +53,9 @@ export function createRecipeImageApi(client: typeof apiClient = apiClient) {
         recipe_id: recipeId,
         content_type: image.type,
         byte_size: image.size,
-        request_id: request.requestId,
+        ...(import.meta.env.VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY === 'true'
+          ? { request_id: request.requestId }
+          : {}),
       }, request)
       const upload = isRecord(value) && isRecord(value.upload) ? value.upload : undefined
       let uploadUrl: URL | undefined

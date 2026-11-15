@@ -122,7 +122,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(callers, ['modular-main.yml']);
 });
 
-test('modular PR is isolated from hosted credentials and deployment', () => {
+test('modular PR keeps hosted database credentials out and stages only eligible revisions', () => {
   const pr = workflow('modular-pr-validation');
   assert.deepEqual(Object.keys(pr.on), ['pull_request']);
   assert.deepEqual(pr.on.pull_request.branches, ['main']);
@@ -136,11 +136,13 @@ test('modular PR is isolated from hosted credentials and deployment', () => {
     assert.equal(main.jobs[id].uses, pr.jobs[id].uses);
     assert.equal(workflow(reusable).jobs[id].name, calleeName);
   }
-  assert.equal(pr.jobs.staging.if, '${{ false }}');
-  assert.equal(pr.jobs.staging.uses, undefined);
-  assert.equal(pr.jobs.staging.secrets, undefined);
+  assert.deepEqual(pr.jobs.staging.needs, ['classify', 'frontend', 'test-db', 'test-edge-api']);
+  assert.equal(pr.jobs.staging.uses, './.github/workflows/reusable-staging.yml');
+  assert.deepEqual(Object.keys(pr.jobs.staging.secrets).sort(), [
+    'STAGING_CLOUDFLARE_ACCOUNT_ID', 'STAGING_CLOUDFLARE_API_TOKEN',
+  ]);
   assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
-  assert.doesNotMatch(readFileSync('.github/workflows/modular-pr-validation.yml', 'utf8'), /secrets\./);
+  assert.doesNotMatch(readFileSync('.github/workflows/modular-pr-validation.yml', 'utf8'), /NON_PRODUCTION_TEST_DATABASE_/);
   for (const job of Object.values(pr.jobs)) {
     assert.notEqual(job.uses, './.github/workflows/reusable-production.yml');
     assert.notEqual(job.uses, './.github/workflows/reusable-cloudflare.yml');
@@ -207,6 +209,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     VITE_SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
     VITE_SUPABASE_ANON_KEY: '${{ vars.VITE_SUPABASE_ANON_KEY }}',
     VITE_RECIPE_IMAGES: 'true',
+    VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY: "${{ vars.VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY || 'false' }}",
     SMOKE_ENVIRONMENT: 'production',
     SMOKE_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
     SMOKE_SUPABASE_URL: '${{ vars.VITE_SUPABASE_URL }}',
@@ -517,9 +520,7 @@ test('docs-only paths execute successful core jobs; main and hosted RLS cannot n
 test('E2E skips only on successful explicit docs-only decisions', () => {
   const pr = workflow('modular-pr-validation');
   assert.equal(pr.jobs['test-e2e'].needs, 'classify');
-  assert.equal(pr.jobs.staging.if, '${{ false }}');
-  assert.equal(pr.jobs.staging.uses, undefined);
-  assert.equal(pr.jobs.staging.secrets, undefined);
+  assert.equal(pr.jobs.staging.uses, './.github/workflows/reusable-staging.yml');
   assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
   const migration = step(edge.jobs['test-edge-api'], 'Check hosted migration configuration');
   assert.equal(condition(migration.if, { env: { DOCS_ONLY: 'false' }, github: { event_name: 'pull_request' } }), false);
@@ -544,9 +545,29 @@ test('E2E skips only on successful explicit docs-only decisions', () => {
           assert.equal(condition(pr.jobs[id].if, overrides), !skip, `${id}: ${result}/${docs_only}/${decision}`);
           assert.equal(condition(pr.jobs[id].if, { ...overrides, cancelled: () => true }), false);
         }
+        assert.equal(condition(pr.jobs.staging.if, overrides), !skip, `staging: ${result}/${docs_only}/${decision}`);
+        assert.equal(condition(pr.jobs.staging.if, { ...overrides, cancelled: () => true }), false);
         assert.equal(condition(marker.if, { steps: { classify: { outputs } } }), docs_only === 'true' && decision === 'skip');
       }
     }
+  }
+  const eligibleNeeds = {
+    classify: { result: 'success', outputs: { docs_only: 'false', staging: 'run' } },
+    frontend: { result: 'success' }, 'test-db': { result: 'success' }, 'test-edge-api': { result: 'success' },
+  };
+  const sameRepo = { event: { pull_request: {
+    draft: false, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } },
+  } }, repository: '2ton-exe/moris-mix-ai' };
+  assert.equal(condition(pr.jobs.staging.if, { needs: eligibleNeeds, github: sameRepo, cancelled: () => false }), true);
+  assert.equal(condition(pr.jobs.staging.if, { needs: eligibleNeeds, github: {
+    ...sameRepo, event: { pull_request: { draft: false, head: { repo: { full_name: 'external/fork' } } } },
+  }, cancelled: () => false }), false);
+  assert.equal(condition(pr.jobs.staging.if, { needs: eligibleNeeds, github: {
+    ...sameRepo, event: { pull_request: { draft: true, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } } } },
+  }, cancelled: () => false }), false);
+  for (const dependency of ['frontend', 'test-db', 'test-edge-api']) {
+    const needs = { ...eligibleNeeds, [dependency]: { result: 'failure' } };
+    assert.equal(condition(pr.jobs.staging.if, { needs, github: sameRepo, cancelled: () => false }), false);
   }
   assert.equal(main.jobs['test-e2e'].needs, undefined);
   assert.equal(main.jobs['test-e2e'].if, undefined);
