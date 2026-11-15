@@ -61,12 +61,12 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
     await page.getByRole('button', { name: 'Organize my notes' }).click()
     await expect(page.getByRole('heading', { name: extractedTitle })).toBeVisible()
-    await expect(page.getByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeVisible()
+    await expect(page.getByText('Unsaved preview')).toBeVisible()
     expect(createRequests).toHaveLength(0)
   })
 
   await test.step('edit the reviewed fields and verify the collection is still empty for this recipe', async () => {
-    await page.getByRole('link', { name: 'Review & Edit Recipe' }).click()
+    await page.getByRole('link', { name: 'Review recipe draft' }).click()
     await expect(page.getByLabel('Recipe title')).toHaveValue(extractedTitle)
     await page.getByLabel('Recipe title').fill(reviewedTitle)
 

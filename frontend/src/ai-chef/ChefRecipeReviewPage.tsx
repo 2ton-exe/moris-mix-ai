@@ -392,14 +392,9 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       />
       {storageNotice}
     </>}
-    renderFrame={(content) => <RecipeEditorFrame mode="create" connected
-      headingEyebrow={saved ? 'Saved to your journal' : 'AI Chef · unsaved recipe'}
+    renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
       headingTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
-      headingIntro={<p className="intro">{saved
-        ? 'The recipe is in your journal. You can keep editing and choose Save changes when you are ready.'
-        : 'Review the ingredients, measurements, and steps. Edit anything you like, then choose Save recipe to add it to your journal.'}</p>}
-      navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}
-      backTo="/app/chef" backLabel="Back to AI Chef">{content}</RecipeEditorFrame>} />
+      navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 
 function ChefGenerationNotice({

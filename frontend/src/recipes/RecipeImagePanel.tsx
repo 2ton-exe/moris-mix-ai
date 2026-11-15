@@ -298,7 +298,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
     {!loading && !currentDownload && !downloadError && (allowUpload || showEmpty) && <p role="status">No recipe photo has been added yet.</p>}
     {downloadError && <div className="recipe-image-error">
       <p aria-live="polite">Could not load this recipe image.</p>
-      <button type="button" onClick={() => { refreshAttempted.current = false; void loadImage() }}>Refresh photo</button>
+      <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void loadImage() }}>Refresh photo</button>
     </div>}
     {allowUpload && <div className="recipe-image-controls">
       <label htmlFor={`${id}-file`}>Choose recipe image</label>
@@ -318,7 +318,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       {uploading && <p role="status">{bytesUploaded ? 'Attaching image…' : 'Uploading image…'}</p>}
       {uploadError && <p role="alert">{uploadError}</p>}
       {uploadSuccess && <p role="status">Recipe image saved.</p>}
-      {selected && <button type="button" disabled={preparing || uploading} onClick={() => { void uploadImage() }}>
+      {selected && <button type="button" className="button button-secondary" disabled={preparing || uploading} onClick={() => { void uploadImage() }}>
         {uploadError ? attached ? 'Refresh attached image' : bytesUploaded ? 'Retry attachment' : 'Retry upload' : 'Upload image'}
       </button>}
     </div>}

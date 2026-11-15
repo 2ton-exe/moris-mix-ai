@@ -172,7 +172,7 @@ try {
     const scenes = [
       ['index', 'app/recipes?view=index', 'journal/index', 'Saved recipes (1)'],
       ['detail', `app/recipes/${recipe.id}`, `journal/scraps/${recipe.id}`, recipe.title],
-      ['create', 'app/recipes/new', 'journal/scraps/new', 'A recipe of your own.'],
+      ['create', 'app/recipes/new', 'journal/scraps/new', 'New recipe'],
       ['login', 'login', 'login', 'Welcome back'],
     ]
     for (const [name, route, referenceRoute, heading] of scenes) {

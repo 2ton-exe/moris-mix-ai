@@ -52,9 +52,8 @@ export default function RecipeDetailPage() {
         {query.isError && <><RecipeError detail error={query.error} onRetry={retry} /><p className="recipe-update" role="status">Showing the last loaded recipe. Its latest changes could not be checked.</p></>}
       </>}
       actions={<>
-        {source.mode === 'live' && <Link className="button button-secondary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Edit recipe</Link>}
+        {source.mode === 'live' && <Link className="button button-primary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Edit recipe</Link>}
         <RecipeDeletionControl recipeId={recipe.id} recipeTitle={recipe.title} />
-        <Link className="button mm-button--page-turn" to={journalReturn} state={{ focusRecipe: recipeId }}>Collection →</Link>
       </>}
     />}
   </div>

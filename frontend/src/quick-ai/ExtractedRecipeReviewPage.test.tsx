@@ -87,13 +87,12 @@ it('opens the existing form with extraction fields and original notes kept separ
   expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
   expect((screen.getByLabelText('Cooked date') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
-  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
-  expect(screen.getAllByText(/No amount was extracted/).length).toBeGreaterThan(0)
-  const details = within(screen.getByRole('region', { name: 'AI extraction details' }))
+  const details = within(screen.getByRole('region', { name: "Mori's extraction notes" }))
   expect(details.getByText(sourceNotes)).toBeTruthy()
+  expect(details.getByText(/preview only/)).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Review recipe draft' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
   expect(screen.getAllByRole('note').some((note) => note.textContent?.includes('No amount was extracted'))).toBe(true)
-  expect(details.getByText(/informational only/)).toBeTruthy()
-  expect(screen.getAllByText(/AI-extracted, unsaved recipe/).length).toBeGreaterThan(0)
   expect(save).not.toHaveBeenCalled()
 })
 
@@ -235,7 +234,7 @@ it('confirms logout when the saved recipe has newer unsaved edits', async () => 
 
 it('blocks leaving even before the user edits AI-prefilled values and keeps notes on return', async () => {
   renderReview()
-  fireEvent.click(screen.getByRole('link', { name: 'Back to Mori notes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Back to Mori notes' }))
   expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
   expect(screen.getByDisplayValue('Garlic soy rice')).toBeTruthy()

@@ -219,7 +219,7 @@ export function MoriDialogue({
       <div className="mm-mori-dialogue__content">
         <header className="mm-mori-dialogue__heading">
           <div>
-            <Stamp tone="burgundy" className="mm-mori-dialogue__stamp">{eyebrow}</Stamp>
+            {eyebrow && <Stamp tone="burgundy" className="mm-mori-dialogue__stamp">{eyebrow}</Stamp>}
             <h2 id={titleId} ref={headingRef} tabIndex={-1}>{speaker}</h2>
           </div>
         </header>
@@ -335,15 +335,13 @@ export function MoriDialogueLauncher({
     <div className="mm-mori-companion" onKeyDown={handleKeyDown}>
       <button
         ref={triggerRef}
-        className="button button-secondary mm-mori-companion__trigger"
+        className="button mm-button--ghost mm-mori-companion__trigger"
         type="button"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={open ? 'Close the note from Mori' : 'Open a note from Mori'}
         onClick={toggle}
       >
-        <Mori mood="wave" size={24} />
-        <span>{open ? "Hide Mori's note" : 'A note from Mori'}</span>
+        Journal tips
       </button>
       {open && <MoriDialogue
         id={panelId}

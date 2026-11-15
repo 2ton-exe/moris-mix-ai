@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router'
 import { BookOpen, House, Info, NotebookPen } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
-import { TalkToMoriBookmark } from './TalkToMoriBookmark'
+import { MoriAssistant } from './MoriAssistant'
 import { JournalSurface, PaperCard } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
 import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
@@ -40,7 +40,6 @@ function JournalBookmarks({ publicNavigation = false }: { publicNavigation?: boo
   </nav>
   return <nav className={className} aria-label="Journal sections">
     <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !editing && !aiWorkflow ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
-    <TalkToMoriBookmark />
     <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
   </nav>
 }
@@ -124,6 +123,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         </div>
       </div>
     </div>
+    {!publicNavigation && <MoriAssistant />}
     <div ref={setCompanion} className="mm-desk-companion" />
     {/* Portalled confirmations stay above the physical leaves and rings. */}
     <div id="journal-overlays" />

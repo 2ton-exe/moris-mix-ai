@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import type { RecipeDraft, RecipeEditorState } from './draft'
 import { emptyRecipeDraft, editorState, moveRow, validateEditor } from './draft'
 import { confirmedSave, RecipeSubmissionError, submissionMessage } from './submission'
@@ -45,7 +45,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const [pending, setPending] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [pageAnchor, setPageAnchor] = useState<string>('identity')
-  const [overflowingLeaves, setOverflowingLeaves] = useState<string[]>([])
   const submitting = useRef(false)
   const lifetime = useRef(0)
   const controller = useRef<AbortController | null>(null)
@@ -54,13 +53,11 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const lastFocusedControl = useRef<{ key: string; start: number | null; end: number | null; direction: 'forward' | 'backward' | 'none' | null } | null>(null)
   const previousSingle = useRef<boolean | null>(null)
   const requestedStart = useRef(0)
-  const leafBodies = useRef(new Map<string, HTMLDivElement>())
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const leaves = useMemo(() => recipeFormLeaves(state, single), [state, single])
   const currentLeafIndex = leafIndexForAnchor(leaves, pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
-  const visibleSignature = visibleIndices.map((index) => leaves[index]?.key ?? '').join('|')
   const dirty = baseline === null || JSON.stringify(state) !== baseline
   const saved = hasConfirmedSave && !dirty
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
@@ -105,32 +102,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   useLayoutEffect(() => {
     requestedStart.current = single ? currentLeafIndex : Math.floor(currentLeafIndex / 2) * 2
   }, [currentLeafIndex, single])
-
-  useLayoutEffect(() => {
-    let frame = 0
-    const check = () => {
-      const next = Array.from(leafBodies.current.entries())
-        .filter(([, element]) => element.clientHeight > 0 && element.scrollHeight > element.clientHeight + 2)
-        .map(([key]) => key).sort()
-      setOverflowingLeaves((previous) => previous.length === next.length && previous.every((key, index) => key === next[index]) ? previous : next)
-    }
-    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(check) }
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
-    const activeBodies = visibleSignature.split('|').filter(Boolean).flatMap((key) => {
-      const body = leafBodies.current.get(key)
-      if (!body) return []
-      const content = body.querySelector<HTMLElement>('.mm-writing-leaf__content')
-      return content ? [body, content] : [body]
-    })
-    activeBodies.forEach((element) => observer?.observe(element))
-    window.addEventListener('resize', schedule)
-    schedule()
-    return () => {
-      cancelAnimationFrame(frame)
-      observer?.disconnect()
-      window.removeEventListener('resize', schedule)
-    }
-  }, [visibleSignature, state, single])
 
   useEffect(() => () => {
     lifetime.current++
@@ -369,7 +340,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   function renderLeaf(leaf: RecipeFormLeaf, index: number) {
     const leafNumber = index + 1
     const headingId = prefix + '-leaf-' + index
-    const overflowing = overflowingLeaves.includes(leaf.key)
     const sectionTitle = leaf.kind === 'identity' ? 'Recipe identity' : leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Cooking method'
     let pageContent: ReactNode
 
@@ -378,11 +348,11 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
         <section className="recipe-form-section" aria-labelledby={headingId}>
           <h2 id={headingId} tabIndex={-1}>Recipe identity</h2>
           <RecipeFormField id={field('title').id} label="Recipe title" error={errors.title}>
-            <textarea {...field('title')} required maxLength={200} rows={Math.min(3, Math.max(1, Math.ceil(state.title.length / 32)))} value={state.title} onChange={(event) => change({ ...state, title: event.target.value })} />
+            <textarea {...field('title')} required maxLength={200} rows={Math.min(3, Math.max(1, Math.ceil(state.title.length / (single ? 16 : 32))))} value={state.title} onChange={(event) => change({ ...state, title: event.target.value })} />
           </RecipeFormField>
         </section>
         <section className="recipe-form-section" aria-labelledby={prefix + '-journal'}>
-          <h2 id={prefix + '-journal'}>Date and personal notes</h2>
+          <h2 id={prefix + '-journal'}>Cooking details</h2>
           <div className="recipe-amount-row">
             <RecipeFormField id={field('cooked_at').id} label="Cooked date" error={errors.cooked_at}>
               <input {...field('cooked_at')} type="date" value={state.cookedDate} onChange={(event) => change({ ...state, cookedDate: event.target.value })} />
@@ -393,8 +363,8 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
               </select>
             </RecipeFormField>
           </div>
-          <RecipeFormField id={field('notes').id} label="Notes" error={errors.notes} hint={notesSupported ? 'Optional. Keep the little things you want to remember.' : 'Local draft only. Notes have no published saving contract yet and stay on this page.'}>
-            <textarea {...field('notes', true)} maxLength={20_000} rows={5} value={state.notes} onChange={(event) => change({ ...state, notes: event.target.value })} />
+          <RecipeFormField id={field('notes').id} label="Notes" error={errors.notes} hint={notesSupported ? undefined : 'Local draft only. Notes have no published saving contract yet and stay on this page.'}>
+            <textarea {...field('notes', !notesSupported)} maxLength={20_000} rows={5} value={state.notes} onChange={(event) => change({ ...state, notes: event.target.value })} />
           </RecipeFormField>
         </section>
         {supplement}
@@ -407,37 +377,36 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const containsLast = items.some(({ item }) => item.key === state.ingredients.at(-1)?.key)
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <h2 id={headingId} tabIndex={-1}>Ingredients</h2>
-        <p className="field-hint">Use your own units. Leave amounts blank when you cook by feel.</p>
-        {!items.length && <p className="editor-empty">No ingredients added yet. Start with one you reach for every time.</p>}
+        <p className="field-hint">Use a written amount like “to taste” to override quantity and unit.</p>
+        {!items.length && <p className="editor-empty">No ingredients yet.</p>}
         {items.map(({ item, rowIndex }) => <fieldset className="recipe-editor-row" key={item.key}>
           <legend>Ingredient {rowIndex + 1}{state.ingredients.length > 1 ? ' of ' + state.ingredients.length : ''}</legend>
           {showExtractionHints && item.inferred && <label className="recipe-ai-estimate">
             <input type="checkbox" checked={item.inferred} aria-label={`Mori estimated ingredient ${rowIndex + 1}`} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, inferred: event.target.checked } : row) })} />
-            <span>Mori estimated this ingredient. Review it before saving; uncheck once confirmed.</span>
+            <span>Estimated by Mori. Uncheck after review.</span>
           </label>}
-          {showExtractionHints && !item.quantity.trim() && !item.quantityText.trim() && <p className="recipe-ai-gap" role="note">No amount was extracted. Add one if you know it.</p>}
-          {showExtractionHints && !item.unit.trim() && (item.quantity.trim() || item.quantityText.trim()) && <p className="recipe-ai-gap" role="note">No unit was extracted. Add one if you know it.</p>}
-          <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={'Ingredient ' + (rowIndex + 1) + ' name'} error={errors['ingredients.' + rowIndex + '.name']}>
+          {showExtractionHints && !item.quantity.trim() && !item.quantityText.trim() && <p className="recipe-ai-gap" role="note">No amount was extracted.</p>}
+          <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>name</>} error={errors['ingredients.' + rowIndex + '.name']}>
             <input {...field('ingredients.' + rowIndex + '.name', false, 'ingredient:' + item.key + ':name')} maxLength={200} value={item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, name: event.target.value } : row) })} />
           </RecipeFormField>
           <div className="recipe-amount-row">
-            <RecipeFormField id={field('ingredients.' + rowIndex + '.quantity').id} label={'Ingredient ' + (rowIndex + 1) + ' quantity'} error={errors['ingredients.' + rowIndex + '.quantity']}>
+            <RecipeFormField id={field('ingredients.' + rowIndex + '.quantity').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>quantity</>} error={errors['ingredients.' + rowIndex + '.quantity']}>
               <input {...field('ingredients.' + rowIndex + '.quantity', false, 'ingredient:' + item.key + ':quantity')} inputMode="decimal" value={item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantity: event.target.value } : row) })} />
             </RecipeFormField>
-            <RecipeFormField id={field('ingredients.' + rowIndex + '.unit').id} label={'Ingredient ' + (rowIndex + 1) + ' unit'} error={errors['ingredients.' + rowIndex + '.unit']}>
+            <RecipeFormField id={field('ingredients.' + rowIndex + '.unit').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>unit</>} error={errors['ingredients.' + rowIndex + '.unit']}>
               <input {...field('ingredients.' + rowIndex + '.unit', false, 'ingredient:' + item.key + ':unit')} maxLength={100} value={item.unit} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, unit: event.target.value } : row) })} />
             </RecipeFormField>
           </div>
-          <RecipeFormField id={field('ingredients.' + rowIndex + '.quantityText').id} label={'Ingredient ' + (rowIndex + 1) + ' amount description'} hint="Optional; for example, ‘to taste’. This takes priority over the numeric amount.">
-            <input {...field('ingredients.' + rowIndex + '.quantityText', true, 'ingredient:' + item.key + ':quantityText')} maxLength={200} value={item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantityText: event.target.value } : row) })} />
+          <RecipeFormField id={field('ingredients.' + rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>amount description</>} error={errors['ingredients.' + rowIndex + '.quantityText']}>
+            <input {...field('ingredients.' + rowIndex + '.quantityText', false, 'ingredient:' + item.key + ':quantityText')} maxLength={200} value={item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantityText: event.target.value } : row) })} />
           </RecipeFormField>
           <div className="recipe-row-actions">
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveIngredient(item.key, rowIndex, -1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' up'}>Move up</button>
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.ingredients.length - 1} onClick={() => moveIngredient(item.key, rowIndex, 1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' down'}>Move down</button>
-            <button className="button mm-button--icon" type="button" onClick={() => removeIngredient(item.key, rowIndex)} aria-label={'Remove ingredient ' + (rowIndex + 1)}><X size={17} aria-hidden="true" /></button>
+            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveIngredient(item.key, rowIndex, -1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' up'} title="Move up"><ArrowUp size={16} aria-hidden="true" /></button>
+            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.ingredients.length - 1} onClick={() => moveIngredient(item.key, rowIndex, 1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' down'} title="Move down"><ArrowDown size={16} aria-hidden="true" /></button>
+            <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeIngredient(item.key, rowIndex)} aria-label={'Remove ingredient ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /> Remove</button>
           </div>
         </fieldset>)}
-        {(!items.length || containsLast) && <button className="button mm-button--ghost mm-button--small" type="button" name="add-ingredient" data-form-focus-key="add-ingredient" onClick={addIngredient} disabled={state.ingredients.length >= 100}>Add ingredient</button>}
+        {(!items.length || containsLast) && <button className="button button-secondary mm-button--small mm-row-add" type="button" name="add-ingredient" data-form-focus-key="add-ingredient" onClick={addIngredient} disabled={state.ingredients.length >= 100}><Plus size={16} aria-hidden="true" /> Add ingredient</button>}
       </section>
     } else {
       const items = leaf.kind === 'instructions' ? leaf.rowKeys.map((key) => {
@@ -447,31 +416,29 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const containsLast = items.some(({ item }) => item.key === state.instructions.at(-1)?.key)
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <h2 id={headingId} tabIndex={-1}>Cooking method</h2>
-        {!items.length && <p className="editor-empty">No cooking steps added yet. Write the first thing you do.</p>}
+        {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
         {items.map(({ item, rowIndex }) => <fieldset className="recipe-editor-row" key={item.key}>
           <legend>Step {rowIndex + 1}{state.instructions.length > 1 ? ' of ' + state.instructions.length : ''}</legend>
-          <RecipeFormField id={field('instructions.' + rowIndex + '.text').id} label={'Step ' + (rowIndex + 1) + ' description'} error={errors['instructions.' + rowIndex + '.text']} hint="Long steps stay in this field. Scroll inside it to review the full text.">
-            <textarea {...field('instructions.' + rowIndex + '.text', true, 'instruction:' + item.key + ':text')} maxLength={2_000} rows={4} value={item.text} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: event.target.value } : row) })} />
+          <RecipeFormField id={field('instructions.' + rowIndex + '.text').id} label={'Step ' + (rowIndex + 1) + ' description'} error={errors['instructions.' + rowIndex + '.text']}>
+            <textarea {...field('instructions.' + rowIndex + '.text', false, 'instruction:' + item.key + ':text')} maxLength={2_000} rows={4} value={item.text} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: event.target.value } : row) })} />
           </RecipeFormField>
           <div className="recipe-row-actions">
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveInstruction(item.key, rowIndex, -1)} aria-label={'Move step ' + (rowIndex + 1) + ' up'}>Move up</button>
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.instructions.length - 1} onClick={() => moveInstruction(item.key, rowIndex, 1)} aria-label={'Move step ' + (rowIndex + 1) + ' down'}>Move down</button>
-            <button className="button mm-button--icon" type="button" onClick={() => removeStep(item.key, rowIndex)} aria-label={'Remove step ' + (rowIndex + 1)}><X size={17} aria-hidden="true" /></button>
+            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveInstruction(item.key, rowIndex, -1)} aria-label={'Move step ' + (rowIndex + 1) + ' up'} title="Move up"><ArrowUp size={16} aria-hidden="true" /></button>
+            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.instructions.length - 1} onClick={() => moveInstruction(item.key, rowIndex, 1)} aria-label={'Move step ' + (rowIndex + 1) + ' down'} title="Move down"><ArrowDown size={16} aria-hidden="true" /></button>
+            <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeStep(item.key, rowIndex)} aria-label={'Remove step ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /> Remove</button>
           </div>
         </fieldset>)}
-        {(!items.length || containsLast) && <button className="button mm-button--ghost mm-button--small" type="button" name="add-step" data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}>Add cooking step</button>}
+        {(!items.length || containsLast) && <button className="button button-secondary mm-button--small mm-row-add" type="button" name="add-step" data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> Add cooking step</button>}
       </section>
     }
 
     return <fieldset className="recipe-form-controls mm-writing-page-controls" key={leaf.key} disabled={pending}>
       <legend className="visually-hidden">{sectionTitle}</legend>
-      <div ref={(element) => { if (element) leafBodies.current.set(leaf.key, element); else leafBodies.current.delete(leaf.key) }}
-        className={'mm-page-body mm-writing-leaf' + (leaf.kind === 'identity' ? ' mm-form-identity' : ' mm-form-recipe')}
-        data-writing-leaf-key={leaf.key} data-overflowing={overflowing || undefined}
+      <div className={'mm-page-body mm-writing-leaf' + (leaf.kind === 'identity' ? ' mm-form-identity' : ' mm-form-recipe')}
+        data-writing-leaf-key={leaf.key}
         role="region" aria-label={sectionTitle + ', page ' + leafNumber} tabIndex={0}>
-        {single && <h1 className="mm-writing-mobile-title" tabIndex={-1}>{editorTitle ?? (mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'A recipe of your own.' : 'Make it your own.')}</h1>}
+        {single && <h1 className="mm-writing-mobile-title" tabIndex={-1}>{editorTitle ?? (mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'New recipe' : 'Edit recipe')}</h1>}
         <span className="mm-writing-folio" aria-label={'Physical page ' + leafNumber}>Leaf {leafNumber}</span>
-        {overflowing && <p className="mm-writing-overflow" role="note">This writing leaf needs a little scrolling. Every field stays together and complete.</p>}
         <div className="mm-writing-leaf__content">{(single || leafNumber % 2 === 0 || pageIndex === undefined || !leaves[pageIndex]) && notice}{pageContent}</div>
       </div>
     </fieldset>
@@ -494,7 +461,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
         <button className="button button-primary" type="submit" disabled={pending || saved}>{pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? 'Save recipe' : 'Save changes'}</button>
         {onCancel && <button className="button button-secondary" type="button" disabled={pending} onClick={() => onCancel()}>{cancelLabel}</button>}
       </div>
-      <p className="field-hint">{dirty ? 'You have unsaved changes.' : 'Changes are saved only after the recipe service confirms them.'}</p>
+      {dirty && <p className="field-hint">Unsaved changes</p>}
     </div></JournalPageFooter>
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>

@@ -36,10 +36,10 @@ export function RecipeDeletionControl({ recipeId, recipeTitle }: { recipeId: str
   return (
     <div className="recipe-delete-control">
       {isAvailable ? (
-        <button className="button button-danger mm-button--ghost mm-button--small" type="button" onClick={(event) => { event.currentTarget.focus(); setOpen(true) }}>Delete recipe</button>
+        <button className="button button-secondary mm-recipe-delete-button mm-button--small" type="button" onClick={(event) => { event.currentTarget.focus(); setOpen(true) }}>Delete recipe</button>
       ) : (
         <div className="recipe-delete-unavailable">
-          <button className="button button-danger mm-button--ghost mm-button--small" type="button" disabled>Delete unavailable</button>
+          <button className="button button-secondary mm-recipe-delete-button mm-button--small" type="button" disabled>Delete unavailable</button>
           <p role="status">Recipe deletion is not connected yet.</p>
         </div>
       )}

@@ -111,8 +111,8 @@
 }
 .mm-journal-editor .recipe-editor-row {
   min-width: 0;
-  margin: 22px 0;
-  padding: 8px clamp(12px, 2vw, 20px) 18px;
+  margin: 12px 0;
+  padding: 6px 12px 10px;
   border: 1px solid var(--mm-color-sage-300);
   border-radius: 3px;
   background: var(--mm-color-sage-50) var(--mm-tex-grain);
@@ -249,3 +249,43 @@
   .mm-recipe-navigation-dialog > .mm-paper-card__tape,
   .mm-desk .mm-delete-dialog__tape { display: none; }
 }
+
+.mm-journal-editor .recipe-editor-row .recipe-form-field { margin-top: 5px; }
+.mm-journal-editor .recipe-editor-row .recipe-form-field label {
+  margin-bottom: 4px;
+  color: var(--mm-color-ink-soft);
+  font-size: 11px;
+  letter-spacing: .05em;
+}
+.mm-journal-editor .recipe-editor-row .recipe-form-field :is(input, textarea) {
+  min-height: 44px;
+  padding: 6px 9px;
+}
+.mm-journal-editor .recipe-editor-row .recipe-amount-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mm-journal-editor .recipe-editor-row .recipe-row-actions {
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+}
+.mm-journal-editor .recipe-row-actions .button { min-width: 38px; }
+.mm-desk .recipe-row-actions .button.mm-row-remove { margin-inline-start: auto; color: var(--mm-color-brick-700); }
+.mm-desk .recipe-row-actions .button.mm-row-remove:hover { background-color: var(--mm-color-brick-50); }
+.mm-desk .button.mm-row-add { color: var(--mm-color-sage-900); background-color: var(--mm-color-sage-100); }
+.mm-desk .button.mm-row-add:hover:not(:disabled) { background-color: var(--mm-color-sage-200); }
+
+.mm-extraction-notes {
+  margin-block: 12px;
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--mm-color-sage-600);
+  background: var(--mm-color-sage-50) var(--mm-tex-grain);
+  font-size: 14px;
+}
+.mm-extraction-notes p { margin: 0; }
+.mm-extraction-notes summary {
+  padding-block: 8px;
+  color: var(--mm-color-sage-900);
+  font-weight: 650;
+  cursor: pointer;
+}
+.mm-extraction-notes summary:hover { text-decoration: underline; }
+.mm-extraction-notes blockquote { margin: 4px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }

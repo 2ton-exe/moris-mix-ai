@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, Ref } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
@@ -107,16 +107,15 @@ function renderIngredient(ingredient: ExtractedRecipe['ingredients'][number]) {
   return [amount, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
 }
 
-function RecipePreview({ handoff, reviewState }: { handoff: QuickAiEntryHandoff; reviewState: { journalReturn: string; sourceJournalReturn: string } }) {
+function RecipePreview({ handoff, reviewState, headingRef }: { handoff: QuickAiEntryHandoff; reviewState: { journalReturn: string; sourceJournalReturn: string }; headingRef: Ref<HTMLHeadingElement> }) {
   return <section className="mm-quick-ai__preview" aria-labelledby="quick-ai-preview-title">
     <div className="mm-quick-ai__preview-header">
-      <div>
-        <p className="mm-quick-ai__eyebrow">Ready for your review</p>
-        <h2 id="quick-ai-preview-title">{handoff.recipe.title}</h2>
-      </div>
+      <h2 id="quick-ai-preview-title" ref={headingRef} tabIndex={-1}>{handoff.recipe.title}</h2>
       <ScrapLabel tone="sage">Unsaved preview</ScrapLabel>
     </div>
-    <p className="mm-quick-ai__unsaved">This recipe is only a preview. Nothing has been saved to your journal.</p>
+    <div className="mm-quick-ai__preview-actions">
+      <Link className="button button-primary" to="/app/quick-entry/review" state={reviewState}>Review recipe draft</Link>
+    </div>
     <h3>Ingredients</h3>
     {handoff.recipe.ingredients.length > 0
       ? <ul>{handoff.recipe.ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>
@@ -131,9 +130,6 @@ function RecipePreview({ handoff, reviewState }: { handoff: QuickAiEntryHandoff;
       <summary>View original notes</summary>
       <blockquote>{handoff.sourceNotes}</blockquote>
     </details>
-    <div className="mm-quick-ai__preview-actions">
-      <Link className="button button-primary" to="/app/quick-entry/review" state={reviewState}>Review &amp; Edit Recipe</Link>
-    </div>
   </section>
 }
 
@@ -173,6 +169,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const validationId = useId()
   const persistenceWarningId = useId()
   const notesRef = useRef<HTMLTextAreaElement>(null)
+  const previewHeadingRef = useRef<HTMLHeadingElement>(null)
+  const focusNewPreview = useRef(false)
   const requestRef = useRef<AbortController | null>(null)
   const requestNumber = useRef(0)
   const inFlight = useRef(false)
@@ -192,6 +190,15 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setLogoutConfirmationOpen(true)
     return false
   }, [hasUnsavedContent, persistenceFailed])
+
+  useEffect(() => {
+    if (!handoff || !focusNewPreview.current) return
+    focusNewPreview.current = false
+    const active = document.activeElement
+    if (active === document.body || notesRef.current?.form?.contains(active)) {
+      previewHeadingRef.current?.focus()
+    }
+  }, [handoff])
 
   useEffect(() => {
     if (!registerLogoutGuard) return
@@ -288,6 +295,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       const completedDraft = { ...pendingDraft, handoff: nextHandoff }
       setDraft(completedDraft)
       persistDraft(completedDraft)
+      focusNewPreview.current = true
       setHandoff(nextHandoff)
       onExtracted?.(nextHandoff)
     } catch (requestError) {
@@ -364,9 +372,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     <JournalFacingPage className="mm-facing-content--quick-ai">
       <header className="mm-quick-ai-intro">
         <div>
-          <p className="mm-quick-ai-intro__eyebrow">Kitchen scraps, welcome</p>
           <h1 tabIndex={-1}>Quick AI Entry</h1>
-          <p className="mm-quick-ai-intro__copy">Jot down the bits you remember. Mori will organize your rough cooking notes into an unsaved recipe preview.</p>
+          <p className="mm-quick-ai-intro__copy">Turn cooking notes into a recipe draft.</p>
         </div>
         <Mori mood="think" size={58} />
       </header>
@@ -377,11 +384,6 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         <Link to={journalReturnTo(location.state)}><span aria-hidden="true">←</span> Back to journal</Link>
       </nav>
       <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet">
-        <div className="mm-quick-ai__sheet-header">
-          <p className="mm-quick-ai__eyebrow">Your scratch page</p>
-          <h2>Write it the way you remember it.</h2>
-          <p>Ingredients, quantities, little tricks, or half-finished thoughts are all useful. You can tidy everything up later.</p>
-        </div>
         <form onSubmit={handleSubmit} noValidate>
           <div className="mm-quick-ai__field">
             <label htmlFor={notesId}>Cooking notes</label>
@@ -396,7 +398,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               disabled={loading}
               aria-invalid={validationMessage ? 'true' : undefined}
               aria-describedby={describedBy}
-              placeholder="e.g. leftover rice, two eggs, a splash of soy sauce and garlic. Fry the eggs first, then toss everything together; add scallions if we have them."
+              placeholder="e.g. Fry two eggs with garlic, then toss with leftover rice and a splash of soy sauce."
               onChange={(event) => updateNotes(event.currentTarget.value)}
             />
             {persistenceFailed && <div className="mm-quick-ai__storage-warning" id={persistenceWarningId} role="alert" aria-atomic="true">
@@ -423,7 +425,6 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
             </button>
           </div>
-          <p className="mm-quick-ai__preservation">Your original notes stay separate from the recipe and are never cleared when you submit.</p>
         </form>
 
         {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite"><Mori mood="stir" size={40} animated /> Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
@@ -443,7 +444,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
         </div>}
       </PaperCard>
 
-      {handoff && <RecipePreview handoff={handoff} reviewState={{
+      {handoff && <RecipePreview handoff={handoff} headingRef={previewHeadingRef} reviewState={{
         journalReturn: '/app/quick-entry',
         sourceJournalReturn: journalReturnTo(location.state),
       }} />}

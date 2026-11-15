@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { journalReturnTo } from '../journal/indexNavigation'
-import { Link, useLocation, useNavigate, useParams } from 'react-router'
+import { useLocation, useNavigate, useParams } from 'react-router'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { ErrorState } from '../components/ErrorState'
@@ -53,11 +53,10 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     supplement={<RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
-    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
+    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
   return <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>
     {activeLoading && <LoadingState message="Loading recipe for editing…" />}
     {activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     {!activeLoading && !activeError && <p className="request-state" role="status">This recipe is not available for editing yet. Please return when your journal is connected.</p>}
-    <div className="actions"><Link className="button button-secondary" to="/app">Back to journal</Link></div>
   </RecipeEditorFrame>
 }

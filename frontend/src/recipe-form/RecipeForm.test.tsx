@@ -21,12 +21,12 @@ function deferred<T>() {
 it('renders an empty create form with accessible labels and optional journal fields', () => {
   render(<RecipeForm mode="create" />)
   expect((screen.getByLabelText('Recipe title') as HTMLInputElement).value).toBe('')
-  expect(screen.getByText(/No ingredients added yet/)).toBeTruthy()
+  expect(screen.getByText(/No ingredients yet/)).toBeTruthy()
   expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
   expect(screen.getByLabelText('Cooked date').getAttribute('type')).toBe('date')
   expect(screen.getByText(/Local draft only/)).toBeTruthy()
   nextPages()
-  expect(screen.getByText(/No cooking steps added yet/)).toBeTruthy()
+  expect(screen.getByText(/No cooking steps yet/)).toBeTruthy()
 })
 
 it('populates edit mode including multiline notes, rating, quantities and calendar date', () => {

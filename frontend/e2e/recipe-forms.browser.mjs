@@ -220,7 +220,7 @@ try {
 
   // Invalid form feedback, dynamic fields, ordering, pending, failure, retry, and create.
   await page.goto(createUrl)
-  await expect(page.getByRole('heading', { name: 'A recipe of your own.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
   await assertJournalSemantics(page, 'create recipe form')
   await expect(page.getByLabel('Recipe title')).toBeVisible()
   await expect(page.getByRole('form', { name: 'Create recipe' })).toBeVisible()
@@ -370,7 +370,7 @@ try {
   await page.goto(detailUrl(initialRecipe.id))
   await expect(page.getByRole('heading', { name: 'A favorite revisited', level: 1 })).toBeVisible()
   await page.getByRole('link', { name: 'Edit recipe' }).click()
-  await page.getByRole('link', { name: 'Back to journal', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
   await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
 

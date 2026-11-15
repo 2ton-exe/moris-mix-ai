@@ -385,12 +385,12 @@ test('QA-05 deterministic fallback browser walkthrough uses a prepared Quick AI 
     const extractionResponse = await extractionResponsePromise
     expect(extractionResponse.status()).toBe(200)
     await expect(page.getByRole('heading', { name: fallbackTitle })).toBeVisible()
-    await expect(page.getByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeVisible()
+    await expect(page.getByText('Unsaved preview')).toBeVisible()
     expect(recipeWrites).toHaveLength(0)
   })
 
   await test.step('Edit, explicitly save, and reopen the prepared recipe', async () => {
-    await page.getByRole('link', { name: 'Review & Edit Recipe' }).click()
+    await page.getByRole('link', { name: 'Review recipe draft' }).click()
     await expect(page.getByLabel('Recipe title')).toHaveValue(fallbackTitle)
     await page.getByLabel('Recipe title').fill(reviewedTitle)
     const saveResponsePromise = page.waitForResponse((response) =>

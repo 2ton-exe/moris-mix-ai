@@ -1,5 +1,5 @@
 /* Geometry from Make styles/book.css. One coordinate system for every layer:
-   boards 1/3, gutter 2, plate 5, stacks 7, bookmarks 9, live paper 10, rings 15.
+   boards 1/3, gutter 2, plate 5, stacks 7, live paper 10, bookmarks 11, rings 15.
    The desktop spread must not create a stacking context. */
 .mm-desk {
   display: flow-root;
@@ -56,7 +56,7 @@
 }
 .mm-journal-stage {
   --mm-tab-reserve: 118px;
-  --mm-page-height: min(800px, calc(100dvh - 156px), calc((100vw - 2 * var(--mm-tab-reserve) - 32px) / 2 / .74));
+  --mm-page-height: min(800px, calc(100dvh - 156px), calc((100vw - 2 * var(--mm-tab-reserve) - 32px) / 2 / 1.052 / .74));
   --mm-page-width: calc(var(--mm-page-height) * .74);
   --mm-overhang: calc(var(--mm-page-width) * .024 + 3px);
   --mm-gutter: calc(var(--mm-page-width) * .056);
@@ -187,15 +187,15 @@
 .mm-journal-hole { position: absolute; top: calc(var(--mm-page-height) * var(--mm-ring-y) - var(--mm-ring-height) / 2); width: var(--mm-ring-height); height: var(--mm-ring-height); border-radius: 50%; background: radial-gradient(circle at 50% 38%, #24160f 0 45%, #4a3122 80%); box-shadow: inset 0 1px 2px rgb(0 0 0 / .65), 0 1px 0 rgb(255 255 255 / .45); }
 .mm-journal-holes--left .mm-journal-hole { right: calc((var(--mm-ring-width) - var(--mm-gutter)) / 2 - var(--mm-ring-height) * 1.12); }
 .mm-journal-holes--right .mm-journal-hole { left: calc((var(--mm-ring-width) - var(--mm-gutter)) / 2 - var(--mm-ring-height) * 1.12); }
-.mm-bookmarks { position: absolute; z-index: 9; display: flex; flex-direction: column; gap: 10px; left: calc(var(--mm-board-width) + var(--mm-gutter) / 2 + var(--mm-page-width) - 24px); top: calc(var(--mm-overhang) + var(--mm-page-height) * .07); }
+.mm-bookmarks { position: absolute; z-index: 11; display: flex; flex-direction: column; gap: 10px; left: calc(100% - 5px); top: calc(var(--mm-overhang) + var(--mm-page-height) * .07); }
 .mm-bookmark {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 130px;
+  min-width: 112px;
   height: 46px;
-  padding: 0 8px 0 30px;
+  padding: 0 10px;
   white-space: nowrap;
   border-radius: 0 12px 12px 0;
   color: var(--mm-color-sage-900);
@@ -205,15 +205,14 @@
   font: 650 13.5px/1.05 var(--mm-font-sans);
   letter-spacing: .01em;
   text-decoration: none;
-  transform: translateX(-14px);
+  transform: translateX(0);
   transition: transform 220ms var(--mm-ease-soft), box-shadow 220ms ease;
 }
 .mm-bookmark > svg { flex: none; }
 .mm-bookmark--cream { color: var(--mm-color-burgundy-800); background-color: #f3e6cd; }
 .mm-bookmark--mustard { color: var(--mm-color-mustard-800); background-color: var(--mm-color-mustard-300); }
-.mm-bookmark--button { appearance: none; border: 0; cursor: pointer; text-align: left; }
-.mm-bookmark:hover { transform: translateX(-6px); }
-.mm-bookmark[aria-current='page'] { transform: translateX(0); box-shadow: 2px 3px 6px rgb(0 0 0 / .32), inset 0 1px 0 rgb(255 255 255 / .4); }
+.mm-bookmark:is(:hover, :focus-visible) { transform: translateX(3px); }
+.mm-bookmark[aria-current='page'] { box-shadow: inset 0 -3px 0 currentColor, 2px 3px 6px rgb(0 0 0 / .32), inset 0 1px 0 rgb(255 255 255 / .4); }
 .mm-desk :where(a, button, input, textarea, select, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
 .mm-bookmarks .mm-bookmark:focus-visible { outline-offset: 2px; }
 .mm-skip-link { position: absolute; z-index: 100; left: 12px; top: 12px; padding: 12px; color: var(--mm-color-ink); background: var(--mm-color-fresh); transform: translateY(-200%); }
@@ -243,6 +242,7 @@
     width: var(--mm-board-width);
     margin-top: var(--mm-top-ui);
   }
+  .mm-desk:has(.mm-mori-assistant) .mm-journal-stage { --mm-page-height: max(180px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 66px)); }
   .mm-journal-board--left { display: none; }
   .mm-journal-board--right { left: 0; width: 100%; border-radius: 6px var(--mm-radius-out) var(--mm-radius-out) 6px; }
   .mm-journal-board--right::before { left: var(--mm-ring-zone); }
@@ -271,11 +271,8 @@
   .mm-journal-ring-plate { display: none; }
   .mm-journal-ring { left: calc(var(--mm-ring-zone) - var(--mm-ring-width) / 2 + 7px); }
   .mm-bookmarks { left: calc(var(--mm-ring-zone) + 12px); top: calc(var(--mm-overhang) - 42px); flex-direction: row; gap: 6px; }
-  .mm-bookmark { width: auto; height: 54px; align-items: flex-start; padding: 11px 14px 0; border-radius: 12px 12px 0 0; font-size: 13px; transform: translateY(8px); }
-  /* Ten transparent pixels above the exposed strip make even an inactive
-     tab's hit area 44px high. Paper still physically covers the root at z=10. */
-  .mm-bookmark::before { content: ''; position: absolute; top: -10px; left: 0; width: 100%; height: 10px; }
-  .mm-bookmark:hover { transform: translateY(4px); }
+  .mm-bookmark { min-width: 0; height: 44px; align-items: center; padding: 0 14px; border-radius: 12px 12px 0 0; font-size: 13px; transform: none; }
+  .mm-bookmark:is(:hover, :focus-visible) { transform: translateY(-3px); }
   .mm-bookmark[aria-current='page'] { transform: translateY(0); }
   .mm-stationery--sprig, .mm-stationery--ring-stain, .mm-stationery--tape { display: none; }
 }
@@ -290,7 +287,6 @@
   .mm-stationery--pencil, .mm-stationery--clips { display: none; }
 }
 @media (max-width: 399.98px) {
-  .mm-bookmark > svg { display: none; }
   .mm-bookmarks { gap: 4px; }
   .mm-bookmark { padding-inline: 8px; font-size: 12px; }
 }
@@ -299,3 +295,63 @@
   .mm-journal-board, .mm-journal-flyleaf, .mm-journal-page, .mm-bookmark { border: 1px solid CanvasText; }
   .mm-bookmark[aria-current='page'] { outline: 2px solid LinkText; outline-offset: -5px; }
 }
+
+.mm-mori-assistant {
+  --mori-dock-width: 156px;
+  --mori-right-inset: clamp(12px, var(--mori-right), calc(100% - var(--mori-dock-width) - 12px));
+  --mori-bottom-inset: clamp(12px, var(--mori-bottom), calc(100dvh - 56px));
+  position: fixed;
+  z-index: 24;
+  right: var(--mori-right-inset);
+  bottom: var(--mori-bottom-inset);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: stretch;
+  width: var(--mori-dock-width);
+}
+.mm-desk .button.mm-mori-assistant__trigger {
+  gap: 4px;
+  padding-inline: 6px;
+  border-radius: 12px 0 0 12px;
+  font-size: 13px;
+}
+.mm-mori-assistant__trigger .mm-mori { flex: none; }
+.mm-desk .button.mm-mori-assistant__trigger[aria-expanded='true'] {
+  color: var(--mm-color-burgundy-900);
+  background-color: var(--mm-color-mustard-100);
+}
+.mm-desk .button.mm-mori-assistant__grip {
+  padding: 0;
+  border-radius: 0 12px 12px 0;
+  background-color: var(--mm-color-sage-100);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mm-desk .button.mm-mori-assistant__grip[data-moving] { cursor: grabbing; }
+.mm-mori-assistant__panel {
+  position: fixed;
+  right: clamp(12px, var(--mori-right-inset), calc(100% - 372px));
+  bottom: calc(var(--mori-bottom-inset) + 54px);
+  width: min(360px, calc(100% - 24px));
+  max-height: calc(100dvh - var(--mori-bottom-inset) - 66px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 7px;
+  box-shadow: 0 10px 24px rgb(44 26 14 / .25);
+}
+.mm-mori-assistant[data-panel-below] .mm-mori-assistant__panel {
+  top: calc(100dvh - var(--mori-bottom-inset) + 10px);
+  bottom: auto;
+  max-height: calc(var(--mori-bottom-inset) - 22px);
+}
+.mm-mori-assistant .mm-mori-dialogue {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  padding: 18px;
+}
+.mm-mori-assistant .mm-mori-dialogue__portrait { display: none; }
+.mm-mori-assistant .mm-mori-dialogue__choices { display: grid; }
+.mm-mori-assistant .mm-mori-dialogue__choices > .button:first-child { background-color: var(--mm-color-sage-100); }
+.mm-mori-assistant .mm-mori-dialogue__choices > .button:first-child:hover { background-color: var(--mm-color-sage-200); }

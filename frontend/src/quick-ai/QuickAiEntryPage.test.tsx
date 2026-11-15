@@ -194,7 +194,7 @@ describe('Quick AI Entry', () => {
     })
     const { router } = renderEntry({ initialEntry: '/app/recipes' })
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
     const sourceNotes = 'notes before browser back'
     enterNotes(sourceNotes)
 
@@ -283,8 +283,8 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
 
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
-    expect((await screen.findByText(/only a preview/i)).textContent).toContain('Nothing has been saved')
-    expect(screen.getByRole('link', { name: 'Review & Edit Recipe' }).getAttribute('href')).toBe('/app/quick-entry/review')
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Review recipe draft' }).getAttribute('href')).toBe('/app/quick-entry/review')
     expect(notesField().value).toBe(sourceNotes)
     expect(document.querySelector('blockquote')?.textContent).toBe(sourceNotes)
     expect(extract).toHaveBeenCalledWith(sourceNotes, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
@@ -302,13 +302,13 @@ describe('Quick AI Entry', () => {
     enterNotes('rice, eggs, and garlic')
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
-    expect(await screen.findByRole('link', { name: 'Review & Edit Recipe' })).toBeTruthy()
+    expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toContain('preserved in memory for this account')
     expect(readQuickAiEntryDraft('cook-a').handoff?.recipe.title).toBe('Garlic soy chicken')
 
     failWrites = false
     fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
-    expect(await screen.findByRole('link', { name: 'Review & Edit Recipe' })).toHaveProperty('href', expect.stringContaining('/app/quick-entry/review'))
+    expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toHaveProperty('href', expect.stringContaining('/app/quick-entry/review'))
   })
 
   it('restores the validated unsaved handoff after route navigation and a page remount', async () => {
@@ -321,7 +321,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
     expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
     fireEvent.click(screen.getByRole('link', { name: 'Return to Quick AI Entry' }))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
 
     unmount()
@@ -345,8 +345,8 @@ describe('Quick AI Entry', () => {
     moriBookmark.focus()
     expect(document.activeElement).toBe(moriBookmark)
     fireEvent.click(moriBookmark)
-    expect(screen.getByRole('dialog', { name: 'Mori' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
+    expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
 
     expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Talk to Mori' }).getAttribute('aria-current')).toBe('page')
@@ -356,7 +356,7 @@ describe('Quick AI Entry', () => {
     const sourceNotes = 'rice, egg, soy sauce; fry egg first'
     enterNotes(sourceNotes)
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(extract).toHaveBeenCalledOnce()
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
@@ -364,8 +364,8 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
 
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('button', { name: '1. Help me organize my cooking notes.' }))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()
   })
@@ -403,7 +403,7 @@ describe('Quick AI Entry', () => {
     expect(notesField().disabled).toBe(true)
     expect(extract).toHaveBeenCalledOnce()
     await act(async () => resolve(recipe))
-    expect(await screen.findByText('This recipe is only a preview. Nothing has been saved to your journal.')).toBeTruthy()
+    expect(await screen.findByText('Unsaved preview')).toBeTruthy()
   })
 
   it('preserves original notes after a network failure and retries the same text', async () => {
