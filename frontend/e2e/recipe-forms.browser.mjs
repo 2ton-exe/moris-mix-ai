@@ -425,6 +425,9 @@ try {
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
   for (const width of [1440, 1280, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    // The preceding row controls and the previous viewport may have scrolled the document.
+    // Check the journal's layout from the top of the page at each viewport.
+    await page.evaluate(() => globalThis.scrollTo(0, 0))
     await settleJournalLayout(page)
     await assertJournalGeometry(page, `recipe editor ${width}×900`)
     await assertJournalSemantics(page, `recipe editor ${width}×900`)

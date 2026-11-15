@@ -103,6 +103,7 @@ function AIChefSession({ userId }: { userId: string }) {
           ? 'Add at least one pantry ingredient before asking Mori.'
           : 'Check the pantry list. Add between 1 and 100 items, each 100 characters or fewer.'
         : `Preferences must be ${MAX_PREFERENCES_CHARS} characters or fewer.`)
+      if (pantryIssue) pantryInputRef.current?.focus()
       return
     }
 
@@ -156,7 +157,7 @@ function AIChefSession({ userId }: { userId: string }) {
     <button className="button button-secondary mm-button--small" type="button" onClick={() => persistInput({ pantryItems, pantryInput, preferences })}>Try saving this request again</button>
   </div>
 
-  return <section className="mm-ai-chef" aria-labelledby="ai-chef-title" aria-busy={pending}>
+  return <section className="mm-ai-chef" aria-labelledby="ai-chef-title">
     {discardOpen && <UnsavedChangesDialog
       title={handoff?.savedRecipeId ? 'Keep the saved recipe?' : 'Discard Mori’s recipe preview?'}
       message={handoff?.savedRecipeId
