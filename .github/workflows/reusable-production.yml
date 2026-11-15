@@ -146,7 +146,7 @@ jobs:
               --header "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/recipe-image-upload-readiness.yml/runs")"
             if ! jq -e --arg sha "$GITHUB_SHA" \
-              '[.workflow_runs[]? | select(.head_sha == $sha and .head_branch == "main" and .event == "workflow_dispatch" and .status == "completed")] | sort_by(.created_at) | last | .conclusion == "success"' \
+              '[.workflow_runs[]? | select(.head_sha == $sha and .head_branch == "main" and .event == "workflow_dispatch")] | sort_by(.created_at) | last | (.status == "completed" and .conclusion == "success")' \
               <<< "$readiness_runs" >/dev/null; then
               echo "::error::A successful protected Recipe Image Upload Readiness run is required for main commit $GITHUB_SHA before enabling recipe images."
               exit 1
