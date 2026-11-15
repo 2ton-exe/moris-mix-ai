@@ -145,7 +145,7 @@ The production release order is:
 10. Deploy Cloudflare Workers assets.
 11. Verify the production deployment URL.
 12. Verify deployed AI routes (`ai-route-smoke`).
-13. Run production runtime smoke (`runtime-smoke`), including account-export preflight and unauthenticated access rejection.
+13. Run production runtime smoke (`runtime-smoke`); account-export preflight and unauthenticated access checks run only when its deploy step is enabled and succeeds.
 14. Record each deployment, URL verification, AI route smoke, and runtime smoke
     outcome independently, including failures or skipped downstream steps.
 15. Preserve the separate runtime and AI route evidence artifacts.
