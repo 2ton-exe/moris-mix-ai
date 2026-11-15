@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { isValidElement, lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router'
 import { AuthProvider } from './auth/AuthProvider'
 import { AuthReady, GuestRoute, ProtectedRoute } from './auth/AuthRoutes'
@@ -29,7 +29,7 @@ const AboutPage = lazy(() => import('./pages/PublicJournalPages').then(({ AboutP
 const NotFoundPage = lazy(() => import('./pages/PublicJournalPages').then(({ NotFoundPage }) => ({ default: NotFoundPage })))
 
 const routeElement = (element: ReactNode, message = 'Loading…') => (
-  <RouteLoadBoundary>
+  <RouteLoadBoundary resetKey={isValidElement(element) ? element.key ?? element.type : element}>
     <Suspense fallback={<LoadingState message={message} />}>{element}</Suspense>
   </RouteLoadBoundary>
 )

@@ -16,7 +16,9 @@ function RouteHarness() {
   return (
     <>
       <Link to="/healthy">Open healthy route</Link>
-      <RouteLoadBoundary>{pathname === '/broken' ? <FailedRoute /> : <p>Healthy route loaded</p>}</RouteLoadBoundary>
+      <RouteLoadBoundary resetKey={pathname}>
+        {pathname === '/broken' ? <FailedRoute /> : <p>Healthy route loaded</p>}
+      </RouteLoadBoundary>
     </>
   )
 }

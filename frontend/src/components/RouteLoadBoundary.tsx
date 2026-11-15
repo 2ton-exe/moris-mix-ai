@@ -1,9 +1,22 @@
 import { Component, type ReactNode } from 'react'
-import { useLocation } from 'react-router'
 import { ErrorState } from './ErrorState'
 
-class RouteLoadErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false }
+interface Props {
+  children: ReactNode
+  resetKey: unknown
+}
+
+interface State {
+  hasError: boolean
+  resetKey: unknown
+}
+
+export class RouteLoadBoundary extends Component<Props, State> {
+  state = { hasError: false, resetKey: this.props.resetKey }
+
+  static getDerivedStateFromProps(props: Props, state: State) {
+    return props.resetKey === state.resetKey ? null : { hasError: false, resetKey: props.resetKey }
+  }
 
   static getDerivedStateFromError() {
     return { hasError: true }
@@ -15,9 +28,4 @@ class RouteLoadErrorBoundary extends Component<{ children: ReactNode }, { hasErr
     }
     return this.props.children
   }
-}
-
-export function RouteLoadBoundary({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation()
-  return <RouteLoadErrorBoundary key={pathname}>{children}</RouteLoadErrorBoundary>
 }
