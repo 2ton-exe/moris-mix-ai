@@ -60,7 +60,6 @@ function request(
 
 function mock(
   options: {
-    expectedToken?: string;
     authStatus?: number;
     authCode?: string;
     retryAfter?: string;
@@ -121,31 +120,21 @@ function mock(
             aud: "authenticated",
           });
         }
-        if (url.pathname === "/rest/v1/recipes") {
-          assertEquals(
-            headers.get("Authorization"),
-            `Bearer ${options.expectedToken ?? TOKEN}`,
-          );
-          assertEquals(headers.get("apikey"), "synthetic-anon-key");
-          assertEquals(url.searchParams.get("id"), `eq.${RECIPE}`);
-          assertEquals(url.searchParams.get("user_id"), `eq.${USER}`);
-          assertEquals(url.searchParams.get("select"), "id,user_id");
+        if (
+          url.pathname ===
+            "/rest/v1/rpc/create_recipe_image_upload_intent_v2"
+        ) {
+          assertEquals(method, "POST");
+          assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
+          assertEquals(headers.get("apikey"), SERVICE_KEY);
           if (options.dbFailure) {
             return Response.json({ message: "private SQL information" }, {
               status: 500,
             });
           }
-          return Response.json(
-            options.recipe === "missing" ? null : {
-              id: RECIPE,
-              user_id: options.recipe === "foreign" ? OTHER : USER,
-            },
-          );
-        }
-        if (url.pathname === "/rest/v1/rpc/create_recipe_image_upload_intent") {
-          assertEquals(method, "POST");
-          assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
-          assertEquals(headers.get("apikey"), SERVICE_KEY);
+          if (options.recipe === "missing" || options.recipe === "foreign") {
+            return Response.json("recipe_not_found");
+          }
           const args = JSON.parse(String(init?.body));
           intents.push({
             id: args.p_id,
@@ -308,7 +297,11 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
       "method",
       "url",
     ]);
-    assertEquals(calls.length, 3);
+    assertEquals(calls.length, 2);
+    assertEquals(calls.map((call) => call.url.pathname), [
+      "/auth/v1/user",
+      "/rest/v1/rpc/create_recipe_image_upload_intent_v2",
+    ]);
     assertEquals(intents.length, 1);
     const intent = intents[0];
     assertEquals(intent.user_id, USER);
@@ -357,17 +350,20 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
   });
 }
 
-Deno.test("each upload authorization creates a fresh intent without modifying recipes", async () => {
+Deno.test("each upload authorization uses one database RPC and creates a fresh intent", async () => {
   const { deps, intents, calls } = mock();
   assertEquals((await handler(request(), deps)).status, 200);
   assertEquals((await handler(request(), deps)).status, 200);
   assertNotEquals(intents[0].id, intents[1].id);
   assertNotEquals(intents[0].staging_key, intents[1].staging_key);
   assertEquals(
-    calls.filter((call) => call.url.pathname === "/rest/v1/recipes").every((
-      call,
-    ) => call.method === "GET"),
-    true,
+    calls.filter((call) => call.url.pathname.startsWith("/rest/v1/rpc/"))
+      .length,
+    2,
+  );
+  assertEquals(
+    calls.some((call) => call.url.pathname === "/rest/v1/recipes"),
+    false,
   );
 });
 
@@ -639,7 +635,7 @@ Deno.test("verified backend identity overrides a forged JWT subject", async () =
     btoa(JSON.stringify({ sub: OTHER, role: "service_role" })).replace(/=/g, "")
       .replace(/\+/g, "-").replace(/\//g, "_")
   }.signature`;
-  const { deps, intents } = mock({ expectedToken: forged });
+  const { deps, intents } = mock();
   assertEquals(
     (await handler(request(payload, { token: `Bearer ${forged}` }), deps))
       .status,
@@ -656,6 +652,10 @@ Deno.test("foreign and nonexistent recipes return identical errors without signi
     bodies.push(await response.clone().json());
     await expectError(response, 404, "RECIPE_NOT_FOUND");
     assertEquals(calls.length, 2);
+    assertEquals(calls.map((call) => call.url.pathname), [
+      "/auth/v1/user",
+      "/rest/v1/rpc/create_recipe_image_upload_intent_v2",
+    ]);
     assertEquals(intents.length, 0);
   }
   assertEquals(bodies[0], bodies[1]);

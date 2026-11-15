@@ -435,20 +435,11 @@ export async function handler(
     if (!validation.success || new URL(req.url).search !== "") {
       return error("VALIDATION_ERROR", "Invalid recipe image request.", 400);
     }
-    const { user, supabase } = auth.context;
+    const { user } = auth.context;
     const request = {
       ...validation.data,
       recipe_id: validation.data.recipe_id.toLowerCase(),
     };
-    const { data, error: queryError } = await supabase.from("recipes")
-      .select("id, user_id")
-      .eq("id", request.recipe_id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (queryError) throw new Error("Recipe ownership lookup failed.");
-    if (!data || data.id !== request.recipe_id || data.user_id !== user.id) {
-      return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
-    }
     const now = deps.now?.() ?? new Date();
     const r2Config = resolveR2Config(deps.r2Config);
     const intent = createUploadIntent(request, user.id, now);
@@ -467,6 +458,9 @@ export async function handler(
         "Too many image uploads are pending. Please try again later.",
         429,
       );
+    }
+    if (quota === "recipe_not_found") {
+      return error("RECIPE_NOT_FOUND", "Recipe not found.", 404);
     }
     return respond({
       upload: {

@@ -7414,12 +7414,7 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when child recipe doe
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(
-        new Response(JSON.stringify(null), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+      return Promise.resolve(Response.json([]));
     }
     if (url.pathname === "/rest/v1/recipe_lineage") {
       lineageInsertCalled = true;
@@ -7477,20 +7472,12 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when any parent recip
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
       return Promise.resolve(
         new Response(
-          JSON.stringify([{
-            id: LINEAGE_PARENT_ID_1,
-            user_id: VERIFIED_USER_ID,
-          }]),
+          JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -7532,6 +7519,8 @@ Deno.test("POST /recipes/:id/lineage returns 404 NOT_FOUND when any parent recip
 
 Deno.test("POST /recipes/:id/lineage persists single parent and returns 201 Created", async () => {
   let capturedInsertBody: unknown = null;
+  let ownershipReads = 0;
+  const capturedOwnershipUrl: { value?: URL } = {};
   const expectedLineageRecord = {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     parent_recipe_id: LINEAGE_PARENT_ID_1,
@@ -7561,20 +7550,14 @@ Deno.test("POST /recipes/:id/lineage persists single parent and returns 201 Crea
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
+      ownershipReads++;
+      capturedOwnershipUrl.value = url;
       return Promise.resolve(
         new Response(
-          JSON.stringify([{
-            id: LINEAGE_PARENT_ID_1,
-            user_id: VERIFIED_USER_ID,
-          }]),
+          JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -7617,6 +7600,11 @@ Deno.test("POST /recipes/:id/lineage persists single parent and returns 201 Crea
   assertEquals(body.lineage.length, 1);
   assertEquals(body.lineage[0].parent_recipe_id, LINEAGE_PARENT_ID_1);
   assertEquals(body.lineage[0].child_recipe_id, LINEAGE_CHILD_ID);
+  assertEquals(ownershipReads, 1);
+  assertEquals(
+    capturedOwnershipUrl.value?.searchParams.get("id")?.startsWith("in."),
+    true,
+  );
   assertEquals(Array.isArray(capturedInsertBody), true);
   assertEquals((capturedInsertBody as any[]).length, 1);
   assertEquals(
@@ -7668,17 +7656,10 @@ Deno.test("POST /recipes/:id/lineage persists multiple parents atomically and re
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
       return Promise.resolve(
         new Response(
           JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
             { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
             { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
           ]),
@@ -7759,20 +7740,12 @@ Deno.test("POST /recipes/:id/lineage maps database unique conflict 23505 to 409 
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
       return Promise.resolve(
         new Response(
-          JSON.stringify([{
-            id: LINEAGE_PARENT_ID_1,
-            user_id: VERIFIED_USER_ID,
-          }]),
+          JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -7842,23 +7815,12 @@ Deno.test("POST /recipes/:id/lineage maps database check violation 23514 to 400 
         );
       }
       if (url.pathname === "/rest/v1/recipes") {
-        if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                id: LINEAGE_CHILD_ID,
-                user_id: VERIFIED_USER_ID,
-              }),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            ),
-          );
-        }
         return Promise.resolve(
           new Response(
-            JSON.stringify([{
-              id: LINEAGE_PARENT_ID_1,
-              user_id: VERIFIED_USER_ID,
-            }]),
+            JSON.stringify([
+              { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+              { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+            ]),
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
         );
@@ -8077,17 +8039,10 @@ Deno.test("AI-07: lineage rejects an owned parent outside the token's candidate 
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
       return Promise.resolve(
         new Response(
           JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
             { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
             { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
           ]),
@@ -8153,21 +8108,12 @@ Deno.test("AI-07: lineage accepts a subset of the token's candidates", async () 
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
-      // Only the selected parent is requested and owned.
       return Promise.resolve(
         new Response(
-          JSON.stringify([{
-            id: LINEAGE_PARENT_ID_2,
-            user_id: VERIFIED_USER_ID,
-          }]),
+          JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_2, user_id: VERIFIED_USER_ID },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -8278,6 +8224,7 @@ Deno.test("AI-07: lineage fails closed when the candidate token secret is missin
 });
 
 Deno.test("GET /recipes/:id/lineage returns 200 OK with ordered lineage records for owned child recipe", async () => {
+  let ownershipReads = 0;
   let capturedQueryUrl: URL | null = null;
   const mockLineageRecords = [
     {
@@ -8316,18 +8263,15 @@ Deno.test("GET /recipes/:id/lineage returns 200 OK with ordered lineage records 
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }
-    if (url.pathname === "/rest/v1/recipe_lineage") {
+      ownershipReads++;
       capturedQueryUrl = url;
       return Promise.resolve(
         new Response(
-          JSON.stringify(mockLineageRecords),
+          JSON.stringify({
+            id: LINEAGE_CHILD_ID,
+            user_id: VERIFIED_USER_ID,
+            lineage: mockLineageRecords,
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -8352,20 +8296,33 @@ Deno.test("GET /recipes/:id/lineage returns 200 OK with ordered lineage records 
   assertEquals(body.lineage.length, 2);
   assertEquals(body.lineage[0].parent_recipe_id, LINEAGE_PARENT_ID_1);
   assertEquals(body.lineage[1].parent_recipe_id, LINEAGE_PARENT_ID_2);
+  assertEquals(ownershipReads, 1);
   assertNotEquals(capturedQueryUrl, null);
-  assertEquals(capturedQueryUrl!.pathname, "/rest/v1/recipe_lineage");
+  assertEquals(capturedQueryUrl!.pathname, "/rest/v1/recipes");
   assertEquals(
-    capturedQueryUrl!.searchParams.get("child_recipe_id"),
-    `eq.${LINEAGE_CHILD_ID}`,
+    capturedQueryUrl!.searchParams.get("select")?.includes(
+      "recipe_lineage!recipe_lineage_child_recipe_id_fkey",
+    ),
+    true,
   );
   assertEquals(
-    capturedQueryUrl!.searchParams.get("order"),
+    capturedQueryUrl!.searchParams.get("lineage.order"),
     "created_at.asc,id.asc",
   );
+
+  mockLineageRecords.splice(0);
+  const emptyRes = await handler(req, {
+    supabaseUrl: TEST_SUPABASE_URL,
+    supabaseAnonKey: TEST_ANON_KEY,
+    fetch: mockFetch,
+  });
+  assertEquals(emptyRes.status, 200);
+  assertEquals((await emptyRes.json()).lineage, []);
+  assertEquals(ownershipReads, 2);
 });
 
 Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does not belong to user", async () => {
-  let lineageQueryCalled = false;
+  let ownershipReads = 0;
   const mockFetch: typeof fetch = (input) => {
     const url = new URL(
       typeof input === "string"
@@ -8388,16 +8345,13 @@ Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
+      ownershipReads++;
       return Promise.resolve(
         new Response(JSON.stringify(null), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
       );
-    }
-    if (url.pathname === "/rest/v1/recipe_lineage") {
-      lineageQueryCalled = true;
-      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
     }
     return Promise.resolve(new Response(null, { status: 404 }));
   };
@@ -8417,7 +8371,7 @@ Deno.test("GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does
   assertEquals(res.status, 404);
   const body = await res.json();
   assertEquals(body.error?.code, "NOT_FOUND");
-  assertEquals(lineageQueryCalled, false);
+  assertEquals(ownershipReads, 1);
 });
 
 /** Fixed token so the byte-length arithmetic stays deterministic. */
@@ -8576,20 +8530,12 @@ Deno.test("POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
       return Promise.resolve(
         new Response(
-          JSON.stringify([{
-            id: LINEAGE_PARENT_ID_1,
-            user_id: VERIFIED_USER_ID,
-          }]),
+          JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
@@ -8882,20 +8828,12 @@ Deno.test("POST /recipes/:id/lineage decodes chunked streams split across arbitr
       );
     }
     if (url.pathname === "/rest/v1/recipes") {
-      if (url.searchParams.get("id") === `eq.${LINEAGE_CHILD_ID}`) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      }
       return Promise.resolve(
         new Response(
-          JSON.stringify([{
-            id: LINEAGE_PARENT_ID_1,
-            user_id: VERIFIED_USER_ID,
-          }]),
+          JSON.stringify([
+            { id: LINEAGE_CHILD_ID, user_id: VERIFIED_USER_ID },
+            { id: LINEAGE_PARENT_ID_1, user_id: VERIFIED_USER_ID },
+          ]),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );

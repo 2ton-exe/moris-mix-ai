@@ -20,7 +20,8 @@ export type UploadIntent = RecipeImageUploadRequest & {
 export type UploadIntentQuotaResult =
   | "allowed"
   | "rate_limited"
-  | "pending_limit";
+  | "pending_limit"
+  | "recipe_not_found";
 
 export function createUploadIntent(
   request: RecipeImageUploadRequest,
@@ -93,7 +94,7 @@ export async function persistUploadIntent(
     global: { ...(deps.fetch ? { fetch: deps.fetch } : {}) },
   });
   const { data, error } = await client.rpc(
-    "create_recipe_image_upload_intent",
+    "create_recipe_image_upload_intent_v2",
     {
       p_id: intent.id,
       p_user_id: intent.user_id,
@@ -110,7 +111,8 @@ export async function persistUploadIntent(
     throw new Error("Upload intent persistence failed.");
   }
   if (
-    data !== "allowed" && data !== "rate_limited" && data !== "pending_limit"
+    data !== "allowed" && data !== "rate_limited" &&
+    data !== "pending_limit" && data !== "recipe_not_found"
   ) {
     throw new Error("Upload intent persistence failed.");
   }

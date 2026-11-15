@@ -626,14 +626,32 @@ Deno.test("attachment rejects unauthenticated, cross-owner, cross-intent, and ac
     handlerDeps(),
   );
   assertEquals(unauth.status, 401);
+  const foreignCalls: string[] = [];
+  let ownershipLookups = 0;
   const foreign = await attachHandler(
     imageRequest("recipe-image-attach", {
       recipe_id: RECIPE,
       upload_id: UPLOAD,
     }),
-    handlerDeps({ recipe: { id: RECIPE, user_id: OTHER } }),
+    {
+      ...handlerDeps({
+        rpc: (name) => {
+          foreignCalls.push(name);
+          return Promise.resolve({
+            data: { status: "not_found" },
+            error: null,
+          });
+        },
+      }),
+      fetch: authFetch(null, 200, () => {
+        ownershipLookups++;
+      }),
+    },
   );
   assertEquals(foreign.status, 404);
+  assertEquals((await foreign.json()).error.code, "RECIPE_NOT_FOUND");
+  assertEquals(foreignCalls, ["claim_recipe_image_finalization"]);
+  assertEquals(ownershipLookups, 1);
   let touched = false;
   const conflict = await attachHandler(
     imageRequest("recipe-image-attach", {
@@ -1275,12 +1293,16 @@ Deno.test("private image download fails safely when the resolver response is mal
 
 Deno.test("image deletion is owner-authorized and returns 204 for an already-empty image", async () => {
   const calls: string[] = [];
+  let ownershipLookups = 0;
   const deps = handlerDeps({
     recipe: { id: RECIPE, user_id: USER },
     rpc: (name) => {
       calls.push(name);
       return Promise.resolve({ data: "deleted", error: null });
     },
+  });
+  deps.fetch = authFetch({ id: RECIPE, user_id: USER }, 200, () => {
+    ownershipLookups++;
   });
   const response = await deleteHandler(
     imageRequest("recipe-image-delete", { recipe_id: RECIPE }),
@@ -1289,14 +1311,26 @@ Deno.test("image deletion is owner-authorized and returns 204 for an already-emp
   assertEquals(response.status, 204);
   assertEquals(response.headers.get("Cache-Control"), "no-store");
   assertEquals(calls, ["delete_recipe_image_association"]);
+  assertEquals(ownershipLookups, 0);
+  const foreignCalls: string[] = [];
   const foreign = await deleteHandler(
     imageRequest("recipe-image-delete", { recipe_id: RECIPE }),
-    handlerDeps({
-      recipe: { id: RECIPE, user_id: OTHER },
-      rpc: () => Promise.reject(new Error("must not call RPC")),
-    }),
+    {
+      ...handlerDeps({
+        rpc: (name) => {
+          foreignCalls.push(name);
+          return Promise.resolve({ data: "not_found", error: null });
+        },
+      }),
+      fetch: authFetch({ id: RECIPE, user_id: OTHER }, 200, () => {
+        ownershipLookups++;
+      }),
+    },
   );
   assertEquals(foreign.status, 404);
+  assertEquals((await foreign.json()).error.code, "RECIPE_NOT_FOUND");
+  assertEquals(foreignCalls, ["delete_recipe_image_association"]);
+  assertEquals(ownershipLookups, 0);
   const unauth = await deleteHandler(
     imageRequest("recipe-image-delete", { recipe_id: RECIPE }, null),
     handlerDeps(),
