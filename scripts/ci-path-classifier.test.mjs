@@ -12,6 +12,7 @@ for (const [name, input, expected, count = 1] of [
   ['README', 'M\0README.md\0', true],
   ['added prose', 'A\0docs/new.md\0', true],
   ['nested prose', 'M\0docs/devops/pipeline-metrics.md\0', true],
+  ['uppercase Markdown extension requires full CI', 'M\0docs/UPPER.MD\0', false],
   ['frontend', 'M\0frontend/src/App.tsx\0', false],
   ['function', 'M\0supabase/functions/recipes/index.ts\0', false],
   ['migration', 'A\0supabase/migrations/new.sql\0', false],
