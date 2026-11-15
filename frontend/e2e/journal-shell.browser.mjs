@@ -9,7 +9,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
-import { settleJournalLayout } from './journal-geometry.mjs'
+import { assertJournalGeometry, settleJournalLayout } from './journal-geometry.mjs'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -66,6 +66,7 @@ try {
       await expect(page.getByRole('main')).toHaveCount(1)
       await expect(bookmarks).toBeVisible()
       await expect(bookmarks.getByRole('link')).toHaveCount(2)
+      await assertJournalGeometry(page, `${width}px ${label}`)
       const overflow = await page.evaluate(() => ({
         viewport: globalThis.innerWidth, document: globalThis.document.documentElement.scrollWidth,
         outside: [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 12).map((element) => ({ className: String(element.className), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width })),
@@ -119,6 +120,10 @@ try {
     await expect.poll(async () => (await grip.boundingBox())?.x).toBeLessThan(initialGrip.x)
     await grip.click()
     await expect.poll(() => grip.boundingBox()).toEqual(initialGrip)
+    await moriBookmark.click()
+    await expect(moriPanel).toBeInViewport()
+    await page.screenshot({ path: path.join(outputDir, `${width}-mori-assistant.png`) })
+    await page.keyboard.press('Escape')
 
     await page.keyboard.press('Control+Home')
     await page.getByRole('link', { name: 'Skip to journal content' }).focus()

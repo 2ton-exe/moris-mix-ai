@@ -250,6 +250,7 @@
   .mm-desk .mm-delete-dialog__tape { display: none; }
 }
 
+.mm-journal-editor .mm-form-recipe .recipe-form-section { margin-top: 0; padding-block: 12px; }
 .mm-journal-editor .recipe-editor-row .recipe-form-field { margin-top: 5px; }
 .mm-journal-editor .recipe-editor-row .recipe-form-field label {
   margin-bottom: 4px;
