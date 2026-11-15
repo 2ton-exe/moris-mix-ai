@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Session, User } from '@supabase/supabase-js'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthContext } from '../auth/context'
@@ -89,9 +89,10 @@ it('opens the existing form with extraction fields and original notes kept separ
   expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
   fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
   expect(screen.getAllByText(/No amount was extracted/).length).toBeGreaterThan(0)
-  expect(screen.getByText(sourceNotes)).toBeTruthy()
+  const details = within(screen.getByRole('region', { name: 'AI extraction details' }))
+  expect(details.getByText(sourceNotes)).toBeTruthy()
   expect(screen.getAllByRole('note').some((note) => note.textContent?.includes('No amount was extracted'))).toBe(true)
-  expect(screen.getByText(/informational only/)).toBeTruthy()
+  expect(details.getByText(/informational only/)).toBeTruthy()
   expect(screen.getAllByText(/AI-extracted, unsaved recipe/).length).toBeGreaterThan(0)
   expect(save).not.toHaveBeenCalled()
 })

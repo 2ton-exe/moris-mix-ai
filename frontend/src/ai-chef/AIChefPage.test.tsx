@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { User } from '@supabase/supabase-js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
@@ -107,9 +107,10 @@ describe('AI Chef pantry and review workflow', () => {
     expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
     fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
     expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
-    expect(screen.getByText('bell pepper')).toBeTruthy()
-    expect(screen.getByText('Garden rice')).toBeTruthy()
-    expect(screen.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
+    const details = within(screen.getByRole('region', { name: 'AI Chef generation details' }))
+    expect(details.getByText('bell pepper')).toBeTruthy()
+    expect(details.getByText('Garden rice')).toBeTruthy()
+    expect(details.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
     expect(save).not.toHaveBeenCalled()
   })
 
