@@ -4,7 +4,9 @@ This contract describes the private recipe-image lifecycle: authenticated upload
 
 Production readiness remains **BLOCKED** until the BE-14 attachment path's object size and content-type checks are independently verified against deployed behavior, the R2 bucket CORS rule is configured for the deployed frontend, and the intended schema, R2 access, configuration, and recovery requirements are confirmed. The production frontend build keeps `VITE_RECIPE_IMAGES=false` while the production release hard-disables the matching upload signer and R2 access, bucket CORS, and recovery behavior remain unverified. Each presigned `PUT` binds the staging key, content type, declared `Content-Length`, and create-only `If-None-Match: *` condition; attachment independently verifies the actual object size, type, and image structure. Enable the production image UI only with the matching signer and after the required readiness checks pass.
 
-The direct-upload revision supersedes PR #190's authenticated-proxy transport for new intents; the prior decision and the reason for reopening it are recorded in [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Production signing remains hard-disabled pending separate deployment authorization. Scheduled cleanup runs only when `RECIPE_IMAGE_CLEANUP_ENABLED=true` after its prerequisites are verified; the variable is unset by default. BE-14 migration `20261107000016` follows BE-13 migrations 09–15, and upload-reservation migration `20261108152005` follows migration 16. Production migrations use the guarded release process and its recovery and configuration prerequisites.
+Upload authorization idempotency is a separate opt-in. The production workflow defaults `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` to `false`, and migration `20261115000020_recipe_image_upload_idempotency.sql` adds server-side reuse only for requests that include `request_id`; the migration does not enable the client flag. Keep the flag disabled until the migration is applied and the matching signer is deployed and verified to accept `request_id`.
+
+The direct-upload revision supersedes PR #190's authenticated-proxy transport for new intents; the prior decision and the reason for reopening it are recorded in [ADR-0001](../adr/0001-direct-r2-recipe-image-uploads.md). Production signing remains hard-disabled pending separate deployment authorization. Scheduled cleanup runs only when `RECIPE_IMAGE_CLEANUP_ENABLED=true` after its prerequisites are verified; the variable is unset by default. BE-14 migration `20261107000016` follows BE-13 migrations 09–15, upload-reservation migration `20261108152005` follows migration 16, and authorization-idempotency migration `20261115000020` follows the upload reservation. Production migrations use the guarded release process and its recovery and configuration prerequisites.
 
 ## Endpoint overview
 
@@ -36,13 +38,15 @@ The direct-upload revision supersedes PR #190's authenticated-proxy transport fo
 {
   "recipe_id": "99999999-9999-9999-9999-999999999999",
   "content_type": "image/jpeg",
-  "byte_size": 245760
+  "byte_size": 245760,
+  "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 }
 ```
 
 - `recipe_id` is the stable UUID primary key of the recipe.
 - `content_type` must be `image/jpeg`, `image/png`, or `image/webp`. SVG and other formats are not supported.
 - `byte_size` must be a positive integer no larger than 10 MiB. It is bound into the signed `Content-Length`; the upload is accepted only when the request body has that length, and attachment verifies the stored size again. BE-13 limits each user to 10 upload authorizations per hour and 3 uncleared staging intents.
+- `request_id` is an optional UUID idempotency key. Reuse it only for the same recipe, content type, and byte size while the intent remains active. A matching retry returns the existing intent with a newly signed URL limited to its remaining lifetime; changed metadata or an inactive intent returns `409 UPLOAD_REQUEST_CONFLICT`. The browser sends this key only when `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY=true`.
 - Unknown fields are rejected. The caller cannot provide an owner ID, object key, `image_path`, or `image_url`.
 - The authorization request accepts no query parameters. The server selects the staging key, bucket, HTTP method, signed headers, and expiry.
 
@@ -63,7 +67,7 @@ Returns `Cache-Control: no-store` and a JSON `upload` object:
 }
 ```
 
-The backend generates a fresh staging key and a distinct server-only final key, and binds both keys to the upload UUID, verified owner, recipe UUID, content type, declared size, and expiry. The URL is a bearer capability for only that staging object; the final key is never returned or exposed to client writes. The signature binds the exact declared byte count, content type, and create-only condition.
+The backend generates a fresh staging key and a distinct server-only final key, and binds both keys to the upload UUID, verified owner, recipe UUID, content type, declared size, and expiry. The URL is a bearer capability for only that staging object; the final key is never returned or exposed to client writes. The signature binds the exact declared byte count, content type, and create-only condition. When an optional `request_id` resolves to an active intent, the signer reuses that intent and limits the new URL to its remaining lifetime.
 
 The attachment handler verifies the stored owner, pending state, cleanup state, content type, actual byte size, image structure, and expiry before finalization. A conditional R2 `PUT` allows one successful object creation for a key while that object exists; repeats return `412 Precondition Failed`. The signed URL expires with its ten-minute intent. Before production enablement, verify from the configured app origin that a signed upload succeeds and a second write to the same staging key is rejected. Current browser tests mock storage responses and do not establish R2 CORS or conditional-write behavior.
 
@@ -158,6 +162,7 @@ Function errors use the existing JSON envelope `{ "error": { "code": "...", "mes
 | `404 Not Found` | `IMAGE_NOT_FOUND` | `Recipe image not found.` | The owned recipe has no resolvable finalized image. |
 | `429 Too Many Requests` | `UPLOAD_RATE_LIMITED` | `Upload signing limit reached. Please try again later.` | The user has requested 10 upload URLs within the last hour. |
 | `429 Too Many Requests` | `UPLOAD_QUOTA_EXCEEDED` | `Too many image uploads are pending. Please try again later.` | The per-user outstanding-intent cap is exhausted. |
+| `409 Conflict` | `UPLOAD_REQUEST_CONFLICT` | `This upload request can no longer be resumed. Please retry the upload.` | The request ID has different metadata or identifies an expired, consumed, or unavailable intent. |
 | `404 Not Found` | `UPLOAD_NOT_FOUND` | `Upload not found.` | Upload intent is unknown or belongs to another owner. |
 | `409 Conflict` | `UPLOAD_ALREADY_USED` | `Upload has already been received.` | Legacy authenticated-proxy `PUT` found a staging object; new clients receive R2 `412` instead. |
 | `409 Conflict` | `UPLOAD_IN_PROGRESS` | `Upload is already being processed.` | Legacy authenticated-proxy `PUT` is already processing this intent. |

@@ -147,7 +147,19 @@ function mock(
           assertEquals(headers.get("Authorization"), `Bearer ${SERVICE_KEY}`);
           assertEquals(headers.get("apikey"), SERVICE_KEY);
           const args = JSON.parse(String(init?.body));
-          intents.push({
+          const existing = uploadRecords.get(args.p_id);
+          if (existing) {
+            const retryable = existing.user_id === args.p_user_id &&
+              existing.recipe_id === args.p_recipe_id &&
+              existing.content_type === args.p_content_type &&
+              existing.byte_size === args.p_byte_size &&
+              existing.state === "pending" &&
+              existing.cleanup_status === "waiting" &&
+              Date.parse(String(existing.expires_at)) >
+                Date.parse("2026-11-02T00:00:00Z") + 30_000;
+            return Response.json(retryable ? "allowed" : "conflict");
+          }
+          const intent = {
             id: args.p_id,
             user_id: args.p_user_id,
             recipe_id: args.p_recipe_id,
@@ -157,19 +169,11 @@ function mock(
             byte_size: args.p_byte_size,
             created_at: args.p_created_at,
             expires_at: args.p_expires_at,
-            state: "pending",
-          });
+            state: "pending" as const,
+          };
+          intents.push(intent);
           uploadRecords.set(args.p_id, {
-            id: args.p_id,
-            user_id: args.p_user_id,
-            recipe_id: args.p_recipe_id,
-            staging_key: args.p_staging_key,
-            final_key: args.p_final_key,
-            content_type: args.p_content_type,
-            byte_size: args.p_byte_size,
-            created_at: args.p_created_at,
-            expires_at: args.p_expires_at,
-            state: "pending",
+            ...intent,
             cleanup_status: "waiting",
           });
           if (options.persistenceFailure) {
@@ -308,7 +312,7 @@ for (const content_type of ["image/jpeg", "image/png", "image/webp"]) {
       "method",
       "url",
     ]);
-    assertEquals(calls.length, 3);
+    assertEquals(calls.length, 4);
     assertEquals(intents.length, 1);
     const intent = intents[0];
     assertEquals(intent.user_id, USER);
@@ -369,6 +373,43 @@ Deno.test("each upload authorization creates a fresh intent without modifying re
     ) => call.method === "GET"),
     true,
   );
+});
+
+Deno.test("a retry after a lost authorization response reuses the pending intent", async () => {
+  const options = { persistenceFailure: true };
+  const { deps, intents } = mock(options);
+  const requestId = crypto.randomUUID();
+  const retryRequest = () => request({ ...payload, request_id: requestId });
+
+  await expectError(await handler(retryRequest(), deps), 500, "INTERNAL_ERROR");
+  options.persistenceFailure = false;
+  const response = await handler(retryRequest(), deps);
+  assertEquals(response.status, 200);
+
+  const upload = (await response.json()).upload;
+  assertEquals(upload.id, requestId);
+  assertEquals(upload.expires_at, "2026-11-02T00:10:00.000Z");
+  assertEquals(intents.length, 1);
+});
+
+Deno.test("reusing a request ID for different image metadata returns a conflict", async () => {
+  const { deps, intents } = mock();
+  const requestId = crypto.randomUUID();
+
+  assertEquals(
+    (await handler(request({ ...payload, request_id: requestId }), deps))
+      .status,
+    200,
+  );
+  await expectError(
+    await handler(
+      request({ ...payload, byte_size: 11, request_id: requestId }),
+      deps,
+    ),
+    409,
+    "UPLOAD_REQUEST_CONFLICT",
+  );
+  assertEquals(intents.length, 1);
 });
 
 Deno.test("upload ingress accepts the exact limit and rejects oversize or mismatched bodies before R2", async () => {

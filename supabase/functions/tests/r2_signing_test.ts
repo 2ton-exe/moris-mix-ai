@@ -349,6 +349,18 @@ Deno.test("presigned staging PUT binds exact type, size, and create-only headers
   assertEquals(signed.url.includes(config.secretAccessKey), false);
 });
 
+Deno.test("a retried presigned staging PUT does not outlive its intent", async () => {
+  const imageIntent = intent("image/png");
+  const retryAt = new Date(now.getTime() + 300_000);
+  const signed = await signRecipeImageStagingPutUrl(
+    imageIntent,
+    config,
+    retryAt,
+  );
+
+  assertEquals(new URL(signed.url).searchParams.get("X-Amz-Expires"), "300");
+});
+
 Deno.test("R2 signer rejects invalid configuration and altered upload intents", async () => {
   for (
     const change of [
