@@ -132,6 +132,21 @@ jobs:
             --use-api \
             --yes
 
+      - name: Deploy account-export Edge Function
+        id: deploy-account-export
+        # Keep the capacity-gated BE-16 endpoint off production until its acceptance gates pass.
+        if: false
+        working-directory: frontend
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy account-export \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --no-verify-jwt \
+            --use-api \
+            --yes
+
       - name: Deploy extract-recipe Edge Function
         id: deploy-extract-recipe
         working-directory: frontend
@@ -219,12 +234,14 @@ jobs:
         id: runtime-smoke
         env:
           SMOKE_DEPLOYMENT_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
+          SMOKE_ACCOUNT_EXPORT_OUTCOME: ${{ steps.deploy-account-export.outcome }}
         run: node scripts/runtime-smoke.mjs
 
       - name: Record production deployment and runtime outcomes
         if: always()
         env:
           RECIPES_OUTCOME: ${{ steps.deploy-recipes.outcome }}
+          ACCOUNT_EXPORT_OUTCOME: ${{ steps.deploy-account-export.outcome }}
           IMAGE_ATTACH_OUTCOME: ${{ steps.deploy-recipe-image-attach.outcome }}
           IMAGE_CLEANUP_OUTCOME: ${{ steps.deploy-recipe-image-cleanup.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
@@ -239,6 +256,7 @@ jobs:
             echo "### Production delivery"
             echo "- Source revision: ${GITHUB_SHA}"
             echo "- recipes deployment command: ${RECIPES_OUTCOME}"
+            echo "- account-export deployment command: ${ACCOUNT_EXPORT_OUTCOME}"
             echo "- recipe image attachment deployment command: ${IMAGE_ATTACH_OUTCOME}"
             echo "- recipe image cleanup deployment command: ${IMAGE_CLEANUP_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"

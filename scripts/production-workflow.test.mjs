@@ -213,17 +213,18 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend', 'Deploy recipes Edge Function',
+    'Deploy account-export Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe image upload cleanup Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
   const positions = ordered.map(name => release.steps.indexOf(step(release, name)));
   assert.ok(positions.every((position, i) => position >= 0 && (!i || position > positions[i - 1])));
-  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function')) {
+  for (const name of ordered.slice(0, -3).filter(name => name !== 'Deploy recipe image upload cleanup Edge Function' && name !== 'Deploy account-export Edge Function')) {
     assert.equal(step(release, name).if, undefined);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   const commands = release.steps.map(s => s.run ?? '').join('\n');
-  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-attach', 'recipe-image-upload-cleanup']);
+  assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), ['recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach', 'recipe-image-upload-cleanup']);
   const migrationStepIds = ['preview-migrations', 'deploy-migrations', 'verify-migrations'];
   if (release.steps.some(item => migrationStepIds.includes(item.id))) {
     const order = migrationStepIds.map(id => release.steps.findIndex(item => item.id === id));
@@ -231,6 +232,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.ok(order[0] < order[1] && order[1] < order[2]);
     assert.ok(order[2] < release.steps.findIndex(item => item.id === 'deploy-recipes'));
   }
+  assert.doesNotMatch(commands, /db push|migration up|run-migrations|db:setup/);
   assert.doesNotMatch(commands, /secrets set|AI_EXTRACT_ENABLED|AI_GENERATE_ENABLED|GEMINI_API_KEY|AI_CANDIDATE_TOKEN_SECRET/);
   const configuration = step(release, 'Validate production deployment configuration');
   assert.deepEqual(configuration.env, {
@@ -249,9 +251,10 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(build.run, 'pnpm build');
   const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
   assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
-  for (const target of ['recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-attach']) {
+  for (const target of ['recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach']) {
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
+    assert.equal(deploy.if, target === 'account-export' ? false : undefined);
     assert.equal(deploy['working-directory'], 'frontend');
     assert.deepEqual(deploy.env, configuration.env);
     assert.ok(deploy.run.includes(`pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy ${target}`));
@@ -286,12 +289,14 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(step(release, 'Production runtime smoke').id, 'runtime-smoke');
   assert.equal(step(release, 'Production runtime smoke').run, 'node scripts/runtime-smoke.mjs');
   assert.equal(step(release, 'Production runtime smoke').env.SMOKE_DEPLOYMENT_OUTCOME, '${{ steps.deploy-cloudflare.outcome }}');
+  assert.equal(step(release, 'Production runtime smoke').env.SMOKE_ACCOUNT_EXPORT_OUTCOME, '${{ steps.deploy-account-export.outcome }}');
   for (const name of ordered.slice(-3)) {
     assert.equal(step(release, name).if, 'always()');
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
   assert.deepEqual(step(release, 'Record production deployment and runtime outcomes').env, {
     RECIPES_OUTCOME: '${{ steps.deploy-recipes.outcome }}',
+    ACCOUNT_EXPORT_OUTCOME: '${{ steps.deploy-account-export.outcome }}',
     IMAGE_ATTACH_OUTCOME: '${{ steps.deploy-recipe-image-attach.outcome }}',
     IMAGE_CLEANUP_OUTCOME: '${{ steps.deploy-recipe-image-cleanup.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
@@ -385,7 +390,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
     // Explicit contract replaces parity against the retired workflow. Keep all
     // current recipe, auth, AI and recipe-image targets independently asserted.
     const targets = step(edge.jobs['test-edge-api'], name).run.split(/\s+/).filter(s => s.startsWith('supabase/'));
-    const tests = ['demo_recipe', 'auth', 'recipes', 'ai_contracts', 'ai_journeys', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
+    const tests = ['demo_recipe', 'auth', 'account_export', 'recipes', 'ai_contracts', 'ai_journeys', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
       'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'recipe_image_lifecycle', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
       .map(name => `supabase/functions/tests/${name}_test.ts`);
     const expected = name.startsWith('Type-check') ? [
@@ -394,7 +399,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
       'supabase/functions/_shared/recipe-images/lifecycle.ts',
       'supabase/functions/_shared/recipe-images/uploadIntents.ts',
       'supabase/functions/_shared/recipe-images/uploadCleanup.ts',
-      ...['demo-recipe', 'auth-session', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup', 'recipe-image-attach', 'recipe-image-download-url', 'recipe-image-delete', 'recipe-image-final-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
+      ...['demo-recipe', 'auth-session', 'account-export', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup', 'recipe-image-attach', 'recipe-image-download-url', 'recipe-image-delete', 'recipe-image-final-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
       'supabase/functions/tests/auth_rls_integration_test.ts', ...tests,
     ] : tests;
     assert.deepEqual(targets.sort(), expected.sort());
