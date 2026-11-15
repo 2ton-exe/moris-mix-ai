@@ -132,21 +132,22 @@ docs-only mode to PR events. Explicit log steps identify the lighter paths.
 | Database Tests | Keeps the job/check and PostgreSQL service; checkout and an explicit successful no-op step run. Skips tooling install, readiness command, migrations, lifecycle and RLS commands. Service startup can still fail the job. |
 | Edge/API Tests | Keeps the job/check, checkout and explicit successful no-op step. Skips Deno/tooling setup, type-checks, deterministic tests and optional hosted work. Main still requires its nested Hosted RLS job; a required-hosted-RLS input also disables docs-only mode. |
 | E2E | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `e2e=skip`. Failure, missing/malformed output or uncertainty runs normal E2E; cancellation prevents execution. E2E remains non-required. |
-| Staging | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `staging=skip`. Otherwise it still requires successful frontend, database and Edge/API validation, a non-draft same-repository PR, and no cancellation. Deployment and smoke implementation are unchanged. PR workflows still cannot call production. |
+| Staging | The PR caller intentionally disables the job for every PR. It remains visible as skipped and records a successful same-run classifier marker so PR Secretary reports the shutdown as expected. The reusable staging deployment and smoke implementation remain available but are not called by PR validation. PR workflows still cannot call production. |
 
 Verified docs-only decisions emit `frontend=noop`, `database=noop`,
 `edge_api=noop`, `e2e=skip`, and `staging=skip`. Full-validation decisions emit
 `docs_only=false` and `run` for all five paths. Classifier failure or uncertain
-evidence therefore falls back to full validation, including E2E and eligible
-staging. All three required core contexts remain present and must succeed;
-they are never skipped at the caller level.
+evidence falls back to full core validation and E2E. The PR caller still
+intentionally skips staging in either case. All three required core contexts
+remain present and must succeed; they are never skipped at the caller level.
 
-Secretary uses the successful classifier job's explicit documentation-only
-marker step from the same workflow run to report observed E2E/staging skips as
-`SKIPPED — EXPECTED`, never as passed executions. Missing or unsuccessful marker
-evidence does not excuse an otherwise unexpected skip. The marker and job
-metadata are already available from the Jobs API; no extra permissions or
-deployment behavior are introduced.
+Secretary uses successful classifier step evidence from the same workflow run:
+the documentation-only marker explains E2E skips, while the explicit staging
+shutdown marker explains staging skips for all PRs. Both remain `SKIPPED —
+EXPECTED`, never passed executions. Missing or unsuccessful marker evidence does
+not excuse an otherwise unexpected skip. The markers and job metadata are
+available from the Jobs API; no extra permissions or deployment behavior are
+introduced.
 
 ### Measured hosted Stage A result
 

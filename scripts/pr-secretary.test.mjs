@@ -80,6 +80,28 @@ test('eligible staging unexpected skip needs investigation', () => {
   assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — INVESTIGATE');
 });
 
+test('same-run classifier evidence reports the intentional PR staging shutdown', () => {
+  const marker = check('Classify PR paths', 'success', { workflow: 'Modular PR Validation',
+    app: { slug: 'github-actions' }, run_id: 321,
+    steps: [check('Record intentionally disabled PR staging', 'success')] });
+  const d = data(); d.paths = ['frontend/src/App.tsx'];
+  d.checks = [marker, check('Modular Staging', 'skipped', { run_id: 321 })];
+  const result = summarize(d);
+  for (const label of ['Staging deploy', 'Staging smoke']) {
+    assert.equal(result.rows.find(r => r[0] === label)[1], 'SKIPPED — EXPECTED');
+    assert.ok(!result.attention.some(a => a.startsWith(`${label}: unexpected skip`)));
+  }
+
+  for (const patch of [{ conclusion: 'failure' }, { status: 'in_progress' }, { run_id: 320 },
+    { workflow: 'Other workflow' }, { app: { slug: 'other-app' } }, { steps: [] },
+    { steps: [check('Record intentionally disabled PR staging', 'skipped')] }]) {
+    d.checks[0] = { ...marker, ...patch };
+    for (const label of ['Staging deploy', 'Staging smoke']) {
+      assert.equal(summarize(d).rows.find(r => r[0] === label)[1], 'SKIPPED — INVESTIGATE');
+    }
+  }
+});
+
 test('explicit docs-only classifier evidence reports E2E/staging skips without claiming execution', () => {
   const marker = check('Classify PR paths', 'success', { workflow: 'Modular PR Validation',
     app: { slug: 'github-actions' }, run_id: 321, steps: [check('Record documentation-only E2E/staging skips', 'success')] });

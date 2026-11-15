@@ -139,6 +139,8 @@ test('modular PR is isolated from hosted credentials and deployment', () => {
   assert.equal(pr.jobs.staging.if, '${{ false }}');
   assert.equal(pr.jobs.staging.uses, undefined);
   assert.equal(pr.jobs.staging.secrets, undefined);
+  assert.equal(step(pr.jobs.classify, 'Record intentionally disabled PR staging').run,
+    'echo "Staging deploy and smoke are intentionally disabled for pull requests."');
   assert.equal(pr.jobs['test-edge-api'].secrets, undefined);
   assert.doesNotMatch(readFileSync('.github/workflows/modular-pr-validation.yml', 'utf8'), /secrets\./);
   for (const job of Object.values(pr.jobs)) {

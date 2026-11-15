@@ -1,6 +1,6 @@
 name: Modular PR Validation
 
-# PR validation and eligible staging delivery; production belongs to modular-main.yml.
+# PR validation; staging and production delivery are disabled for PRs.
 on:
   pull_request:
     branches: [main]
@@ -42,6 +42,8 @@ jobs:
       - name: Record documentation-only E2E/staging skips
         if: steps.classify.outputs.docs_only == 'true' && steps.classify.outputs.e2e == 'skip' && steps.classify.outputs.staging == 'skip'
         run: echo "Verified documentation-only decision; E2E and staging will not execute."
+      - name: Record intentionally disabled PR staging
+        run: echo "Staging deploy and smoke are intentionally disabled for pull requests."
 
   frontend:
     name: Modular Frontend
