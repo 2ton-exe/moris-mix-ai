@@ -686,8 +686,8 @@ test('cleanup invocation uses only the protected opt-in and has no storage crede
   assert.equal(deployment.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
 });
 
-test('Modular Main gates image release on same-run protected readiness', () => {
-  assert.ok(recipeImageReadiness, 'protected upload-signing readiness job is missing');
+test('Modular Main gates image release on same-run readiness', () => {
+  assert.ok(recipeImageReadiness, 'upload-signing readiness job is missing');
   assert.equal(existsSync('.github/workflows/recipe-image-upload-readiness.yml'), false);
   const job = recipeImageReadiness;
   assert.deepEqual(job.needs, ['frontend', 'test-db', 'test-edge-api']);
@@ -718,9 +718,9 @@ test('Modular Main gates image release on same-run protected readiness', () => {
   });
   assert.deepEqual(job.permissions, { contents: 'read' });
   assert.deepEqual(job.steps.map(item => item.name), [
-    'Checkout repository', 'Set up pnpm', 'Set up Node.js', 'Install verifier dependencies', 'Verify protected Supabase readiness',
+    'Checkout repository', 'Set up pnpm', 'Set up Node.js', 'Install verifier dependencies', 'Verify Supabase readiness',
   ]);
-  const verifier = step(job, 'Verify protected Supabase readiness');
+  const verifier = step(job, 'Verify Supabase readiness');
   assert.equal(verifier.run, 'node scripts/verify-upload-signing-readiness.mjs');
   assert.deepEqual(job.env, {
     EXPECTED_PRODUCTION_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',

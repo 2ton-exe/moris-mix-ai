@@ -76,7 +76,7 @@ jobs:
       - name: Install verifier dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify protected Supabase readiness
+      - name: Verify Supabase readiness
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           SUPABASE_DATABASE_CA_CERT: ${{ secrets.SUPABASE_DATABASE_CA_CERT }}
