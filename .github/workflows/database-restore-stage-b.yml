@@ -174,10 +174,10 @@ jobs:
           # Ubuntu's psql may be version 16. A patched 17.11 client understands
           # the source dump's restrict/unrestrict guards without stripping them.
           # The container does not receive any R2 or production credentials.
-          # Never echo private output. The bounded classifier may inspect only
-          # stderr and return an allowlisted, untrusted component hint.
+          # Never echo private output. The bounded classifier emits fixed,
+          # explicitly untrusted hints; final output has an independent allowlist.
           checked() {
-            local phase="$1" rc category component_hint
+            local phase="$1" rc category component_hint error_category_hint statement_class_hint diagnostic_details
             shift
             if "$@" > "$RUNNER_TEMP/private-restore-result.log" \
                 2> "$RUNNER_TEMP/private-restore-stderr.log"; then
@@ -198,16 +198,30 @@ jobs:
                   esac ;;
               esac
               component_hint=unknown
+              error_category_hint=unknown
+              statement_class_hint=unknown
               if [[ "$phase:$rc" == restore:3 ]]; then
-                component_hint="$(python3 scripts/classify_restore_component.py \
-                  "$RUNNER_TEMP/private-restore-stderr.log" "$rc" 2> /dev/null)" || component_hint=unknown
+                diagnostic_details="$(python3 scripts/classify_restore_component.py --details \
+                  "$RUNNER_TEMP/private-restore-stderr.log" "$rc" \
+                  "$RUNNER_TEMP/restore-verified-sql/roles.sql" 2> /dev/null)" || diagnostic_details=
+                if [[ "$diagnostic_details" =~ ^(roles[.]sql|schema[.]sql|history-schema[.]sql|data[.]sql|history-data[.]sql|unknown)\ (insufficient-privilege|undefined-object|duplicate-object|unknown)\ (role-membership-grant|alter-role-set|unknown)$ ]]; then
+                  read -r component_hint error_category_hint statement_class_hint <<< "$diagnostic_details"
+                fi
               fi
               case "$component_hint" in
                 roles.sql|schema.sql|history-schema.sql|data.sql|history-data.sql|unknown) ;;
                 *) component_hint=unknown ;;
               esac
-              printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d component_hint=%s; private output suppressed\n' \
-                "$phase" "$category" "$rc" "$component_hint"
+              case "$error_category_hint" in
+                insufficient-privilege|undefined-object|duplicate-object|unknown) ;;
+                *) error_category_hint=unknown ;;
+              esac
+              case "$statement_class_hint" in
+                role-membership-grant|alter-role-set|unknown) ;;
+                *) statement_class_hint=unknown ;;
+              esac
+              printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d component_hint=%s untrusted_error_category_hint=%s untrusted_statement_class_hint=%s; private output suppressed\n' \
+                "$phase" "$category" "$rc" "$component_hint" "$error_category_hint" "$statement_class_hint"
               exit "$rc"
             fi
           }

@@ -1,10 +1,13 @@
 # Modular workflow architecture and migration evidence - issue #73
 
+> **Current workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** PR #142 merged and issue #73 is closed. `modular-main.yml` is the sole production caller on main. Production requires successful frontend, database and aggregate Edge/API validation, including its nested mandatory Hosted RLS job, plus frontend existence. Main E2E runs separately and is not a production dependency. The active `Protect main` ruleset requires the three modular core contexts, one approving review and resolved review conversations. PR validation uses the complete-diff classifier; verified documentation-only diffs skip E2E and staging, while other PR diffs run three-browser E2E. Staging runs only after core validation succeeds for a non-draft, same-repository PR. The production release always targets `recipes`, `extract-recipe`, `generate-recipe` and `recipe-image-attach`; image upload/download and cleanup targets are conditional, and `account-export` is explicitly disabled. The dated cleanup proposal and its original pending statements below are historical; [runbook](deployment-runbook.md) details current release prerequisites and post-merge verification is recorded in this section.
+
 ## Issue #73 final cleanup proposal (2026-10-31)
 
 Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
-This branch proposes repository cleanup; it is not merged-main verification and
-issue #73 is not complete. No GitHub settings are changed here.
+At this 2026-10-31 checkpoint, the branch proposed repository cleanup; it did
+not establish merged-main verification, and issue #73 was not yet complete.
+No GitHub settings were changed by that cleanup proposal.
 
 Operator-provided evidence at that main SHA already proves both ownership modes:
 
@@ -46,13 +49,24 @@ explicitly unconfirmed fallback; live rules take precedence.
 
 The [full cleanup contract and GitHub handoff](../../.github/production-cutover.md#issue-73-final-cleanup-proposal-2026-10-31)
 records production targets, release safeguards, and outstanding verification.
-PR #142 is still unmerged. Its merge, `ci.yml` absence from merged main, and
-automatic Modular Main Validation on the merge SHA remain pending. Verify Hosted
-RLS execution on main, Modular Main Production execution, recipes deployment,
-Cloudflare deployment, production URL verification, runtime smoke and artifact
-preservation. PR Secretary verification from the new default-branch code and
-final issue #73 closure also remain pending. The completed ruleset handoff does
-not establish merged modular production steady state or post-merge success.
+At the 2026-10-31 proposal checkpoint, PR #142 was still unmerged. Its
+merge, removal of `ci.yml` from merged main, and post-merge Modular Main
+Validation (including Hosted RLS, deployment, URL verification, runtime smoke
+and artifacts) were then pending. PR Secretary verification from the new
+default-branch code and issue #73 closure were also pending at that checkpoint.
+The completed ruleset handoff alone did not establish post-merge success.
+
+**Post-merge verification (2026-10-31 UTC / 2026-11-01 PHT):**
+[PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) merged as
+[`8747e6e605c5eda358c1bb77b27d3d120c87bddc`](https://github.com/2ton-exe/moris-mix-ai/commit/8747e6e605c5eda358c1bb77b27d3d120c87bddc), retiring `ci.yml`.
+[Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+ran automatically on that merge SHA and passed Frontend, Database, Edge/API,
+Hosted RLS and production deployment, including `recipes` deployment, Cloudflare
+deployment, production URL verification, runtime smoke and preservation of
+`production-runtime-smoke-41222561150-1`. [Issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73)
+is closed. These observations supersede the proposal's pending merger and
+production-verification statements; they do not independently establish PR
+Secretary verification from the new default-branch code.
 After retirement, a variable flip cannot restore legacy production; rollback
 requires a reviewed repository change. Do not rerun stale production revisions.
 
