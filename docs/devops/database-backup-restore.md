@@ -148,6 +148,21 @@ A backup upload is not restore proof. DEVOPS-10 remains open until this drill su
 
 If configuration is missing or the workflow is dispatched from a non-main ref, production backup execution is blocked. If role/schema/migration-history drift is detected during capture, bundle creation fails before packaging/upload. If backup creation fails, no backup should be reported for that run. If upload fails, the job fails visibly and the runner cleanup step removes the local dump files. If remote size or re-downloaded SHA-256 verification fails, treat the uploaded object as unverified and investigate before using it for recovery.
 
+For a PostgreSQL script failure (`restore` exit code 3), Stage B may emit the
+existing `component_hint` and two additional **untrusted** hints for a uniquely
+framed `roles.sql` error: a category mapped from the fixed SQLSTATE allowlist
+(`42501`, `42704`, `42710`) and a conservative statement class for a recognized
+single-line role-membership `GRANT` or `ALTER ROLE ... SET`. The statement lookup
+uses only the verified `roles.sql` file and the reported line number, which may
+identify the statement's ending line. Unsupported forms and unreadable role
+files produce an `unknown` statement class; malformed or ambiguous records and
+over-bound stderr produce only `unknown` labels. The labels
+are investigative leads, not proof of the original failing statement; a forged
+matching diagnostic cannot be distinguished from a real one. The three public error categories each identify one allowlisted SQLSTATE.
+Raw diagnostic records, line numbers, SQL, and identifiers stay private. Any diagnostic
+failure preserves the restore's original exit status, and the disposable target
+cleanup remains an always-run step.
+
 Do not weaken database TLS, expose dump contents, make the bucket public, reuse recipe-image credentials, bypass the consistency gate, or restore into a shared/production database to make the task pass.
 
 ## Migration-history consistency comparison

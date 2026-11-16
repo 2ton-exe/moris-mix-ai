@@ -1,10 +1,15 @@
 # Production ownership and final cleanup - issue #73
 
+> **Current workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) merged as `8747e6e605c5eda358c1bb77b27d3d120c87bddc`; [issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73) is closed. [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150) automatically ran on that merge SHA and passed core validation, Hosted RLS, production deployment, URL verification, runtime smoke and artifact preservation. That is historical execution evidence and does not establish the current conditional image release path.
+>
+> `modular-main.yml` remains the sole production caller for pushes and manual dispatches on `main`. Production depends on successful frontend, database and aggregate Edge/API validation, including nested mandatory Hosted RLS, and frontend existence; main E2E runs separately. The reusable release always targets `recipes`, `extract-recipe`, `generate-recipe` and `recipe-image-attach`; `account-export` is explicitly disabled. Image upload/download targets require `VITE_RECIPE_IMAGES == 'true'`; cleanup deployment and the scheduled cleanup workflow require `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. With both image and cleanup flags enabled, Modular Main automatically runs read-only readiness for the same main commit before production continues; this environment requires no reviewer approval and remains restricted to `main`. Production also requires the image migrations. See the [deployment runbook](../docs/devops/deployment-runbook.md#enable-private-recipe-images). The dated cleanup proposal below is historical, not current operating guidance.
+
 ## Issue #73 final cleanup proposal (2026-10-31)
 
 Baseline main: `46809319eb23394a45d6f1ea79f8ee41f541011b`.
-This branch proposes repository cleanup; it is not merged-main verification and
-issue #73 is not complete. No GitHub settings are changed here.
+At this 2026-10-31 proposal checkpoint, the branch had not yet provided
+merged-main verification and issue #73 remained open. This proposal itself
+made no GitHub settings changes.
 
 Operator-provided evidence at that main SHA already proves both ownership modes:
 
@@ -70,14 +75,20 @@ the planned handoff without a required-check protection gap. Required human
 review and review-thread resolution remain enabled. This documentation update
 records that completed GitHub action; it changes no policy.
 
-PR #142 is still unmerged. Still pending are its merge, confirmation that `ci.yml`
-is absent from merged main, and automatic Modular Main Validation on the merge
-SHA. Observe mandatory Hosted RLS on main and Modular Main Production execution;
-verify recipes deployment, Cloudflare deployment, production URL verification,
-runtime smoke, outcome summary and artifact preservation. Verify PR Secretary
-from the new default-branch code. The completed ruleset handoff does not establish
-merged production steady state or any of these post-merge outcomes; issue #73
-remains open until that verification is complete.
+At the 2026-10-31 proposal checkpoint, PR #142 was still unmerged. Its
+merge, removal of `ci.yml` from merged main, and automatic modular-only main
+validation, production deployment, URL verification, runtime smoke and artifact
+preservation were pending then. The ruleset handoff alone did not prove those
+post-merge outcomes; PR Secretary default-branch verification was also pending.
+
+**Later verified (2026-10-31 UTC / 2026-11-01 PHT):** PR #142 merged as
+[`8747e6e`](https://github.com/2ton-exe/moris-mix-ai/commit/8747e6e605c5eda358c1bb77b27d3d120c87bddc),
+retiring `ci.yml`. [Main run #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150)
+passed Frontend, Database, Edge/API, mandatory Hosted RLS, production deployment
+(`recipes` and Cloudflare), URL verification, runtime smoke and artifact
+preservation. Issue #73 is closed. The pre-merge pending statements above are
+historical; PR Secretary verification is not independently established by this
+run, nor does successful runtime smoke establish full authenticated acceptance.
 Do not rerun pre-cleanup production revisions as a rollback shortcut; concurrency
 serializes deployments but does not reject stale runs. Rollback after retirement
 requires a reviewed repository change restoring the required caller/guards, not a

@@ -16,8 +16,13 @@ import unittest
 from classify_restore_component import (
     COMPONENTS,
     MAX_LOG_BYTES,
+    MAX_ROLE_LINE_BYTES,
+    MAX_ROLE_SCAN_LINES,
     component_hint,
+    diagnostic_hints,
+    diagnostic_hints_from_files,
     hint_from_file,
+    statement_class_from_file,
 )
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/database-restore-stage-b.yml"
@@ -304,6 +309,186 @@ class ComponentHintTests(unittest.TestCase):
         # Deliberately document the limitation; do not claim spoof-proof parsing.
         self.assertEqual(component_hint(forged, 3), "data.sql")
 
+    def test_role_sql_category_and_statement_classes(self):
+        classifier = Path(__file__).with_name("classify_restore_component.py")
+        cases = [
+            (b"GRANT synthetic_group TO synthetic_member WITH ADMIN OPTION, INHERIT TRUE, SET TRUE;\n",
+             b"42501", ("roles.sql", "insufficient-privilege", "role-membership-grant")),
+            (b"ALTER ROLE synthetic_member SET statement_timeout TO '15s';\n",
+             b"42704", ("roles.sql", "undefined-object", "alter-role-set")),
+            (b"ALTER ROLE synthetic_member IN DATABASE synthetic_db SET statement_timeout TO '15s';\n",
+             b"42704", ("roles.sql", "undefined-object", "alter-role-set")),
+            (b"GRANT synthetic_group TO synthetic_member;\n",
+             b"42710", ("roles.sql", "duplicate-object", "role-membership-grant")),
+            (b"ALTER ROLE synthetic_member SET statement_timeout TO '15s';\n",
+             b"ZZZZZ", ("roles.sql", "unknown", "alter-role-set")),
+        ]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stderr, roles = root / "private.stderr", root / "roles.sql"
+            for payload, sqlstate, expected in cases:
+                with self.subTest(sqlstate=sqlstate):
+                    roles.write_bytes(payload)
+                    stderr.write_bytes(
+                        b"psql:/backup/roles.sql:1: ERROR:  " + sqlstate + b"\n")
+                    self.assertEqual(diagnostic_hints(stderr.read_bytes(), 3, roles), expected)
+                    cli = subprocess.run(
+                        [sys.executable, "-B", str(classifier), "--details",
+                         str(stderr), "3", str(roles)],
+                        text=True, capture_output=True, check=False)
+                    self.assertEqual(cli.returncode, 0)
+                    self.assertEqual(cli.stdout, " ".join(expected) + "\n")
+                    self.assertEqual(cli.stderr, "")
+
+    def test_role_lookup_rejects_ambiguous_invalid_and_unsupported_lines(self):
+        accepted = b"psql:/backup/roles.sql:2: ERROR:  42501\n"
+        with tempfile.TemporaryDirectory() as td:
+            roles = Path(td) / "roles.sql"
+            roles.write_bytes(b"CREATE ROLE synthetic_member;\nGRANT synthetic_group TO synthetic_member;\n")
+            self.assertEqual(diagnostic_hints(accepted + accepted, 3, roles),
+                             ("unknown", "unknown", "unknown"))
+
+            # A perfectly matching forged record remains indistinguishable.
+            self.assertEqual(diagnostic_hints(accepted, 3, roles),
+                             ("roles.sql", "insufficient-privilege", "role-membership-grant"))
+
+            other_component = b"psql:/backup/data.sql:1: ERROR:  42704\n"
+            self.assertEqual(diagnostic_hints(other_component, 3, roles),
+                             ("data.sql", "unknown", "unknown"))
+
+            invalid_refs = [
+                b"psql:/backup/roles.sql:0: ERROR:  42501\n",
+                f"psql:/backup/roles.sql:{MAX_ROLE_SCAN_LINES + 1}: ERROR:  42501\n".encode(),
+                b"psql:/backup/roles.sql:3: ERROR:  42501\n",
+            ]
+            for stderr in invalid_refs:
+                with self.subTest(stderr=stderr):
+                    component, category, statement = diagnostic_hints(stderr, 3, roles)
+                    self.assertEqual((component, category), ("unknown", "unknown")
+                                     if b":0:" in stderr else ("roles.sql", "insufficient-privilege"))
+                    self.assertEqual(statement, "unknown")
+
+            misleading = [
+                (1, b"-- GRANT synthetic_group TO synthetic_member;\n"),
+                (1, b"SELECT 'GRANT synthetic_group TO synthetic_member;';\n"),
+                (2, b"COPY synthetic_roles FROM stdin;\n"
+                    b"GRANT synthetic_group TO synthetic_member;\n\\.\n"),
+                (2, b"SELECT 1; COPY synthetic_roles FROM stdin;\n"
+                    b"GRANT synthetic_group TO synthetic_member;\n\\.\n"),
+                (2, b"/* open comment\nGRANT synthetic_group TO synthetic_member;\n*/\n"),
+                (2, b"ALTER ROLE synthetic_member SET application_name TO 'unterminated\n"
+                    b"GRANT synthetic_group TO synthetic_member;\n"),
+                (2, b"ALTER ROLE synthetic_member SET\n"
+                    b"statement_timeout TO '15s';\n"),
+            ]
+            for line_number, payload in misleading:
+                with self.subTest(payload=payload):
+                    roles.write_bytes(payload)
+                    self.assertLessEqual(line_number, len(payload.splitlines()))
+                    record = f"psql:/backup/roles.sql:{line_number}: ERROR:  42501\n".encode()
+                    self.assertEqual(diagnostic_hints(record, 3, roles),
+                                     ("roles.sql", "insufficient-privilege", "unknown"))
+
+    def test_semicolon_inside_trailing_comment_is_not_statement_boundary(self):
+        record = b"psql:/backup/roles.sql:2: ERROR:  42501\n"
+        with tempfile.TemporaryDirectory() as td:
+            roles = Path(td) / "roles.sql"
+            roles.write_bytes(
+                b"SELECT 1 -- this semicolon is inside a comment;\n"
+                b'GRANT "g" TO "m";\n'
+            )
+            self.assertEqual(diagnostic_hints(record, 3, roles),
+                             ("roles.sql", "insufficient-privilege", "unknown"))
+
+            # A genuine standalone grant after a complete statement still matches.
+            roles.write_bytes(b"SELECT ';'; -- trailing ;\nGRANT \"g\" TO \"m\";\n")
+            self.assertEqual(diagnostic_hints(record, 3, roles),
+                             ("roles.sql", "insufficient-privilege", "role-membership-grant"))
+
+    def test_role_scan_is_bounded_and_cli_never_emits_private_sentinels(self):
+        classifier = Path(__file__).with_name("classify_restore_component.py")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stderr, roles = root / "private.stderr", root / "roles.sql"
+            stderr.write_bytes(b"psql:/backup/roles.sql:1: ERROR:  42501\n")
+            roles.write_bytes(b"SYNTHETIC_PRIVATE_SQL " + b"x" * MAX_ROLE_LINE_BYTES)
+            cli = subprocess.run(
+                [sys.executable, "-B", str(classifier), "--details",
+                 str(stderr), "3", str(roles)],
+                text=True, capture_output=True, check=False)
+            self.assertEqual((cli.returncode, cli.stdout, cli.stderr),
+                             (0, "roles.sql insufficient-privilege unknown\n", ""))
+            self.assertNotIn("SYNTHETIC_PRIVATE", cli.stdout + cli.stderr)
+
+            roles.write_bytes(b"CREATE ROLE synthetic_member;\n")
+            stderr.write_bytes(b"psql:/backup/roles.sql:2: ERROR:  42501\n")
+            cli = subprocess.run(
+                [sys.executable, "-B", str(classifier), "--details",
+                 str(stderr), "3", str(roles)],
+                text=True, capture_output=True, check=False)
+            self.assertEqual(cli.stdout, "roles.sql insufficient-privilege unknown\n")
+
+            roles.write_bytes(b"GRANT synthetic_group TO synthetic_member;\n")
+            stderr.write_bytes(b"SYNTHETIC_PRIVATE_SENTINEL " + b"x" * (MAX_LOG_BYTES + 1))
+            cli = subprocess.run(
+                [sys.executable, "-B", str(classifier), "--details",
+                 str(stderr), "3", str(roles)],
+                text=True, capture_output=True, check=False)
+            self.assertEqual((cli.stdout, cli.stderr), ("unknown unknown unknown\n", ""))
+            self.assertNotIn("SYNTHETIC_PRIVATE", cli.stdout + cli.stderr)
+
+            stderr.write_bytes(b"psql:/backup/roles.sql:1: ERROR:  42501\n")
+            cli = subprocess.run(
+                [sys.executable, "-B", str(classifier), "--details",
+                 str(stderr), "3", str(root / "unreadable" / "roles.sql")],
+                text=True, capture_output=True, check=False)
+            self.assertEqual(cli.stdout, "roles.sql insufficient-privilege unknown\n")
+
+    def test_detailed_classifier_reads_both_private_files_with_bounds(self):
+        class BoundedSource(io.BytesIO):
+            def read(self, size=-1):
+                self.requested = size
+                return super().read(size)
+
+        stderr_source = BoundedSource(b"SYNTHETIC_PRIVATE " * (MAX_LOG_BYTES + 1))
+
+        class PrivatePath:
+            def open(self, mode):
+                self.mode = mode
+                return stderr_source
+
+        path = PrivatePath()
+        self.assertEqual(diagnostic_hints_from_files(path, 3, Path("unused")),
+                         ("unknown", "unknown", "unknown"))
+        self.assertEqual((path.mode, stderr_source.requested), ("rb", MAX_LOG_BYTES + 1))
+
+        class BoundedLines:
+            def __init__(self):
+                self.requested = []
+                self.source = io.BytesIO(b"x" * (MAX_ROLE_LINE_BYTES + 100))
+
+            def readline(self, size=-1):
+                self.requested.append(size)
+                return self.source.readline(size)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.source.close()
+
+        bounded_lines = BoundedLines()
+
+        class RolePath:
+            def open(self, mode):
+                self.mode = mode
+                return bounded_lines
+
+        role_path = RolePath()
+        self.assertEqual(statement_class_from_file(role_path, 1), "unknown")
+        self.assertEqual((role_path.mode, bounded_lines.requested),
+                         ("rb", [MAX_ROLE_LINE_BYTES + 1]))
+
     def test_non_script_exit_does_not_read_a_log(self):
         class Input:
             def open(self, mode):
@@ -330,7 +515,8 @@ class RestoreDiagnosticTests(unittest.TestCase):
         cls.script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
 
     def run_diagnostic(self, phase="none", code=0, missing_file=False,
-                       temp_prefix="tmp", stderr=None, helper_mode="normal"):
+                       temp_prefix="tmp", stderr=None, helper_mode="normal",
+                       roles_sql=None):
         # No Docker daemon, network, or SQL execution. Both streams deliberately
         # contain synthetic private markers, including annotation-like content.
         stub = r'''
@@ -371,7 +557,11 @@ python3() {
             backup.mkdir()
             for name in SQL:
                 if not (missing_file and name == "data.sql"):
-                    (backup / name).write_text("SYNTHETIC_PRIVATE_DUMP")
+                    path = backup / name
+                    if name == "roles.sql" and roles_sql is not None:
+                        path.write_bytes(roles_sql)
+                    else:
+                        path.write_text("SYNTHETIC_PRIVATE_DUMP")
             env = dict(os.environ, RUNNER_TEMP=root.as_posix(),
                        PSQL_IMAGE="synthetic-pinned-image", FAIL_PHASE=phase,
                        FAIL_CODE=str(code), TEST_PYTHON=sys.executable,
@@ -393,7 +583,10 @@ python3() {
             self.assertEqual({path.name for path in backup.iterdir()},
                              set(SQL) - ({"data.sql"} if missing_file else set()))
             for path in backup.iterdir():
-                self.assertEqual(path.read_text(), "SYNTHETIC_PRIVATE_DUMP")
+                if path.name == "roles.sql" and roles_sql is not None:
+                    self.assertEqual(path.read_bytes(), roles_sql)
+                else:
+                    self.assertEqual(path.read_text(), "SYNTHETIC_PRIVATE_DUMP")
         self.assertNotIn("SYNTHETIC_PRIVATE", result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
         return result, calls
@@ -457,7 +650,9 @@ python3() {
                 self.assertEqual(result.stdout, "".join(
                     f"Restore diagnostic: phase={p} status=passed\n" for p in preceding) +
                     f"::error::Restore diagnostic: phase={phase} category={category} "
-                    f"exit_code={code} component_hint=unknown; private output suppressed\n")
+                    f"exit_code={code} component_hint=unknown "
+                    "untrusted_error_category_hint=unknown "
+                    "untrusted_statement_class_hint=unknown; private output suppressed\n")
 
     def test_actual_classifier_ignores_stdout_and_preserves_exit_three(self):
         for component in COMPONENTS.values():
@@ -466,13 +661,29 @@ python3() {
                     "restore", 3,
                     stderr=f"psql:/backup/{component}:12: ERROR:  22012\n")
                 self.assertEqual(result.returncode, 3)
-                self.assertIn(f"exit_code=3 component_hint={component};", result.stdout)
+                self.assertIn(f"exit_code=3 component_hint={component} ", result.stdout)
+                self.assertIn("untrusted_error_category_hint=unknown", result.stdout)
+                self.assertIn("untrusted_statement_class_hint=unknown", result.stdout)
+
+    def test_restore_error_emits_recognized_roles_hints_only(self):
+        result, _ = self.run_diagnostic(
+            "restore", 3,
+            stderr="psql:/backup/roles.sql:2: ERROR:  42501\n",
+            roles_sql=b"CREATE ROLE synthetic_member;\n"
+                      b"GRANT synthetic_group TO synthetic_member;\n")
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("component_hint=roles.sql ", result.stdout)
+        self.assertIn("untrusted_error_category_hint=insufficient-privilege", result.stdout)
+        self.assertIn("untrusted_statement_class_hint=role-membership-grant", result.stdout)
+        self.assertNotIn("SYNTHETIC_PRIVATE", result.stdout + result.stderr)
 
     def test_classifier_failure_or_unexpected_output_is_unknown(self):
         for mode in ("crash", "invalid"):
             result, _ = self.run_diagnostic("restore", 3, helper_mode=mode)
             self.assertEqual(result.returncode, 3)
-            self.assertIn("component_hint=unknown;", result.stdout)
+            self.assertIn("component_hint=unknown ", result.stdout)
+            self.assertIn("untrusted_error_category_hint=unknown", result.stdout)
+            self.assertNotIn("SYNTHETIC_PRIVATE", result.stdout + result.stderr)
 
     def test_other_phases_and_exit_codes_never_attribute_a_file(self):
         for phase, code in (("client", 3), ("connection", 3),
@@ -480,7 +691,7 @@ python3() {
             result, _ = self.run_diagnostic(
                 phase, code, stderr="psql:/backup/data.sql:1: ERROR:  22012\n")
             self.assertEqual(result.returncode, code)
-            self.assertIn("component_hint=unknown;", result.stdout)
+            self.assertIn("component_hint=unknown ", result.stdout)
 
     def test_both_private_logs_remain_in_always_cleanup(self):
         cleanup = WORKFLOW.read_text(encoding="utf-8").split(

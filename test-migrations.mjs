@@ -651,8 +651,9 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     );
     await setServiceRole(client);
     const concurrentUser = crypto.randomUUID();
-    assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
-    assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
+    for (let attempt = 0; attempt < 9; attempt++) {
+      assert.equal((await createIntent(client, concurrentUser)).status, 'allowed');
+    }
     const concurrent = await Promise.all([
       createIntent(client, concurrentUser),
       createIntent(competing, concurrentUser)
@@ -660,7 +661,7 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     assert.deepEqual(concurrent.map((result) => result.status).sort(), ['allowed', 'pending_limit']);
 
     const rateLimitUser = crypto.randomUUID();
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = 0; attempt < 50; attempt++) {
       const result = await createIntent(client, rateLimitUser);
       assert.equal(result.status, 'allowed');
       await client.query(
@@ -829,10 +830,10 @@ async function runRecipeImageLifecycleDatabaseTests(client, connectionString, ss
     const secondStagingClaim = await competing.query('SELECT * FROM public.claim_expired_recipe_image_uploads(50)');
     assert.equal(secondStagingClaim.rows.some((row) => row.id === concurrentCleanup.id), false);
     await client.query('ROLLBACK');
-    // Three attachments continue to consume quota until post-expiry staging deletion succeeds.
+    // Attached intents continue to consume quota until post-expiry staging deletion succeeds.
     const attachedUser = crypto.randomUUID();
     const attachments = [];
-    for (let index = 0; index < 3; index++) {
+    for (let index = 0; index < 10; index++) {
       const intent = await createIntent(client, attachedUser);
       attachments.push(intent);
       await client.query("UPDATE public.recipe_image_upload_intents SET state = 'attached' WHERE id = $1", [intent.id]);
