@@ -795,7 +795,7 @@ test('upload-signing readiness verifier keeps strict read-only schema and creden
       cwd: isolatedDirectory, encoding: 'utf8', env: baseEnv, windowsHide: true,
     });
     assert.notEqual(missing.status, 0);
-    assert.match(missing.stderr, /Missing required protected configuration: SUPABASE_DATABASE_URL/);
+    assert.match(missing.stderr, /Missing required image readiness configuration: SUPABASE_DATABASE_URL/);
     assert.doesNotMatch(missing.stderr, /ERR_MODULE_NOT_FOUND/);
     const configured = {
       ...baseEnv,
@@ -815,7 +815,7 @@ test('upload-signing readiness verifier keeps strict read-only schema and creden
       cwd: isolatedDirectory, encoding: 'utf8', env: missingCa, windowsHide: true,
     });
     assert.notEqual(missingCaResult.status, 0);
-    assert.match(missingCaResult.stderr, /Missing required protected configuration: SUPABASE_DATABASE_CA_CERT/);
+    assert.match(missingCaResult.stderr, /Missing required image readiness configuration: SUPABASE_DATABASE_CA_CERT/);
     assert.doesNotMatch(missingCaResult.stderr, /ERR_MODULE_NOT_FOUND/);
     const unverified = spawnSync(process.execPath, [isolatedVerifier], {
       cwd: isolatedDirectory, encoding: 'utf8', env: configured, windowsHide: true,
