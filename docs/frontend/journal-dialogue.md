@@ -19,31 +19,32 @@ workflows are connected without adding AI features or changing API contracts.
 
 ## Interaction
 
-**Talk to Mori** opens a nonmodal contextual panel with guidance, available
-workflow actions, and links to Quick AI Entry and AI Chef. The panel provides
-movement buttons, reset, and hide. A dedicated drag handle supports pointer
-capture and arrow keys; movement remains within the viewport. Phones use a
-smaller character docked at an edge. **Show Mori** restores the hidden companion.
-Position and visibility are stored on this device; unavailable or malformed
-storage falls back to defaults without blocking recipe work.
+**Talk to Mori** opens a nonmodal speech bubble with screen-specific guidance,
+available workflow actions, and links to Quick AI Entry and AI Chef. The bubble
+stays beside Mori with a tail pointing toward him, and flips above or below only
+when the viewport leaves too little room at either side. While it is open, Mori
+uses an open-mouth speaking pose with a small motion. Reduced motion keeps the
+pose still. Drag Mori's character to reposition him; when focused, use the arrow
+keys. Position is stored on this device; unavailable or malformed storage falls
+back to defaults without blocking recipe work.
 
-Automatic activity changes do not open the panel or move focus. Opening focuses
-the panel heading, Escape/close restores focus, and focus is not trapped. Existing
+Automatic activity changes do not open the bubble or move focus. Opening focuses
+the bubble heading, Escape/close restores focus, and focus is not trapped. Existing
 workflow loading, error, validation, and confirmation messages remain authoritative.
 Movement feedback uses a polite status region; decorative animation is not
-announced. Reduced motion disables character motion. No sound, roaming, generated
-conversation, or companion operation history is introduced.
+announced. A drag does not also activate the Talk button. No sound, roaming,
+generated conversation, or companion operation history is introduced.
 
 The companion remains outside public/authentication pages and yields to modal
 dialogs. Its provider is keyed to the authenticated user, so transient activity
 cannot survive an account change. Route-specific activity and guidance are scoped
-to their owners while position and visibility survive recipe navigation.
+to their owners while Mori's position survives recipe navigation.
 
 ## Verification
 
 The application browser seam uses synthetic sessions and intercepted API responses.
-The existing Mori browser journey covers keyboard operation, pointer positioning,
-hide/show persistence, viewport reachability, route scope, narrow layouts, and
+The existing Mori browser journey covers keyboard operation, character dragging,
+position persistence, bubble reachability, route scope, narrow layouts, and
 reduced motion without production services. Component integration tests cover
 activity ownership/precedence and actual workflow status transitions. Existing
 shell and Chef browser journeys retain feature navigation and focus checks.

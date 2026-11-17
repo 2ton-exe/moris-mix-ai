@@ -1,7 +1,7 @@
 // Visual-only artwork from the verified Figma Make reference; no services or state providers.
 import type { CSSProperties } from 'react'
 
-export type MoriMood = 'wave' | 'cheer' | 'stir' | 'worried' | 'sleep' | 'happy' | 'think'
+export type MoriMood = 'wave' | 'cheer' | 'stir' | 'worried' | 'sleep' | 'happy' | 'think' | 'talk'
 
 const O = '#2f211a'
 const FUR = '#a39388'
@@ -51,6 +51,7 @@ const ARMS: Record<MoriMood, [number, number]> = {
   sleep: [6, -6],
   happy: [0, 0],
   think: [0, -70],
+  talk: [0, -28],
 }
 
 /**
@@ -162,15 +163,17 @@ export function Mori({ mood = 'happy', size = 120, className = '', style, label,
         </g>
         {/* nose + mouth */}
         <path d="M94 119 Q100 115 106 119 Q104 125 100 126 Q96 125 94 119Z" fill="#d9767d" stroke={O} strokeWidth="2.4" strokeLinejoin="round" />
-        {mood === 'cheer' || mood === 'wave' ? (
-          <path d="M91 132 Q100 147 109 132 Z" fill="#7a2e34" stroke={O} strokeWidth="2.6" strokeLinejoin="round" />
-        ) : mood === 'worried' ? (
-          <path d="M92 138 Q96 134 100 138 Q104 134 108 138" stroke={O} strokeWidth="2.5" fill="none" strokeLinecap="round" />
-        ) : sleeping ? (
-          <ellipse cx="100" cy="135" rx="3" ry="2.6" fill="#7a2e34" />
-        ) : (
-          <path d="M92 132 Q96 137 100 132 Q104 137 108 132" stroke={O} strokeWidth="2.5" fill="none" strokeLinecap="round" />
-        )}
+        <g className="mori-mouth">
+          {mood === 'cheer' || mood === 'wave' || mood === 'talk' ? (
+            <path d="M91 132 Q100 147 109 132 Z" fill="#7a2e34" stroke={O} strokeWidth="2.6" strokeLinejoin="round" />
+          ) : mood === 'worried' ? (
+            <path d="M92 138 Q96 134 100 138 Q104 134 108 138" stroke={O} strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          ) : sleeping ? (
+            <ellipse cx="100" cy="135" rx="3" ry="2.6" fill="#7a2e34" />
+          ) : (
+            <path d="M92 132 Q96 137 100 132 Q104 137 108 132" stroke={O} strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          )}
+        </g>
 
         {/* oversized chef's hat */}
         <g transform="rotate(-7 100 70)">

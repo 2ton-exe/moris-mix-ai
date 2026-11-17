@@ -31,6 +31,12 @@
   animation: mm-mori-hop 900ms ease-in-out infinite;
 }
 
+.mm-mori[data-animated='true'][data-mood='talk'] .mori-mouth {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mm-mori-talk 420ms steps(2, end) infinite;
+}
+
 .mm-mori[data-animated='true'][data-mood='stir'] .mori-spoon {
   transform-box: fill-box;
   transform-origin: 50% 0%;
@@ -102,6 +108,16 @@
   }
   50% {
     transform: rotate(16deg);
+  }
+}
+
+@keyframes mm-mori-talk {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.35);
   }
 }
 

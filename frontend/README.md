@@ -161,10 +161,11 @@ response or bundle. Local unit tests and a build do not establish this live path
 
 Signed-in recipe and AI pages share an optional, draggable Mori companion. Mori
 reacts to actual photo upload, save, extraction, and Chef generation states.
-Click **Talk to Mori** for contextual guidance, feature links, movement controls,
-and hide/reset controls. The handle supports arrow keys; mobile uses a smaller
-edge-docked character. Preferences stay on this device, and reduced motion uses
-still poses. See [companion behavior and verification](../docs/frontend/journal-dialogue.md).
+Click **Talk to Mori** for a speech bubble with contextual guidance and feature
+links. Drag Mori himself, or focus him and use the arrow keys. The bubble stays
+beside him with a tail pointing toward the character. His mouth moves while he
+speaks; reduced motion keeps him still. Mori's position stays on this device.
+See [companion behavior and verification](../docs/frontend/journal-dialogue.md).
 
 ## Physical journal workflows
 

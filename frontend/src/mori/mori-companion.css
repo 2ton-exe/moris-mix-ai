@@ -1,31 +1,37 @@
-.mori-pet-character, .mori-pet-panel, .mori-pet-show { position: fixed; z-index: 45; color: var(--mm-color-ink); font-family: var(--mm-font-sans); }
+.mori-pet-character, .mori-pet-bubble { position: fixed; z-index: 45; color: var(--mm-color-ink); font-family: var(--mm-font-sans); }
 .mori-pet-character { display: flex; flex-direction: column; align-items: center; }
-.mori-pet-trigger { display: grid; justify-items: center; background: transparent; border: 0; color: inherit; padding: 0; cursor: pointer; }
+.mori-pet-trigger { display: grid; justify-items: center; background: transparent; border: 0; color: inherit; padding: 0; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
+.mori-pet-trigger:active { cursor: grabbing; }
 .mori-pet-trigger svg { display: block; overflow: visible; filter: drop-shadow(0 5px 3px rgb(47 33 26 / .2)); transition: transform 180ms ease; }
 .mori-pet-trigger:hover svg { transform: translateY(-3px); }
 .mori-pet-caption { box-sizing: border-box; height: 20px; border: 1px solid var(--mm-border-paper); border-radius: 12px; background: var(--mm-color-parchment-50); font-size: 12px; line-height: 18px; white-space: nowrap; padding: 0 8px; }
-.mori-pet-grip { box-sizing: border-box; height: 44px; min-height: 44px; width: 48px; line-height: 1; border: 0; background: transparent; color: var(--mm-color-ink-soft); font-weight: bold; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
-.mori-pet-grip:active { cursor: grabbing; }
-.mori-pet-panel { box-sizing: border-box; width: min(300px, calc(100vw - 16px)); overflow: auto; padding: 16px; background: var(--mm-color-parchment-50); border: 1px solid var(--mm-color-espresso-300); border-radius: 8px; box-shadow: 0 8px 30px rgb(47 33 26 / .2); overflow-wrap: anywhere; }
-.mori-pet-panel header, .mori-pet-panel footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.mori-pet-panel h2 { font-family: var(--mm-font-hand); font-size: 28px; margin: 0; }
-.mori-pet-panel p { margin: 12px 0; font-size: 14px; line-height: 1.5; }
-.mori-pet-panel button, .mori-pet-panel a, .mori-pet-panel summary { min-height: 44px; font: inherit; font-size: 13px; }
+.mori-pet-bubble { animation: mori-bubble-in 160ms ease-out both; }
+.mori-pet-bubble-tail { position: absolute; width: 0; height: 0; pointer-events: none; }
+.mori-pet-bubble[data-placement='left'] .mori-pet-bubble-tail { right: -12px; transform: translateY(-50%); border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-left: 12px solid var(--mm-color-espresso-300); }
+.mori-pet-bubble[data-placement='left'] .mori-pet-bubble-tail::after { position: absolute; top: -8px; left: -13px; content: ''; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 12px solid var(--mm-color-parchment-50); }
+.mori-pet-bubble[data-placement='right'] .mori-pet-bubble-tail { left: -12px; transform: translateY(-50%); border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-right: 12px solid var(--mm-color-espresso-300); }
+.mori-pet-bubble[data-placement='right'] .mori-pet-bubble-tail::after { position: absolute; top: -8px; right: -13px; content: ''; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-right: 12px solid var(--mm-color-parchment-50); }
+.mori-pet-bubble[data-placement='top'] .mori-pet-bubble-tail { bottom: -12px; transform: translateX(-50%); border-right: 9px solid transparent; border-left: 9px solid transparent; border-top: 12px solid var(--mm-color-espresso-300); }
+.mori-pet-bubble[data-placement='top'] .mori-pet-bubble-tail::after { position: absolute; top: -13px; left: -8px; content: ''; border-right: 8px solid transparent; border-left: 8px solid transparent; border-top: 11px solid var(--mm-color-parchment-50); }
+.mori-pet-bubble[data-placement='bottom'] .mori-pet-bubble-tail { top: -12px; transform: translateX(-50%); border-right: 9px solid transparent; border-left: 9px solid transparent; border-bottom: 12px solid var(--mm-color-espresso-300); }
+.mori-pet-bubble[data-placement='bottom'] .mori-pet-bubble-tail::after { position: absolute; top: 2px; left: -8px; content: ''; border-right: 8px solid transparent; border-left: 8px solid transparent; border-bottom: 11px solid var(--mm-color-parchment-50); }
+.mori-pet-panel { box-sizing: border-box; width: 100%; overflow: auto; padding: 14px 16px; background: var(--mm-color-parchment-50); border: 1px solid var(--mm-color-espresso-300); border-radius: 16px 16px 16px 5px; box-shadow: 0 8px 24px rgb(47 33 26 / .2); overflow-wrap: anywhere; scrollbar-color: var(--mm-color-espresso-300) transparent; scrollbar-width: thin; }
+.mori-pet-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mori-pet-panel h2 { font-family: var(--mm-font-hand); font-size: 26px; margin: 0; }
+.mori-pet-panel p { margin: 10px 0 12px; font-size: 14px; line-height: 1.5; }
+.mori-pet-panel button, .mori-pet-panel a { min-height: 44px; font: inherit; font-size: 13px; }
 .mori-pet-panel button { cursor: pointer; border: 1px solid var(--mm-border-paper); border-radius: 4px; padding: 4px 8px; background: var(--mm-color-parchment-100); color: inherit; }
-.mori-pet-panel header button { font-size: 22px; }
-.mori-pet-panel nav { display: grid; gap: 4px; margin: 12px 0; }
-.mori-pet-panel nav a { display: flex; align-items: center; color: var(--mm-color-burgundy-700); }
-.mori-pet-panel details { border-top: 1px dashed var(--mm-border-paper); padding-top: 8px; }
-.mori-pet-panel summary { cursor: pointer; }
-.mori-pet-directions { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
-.mori-pet-panel footer { margin-top: 8px; padding: 0; color: inherit; font: inherit; letter-spacing: normal; flex-wrap: wrap; }
-.mori-pet-show { min-height: 44px; box-sizing: border-box; width: 112px; background: var(--mm-color-parchment-50); border: 1px solid var(--mm-border-paper); border-radius: 16px; padding: 8px 12px; cursor: pointer; }
+.mori-pet-panel .mori-pet-close { display: grid; width: 44px; min-height: 44px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--mm-color-burgundy-800); transition: background-color 140ms ease, transform 140ms ease; }
+.mori-pet-panel .mori-pet-close:hover { background: var(--mm-color-parchment-200); transform: rotate(8deg); }
+.mori-pet-panel nav { display: grid; gap: 2px; margin-top: 8px; }
+.mori-pet-panel nav a { display: flex; align-items: center; color: var(--mm-color-burgundy-700); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
 .mori-pet-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .mori-pet-character[data-activity='idle'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-breathe 4s ease-in-out infinite; }
 .mori-pet-character[data-activity='curious'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-peek 2.8s ease-in-out infinite; }
 .mori-pet-character[data-activity='confused'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-puzzle 3s ease-in-out infinite; }
+@keyframes mori-bubble-in { from { opacity: 0; transform: scale(.98) translateY(3px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes mori-pet-breathe { 50% { transform: scaleY(1.025); } }
 @keyframes mori-pet-peek { 40%, 60% { transform: rotate(-5deg) translateY(-2px); } }
 @keyframes mori-pet-puzzle { 35% { transform: rotate(3deg); } 65% { transform: rotate(-3deg); } }
-@media (prefers-reduced-motion: reduce) { .mori-pet-character *, .mori-pet-trigger svg { animation: none !important; transition: none !important; transform: none !important; } }
+@media (prefers-reduced-motion: reduce) { .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg { animation: none !important; transition: none !important; transform: none !important; } }

@@ -15,6 +15,7 @@ it('opens guidance and restores focus after Escape', () => {
   const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
   fireEvent.click(trigger)
   expect(screen.getByText('Your journal is ready.')).toBeTruthy()
+  expect(document.querySelector('.mori-pet-trigger .mm-mori')?.getAttribute('data-mood')).toBe('talk')
   expect(screen.getByRole('button', { name: 'Write a recipe' })).toBeTruthy()
   expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Mori' }))
   fireEvent.keyDown(screen.getByRole('region', { name: 'Mori' }), { key: 'Escape' })
@@ -42,34 +43,36 @@ it('celebrates briefly then returns to idle', () => {
   expect(screen.getByText('A little inspiration, whenever you need it.')).toBeTruthy()
 })
 
-it('persists visibility and survives unavailable storage', () => {
-  const view = render(<Companion />)
-  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Hide Mori' }))
-  expect(screen.getByRole('button', { name: 'Show Mori' })).toBeTruthy()
-  view.unmount()
+it('ignores the removed hidden preference and survives unavailable storage', () => {
+  localStorage.setItem('moris-mix:mori-companion', '{"hidden":true,"position":{"x":220,"y":120}}')
   render(<Companion />)
-  expect(screen.getByRole('button', { name: 'Show Mori' })).toBeTruthy()
+  const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
+  expect(trigger).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Show Mori' })).toBeNull()
+  expect(JSON.parse(localStorage.getItem('moris-mix:mori-companion') ?? '{}')).toEqual({ position: { x: 220, y: 120 } })
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Unavailable') })
-  fireEvent.click(screen.getByRole('button', { name: 'Show Mori' }))
-  expect(screen.getByRole('button', { name: 'Talk to Mori' })).toBeTruthy()
+  fireEvent.keyDown(trigger, { key: 'ArrowLeft' })
+  expect(screen.getByText('Mori moved left.')).toBeTruthy()
 })
 
-it('supports keyboard repositioning and reset', () => {
+it('supports keyboard repositioning without reset or hide controls', () => {
   render(<Companion />)
-  fireEvent.keyDown(screen.getByRole('button', { name: 'Move Mori. Use arrow keys to reposition.' }), { key: 'ArrowLeft' })
+  const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
+  fireEvent.keyDown(trigger, { key: 'ArrowLeft' })
   expect(screen.getByText('Mori moved left.')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Reset position' }))
-  expect(screen.getByText('Mori returned to the starting position.')).toBeTruthy()
+  fireEvent.click(trigger)
+  expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+  expect(screen.queryByText('Move Mori')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Reset position' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Hide Mori' })).toBeNull()
 })
 
 it('ignores other pointers while a primary pointer is dragging Mori', () => {
   render(<Companion />)
-  const grip = screen.getByRole('button', { name: 'Move Mori. Use arrow keys to reposition.' })
+  const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
   const character = screen.getByRole('group', { name: 'Mori companion' })
   const captured = new Set<number>()
-  Object.assign(grip, {
+  Object.assign(trigger, {
     setPointerCapture: (pointerId: number) => captured.add(pointerId),
     hasPointerCapture: (pointerId: number) => captured.has(pointerId),
     releasePointerCapture: (pointerId: number) => captured.delete(pointerId),
@@ -77,7 +80,7 @@ it('ignores other pointers while a primary pointer is dragging Mori', () => {
   const sendPointer = (type: string, pointerId: number, values: Record<string, unknown> = {}) => {
     const event = new Event(type, { bubbles: true })
     Object.assign(event, { pointerId, isPrimary: pointerId === 1, button: 0, clientX: 900, clientY: 600, ...values })
-    fireEvent(grip, event)
+    fireEvent(trigger, event)
   }
   const originalX = parseFloat(character.style.left)
   sendPointer('pointerdown', 1)
@@ -89,6 +92,8 @@ it('ignores other pointers while a primary pointer is dragging Mori', () => {
   expect(document.querySelector('.mori-pet-sr')?.textContent).toBe('')
   sendPointer('pointerup', 1)
   expect(document.querySelector('.mori-pet-sr')?.textContent).toBe('Mori moved to a new spot.')
+  fireEvent.click(trigger, { detail: 1 })
+  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
 })
 
 it('recovers from malformed preferences and keeps optional producers independent', () => {
@@ -110,9 +115,10 @@ it('keeps the companion and guidance within a shrunken, panned visual viewport',
   expect(parseFloat(character.style.top) + 179.2).toBeLessThanOrEqual(552)
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
   const panel = screen.getByRole('region', { name: 'Mori' })
-  expect(parseFloat(panel.style.left)).toBeGreaterThanOrEqual(148)
-  expect(parseFloat(panel.style.left) + parseFloat(panel.style.width)).toBeLessThanOrEqual(452)
-  expect(parseFloat(panel.style.top) + parseFloat(panel.style.maxHeight)).toBeLessThanOrEqual(552)
+  const bubble = panel.parentElement as HTMLElement
+  expect(parseFloat(bubble.style.left)).toBeGreaterThanOrEqual(148)
+  expect(parseFloat(bubble.style.left) + parseFloat(bubble.style.width)).toBeLessThanOrEqual(452)
+  expect(parseFloat(bubble.style.top) + parseFloat(panel.style.maxHeight)).toBeLessThanOrEqual(552)
   Object.assign(visualViewport, { offsetLeft: 280, offsetTop: 400 })
   act(() => visualViewport.dispatchEvent(new Event('scroll')))
   expect(parseFloat(character.style.left)).toBeGreaterThanOrEqual(288)
