@@ -1,9 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
-import { Link, useLocation } from 'react-router'
+import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
-import { journalReturnFromLocation } from '../journal/indexNavigation'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { useMoriCompanionState } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
@@ -21,6 +20,19 @@ const moods: Record<MoriActivity['kind'], MoriMood> = { idle: 'happy', curious: 
 function readViewport() {
   const visual = window.visualViewport
   return { left: visual?.offsetLeft ?? 0, top: visual?.offsetTop ?? 0, width: visual?.width ?? window.innerWidth, height: visual?.height ?? window.innerHeight }
+}
+
+function companionPage(pathname: string) {
+  const path = pathname.replace(/\/+$/, '') || '/'
+  if (path === '/app/chef') return { area: 'chef', label: 'AI Chef', message: 'I’m on pantry duty. Add a few ingredients and I’ll help you find an idea.' }
+  if (path === '/app/chef/review') return { area: 'chef', label: 'Recipe review', message: 'Your recipe idea is ready. Make it yours before you save it.' }
+  if (path === '/app/quick-entry') return { area: 'notes', label: 'Cooking notes', message: 'Share your rough notes here; I’ll shape them into an editable recipe draft.' }
+  if (path === '/app/quick-entry/review') return { area: 'notes', label: 'Recipe review', message: 'Your recipe draft is ready for you to edit and review.' }
+  if (path === '/app' || path === '/app/recipes') return { area: 'recipes', label: 'My recipes', message: 'Your recipe collection is open. Choose a scrap to revisit it.' }
+  if (path === '/app/recipes/new') return { area: 'editor', label: 'New recipe', message: 'Start a fresh scrap. I’m here if you need a hand.' }
+  if (/^\/app\/recipes\/[^/]+\/edit$/.test(path)) return { area: 'editor', label: 'Recipe editor', message: 'You’re editing a recipe. I’m here if you need a hand.' }
+  if (/^\/app\/recipes\/[^/]+$/.test(path)) return { area: 'reading', label: 'Recipe details', message: 'This recipe is open. I’m here if you need a hand.' }
+  return { area: 'journal', label: 'Your journal', message: 'I’m here if you need a hand with your recipes.' }
 }
 
 export function MoriCompanion() {
@@ -57,7 +69,9 @@ export function MoriCompanion() {
   })
   const position = clamp(preferences.position ?? { x: mobile ? left + 12 : right - width - 12, y: tabletDock ? top : bottom - height - 12 })
   const actual = mobile ? { ...position, x: position.x < viewport.left + viewport.width / 2 ? left : Math.max(left, right - width) } : position
-  const message = activity.kind === 'idle' ? guidance?.message ?? activity.message : activity.message
+  const page = companionPage(location.pathname)
+  const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
+  const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
 
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)) } catch { /* Storage may be unavailable in private browsing. */ }
@@ -134,7 +148,7 @@ export function MoriCompanion() {
     if (!open) return
     const height = bubble.current?.offsetHeight ?? 0
     if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
-  }, [open, pageTurn, panelWidth, availablePanelHeight, message, guidance?.message, guidance?.action?.label, bubbleHeight])
+  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight])
 
   function close() { setOpen(false); trigger.current?.focus() }
   function move(x: number, y: number, description?: string) {
@@ -196,16 +210,18 @@ export function MoriCompanion() {
         onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
         onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>
         <Mori size={size} mood={pageTurn ? 'turn' : open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
-        <span className="mori-pet-caption">{activity.kind === 'idle' ? 'Mori' : activity.kind === 'celebrating' ? 'Saved!' : activity.kind === 'attention' ? 'A little help?' : activity.kind === 'confused' ? 'Let’s try again' : activity.kind === 'curious' ? 'A closer look…' : 'Mixing ideas…'}</span>
       </button>
     </div>
     {open && !pageTurn && <div ref={bubble} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
       <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
       <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
-        <p>{message}</p>
-        {activity.kind === 'idle' && guidance?.action && <button className="button button-secondary" type="button" onClick={() => guidance.action?.onClick()}>{guidance.action.label}</button>}
-        <nav aria-label="Cooking ideas"><Link to="/app/quick-entry" state={{ journalReturn: journalReturnFromLocation(location) }}>Organize cooking notes</Link><Link to="/app/chef">Find something to cook</Link></nav>
+        <p className="mori-pet-context">{page.label}</p>
+        <p className="mori-pet-message" role="status" aria-live="polite" aria-atomic="true">{companionMessage}</p>
+        {activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
+          pageGuidance.action?.onClick()
+          if (!bubble.current?.contains(document.activeElement)) setOpen(false)
+        }}>{pageGuidance.action.label}</button>}
       </section>
     </div>}
   </div>

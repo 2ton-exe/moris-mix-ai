@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
-import { BookOpen, House, Info, NotebookPen } from 'lucide-react'
+import { BookOpen, ChefHat, House, Info, NotebookPen } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
 import { JournalSurface, PaperCard } from './Scrapbook'
@@ -28,9 +28,11 @@ export function JournalPageContainer({ className = '', children, ...props }: Com
 function JournalNavigation({ publicNavigation = false, label = 'Journal sections' }: { publicNavigation?: boolean; label?: string }) {
   const location = useLocation()
   const { pathname } = location
-  const creating = pathname === '/app/recipes/new'
-  const editing = /^\/app\/recipes\/[^/]+\/edit\/?$/.test(pathname)
-  const aiWorkflow = /^\/app\/(?:quick-entry|chef)(?:\/|$)/.test(pathname)
+  const path = pathname.replace(/\/+$/, '') || '/'
+  const creating = path === '/app/recipes/new'
+  const editing = /^\/app\/recipes\/[^/]+\/edit$/.test(path)
+  const chef = /^\/app\/chef(?:\/|$)/.test(path)
+  const aiWorkflow = /^\/app\/(?:quick-entry|chef)(?:\/|$)/.test(path)
   if (publicNavigation) return <nav className="mm-bookmarks" aria-label={label}>
     <Link className="mm-bookmark" to="/home" aria-current={pathname === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
     <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={pathname === '/about' ? 'page' : undefined}><Info size={16} aria-hidden="true" />About</Link>
@@ -39,6 +41,7 @@ function JournalNavigation({ publicNavigation = false, label = 'Journal sections
   return <nav className="mm-global-nav" aria-label="Journal sections">
     <Link className="mm-global-nav__link" to="/app/recipes" aria-current={!creating && !editing && !aiWorkflow ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
     <Link className="mm-global-nav__link" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
+    <Link className="mm-global-nav__link" to="/app/chef" aria-current={chef ? 'page' : undefined}><ChefHat size={16} aria-hidden="true" />AI Chef</Link>
   </nav>
 }
 

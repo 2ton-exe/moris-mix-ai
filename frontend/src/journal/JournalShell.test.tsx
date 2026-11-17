@@ -9,10 +9,21 @@ it('keeps public bookmarks beside the signed-in recipe navigation', () => {
   expect(recipes.closest('.mm-desk')?.classList.contains('mm-desk--with-companion')).toBe(true)
   expect(within(recipes).getByRole('link', { name: 'My recipes' }).getAttribute('href')).toBe('/app/recipes')
   expect(within(recipes).getByRole('link', { name: 'New recipe' }).getAttribute('href')).toBe('/app/recipes/new')
+  expect(within(recipes).getByRole('link', { name: 'AI Chef' }).getAttribute('href')).toBe('/app/chef')
   const bookmarks = screen.getByRole('navigation', { name: 'Journal bookmarks' })
   expect(within(bookmarks).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/home')
   expect(within(bookmarks).getByRole('link', { name: 'About' }).getAttribute('href')).toBe('/about')
   expect(within(bookmarks).getByRole('link', { name: 'Demo recipe' }).getAttribute('href')).toBe('/demo-recipe')
+})
+
+it('keeps AI Chef discoverable and current across its authenticated workflow', () => {
+  for (const pathname of ['/app/chef', '/app/chef/review']) {
+    const { unmount } = render(<MemoryRouter initialEntries={[pathname]}><JournalShell><h1>AI Chef</h1></JournalShell></MemoryRouter>)
+    const navigation = screen.getByRole('navigation', { name: 'Journal sections' })
+    expect(within(navigation).getByRole('link', { name: 'AI Chef' }).getAttribute('aria-current')).toBe('page')
+    expect(within(navigation).getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBeNull()
+    unmount()
+  }
 })
 
 it('preserves public bookmarks and identifies the active page', () => {

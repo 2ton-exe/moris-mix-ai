@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MoriCompanion } from './MoriCompanion'
@@ -7,7 +7,7 @@ import type { MoriActivity } from './MoriCompanionContext'
 
 function Activity({ activity }: { activity: MoriActivity | null }) { useMoriActivity(activity); return null }
 function Guidance() { useMoriGuidance({ message: 'Your journal is ready.', action: { label: 'Write a recipe', onClick: () => undefined } }); return null }
-function Companion({ children }: { children?: React.ReactNode }) { return <MemoryRouter><MoriCompanionProvider>{children}<MoriCompanion /></MoriCompanionProvider></MemoryRouter> }
+function Companion({ children, initialEntries = ['/app/recipes'] }: { children?: React.ReactNode; initialEntries?: string[] }) { return <MemoryRouter initialEntries={initialEntries}><MoriCompanionProvider>{children}<MoriCompanion /></MoriCompanionProvider></MemoryRouter> }
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('opens guidance and restores focus after Escape', () => {
@@ -17,6 +17,7 @@ it('opens guidance and restores focus after Escape', () => {
   expect(screen.getByText('Your journal is ready.')).toBeTruthy()
   expect(document.querySelector('.mori-pet-trigger .mm-mori')?.getAttribute('data-mood')).toBe('talk')
   expect(screen.getByRole('button', { name: 'Write a recipe' })).toBeTruthy()
+  expect(screen.getByText('My recipes', { selector: '.mori-pet-context' })).toBeTruthy()
   expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Mori' }))
   fireEvent.keyDown(screen.getByRole('region', { name: 'Mori' }), { key: 'Escape' })
   expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
@@ -31,7 +32,7 @@ it('prioritizes problems, clears owners and never replays stale celebrations', (
   view.rerender(app(false))
   expect(screen.getByText('Uploading photo.')).toBeTruthy()
   view.rerender(<Companion />)
-  expect(screen.getByText('A little inspiration, whenever you need it.')).toBeTruthy()
+  expect(screen.getByText('Your recipe collection is open. Choose a scrap to revisit it.')).toBeTruthy()
 })
 
 it('celebrates briefly then returns to idle', () => {
@@ -40,7 +41,7 @@ it('celebrates briefly then returns to idle', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
   expect(screen.getByText('Recipe saved.')).toBeTruthy()
   act(() => vi.advanceTimersByTime(2600))
-  expect(screen.getByText('A little inspiration, whenever you need it.')).toBeTruthy()
+  expect(screen.getByText('Your recipe collection is open. Choose a scrap to revisit it.')).toBeTruthy()
 })
 
 it('ignores the removed hidden preference and survives unavailable storage', () => {
@@ -130,4 +131,28 @@ it('keeps guidance open after a same-route action', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
   fireEvent.click(screen.getByRole('button', { name: 'Write a recipe' }))
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+})
+
+it.each([
+  ['/app', 'My recipes'],
+  ['/app/recipes', 'My recipes'],
+  ['/app/recipes/new', 'New recipe'],
+  ['/app/recipes/private-recipe-id', 'Recipe details'],
+  ['/app/recipes/private-recipe-id/edit', 'Recipe editor'],
+  ['/app/quick-entry', 'Cooking notes'],
+  ['/app/quick-entry/review', 'Recipe review'],
+  ['/app/chef', 'AI Chef'],
+  ['/app/chef/', 'AI Chef'],
+  ['/app/chef/review', 'Recipe review'],
+  ['/app/chef/review/', 'Recipe review'],
+])('uses one safe, page-aware companion on %s', (pathname, label) => {
+  render(<Companion initialEntries={[pathname]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  const panel = screen.getByRole('region', { name: 'Mori' })
+  expect(within(panel).getByText(label, { selector: '.mori-pet-context' })).toBeTruthy()
+  expect(panel.querySelector('nav')).toBeNull()
+  expect(document.querySelector('.mori-pet-caption')).toBeNull()
+  expect(panel.textContent).not.toContain('private-recipe-id')
+  expect(screen.queryByText('Organize cooking notes')).toBeNull()
+  expect(screen.queryByText('Find something to cook')).toBeNull()
 })

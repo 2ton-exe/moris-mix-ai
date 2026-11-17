@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
+import { MoriCompanion } from '../mori/MoriCompanion'
+import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import { JournalShell } from '../journal/JournalShell'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { lineageApi, LineageApiError } from './lineage'
@@ -45,6 +47,7 @@ function authState(userId = 'chef-cook'): AuthState {
   }
 }
 
+function WorkspaceLayout() { return <MoriCompanionProvider><Outlet /><MoriCompanion /></MoriCompanionProvider> }
 function JournalLayout() { return <JournalShell><Outlet /></JournalShell> }
 
 const NativeRequest = globalThis.Request
@@ -58,8 +61,10 @@ function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async 
   const state = authState(userId)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
-    { path: '/app', element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }] },
-    { path: '/app/chef/review', element: <ChefRecipeReviewPage save={save} /> },
+    { path: '/app', element: <WorkspaceLayout />, children: [
+      { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }] },
+      { path: 'chef/review', element: <ChefRecipeReviewPage save={save} /> },
+    ] },
   ], { initialEntries: ['/app/chef'] })
   const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider></QueryClientProvider>)
   return { ...view, router, save }
@@ -72,15 +77,39 @@ function addIngredient(value: string) {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   sessionStorage.clear()
   vi.stubGlobal('Request', RouterTestRequest)
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  localStorage.clear()
   sessionStorage.clear()
 })
 
 describe('AI Chef pantry and review workflow', () => {
+  it('uses the shared page-aware companion and keeps recipe generation structured', () => {
+    renderChef()
+
+    expect(document.querySelectorAll('.mori-pet-character')).toHaveLength(1)
+    expect(document.querySelector('.mm-journal-book .mm-mori')).toBeNull()
+    expect(document.querySelector('.mori-pet-caption')).toBeNull()
+    expect(document.querySelector('.mm-facing-content--ai-chef')).toBeTruthy()
+    expect(document.querySelector('.mm-ai-chef__journey li[aria-current="step"]')?.textContent).toContain('Pantry')
+    expect(screen.getByRole('region', { name: 'Pantry list, 0 items' }).textContent).toContain('No ingredients yet.')
+    expect(screen.getByRole('button', { name: 'Ask Mori for a recipe' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    const panel = screen.getByRole('region', { name: 'Mori' })
+    expect(within(panel).getByText('AI Chef', { selector: '.mori-pet-context' })).toBeTruthy()
+    expect(within(panel).getByText('Tell me what you have, and I’ll make an idea for you to review.')).toBeTruthy()
+    expect(panel.querySelector('nav')).toBeNull()
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Add ingredients' }))
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Pantry ingredient' }))
+    expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+  })
+
   it('creates and removes pantry tokens, accepts preferences, and shows a validated unsaved review', async () => {
     const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn(async () => ({ id: 'saved-chef-recipe' }))
@@ -97,6 +126,9 @@ describe('AI Chef pantry and review workflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect(await screen.findByRole('heading', { name: "Review Mori's recipe." })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating'))
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    expect(document.querySelector('.mori-pet-message')?.textContent).toBe('Your recipe idea is ready for review.')
     expect(generate).toHaveBeenCalledOnce()
     expect(generate.mock.calls[0]).toEqual([
       ['Rice', 'tomatoes'], 'quick, no frying', expect.objectContaining({ userId: 'chef-cook', signal: expect.any(AbortSignal) }),
@@ -121,6 +153,7 @@ describe('AI Chef pantry and review workflow', () => {
     renderChef()
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('attention')
     expect(screen.getByRole('alert').textContent).toContain('Add at least one pantry ingredient')
     const pantryInput = screen.getByRole('textbox', { name: 'Pantry ingredient' })
     expect(document.activeElement).toBe(pantryInput)
@@ -133,6 +166,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'spicy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect((await screen.findByRole('alert')).textContent).toContain('today’s AI Chef limit')
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('confused'))
     expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
     expect((screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value).toBe('spicy')
 
@@ -159,9 +193,11 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.submit(form!)
     fireEvent.submit(form!)
     expect(generate).toHaveBeenCalledOnce()
+    expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('thinking')
 
     await act(async () => resolveGeneration(response))
     expect(await screen.findByRole('heading', { name: "Review Mori's recipe." })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating'))
   })
 
   it('requires an explicit Save action and preserves edits after a failed save', async () => {
@@ -181,6 +217,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('My edited rice bowl')
     fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
     await waitFor(() => expect(screen.getByText('Recipe saved.')).toBeTruthy())
+    expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating')
     expect(save).toHaveBeenCalledTimes(2)
     expect(save.mock.calls[1]?.[0]).toMatchObject({ title: 'My edited rice bowl', ingredients: response.recipe.ingredients })
     expect(save.mock.calls[0]?.[1]).toMatchObject({ userId: 'chef-cook', signal: expect.any(AbortSignal) })

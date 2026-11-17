@@ -4,7 +4,6 @@
 .mori-pet-trigger:active { cursor: grabbing; }
 .mori-pet-trigger svg { display: block; overflow: visible; filter: drop-shadow(0 5px 3px rgb(47 33 26 / .2)); transition: transform 180ms ease; }
 .mori-pet-trigger:hover svg { transform: translateY(-3px); }
-.mori-pet-caption { box-sizing: border-box; height: 20px; border: 1px solid var(--mm-border-paper); border-radius: 12px; background: var(--mm-color-parchment-50); font-size: 12px; line-height: 18px; white-space: nowrap; padding: 0 8px; }
 .mori-pet-bubble { animation: mori-bubble-in 160ms ease-out both; }
 .mori-pet-bubble-tail { position: absolute; width: 0; height: 0; pointer-events: none; }
 .mori-pet-bubble[data-placement='left'] .mori-pet-bubble-tail { right: -12px; transform: translateY(-50%); border-top: 9px solid transparent; border-bottom: 9px solid transparent; border-left: 12px solid var(--mm-color-espresso-300); }
@@ -19,12 +18,12 @@
 .mori-pet-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mori-pet-panel h2 { font-family: var(--mm-font-hand); font-size: 26px; margin: 0; }
 .mori-pet-panel p { margin: 10px 0 12px; font-size: 14px; line-height: 1.5; }
+.mori-pet-panel .mori-pet-context { margin: 12px 0 4px; color: var(--mm-color-burgundy-700); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.mori-pet-panel .mori-pet-message { margin: 0 0 12px; padding: 10px 12px; border: 1px solid rgb(128 92 59 / .22); border-radius: 12px 12px 12px 4px; background: #fffdf7 var(--mm-tex-grain); }
 .mori-pet-panel button, .mori-pet-panel a { min-height: 44px; font: inherit; font-size: 13px; }
 .mori-pet-panel button { cursor: pointer; border: 1px solid var(--mm-border-paper); border-radius: 4px; padding: 4px 8px; background: var(--mm-color-parchment-100); color: inherit; }
 .mori-pet-panel .mori-pet-close { display: grid; width: 44px; min-height: 44px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--mm-color-burgundy-800); transition: background-color 140ms ease, transform 140ms ease; }
 .mori-pet-panel .mori-pet-close:hover { background: var(--mm-color-parchment-200); transform: rotate(8deg); }
-.mori-pet-panel nav { display: grid; gap: 2px; margin-top: 8px; }
-.mori-pet-panel nav a { display: flex; align-items: center; color: var(--mm-color-burgundy-700); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
 .mori-pet-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .mori-pet-character[data-activity='idle'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-breathe 4s ease-in-out infinite; }

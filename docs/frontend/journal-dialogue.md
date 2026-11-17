@@ -20,14 +20,16 @@ workflows are connected without adding AI features or changing API contracts.
 
 ## Interaction
 
-**Talk to Mori** opens a nonmodal speech bubble with screen-specific guidance,
-available workflow actions, and links to Quick AI Entry and AI Chef. The bubble
-stays beside Mori with a tail pointing toward him, and flips above or below only
-when the viewport leaves too little room at either side. While it is open, Mori
-uses an open-mouth speaking pose with a small motion. Reduced motion keeps the
-pose still. Drag Mori's character to reposition him; when focused, use the arrow
-keys. Position is stored on this device; unavailable or malformed storage falls
-back to defaults without blocking recipe work.
+**Talk to Mori** opens a nonmodal speech bubble with a short page label, safe
+page-specific guidance, and an action only when that action belongs to the
+current workflow. Recipe identifiers, recipe content, and account details are
+not copied into the companion message. The bubble stays beside Mori with a tail
+pointing toward him, and flips above or below only when the viewport leaves too
+little room at either side. While it is open, Mori uses an open-mouth speaking
+pose with a small motion. Reduced motion keeps the pose still. Drag Mori's
+character to reposition him; when focused, use the arrow keys. Position is
+stored on this device; unavailable or malformed storage falls back to defaults
+without blocking recipe work.
 
 Automatic activity changes do not open the bubble or move focus. Opening focuses
 the bubble heading, Escape/close restores focus, and focus is not trapped. Existing

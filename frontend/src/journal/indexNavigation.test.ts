@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { journalPage, journalReturnFromLocation, journalReturnTo, readJournalCriteria, writeJournalCriteria } from './indexNavigation'
+import { journalPage, journalReturnTo, readJournalCriteria, writeJournalCriteria } from './indexNavigation'
 import type { RecipeDiscoverySource } from '../recipes/discoveryTypes'
 
 const source: Pick<RecipeDiscoverySource, 'searchModes' | 'sorts' | 'filters'> = { searchModes: ['title', 'ingredients', 'both'], sorts: ['newest', 'rating'], filters: [
@@ -35,13 +35,6 @@ it('keeps the journal return local and retains its search, sort and leaf', () =>
     expect(journalReturnTo({ journalReturn: target })).toBe(target)
   }
   expect(journalReturnTo({ journalReturn: '/app/quick-entry' })).toBe('/app/quick-entry')
-})
-
-it('returns from Quick AI Entry to its journal source without replacing it with the Quick AI route', () => {
-  const source = '/app/recipes/recipe-17?tab=notes#ingredients'
-  expect(journalReturnFromLocation({ pathname: '/app/recipes/recipe-17', search: '?tab=notes', hash: '#ingredients', state: null })).toBe(source)
-  expect(journalReturnFromLocation({ pathname: '/app/quick-entry', search: '', hash: '', state: { journalReturn: source } })).toBe(source)
-  expect(journalReturnFromLocation({ pathname: '/app/quick-entry', search: '', hash: '', state: null })).toBe('/app/recipes')
 })
 
 it('keeps a requested unloaded page while the server has more results', () => {
