@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { RecipeScrapArtwork } from './RecipeScrapArtwork'
 import { useAuth } from '../auth/context'
 import { prepareRecipeImage, recipeImageApi, recipeImageErrorCode } from './imageApi'
@@ -37,6 +38,12 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const uploadController = useRef<AbortController | null>(null)
   const currentUserId = useRef(user?.id)
   const imageLoadSequence = useRef(0)
+  useMoriActivity(!featureEnabled ? null : selectionError || uploadError || downloadError
+    ? { kind: 'confused', message: 'This recipe photo needs a little attention. Check the image controls for details and recovery.' }
+    : preparing || uploading
+      ? { kind: 'curious', message: preparing ? 'Taking a peek at your recipe photo…' : 'Adding your recipe photo to the journal…' }
+      : null)
+
 
   const loadImage = useCallback(async (signal?: AbortSignal, resetRefreshAttempt = true, forceRefresh = false) => {
     const sequence = ++imageLoadSequence.current

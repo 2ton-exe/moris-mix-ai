@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
+import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { Mori } from '../journal/Mori'
 import { PaperCard } from '../journal/Scrapbook'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
@@ -39,6 +40,12 @@ function AIChefSession({ userId }: { userId: string }) {
   const inFlight = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const pantryInputRef = useRef<HTMLInputElement>(null)
+  useMoriActivity(requestError || entryError
+    ? { kind: requestErrorForPantry || entryError ? 'attention' : 'confused', message: requestError ?? entryError ?? 'Check your pantry ingredients.' }
+    : pending
+      ? { kind: 'thinking', message: 'Thinking of something delicious for your pantry…' }
+      : null)
+
 
   useEffect(() => () => controller.current?.abort(), [])
 
