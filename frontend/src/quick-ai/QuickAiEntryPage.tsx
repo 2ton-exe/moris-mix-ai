@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
+import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { Mori } from '../journal/Mori'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
@@ -163,6 +164,14 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const [logoutPending, setLogoutPending] = useState(false)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  useMoriActivity(error
+    ? { kind: 'confused', message: error.message }
+    : validationMessage
+      ? { kind: 'attention', message: validationMessage }
+      : loading
+        ? { kind: 'working', message: 'Sorting your cooking notes into a recipe…' }
+        : null)
+
   const notesId = useId()
   const helpId = useId()
   const countId = useId()

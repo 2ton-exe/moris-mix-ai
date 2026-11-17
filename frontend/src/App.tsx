@@ -1,10 +1,18 @@
 import { isValidElement, lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router'
+import { useAuth } from './auth/context'
+import { MoriCompanionProvider } from './mori/MoriCompanionContext'
+import { MoriCompanion } from './mori/MoriCompanion'
 import { AuthProvider } from './auth/AuthProvider'
 import { AuthReady, GuestRoute, ProtectedRoute } from './auth/AuthRoutes'
 import { LoadingState } from './components/LoadingState'
 import { RouteLoadBoundary } from './components/RouteLoadBoundary'
 import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
+
+function RecipeWorkspace() {
+  const { user } = useAuth()
+  return <MoriCompanionProvider key={user?.id}><Outlet /><MoriCompanion /></MoriCompanionProvider>
+}
 
 const AuthPage = lazy(() => import('./pages/AuthPage'))
 const EmailVerificationPage = lazy(() => import('./pages/EmailVerificationPage'))
@@ -51,7 +59,7 @@ export const createAppRouteElements = () => (
           </Route>
           <Route path="/verify-email" element={routeElement(<EmailVerificationPage />)} />
           <Route element={<ProtectedRoute />}>
-            <Route element={<RecipeQueryProvider><Outlet /></RecipeQueryProvider>}>
+            <Route element={<RecipeQueryProvider><RecipeWorkspace /></RecipeQueryProvider>}>
               <Route path="/app/recipes/new" element={routeElement(<CreateRecipePage />)} />
               <Route path="/app/quick-entry/review" element={routeElement(<ExtractedRecipeReviewPage />)} />
               <Route path="/app/chef/review" element={routeElement(<ChefRecipeReviewPage />)} />

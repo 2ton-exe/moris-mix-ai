@@ -1,3 +1,6 @@
+import { MemoryRouter } from 'react-router'
+import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
+import { MoriCompanion } from '../mori/MoriCompanion'
 import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -383,4 +386,53 @@ it('ignores duplicate submit events while a create request is in flight', async 
   expect(submit).toHaveBeenCalledOnce()
   await act(async () => request.resolve({ id: 'saved-recipe' }))
   await screen.findByText('Recipe saved.')
+})
+
+
+it('reflects a pending save and celebrates only after a new confirmed write', async () => {
+  localStorage.clear()
+  const request = deferred<{ id: string }>()
+  const submit = vi.fn(() => request.promise)
+  render(<MemoryRouter><MoriCompanionProvider>
+    <RecipeForm mode="create" initialValues={editable} onSubmit={submit} />
+    <MoriCompanion />
+  </MoriCompanionProvider></MemoryRouter>)
+  click('Talk to Mori')
+  expect(screen.queryByText('A fresh scrap for your journal. Recipe saved!')).toBeNull()
+  click('Save recipe')
+  expect(await screen.findByText('Putting your recipe safely into the journal…')).toBeTruthy()
+  expect(screen.queryByText('A fresh scrap for your journal. Recipe saved!')).toBeNull()
+  await act(async () => request.resolve({ id: 'confirmed-recipe' }))
+  expect(await screen.findByText('A fresh scrap for your journal. Recipe saved!')).toBeTruthy()
+  expect(submit).toHaveBeenCalledTimes(1)
+})
+
+it('keeps failed saves and invalid submissions actionable without celebration', async () => {
+  localStorage.clear()
+  const submit = vi.fn().mockRejectedValue(new Error('untrusted detail'))
+  render(<MemoryRouter><MoriCompanionProvider>
+    <RecipeForm mode="create" initialValues={editable} onSubmit={submit} />
+    <MoriCompanion />
+  </MoriCompanionProvider></MemoryRouter>)
+  click('Talk to Mori')
+  click('Save recipe')
+  expect(await screen.findByText('Your recipe needs a little attention. Check the form message before serving it up.')).toBeTruthy()
+  expect(screen.queryByText('A fresh scrap for your journal. Recipe saved!')).toBeNull()
+  fill('Recipe title', '')
+  click('Save recipe')
+  expect(submit).toHaveBeenCalledTimes(1)
+  expect(screen.getByText('Please check the highlighted fields.')).toBeTruthy()
+  expect(screen.getByText('Your recipe needs a little attention. Check the form message before serving it up.')).toBeTruthy()
+  expect(document.body.textContent).not.toContain('untrusted detail')
+})
+
+it('does not celebrate a restored save confirmation', () => {
+  localStorage.clear()
+  render(<MemoryRouter><MoriCompanionProvider>
+    <RecipeForm mode="create" initialValues={editable} initialSaveConfirmation={{ id: 'restored-recipe' }} />
+    <MoriCompanion />
+  </MoriCompanionProvider></MemoryRouter>)
+  click('Talk to Mori')
+  expect(screen.queryByText('A fresh scrap for your journal. Recipe saved!')).toBeNull()
+  expect(screen.getByText('Recipe saved.')).toBeTruthy()
 })
