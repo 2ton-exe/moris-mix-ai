@@ -31,6 +31,8 @@ function JournalNavigation({ publicNavigation = false, label = 'Journal sections
   const creating = pathname === '/app/recipes/new'
   const editing = /^\/app\/recipes\/[^/]+\/edit\/?$/.test(pathname)
   const aiWorkflow = /^\/app\/(?:quick-entry|chef)(?:\/|$)/.test(pathname)
+  const importing = /^\/app\/quick-entry(?:\/|$)/.test(pathname)
+  const suggesting = /^\/app\/chef(?:\/|$)/.test(pathname)
   if (publicNavigation) return <nav className="mm-bookmarks" aria-label={label}>
     <Link className="mm-bookmark" to="/home" aria-current={pathname === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
     <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={pathname === '/about' ? 'page' : undefined}><Info size={16} aria-hidden="true" />About</Link>
@@ -38,7 +40,9 @@ function JournalNavigation({ publicNavigation = false, label = 'Journal sections
   </nav>
   return <nav className="mm-global-nav" aria-label="Journal sections">
     <Link className="mm-global-nav__link" to="/app/recipes" aria-current={!creating && !editing && !aiWorkflow ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
-    <Link className="mm-global-nav__link" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
+    <Link className="mm-global-nav__link mm-global-nav__link--new" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
+    <Link className="mm-global-nav__link" to="/app/quick-entry" state={{ journalReturn: `${location.pathname}${location.search}${location.hash}` }} aria-current={importing ? 'page' : undefined}>Import recipe notes</Link>
+    <Link className="mm-global-nav__link" to="/app/chef" aria-current={suggesting ? 'page' : undefined}>Suggest a recipe</Link>
   </nav>
 }
 
@@ -48,6 +52,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   mode?: 'journal' | 'reading' | 'writing' | 'demo'; publicNavigation?: boolean; ownerName?: string
 }) {
   const location = useLocation()
+  const companionEnabled = !publicNavigation && location.pathname.startsWith('/app/')
   const bookRef = useRef<HTMLDivElement>(null)
   const [facingPage, setFacingPage] = useState<HTMLDivElement | null>(null)
   const [companion, setCompanion] = useState<HTMLDivElement | null>(null)
@@ -76,7 +81,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     return () => observer.disconnect()
   }, [footer])
   return <JournalPageTurnContext.Provider value={pageTurn.contextValue}>
-  <JournalSurface material="wood" className={`mm-desk mm-desk--${mode}`}>
+  <JournalSurface material="wood" className={`mm-desk mm-desk--${mode}${companionEnabled ? ' mm-desk--with-companion' : ''}`}>
     <DeskStationery />
     <a className="mm-skip-link" href="#journal-content">Skip to journal content</a>
     <header className="mm-desk-toolbar">

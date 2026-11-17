@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-/** Lightweight browser semantic audit for labels, headings and modal names. */
+/** Lightweight browser semantic audit for labels, headings and dialog names. */
 export async function assertJournalSemantics(page, label = 'journal screen') {
   const findings = await page.evaluate(() => {
     const visible = (element) => {
@@ -39,7 +39,7 @@ export async function assertJournalSemantics(page, label = 'journal screen') {
       previousLevel = level
     }
     for (const dialog of globalThis.document.querySelectorAll('[role="dialog"], [role="alertdialog"]')) {
-      if (dialog.getAttribute('aria-modal') !== 'true') issues.push('dialog is missing aria-modal=true')
+      if (!['true', 'false'].includes(dialog.getAttribute('aria-modal') ?? '')) issues.push('dialog is missing an explicit aria-modal value')
       if (!accessibleName(dialog)) issues.push('dialog has no accessible name')
     }
     return issues

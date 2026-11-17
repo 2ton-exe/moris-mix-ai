@@ -231,7 +231,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const ordered = ['Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend',
     'Reject stale production revision', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
     'Deploy account-export Edge Function',
-    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
+    'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy mori-chat Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe-image-download-url Edge Function', 'Deploy recipe image upload cleanup Edge Function',
     'Deploy recipe-image-upload-url Edge Function', 'Deploy to Cloudflare Workers', 'Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke',
     'Record production deployment and runtime outcomes', 'Preserve production runtime evidence', 'Preserve production AI route evidence'];
@@ -257,7 +257,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   });
   const commands = release.steps.map(s => s.run ?? '').join('\n');
   assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), [
-    'recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach',
+    'recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'mori-chat', 'recipe-image-attach',
     'recipe-image-download-url', 'recipe-image-upload-cleanup', 'recipe-image-upload-url',
   ]);
   const migrationStepIds = ['preview-migrations', 'deploy-migrations', 'verify-migrations'];
@@ -286,7 +286,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   assert.equal(build.run, 'pnpm build');
   const frontendPackage = JSON.parse(readFileSync('frontend/package.json', 'utf8'));
   assert.match(frontendPackage.devDependencies.supabase, /^\d+\.\d+\.\d+$/);
-  for (const target of ['recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach',
+  for (const target of ['recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'mori-chat', 'recipe-image-attach',
     'recipe-image-download-url', 'recipe-image-upload-url']) {
     const deploy = step(release, `Deploy ${target} Edge Function`);
     assert.equal(deploy.id, `deploy-${target}`);
@@ -337,6 +337,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     IMAGE_SIGNER_OUTCOME: '${{ steps.deploy-recipe-image-upload-url.outcome }}',
     EXTRACT_RECIPE_OUTCOME: '${{ steps.deploy-extract-recipe.outcome }}',
     GENERATE_RECIPE_OUTCOME: '${{ steps.deploy-generate-recipe.outcome }}',
+    MORI_CHAT_OUTCOME: '${{ steps.deploy-mori-chat.outcome }}',
     CLOUDFLARE_OUTCOME: '${{ steps.deploy-cloudflare.outcome }}',
     URL_OUTCOME: '${{ steps.verify-deployment.outcome }}',
     AI_ROUTE_SMOKE_OUTCOME: '${{ steps.ai-route-smoke.outcome }}',
@@ -421,7 +422,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
     // current recipe, auth, AI and recipe-image targets independently asserted.
     const targets = step(edge.jobs['test-edge-api'], name).run.split(/\s+/).filter(s => s.startsWith('supabase/'));
     const tests = ['demo_recipe', 'auth', 'account_export', 'recipes', 'ai_contracts', 'ai_journeys', 'candidate_token', 'eval_dataset', 'cross_user_rls_lineage',
-      'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'recipe_image_lifecycle', 'gemini_adapter', 'extract_recipe', 'generate_recipe', 'recipe_context']
+      'recipe_image_schemas', 'r2_signing', 'recipe_image_upload_url', 'recipe_image_upload_cleanup', 'recipe_image_lifecycle', 'gemini_adapter', 'mori_chat', 'extract_recipe', 'generate_recipe', 'recipe_context']
       .map(name => `supabase/functions/tests/${name}_test.ts`);
     const expected = name.startsWith('Type-check') ? [
       'supabase/functions/_shared/auth.ts', 'supabase/functions/_shared/ai/recipeContext.ts',
@@ -429,7 +430,7 @@ test('main validation covers current authoritative Edge/API targets and mandator
       'supabase/functions/_shared/recipe-images/lifecycle.ts',
       'supabase/functions/_shared/recipe-images/uploadIntents.ts',
       'supabase/functions/_shared/recipe-images/uploadCleanup.ts',
-      ...['demo-recipe', 'auth-session', 'account-export', 'recipes', 'extract-recipe', 'generate-recipe', 'recipe-image-upload-url', 'recipe-image-upload-cleanup', 'recipe-image-attach', 'recipe-image-download-url', 'recipe-image-delete', 'recipe-image-final-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
+      ...['demo-recipe', 'auth-session', 'account-export', 'recipes', 'extract-recipe', 'generate-recipe', 'mori-chat', 'recipe-image-upload-url', 'recipe-image-upload-cleanup', 'recipe-image-attach', 'recipe-image-download-url', 'recipe-image-delete', 'recipe-image-final-cleanup'].map(name => `supabase/functions/${name}/index.ts`),
       'supabase/functions/tests/auth_rls_integration_test.ts', ...tests,
     ] : tests;
     assert.deepEqual(targets.sort(), expected.sort());

@@ -63,13 +63,14 @@ The local Supabase database is available on loopback port `54322` by default and
    The CLI automatically loads `supabase/functions/.env` when it exists (or a file passed with `--env-file`). AI endpoints are **off by default** (AI-05 and AI-06); create this gitignored file only if you want to exercise them locally:
 
    ```sh
-   # Required: allow POST /extract-recipe and POST /generate-recipe.
+   # Required: opt in only to the AI endpoints you want to exercise locally.
    # These local opt-ins do not change production settings.
    AI_EXTRACT_ENABLED=true
    AI_GENERATE_ENABLED=true
+   AI_MORI_CHAT_ENABLED=true
    # development or test permits the demo-only failure drills; production ignores them.
    AI_ENVIRONMENT=development
-   # Needed to reach Gemini when you actually exercise extraction or generation.
+   # Needed to reach Gemini when you exercise extraction, generation, or Mori chat.
    GEMINI_API_KEY=your_gemini_api_key_here
    # AI-07: signs generation candidate tokens; at least 32 characters.
    # Generate one with: openssl rand -base64 48

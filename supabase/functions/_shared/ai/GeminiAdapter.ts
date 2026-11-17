@@ -10,13 +10,18 @@ import type {
   GeneratedRecipe,
   GenerateRecipeContext,
   GenerateRecipeInput,
+  MoriChatInput,
+  MoriChatProvider,
 } from "./AIProvider.ts";
 import {
+  buildMoriChatPrompt,
   buildChefPrompt,
   buildExtractionPrompt,
   CHEF_PROMPT,
   EXTRACTION_PROMPT,
+  MORI_CHAT_PROMPT,
   type PromptTemplate,
+  isWithinAiPromptBudget,
 } from "./prompts.ts";
 import {
   AI_OUTPUT_SIZE_LIMIT_MESSAGE,
@@ -26,6 +31,8 @@ import {
 } from "./schemas.ts";
 
 const MAX_AI_OUTPUT_TOKENS = 8192;
+const MAX_CHAT_OUTPUT_TOKENS = 1024;
+const MAX_CHAT_OUTPUT_CHARS = 2400;
 
 /**
  * Pinned extraction model as of Sprint 3. AI_MODEL overrides it, so a model
@@ -140,7 +147,7 @@ export type AIAttempt = {
 
 export class AIError extends Error {
   readonly code: AIErrorCode;
-  readonly operation: "extract" | "generate";
+  readonly operation: "extract" | "generate" | "chat";
   /** True only for failures a second identical call could plausibly fix. */
   readonly retryable: boolean;
   /** Metadata only, for example the schema paths that failed. Never values. */
@@ -157,7 +164,7 @@ export class AIError extends Error {
   /** Records safe failure metadata and derives retryability from the stable error code. */
   constructor(
     code: AIErrorCode,
-    operation: "extract" | "generate",
+    operation: "extract" | "generate" | "chat",
     message: string,
     detail?: string,
     retryAfterSeconds?: number,
@@ -184,7 +191,7 @@ export class AIError extends Error {
 
 /** Metadata-only log entry (AI-20). Never carries prompts or recipe text. */
 export type AIOperationLog = {
-  op: "extract" | "generate";
+  op: "extract" | "generate" | "chat";
   model: string;
   promptId: string;
   promptVersion: string;
@@ -197,7 +204,7 @@ export type AIOperationLog = {
 /** Test seam: replaces the real Gemini call. */
 export type GenerateText = (
   prompt: string,
-  operation: "extract" | "generate",
+  operation: "extract" | "generate" | "chat",
 ) => Promise<string>;
 
 /** Adapter options. Production reads env vars; tests inject a generator. */
@@ -230,7 +237,7 @@ function createGeminiClient(apiKey: string | undefined): GoogleGenerativeAI {
  * tests inject a generator so they never touch the network, and a log sink so
  * they can assert the metadata that gets recorded.
  */
-export class GeminiAdapter implements AIProvider {
+export class GeminiAdapter implements AIProvider, MoriChatProvider {
   private readonly modelName: string;
   private readonly timeoutMs: number;
   private readonly generateText: GenerateText;
@@ -303,6 +310,22 @@ export class GeminiAdapter implements AIProvider {
     );
   }
 
+  /** Replies using only the caller-scoped conversation and recipe context. */
+  reply(input: MoriChatInput): Promise<string> {
+    const prompt = buildMoriChatPrompt(input);
+    if (!isWithinAiPromptBudget(prompt)) {
+      throw new AIError(
+        "context_too_large",
+        "chat",
+        "The conversation and saved recipe context exceed the supported input size.",
+        undefined,
+        undefined,
+        true,
+      );
+    }
+    return this.runOperation("chat", MORI_CHAT_PROMPT, prompt, parseMoriChatResponse);
+  }
+
   /**
    * Runs one operation with at most one retry for provider failures only.
    *
@@ -312,7 +335,7 @@ export class GeminiAdapter implements AIProvider {
    * timeout and logging behavior cannot drift. Nothing is persisted.
    */
   private async runOperation<T>(
-    operation: "extract" | "generate",
+    operation: "extract" | "generate" | "chat",
     promptTemplate: PromptTemplate,
     prompt: string,
     parse: (raw: string) => T,
@@ -374,7 +397,9 @@ export class GeminiAdapter implements AIProvider {
         operation,
         operation === "extract"
           ? "Gemini extraction failed."
-          : "Gemini generation failed.",
+          : operation === "generate"
+          ? "Gemini generation failed."
+          : "Mori chat failed.",
         undefined,
         undefined,
         attempts.length > 0
@@ -416,7 +441,7 @@ export class GeminiAdapter implements AIProvider {
 
   /** Metadata-only part of a log entry. Never includes prompt or recipe text. */
   private logMeta(
-    operation: "extract" | "generate",
+    operation: "extract" | "generate" | "chat",
     promptTemplate: PromptTemplate,
     attempt: number,
     startedAt: number,
@@ -435,17 +460,15 @@ export class GeminiAdapter implements AIProvider {
   private async callModel(
     client: GoogleGenerativeAI,
     prompt: string,
-    operation: "extract" | "generate",
+    operation: "extract" | "generate" | "chat",
   ): Promise<string> {
     const model = client.getGenerativeModel(
       {
         model: this.modelName,
-        // Ask Gemini for JSON, but still validate it below: JSON mode is not a
-        // security boundary (AI-10).
         generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.2,
-          maxOutputTokens: MAX_AI_OUTPUT_TOKENS,
+          ...(operation === "chat" ? {} : { responseMimeType: "application/json" }),
+          temperature: operation === "chat" ? 0.55 : 0.2,
+          maxOutputTokens: operation === "chat" ? MAX_CHAT_OUTPUT_TOKENS : MAX_AI_OUTPUT_TOKENS,
         },
       },
       { timeout: this.timeoutMs },
@@ -475,6 +498,21 @@ export class GeminiAdapter implements AIProvider {
 
     return response.text();
   }
+}
+
+function parseMoriChatResponse(raw: string): string {
+  const reply = raw.trim();
+  if (!reply || new TextEncoder().encode(reply).byteLength > MAX_CHAT_OUTPUT_CHARS) {
+    throw new AIError(
+      reply ? "output_truncated" : "invalid_output",
+      "chat",
+      "Gemini returned an empty or oversized chat reply.",
+      undefined,
+      undefined,
+      false,
+    );
+  }
+  return reply;
 }
 
 /** Exported for tests. */
@@ -628,7 +666,7 @@ function stripCodeFence(text: string): string {
 }
 
 /** Maps any thrown value to a typed, user-safe `AIError`. */
-function toAIError(error: unknown, operation: "extract" | "generate"): AIError {
+function toAIError(error: unknown, operation: "extract" | "generate" | "chat"): AIError {
   if (error instanceof AIError) return error;
 
   // The SDK throws this from `response.text()` when Gemini blocks the prompt

@@ -196,8 +196,7 @@ describe('Quick AI Entry', () => {
       return setItem.call(this, key, value)
     })
     const { router } = renderEntry({ initialEntry: '/app/recipes' })
-    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('link', { name: 'Organize cooking notes' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Import recipe notes' }))
     const sourceNotes = 'notes before browser back'
     enterNotes(sourceNotes)
 
@@ -335,26 +334,17 @@ describe('Quick AI Entry', () => {
     restored.unmount()
   })
 
-  it('opens Quick AI Entry from Talk to Mori, returns to the exact journal location, and restores the unsaved preview', async () => {
+  it('opens Quick AI Entry from the collection, returns to the exact journal location, and restores the unsaved preview', async () => {
     const journalLocation = '/app/recipes?q=rice&sort=rating&leaf=2#collection-heading'
     const extract = vi.fn<Extract>().mockResolvedValue(recipe)
     renderEntry({ extract, initialEntry: journalLocation })
 
-    const bookmarks = screen.getByRole('navigation', { name: 'Journal sections' })
     const recipesBookmark = screen.getByRole('link', { name: 'My recipes' })
-    const moriBookmark = screen.getByRole('button', { name: 'Talk to Mori' })
     expect(recipesBookmark.getAttribute('aria-current')).toBe('page')
-    expect(moriBookmark.getAttribute('aria-expanded')).toBe('false')
-    moriBookmark.focus()
-    expect(document.activeElement).toBe(moriBookmark)
-    fireEvent.click(moriBookmark)
-    expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'Organize cooking notes' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Import recipe notes' }))
 
     expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Talk to Mori' }).getAttribute('aria-expanded')).toBe('false')
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBeNull()
-    expect(bookmarks).toBeTruthy()
 
     const sourceNotes = 'rice, egg, soy sauce; fry egg first'
     enterNotes(sourceNotes)
@@ -366,8 +356,7 @@ describe('Quick AI Entry', () => {
     expect((await screen.findByTestId('journal-location')).textContent).toBe(journalLocation)
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('link', { name: 'Organize cooking notes' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Import recipe notes' }))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()

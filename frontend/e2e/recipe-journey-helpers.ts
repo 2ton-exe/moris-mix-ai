@@ -24,7 +24,7 @@ export async function waitForCollection(page: Page) {
 }
 
 export async function createRecipe(page: Page, title: string): Promise<string> {
-  await page.getByRole('link', { name: 'Start a recipe' }).click()
+  await page.getByRole('link', { name: 'New recipe' }).click()
   await page.getByLabel('Recipe title').fill(title)
   const ingredients = await navigateToRecipeSection(page, 'Ingredients')
   await ingredients.getByRole('button', { name: 'Add ingredient' }).click()

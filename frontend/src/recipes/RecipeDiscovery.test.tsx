@@ -121,7 +121,7 @@ it('distinguishes an empty journal from no search matches and clears the search'
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
 })
 
-it('updates companion guidance when clearing a search while preserving the open panel', async () => {
+it('keeps the chat concise while cookbook search controls remain usable', async () => {
   localStorage.clear()
   const replacement = deferred<RecipeDiscoveryPage>()
   page.mockImplementation(({ criteria }) => criteria.search === 'missing'
@@ -129,16 +129,18 @@ it('updates companion guidance when clearing a search while preserving the open 
   render(tree('cook-a', '/app/recipes?view=index&q=missing', true))
   await screen.findByRole('heading', { name: 'No recipes match your search.' })
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-  const panel = screen.getByRole('region', { name: 'Mori' })
-  fireEvent.click(within(panel).getByRole('button', { name: 'Clear my search' }))
+  const panel = screen.getByRole('dialog', { name: 'Mori' })
+  expect(within(panel).queryByText(/Your saved recipes live in the collection/)).toBeNull()
+  expect(within(panel).queryByRole('button', { name: /write another recipe/i })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Show all recipes' }))
   await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: '' }) })))
-  expect(screen.getByRole('region', { name: 'Mori' })).toBe(panel)
+  expect(screen.getByRole('dialog', { name: 'Mori' })).toBe(panel)
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
   await act(async () => replacement.resolve({ recipes: [rice], nextPage: null }))
   await ready()
-  expect(within(panel).getByText(/Your saved recipes live in the collection/)).toBeTruthy()
-  fireEvent.click(within(panel).getByRole('button', { name: 'Close Mori' }))
-  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+  expect(within(panel).getByText('What are we cooking today?')).toBeTruthy()
+  fireEvent.click(within(panel).getByRole('button', { name: 'Close Mori chat' }))
+  expect(screen.queryByRole('dialog', { name: 'Mori' })).toBeNull()
   expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Talk to Mori' }))
 })
 

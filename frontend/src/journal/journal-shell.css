@@ -70,6 +70,9 @@
   background: var(--mm-color-sage-100);
   box-shadow: inset 0 -2px var(--mm-color-sage-600);
 }
+.mm-global-nav__link--new { color: var(--mm-color-parchment-50); background: var(--mm-color-burgundy-700); box-shadow: 0 2px 0 var(--mm-color-burgundy-900), 0 4px 9px -4px rgb(40 10 15 / .42); }
+.mm-global-nav__link--new:hover { background: var(--mm-color-burgundy-800); }
+.mm-global-nav__link--new[aria-current='page'] { color: var(--mm-color-parchment-50); background: var(--mm-color-burgundy-800); box-shadow: inset 0 -2px var(--mm-color-mustard-300), 0 2px 0 var(--mm-color-burgundy-900); }
 @media (max-width: 760px) {
   .mm-desk-toolbar:has(.mm-global-nav) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; justify-content: stretch; justify-items: start; }
   .mm-desk-toolbar .mm-global-nav { grid-row: 3; }
@@ -273,7 +276,7 @@
     margin-top: var(--mm-top-ui);
   }
   .mm-desk:has(.mm-global-nav) .mm-journal-stage { --mm-top-ui: 164px; }
-  .mm-desk:has(.mori-pet-character) .mm-journal-stage { --mm-page-height: max(180px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 66px)); }
+  .mm-desk--with-companion .mm-journal-stage { --mm-page-height: max(180px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 66px)); }
   .mm-journal-board--left { display: none; }
   .mm-journal-board--right { left: 0; width: 100%; border-radius: 6px var(--mm-radius-out) var(--mm-radius-out) 6px; }
   .mm-journal-board--right::before { left: var(--mm-ring-zone); }

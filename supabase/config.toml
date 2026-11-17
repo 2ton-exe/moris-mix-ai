@@ -46,6 +46,10 @@ verify_jwt = false
 [functions.generate-recipe]
 verify_jwt = false
 
+# The chat handler verifies the user's session itself and applies the caller's RLS context.
+[functions.mori-chat]
+verify_jwt = false
+
 # These handlers authenticate POST requests themselves and handle OPTIONS before authentication.
 [functions.recipe-image-upload-url]
 verify_jwt = false
