@@ -49,7 +49,7 @@ export function MoriCompanion() {
     x: Math.max(left, Math.min(position.x, right - width)),
     y: Math.max(top, Math.min(position.y, bottom - height)),
   })
-  const position = clamp(preferences.position ?? { x: right - width - 12, y: tabletDock ? top : bottom - height - 12 })
+  const position = clamp(preferences.position ?? { x: mobile ? left + 12 : right - width - 12, y: tabletDock ? top : bottom - height - 12 })
   const actual = mobile ? { ...position, x: position.x < viewport.left + viewport.width / 2 ? left : Math.max(left, right - width) } : position
   const message = activity.kind === 'idle' ? guidance?.message ?? activity.message : activity.message
 
@@ -112,8 +112,14 @@ export function MoriCompanion() {
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
           onPointerMove={(event) => { if (drag.current?.pointerId === event.pointerId) move(event.clientX - drag.current.x, event.clientY - drag.current.y) }}
-          onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); drag.current = null; setMoved('Mori moved to a new spot.') }}
-          onPointerCancel={() => { drag.current = null }} onLostPointerCapture={() => { drag.current = null }}>···</button>
+          onPointerUp={(event) => {
+            if (drag.current?.pointerId !== event.pointerId) return
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+            drag.current = null
+            setMoved('Mori moved to a new spot.')
+          }}
+          onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
+          onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>···</button>
       </div>
       {open && <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" style={{ left: panelLeft, top: panelTop, width: panelWidth, maxHeight: Math.max(0, panelHeight) }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button type="button" onClick={close} aria-label="Close Mori">×</button></header>

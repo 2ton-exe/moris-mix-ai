@@ -273,7 +273,7 @@
     margin-top: var(--mm-top-ui);
   }
   .mm-desk:has(.mm-global-nav) .mm-journal-stage { --mm-top-ui: 164px; }
-  .mm-desk:has(.mori-pet-root) .mm-journal-stage { --mm-page-height: max(180px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 66px)); }
+  .mm-desk:has(.mori-pet-character) .mm-journal-stage { --mm-page-height: max(180px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 66px)); }
   .mm-journal-board--left { display: none; }
   .mm-journal-board--right { left: 0; width: 100%; border-radius: 6px var(--mm-radius-out) var(--mm-radius-out) 6px; }
   .mm-journal-board--right::before { left: var(--mm-ring-zone); }

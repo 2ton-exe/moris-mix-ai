@@ -64,6 +64,33 @@ it('supports keyboard repositioning and reset', () => {
   expect(screen.getByText('Mori returned to the starting position.')).toBeTruthy()
 })
 
+it('ignores other pointers while a primary pointer is dragging Mori', () => {
+  render(<Companion />)
+  const grip = screen.getByRole('button', { name: 'Move Mori. Use arrow keys to reposition.' })
+  const character = screen.getByRole('group', { name: 'Mori companion' })
+  const captured = new Set<number>()
+  Object.assign(grip, {
+    setPointerCapture: (pointerId: number) => captured.add(pointerId),
+    hasPointerCapture: (pointerId: number) => captured.has(pointerId),
+    releasePointerCapture: (pointerId: number) => captured.delete(pointerId),
+  })
+  const sendPointer = (type: string, pointerId: number, values: Record<string, unknown> = {}) => {
+    const event = new Event(type, { bubbles: true })
+    Object.assign(event, { pointerId, isPrimary: pointerId === 1, button: 0, clientX: 900, clientY: 600, ...values })
+    fireEvent(grip, event)
+  }
+  const originalX = parseFloat(character.style.left)
+  sendPointer('pointerdown', 1)
+  sendPointer('pointerup', 2)
+  sendPointer('pointercancel', 2)
+  sendPointer('lostpointercapture', 2)
+  sendPointer('pointermove', 1, { clientX: 850, clientY: 560 })
+  expect(parseFloat(character.style.left)).toBeLessThan(originalX)
+  expect(document.querySelector('.mori-pet-sr')?.textContent).toBe('')
+  sendPointer('pointerup', 1)
+  expect(document.querySelector('.mori-pet-sr')?.textContent).toBe('Mori moved to a new spot.')
+})
+
 it('recovers from malformed preferences and keeps optional producers independent', () => {
   localStorage.setItem('moris-mix:mori-companion', '{"position":{"x":"broken"}}')
   render(<Companion />)
