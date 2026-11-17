@@ -45,12 +45,15 @@ This delivery follows the existing browsing, photo upload, recipe save, Quick AI
 25. As a cook navigating away or signing out, I want obsolete activity and messages cleared, so that Mori cannot report work from a previous screen or session.
 26. As a cook, I want all recipe functions to work when position storage is unavailable, so that Mori's preferences never block recipe work.
 27. As a visitor, I want public and authentication pages to retain their existing presentation, so that the companion belongs to the signed-in workspace.
+28. As a cook, I want only one full Mori in the signed-in journal, so that the companion feels like one assistant instead of repeated illustrations.
+29. As a cook, I want Mori to help with a quick run across the book when I turn a page, so that page navigation feels interactive.
 
 ## Implementation Decisions
 
 - Reuse the existing React, TypeScript, SVG character, journal primitives, typography, color tokens, and scoped CSS animation patterns. Preserve the rat chef's proportions and identity. This is original in-app artwork inspired by Codex Pet's companion behavior.
 - Mount one companion at the shared signed-in recipe workspace boundary. Keep its position stable across recipe route changes; clear route-specific guidance, stale operations, and pending animation timers when their owners disappear. Clear transient session state on sign-out or account change.
-- Replace the dashboard note launcher and dialogue with the companion's attached speech bubble. Preserve useful empty-collection, no-match, and collection guidance and relevant existing navigation actions. Avoid duplicate interactive companion surfaces. Decorative Mori illustrations and the separate branding emblem remain.
+- Replace the dashboard note launcher and dialogue with the companion's attached speech bubble. Preserve useful empty-collection and no-match guidance, but keep the default inspiration line when recipes exist. Keep one full Mori outside the book; modal confirmations may show the character while the companion is suspended. Leave the static emblem.
+- Reuse the existing user-triggered page turn's direction and duration to animate the same companion briefly across the book with raised arms. Skip the run when reduced motion is enabled.
 - Extend existing grouped SVG geometry and transform-based CSS animations for richer idle, curious, attention, confused, and celebrating behavior. Use still poses when reduced motion is enabled. Avoid an animation dependency unless an existing installed facility is necessary.
 - Read activity from the owning frontend workflow's actual state and confirmed outcomes. The companion is presentation, not a second request, persistence, authentication, or validation owner. Do not infer progress from arbitrary timers or intercept all network traffic to guess activity.
 - Prefer the smallest shared activity interface needed by the recipe workspace, recipe editor, and photo upload surface. Keep current operations associated with their owner so resolved, superseded, aborted, and unmounted operations cannot leave stale feedback.
@@ -87,6 +90,7 @@ This delivery follows the existing browsing, photo upload, recipe save, Quick AI
 - Cover browsing/idle, photo preparation/upload/curious, create and edit saves, confirmed celebration, unsuccessful save without celebration, upload failure, invalid form submission, problem resolution, retry, cancellation, and navigation during pending work. Respect the existing rule that create-page photo attachment becomes available only after a recipe has an ID.
 - Cover precedence using controlled pending and failed operations. Add narrowly focused component integration tests only where timing or overlap is difficult to exercise reliably at the browser seam; assert output and interaction rather than reducer implementation.
 - Verify pointer and touch positioning across the character, click versus drag, keyboard repositioning, restoration after reload, legacy hidden-preference migration, default recovery from corrupt/unavailable storage, viewport resizing, and narrow-screen docking.
+- Verify signed-in recipe pages and page-turn snapshots contain no full Mori figures, one companion remains outside the book, and both page-turn directions animate that companion unless reduced motion is enabled.
 - Verify bubble focus and Escape handling, the tail's connection to Mori, meaningful status semantics, reduced motion, keyboard-only operation, long message wrapping, mobile widths including 320 CSS pixels, and 200% zoom/reflow. Check that existing save controls, form fields, and dialogs remain usable with the bubble open.
 - Check that the floating companion is absent from public/authentication pages, decorative artwork remains, route changes retain preferences but clear obsolete activity, and sign-out clears transient state.
 - Assert that opening guidance, animating, and dragging Mori create no extra API or AI requests and no recipe writes. Explicit workflow actions retain existing request contracts and confirmation boundaries.
@@ -94,10 +98,10 @@ This delivery follows the existing browsing, photo upload, recipe save, Quick AI
 
 ## Out of Scope
 
-- The pasted storybook loading screen, walking miniature world, automatically flipping notebook, parallax scenery, and cycling typewriter loading experience.
+- The pasted storybook loading screen, walking miniature world, automatic page turns, parallax scenery, and cycling typewriter loading experience. Existing user-triggered page turns may briefly animate Mori across the book.
 - Adding new AI extraction, generation, or refinement screens, changing AI API contracts, or introducing image-to-recipe extraction. Existing Quick AI Entry and AI Chef workflows are included.
 - Replacing the rat chef with a new character, copying Codex Pet artwork, sprite-sheet generation, external desktop pets, or operating-system overlays.
-- Removing decorative Mori illustrations, the Mori emblem, or branding.
+- Removing the static Mori emblem or branding.
 - Autonomous saves, retries, recipe changes, AI calls, or navigation; sound; unsolicited roaming; gamification or companion needs.
 - Cross-device preference synchronization, backend preference storage, new analytics, and storing companion conversation history.
 - Backend API, authentication, data schema, image feature rollout, storage, quota, or production configuration changes.

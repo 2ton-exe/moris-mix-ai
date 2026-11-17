@@ -16,7 +16,7 @@ Phases A–C changes. No commit, push, merge, or PR was performed.
 - No query key, cache ownership, account scoping, service, API contract, backend,
   discovery handler, authentication behavior, or form implementation changed.
 - The current recipe types do not provide photo URLs. Cards and detail entries
-  therefore use the labeled local Mori artwork as a deliberate illustrated
+  therefore use labeled local recipe sketches as a deliberate illustrated
   fallback; they do not generate photos or render fixture imagery.
 - An empty collection remains empty and links to the existing
   `/app/recipes/new` route through **Add Your First Scrap**.
@@ -25,7 +25,7 @@ Phases A–C changes. No commit, push, merge, or PR was performed.
 
 ## Presentation
 
-`RecipeCard` is now a paper scrap with a Polaroid-style Mori illustration,
+`RecipeCard` is now a paper scrap with a Polaroid-style recipe sketch,
 handwritten folio/date captions, stamp, real title and rating. The dashboard
 keeps its real search, sort, filter, refresh, and paging controls, with scoped
 styling, a page index, and a welcoming empty page. Detail uses paper sections

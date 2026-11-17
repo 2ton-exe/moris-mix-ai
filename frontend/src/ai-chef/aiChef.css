@@ -1,10 +1,9 @@
 .mm-ai-chef { width: 100%; max-width: 860px; min-width: 0; margin-inline: auto; }
-.mm-ai-chef__heading { display: flex; align-items: center; justify-content: space-between; gap: clamp(12px, 2vw, 26px); min-width: 0; margin: 0 0 18px; }
+.mm-ai-chef__heading { min-width: 0; margin: 0 0 18px; }
 .mm-ai-chef__heading > div { min-width: 0; }
 .mm-ai-chef__heading h1 { margin: 4px 0 8px; color: var(--mm-color-burgundy-900); font: 600 clamp(25px, 3vw, 34px)/1.12 var(--mm-font-serif); overflow-wrap: anywhere; }
 .mm-ai-chef__heading h1:focus { outline: 2px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
 .mm-ai-chef__heading .intro { max-width: 62ch; margin: 0; color: var(--mm-color-ink-soft); line-height: 1.6; }
-.mm-ai-chef__heading > .mm-mori { flex: 0 0 auto; }
 .mm-ai-chef__paper { width: 100%; min-width: 0; padding: clamp(16px, 2.5vw, 24px); border: 1px solid var(--mm-color-parchment-400); box-shadow: var(--mm-shadow-paper); }
 .mm-ai-chef__form, .mm-ai-chef__form fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; }
 .mm-ai-chef__form fieldset { padding: 0; border: 0; }
@@ -66,12 +65,9 @@
 .mm-ai-chef :where(input, textarea, button, a):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
 
 @media (max-width: 560px) {
-  .mm-ai-chef__heading { align-items: flex-start; }
-  .mm-ai-chef__heading > .mm-mori { width: 60px; height: 60px; }
   .mm-ai-chef__resume { grid-template-columns: minmax(0, 1fr); }
   .mm-ai-chef__resume-actions { align-items: stretch; }
   .mm-ai-chef__resume-actions .button { flex: 1 1 150px; }
 }
 @media (max-width: 399px) {
-  .mm-ai-chef__heading > .mm-mori { display: none; }
 }

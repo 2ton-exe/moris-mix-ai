@@ -56,7 +56,7 @@ were changed in Phase E.
 ## Figma fidelity and next phase
 
 The form and dialogs carry forward the Figma reference's parchment, tape,
-handwritten labels, Mori illustrations, layered stationery, and burgundy/sage
+handwritten labels, the single Mori companion, layered stationery, and burgundy/sage
 palette. The app uses its real route-driven forms and one long, scrollable
 worksheet rather than the prototype's simulated recipe store or page engine, so
 this is a close visual adaptation rather than a pixel-level copy.

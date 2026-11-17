@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
-import { Mori } from '../journal/Mori'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
 import type { RecipeDraft, RecipeEditorState } from '../recipe-form/draft'
@@ -518,7 +517,6 @@ function ReviewUnavailable({ userEmail, status }: { userEmail?: string; status: 
           <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
           <p className="intro">{storageMessage}</p>
         </div>
-        <Mori mood="think" size={82} />
       </header>
       <Link className="button button-primary" to="/app/chef">Open AI Chef</Link>
     </JournalFacingPage>

@@ -4,7 +4,6 @@ import { useAuth } from '../auth/context'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
-import { Mori } from '../journal/Mori'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
@@ -238,7 +237,6 @@ function ReviewUnavailable({ userEmail, state, storageStatus, message }: { userE
           <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
           <p className="intro">{message ?? (storageMessage ? 'This extraction could not be restored from this browser session.' : 'This unsaved extraction is missing or could not be prepared. Return to Quick AI Entry to restore your notes or organize them again.')}</p>
         </div>
-        <Mori mood="think" size={82} />
       </header>
       {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
       <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>

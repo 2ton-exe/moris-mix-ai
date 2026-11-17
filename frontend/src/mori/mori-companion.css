@@ -30,8 +30,12 @@
 .mori-pet-character[data-activity='idle'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-breathe 4s ease-in-out infinite; }
 .mori-pet-character[data-activity='curious'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-peek 2.8s ease-in-out infinite; }
 .mori-pet-character[data-activity='confused'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-puzzle 3s ease-in-out infinite; }
+.mori-pet-character[data-turn-direction] { z-index: 46; pointer-events: none; animation: mori-pet-page-run var(--mori-turn-duration) ease-in-out both; }
+.mori-pet-character[data-turn-direction] .mori-body-all { transform-origin: center bottom; animation: mori-pet-page-bob 110ms ease-in-out infinite alternate; }
 @keyframes mori-bubble-in { from { opacity: 0; transform: scale(.98) translateY(3px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes mori-pet-breathe { 50% { transform: scaleY(1.025); } }
 @keyframes mori-pet-peek { 40%, 60% { transform: rotate(-5deg) translateY(-2px); } }
 @keyframes mori-pet-puzzle { 35% { transform: rotate(3deg); } 65% { transform: rotate(-3deg); } }
-@media (prefers-reduced-motion: reduce) { .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg { animation: none !important; transition: none !important; transform: none !important; } }
+@keyframes mori-pet-page-run { 0%, 100% { transform: translateX(0); } 14% { transform: translateY(-6px); } 55%, 68% { transform: translateX(var(--mori-turn-distance)) translateY(-3px); } }
+@keyframes mori-pet-page-bob { to { transform: translateY(-3px) rotate(-2deg); } }
+@media (prefers-reduced-motion: reduce) { .mori-pet-character, .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg { animation: none !important; transition: none !important; transform: none !important; } }

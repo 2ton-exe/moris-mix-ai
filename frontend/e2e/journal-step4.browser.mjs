@@ -164,7 +164,23 @@ async function resumeTurn(page, reference = false) {
   const selector = reference ? '.turn-layer' : '[data-journal-page-turn]'
   await page.evaluate((selector) => {
     globalThis.document.querySelector(selector)?.getAnimations({ subtree: true }).forEach((animation) => animation.play())
+    globalThis.document.querySelector('.mori-pet-character[data-turn-direction]')?.getAnimations().forEach((animation) => animation.play())
   }, selector)
+}
+
+async function holdMoriAtMidpoint(page) {
+  return page.locator('.mori-pet-character[data-turn-direction]').evaluate((character) => {
+    const animation = character.getAnimations()[0]
+    if (!animation) return null
+    animation.pause()
+    animation.currentTime = Number.parseFloat(globalThis.getComputedStyle(character).animationDuration) * 500
+    return {
+      direction: character.getAttribute('data-turn-direction'),
+      animationName: globalThis.getComputedStyle(character).animationName,
+      delta: Math.abs(character.getBoundingClientRect().x - Number.parseFloat(character.style.left)),
+      mood: character.querySelector('.mm-mori')?.getAttribute('data-mood'),
+    }
+  })
 }
 
 async function finishTurn(page) {
@@ -186,6 +202,8 @@ try {
   referencePage.setDefaultTimeout(12_000)
   await Promise.all([appPage.goto(`${origin}app/recipes`), referencePage.goto(`${referenceOrigin}journal/scraps`)])
   await expect(appPage.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
+  await expect(appPage.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
   await expect(referencePage.locator('.book')).toHaveAttribute('data-cover', 'open')
   await expect(referencePage.getByRole('button', { name: 'Turn to older scraps' })).toBeVisible()
   await expect(appPage.getByRole('link', { name: /Previous page/ })).toHaveCount(0, 'Collection cannot turn before its first available page')
@@ -205,8 +223,16 @@ try {
   await appPage.getByRole('link', { name: /Next page/ }).click()
   await referencePage.getByRole('button', { name: 'Turn to older scraps' }).click()
   await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
+  await expect(appPage.locator('.mori-pet-character')).toHaveAttribute('data-turn-direction', 'forward')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
   const forwardTimes = await Promise.all([holdTurnAtMidpoint(appPage), holdTurnAtMidpoint(referencePage, true)])
+  const forwardMori = await holdMoriAtMidpoint(appPage)
+  assert.equal(forwardMori?.direction, 'forward')
+  assert.equal(forwardMori?.animationName, 'mori-pet-page-run')
+  assert.equal(forwardMori?.mood, 'turn')
+  assert.ok((forwardMori?.delta ?? 0) > 40, 'Mori runs across the book while the page turns')
+  await expect(appPage.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
+  await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
   assert.ok(forwardTimes.flat().length >= 2, 'Both spread turns expose leaf and lighting animations')
   const forwardMidCurrent = await turnDiagnostics(appPage)
   const forwardMidReference = await turnDiagnostics(referencePage, true)
@@ -234,8 +260,14 @@ try {
   await appPage.getByRole('link', { name: /Previous page/ }).click()
   await referencePage.getByRole('button', { name: 'Turn back to newer scraps' }).click()
   await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
+  await expect(appPage.locator('.mori-pet-character')).toHaveAttribute('data-turn-direction', 'backward')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
   const backwardTimes = await Promise.all([holdTurnAtMidpoint(appPage), holdTurnAtMidpoint(referencePage, true)])
+  const backwardMori = await holdMoriAtMidpoint(appPage)
+  assert.equal(backwardMori?.direction, 'backward')
+  assert.equal(backwardMori?.animationName, 'mori-pet-page-run')
+  assert.equal(backwardMori?.mood, 'turn')
+  assert.ok((backwardMori?.delta ?? 0) > 40, 'Mori runs across the book when turning back')
   assert.ok(backwardTimes.flat().length >= 2, 'Both backward spread turns expose leaf and lighting animations')
   const backwardMidCurrent = await turnDiagnostics(appPage)
   const backwardMidReference = await turnDiagnostics(referencePage, true)
@@ -412,6 +444,7 @@ try {
   await expect(reducedPage.locator('[data-reading-ready="true"]')).toBeVisible()
   await reducedPage.getByRole('button', { name: 'Next Page' }).click()
   await expect(reducedPage.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await expect(reducedPage.locator('.mori-pet-character')).not.toHaveAttribute('data-turn-direction', 'forward')
   await expect(reducedPage.locator('.mm-reading-indicator')).toContainText('Page 2')
   await snapshot(reducedPage, 'current-1440-reduced-motion')
   await reducedContext.close()

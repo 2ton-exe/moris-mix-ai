@@ -133,8 +133,6 @@
 .mm-recipe-artwork__sun { position: absolute; top: 10%; right: 12%; width: 19%; aspect-ratio: 1; border: 1px solid rgb(122 83 36 / .35); border-radius: 50%; background: rgb(240 212 143 / .55); }
 .mm-recipe-artwork__sprig { position: absolute; top: 13%; left: 12%; color: var(--mm-color-sage-700); font: 28px/1 var(--mm-font-serif); transform: rotate(-18deg); }
 .mm-recipe-artwork__bowl { position: absolute; bottom: 11%; left: 19%; width: 62%; height: 22%; border: 2px solid rgb(102 67 35 / .55); border-radius: 0 0 50% 50%; background: linear-gradient(180deg, #f5e6bf, #d6bc83); box-shadow: 0 3px 5px rgb(44 26 10 / .2); }
-.mm-recipe-artwork__illustration > .mm-mori { position: absolute; z-index: 1; bottom: 13%; left: 50%; width: 76px; height: auto; transform: translateX(-50%); }
-.mm-recipe-artwork--detail .mm-recipe-artwork__illustration > .mm-mori { width: 128px; }
 .mm-recipe-artwork__sketch-label { position: absolute; z-index: 2; left: 5px; bottom: 4px; color: var(--mm-color-ink-soft); font: 500 9px/1 var(--mm-font-hand); transform: rotate(-4deg); }
 .mm-recipe-artwork__caption { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 3px 8px; min-height: 27px; padding: 7px 1px 0; color: var(--mm-color-ink-soft); font: 500 11px/1.2 var(--mm-font-sans); }
 .mm-recipe-artwork__caption .mm-handwriting { color: var(--mm-color-burgundy-700); font: 600 14px/1 var(--mm-font-hand); }
@@ -142,7 +140,6 @@
 
 .mm-recipe-empty { display: grid; place-items: center; min-height: 475px; padding: clamp(18px, 4vw, 44px); border: 1px dashed var(--mm-color-sage-600); border-radius: 5px; background: rgb(169 184 150 / .15); }
 .mm-recipe-empty__card { position: relative; display: flex; flex-direction: column; align-items: center; width: min(100%, 560px); padding: 34px clamp(20px, 5vw, 52px) 36px; text-align: center; box-shadow: 0 2px 3px rgb(40 24 10 / .2), 0 16px 28px -14px rgb(30 15 5 / .45), inset 0 0 0 5px rgb(255 255 255 / .42); }
-.mm-recipe-empty__card > .mm-mori { width: clamp(88px, 16vw, 126px); height: auto; margin-bottom: 2px; }
 .mm-recipe-empty__tape { top: -11px; left: calc(50% - 42px); width: 84px; transform: rotate(2deg); }
 .mm-recipe-empty__card h2 { margin: 0; font-size: clamp(25px, 4vw, 35px); line-height: 1.15; }
 .mm-recipe-empty__card > p:not(.mm-recipe-index__eyebrow) { max-width: 42ch; margin: 12px 0 20px; color: var(--mm-color-ink-soft); line-height: 1.75; }

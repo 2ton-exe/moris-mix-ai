@@ -5,7 +5,6 @@ import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
-import { Mori } from '../journal/Mori'
 import { PaperCard } from '../journal/Scrapbook'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS, addPantryItems, pantryEntryErrorMessage, splitPastedPantryText } from './pantry'
@@ -219,7 +218,6 @@ function AIChefSession({ userId }: { userId: string }) {
         <h1 id="ai-chef-title" tabIndex={-1}>What’s in your pantry?</h1>
         <p className="intro">Tell Mori what you have and add any short cooking preferences. Mori will suggest a recipe for you to review before you save it.</p>
       </div>
-      <Mori mood="think" size={82} />
     </header>
 
     {storageWarning}

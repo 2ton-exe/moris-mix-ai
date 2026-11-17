@@ -1,8 +1,9 @@
 # Mori companion
 
 Mori is an optional companion shared by signed-in recipe and AI pages. It replaces
-the dashboard's inline note and the older floating feature chooser. Decorative
-rat chef SVG illustrations and the branding emblem remain independent.
+the dashboard's inline note and the older floating feature chooser. One full
+Mori stays outside the physical book; the bookplate keeps its static emblem.
+Modal confirmations may show Mori while the companion is suspended.
 
 ## Real activity
 
@@ -34,6 +35,10 @@ workflow loading, error, validation, and confirmation messages remain authoritat
 Movement feedback uses a polite status region; decorative animation is not
 announced. A drag does not also activate the Talk button. No sound, roaming,
 generated conversation, or companion operation history is introduced.
+
+Turning a page briefly sends the same companion across the book with a paper-grab
+pose. Page snapshots do not contain full Mori figures, and reduced motion skips
+the run.
 
 The companion remains outside public/authentication pages and yields to modal
 dialogs. Its provider is keyed to the authenticated user, so transient activity

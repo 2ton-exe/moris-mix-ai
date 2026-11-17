@@ -1,19 +1,14 @@
 .mm-journal-editor { overflow-wrap: anywhere; }
 .mm-recipe-editor-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  display: block;
   margin: 0 auto 24px;
 }
 .mm-recipe-editor-heading > div { min-width: 0; }
 .mm-recipe-editor-heading__stamp { margin-bottom: 12px; }
 .mm-recipe-editor-heading h1 { margin: 0 0 8px; font-size: clamp(30px, 3.3vw, 46px); overflow-wrap: anywhere; }
 .mm-recipe-editor-heading .intro { max-width: 62ch; margin: 0; line-height: 1.65; }
-.mm-recipe-editor-heading > .mm-mori { flex: 0 0 auto; width: clamp(56px, 8vw, 82px); height: auto; }
-.mm-facing-content--editor .mm-recipe-editor-heading { flex-direction: column-reverse; align-items: flex-start; gap: 28px; margin: 0; }
+.mm-facing-content--editor .mm-recipe-editor-heading { margin: 0; }
 .mm-facing-content--editor .mm-recipe-editor-heading h1 { font-size: clamp(28px, 2.5vw, 36px); }
-.mm-facing-content--editor .mm-recipe-editor-heading > .mm-mori { width: 126px; align-self: center; margin-top: 20px; }
 .mm-facing-content--editor .intro { color: var(--mm-color-ink-soft); font-size: 15px; }
 .recipe-form-notice {
   width: 100%;
@@ -220,10 +215,6 @@
 .mm-desk .delete-dialog .delete-pending { color: var(--mm-color-sage-900); }
 
 @media (max-width: 620px) {
-  .mm-facing-content--editor .mm-recipe-editor-heading { flex-direction: row; gap: 12px; }
-  .mm-facing-content--editor .mm-recipe-editor-heading > .mm-mori { width: 56px; margin-top: 0; }
-  .mm-recipe-editor-heading { align-items: flex-start; gap: 12px; }
-  .mm-recipe-editor-heading > .mm-mori { width: 56px; }
   .mm-journal-editor .recipe-amount-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .mm-journal-editor .recipe-form-section { padding: 18px 14px; }
   .mm-journal-editor .recipe-editor-row { padding-inline: 10px; }
@@ -233,7 +224,6 @@
   .mm-recipe-navigation-dialog__actions .button { width: 100%; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mm-recipe-editor-heading .mm-mori { animation: none !important; }
   .mm-journal-editor .recipe-row-actions button,
   .mm-journal-editor .recipe-form-actions .button,
   .mm-recipe-navigation-dialog { transition: none; transform: none; }

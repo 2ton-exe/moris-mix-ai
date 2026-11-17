@@ -402,7 +402,8 @@ describe('Quick AI Entry', () => {
     fireEvent.click(submit)
 
     expect(screen.getByRole('status').textContent).toContain('Mori is organizing your notes')
-    expect(document.querySelector('.mm-quick-ai__loading .mm-mori')?.getAttribute('data-animated')).toBe('true')
+    expect(document.querySelector('.mm-quick-ai__loading .mm-mori')).toBeNull()
+    expect(document.querySelectorAll('.mori-pet-root .mm-mori')).toHaveLength(1)
     expect(notesField().disabled).toBe(true)
     expect(extract).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))

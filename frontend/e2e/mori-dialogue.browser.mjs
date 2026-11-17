@@ -67,6 +67,30 @@ async function reachable(page, locator) {
     `Companion control must remain reachable: ${JSON.stringify(box)}`)
 }
 
+async function verifyMoriPageRun(page, character, direction) {
+  await expect(page.locator('[data-journal-page-turn]')).toBeVisible()
+  await expect(character).toHaveAttribute('data-turn-direction', direction)
+  const pageRun = await character.evaluate((node) => {
+    const animation = node.getAnimations()[0]
+    if (!animation) return null
+    animation.pause()
+    animation.currentTime = Number.parseFloat(globalThis.getComputedStyle(node).animationDuration) * 500
+    return {
+      name: globalThis.getComputedStyle(node).animationName,
+      delta: Math.abs(node.getBoundingClientRect().x - Number.parseFloat(node.style.left)),
+      mood: node.querySelector('.mm-mori')?.getAttribute('data-mood'),
+    }
+  })
+  assert.equal(pageRun?.name, 'mori-pet-page-run')
+  assert.equal(pageRun?.mood, 'turn')
+  assert.ok((pageRun?.delta ?? 0) > 40, 'Mori runs across the book while turning a page')
+  await expect(page.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
+  await expect(page.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
+  await character.evaluate((node) => node.getAnimations().forEach((animation) => animation.play()))
+  await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
+  await expect(character).not.toHaveAttribute('data-turn-direction', direction)
+}
+
 try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
@@ -77,6 +101,8 @@ try {
     const { context, page, errors, apiRequests } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)
     await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
+    await expect(page.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
+    await expect(page.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
     const trigger = page.getByRole('button', { name: 'Talk to Mori', exact: true })
     const character = page.getByRole('group', { name: 'Mori companion' })
     await reachable(page, trigger)
@@ -110,7 +136,7 @@ try {
     if (placement === 'left') assert.ok(bubbleBox.x + bubbleBox.width <= characterBox.x, 'Left-side bubble stays beside Mori')
     if (placement === 'right') assert.ok(characterBox.x + characterBox.width <= bubbleBox.x, 'Right-side bubble stays beside Mori')
     await page.keyboard.press('Escape')
-    const model = await trigger.boundingBox()
+    const model = await trigger.locator('svg').boundingBox()
     assert.ok(model, "Mori's character is available to drag")
     await page.mouse.move(model.x + model.width / 2, model.y + model.height / 2)
     await page.mouse.down()
@@ -139,11 +165,15 @@ try {
     await page.goto(`${origin}app/recipes/new`)
     await expect(page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
     await expect(trigger).toBeVisible()
+    await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+    await verifyMoriPageRun(page, character, 'forward')
+    await page.getByRole('button', { name: /^Previous Pages?$/ }).click()
+    await verifyMoriPageRun(page, character, 'backward')
     await page.goto(`${origin}home`)
     await expect(trigger).toHaveCount(0)
     assert.deepEqual(errors, [])
     await context.close()
-    process.stdout.write(`${width}px: companion keyboard, character drag, anchored bubble, position persistence, route scope and viewport passed.\n`)
+    process.stdout.write(`${width}px: companion interaction and page-turn run passed.\n`)
   }
 
   const emptyApp = await createJournal(390, { empty: true })
@@ -169,6 +199,10 @@ try {
   await expect.poll(async () => { const box = await panel.boundingBox(); return Boolean(box && box.y + box.height <= 450) }).toBe(true)
   await reachable(page, panel)
   await page.screenshot({ path: path.join(outputDir, 'reduced-motion-reflow.png') })
+  await page.goto(`${origin}app/recipes/new`)
+  await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await expect(page.locator('.mori-pet-character')).not.toHaveAttribute('data-turn-direction', 'forward')
   assert.deepEqual(errors, [])
   await context.close()
   process.stdout.write(`Empty guidance and reduced motion passed. Screenshots: ${outputDir}\n`)

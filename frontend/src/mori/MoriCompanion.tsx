@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
 import { Link, useLocation } from 'react-router'
 import { z } from 'zod'
@@ -12,6 +12,7 @@ import './mori-companion.css'
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({ position: z.object({ x: z.number().finite(), y: z.number().finite() }).nullable() })
 type Position = { x: number; y: number }
+type PageTurn = { direction: 'forward' | 'backward'; distance: number; duration: number; signature: string }
 function readPreferences() {
   try { return preferencesSchema.parse(JSON.parse(localStorage.getItem(storageKey) ?? 'null')) }
   catch { return { position: null } }
@@ -29,6 +30,7 @@ export function MoriCompanion() {
   const [open, setOpen] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
+  const [pageTurn, setPageTurn] = useState<PageTurn | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
@@ -70,12 +72,31 @@ export function MoriCompanion() {
   }, [])
   useEffect(() => { setOpen(false) }, [location.pathname])
   useEffect(() => {
-    const check = () => setSuspended(Boolean(document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')))
+    const check = () => {
+      setSuspended(Boolean(document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')))
+      const layer = document.querySelector<HTMLElement>('[data-journal-page-turn][data-direction]')
+      const book = layer?.closest<HTMLElement>('.mm-journal-book')
+      const direction = layer?.dataset.direction
+      if (!layer || !book || (direction !== 'forward' && direction !== 'backward')) {
+        setPageTurn((current) => current ? null : current)
+        return
+      }
+      const signature = `${direction}:${layer.dataset.layout}:${layer.dataset.duration}`
+      const rect = book.getBoundingClientRect()
+      const targetX = rect.left + rect.width * (actual.x + width / 2 < rect.left + rect.width / 2 ? 0.78 : 0.22) - width / 2
+      const distance = Math.max(left, Math.min(targetX, right - width)) - actual.x
+      setPageTurn((current) => current?.signature === signature ? current : {
+        direction,
+        distance,
+        duration: Number(layer.dataset.duration) || 620,
+        signature,
+      })
+    }
     const observer = new MutationObserver(check)
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'role'] })
     check()
     return () => observer.disconnect()
-  }, [])
+  }, [actual.x, left, right, width])
   useLayoutEffect(() => { if (open) heading.current?.focus() }, [open])
   const gap = 12
   const leftSpace = actual.x - left - gap
@@ -113,7 +134,7 @@ export function MoriCompanion() {
     if (!open) return
     const height = bubble.current?.offsetHeight ?? 0
     if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
-  }, [open, panelWidth, availablePanelHeight, message, guidance?.message, guidance?.action?.label, bubbleHeight])
+  }, [open, pageTurn, panelWidth, availablePanelHeight, message, guidance?.message, guidance?.action?.label, bubbleHeight])
 
   function close() { setOpen(false); trigger.current?.focus() }
   function move(x: number, y: number, description?: string) {
@@ -122,18 +143,26 @@ export function MoriCompanion() {
     if (description) setMoved(description)
   }
   function moveKey(event: KeyboardEvent<HTMLButtonElement>) {
+    if (pageTurn) return
     const directions: Record<string, [number, number, string]> = { ArrowLeft: [-16, 0, 'left'], ArrowRight: [16, 0, 'right'], ArrowUp: [0, -16, 'up'], ArrowDown: [0, 16, 'down'] }
     const direction = directions[event.key]
     if (!direction) return
     event.preventDefault()
     move(actual.x + direction[0], actual.y + direction[1], `Mori moved ${direction[2]}.`)
   }
+  const characterStyle = {
+    left: actual.x,
+    top: actual.y,
+    width,
+    ...(pageTurn ? { '--mori-turn-distance': `${pageTurn.distance}px`, '--mori-turn-duration': `${pageTurn.duration}ms` } : {}),
+  } as CSSProperties
   return <div className="mori-pet-root" inert={suspended} style={{ visibility: suspended ? 'hidden' : undefined }}>
     <span className="mori-pet-sr" aria-live="polite">{moved}</span>
     <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
-    <div className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={{ left: actual.x, top: actual.y, width }}>
-      <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open}
+    <div className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} data-turn-direction={pageTurn?.direction} style={characterStyle}>
+      <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined}
         onClick={(event) => {
+          if (pageTurn) { event.preventDefault(); return }
           if (suppressClick.current) {
             suppressClick.current = false
             if (event.detail !== 0) { event.preventDefault(); return }
@@ -143,7 +172,7 @@ export function MoriCompanion() {
         }}
         onKeyDown={moveKey}
         onPointerDown={(event) => {
-          if (event.button !== 0 || !event.isPrimary) return
+          if (pageTurn || event.button !== 0 || !event.isPrimary) return
           drag.current = { pointerId: event.pointerId, x: event.clientX - actual.x, y: event.clientY - actual.y, startX: event.clientX, startY: event.clientY, moved: false }
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
@@ -166,11 +195,11 @@ export function MoriCompanion() {
         }}
         onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
         onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>
-        <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
+        <Mori size={size} mood={pageTurn ? 'turn' : open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
         <span className="mori-pet-caption">{activity.kind === 'idle' ? 'Mori' : activity.kind === 'celebrating' ? 'Saved!' : activity.kind === 'attention' ? 'A little help?' : activity.kind === 'confused' ? 'Let’s try again' : activity.kind === 'curious' ? 'A closer look…' : 'Mixing ideas…'}</span>
       </button>
     </div>
-    {open && <div ref={bubble} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
+    {open && !pageTurn && <div ref={bubble} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
       <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
       <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>

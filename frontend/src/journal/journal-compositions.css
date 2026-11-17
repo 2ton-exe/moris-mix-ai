@@ -21,7 +21,6 @@
 .mm-recipe-card__copy { padding-top: 6px; }
 .mm-recipe-empty { min-height: 0; padding: 22px 10px; }
 .mm-recipe-empty__card { padding: 24px 16px; }
-.mm-recipe-empty__card > .mm-mori { width: 90px; }
 .mm-recipe-empty__card h2 { font-size: 28px; }
 .mm-desk--demo .recipe { max-width: none; }
 .mm-desk--demo .recipe > .mm-recipe-detail__header h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.12; }

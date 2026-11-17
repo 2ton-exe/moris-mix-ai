@@ -1,7 +1,7 @@
 // Visual-only artwork from the verified Figma Make reference; no services or state providers.
 import type { CSSProperties } from 'react'
 
-export type MoriMood = 'wave' | 'cheer' | 'stir' | 'worried' | 'sleep' | 'happy' | 'think' | 'talk'
+export type MoriMood = 'wave' | 'cheer' | 'stir' | 'worried' | 'sleep' | 'happy' | 'think' | 'talk' | 'turn'
 
 const O = '#2f211a'
 const FUR = '#a39388'
@@ -52,6 +52,7 @@ const ARMS: Record<MoriMood, [number, number]> = {
   happy: [0, 0],
   think: [0, -70],
   talk: [0, -28],
+  turn: [118, -118],
 }
 
 /**

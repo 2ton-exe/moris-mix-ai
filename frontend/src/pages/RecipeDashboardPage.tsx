@@ -8,7 +8,6 @@ import { DiscoveryControls } from '../recipes/DiscoveryControls'
 import { useDiscoveryControls } from '../recipes/useDiscoveryControls'
 import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
 import { RecipeSourceContext } from '../recipes/source'
-import { Mori } from '../journal/Mori'
 import { PaperCard, Tape } from '../journal/Scrapbook'
 import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
 import { useJournalMedia } from '../journal/useJournalMedia'
@@ -131,15 +130,13 @@ export default function RecipeDashboardPage() {
   }, [leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
   const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
-  useMoriGuidance(!guidanceAvailable ? null : {
-    message: recipes?.length === 0
-      ? hasSearch
-        ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
-        : "Your fresh journal is ready for a recipe you love. Let's write your first scrap."
-      : 'Your saved recipes live in the collection. Search by title or ingredient, then open a scrap to revisit its ingredients, method, and notes.',
-    action: recipes?.length === 0 && hasSearch
+  useMoriGuidance(!guidanceAvailable || recipes?.length !== 0 ? null : {
+    message: hasSearch
+      ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
+      : "Your fresh journal is ready for a recipe you love. Let's write your first scrap.",
+    action: hasSearch
       ? { label: 'Clear my search', onClick: controls.reset }
-      : { label: recipes?.length === 0 ? 'Write your first recipe' : 'Write another recipe', onClick: () => navigate('/app/recipes/new') },
+      : { label: 'Write your first recipe', onClick: () => navigate('/app/recipes/new') },
   })
   useMoriActivity(query.error ? { kind: 'confused', message: 'The collection needs a little attention. Use the recipe error controls to try again.' } : null)
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
@@ -152,7 +149,6 @@ export default function RecipeDashboardPage() {
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
             <PaperCard surface="fresh" className="mm-recipe-empty__card">
               <Tape variant="sage" className="mm-recipe-empty__tape" />
-              <Mori mood="wave" size={126} label="Mori the chef waving hello" animated />
               <p className="mm-recipe-index__eyebrow">A fresh page for MORI'S MIX</p>
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
               <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>

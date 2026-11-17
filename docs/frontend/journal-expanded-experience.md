@@ -128,9 +128,10 @@ navigation focuses the relevant recipe link.
 This is an adaptation, not a pixel-perfect copy of the prototype. The production
 index uses two illustrated previews instead of six compact title slips. It uses
 real BE-08 discovery controls where the prototype shows unavailable concepts.
-Mori illustrations remain the honest fallback for records without photo data.
-The toolbar retains email/logout. The prototype's 3D cover/page-turn animation
-has not been added. Full sheets intentionally depart from its constrained
+Recipe sketches remain the honest fallback for records without photo data; Mori
+is the single companion outside the journal pages. The toolbar retains
+email/logout. The prototype's 3D cover transition has not been added; existing
+page turns remain user-triggered. Full sheets intentionally depart from its constrained
 scrolling form columns to satisfy readable long-content workflows.
 
 ## 7. Corrected missing screens

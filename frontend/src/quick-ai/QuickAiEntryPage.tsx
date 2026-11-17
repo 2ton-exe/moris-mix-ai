@@ -5,7 +5,6 @@ import { HttpError } from '../api/http'
 import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
-import { Mori } from '../journal/Mori'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
@@ -384,7 +383,6 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
           <h1 tabIndex={-1}>Quick AI Entry</h1>
           <p className="mm-quick-ai-intro__copy">Turn cooking notes into a recipe draft.</p>
         </div>
-        <Mori mood="think" size={58} />
       </header>
     </JournalFacingPage>
 
@@ -436,7 +434,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
           </div>
         </form>
 
-        {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite"><Mori mood="stir" size={40} animated /> Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
+        {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite">Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
         {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
           {draft.blockedReason === 'quota'
             ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
