@@ -3,7 +3,6 @@ import { Link, useLocation } from 'react-router'
 import { BookOpen, House, Info, NotebookPen } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
-import { MoriAssistant } from './MoriAssistant'
 import { JournalSurface, PaperCard } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
 import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
@@ -123,7 +122,6 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         </div>
       </div>
     </div>
-    {!publicNavigation && <MoriAssistant />}
     <div ref={setCompanion} className="mm-desk-companion" />
     {/* Portalled confirmations stay above the physical leaves and rings. */}
     <div id="journal-overlays" />

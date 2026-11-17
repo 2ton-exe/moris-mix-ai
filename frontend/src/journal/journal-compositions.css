@@ -1,7 +1,6 @@
 /* Shared journal content compositions. The cover geometry lives in journal-shell.css. */
 .mm-desk-companion { position: relative; width: min(calc(100% - 48px), 1040px); margin: 28px auto 0; }
 .mm-desk-companion:empty { display: none; }
-.mm-desk-companion .mm-mori-companion { margin: 0; }
 .mm-desk .journal-footer { margin-top: auto; padding-top: 20px; color: var(--mm-color-ink-soft); font: 12px/1.6 var(--mm-font-sans); }
 .mm-desk .journal-footer a { display: inline-block; padding-block: 8px; text-decoration: underline; text-underline-offset: 3px; }
 .mm-desk footer span { color: inherit; padding: 0; }

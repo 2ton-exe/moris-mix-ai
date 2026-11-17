@@ -157,13 +157,14 @@ headers, and that blocked network access and backend errors show a retryable
 error. Confirm no private recipe data or service-role key appears in the browser
 response or bundle. Local unit tests and a build do not establish this live path.
 
-## Mori dialogue UI (UI-01 Phase G)
+## Mori companion
 
-The authenticated recipe index includes an opt-in, inline note from Mori. Its
-content and choices are supplied as presentation props; it does not call an AI
-service, persist dialogue, or write recipes. The reusable interface and future
-service coordination notes are documented in
-[journal-dialogue.md](../docs/frontend/journal-dialogue.md).
+Signed-in recipe and AI pages share an optional, draggable Mori companion. Mori
+reacts to actual photo upload, save, extraction, and Chef generation states.
+Click **Talk to Mori** for contextual guidance, feature links, movement controls,
+and hide/reset controls. The handle supports arrow keys; mobile uses a smaller
+edge-docked character. Preferences stay on this device, and reduced motion uses
+still poses. See [companion behavior and verification](../docs/frontend/journal-dialogue.md).
 
 ## Physical journal workflows
 

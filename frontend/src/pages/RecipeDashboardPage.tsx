@@ -10,9 +10,7 @@ import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
 import { RecipeSourceContext } from '../recipes/source'
 import { Mori } from '../journal/Mori'
 import { PaperCard, Tape } from '../journal/Scrapbook'
-import { MoriDialogueLauncher } from '../journal/MoriDialogue'
-import type { MoriDialogueLine } from '../journal/MoriDialogue'
-import { JournalCompanion } from '../journal/JournalFacingPage'
+import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPageContext } from '../journal/JournalLayoutContext'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -132,35 +130,18 @@ export default function RecipeDashboardPage() {
     if (params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
   }, [leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
-  const moriLines: readonly MoriDialogueLine[] = recipes?.length === 0 && !hasSearch
-    ? [{
-      id: 'empty-journal', speaker: 'Mori', expression: 'cheer',
-      text: "Welcome to your MORI'S MIX journal. This fresh page is ready for a recipe you love and the little details that make it yours.",
-      choices: [
-        { id: 'start-recipe', label: 'Write your first recipe' },
-        { id: 'maybe-later', label: 'Maybe later' },
-      ],
-    }]
-    : recipes?.length === 0
-      ? [{
-        id: 'no-matches', speaker: 'Mori', expression: 'think',
-        text: 'No recipe cards match this search yet. Try a different title or ingredient, or clear the search to see your full collection.',
-        choices: [{ id: 'clear-search', label: 'Clear my search', nextLineId: 'search-cleared' }],
-      }, {
-        id: 'search-cleared', speaker: 'Mori', expression: 'wave',
-        text: 'Your search is cleared. The collection below will show the recipes that match your current view.',
-      }]
-      : [{
-        id: 'recipe-index', speaker: 'Mori', expression: 'wave',
-        text: 'Your saved recipes live in the collection below. Search by title or ingredient, then open a scrap to revisit its ingredients, method, and notes.',
-        choices: [
-          { id: 'show-collection', label: 'Show me the collection', nextLineId: 'collection-tip' },
-          { id: 'start-recipe', label: 'Write another recipe' },
-        ],
-      }, {
-        id: 'collection-tip', speaker: 'Mori', expression: 'happy',
-        text: 'Choose any recipe card in the index to open its full journal entry.',
-      }]
+  const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
+  useMoriGuidance(!guidanceAvailable ? null : {
+    message: recipes?.length === 0
+      ? hasSearch
+        ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
+        : "Your fresh journal is ready for a recipe you love. Let's write your first scrap."
+      : 'Your saved recipes live in the collection. Search by title or ingredient, then open a scrap to revisit its ingredients, method, and notes.',
+    action: recipes?.length === 0 && hasSearch
+      ? { label: 'Clear my search', onClick: controls.reset }
+      : { label: recipes?.length === 0 ? 'Write your first recipe' : 'Write another recipe', onClick: () => navigate('/app/recipes/new') },
+  })
+  useMoriActivity(query.error ? { kind: 'confused', message: 'The collection needs a little attention. Use the recipe error controls to try again.' } : null)
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
             <h2 id="no-results-heading" tabIndex={-1}>No recipes match your search.</h2>
@@ -239,9 +220,6 @@ export default function RecipeDashboardPage() {
         {rightPage > 1 && <Link className="button mm-button--page-turn" to={viewLink('index')} state={{ journalAccount: user?.id }}>Search &amp; index</Link>}
       </>}
     />
-    {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <JournalCompanion><MoriDialogueLauncher
-      lines={moriLines} completionText="Whenever you are ready, your journal is here."
-      onChoice={(choice) => { if (choice.id === 'clear-search') controls.reset() }}
-    /></JournalCompanion>}
+
   </>
 }

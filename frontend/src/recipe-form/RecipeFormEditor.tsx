@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
+import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import type { RecipeDraft, RecipeEditorState } from './draft'
 import { emptyRecipeDraft, editorState, moveRow, validateEditor } from './draft'
@@ -43,6 +44,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const [hasConfirmedSave, setHasConfirmedSave] = useState(initialSaveConfirmation !== undefined)
   const [confirmationMessage, setConfirmationMessage] = useState(initialSaveConfirmation?.statusMessage ?? 'Recipe saved.')
   const [pending, setPending] = useState(false)
+  const [celebrating, setCelebrating] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [pageAnchor, setPageAnchor] = useState<string>('identity')
   const submitting = useRef(false)
@@ -65,6 +67,20 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const dirty = baseline === null || JSON.stringify(state) !== baseline
   const saved = hasConfirmedSave && !dirty
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
+  useMoriActivity(message
+    ? { kind: Object.keys(errors).length ? 'attention' : 'confused', message: 'Your recipe needs a little attention. Check the form message before serving it up.' }
+    : pending
+      ? { kind: 'working', message: 'Putting your recipe safely into the journal…' }
+      : celebrating
+        ? { kind: 'celebrating', message: 'A fresh scrap for your journal. Recipe saved!' }
+        : null)
+
+  useEffect(() => {
+    if (!celebrating) return
+    const timer = window.setTimeout(() => setCelebrating(false), 2400)
+    return () => window.clearTimeout(timer)
+  }, [celebrating])
+
 
   // One controlled draft owns every value. Only current leaves are mounted.
   useLayoutEffect(() => {
@@ -125,6 +141,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   }, [dirty])
 
   function change(next: RecipeEditorState) {
+    setCelebrating(false)
     setState(next)
     onEditorStateChange?.(next)
     setErrors({})
@@ -268,6 +285,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     event.preventDefault()
     if (submitting.current || saved || (reviewWorkflow && !finalPage)) return
     setMessage(null)
+    setCelebrating(false)
     const result = validateEditor(state)
     if (!result.success) {
       const next: Record<string, string> = {}
@@ -294,6 +312,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       setBaseline(JSON.stringify(state))
       onDirtyChange?.(false)
       setHasConfirmedSave(true)
+      setCelebrating(true)
       setConfirmationMessage(confirmation.statusMessage ?? 'Recipe saved.')
     } catch (error) {
       if (lifetime.current !== startedAt || request.signal.aborted) return
