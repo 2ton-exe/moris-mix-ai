@@ -621,10 +621,10 @@ test('image releases check the ledger whenever publishing the UI or deploying cl
   }
 });
 
-test('image release validates origin, migrations and cleanup before deploy', () => {
+test('image release validates normalized origin, migrations and cleanup before deploy', () => {
   const gate = step(release, 'Verify recipe image release prerequisites');
   const versions = readdirSync('supabase/migrations').filter(name => name.endsWith('.sql')).map(name => name.split('_')[0]);
-  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0', verifiedOrigin = 'https://production.example' } = {}) => spawnSync('bash', [
+  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0', verifiedOrigin = 'https://production.example', productionFrontendUrl = 'https://production.example' } = {}) => spawnSync('bash', [
     '-c',
     `curl() {
       local url
@@ -644,7 +644,7 @@ test('image release validates origin, migrations and cleanup before deploy', () 
       ...process.env,
       SUPABASE_PROJECT_REF: 'test-project',
       SUPABASE_ACCESS_TOKEN: 'test-token',
-      PRODUCTION_FRONTEND_URL: 'https://production.example',
+      PRODUCTION_FRONTEND_URL: productionFrontendUrl,
       VERIFIED_PRODUCTION_ORIGIN: verifiedOrigin,
       VITE_RECIPE_IMAGES: images,
       RECIPE_IMAGE_CLEANUP_ENABLED: cleanup,
@@ -656,6 +656,7 @@ test('image release validates origin, migrations and cleanup before deploy', () 
   assert.equal(check().status, 0);
   assert.equal(check({ images: 'false', verifiedOrigin: '' }).status, 0);
   assert.equal(check({ verifiedOrigin: 'https://production.example/' }).status, 0);
+  assert.equal(check({ productionFrontendUrl: 'https://PRODUCTION.EXAMPLE:443/' }).status, 0);
   for (const verifiedOrigin of ['', 'https://different.example']) {
     const result = check({ verifiedOrigin });
     assert.equal(result.status, 1);

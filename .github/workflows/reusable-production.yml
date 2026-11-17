@@ -140,9 +140,8 @@ jobs:
             exit 1
           fi
           if [[ "$VITE_RECIPE_IMAGES" == true ]]; then
-            verified_origin="${VERIFIED_PRODUCTION_ORIGIN%/}"
-            release_origin="${PRODUCTION_FRONTEND_URL%/}"
-            if [[ -z "${verified_origin//[[:space:]]/}" || "$verified_origin" != "$release_origin" ]]; then
+            release_origin="$(node --input-type=module -e 'console.log(new URL(process.env.PRODUCTION_FRONTEND_URL).origin)')"
+            if [[ -z "${VERIFIED_PRODUCTION_ORIGIN//[[:space:]]/}" || "$VERIFIED_PRODUCTION_ORIGIN" != "$release_origin" ]]; then
               echo "::error::Same-run image readiness origin does not match PRODUCTION_FRONTEND_URL."
               exit 1
             fi
