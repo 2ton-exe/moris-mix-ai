@@ -12,14 +12,12 @@ Companion documents:
 
 ## 1. Scope and guarantees
 
-Mori's Mix has three AI workflows, invoked from the browser and executed on
-the server:
+Mori's Mix has two AI workflows, both invoked from the browser but executed
+entirely on the server:
 
 1. **Quick AI Entry** — a messy cooking note becomes a structured recipe preview.
 2. **AI Chef** — pantry items plus the user's own saved recipes become a new,
    validated recipe preview with substitutions and suggested lineage parents.
-3. **Mori chat** — cooking help grounded in the authenticated user's saved
-   recipes and the current recipe page when relevant.
 
 The AI layer guarantees the following. Everything else in this document is
 implementation detail:
@@ -27,8 +25,8 @@ implementation detail:
 - **Server-only provider access.** Gemini credentials never reach the browser.
 - **Validated output only.** No model output reaches a client without Zod
   validation at the adapter boundary **and** again at the endpoint boundary.
-- **Stateless previews and chat.** AI requests never write a recipe or lineage
-  row. They reserve quota before provider work and attempt settlement after it:
+- **Stateless previews.** Neither AI endpoint writes a recipe or lineage row.
+  Both reserve quota before provider work and attempt settlement after it:
   success or provider-consumed outcomes attempt to confirm the reservation;
   pre-provider and definitively non-consuming failures attempt to roll it
   back. Settlement is best-effort — a failed call is logged and may need
@@ -38,9 +36,6 @@ implementation detail:
   prompt text, recipe text, provider detail, stack trace or file path.
 - **Ownership and RLS on save.** Persistence uses the caller's own token and
   PostgreSQL row-level security; AI never writes on its own.
-- **Caller-scoped chat context.** Mori chat retrieves recipes through the
-  authenticated user's Supabase client and RLS. Conversation turns stay in
-  browser memory; the endpoint does not persist chat or recipe changes.
 
 ## 2. System map
 
@@ -51,7 +46,6 @@ Browser (React)
 Supabase Edge Functions (Deno, verify_jwt = false; the handler authenticates)
   ├── POST /extract-recipe    → GeminiAdapter.extractRecipe
   ├── POST /generate-recipe   → BE-10 retrieval → GeminiAdapter.generateRecipe
-  ├── POST /mori-chat         → caller-scoped recipe context → GeminiAdapter.reply
   └── POST /recipes, /recipes/:id/lineage → user-scoped persistence (BE-05/BE-11)
   │
   │  AIProvider interface (the only seam the endpoints know)
@@ -59,7 +53,6 @@ Supabase Edge Functions (Deno, verify_jwt = false; the handler authenticates)
 GeminiAdapter
   ├── prompt template (versioned)
   ├── JSON-mode call with a 30s timeout
-  ├── bounded plain-text call for chat
   ├── bounded retry for transient failures
   └── Zod parsing of model output
   │
@@ -71,13 +64,11 @@ Google Gemini API  (GEMINI_API_KEY, server-side only)
 | -------- | ------- | ------ | ------ |
 | `POST /extract-recipe` | Notes → structured preview | `extraction@1.0.0` | `AI_EXTRACT_ENABLED` |
 | `POST /generate-recipe` | Pantry + retrieved recipes → Chef preview | `chef@1.1.0` | `AI_GENERATE_ENABLED` |
-| `POST /mori-chat` | Conversation + saved-recipe context → cooking reply | `mori-chat@1.0.0` | `AI_MORI_CHAT_ENABLED` |
 | `POST /recipes` | Explicit save of a preview as a recipe | — | — |
 | `POST /recipes/:id/lineage` | Explicit save of reviewed lineage parents | — | — |
 
-All AI endpoints are **off by default** and enabled per environment with the
-matching opt-in. Kill switches (`AI_EXTRACT_DISABLED`, `AI_GENERATE_DISABLED`,
-`AI_MORI_CHAT_DISABLED`)
+Both AI endpoints are **off by default** and enabled per environment with the
+matching opt-in. Kill switches (`AI_EXTRACT_DISABLED`, `AI_GENERATE_DISABLED`)
 override the opt-in and return `503 AI_DISABLED` after authentication and before
 reading the body, checking quota or calling the provider.
 
@@ -194,26 +185,6 @@ the database which parents the model was allowed to propose. Instead
 
 `GET /recipes/:id/lineage` is unchanged. The token is stateless: within its TTL
 the same user can replay it with the same allowed parent set.
-
-### 4.4 Mori Companion Chat
-
-`POST /mori-chat` validates up to eight conversation turns and accepts only a
-small application-page enum plus an optional recipe ID on the recipe detail
-page. The handler queries a current recipe through the authenticated Supabase
-client and includes `user_id = auth.uid()` alongside RLS. Search uses the
-existing `search_recipes` RPC, which is caller-scoped through invoker rights;
-when no useful term or match exists, the handler uses a bounded recent-recipe
-query. Returned rows are re-validated for ownership and the existing recipe
-schema.
-
-At most three saved recipes and eight messages reach the model. Ingredients,
-steps, notes and conversation text are bounded and treated as untrusted data by
-`mori-chat@1.0.0`. Gemini uses a plain-text response path, and its output is
-size-checked before the endpoint returns it. The endpoint reserves the shared
-daily AI quota, confirms after a provider call, and rolls back only when provider
-work did not start or a typed failure is definitively non-consuming. The browser
-keeps conversation in memory across close/open and route changes; refresh or
-account change clears it. Mori chat never writes recipes or claims to do so.
 
 ## 5. Trust boundary and validation
 
@@ -440,8 +411,8 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 | ------- | ------- |
 | `GEMINI_API_KEY` | Provider key; server-side only |
 | `AI_MODEL` | Override the pinned model (evaluation reproducibility) |
-| `AI_EXTRACT_ENABLED` / `AI_GENERATE_ENABLED` / `AI_MORI_CHAT_ENABLED` | Operator opt-ins; default off |
-| `AI_EXTRACT_DISABLED` / `AI_GENERATE_DISABLED` / `AI_MORI_CHAT_DISABLED` | Kill switches; override the opt-ins |
+| `AI_EXTRACT_ENABLED` / `AI_GENERATE_ENABLED` | Operator opt-ins; default off |
+| `AI_EXTRACT_DISABLED` / `AI_GENERATE_DISABLED` | Kill switches; override the opt-ins |
 | `AI_DAILY_LIMIT` | Daily per-user allowance (default 20) |
 | `AI_ENVIRONMENT` | `development`/`test` allows demo drills; production ignores them |
 | `AI_ALLOW_FAILURE_DRILLS` | Master switch for drills |

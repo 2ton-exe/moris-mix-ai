@@ -221,19 +221,6 @@ jobs:
             --use-api \
             --yes
 
-      - name: Deploy mori-chat Edge Function
-        id: deploy-mori-chat
-        working-directory: frontend
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: |
-          pnpm exec supabase --workdir "$GITHUB_WORKSPACE" functions deploy mori-chat \
-            --project-ref "$SUPABASE_PROJECT_REF" \
-            --no-verify-jwt \
-            --use-api \
-            --yes
-
       - name: Deploy recipe-image-attach Edge Function
         id: deploy-recipe-image-attach
         working-directory: frontend
@@ -348,7 +335,6 @@ jobs:
           IMAGE_SIGNER_OUTCOME: ${{ steps.deploy-recipe-image-upload-url.outcome }}
           EXTRACT_RECIPE_OUTCOME: ${{ steps.deploy-extract-recipe.outcome }}
           GENERATE_RECIPE_OUTCOME: ${{ steps.deploy-generate-recipe.outcome }}
-          MORI_CHAT_OUTCOME: ${{ steps.deploy-mori-chat.outcome }}
           CLOUDFLARE_OUTCOME: ${{ steps.deploy-cloudflare.outcome }}
           URL_OUTCOME: ${{ steps.verify-deployment.outcome }}
           AI_ROUTE_SMOKE_OUTCOME: ${{ steps.ai-route-smoke.outcome }}
@@ -366,7 +352,6 @@ jobs:
             echo "- recipe image signer deployment command: ${IMAGE_SIGNER_OUTCOME}"
             echo "- extract-recipe deployment command: ${EXTRACT_RECIPE_OUTCOME}"
             echo "- generate-recipe deployment command: ${GENERATE_RECIPE_OUTCOME}"
-            echo "- mori-chat deployment command: ${MORI_CHAT_OUTCOME}"
             echo "- Cloudflare deployment command: ${CLOUDFLARE_OUTCOME}"
             echo "- Deployment URL verification: ${URL_OUTCOME}"
             echo "- AI route smoke: ${AI_ROUTE_SMOKE_OUTCOME}"

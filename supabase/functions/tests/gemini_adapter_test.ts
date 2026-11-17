@@ -20,7 +20,6 @@ import {
   parseGenerationResponse,
 } from "../_shared/ai/GeminiAdapter.ts";
 import type { GenerateRecipeContext } from "../_shared/ai/AIProvider.ts";
-import type { MoriChatInput } from "../_shared/ai/AIProvider.ts";
 import { MOCK_EXTRACTED_RECIPE } from "../_shared/ai/mocks.ts";
 import { buildExtractionPrompt } from "../_shared/ai/prompts.ts";
 import {
@@ -1348,64 +1347,4 @@ Deno.test("HTTP 429 rate limit exhaustion classifies as rate_limited with nonCon
   assertEquals(error.nonConsuming, true);
   assertEquals(error.attempts.length, 2);
   assertEquals(error.attempts.every((a) => a.nonConsuming), true);
-});
-
-Deno.test("Mori chat uses plain text output, supplied recipe context and metadata-only chat logs", async () => {
-  const input: MoriChatInput = {
-    messages: [{ role: "user", content: "Can I use brown rice?" }],
-    page: "recipe",
-    currentRecipe: {
-      id: PARENT_ID,
-      title: "Garlic rice",
-      ingredients: [{ name: "rice", quantity: 2, unit: "cups", inferred: false }],
-      instructions: [{ step: 1, text: "Saute garlic and fold in the rice." }],
-      notes: "Weeknight favorite",
-      star_rating: 5,
-      cooked_at: null,
-    },
-    recipes: [],
-    savedRecipesStatus: "available",
-  };
-  const logs: AIOperationLog[] = [];
-  let capturedPrompt = "";
-  let operation: string | undefined;
-  const adapter = new GeminiAdapter({
-    generateText: async (prompt, op) => { capturedPrompt = prompt; operation = op; return "Brown rice works; it needs more water and time."; },
-    log: (entry) => logs.push(entry),
-  });
-
-  const reply = await adapter.reply(input);
-
-  assertEquals(reply, "Brown rice works; it needs more water and time.");
-  assertEquals(operation, "chat");
-  assertEquals(capturedPrompt.includes("Garlic rice"), true);
-  assertEquals(capturedPrompt.includes("Can I use brown rice?"), true);
-  assertEquals(logs.map(({ op, promptId, promptVersion, outcome }) => ({ op, promptId, promptVersion, outcome })), [
-    { op: "chat", promptId: "mori-chat", promptVersion: "1.0.0", outcome: "success" },
-  ]);
-  assertEquals(JSON.stringify(logs).includes("Garlic rice"), false);
-});
-
-Deno.test("Mori chat rejects empty and oversized text replies", async () => {
-  const empty = new GeminiAdapter({ generateText: async () => "  " });
-  const emptyError = await assertRejects(() => empty.reply({
-    messages: [{ role: "user", content: "Hello" }],
-    page: "other",
-    currentRecipe: null,
-    recipes: [],
-    savedRecipesStatus: "empty",
-  }), AIError);
-  assertEquals(emptyError.code, "invalid_output");
-  assertEquals(emptyError.operation, "chat");
-
-  const oversized = new GeminiAdapter({ generateText: async () => "x".repeat(2401) });
-  const oversizedError = await assertRejects(() => oversized.reply({
-    messages: [{ role: "user", content: "Hello" }],
-    page: "other",
-    currentRecipe: null,
-    recipes: [],
-    savedRecipesStatus: "empty",
-  }), AIError);
-  assertEquals(oversizedError.code, "output_truncated");
-  assertEquals(oversizedError.operation, "chat");
 });

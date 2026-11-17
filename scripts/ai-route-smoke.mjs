@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
-const routes = ['extract-recipe', 'generate-recipe', 'mori-chat'];
+const routes = ['extract-recipe', 'generate-recipe'];
 const shaPattern = /^[a-f0-9]{40}$/;
 const unauthorized = { error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header.' } };
 class SmokeFailure extends Error {}

@@ -1,7 +1,7 @@
 # AI Integration Contracts
 
-Status: **BE-12, AI-07 (Sprint 3), and Mori Companion Chat**. AI endpoints use per-user quotas, safe provider error mapping, and reservation settlement:
-`POST /extract-recipe`, `POST /generate-recipe`, and `POST /mori-chat`.
+Status: **BE-12 and AI-07 (Sprint 3)**. Both AI endpoints are implemented, hardened with atomic per-user quotas, safe provider error mapping, and automatic settlement:
+`POST /extract-recipe` (AI-05, BE-12) and `POST /generate-recipe` (AI-06, BE-12).
 
 - Provider/model come from environment settings; clients never choose a model (AI-02/AI-03).
 - All AI output is Zod-validated before it leaves the backend (AI-10).
@@ -19,7 +19,6 @@ Status: **BE-12, AI-07 (Sprint 3), and Mori Companion Chat**. AI endpoints use p
 | -------- | ------- | ------ | ------------- |
 | `POST /extract-recipe` | Brain-dump → structured recipe preview | `extraction@1.0.0` | `AI_EXTRACT_ENABLED` |
 | `POST /generate-recipe` | Pantry + retrieved recipes → unsaved Chef preview | `chef@1.1.0` | `AI_GENERATE_ENABLED` |
-| `POST /mori-chat` | Conversation + caller-owned recipe context → cooking reply | `mori-chat@1.0.0` | `AI_MORI_CHAT_ENABLED` |
 
 ## `POST /extract-recipe`
 
@@ -454,63 +453,3 @@ AI_SIMULATE_OUTAGE=1         # or AI_SIMULATE_BAD_OUTPUT=1
 - Map errors like extraction: `400` → fix input, `401` → sign in, `429` → honor
   `Retry-After`, `5xx`/`502`/`503`/`504` → transient "try again" with input preserved.
   Local development must set `AI_GENERATE_ENABLED=true`.
-
-## `POST /mori-chat`
-
-Send a short conversation to Mori for cooking help. The endpoint authenticates the
-caller, reserves the shared daily AI quota, builds page context through the
-user-scoped Supabase client, and calls Gemini through `GeminiAdapter`. It never
-persists a conversation or changes a recipe.
-
-`AI_MORI_CHAT_ENABLED` is required; `AI_MORI_CHAT_DISABLED` overrides it. Both
-switches are checked after authentication and before request parsing or quota use.
-The endpoint uses the same authenticated Edge Function and `OPTIONS` CORS contract
-as the other AI routes.
-
-### Request
-
-`Content-Type: application/json`; body size is at most **32 KiB**.
-
-```json
-{
-  "messages": [
-    { "role": "user", "content": "Find my saved recipes that use rice." }
-  ],
-  "page": "recipes"
-}
-```
-
-| Field | Type | Rules |
-| ----- | ---- | ----- |
-| `messages` | object[] | Required, **1–8** turns; role is `user` or `assistant`; trimmed content is 1–1,200 characters; the last turn must be from the user |
-| `page` | string | Required: `recipes`, `recipe`, `new-recipe`, `quick-entry`, `chef`, or `other` |
-| `recipeId` | UUID | Optional; accepted only when `page` is `recipe`; the server still verifies ownership |
-
-Unknown fields are rejected. No provider/model setting is accepted from the client.
-
-### Saved-recipe context and response
-
-The current recipe and saved-recipe search use the authenticated caller's Supabase
-client and existing RLS. The current recipe query also includes `user_id = auth.uid()`.
-Search uses the existing `search_recipes` RPC, which is `SECURITY INVOKER`; a
-caller-scoped recent-recipe query is used when no useful search term or match exists.
-The adapter receives at most three saved recipes, with bounded notes, ingredients,
-instructions, and eight conversation turns. Recipe text and conversation turns are
-untrusted prompt data. The model is instructed to use only retrieved recipes and to
-say when the collection is empty or unavailable.
-
-```json
-{ "reply": "Your Garlic rice recipe uses rice. You could add egg for a quick meal." }
-```
-
-`reply` is plain text, trimmed, and at most 2,400 UTF-8 bytes. Chat cannot create,
-edit, delete, or save recipes. For those actions Mori directs the user to the
-existing reviewed application workflow.
-
-The response and quota behavior share the stable AI errors described above:
-`400 VALIDATION_ERROR`, `401 UNAUTHORIZED`, `413 INPUT_TOO_LARGE`,
-`429 QUOTA_EXCEEDED` or `AI_REQUEST_RATE_LIMITED`, `502 AI_OUTPUT_INVALID`,
-`503 AI_DISABLED`, `AI_UNAVAILABLE`, or `QUOTA_UNAVAILABLE`, and `504 AI_TIMEOUT`.
-Every response includes `X-Request-ID`; quota reservations are confirmed after
-provider work or rolled back only when the provider was not called or reports a
-definitively non-consuming failure.

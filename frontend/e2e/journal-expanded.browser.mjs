@@ -151,7 +151,7 @@ try {
     await capture(page, width, 'edit-sheet')
     await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
 
-    await page.getByRole('link', { name: 'New recipe' }).click()
+    await page.getByRole('link', { name: 'Start a recipe' }).click()
     await expect(page.getByRole('heading', { name: 'New recipe' })).toBeFocused()
     await capture(page, width, 'create-sheet')
     const title = page.getByLabel('Recipe title')

@@ -194,7 +194,7 @@ try {
 
   await page.goto(`${origin}app`)
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
-  await page.getByRole('link', { name: 'Import recipe notes', exact: true }).click()
+  await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page).toHaveURL(`${origin}app/quick-entry`)
   await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
   const notes = page.getByRole('textbox', { name: 'Cooking notes' })
@@ -212,7 +212,7 @@ try {
     })
   })
   await storageFailurePage.goto(`${origin}app`)
-  await storageFailurePage.getByRole('link', { name: 'Import recipe notes', exact: true }).click()
+  await storageFailurePage.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   const storageFailureNotes = storageFailurePage.getByRole('textbox', { name: 'Cooking notes' })
   const lostNotes = 'notes stay in the editor when session storage is blocked'
   await storageFailureNotes.fill(lostNotes)
@@ -300,7 +300,7 @@ try {
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   await expect(page.locator('blockquote')).toHaveText(sourceNotes)
   await page.getByRole('link', { name: 'Back to journal' }).click()
-  await page.getByRole('link', { name: 'Import recipe notes', exact: true }).click()
+  await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   await expect(page.locator('blockquote')).toHaveText(sourceNotes)
   assert.equal(requests.filter((request) => request.path === '/functions/v1/extract-recipe').length, extractionCount)
@@ -431,7 +431,7 @@ try {
 
   await page.getByRole('link', { name: 'Back to journal' }).click()
   await expect(page).toHaveURL(`${origin}app`)
-  await page.getByRole('link', { name: 'Import recipe notes', exact: true }).click()
+  await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('curry notes that remain after quota failure')
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
 

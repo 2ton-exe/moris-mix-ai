@@ -8,7 +8,7 @@
 
 > **Baseline workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) merged as `8747e6e605c5eda358c1bb77b27d3d120c87bddc`, retiring `ci.yml`; [issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73) is closed. [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150) ran on that merge SHA and passed core validation, Hosted RLS, production deployment, URL verification, runtime smoke and evidence preservation. That run remains historical evidence and does not establish execution of the current conditional image path.
 >
-> `modular-main.yml` is the sole production caller. Its release gate requires successful frontend, database and aggregate Edge/API validation, including nested mandatory Hosted RLS, plus frontend existence; main E2E is separate. The reusable release deploys `recipes`, `extract-recipe`, `generate-recipe`, `mori-chat` and `recipe-image-attach`. Mori chat remains unavailable unless its runtime opt-in is enabled. It explicitly disables `account-export`; image upload/download deployments require `VITE_RECIPE_IMAGES == 'true'`, and cleanup deployment/invocation requires `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. With both flags enabled, Modular Main runs read-only readiness for the same commit and production continues only after success. The readiness job uses the `recipe-image-upload-production` environment, which is restricted to `main` without reviewer approval. The historical proposal below preserves its original pending conditions; they are not current instructions or evidence gaps.
+> `modular-main.yml` is the sole production caller. Its release gate requires successful frontend, database and aggregate Edge/API validation, including nested mandatory Hosted RLS, plus frontend existence; main E2E is separate. The reusable release always deploys `recipes`, `extract-recipe`, `generate-recipe` and `recipe-image-attach`. It explicitly disables `account-export`; image upload/download deployments require `VITE_RECIPE_IMAGES == 'true'`, and cleanup deployment/invocation requires `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. With both flags enabled, Modular Main runs read-only readiness for the same commit and production continues only after success. The readiness job uses the `recipe-image-upload-production` environment, which is restricted to `main` without reviewer approval. The historical proposal below preserves its original pending conditions; they are not current instructions or evidence gaps.
 
 ## Issue #73 final cleanup proposal (2026-10-31)
 
@@ -84,10 +84,8 @@ It serves as a reference for team members maintaining the application and as sup
 
 At baseline `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` (checked
 2026-11-15), the production release had four unconditional Edge Function
-deployment steps: `recipes`, `extract-recipe`, `generate-recipe`, and
-`recipe-image-attach`. The current implementation adds `mori-chat` as an
-explicit deployment target; it remains unavailable unless its runtime opt-in
-is enabled.
+deployment steps:
+`recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`.
 `account-export` is explicitly disabled with `if: false`. The upload signer and
 private download URL functions deploy only when `VITE_RECIPE_IMAGES == 'true'`;
 the cleanup function deploys only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
@@ -131,7 +129,7 @@ Frontend, database and aggregate Edge/API succeed; the Edge/API reusable workflo
 ↓\
 All production dependencies succeed and `needs.frontend.outputs.exists == 'true'`\
 ↓\
-`reusable-production.yml` validates caller/target and rejects stale revisions; deploys `recipes`, `extract-recipe`, `generate-recipe`, `mori-chat`, and `recipe-image-attach`; explicitly skips `account-export` (`if: false`). Upload signer and private download URL are conditional on `VITE_RECIPE_IMAGES == 'true'`; cleanup deployment is conditional on `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`\
+`reusable-production.yml` validates caller/target and rejects stale revisions; always deploys `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`; explicitly skips `account-export` (`if: false`). Upload signer and private download URL are conditional on `VITE_RECIPE_IMAGES == 'true'`; cleanup deployment is conditional on `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`\
 ↓\
 When image UI is enabled, same-run readiness must succeed for this main SHA; the check requires no reviewer approval. Cleanup opt-in and required image migrations are also prerequisites. Wrangler then uploads static assets to Cloudflare Workers\
 ↓\
@@ -173,18 +171,17 @@ The production release order is:
 5. Skip `account-export` (`deploy-account-export`); its step is explicitly `if: false` pending BE-16 acceptance gates.
 6. Deploy `extract-recipe` (`deploy-extract-recipe`).
 7. Deploy `generate-recipe` (`deploy-generate-recipe`).
-8. Deploy `mori-chat` (`deploy-mori-chat`); the function stays disabled until `AI_MORI_CHAT_ENABLED=true`.
-9. Deploy `recipe-image-attach` (`deploy-recipe-image-attach`).
-10. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
-11. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-12. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`.
-13. Deploy Cloudflare Workers assets.
-14. Verify the production deployment URL.
-15. Verify deployed AI routes (`ai-route-smoke`).
-16. Run production runtime smoke (`runtime-smoke`); account-export preflight and unauthenticated access checks run only when its deploy step is enabled and succeeds. The current `if: false` means those export checks do not execute.
-17. Record each deployment, URL verification, AI route smoke, and runtime smoke
+8. Deploy `recipe-image-attach` (`deploy-recipe-image-attach`).
+9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
+10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
+11. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`.
+12. Deploy Cloudflare Workers assets.
+13. Verify the production deployment URL.
+14. Verify deployed AI routes (`ai-route-smoke`).
+15. Run production runtime smoke (`runtime-smoke`); account-export preflight and unauthenticated access checks run only when its deploy step is enabled and succeeds. The current `if: false` means those export checks do not execute.
+16. Record each deployment, URL verification, AI route smoke, and runtime smoke
     outcome independently, including failures or skipped downstream steps.
-18. Preserve the separate runtime and AI route evidence artifacts.
+17. Preserve the separate runtime and AI route evidence artifacts.
 
 Each Supabase deployment is a separate explicit target using the repository-pinned
 CLI from `frontend`, with the existing `SUPABASE_ACCESS_TOKEN` and
@@ -196,8 +193,8 @@ or route check fails the release; later normal steps do not run. The summary and
 artifact steps retain their `always()` behavior without turning the release green.
 
 `scripts/ai-route-smoke.mjs` pins its HTTPS origin to the production project in
-`supabase/config.toml` and checks `/functions/v1/extract-recipe`,
-`/functions/v1/generate-recipe`, and `/functions/v1/mori-chat`. The required `AI_ROUTE_SMOKE_FRONTEND_URL` comes
+`supabase/config.toml` and checks both `/functions/v1/extract-recipe` and
+`/functions/v1/generate-recipe`. The required `AI_ROUTE_SMOKE_FRONTEND_URL` comes
 from `PRODUCTION_FRONTEND_URL` and must be a bare HTTPS origin. OPTIONS simulates
 the production browser preflight: it sends that Origin, requests POST and the
 four shared request headers, and must return HTTP 204 with
@@ -232,23 +229,20 @@ smoke; no missing artifact is represented as a successful check.
 ### Production AI runtime configuration
 
 Quick AI Entry and AI Chef are enabled on the production Supabase project as of
-2026-11-15. Mori chat remains disabled until `AI_MORI_CHAT_ENABLED=true` is
-set for the approved environment. The release workflow deploys both function bundles and leaves their
+2026-11-15. The release workflow deploys both function bundles and leaves their
 runtime settings in Supabase. A working route with an authenticated
 `503 AI_DISABLED` response points to an unset opt-in or an active kill switch.
 
 1. Confirm `PRODUCTION_FRONTEND_URL` and `VITE_SUPABASE_URL` identify the deployed
-   site and the project in `supabase/config.toml`. Confirm `extract-recipe`, `generate-recipe`, and `mori-chat` are active on that
-   project, and check that `ALLOWED_ORIGIN`
+   site and the project in `supabase/config.toml`. Confirm `extract-recipe` and
+   `generate-recipe` are active on that project, and check that `ALLOWED_ORIGIN`
    permits the frontend origin.
 2. Verify the quota, bounded Chef retrieval, and short-window rate-limit migrations
    (`20261031000007`, `20261114000018`, `20261114000019`) are applied. Confirm the
    backend has its Gemini key, configured daily quota, and Chef candidate token
-   secret. Mori chat shares the Gemini key and daily quota. Production database migrations are operated separately.
-3. Restore the extraction and generation opt-ins if they are missing. An active
-   `AI_EXTRACT_DISABLED` or `AI_GENERATE_DISABLED` takes precedence. Enable Mori
-   chat separately only after its product release is approved;
-   `AI_MORI_CHAT_DISABLED` takes precedence. Use the kill switches for an
+   secret. Production database migrations are operated separately.
+3. Restore both opt-ins if they are missing. An active `AI_EXTRACT_DISABLED` or
+   `AI_GENERATE_DISABLED` takes precedence. Use the kill switches for an
    intentional pause and inspect their operational status before restoring service.
 
    ```sh
@@ -763,13 +757,13 @@ manual dispatch on `main` follows the same production path:
 6. Deploy the explicit `extract-recipe` Edge Function target.
 7. Deploy the explicit `generate-recipe` Edge Function target.
 8. Deploy the explicit `recipe-image-attach` Edge Function target.
-10. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
-11. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-12. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`. The four unconditional targets and these conditional targets use the Supabase CLI and explicit project reference; handlers enforce authentication.
+9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
+10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
+11. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`. The four unconditional targets and these conditional targets use the Supabase CLI and explicit project reference; handlers enforce authentication.
 12. Deploy to Cloudflare only after all active or enabled conditional function deployments succeed.
 13. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
 14. Verify both AI routes using production-frontend browser preflight CORS and unauthenticated, payload-free 401 probes. Both response types must permit the production frontend; no provider execution or quota behavior is tested.
-16. Run production runtime smoke. It verifies the public demo response and checks account-export's preflight and unauthenticated 401 contract only if its deployment step is enabled and succeeds; its current `if: false` means those export checks are skipped. Smoke does not verify authenticated recipe CRUD or export ownership.
+15. Run production runtime smoke. It verifies the public demo response and checks account-export's preflight and unauthenticated 401 contract only if its deployment step is enabled and succeeds; its current `if: false` means those export checks are skipped. Smoke does not verify authenticated recipe CRUD or export ownership.
 16. Inspect the production summary's separate outcomes for recipes, account-export, each image function, extract-recipe, generate-recipe, Cloudflare, URL verification, AI route smoke, and runtime smoke. A failed deployment or smoke fails delivery; it does not roll back earlier deployments.
 17. Retain both JSON evidence artifacts and the summary: `production-ai-route-smoke-<run>-<attempt>` and `production-runtime-smoke-<run>-<attempt>`. A skipped or missing smoke artifact is not evidence of a passed execution.
 

@@ -1,15 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-export type MoriActivity = { kind: 'idle' | 'hover' | 'dragging' | 'curious' | 'working' | 'thinking' | 'responding' | 'celebrating' | 'confused' | 'attention'; message: string }
+export type MoriActivity = { kind: 'idle' | 'curious' | 'working' | 'thinking' | 'celebrating' | 'confused' | 'attention'; message: string }
+type Guidance = { message: string; action?: { label: string; onClick: () => void } }
 const idle: MoriActivity = { kind: 'idle', message: 'A little inspiration, whenever you need it.' }
-const priority = { idle: 0, hover: 1, curious: 2, responding: 2, working: 3, thinking: 3, dragging: 4, celebrating: 4, confused: 5, attention: 5 }
+const priority = { idle: 0, celebrating: 1, curious: 2, working: 2, thinking: 2, confused: 3, attention: 3 }
 const MoriContext = createContext<{
-  activity: MoriActivity
+  activity: MoriActivity; guidance: Guidance | null
   setActivity: (id: string, value: MoriActivity | null) => void
+  setGuidance: (id: string, value: Guidance | null) => void
 } | null>(null)
 
 export function MoriCompanionProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Record<string, MoriActivity>>({})
+  const [guidances, setGuidances] = useState<Record<string, Guidance>>({})
   const setActivity = useCallback((id: string, value: MoriActivity | null) => {
     setActivities((previous) => {
       const next = { ...previous }
@@ -21,8 +24,17 @@ export function MoriCompanionProvider({ children }: { children: ReactNode }) {
       return next
     })
   }, [])
+  const setGuidance = useCallback((id: string, value: Guidance | null) => {
+    setGuidances((previous) => {
+      const next = { ...previous }
+      delete next[id]
+      if (value) next[id] = value
+      return next
+    })
+  }, [])
   const activity = Object.values(activities).reduce((selected, entry) => priority[entry.kind] >= priority[selected.kind] ? entry : selected, idle)
-  return <MoriContext.Provider value={{ activity, setActivity }}>{children}</MoriContext.Provider>
+  const guidance = Object.values(guidances).at(-1) ?? null
+  return <MoriContext.Provider value={{ activity, guidance, setActivity, setGuidance }}>{children}</MoriContext.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- optional activity hooks share the provider contract
@@ -40,8 +52,23 @@ export function useMoriActivity(activity: MoriActivity | null) {
   }, [id, kind, message, setActivity])
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- optional guidance hooks share the provider contract
+export function useMoriGuidance(guidance: Guidance | null) {
+  const setGuidance = useContext(MoriContext)?.setGuidance
+  const id = useId()
+  const callback = useRef(guidance?.action?.onClick)
+  useEffect(() => { callback.current = guidance?.action?.onClick })
+  const message = guidance?.message
+  const label = guidance?.action?.label
+  useEffect(() => {
+    if (!setGuidance || message === undefined) return
+    setGuidance(id, { message, ...(label ? { action: { label, onClick: () => callback.current?.() } } : {}) })
+    return () => setGuidance(id, null)
+  }, [id, message, label, setGuidance])
+}
+
 // eslint-disable-next-line react-refresh/only-export-components -- read-only presentation hook
 export function useMoriCompanionState() {
   const context = useContext(MoriContext)
-  return { activity: context?.activity ?? idle }
+  return { activity: context?.activity ?? idle, guidance: context?.guidance ?? null }
 }

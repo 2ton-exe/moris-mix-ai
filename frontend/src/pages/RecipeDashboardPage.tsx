@@ -10,7 +10,7 @@ import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
 import { RecipeSourceContext } from '../recipes/source'
 import { Mori } from '../journal/Mori'
 import { PaperCard, Tape } from '../journal/Scrapbook'
-import { useMoriActivity } from '../mori/MoriCompanionContext'
+import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPageContext } from '../journal/JournalLayoutContext'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -129,6 +129,18 @@ export default function RecipeDashboardPage() {
   useEffect(() => {
     if (params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
   }, [leaf, params, returnFocusId])
+  const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
+  const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
+  useMoriGuidance(!guidanceAvailable ? null : {
+    message: recipes?.length === 0
+      ? hasSearch
+        ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
+        : "Your fresh journal is ready for a recipe you love. Let's write your first scrap."
+      : 'Your saved recipes live in the collection. Search by title or ingredient, then open a scrap to revisit its ingredients, method, and notes.',
+    action: recipes?.length === 0 && hasSearch
+      ? { label: 'Clear my search', onClick: controls.reset }
+      : { label: recipes?.length === 0 ? 'Write your first recipe' : 'Write another recipe', onClick: () => navigate('/app/recipes/new') },
+  })
   useMoriActivity(query.error ? { kind: 'confused', message: 'The collection needs a little attention. Use the recipe error controls to try again.' } : null)
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
@@ -145,6 +157,7 @@ export default function RecipeDashboardPage() {
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
               <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>
               <Link className="button button-primary" to="/app/recipes/new">Add Your First Scrap</Link>
+              <Link className="button button-secondary" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Organize cooking notes with Mori</Link>
               <span className="mm-handwriting mm-recipe-empty__note">Your first recipe becomes page one.</span>
             </PaperCard>
           </section>
@@ -170,6 +183,8 @@ export default function RecipeDashboardPage() {
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
+        <Link className="button button-primary mm-button--small" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Quick AI Entry</Link>
+        <Link className="button button-secondary mm-button--small" to="/app/recipes/new" state={{ journalReturn: location.pathname + location.search }}>Start a recipe</Link>
         <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}>{indexView ? 'My scraps' : 'Search & index'}</Link>
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}

@@ -265,7 +265,7 @@ try {
   const switched = await newJournalContext(375)
   await switched.page.goto(`${origin}app/recipes`)
   await expect(switched.page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
-  await switched.page.getByRole('link', { name: 'Import recipe notes', exact: true }).click()
+  await switched.page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await switched.page.getByRole('textbox', { name: 'Cooking notes' }).fill('Private notes from the first account')
   await switched.switchAccount()
   await expect(switched.page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('')

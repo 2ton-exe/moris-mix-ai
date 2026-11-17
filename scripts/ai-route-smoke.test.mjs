@@ -53,7 +53,7 @@ test('configuration pins production origin/project and tested revision before re
   }
 });
 
-test('all AI routes require 204 OPTIONS and application 401 without credentials or payload', async () => {
+test('both routes require 204 OPTIONS and application 401 without credentials or payload', async () => {
   const calls = [];
   const evidence = await runSmoke(env, { fetchImpl: async (url, init) => {
     calls.push([url, init.method]);
@@ -72,7 +72,7 @@ test('all AI routes require 204 OPTIONS and application 401 without credentials 
   } });
   assert.equal(evidence.outcome, 'passed');
   assert.equal(evidence.tested_sha, env.GITHUB_SHA);
-  assert.deepEqual(calls, ['extract-recipe', 'generate-recipe', 'mori-chat'].flatMap(route =>
+  assert.deepEqual(calls, ['extract-recipe', 'generate-recipe'].flatMap(route =>
     ['OPTIONS', 'POST'].map(method => [`${env.AI_ROUTE_SMOKE_SUPABASE_URL}/functions/v1/${route}`, method])));
   for (const checks of Object.values(evidence.routes)) {
     assert.deepEqual(checks.options, { outcome: 'passed', http_status: 204 });
