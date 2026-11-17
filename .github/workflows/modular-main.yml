@@ -37,21 +37,84 @@ jobs:
     name: Modular Main E2E
     uses: ./.github/workflows/reusable-e2e.yml
 
+  recipe-image-readiness:
+    name: Modular Main Recipe Image Readiness
+    needs: [frontend, test-db, test-edge-api]
+    outputs:
+      verified-origin: ${{ steps.verify-readiness.outputs.verified-origin }}
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.frontend.result == 'success' &&
+      needs.test-db.result == 'success' &&
+      needs.test-edge-api.result == 'success' &&
+      needs.frontend.outputs.exists == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      vars.VITE_RECIPE_IMAGES == 'true' &&
+      vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: recipe-image-upload-production
+      url: ${{ vars.PRODUCTION_FRONTEND_URL }}
+    env:
+      EXPECTED_PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install verifier dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Supabase readiness
+        id: verify-readiness
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DATABASE_CA_CERT: ${{ secrets.SUPABASE_DATABASE_CA_CERT }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UPLOAD_SIGNING_READINESS_ATTESTATION: ${{ secrets.UPLOAD_SIGNING_READINESS_ATTESTATION }}
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          ALLOWED_ORIGIN: ${{ vars.PRODUCTION_FRONTEND_URL }}
+        run: |
+          node scripts/verify-upload-signing-readiness.mjs
+          node --input-type=module -e 'console.log(`verified-origin=${new URL(process.env.ALLOWED_ORIGIN).origin}`)' >> "$GITHUB_OUTPUT"
+
   production:
     name: Modular Main Production
-    needs: [frontend, test-db, test-edge-api]
+    needs: [frontend, test-db, test-edge-api, recipe-image-readiness]
     if: >-
-      success() &&
+      always() &&
+      !cancelled() &&
+      needs.frontend.result == 'success' &&
+      needs.test-db.result == 'success' &&
+      needs.test-edge-api.result == 'success' &&
+      (needs.recipe-image-readiness.result == 'success' ||
+      (needs.recipe-image-readiness.result == 'skipped' &&
+      (vars.VITE_RECIPE_IMAGES != 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED != 'true'))) &&
       needs.frontend.outputs.exists == 'true' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main'
     uses: ./.github/workflows/reusable-production.yml
     permissions:
-      actions: read
       contents: read
-      deployments: read
     with:
       frontend-exists: ${{ needs.frontend.outputs.exists == 'true' }}
+      verified-production-origin: ${{ needs.recipe-image-readiness.outputs.verified-origin }}
     secrets:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

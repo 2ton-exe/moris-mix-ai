@@ -26,7 +26,8 @@ variable unset or `false` until migrations `20261115000020` through
 `20261115000022` and their prerequisite upload-intent migrations are applied,
 the updated `recipe-image-upload-url`
 signer is deployed and verified to accept `request_id`, and the protected
-readiness workflow passes. That workflow verifies database state. After
+`Modular Main Recipe Image Readiness` job passes in the same release run. The
+readiness verifier checks database state. After
 verifying the deployed signer, an authorized operator can set the repository
 variable to `true` and run a production release to deliver the idempotency-aware client.
 
