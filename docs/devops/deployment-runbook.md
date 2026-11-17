@@ -596,7 +596,7 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-Current workflow configuration was checked 2026-11-15 at main SHA
+Baseline workflow configuration was checked 2026-11-15 at main SHA
 `0dd27d0fbba8f5cca5a7153229bda68b985be78c`. The modular PR workflow validates PRs
 targeting main with a complete-diff classifier. Its three required core contexts
 remain present on every PR; verified prose-only diffs use lightweight core paths
@@ -607,8 +607,11 @@ production.
 
 The modular main workflow runs on main pushes and manual dispatches. Its
 production caller waits for successful frontend/database/aggregate Edge/API
-validation, mandatory Hosted RLS nested in Edge/API, and frontend existence. Main
-E2E is a separate job and is not in production's `needs` list. The active
+validation, mandatory Hosted RLS nested in Edge/API, and frontend existence. When
+both image and cleanup flags are enabled, it also requires same-run read-only
+upload-signing readiness from the `main`-restricted image environment before
+production continues. Main E2E is a separate job and is not in production's
+`needs` list. The active
 `Protect main` ruleset, checked 2026-11-15, requires the three modular core
 contexts, one approving review and resolved review conversations; E2E is not a
 required PR context.
