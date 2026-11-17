@@ -61,6 +61,12 @@ test('all workflow YAML parses, including the reusable production contract', () 
   }
   assert.deepEqual(Object.keys(production.on), ['workflow_call']);
   assert.deepEqual(production.permissions, { contents: 'read' });
+  assert.deepEqual(production.on.workflow_call.inputs['verified-production-origin'], {
+    description: 'Production origin verified by same-run image readiness',
+    required: false,
+    type: 'string',
+    default: '',
+  });
 });
 
 test('Supabase database targets accept only the direct endpoint or project-bound session pooler', () => {
@@ -153,6 +159,7 @@ test('actual modular caller and callee guards reject PRs, other refs and failed 
   assert.equal(main.jobs.production.uses, './.github/workflows/reusable-production.yml');
   assert.deepEqual(main.jobs.production.with, {
     'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
+    'verified-production-origin': '${{ needs.recipe-image-readiness.outputs.verified-origin }}',
   });
   for (const expression of [main.jobs.production.if, release.if]) {
     assert.equal(condition(expression), true);
@@ -243,6 +250,8 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   }
   assert.deepEqual(step(release, 'Verify recipe image release prerequisites').env, {
     RECIPE_IMAGE_CLEANUP_ENABLED: "${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}",
+    PRODUCTION_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
+    VERIFIED_PRODUCTION_ORIGIN: '${{ inputs.verified-production-origin }}',
     SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
     SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
   });
@@ -612,10 +621,10 @@ test('image releases check the ledger whenever publishing the UI or deploying cl
   }
 });
 
-test('image release rejects missing migrations, unavailable history and uploads without cleanup', () => {
+test('image release validates origin, migrations and cleanup before deploy', () => {
   const gate = step(release, 'Verify recipe image release prerequisites');
   const versions = readdirSync('supabase/migrations').filter(name => name.endsWith('.sql')).map(name => name.split('_')[0]);
-  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0' } = {}) => spawnSync('bash', [
+  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0', verifiedOrigin = 'https://production.example' } = {}) => spawnSync('bash', [
     '-c',
     `curl() {
       local url
@@ -635,6 +644,8 @@ test('image release rejects missing migrations, unavailable history and uploads 
       ...process.env,
       SUPABASE_PROJECT_REF: 'test-project',
       SUPABASE_ACCESS_TOKEN: 'test-token',
+      PRODUCTION_FRONTEND_URL: 'https://production.example',
+      VERIFIED_PRODUCTION_ORIGIN: verifiedOrigin,
       VITE_RECIPE_IMAGES: images,
       RECIPE_IMAGE_CLEANUP_ENABLED: cleanup,
       TEST_LEDGER: response ?? JSON.stringify(versions.filter(version => version !== missing).map(version => ({ version }))),
@@ -643,7 +654,13 @@ test('image release rejects missing migrations, unavailable history and uploads 
   });
 
   assert.equal(check().status, 0);
-  assert.equal(check({ images: 'false' }).status, 0);
+  assert.equal(check({ images: 'false', verifiedOrigin: '' }).status, 0);
+  assert.equal(check({ verifiedOrigin: 'https://production.example/' }).status, 0);
+  for (const verifiedOrigin of ['', 'https://different.example']) {
+    const result = check({ verifiedOrigin });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /Same-run image readiness origin does not match/);
+  }
   for (const missing of ['20261106000015', '20261115000020', '20261115000021', '20261115000022']) {
     const result = check({ missing });
     assert.equal(result.status, 1);
@@ -655,6 +672,7 @@ test('image release rejects missing migrations, unavailable history and uploads 
   assert.equal(noCleanup.status, 1);
   assert.match(noCleanup.stdout, /Enable and verify staging cleanup/);
   const gateIndex = release.steps.findIndex(item => item.name === 'Verify recipe image release prerequisites');
+  assert.ok(gateIndex < release.steps.findIndex(item => item.name === 'Deploy recipes Edge Function'));
   assert.ok(gateIndex < release.steps.findIndex(item => item.name === 'Deploy recipe-image-upload-url Edge Function'));
   assert.ok(gateIndex < release.steps.findIndex(item => item.name === 'Deploy to Cloudflare Workers'));
 });
@@ -716,12 +734,17 @@ test('Modular Main gates image release on same-run readiness', () => {
     name: 'recipe-image-upload-production',
     url: '${{ vars.PRODUCTION_FRONTEND_URL }}',
   });
+  assert.deepEqual(job.outputs, {
+    'verified-origin': '${{ steps.verify-readiness.outputs.verified-origin }}',
+  });
   assert.deepEqual(job.permissions, { contents: 'read' });
   assert.deepEqual(job.steps.map(item => item.name), [
     'Checkout repository', 'Set up pnpm', 'Set up Node.js', 'Install verifier dependencies', 'Verify Supabase readiness',
   ]);
   const verifier = step(job, 'Verify Supabase readiness');
-  assert.equal(verifier.run, 'node scripts/verify-upload-signing-readiness.mjs');
+  assert.equal(verifier.id, 'verify-readiness');
+  assert.match(verifier.run, /^node scripts\/verify-upload-signing-readiness\.mjs\n/);
+  assert.match(verifier.run, /new URL\(process\.env\.ALLOWED_ORIGIN\)\.origin/);
   assert.deepEqual(job.env, {
     EXPECTED_PRODUCTION_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
   });
@@ -740,6 +763,10 @@ test('Modular Main gates image release on same-run readiness', () => {
 
   const productionJob = main.jobs.production;
   assert.deepEqual(productionJob.needs, ['frontend', 'test-db', 'test-edge-api', 'recipe-image-readiness']);
+  assert.deepEqual(productionJob.with, {
+    'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
+    'verified-production-origin': '${{ needs.recipe-image-readiness.outputs.verified-origin }}',
+  });
   const allValidationPassed = {
     frontend: { result: 'success', outputs: { exists: 'true' } },
     'test-db': { result: 'success' },

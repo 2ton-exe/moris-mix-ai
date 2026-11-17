@@ -7,6 +7,11 @@ on:
         description: Frontend existence only; caller must gate on successful validations
         required: true
         type: boolean
+      verified-production-origin:
+        description: Production origin verified by same-run image readiness
+        required: false
+        type: string
+        default: ''
     secrets:
       SUPABASE_ACCESS_TOKEN:
         required: true
@@ -123,6 +128,8 @@ jobs:
         if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
         env:
           RECIPE_IMAGE_CLEANUP_ENABLED: ${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}
+          PRODUCTION_FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL }}
+          VERIFIED_PRODUCTION_ORIGIN: ${{ inputs.verified-production-origin }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         shell: bash
@@ -131,6 +138,14 @@ jobs:
           if [[ "$VITE_RECIPE_IMAGES" == true && "$RECIPE_IMAGE_CLEANUP_ENABLED" != true ]]; then
             echo "::error::Enable and verify staging cleanup before enabling recipe images. See docs/devops/deployment-runbook.md."
             exit 1
+          fi
+          if [[ "$VITE_RECIPE_IMAGES" == true ]]; then
+            verified_origin="${VERIFIED_PRODUCTION_ORIGIN%/}"
+            release_origin="${PRODUCTION_FRONTEND_URL%/}"
+            if [[ -z "${verified_origin//[[:space:]]/}" || "$verified_origin" != "$release_origin" ]]; then
+              echo "::error::Same-run image readiness origin does not match PRODUCTION_FRONTEND_URL."
+              exit 1
+            fi
           fi
           migrations="$(curl --fail --silent --show-error --max-time 30 \
             --header "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
