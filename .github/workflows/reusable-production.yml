@@ -282,7 +282,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$DEPLOYMENT_URL" || "${DEPLOYMENT_URL%/}" != "${SMOKE_FRONTEND_URL%/}" ]]; then
+          if ! node --input-type=module -e '
+            const origin = value => {
+              try {
+                const url = new URL(value);
+                return url.protocol === "https:" && !url.username && !url.password &&
+                  url.pathname === "/" && !url.search && !url.hash ? url.origin : "";
+              } catch { return ""; }
+            };
+            const deployment = origin(process.env.DEPLOYMENT_URL);
+            const configured = origin(process.env.SMOKE_FRONTEND_URL);
+            if (!deployment || deployment !== configured) process.exitCode = 1;
+          '; then
             echo "::error::Wrangler deployment URL does not match PRODUCTION_FRONTEND_URL."
             exit 1
           fi

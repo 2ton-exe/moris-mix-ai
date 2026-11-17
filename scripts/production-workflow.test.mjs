@@ -311,7 +311,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const verify = step(release, 'Verify production deployment URL');
   assert.equal(verify.id, 'verify-deployment');
   assert.equal(verify.env.DEPLOYMENT_URL, '${{ steps.deploy-cloudflare.outputs.deployment-url }}');
-  assert.match(verify.run, /"\$\{DEPLOYMENT_URL%\/\}" != "\$\{SMOKE_FRONTEND_URL%\/\}"/);
+  assert.match(verify.run, /url\.origin/);
   const aiSmoke = step(release, 'Verify deployed AI routes');
   assert.equal(aiSmoke.id, 'ai-route-smoke');
   assert.equal(aiSmoke.run, 'node scripts/ai-route-smoke.mjs');
@@ -359,6 +359,25 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   for (const caller of [main.jobs.production]) {
     assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
+  }
+});
+
+test('production deployment URL check compares normalized bare HTTPS origins', () => {
+  const verify = step(release, 'Verify production deployment URL');
+  const check = (deploymentUrl, frontendUrl) => spawnSync('bash', ['-c', verify.run], {
+    encoding: 'utf8',
+    env: { ...process.env, DEPLOYMENT_URL: deploymentUrl, SMOKE_FRONTEND_URL: frontendUrl },
+  });
+
+  assert.equal(check('https://production.example/', 'https://PRODUCTION.EXAMPLE:443').status, 0);
+  for (const [deploymentUrl, frontendUrl] of [
+    ['https://other.example', 'https://production.example'],
+    ['https://production.example/home', 'https://production.example'],
+    ['', 'https://production.example'],
+  ]) {
+    const result = check(deploymentUrl, frontendUrl);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /Wrangler deployment URL does not match/);
   }
 });
 
