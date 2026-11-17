@@ -7,13 +7,13 @@ const required = [
   'SUPABASE_SERVICE_ROLE_KEY', 'ALLOWED_ORIGIN', 'EXPECTED_PRODUCTION_FRONTEND_URL',
 ];
 for (const name of required) {
-  if (!process.env[name]?.trim()) throw new Error(`Missing required protected configuration: ${name}`);
+  if (!process.env[name]?.trim()) throw new Error(`Missing required image readiness configuration: ${name}`);
 }
 if (!(process.env.SUPABASE_ANON_KEY?.trim() || process.env.SUPABASE_PUBLISHABLE_KEY?.trim())) {
   throw new Error('A public Supabase key is required.');
 }
 if (process.env.UPLOAD_SIGNING_READINESS_ATTESTATION !== 'verified') {
-  throw new Error('The protected environment readiness attestation is missing or invalid.');
+  throw new Error('The upload-signing readiness attestation is missing or invalid.');
 }
 
 const projectRef = process.env.SUPABASE_PROJECT_REF;

@@ -6,9 +6,9 @@
 **Sprint:** 1–2\
 **Status:** Cloudflare deployment and the demo API path were historically verified. The gated production deployment and automated post-deployment runtime smoke executed successfully on `main` in CI #290. The runtime smoke verified production frontend HTML, its referenced JavaScript asset, and the approved public demo API/database path; full authenticated CRUD and runtime-observed backend source provenance are not established by that smoke. Automated staging deployment and combined frontend/API/database smoke passed on PR #88. A read-only production check confirmed the notes migration is applied. Gemini provider transport, model availability, and SDK compatibility were verified locally on 2026-11-14 (see the [AI evaluation report](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14)); Quick AI Entry and AI Chef are enabled and were verified on the deployed site on 2026-11-15. See [production AI runtime configuration](#production-ai-runtime-configuration).
 
-> **Current workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) merged as `8747e6e605c5eda358c1bb77b27d3d120c87bddc`, retiring `ci.yml`; [issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73) is closed. [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150) ran on that merge SHA and passed core validation, Hosted RLS, production deployment, URL verification, runtime smoke and evidence preservation. That run remains historical evidence and does not establish execution of the current conditional image path.
+> **Baseline workflow configuration checked 2026-11-15 at `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c`:** [PR #142](https://github.com/2ton-exe/moris-mix-ai/pull/142) merged as `8747e6e605c5eda358c1bb77b27d3d120c87bddc`, retiring `ci.yml`; [issue #73](https://github.com/2ton-exe/moris-mix-ai/issues/73) is closed. [Modular Main Validation #29](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41222561150) ran on that merge SHA and passed core validation, Hosted RLS, production deployment, URL verification, runtime smoke and evidence preservation. That run remains historical evidence and does not establish execution of the current conditional image path.
 >
-> `modular-main.yml` is the sole production caller. Its release gate requires successful frontend, database and aggregate Edge/API validation, including nested mandatory Hosted RLS, plus frontend existence; main E2E is separate. The reusable release always deploys `recipes`, `extract-recipe`, `generate-recipe` and `recipe-image-attach`. It explicitly disables `account-export`; image upload/download deployments require `VITE_RECIPE_IMAGES == 'true'`, and cleanup deployment/invocation requires `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. Enabling image UI additionally requires a successful protected readiness run for the exact main SHA, a matching protected environment URL, and the required production migrations. The historical proposal below preserves its original pending conditions; they are not current instructions or evidence gaps.
+> `modular-main.yml` is the sole production caller. Its release gate requires successful frontend, database and aggregate Edge/API validation, including nested mandatory Hosted RLS, plus frontend existence; main E2E is separate. The reusable release always deploys `recipes`, `extract-recipe`, `generate-recipe` and `recipe-image-attach`. It explicitly disables `account-export`; image upload/download deployments require `VITE_RECIPE_IMAGES == 'true'`, and cleanup deployment/invocation requires `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. With both flags enabled, Modular Main runs read-only readiness for the same commit and production continues only after success. The readiness job uses the `recipe-image-upload-production` environment, which is restricted to `main` without reviewer approval. The historical proposal below preserves its original pending conditions; they are not current instructions or evidence gaps.
 
 ## Issue #73 final cleanup proposal (2026-10-31)
 
@@ -82,17 +82,24 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Supabase CLI and Wrangler             |
 
-At `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` (checked 2026-11-15), the
-production release has four unconditional Edge Function deployment steps:
+At baseline `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` (checked
+2026-11-15), the production release had four unconditional Edge Function
+deployment steps:
 `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`.
 `account-export` is explicitly disabled with `if: false`. The upload signer and
 private download URL functions deploy only when `VITE_RECIPE_IMAGES == 'true'`;
 the cleanup function deploys only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-When the image UI is enabled, the release also requires cleanup enabled, a
-successful exact-SHA protected readiness run with a matching production URL, and
-the required image migrations in the production ledger. The frontend deploys to
-Cloudflare after the applicable function steps succeed. Production database
-migrations remain separate and are not applied by the ordinary application release.
+That configuration required a successful, manually dispatched readiness run for
+the exact main SHA with a matching production environment URL when image UI was
+enabled, plus the required production image migrations. The frontend deployed to
+Cloudflare after the applicable function steps succeeded. Production database
+migrations remained separate and were not applied by the ordinary application
+release.
+
+In the current workflow, when both image and cleanup are enabled, Modular Main
+runs read-only readiness for the same commit before the release continues. The
+readiness job uses the `main`-restricted image environment without reviewer
+approval. The release still requires the image migrations in the production ledger.
 
 ## 3. CI/CD Pipeline Architecture
 
@@ -124,7 +131,7 @@ All production dependencies succeed and `needs.frontend.outputs.exists == 'true'
 ↓\
 `reusable-production.yml` validates caller/target and rejects stale revisions; always deploys `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`; explicitly skips `account-export` (`if: false`). Upload signer and private download URL are conditional on `VITE_RECIPE_IMAGES == 'true'`; cleanup deployment is conditional on `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`\
 ↓\
-When image UI is enabled, a successful protected readiness run for this exact main SHA, a matching readiness deployment URL, cleanup opt-in and required image migrations are prerequisites. Wrangler then uploads static assets to Cloudflare Workers\
+When image UI is enabled, same-run readiness must succeed for this main SHA; the check requires no reviewer approval. Cleanup opt-in and required image migrations are also prerequisites. Wrangler then uploads static assets to Cloudflare Workers\
 ↓\
 Verify the production URL and AI routes, then run runtime smoke for HTML, the referenced JavaScript asset and the public demo response. Account-export preflight/401 checks run only if its deployment step succeeds; because the step is currently `if: false`, those checks do not execute. Authenticated export ownership remains unverified by production smoke.
 
@@ -136,14 +143,14 @@ A green workflow alone is not considered sufficient deployment evidence. The rel
 
 An authorized release operator should perform these steps in order. Keep the repository variable `VITE_RECIPE_IMAGES` unset or `false` until step 4.
 
-1. Complete the [database recovery requirements](https://github.com/2ton-exe/moris-mix-ai/issues/155), including the [isolated restore drill](https://github.com/2ton-exe/moris-mix-ai/issues/159). Use the separately reviewed [guarded migration release](https://github.com/2ton-exe/moris-mix-ai/pull/154) to preview and apply the pending versioned SQL. For a ledger ending at `20261115000020`, expect `20261115000021_recipe_image_download_outcomes.sql`, `20261115000022_supabase_roundtrip_performance.sql`, and `20261116000023_recipe_image_upload_quota_increase.sql` in order. Stop and reconcile unexpected drift. Record the migration release and confirm all three versions are applied to the intended production project. An ordinary app release does not apply migrations.
+1. Complete the [database recovery requirements](https://github.com/2ton-exe/moris-mix-ai/issues/155), including the [isolated restore drill](https://github.com/2ton-exe/moris-mix-ai/issues/159). Use the separately reviewed [guarded migration release](https://github.com/2ton-exe/moris-mix-ai/pull/154) to preview and apply the pending versioned SQL. For a ledger ending at `20261115000020`, expect `20261115000021_recipe_image_download_outcomes.sql`, `20261115000022_supabase_roundtrip_performance.sql`, and `20261116000023_recipe_image_upload_quota_increase.sql` in order. Stop and reconcile unexpected drift. Record the migration release and confirm all three versions are applied to the intended production project. An ordinary app release does not apply migrations. When both image and cleanup flags are enabled, Modular Main runs the read-only verifier for the same commit and proceeds automatically without reviewer approval. The `recipe-image-upload-production` environment remains restricted to `main` and supplies the verifier secrets.
 
-   When enabling `VITE_RECIPE_IMAGES`, run **Recipe Image Upload Readiness** by manual dispatch on `main` under the protected `recipe-image-upload-production` environment for the exact commit that will be released. Readiness requires its protected `PRODUCTION_FRONTEND_URL` to match the repository production URL. Before deploying any image function or publishing frontend assets, the image-enabled production release requires a successful readiness run and protected deployment record for that SHA whose environment URL matches `PRODUCTION_FRONTEND_URL`. It also checks the required image migrations in the production ledger before conditional image endpoints and frontend deployment proceed. Rerun readiness after any new `main` commit. This readiness gate applies when enabling the image UI; `recipe-image-attach` is deployed unconditionally.
+   The readiness verifier requires `PRODUCTION_FRONTEND_URL` to match the production origin. Before the first deployment, the release also requires that verified same-run origin to match its own `PRODUCTION_FRONTEND_URL`. Production proceeds only after readiness and the required image migrations pass. There is no separate readiness dispatch or reviewer approval; `recipe-image-attach` is deployed unconditionally.
 
-   The [readiness verifier](../../scripts/verify-upload-signing-readiness.mjs) checks the protected Supabase project and HTTPS origin configuration, the verified readiness attestation, accepted project credentials, required migrations, enabled and forced RLS on upload intents, schema limits, and service-role-only table/RPC access. This describes configured prerequisites; it does not claim a readiness run for a later `main` SHA.
+   The [readiness verifier](../../scripts/verify-upload-signing-readiness.mjs) checks the intended Supabase project and HTTPS origin configuration, the verified readiness attestation, accepted project credentials, required migrations, enabled and forced RLS on upload intents, schema limits, and service-role-only table/RPC access. This describes configured prerequisites; it does not claim a readiness run for a later `main` SHA.
 2. Confirm the existing recipe-image bucket settings and deployed origin against the [image API contract](../api/recipe-images.md#be-13-implementation-and-deployment-dependencies). In isolated non-production, capture a browser CORS preflight, a successful signed PUT, a same-key PUT rejected with `412`, and successful attach and private read. Confirm expired staging cleanup can list and delete staging objects, free upload quota, and preserve the finalized image. Record results without keys or signed URLs. Non-production evidence does not replace checking the production bucket's CORS rule for `PRODUCTION_FRONTEND_URL`.
 3. Configure `RECIPE_IMAGE_CLEANUP_TOKEN` in the Supabase runtime and in the `recipe-image-cleanup-production` GitHub environment. Set `VITE_SUPABASE_URL` and `SUPABASE_PROJECT_REF` for that environment, restrict it to `main`, and allow unattended scheduled runs. The cleanup workflow is scheduled every 15 minutes and supports manual dispatch, but its job runs only on main when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. For the first rollout, pause **Recipe Image Upload Cleanup** so it cannot call an older worker. Set the cleanup opt-in and run **Modular Main Validation** on `main` while the image UI is off to deploy the current worker; the production release checks the required migration ledger when cleanup is enabled. After deployment succeeds, re-enable the cleanup workflow, run it from `main`, and check its outcome before opening uploads.
-4. Set the repository variable `VITE_RECIPE_IMAGES=true` and run **Modular Main Validation** on `main` after completing step 1. The release requires the cleanup opt-in, exact-SHA protected readiness and a matching production URL, and checks the production migration ledger using the existing Supabase access token (requires `database_migrations_read`). Missing migrations, unavailable history, or a failed image deploy block publication. Check that `recipe-image-attach`, conditional download, cleanup, signer, and Cloudflare steps have the expected outcomes and record the release revision. With an authorized disposable account and recipe, verify that the signer returns a direct R2 URL and the browser can upload, attach, reload the private image, and recover staging quota. Verify a different account cannot obtain the private download URL.
+4. Set the repository variable `VITE_RECIPE_IMAGES=true` and run **Modular Main Validation** on `main` after completing step 1. The same-run readiness job starts automatically and must succeed before production continues. The release also requires the cleanup opt-in and checks the production migration ledger using the existing Supabase access token (requires `database_migrations_read`). Missing migrations, unavailable history, failed readiness, or a failed image deploy block publication. Check that `recipe-image-attach`, conditional download, cleanup, signer, and Cloudflare steps have the expected outcomes and record the release revision. With an authorized disposable account and recipe, verify that the signer returns a direct R2 URL and the browser can upload, attach, reload the private image, and recover staging quota. Verify a different account cannot obtain the private download URL.
 
 Leave `VITE_RECIPE_IMAGE_UPLOAD_IDEMPOTENCY` unset or `false` until the current deployed signer is verified to accept `request_id`. This client option is independent of the same-key retry for a signed R2 PUT.
 
@@ -580,9 +587,8 @@ evidence, not another optimization sample or a merge-to-live measurement. The
 
 The relevant DevOps files are organized as follows:
 
-- `.github/workflows/modular-main.yml` - Main validation and sole production caller in this proposal
+- `.github/workflows/modular-main.yml` - Main validation, same-run image readiness, and sole production caller
 - `.github/workflows/reusable-production.yml` - Guarded Supabase/Cloudflare deployment and runtime evidence, including the disabled account-export target and recipe-image-attach
-- `.github/workflows/recipe-image-upload-readiness.yml` - On-demand protected, read-only Supabase readiness verifier
 - `.github/workflows/recipe-image-upload-cleanup.yml` - Main-only cleanup invocation behind an unattended opt-in gate
 - `.github/workflows/modular-pr-validation.yml` — Modular PR validation and trusted PR staging gate introduced by PR #81
 - `.github/workflows/reusable-staging.yml` — Serialized staging frontend deployment, smoke, and revision summaries
@@ -596,7 +602,7 @@ The frontend production build output is generated at `frontend/dist/`.
 
 ## 5. Continuous Integration
 
-Current workflow configuration was checked 2026-11-15 at main SHA
+Baseline workflow configuration was checked 2026-11-15 at main SHA
 `0dd27d0fbba8f5cca5a7153229bda68b985be78c`. The modular PR workflow validates PRs
 targeting main with a complete-diff classifier. Its three required core contexts
 remain present on every PR; verified prose-only diffs use lightweight core paths
@@ -607,8 +613,11 @@ production.
 
 The modular main workflow runs on main pushes and manual dispatches. Its
 production caller waits for successful frontend/database/aggregate Edge/API
-validation, mandatory Hosted RLS nested in Edge/API, and frontend existence. Main
-E2E is a separate job and is not in production's `needs` list. The active
+validation, mandatory Hosted RLS nested in Edge/API, and frontend existence. When
+both image and cleanup flags are enabled, it also requires same-run read-only
+upload-signing readiness from the `main`-restricted image environment before
+production continues. Main E2E is a separate job and is not in production's
+`needs` list. The active
 `Protect main` ruleset, checked 2026-11-15, requires the three modular core
 contexts, one approving review and resolved review conversations; E2E is not a
 required PR context.

@@ -17,9 +17,7 @@ const production = workflow('reusable-production');
 const release = production.jobs.deploy;
 const edge = workflow('reusable-edge-api');
 const scheduledCleanup = workflow('recipe-image-upload-cleanup');
-const uploadReadiness = existsSync('.github/workflows/recipe-image-upload-readiness.yml')
-  ? workflow('recipe-image-upload-readiness')
-  : undefined;
+const recipeImageReadiness = main.jobs['recipe-image-readiness'];
 const step = (job, name) => job.steps.find(s => s.name === name);
 
 // These conditions use only this small subset of Actions expressions. Execute the
@@ -29,10 +27,17 @@ function condition(expression, overrides = {}) {
   const context = {
     actionsStringEqual: (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase(),
     success: () => true,
+    always: () => true,
+    cancelled: () => false,
     vars: {},
     env: {},
     inputs: { 'frontend-exists': true },
-    needs: { frontend: { outputs: { exists: 'true' } } },
+    needs: {
+      frontend: { result: 'success', outputs: { exists: 'true' } },
+      'test-db': { result: 'success' },
+      'test-edge-api': { result: 'success' },
+      'recipe-image-readiness': { result: 'skipped' },
+    },
     github: { event_name: 'push', ref: 'refs/heads/main', repository: '2ton-exe/moris-mix-ai',
       workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main' },
     format: (template, value) => template.replace('{0}', value),
@@ -40,12 +45,13 @@ function condition(expression, overrides = {}) {
   };
   const source = expression.replace(/^\$\{\{\s*|\s*\}\}$/g, '')
     .replace(/inputs\.docs-only/g, 'inputs["docs-only"]')
-    .replace(/needs\.(test-db|test-edge-api)/g, 'needs["$1"]')
+    .replace(/needs\.(test-db|test-edge-api|recipe-image-readiness)/g, 'needs["$1"]')
     .replace(/inputs\.frontend-exists/g, 'inputs["frontend-exists"]')
     .replace(/inputs\.apply-image-migrations/g, 'inputs["apply-image-migrations"]')
     .replace(/inputs\.require-hosted-rls/g, 'inputs["require-hosted-rls"]')
     // Actions compares strings without case sensitivity (unlike JavaScript).
-    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) == ('true')/g, 'actionsStringEqual($1, $2)');
+    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) == ('true')/g, 'actionsStringEqual($1, $2)')
+    .replace(/((?:vars|env)\.(?:RECIPE_IMAGE_CLEANUP_ENABLED|VITE_RECIPE_IMAGES)) != ('true')/g, '!actionsStringEqual($1, $2)');
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
 
@@ -55,6 +61,12 @@ test('all workflow YAML parses, including the reusable production contract', () 
   }
   assert.deepEqual(Object.keys(production.on), ['workflow_call']);
   assert.deepEqual(production.permissions, { contents: 'read' });
+  assert.deepEqual(production.on.workflow_call.inputs['verified-production-origin'], {
+    description: 'Production origin verified by same-run image readiness',
+    required: false,
+    type: 'string',
+    default: '',
+  });
 });
 
 test('Supabase database targets accept only the direct endpoint or project-bound session pooler', () => {
@@ -102,7 +114,7 @@ test('legacy CI is intentionally absent; modular main is the only production cal
   assert.deepEqual(main.on.push.branches, ['main']);
   assert.equal(main.on.workflow_dispatch, null);
   assert.deepEqual(main.permissions, { contents: 'read' });
-  assert.deepEqual(main.jobs.production.permissions, { actions: 'read', contents: 'read', deployments: 'read' });
+  assert.deepEqual(main.jobs.production.permissions, { contents: 'read' });
   assert.equal(main.jobs['production-ownership'], undefined);
   assert.equal(main.jobs['gate-evidence'], undefined);
   assert.equal(production.on.workflow_call.inputs.owner, undefined);
@@ -143,14 +155,15 @@ test('modular PR remains PR-only, with staging and no production call or credent
 });
 
 test('actual modular caller and callee guards reject PRs, other refs and failed validation', () => {
-  assert.deepEqual(main.jobs.production.needs, ['frontend', 'test-db', 'test-edge-api']);
+  assert.deepEqual(main.jobs.production.needs, ['frontend', 'test-db', 'test-edge-api', 'recipe-image-readiness']);
   assert.equal(main.jobs.production.uses, './.github/workflows/reusable-production.yml');
   assert.deepEqual(main.jobs.production.with, {
     'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
+    'verified-production-origin': '${{ needs.recipe-image-readiness.outputs.verified-origin }}',
   });
   for (const expression of [main.jobs.production.if, release.if]) {
     assert.equal(condition(expression), true);
-    assert.equal(condition(expression, { success: () => false }), false);
+    if (expression === release.if) assert.equal(condition(expression, { success: () => false }), false);
     for (const event_name of ['pull_request', 'pull_request_target', 'workflow_run']) {
       assert.equal(condition(expression, { github: { event_name, ref: 'refs/heads/main' } }), false);
     }
@@ -165,13 +178,14 @@ test('actual modular caller and callee guards reject PRs, other refs and failed 
   }
   assert.equal(condition(release.if, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main',
     repository: '2ton-exe/moris-mix-ai', workflow_ref: '2ton-exe/moris-mix-ai/.github/workflows/modular-main.yml@refs/heads/main' } }), true);
-  for (const job of [main.jobs.production, main.jobs['test-edge-api'], edge.jobs['test-hosted-rls']]) {
+  assert.match(main.jobs.production.if, /always\(\).*!cancelled\(\)/s);
+  for (const job of [main.jobs['test-edge-api'], edge.jobs['test-hosted-rls']]) {
     assert.notEqual(job['continue-on-error'], true);
     assert.doesNotMatch(job.if ?? '', /always\(|!cancelled\(/);
   }
 });
 
-test('failed/cancelled/skipped gating dependencies block production; E2E remains non-gating', () => {
+test('failed/cancelled/skipped required dependencies block production; E2E remains non-gating', () => {
   const caller = main.jobs.production;
   assert.ok(main.jobs['test-e2e']);
   assert.ok(!caller.needs.includes('test-e2e'));
@@ -181,11 +195,18 @@ test('failed/cancelled/skipped gating dependencies block production; E2E remains
       const needs = Object.fromEntries(caller.needs.map(name => [name, { result: 'success', outputs: {} }]));
       needs.frontend.outputs.exists = 'true';
       needs[dependency].result = result;
-      assert.equal(condition(caller.if, { needs, success: () => Object.values(needs).every(n => n.result === 'success') }), false);
+      assert.equal(condition(caller.if, {
+        needs,
+        vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+        success: () => Object.values(needs).every(n => n.result === 'success'),
+      }), false);
     }
   }
   for (const result of ['failure', 'cancelled', 'skipped']) {
-    assert.equal(condition(caller.if, { needs: { frontend: { outputs: { exists: 'true' } }, 'test-e2e': { result } } }), true);
+    const needs = Object.fromEntries(caller.needs.map(name => [name, { result: 'success', outputs: {} }]));
+    needs.frontend.outputs.exists = 'true';
+    needs['test-e2e'] = { result };
+    assert.equal(condition(caller.if, { needs }), true);
   }
   assert.notEqual(caller['continue-on-error'], true);
   assert.equal(main.jobs['test-edge-api'].with['require-hosted-rls'], true);
@@ -227,8 +248,13 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     assert.equal(step(release, name).if, guarded[name]);
     assert.notEqual(step(release, name)['continue-on-error'], true);
   }
-  assert.equal(step(release, 'Verify recipe image release prerequisites').env.PRODUCTION_FRONTEND_URL,
-    '${{ vars.PRODUCTION_FRONTEND_URL }}');
+  assert.deepEqual(step(release, 'Verify recipe image release prerequisites').env, {
+    RECIPE_IMAGE_CLEANUP_ENABLED: "${{ vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' && 'true' || 'false' }}",
+    PRODUCTION_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
+    VERIFIED_PRODUCTION_ORIGIN: '${{ inputs.verified-production-origin }}',
+    SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}',
+    SUPABASE_PROJECT_REF: '${{ vars.SUPABASE_PROJECT_REF }}',
+  });
   const commands = release.steps.map(s => s.run ?? '').join('\n');
   assert.deepEqual([...commands.matchAll(/functions deploy (\S+)/g)].map(m => m[1]), [
     'recipes', 'account-export', 'extract-recipe', 'generate-recipe', 'recipe-image-attach',
@@ -285,7 +311,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const verify = step(release, 'Verify production deployment URL');
   assert.equal(verify.id, 'verify-deployment');
   assert.equal(verify.env.DEPLOYMENT_URL, '${{ steps.deploy-cloudflare.outputs.deployment-url }}');
-  assert.match(verify.run, /"\$\{DEPLOYMENT_URL%\/\}" != "\$\{SMOKE_FRONTEND_URL%\/\}"/);
+  assert.match(verify.run, /url\.origin/);
   const aiSmoke = step(release, 'Verify deployed AI routes');
   assert.equal(aiSmoke.id, 'ai-route-smoke');
   assert.equal(aiSmoke.run, 'node scripts/ai-route-smoke.mjs');
@@ -329,10 +355,29 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   const summary = step(release, 'Record production deployment and runtime outcomes');
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
-  assert.deepEqual(release.permissions, { actions: 'read', contents: 'read', deployments: 'read' });
+  assert.deepEqual(release.permissions, { contents: 'read' });
   for (const caller of [main.jobs.production]) {
     assert.deepEqual(Object.keys(caller.secrets).sort(), ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN']);
     for (const [key, value] of Object.entries(caller.secrets)) assert.equal(value, '${{ secrets.' + key + ' }}');
+  }
+});
+
+test('production deployment URL check compares normalized bare HTTPS origins', () => {
+  const verify = step(release, 'Verify production deployment URL');
+  const check = (deploymentUrl, frontendUrl) => spawnSync('bash', ['-c', verify.run], {
+    encoding: 'utf8',
+    env: { ...process.env, DEPLOYMENT_URL: deploymentUrl, SMOKE_FRONTEND_URL: frontendUrl },
+  });
+
+  assert.equal(check('https://production.example/', 'https://PRODUCTION.EXAMPLE:443').status, 0);
+  for (const [deploymentUrl, frontendUrl] of [
+    ['https://other.example', 'https://production.example'],
+    ['https://production.example/home', 'https://production.example'],
+    ['', 'https://production.example'],
+  ]) {
+    const result = check(deploymentUrl, frontendUrl);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /Wrangler deployment URL does not match/);
   }
 });
 
@@ -595,37 +640,15 @@ test('image releases check the ledger whenever publishing the UI or deploying cl
   }
 });
 
-test('image release rejects missing migrations, unavailable history and uploads without cleanup', () => {
+test('image release validates normalized origin, migrations and cleanup before deploy', () => {
   const gate = step(release, 'Verify recipe image release prerequisites');
   const versions = readdirSync('supabase/migrations').filter(name => name.endsWith('.sql')).map(name => name.split('_')[0]);
-  const successfulReadiness = {
-    head_sha: 'readiness-test-sha',
-    head_branch: 'main',
-    event: 'workflow_dispatch',
-    status: 'completed',
-    conclusion: 'success',
-    created_at: '2026-11-15T00:00:00Z',
-  };
-  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0',
-    readinessRuns = { workflow_runs: [successfulReadiness] }, readinessCurlStatus = '0',
-    readinessDeploymentUrl = 'https://production.example' } = {}) => spawnSync('bash', [
+  const check = ({ missing, cleanup = 'true', images = 'true', response, curlStatus = '0', verifiedOrigin = 'https://production.example', productionFrontendUrl = 'https://production.example' } = {}) => spawnSync('bash', [
     '-c',
     `curl() {
       local url
       for url in "$@"; do :; done
       case "$url" in
-        https://api.github.com/repos/test/repo/actions/workflows/recipe-image-upload-readiness.yml/runs)
-          printf '%s' "$TEST_READINESS_RUNS"
-          return "$TEST_READINESS_CURL_STATUS"
-          ;;
-        https://api.github.com/repos/test/repo/deployments)
-          printf '%s' "$TEST_READINESS_DEPLOYMENTS"
-          return "$TEST_READINESS_CURL_STATUS"
-          ;;
-        https://api.github.com/repos/test/repo/deployments/42/statuses)
-          printf '%s' "$TEST_READINESS_DEPLOYMENT_STATUSES"
-          return "$TEST_READINESS_CURL_STATUS"
-          ;;
         https://api.supabase.com/v1/projects/test-project/database/migrations)
           printf '%s' "$TEST_LEDGER"
           return "$TEST_CURL_STATUS"
@@ -640,30 +663,24 @@ test('image release rejects missing migrations, unavailable history and uploads 
       ...process.env,
       SUPABASE_PROJECT_REF: 'test-project',
       SUPABASE_ACCESS_TOKEN: 'test-token',
+      PRODUCTION_FRONTEND_URL: productionFrontendUrl,
+      VERIFIED_PRODUCTION_ORIGIN: verifiedOrigin,
       VITE_RECIPE_IMAGES: images,
       RECIPE_IMAGE_CLEANUP_ENABLED: cleanup,
-      GH_TOKEN: 'test-token',
-      GITHUB_REPOSITORY: 'test/repo',
-      GITHUB_SHA: 'readiness-test-sha',
-      PRODUCTION_FRONTEND_URL: 'https://production.example',
       TEST_LEDGER: response ?? JSON.stringify(versions.filter(version => version !== missing).map(version => ({ version }))),
       TEST_CURL_STATUS: curlStatus,
-      TEST_READINESS_RUNS: JSON.stringify(readinessRuns),
-      TEST_READINESS_CURL_STATUS: readinessCurlStatus,
-      TEST_READINESS_DEPLOYMENTS: JSON.stringify([{
-        id: 42,
-        sha: 'readiness-test-sha',
-        environment: 'recipe-image-upload-production',
-      }]),
-      TEST_READINESS_DEPLOYMENT_STATUSES: JSON.stringify([{
-        state: 'success',
-        environment_url: readinessDeploymentUrl,
-      }]),
     },
   });
 
   assert.equal(check().status, 0);
-  assert.equal(check({ images: 'false' }).status, 0);
+  assert.equal(check({ images: 'false', verifiedOrigin: '' }).status, 0);
+  assert.equal(check({ verifiedOrigin: 'https://production.example/' }).status, 0);
+  assert.equal(check({ productionFrontendUrl: 'https://PRODUCTION.EXAMPLE:443/' }).status, 0);
+  for (const verifiedOrigin of ['', 'https://different.example']) {
+    const result = check({ verifiedOrigin });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /Same-run image readiness origin does not match/);
+  }
   for (const missing of ['20261106000015', '20261115000020', '20261115000021', '20261115000022']) {
     const result = check({ missing });
     assert.equal(result.status, 1);
@@ -674,25 +691,8 @@ test('image release rejects missing migrations, unavailable history and uploads 
   const noCleanup = check({ cleanup: 'false' });
   assert.equal(noCleanup.status, 1);
   assert.match(noCleanup.stdout, /Enable and verify staging cleanup/);
-  for (const readinessRuns of [
-    { workflow_runs: [] },
-    { workflow_runs: [{ ...successfulReadiness, conclusion: 'failure' }] },
-    { workflow_runs: [{ ...successfulReadiness, status: 'in_progress', conclusion: null }] },
-    { workflow_runs: [{ ...successfulReadiness, head_sha: 'previous-main-sha' }] },
-    { workflow_runs: [
-      successfulReadiness,
-      { ...successfulReadiness, conclusion: 'failure', created_at: '2026-11-15T00:01:00Z' },
-    ] },
-  ]) {
-    const result = check({ readinessRuns });
-    assert.equal(result.status, 1);
-    assert.match(result.stdout, /successful protected Recipe Image Upload Readiness run is required/);
-  }
-  assert.notEqual(check({ readinessCurlStatus: '22' }).status, 0);
-  const mismatchedOrigin = check({ readinessDeploymentUrl: 'https://different.example' });
-  assert.equal(mismatchedOrigin.status, 1);
-  assert.match(mismatchedOrigin.stdout, /readiness origin does not match PRODUCTION_FRONTEND_URL/);
   const gateIndex = release.steps.findIndex(item => item.name === 'Verify recipe image release prerequisites');
+  assert.ok(gateIndex < release.steps.findIndex(item => item.name === 'Deploy recipes Edge Function'));
   assert.ok(gateIndex < release.steps.findIndex(item => item.name === 'Deploy recipe-image-upload-url Edge Function'));
   assert.ok(gateIndex < release.steps.findIndex(item => item.name === 'Deploy to Cloudflare Workers'));
 });
@@ -724,25 +724,48 @@ test('cleanup invocation uses only the protected opt-in and has no storage crede
   assert.equal(deployment.env.RECIPE_IMAGE_CLEANUP_ENABLED, undefined);
 });
 
-test('upload-signing readiness binds its protected origin to the repository production target', () => {
-  assert.ok(uploadReadiness, 'protected upload-signing readiness workflow is missing');
-  assert.deepEqual(Object.keys(uploadReadiness.on), ['workflow_dispatch']);
-  assert.deepEqual(uploadReadiness.permissions, { contents: 'read' });
-  const job = uploadReadiness.jobs.verify;
-  assert.equal(job.if, "${{ github.ref == 'refs/heads/main' }}");
-  assert.equal(condition(job.if), true);
-  assert.equal(condition(job.if, { github: { ref: 'refs/heads/feature' } }), false);
+test('Modular Main gates image release on same-run readiness', () => {
+  assert.ok(recipeImageReadiness, 'upload-signing readiness job is missing');
+  assert.equal(existsSync('.github/workflows/recipe-image-upload-readiness.yml'), false);
+  const job = recipeImageReadiness;
+  assert.deepEqual(job.needs, ['frontend', 'test-db', 'test-edge-api']);
+  assert.equal(condition(job.if, {
+    vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+  }), true);
+  assert.equal(condition(job.if, {
+    vars: { VITE_RECIPE_IMAGES: 'false', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+  }), false);
+  assert.equal(condition(job.if, {
+    vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'false' },
+  }), false);
+  assert.equal(condition(job.if, {
+    vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+    github: { ref: 'refs/heads/feature' },
+  }), false);
+  assert.equal(condition(job.if, {
+    needs: {
+      frontend: { result: 'success', outputs: { exists: 'false' } },
+      'test-db': { result: 'success' },
+      'test-edge-api': { result: 'success' },
+    },
+    vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+  }), false);
   assert.deepEqual(job.environment, {
     name: 'recipe-image-upload-production',
     url: '${{ vars.PRODUCTION_FRONTEND_URL }}',
   });
+  assert.deepEqual(job.outputs, {
+    'verified-origin': '${{ steps.verify-readiness.outputs.verified-origin }}',
+  });
   assert.deepEqual(job.permissions, { contents: 'read' });
   assert.deepEqual(job.steps.map(item => item.name), [
-    'Checkout repository', 'Set up pnpm', 'Set up Node.js', 'Install verifier dependencies', 'Verify protected Supabase readiness',
+    'Checkout repository', 'Set up pnpm', 'Set up Node.js', 'Install verifier dependencies', 'Verify Supabase readiness',
   ]);
-  const verifier = step(job, 'Verify protected Supabase readiness');
-  assert.equal(verifier.run, 'node scripts/verify-upload-signing-readiness.mjs');
-  assert.deepEqual(uploadReadiness.env, {
+  const verifier = step(job, 'Verify Supabase readiness');
+  assert.equal(verifier.id, 'verify-readiness');
+  assert.match(verifier.run, /^node scripts\/verify-upload-signing-readiness\.mjs\n/);
+  assert.match(verifier.run, /new URL\(process\.env\.ALLOWED_ORIGIN\)\.origin/);
+  assert.deepEqual(job.env, {
     EXPECTED_PRODUCTION_FRONTEND_URL: '${{ vars.PRODUCTION_FRONTEND_URL }}',
   });
   assert.deepEqual(verifier.env, {
@@ -756,13 +779,43 @@ test('upload-signing readiness binds its protected origin to the repository prod
     SUPABASE_PUBLISHABLE_KEY: '${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}',
     ALLOWED_ORIGIN: '${{ vars.PRODUCTION_FRONTEND_URL }}',
   });
-  assert.doesNotMatch(JSON.stringify(uploadReadiness), /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)/);
+  assert.doesNotMatch(JSON.stringify(job), /R2_(?:ACCOUNT_ID|BUCKET_NAME|ACCESS_KEY_ID|SECRET_ACCESS_KEY|IMAGE_|BACKUP_)/);
+
+  const productionJob = main.jobs.production;
+  assert.deepEqual(productionJob.needs, ['frontend', 'test-db', 'test-edge-api', 'recipe-image-readiness']);
+  assert.deepEqual(productionJob.with, {
+    'frontend-exists': "${{ needs.frontend.outputs.exists == 'true' }}",
+    'verified-production-origin': '${{ needs.recipe-image-readiness.outputs.verified-origin }}',
+  });
+  const allValidationPassed = {
+    frontend: { result: 'success', outputs: { exists: 'true' } },
+    'test-db': { result: 'success' },
+    'test-edge-api': { result: 'success' },
+    'recipe-image-readiness': { result: 'success' },
+  };
+  assert.equal(condition(productionJob.if, { needs: allValidationPassed }), true);
+  assert.equal(condition(productionJob.if, {
+    needs: { ...allValidationPassed, 'recipe-image-readiness': { result: 'skipped' } },
+    vars: { VITE_RECIPE_IMAGES: 'false', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+  }), true);
+  assert.equal(condition(productionJob.if, {
+    needs: { ...allValidationPassed, 'recipe-image-readiness': { result: 'failure' } },
+    vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+  }), false);
+  assert.equal(condition(productionJob.if, {
+    needs: { ...allValidationPassed, 'recipe-image-readiness': { result: 'skipped' } },
+    vars: { VITE_RECIPE_IMAGES: 'true', RECIPE_IMAGE_CLEANUP_ENABLED: 'true' },
+  }), false);
+  assert.equal(condition(productionJob.if, {
+    needs: { ...allValidationPassed, 'test-db': { result: 'failure' } },
+  }), false);
+  assert.equal(condition(productionJob.if, { needs: allValidationPassed, cancelled: () => true }), false);
 });
 
 test('upload-signing readiness verifier keeps strict read-only schema and credential checks', () => {
   const verifier = readFileSync('scripts/verify-upload-signing-readiness.mjs', 'utf8');
   for (const prerequisite of [
-    '20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022', 'recipe_image_upload_intents',
+    '20261102000009', '20261102000010', '20261108152005', '20261115000020', '20261115000021', '20261115000022', '20261116000023', 'recipe_image_upload_intents',
     'upload_reservation', 'claim_recipe_image_upload_reservation', 'release_recipe_image_upload_reservation',
     'relforcerowsecurity', 'create_recipe_image_upload_intent', 'create_recipe_image_upload_intent_v2',
     'has_table_privilege', 'has_function_privilege',
@@ -789,7 +842,7 @@ test('upload-signing readiness verifier keeps strict read-only schema and creden
       cwd: isolatedDirectory, encoding: 'utf8', env: baseEnv, windowsHide: true,
     });
     assert.notEqual(missing.status, 0);
-    assert.match(missing.stderr, /Missing required protected configuration: SUPABASE_DATABASE_URL/);
+    assert.match(missing.stderr, /Missing required image readiness configuration: SUPABASE_DATABASE_URL/);
     assert.doesNotMatch(missing.stderr, /ERR_MODULE_NOT_FOUND/);
     const configured = {
       ...baseEnv,
@@ -809,7 +862,7 @@ test('upload-signing readiness verifier keeps strict read-only schema and creden
       cwd: isolatedDirectory, encoding: 'utf8', env: missingCa, windowsHide: true,
     });
     assert.notEqual(missingCaResult.status, 0);
-    assert.match(missingCaResult.stderr, /Missing required protected configuration: SUPABASE_DATABASE_CA_CERT/);
+    assert.match(missingCaResult.stderr, /Missing required image readiness configuration: SUPABASE_DATABASE_CA_CERT/);
     assert.doesNotMatch(missingCaResult.stderr, /ERR_MODULE_NOT_FOUND/);
     const unverified = spawnSync(process.execPath, [isolatedVerifier], {
       cwd: isolatedDirectory, encoding: 'utf8', env: configured, windowsHide: true,
