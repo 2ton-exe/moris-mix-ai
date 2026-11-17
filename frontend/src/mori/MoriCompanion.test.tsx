@@ -8,7 +8,7 @@ import type { MoriActivity } from './MoriCompanionContext'
 function Activity({ activity }: { activity: MoriActivity | null }) { useMoriActivity(activity); return null }
 function Guidance() { useMoriGuidance({ message: 'Your journal is ready.', action: { label: 'Write a recipe', onClick: () => undefined } }); return null }
 function Companion({ children }: { children?: React.ReactNode }) { return <MemoryRouter><MoriCompanionProvider>{children}<MoriCompanion /></MoriCompanionProvider></MemoryRouter> }
-afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('opens guidance and restores focus after Escape', () => {
   render(<Companion><Guidance /></Companion>)
@@ -69,4 +69,32 @@ it('recovers from malformed preferences and keeps optional producers independent
   render(<Companion />)
   expect(screen.getByRole('button', { name: 'Talk to Mori' })).toBeTruthy()
   expect(() => render(<><Activity activity={{ kind: 'working', message: 'Working.' }} /><Guidance /></>)).not.toThrow()
+})
+
+it('keeps the companion and guidance within a shrunken, panned visual viewport', () => {
+  const visualViewport = Object.assign(new EventTarget(), { width: 1024, height: 768, offsetLeft: 0, offsetTop: 0 })
+  vi.stubGlobal('visualViewport', visualViewport)
+  render(<Companion />)
+  const character = screen.getByRole('group', { name: 'Mori companion' })
+  Object.assign(visualViewport, { width: 320, height: 360, offsetLeft: 140, offsetTop: 200 })
+  act(() => visualViewport.dispatchEvent(new Event('resize')))
+  expect(parseFloat(character.style.left)).toBeGreaterThanOrEqual(148)
+  expect(parseFloat(character.style.left) + 116).toBeLessThanOrEqual(452)
+  expect(parseFloat(character.style.top) + 179.2).toBeLessThanOrEqual(552)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  const panel = screen.getByRole('region', { name: 'Mori' })
+  expect(parseFloat(panel.style.left)).toBeGreaterThanOrEqual(148)
+  expect(parseFloat(panel.style.left) + parseFloat(panel.style.width)).toBeLessThanOrEqual(452)
+  expect(parseFloat(panel.style.top) + parseFloat(panel.style.maxHeight)).toBeLessThanOrEqual(552)
+  Object.assign(visualViewport, { offsetLeft: 280, offsetTop: 400 })
+  act(() => visualViewport.dispatchEvent(new Event('scroll')))
+  expect(parseFloat(character.style.left)).toBeGreaterThanOrEqual(288)
+  expect(parseFloat(character.style.top)).toBeGreaterThanOrEqual(408)
+})
+
+it('keeps guidance open after a same-route action', () => {
+  render(<Companion><Guidance /></Companion>)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Write a recipe' }))
+  expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
 })

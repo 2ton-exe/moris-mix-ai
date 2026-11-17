@@ -46,7 +46,8 @@ export async function assertJournalGeometry(page, label) {
       const matrix = new globalThis.DOMMatrixReadOnly(css.transform)
       return {
         label: tab.textContent, ...box,
-        attachedDistance: globalNav ? rect(book).top - box.bottom : layout === 'spread' ? rect(book).right - box.left : box.bottom - rect(spread).top,
+        kind: tab.closest('.mm-global-nav') ? 'global' : 'bookmark',
+        attachedDistance: tab.closest('.mm-global-nav') ? rect(book).top - box.bottom : layout === 'spread' ? rect(book).right - box.left : box.bottom - rect(spread).top,
         iconInteractive: hit(icon.x + icon.width / 2, icon.y + icon.height / 2),
         labelInteractive: hit(box.right - 16, box.y + box.height / 2),
         transform: { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d },
@@ -54,7 +55,8 @@ export async function assertJournalGeometry(page, label) {
       }
     })
     const css = (selector) => globalThis.getComputedStyle(book.querySelector(selector))
-    const layers = { paper: globalThis.getComputedStyle(paper).zIndex, bookmarks: globalNav ? null : css('.mm-bookmarks').zIndex, rings: css('.mm-journal-rings').zIndex, stacks: [...book.querySelectorAll('.mm-journal-stack')].map((stack) => globalThis.getComputedStyle(stack).zIndex), spread: globalThis.getComputedStyle(spread).zIndex }
+    const paperBookmarks = book.querySelector('.mm-bookmarks')
+    const layers = { paper: globalThis.getComputedStyle(paper).zIndex, bookmarks: paperBookmarks ? globalThis.getComputedStyle(paperBookmarks).zIndex : null, rings: css('.mm-journal-rings').zIndex, stacks: [...book.querySelectorAll('.mm-journal-stack')].map((stack) => globalThis.getComputedStyle(stack).zIndex), spread: globalThis.getComputedStyle(spread).zIndex }
     const decorationIntercepts = [...book.querySelectorAll('.mm-journal-board, .mm-journal-stack, .mm-journal-binding, .mm-journal-ring-plate, .mm-journal-rings, .mm-journal-ring, .mm-journal-ring__half, .mm-journal-holes, .mm-journal-hole')].some((element) => globalThis.getComputedStyle(element).pointerEvents !== 'none')
     const outside = [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 8).map((element) => ({ name: String(element.className), box: rect(element) }))
     return { globalNavigation: Boolean(globalNav), viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
@@ -72,7 +74,7 @@ export async function assertJournalGeometry(page, label) {
   assert.ok(book.x >= 0 && book.right <= viewport.width, `${label}: cover clipped horizontally`)
   assert.equal(geometry.layout, viewport.width < 1100 || viewport.height < 640 ? 'single' : 'spread', `${label}: Make responsive breakpoint`)
   assert.deepEqual(geometry.layers.stacks, ['7', '7'], `${label}: physical stacks`)
-  assert.equal(geometry.layers.bookmarks, geometry.globalNavigation ? null : '11', `${label}: bookmarks above paper`)
+  assert.equal(geometry.layers.bookmarks, geometry.tabs.some((tab) => tab.kind === 'bookmark') ? '11' : null, `${label}: bookmarks above paper`)
   assert.equal(geometry.layers.paper, '10', `${label}: live paper`)
   assert.equal(geometry.layers.rings, '25', `${label}: book hardware above the moving page leaf`)
   assert.equal(geometry.decorationIntercepts, false, `${label}: decorative layer intercepts clicks`)
@@ -90,7 +92,9 @@ export async function assertJournalGeometry(page, label) {
   }
   for (const tab of tabs) {
     assert.ok(tab.x >= 0 && tab.right <= viewport.width && tab.y >= 0, `${label}: tab clipped: ${tab.label}`)
-    if (geometry.globalNavigation) assert.ok(tab.attachedDistance >= 0, `${label}: global navigation overlaps the book: ${tab.label}`)
+    if (tab.kind === 'global') assert.ok(tab.attachedDistance >= 0, `${label}: global navigation overlaps the book: ${tab.label}`)
+    else if (geometry.layout === 'spread') assert.ok(tab.attachedDistance >= 2 && tab.attachedDistance <= 5.5, `${label}: paper bookmark should sit just beyond the book: ${tab.label}`)
+    else assert.ok(tab.attachedDistance >= -1.5 && tab.attachedDistance <= 2.5, `${label}: paper bookmark should sit along the page edge: ${tab.label}`)
     assert.ok(tab.iconInteractive && tab.labelInteractive, `${label}: tab icon or label covered: ${tab.label}`)
     assert.equal(tab.decoration, 'none', `${label}: unsupported active underline`)
     assert.deepEqual([tab.transform.a, tab.transform.b, tab.transform.c, tab.transform.d], [1, 0, 0, 1], `${label}: rotated/scaled bookmark`)

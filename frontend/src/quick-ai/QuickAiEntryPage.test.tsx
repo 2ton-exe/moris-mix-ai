@@ -405,8 +405,11 @@ describe('Quick AI Entry', () => {
     expect(document.querySelector('.mm-quick-ai__loading .mm-mori')?.getAttribute('data-animated')).toBe('true')
     expect(notesField().disabled).toBe(true)
     expect(extract).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    expect(screen.getByText('Sorting your cooking notes into a recipe…')).toBeTruthy()
     await act(async () => resolve(recipe))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
+    expect(screen.queryByText('Sorting your cooking notes into a recipe…')).toBeNull()
   })
 
   it('preserves original notes after a network failure and retries the same text', async () => {

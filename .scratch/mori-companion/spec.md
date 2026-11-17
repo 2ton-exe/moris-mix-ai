@@ -14,7 +14,7 @@ Replace the current interactive note launcher and dialogue with one draggable Mo
 
 Mori stays where placed, starts near the bottom-right, and uses a smaller edge-docked presentation on phones. Users can hide, restore, reposition, and reset Mori. Position and visibility are remembered on the current device. Motion is quiet, silent, optional, and compatible with reduced-motion preferences. Existing recipe controls, validation, and error messages remain usable independently of Mori.
 
-This delivery follows browsing, photo upload, recipe save, and actionable problem states already available in the frontend. AI extraction, generation, and refinement frontend workflows are separate work; Mori must never simulate their activity.
+This delivery follows the existing browsing, photo upload, recipe save, Quick AI Entry extraction, and AI Chef generation workflows. Mori reflects those real frontend operations and confirmed outcomes; it does not simulate activity or introduce separate AI workflows.
 
 ## User Stories
 
@@ -66,9 +66,9 @@ This delivery follows browsing, photo upload, recipe save, and actionable proble
 | Confirmed recipe save | Brief celebration | Included for create and edit |
 | Actionable upload/save failure | Confused with safe contextual guidance | Included |
 | Existing validation or other explicit user action required | Wave/request attention | Included |
-| Gemini extraction pending | Working | Deferred until its frontend workflow exists |
-| AI generation or refinement pending | Thinking | Deferred until its frontend workflow exists |
-| AI response fails validation | Confused | Deferred until its frontend workflow exposes the failure |
+| Quick AI Entry extraction pending | Working | Included; existing workflow |
+| AI Chef generation pending | Thinking | Included; existing workflow |
+| AI response fails validation | Confused | Included when surfaced by an existing workflow |
 
 - Precedence is unresolved actionable problem or required input, then active work, then brief save celebration, then idle. Do not queue stale celebrations to play after a problem is resolved. Completion immediately reflects the applicable current state; never delay an operation or its result to finish an animation.
 - Attention uses quiet animation and existing status/error copy. Do not auto-open the guidance panel or move focus when activity changes. Resolve attention when the underlying problem resolves; distinguish cancellation from failure.
@@ -98,7 +98,7 @@ This delivery follows browsing, photo upload, recipe save, and actionable proble
 ## Out of Scope
 
 - The pasted storybook loading screen, walking miniature world, automatically flipping notebook, parallax scenery, and cycling typewriter loading experience.
-- Building AI extraction, generation, refinement, or AI Chef frontend screens; wiring absent workflows through fabricated activity; image-to-recipe extraction.
+- Adding new AI extraction, generation, or refinement screens, changing AI API contracts, or introducing image-to-recipe extraction. Existing Quick AI Entry and AI Chef workflows are included.
 - Replacing the rat chef with a new character, copying Codex Pet artwork, sprite-sheet generation, external desktop pets, or operating-system overlays.
 - Removing decorative Mori illustrations, the Mori emblem, or branding.
 - Autonomous saves, retries, recipe changes, AI calls, or navigation; sound; unsolicited roaming; gamification or companion needs.
@@ -108,12 +108,8 @@ This delivery follows browsing, photo upload, recipe save, and actionable proble
 ## Further Notes
 
 - Scope comes from three accepted interview rounds: companion instead of the storybook loader, preserved character identity, replacement of interactive dialogue only, existing frontend workflows first, signed-in recipe scope, local preferences, explicit actions, accessible mobile behavior, precedence, and restrained personality.
-- The requester explicitly accepted the application-level browser testing seam while this spec was being prepared. This spec publishes the design and acceptance criteria; no application implementation or deployment is part of this step.
+- The requester explicitly accepted the application-level browser testing seam. Implementation is part of this change; deployment remains out of scope.
 - Current photo upload attaches a recipe image; it does not invoke Gemini extraction. Existing extraction accepts a text brain dump. Backend extraction and generation support does not establish frontend activity to display.
 - The existing architecture decision for server-side Gemini, validated previews, and explicit confirmation before persistence remains in force. The dashboard-only inline dialogue documentation describes the prior presentation, which this design intentionally replaces.
 - The workspace already contains in-progress recipe and photo changes. Implement against the actual checkout and preserve those changes; this spec does not imply ownership of or permission to discard them.
-- Future AI frontend work can adopt the working/thinking/confused mapping when real operation state exists. Do not build unused service adapters or expose unavailable AI actions in this delivery.
-
-### Integration checkout correction
-
-The original interview inspected an older checkout. Current main already contains Quick AI Entry, extraction review, and Chef generation/review screens. Connect working/thinking/confused behavior to those existing operations without adding AI screens or changing API contracts. Refinement remains outside scope where no distinct workflow exists. This correction supersedes statements above that these frontend workflows are absent.
+- Refinement remains outside scope where no distinct workflow exists. Do not build unused service adapters or expose unavailable AI actions.
