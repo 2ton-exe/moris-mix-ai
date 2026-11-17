@@ -34,6 +34,15 @@ function RouteView({ data = recipe }: { data?: RecipeDetail }) {
 
 beforeEach(() => { measured.single = false; measured.fallback = false })
 
+function finishPageTurn() {
+  const leaf = document.querySelector('.mm-turn-leaf')
+  if (leaf) {
+    const event = new Event('transitionend', { bubbles: true })
+    Object.defineProperty(event, 'propertyName', { value: 'transform' })
+    fireEvent(leaf, event)
+  }
+}
+
 it('leaves boundary PageUp/PageDown actions available and only cancels valid page turns', async () => {
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
   const region = () => screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
@@ -43,7 +52,9 @@ it('leaves boundary PageUp/PageDown actions available and only cancels valid pag
   await screen.findByText('Page 2 of 2')
   expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(true)
   expect(screen.getByText('Page 2 of 2')).toBeTruthy()
-  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull(), { timeout: 2000 })
+  expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
+  finishPageTurn()
+  expect(document.querySelector('[data-journal-page-turn]')).toBeNull()
   expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(false)
   await screen.findByText('Page 1 of 2')
 })
@@ -98,7 +109,9 @@ it('turns through facing leaves with live announcements and preserves route retu
   expect(screen.queryByText('Salt')).toBeNull()
   expect((screen.getByRole('button', { name: 'Previous Page' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Next Page' }))
-  await screen.findByText('Salt')
+  await waitFor(() => expect(document.querySelector('.mm-journal-spread')?.textContent).toContain('Salt'))
+  expect(screen.getByTestId('location').textContent).toContain('?keep=value')
+  expect(screen.getByTestId('location').textContent).not.toContain('read=ingredient-2')
   expect(screen.queryByRole('heading', { name: recipe.title })).toBeNull()
   expect(screen.getByText('Cook gently.')).toBeTruthy()
   expect(screen.getByText('First paragraph.')).toBeTruthy()
@@ -106,7 +119,10 @@ it('turns through facing leaves with live announcements and preserves route retu
   const indicator = screen.getByText('Page 2 of 2')
   expect(indicator.getAttribute('aria-live')).toBe('polite')
   expect(indicator.getAttribute('aria-atomic')).toBe('true')
-  expect((screen.getByRole('button', { name: 'Next Page' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((document.querySelector('.mm-reading-turns button:last-child') as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByTestId('location').textContent).toContain('?keep=value')
+  expect(screen.getByTestId('location').textContent).not.toContain('read=ingredient-2')
+  finishPageTurn()
   expect(screen.getByTestId('location').textContent).toContain('?keep=value&read=ingredient-2')
   expect(screen.getByTestId('location').textContent).toContain('"journalReturn":"/app/recipes?entry=6"')
   fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))

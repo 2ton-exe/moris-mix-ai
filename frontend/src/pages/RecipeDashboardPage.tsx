@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
@@ -24,6 +24,7 @@ export default function RecipeDashboardPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
+  const [turnSearch, setTurnSearch] = useState<string | null>(null)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
   const facingPage = useContext(JournalFacingPageContext)
@@ -78,9 +79,10 @@ export default function RecipeDashboardPage() {
   const phone = useJournalMedia('(max-width: 599.98px)')
   const perPage = phone ? 1 : 2
   const indexView = params.get('view') === 'index' || (params.get('view') !== 'collection' && (Boolean(controls.draft.search) || controls.criteria.sort !== 'newest' || controls.criteria.searchMode !== 'title' || Object.keys(controls.criteria.filters).length > 0))
-  const anchored = new URLSearchParams(params)
-  const entry = Number(params.get('entry'))
-  const hasAnchor = params.has('entry') && Number.isSafeInteger(entry) && entry >= 0
+  const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
+  const anchored = new URLSearchParams(displayParams)
+  const entry = Number(displayParams.get('entry'))
+  const hasAnchor = displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
   if (hasAnchor) anchored.set('leaf', String(Math.floor(entry / perPage) + 1))
   const leaf = journalPage(anchored, recipes?.length ?? 0, { hasMore: query.hasNextPage || query.isPending, perPage })
   const spread = Math.floor(leaf / 2)
@@ -101,11 +103,12 @@ export default function RecipeDashboardPage() {
   const turnCollectionPage = (page: number, direction: 'forward' | 'backward') => {
     if (isTurning || page < 1) return
     const search = pageSearch(page)
-    requestPageTurn(direction, () => {
+    requestPageTurn(direction, () => setTurnSearch(search), () => {
+      setTurnSearch(null)
       void navigate({ pathname: location.pathname, search, hash: location.hash }, {
         state: { journalAccount: user?.id }, preventScrollReset: true, flushSync: true,
       })
-    }, search)
+    }, search, () => setTurnSearch(null))
   }
   const viewLink = (view: 'collection' | 'index') => {
     const next = new URLSearchParams(params)
@@ -126,8 +129,8 @@ export default function RecipeDashboardPage() {
     if (card) { card.focus(); restoredLocation.current = restoreKey }
   }, [recipes, restoreKey, returnFocusId])
   useEffect(() => {
-    if (params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
-  }, [leaf, params, returnFocusId])
+    if (!isTurning && params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
+  }, [isTurning, leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
   const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
   useMoriGuidance(!guidanceAvailable || recipes?.length !== 0 ? null : {

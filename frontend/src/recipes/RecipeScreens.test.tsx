@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { beforeEach, expect, it, vi } from 'vitest'
@@ -31,6 +31,11 @@ function ObserveClient() {
   return null
 }
 
+function LocationProbe() {
+  const location = useLocation()
+  return <span data-testid="test-location">{location.pathname}{location.search}</span>
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((res) => { resolve = res })
@@ -46,6 +51,7 @@ function tree(path: string, state = authState(), duplicateConsumer = false) {
   return <StrictMode><MemoryRouter initialEntries={[path]}>
     <AuthContext.Provider value={state}><RecipeQueryProvider source={source}>
       <ObserveClient />
+      <LocationProbe />
       {duplicateConsumer && <SecondListConsumer />}
       <Routes><Route path="/app" element={<JournalPage />}>
         <Route index element={<RecipeDashboardPage />} />
@@ -58,6 +64,14 @@ function tree(path: string, state = authState(), duplicateConsumer = false) {
 }
 
 function SecondListConsumer() { useRecipes(); return null }
+
+function finishPageTurn() {
+  const leaf = document.querySelector('.mm-turn-leaf')
+  if (!leaf) return
+  const event = new Event('transitionend', { bubbles: true })
+  Object.defineProperty(event, 'propertyName', { value: 'transform' })
+  fireEvent(leaf, event)
+}
 
 it('reserves a card grid while loading, then renders collection metadata and detail links', async () => {
   const request = deferred<RecipeSummary[]>()
@@ -112,8 +126,13 @@ it('opens the collection against the inside cover, then fills both pages through
   fireEvent.click(screen.getByRole('link', { name: 'Next page →' }))
   await screen.findByRole('link', { name: 'Open recipe Saved recipe 6' })
   expect(fetchPage.mock.calls.at(-1)![0].continuation).toBe('opaque-next')
-  expect([...document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')].filter((card) => !card.closest('[inert]'))).toHaveLength(2)
-  expect([...document.querySelectorAll('.mm-journal-page [data-recipe-id]')].filter((card) => !card.closest('[inert]'))).toHaveLength(2)
+  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes')
+  expect(document.querySelector('.mm-journal-spread')?.hasAttribute('inert')).toBe(true)
+  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
+  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-page [data-recipe-id]')).toHaveLength(2)
+  finishPageTurn()
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
+  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?leaf=2&entry=2')
   const selected = screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })
   fireEvent.click(selected)
   await screen.findByRole('heading', { name: 'Saved recipe 4', level: 1 })

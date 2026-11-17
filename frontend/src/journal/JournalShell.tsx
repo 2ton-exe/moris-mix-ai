@@ -64,9 +64,9 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     const book = bookRef.current
     if (!book) return
     const handleRequest = (event: Event) => {
-      const request = event as CustomEvent<{ direction: JournalTurnDirection; commit: () => void; expectedSearch?: string; handled: boolean; accepted: boolean }>
+      const request = event as CustomEvent<{ direction: JournalTurnDirection; prepare: () => void; commit: () => void; expectedSearch?: string; cancel?: () => void; handled: boolean; accepted: boolean }>
       request.detail.handled = true
-      request.detail.accepted = requestPageTurn(request.detail.direction, request.detail.commit, request.detail.expectedSearch)
+      request.detail.accepted = requestPageTurn(request.detail.direction, request.detail.prepare, request.detail.commit, request.detail.expectedSearch, request.detail.cancel)
     }
     book.addEventListener(JOURNAL_PAGE_TURN_EVENT, handleRequest)
     return () => book.removeEventListener(JOURNAL_PAGE_TURN_EVENT, handleRequest)
@@ -97,7 +97,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         <div className="mm-journal-stack mm-journal-stack--left" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--right" aria-hidden="true" />
         <JournalNavigation publicNavigation label={publicNavigation ? 'Journal sections' : 'Journal bookmarks'} />
-        <main className="mm-journal-spread" id="journal-content" tabIndex={-1}>
+        <main className="mm-journal-spread" id="journal-content" tabIndex={-1} inert={pageTurn.isTurning} aria-busy={pageTurn.isTurning || undefined}>
           <section className="mm-journal-flyleaf" aria-label="Facing journal page" tabIndex={0}>
             <PaperCard className="mm-bookplate" surface="fresh">
               <MoriEmblem size={46} />

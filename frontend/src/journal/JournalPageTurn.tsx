@@ -1,7 +1,7 @@
 /* The transition context and snapshot helpers are consumed by shell/UI modules. */
 /* eslint react-refresh/only-export-components: off */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { AnimationEvent, CSSProperties, RefObject } from 'react'
+import type { CSSProperties, RefObject, TransitionEvent } from 'react'
 
 export type JournalTurnDirection = 'forward' | 'backward'
 export type JournalTurnLayout = 'spread' | 'single'
@@ -20,10 +20,12 @@ interface PendingTurn {
   pathname: string
   search: string
   expectedSearch?: string
+  commit: () => void
+  cancel?: () => void
 }
 
 interface VisualTurn extends PendingTurn {
-  phase: 'playing'
+  phase: 'ready' | 'playing'
   under: HTMLElement | null
   underSide: 'left' | 'right' | 'single' | null
   front: HTMLElement
@@ -35,31 +37,40 @@ type TurnState = (PendingTurn & { phase: 'capture' }) | VisualTurn | null
 
 interface JournalPageTurnContextValue {
   isTurning: boolean
-  requestPageTurn: (direction: JournalTurnDirection, commit: () => void, expectedSearch?: string) => boolean
+  requestPageTurn: (direction: JournalTurnDirection, prepare: () => void, commit: () => void, expectedSearch?: string, cancel?: () => void) => boolean
   turn: TurnState
   finish: (id: number) => void
 }
 
 interface JournalPageTurnRequestDetail {
   direction: JournalTurnDirection
+  prepare: () => void
   commit: () => void
   expectedSearch?: string
+  cancel?: () => void
   handled: boolean
   accepted: boolean
 }
 
 export const JOURNAL_PAGE_TURN_EVENT = 'mm-journal-page-turn-request'
+export const JOURNAL_PAGE_TURN_FINISHED_EVENT = 'mm-journal-page-turn-finished'
+
+function notifyTurnFinished(id: number, completed: boolean) {
+  document.dispatchEvent(new CustomEvent(JOURNAL_PAGE_TURN_FINISHED_EVENT, { detail: { id, completed } }))
+}
 
 /** Lets a form above JournalShell request a turn without moving its live form/provider tree. */
-export function requestJournalPageTurnFrom(source: HTMLElement | null, direction: JournalTurnDirection, commit: () => void, expectedSearch?: string) {
+export function requestJournalPageTurnFrom(source: HTMLElement | null, direction: JournalTurnDirection, prepare: () => void, commit: () => void, expectedSearch?: string, cancel?: () => void) {
   const book = source?.closest<HTMLElement>('.mm-journal-book') ?? source?.querySelector<HTMLElement>('.mm-journal-book')
   if (!book) {
+    prepare()
     commit()
     return true
   }
-  const detail: JournalPageTurnRequestDetail = { direction, commit, expectedSearch, handled: false, accepted: false }
+  const detail: JournalPageTurnRequestDetail = { direction, prepare, commit, expectedSearch, cancel, handled: false, accepted: false }
   book.dispatchEvent(new CustomEvent<JournalPageTurnRequestDetail>(JOURNAL_PAGE_TURN_EVENT, { bubbles: true, cancelable: true, detail }))
   if (!detail.handled) {
+    prepare()
     commit()
     return true
   }
@@ -68,7 +79,7 @@ export function requestJournalPageTurnFrom(source: HTMLElement | null, direction
 
 const defaultContext: JournalPageTurnContextValue = {
   isTurning: false,
-  requestPageTurn: (_direction, commit) => { commit(); return true },
+  requestPageTurn: (_direction, prepare, commit) => { prepare(); commit(); return true },
   turn: null,
   finish: () => undefined,
 }
@@ -189,7 +200,7 @@ export function JournalPageTurnLayer({ turn, finish }: { turn: TurnState; finish
   useLayoutEffect(() => {
     const containers = [underLeft.current, underRight.current, underSingle.current, frontFace.current, backFace.current]
     containers.forEach((container) => container?.replaceChildren())
-    if (!turn || turn.phase !== 'playing') return
+    if (!turn || turn.phase === 'capture') return
     const underTarget = turn.underSide === 'left' ? underLeft.current
       : turn.underSide === 'right' ? underRight.current
         : turn.underSide === 'single' ? underSingle.current : null
@@ -199,14 +210,14 @@ export function JournalPageTurnLayer({ turn, finish }: { turn: TurnState; finish
     return () => containers.forEach((container) => container?.replaceChildren())
   }, [turn])
 
-  if (!turn || turn.phase !== 'playing') return null
+  if (!turn || turn.phase === 'capture') return null
   const leafClass = `mm-turn-leaf mm-turn-leaf--${turn.direction}`
   const leafStyle = { '--mm-turn-duration': `${turn.duration}ms` } as CSSProperties
-  const onAnimationEnd = (event: AnimationEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) finish(turn.id)
+  const onTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget && event.propertyName === 'transform') finish(turn.id)
   }
 
-  return <div className="mm-page-turn-layer" data-journal-page-turn="true" data-direction={turn.direction} data-layout={turn.layout} data-duration={turn.duration} aria-hidden="true" inert>
+  return <div className="mm-page-turn-layer" data-journal-page-turn="true" data-turn-id={turn.id} data-direction={turn.direction} data-layout={turn.layout} data-duration={turn.duration} data-phase={turn.phase} aria-hidden="true" inert>
     {turn.under && <div ref={underLeft} className="mm-turn-under mm-turn-under--left" />}
     {turn.under && <div ref={underRight} className="mm-turn-under mm-turn-under--right" />}
     {turn.under && <div ref={underSingle} className="mm-turn-under mm-turn-under--single" />}
@@ -214,7 +225,7 @@ export function JournalPageTurnLayer({ turn, finish }: { turn: TurnState; finish
       <div className={`mm-turn-cast mm-turn-cast--${turn.direction === 'forward' ? 'right' : 'left'} mm-turn-cast--reveal`} />
       <div className={`mm-turn-cast mm-turn-cast--${turn.direction === 'forward' ? 'left' : 'right'} mm-turn-cast--land`} />
     </>}
-    <div key={turn.id} className={leafClass} style={leafStyle} data-direction={turn.direction} data-layout={turn.layout} onAnimationEnd={onAnimationEnd}>
+    <div key={turn.id} className={leafClass} style={leafStyle} data-direction={turn.direction} data-layout={turn.layout} data-phase={turn.phase} onTransitionEnd={onTransitionEnd}>
       <div ref={frontFace} className="mm-turn-face mm-turn-face--front"><div className="mm-turn-shade" /></div>
       <div ref={backFace} className={`mm-turn-face mm-turn-face--back${turn.back ? '' : ' mm-turn-face--blank'}`}><div className="mm-turn-shade" /></div>
     </div>
@@ -241,36 +252,60 @@ export function useJournalPageTurnManager({
 
   const finish = useCallback((id: number) => {
     if (pending.current?.id !== id) return
-    pending.current = null
-    active.current = false
-    setTurn((current) => current?.id === id ? null : current)
+    const request = pending.current
+    let completed = false
+    try {
+      request.commit()
+      completed = true
+    }
+    finally {
+      notifyTurnFinished(id, completed)
+      pending.current = null
+      active.current = false
+      setTurn((current) => current?.id === id ? null : current)
+    }
   }, [])
 
-  const requestPageTurn = useCallback((direction: JournalTurnDirection, commit: () => void, expectedSearch?: string) => {
+  const cancel = useCallback((id: number) => {
+    if (pending.current?.id !== id) return
+    const request = pending.current
+    pending.current = null
+    active.current = false
+    try { request.cancel?.() }
+    finally {
+      notifyTurnFinished(id, false)
+      setTurn((current) => current?.id === id ? null : current)
+    }
+  }, [])
+
+  const requestPageTurn = useCallback((direction: JournalTurnDirection, prepare: () => void, commit: () => void, expectedSearch?: string, onCancel?: () => void) => {
     if (active.current) return false
     const book = bookRef.current
     const layout: JournalTurnLayout = singleLayout ? 'single' : 'spread'
     const id = ++sequence.current
     const old = book ? takePageSnapshot(book, layout, `mm-turn-${id}-old`) : { left: null, right: null, single: null }
     if (!book || (layout === 'single' ? !old.single : !old.right)) {
+      prepare()
       commit()
       return true
     }
     if (reducedMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      prepare()
       commit()
       return true
     }
 
-    const pendingTurn: PendingTurn = { id, direction, layout, old, pathname, search, expectedSearch }
+    const pendingTurn: PendingTurn = { id, direction, layout, old, pathname, search, expectedSearch, commit, cancel: onCancel }
     pending.current = pendingTurn
     active.current = true
     setTurn({ ...pendingTurn, phase: 'capture' })
     try {
-      commit()
+      prepare()
     } catch (error) {
       pending.current = null
       active.current = false
       setTurn(null)
+      onCancel?.()
       throw error
     }
     return true
@@ -298,35 +333,32 @@ export function useJournalPageTurnManager({
         under = request.old.right
         underSide = 'right'
       }
-    } else if (request.direction === 'forward') {
-      front = request.old.single
     } else {
-      front = next.single
-      under = request.old.single
-      underSide = 'single'
+      front = request.old.single
+      back = next.single
     }
     if (!front) return finish(request.id)
-    const duration = request.layout === 'spread' ? 820 : 620
-    setTurn({ ...request, phase: 'playing', under, underSide, front, back, duration })
+    setTurn({ ...request, phase: 'ready', under, underSide, front, back, duration: 580 })
   }, [turn, bookRef, finish])
 
   useLayoutEffect(() => {
-    if (!turn || turn.phase !== 'playing') return
-    const request = pending.current
-    if (!request || request.id !== turn.id) return finish(turn.id)
-    if (pathname !== request.pathname) return finish(turn.id)
-    if (search !== request.search) {
-      if (request.expectedSearch === search) request.expectedSearch = undefined
-      else return finish(turn.id)
-    }
-  }, [turn, pathname, search, finish])
+    if (!turn || turn.phase !== 'ready') return
+    const id = turn.id
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setTurn((current) => current?.id === id && current.phase === 'ready' ? { ...current, phase: 'playing' } : current)
+    }))
+  }, [turn])
 
   useLayoutEffect(() => {
-    if (!turn || turn.phase !== 'playing') return
-    const id = turn.id
-    const timer = window.setTimeout(() => finish(id), turn.duration + 80)
-    return () => window.clearTimeout(timer)
-  }, [turn, finish])
+    if (!turn || turn.phase === 'capture') return
+    const request = pending.current
+    if (!request || request.id !== turn.id) return finish(turn.id)
+    if (pathname !== request.pathname) return cancel(turn.id)
+    if (search !== request.search) {
+      if (request.expectedSearch === search) request.expectedSearch = undefined
+      else return cancel(turn.id)
+    }
+  }, [turn, pathname, search, finish, cancel])
 
   useLayoutEffect(() => {
     if (!turn) return

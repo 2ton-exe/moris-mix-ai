@@ -7,7 +7,7 @@ import { emptyRecipeDraft, editorState, moveRow, validateEditor } from './draft'
 import { confirmedSave, RecipeSubmissionError, submissionMessage } from './submission'
 import { RecipeFormField } from './RecipeFormField'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
-import { requestJournalPageTurnFrom } from '../journal/JournalPageTurn'
+import { requestJournalPageTurnFrom, useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { RecipeWritingTurns } from './RecipeWritingTurns'
 import { formPagePosition, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, recipeFormSection, visibleFormLeafIndices } from './physicalFormPages'
@@ -47,6 +47,8 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const [celebrating, setCelebrating] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const [pageAnchor, setPageAnchor] = useState<string>('identity')
+  const [previewAnchor, setPreviewAnchor] = useState<string | null>(null)
+  const { isTurning } = useJournalPageTurn()
   const submitting = useRef(false)
   const lifetime = useRef(0)
   const controller = useRef<AbortController | null>(null)
@@ -57,7 +59,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const requestedStart = useRef(0)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const leaves = useMemo(() => recipeFormLeaves(state, single), [state, single])
-  const currentLeafIndex = leafIndexForAnchor(leaves, pageAnchor)
+  const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
   const finalPage = position.page === position.total - 1
@@ -87,7 +89,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const modeChanged = previousSingle.current !== null && previousSingle.current !== single
     previousSingle.current = single
     const request = focusRequest.current
-    if (pending || !request) {
+    if (pending || isTurning || !request) {
       if (modeChanged && document.activeElement === document.body && lastFocusedControl.current) {
         const remembered = lastFocusedControl.current
         const control = Array.from(formRef.current?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
@@ -117,7 +119,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       target = named instanceof HTMLElement ? named : formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
     target?.focus({ preventScroll: request === 'leaf-heading' })
-  }, [state, errors, pending, pageAnchor, single, leaves])
+  }, [state, errors, pending, isTurning, pageAnchor, single, leaves])
 
   useLayoutEffect(() => {
     requestedStart.current = single ? currentLeafIndex : Math.floor(currentLeafIndex / 2) * 2
@@ -176,16 +178,17 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   }
 
   function turnToPage(page: number): boolean {
-    if (pending || page < 0 || page >= position.total) return false
+    if (pending || isTurning || page < 0 || page >= position.total) return false
     const firstIndex = single ? page : page * 2
     const leaf = leaves[firstIndex]
     if (!leaf) return false
-    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => {
+    return requestJournalPageTurnFrom(formRef.current, page > position.page ? 'forward' : 'backward', () => setPreviewAnchor(leafAnchorForPage(leaf)), () => {
       requestedStart.current = firstIndex
       setPageAnchor(leafAnchorForPage(leaf))
+      setPreviewAnchor(null)
       focusRequest.current = 'leaf-heading'
       if (!reviewWorkflow) setAnnouncement('Opened ' + formPagePosition(firstIndex, leaves.length, single).text + '.')
-    })
+    }, undefined, () => setPreviewAnchor(null))
   }
 
   function handlePageKeys(event: KeyboardEvent<HTMLFormElement>) {
@@ -224,7 +227,14 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const targetIndex = leafIndexForAnchor(leaves, targetKey)
       const targetPage = single ? targetIndex : Math.floor(targetIndex / 2)
       if (targetPage !== position.page) {
-        const accepted = requestJournalPageTurnFrom(formRef.current, targetPage > position.page ? 'forward' : 'backward', focusInvalidField)
+        const accepted = requestJournalPageTurnFrom(formRef.current, targetPage > position.page ? 'forward' : 'backward', () => {
+          setErrors(next)
+          setPreviewAnchor(targetKey)
+        }, () => {
+          setPageAnchor(targetKey)
+          setPreviewAnchor(null)
+          if (first && fieldPathExists(first)) focusField(first)
+        }, undefined, () => setPreviewAnchor(null))
         if (accepted) return
       }
     }
@@ -340,6 +350,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const pageIndex = single ? currentLeafIndex : visibleIndices[1]
 
   function visitNextErrorPage() {
+    if (isTurning) return
     const index = otherErrorLeafIndices[0]
     if (index === undefined) return
     const path = errorPaths.find((candidate) => leafIndexForAnchor(leaves, leafKeyForFieldPath(candidate, state)) === index)
@@ -349,12 +360,20 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const openErrorPage = () => {
       if (index >= 0) requestedStart.current = single ? index : Math.floor(index / 2) * 2
       setPageAnchor(key)
+      setPreviewAnchor(null)
       if (path) focusField(path)
       else focusRequest.current = 'leaf-heading'
       setAnnouncement('Opened another page with an error.')
     }
     if (targetPage !== position.page) {
-      const accepted = requestJournalPageTurnFrom(formRef.current, targetPage > position.page ? 'forward' : 'backward', openErrorPage)
+      const accepted = requestJournalPageTurnFrom(formRef.current, targetPage > position.page ? 'forward' : 'backward', () => setPreviewAnchor(key), () => {
+        requestedStart.current = single ? index : Math.floor(index / 2) * 2
+        setPageAnchor(key)
+        setPreviewAnchor(null)
+        if (path) focusField(path)
+        else focusRequest.current = 'leaf-heading'
+        setAnnouncement('Opened another page with an error.')
+      }, undefined, () => setPreviewAnchor(null))
       if (accepted) return
     }
     openErrorPage()
