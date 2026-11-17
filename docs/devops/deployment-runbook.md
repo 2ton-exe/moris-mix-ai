@@ -82,18 +82,24 @@ It serves as a reference for team members maintaining the application and as sup
 | Frontend hosting       | Cloudflare Workers with Static Assets |
 | Deployment CLI         | Supabase CLI and Wrangler             |
 
-At `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` (checked 2026-11-15), the
-production release has four unconditional Edge Function deployment steps:
+At baseline `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` (checked
+2026-11-15), the production release had four unconditional Edge Function
+deployment steps:
 `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`.
 `account-export` is explicitly disabled with `if: false`. The upload signer and
 private download URL functions deploy only when `VITE_RECIPE_IMAGES == 'true'`;
 the cleanup function deploys only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-When both image and cleanup are enabled, Modular Main runs read-only readiness
-for the same commit before the release continues. The readiness job uses the
-`main`-restricted image environment without reviewer approval. The release also
-requires the image migrations in the production ledger. The frontend deploys to
-Cloudflare after the applicable function steps succeed. Production database
-migrations remain separate and are not applied by the ordinary application release.
+That configuration required a successful, manually dispatched readiness run for
+the exact main SHA with a matching production environment URL when image UI was
+enabled, plus the required production image migrations. The frontend deployed to
+Cloudflare after the applicable function steps succeeded. Production database
+migrations remained separate and were not applied by the ordinary application
+release.
+
+In the current workflow, when both image and cleanup are enabled, Modular Main
+runs read-only readiness for the same commit before the release continues. The
+readiness job uses the `main`-restricted image environment without reviewer
+approval. The release still requires the image migrations in the production ledger.
 
 ## 3. CI/CD Pipeline Architecture
 
