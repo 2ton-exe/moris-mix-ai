@@ -1,6 +1,6 @@
 # Project-wide DevOps Pipeline Metrics
 
-> Current architecture and policy are dated to the inspected main SHA in section 1.
+> Section 1 records the workflow baseline inspected on main; the current image-readiness integration is described below.
 > Sections 2–12 preserve Sprint 1/2 measurements and their historical scope;
 > references to a "current" sample within those records mean that checkpoint.
 > Sections 13–14 record Sprint 3 optimization and preliminary Sprint 4 evidence.
@@ -77,7 +77,7 @@ These are distinct claims, not automatic promotions: a check may pass without be
 - **Cloudflare Worker:** `moris-mix-ai`
 - **Production Branch:** `main`
 
-The historical main inspection snapshot was `f36b1fc17ff34601995ca38d183e0a4fb28cccb8`. Current workflow configuration was inspected against `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` on 2026-11-15; the frozen preliminary measurements in section 14 remain unchanged. `ci.yml` is retired. [Modular PR Validation](../../.github/workflows/modular-pr-validation.yml) owns PR validation and eligible staging delivery; [Modular Main Validation](../../.github/workflows/modular-main.yml) is the sole production caller. These are active workflows, not shadow duplicates.
+The historical main inspection snapshot was `f36b1fc17ff34601995ca38d183e0a4fb28cccb8`. Baseline workflow configuration was inspected against `main` SHA `0dd27d0fbba8f5cca5a7153229bda68b985be78c` on 2026-11-15; the frozen preliminary measurements in section 14 remain unchanged. `ci.yml` is retired. [Modular PR Validation](../../.github/workflows/modular-pr-validation.yml) owns PR validation and eligible staging delivery; [Modular Main Validation](../../.github/workflows/modular-main.yml) is the sole production caller. These are active workflows, not shadow duplicates.
 
 The current validation paths are:
 
