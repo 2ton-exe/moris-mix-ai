@@ -101,6 +101,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     const pagePosition = page.locator('.mm-review-progress')
     const currentPosition = await pagePosition.innerText()
     await pageNavigation.getByRole('button', { name: /^Previous:/ }).click()
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
     await expect(pagePosition).not.toHaveText(currentPosition)
     await expect(page.getByLabel('Recipe title')).toHaveValue(reviewedTitle)
     await expect(page.getByRole('textbox', { name: 'Ingredient 1 name' }).filter({ visible: true })).toHaveValue('free-range chicken')

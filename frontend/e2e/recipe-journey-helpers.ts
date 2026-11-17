@@ -59,6 +59,7 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
     await expect(nextPage).toBeEnabled()
     const currentPosition = await pagePosition.innerText()
     await nextPage.click()
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
     await expect(pagePosition).not.toHaveText(currentPosition)
   }
 
@@ -72,6 +73,7 @@ export async function finishRecipeReview(page: Page) {
     const progress = page.locator('.mm-review-progress')
     const current = await progress.innerText()
     await next.click()
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
     await expect(progress).not.toHaveText(current)
   }
   await expect(page.getByRole('button', { name: 'Save recipe' })).toBeVisible()
