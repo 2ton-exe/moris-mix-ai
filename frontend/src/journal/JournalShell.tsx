@@ -37,7 +37,7 @@ function PublicLinks({ attached = false }: { attached?: boolean }) {
 }
 
 function JournalNavigation() {
-  const { pathname, search, hash } = useLocation()
+  const { pathname, search, hash, state } = useLocation()
   const path = pathname.replace(/\/+$/, '')
   const creating = path === '/app/recipes/new'
   const quickEntry = /^\/app\/quick-entry(?:\/|$)/.test(path)
@@ -46,8 +46,8 @@ function JournalNavigation() {
   const returnState = collection ? { journalReturn: pathname + search + hash } : undefined
   return <nav className="mm-bookmarks mm-bookmarks--journal" aria-label="Journal sections">
     <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !quickEntry && !chef ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
-    <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" state={returnState} aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
-    <Link className="mm-bookmark mm-bookmark--rose" to="/app/quick-entry" state={returnState} aria-current={quickEntry ? 'page' : undefined}><Sparkles size={16} aria-hidden="true" />Quick AI Entry</Link>
+    <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" state={creating ? state : returnState} aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
+    <Link className="mm-bookmark mm-bookmark--rose" to="/app/quick-entry" state={path === '/app/quick-entry' ? state : returnState} aria-current={quickEntry ? 'page' : undefined}><Sparkles size={16} aria-hidden="true" />Quick AI Entry</Link>
     <Link className="mm-bookmark mm-bookmark--lilac" to="/app/chef" aria-current={chef ? 'page' : undefined}><ChefHat size={16} aria-hidden="true" />AI Chef</Link>
   </nav>
 }
