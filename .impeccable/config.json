@@ -1,0 +1,44 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/mori/mori-companion.css"
+        ],
+        "createdAt": "2026-11-18T20:03:01.261Z",
+        "reason": "Agent: These opposite borders build Mori’s outlined CSS speech-bubble pointer, not a colored accent on a card."
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "frontend/src/mori/mori-companion.css"
+        ],
+        "createdAt": "2026-11-18T20:03:01.391Z",
+        "reason": "Agent: The top and bottom borders form the taper of Mori’s CSS speech-bubble pointer; no rounded card has an accent border."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/quick-ai/quickAiEntry.css"
+        ],
+        "createdAt": "2026-11-18T20:03:01.620Z",
+        "reason": "Agent: Existing paper-journal UI uses token-colored rails for storage, error, cooldown, and validated-draft states; the quote rail marks source notes."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/ai-chef/aiChef.css"
+        ],
+        "createdAt": "2026-11-18T20:03:01.697Z",
+        "reason": "Agent: Existing paper-journal UI uses token-colored rails to distinguish request/storage errors, recipe context, and lineage recovery state."
+      }
+    ]
+  }
+}
