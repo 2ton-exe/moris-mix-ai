@@ -5,9 +5,9 @@ import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPa
 import { RecipeCard } from './RecipeCard'
 import type { RecipeSummary } from './types'
 
-export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, end, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
+export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, endOfResults, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
   recipes?: RecipeSummary[]; pages: number[]; perPage: number; index: boolean
-  header: ReactNode; controls: ReactNode; status: ReactNode; end: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
+  header: ReactNode; controls: ReactNode; status: ReactNode; endOfResults: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
@@ -34,7 +34,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
       <div className="mm-page-body mm-index-results" role="region" aria-label="Recipe index results" tabIndex={0}>
         {status}
         {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={i + 1} indexCard />)}</ul> : empty}
-        {end}
+        {endOfResults}
       </div>
     </section>
     <JournalPageFooter><div className="mm-collection-footer">{pagination}</div></JournalPageFooter>
@@ -58,7 +58,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
           {hasMore && recipes.length < right * perPage && <p role="status">Opening this collection page…</p>}
           {!hasMore && recipes.length < right * perPage && <Link to="/app/recipes/new" className="mm-empty-slot">+ Add a recipe</Link>}
         </> : empty}
-        {end}
+        {endOfResults}
       </div>
     </section>
     <JournalPageFooter><div className="mm-collection-footer">

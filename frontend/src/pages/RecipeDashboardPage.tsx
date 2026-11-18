@@ -49,7 +49,7 @@ export default function RecipeDashboardPage() {
   const restorePaginationFocus = useRef(false)
   const retryPageButton = useRef<HTMLButtonElement>(null)
   const loadMoreButton = useRef<HTMLButtonElement>(null)
-  const endOfResults = useRef<HTMLParagraphElement>(null)
+  const endOfResultsRef = useRef<HTMLParagraphElement>(null)
   const firstPageRetryButton = useRef<HTMLButtonElement>(null)
   const restoreFirstPageFocus = useRef(false)
   const collectionTitle = useRef<HTMLHeadingElement>(null)
@@ -60,7 +60,7 @@ export default function RecipeDashboardPage() {
     const focused = document.activeElement
     if (focused !== document.body && document.contains(focused)) return
     const target = query.isFetchNextPageError ? retryPageButton.current
-      : query.hasNextPage ? loadMoreButton.current : endOfResults.current
+      : query.hasNextPage ? loadMoreButton.current : endOfResultsRef.current
     target?.focus()
   }, [query.hasNextPage, query.isFetchNextPageError, query.isFetchingNextPage])
   useEffect(() => {
@@ -197,8 +197,8 @@ export default function RecipeDashboardPage() {
       {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update" role="status">Updating your collection…</p>}
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
-      end={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext)
-        ? <p ref={endOfResults} className="discovery-end" role="status" tabIndex={-1}>End of results.</p> : null}
+      endOfResults={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext)
+        ? <p ref={endOfResultsRef} className="discovery-end" role="status" tabIndex={-1}>End of results.</p> : null}
       empty={recipes ? empty : null} pagination={recipes ? pagination : null}
       previous={<>
         {canPrevious ? <Link className="button mm-button--page-turn" to={pageLink(single ? leaf - 1 : Math.max(1, pages[0] - 2))}

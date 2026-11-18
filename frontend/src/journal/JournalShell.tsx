@@ -58,7 +58,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   mode?: 'journal' | 'reading' | 'writing' | 'demo'; publicNavigation?: boolean; ownerName?: string
 }) {
   const location = useLocation()
-  const companionEnabled = !publicNavigation && location.pathname.startsWith('/app/')
+  const companionEnabled = !publicNavigation && (location.pathname === '/app' || location.pathname.startsWith('/app/'))
   const bookRef = useRef<HTMLDivElement>(null)
   const [facingPage, setFacingPage] = useState<HTMLDivElement | null>(null)
   const [leftPagination, setLeftPagination] = useState<HTMLDivElement | null>(null)

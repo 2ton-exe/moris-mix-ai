@@ -12,7 +12,7 @@ export async function settleJournalLayout(page, reference = false) {
     const single = width < 1100 || height < 640
     const paperHeight = Math.min(800, height - 156, (width - 268) / 2 / (reference ? 1 : 1.052) / .74)
     const paperWidth = paperHeight * .74
-    const companionGutter = !reference && width > 600 && stage.closest('.mm-desk--with-companion')
+    const companionGutter = !reference && width > 600 && /^\/app(?:\/|$)/.test(globalThis.location.pathname)
     const expected = single ? Math.min(width - (companionGutter ? 178 : 62), 620) + 27
       : 2 * (paperWidth + paperWidth * .024 + 3 + paperWidth * .056 / 2)
     const layoutMatches = reference
