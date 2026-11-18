@@ -25,3 +25,5 @@ supabase/.temp/
 # Local review context — do not push to GitHub
 /review-context/
 /.scratch/mori-companion/
+/docs/qa/MORI-01-page-turns.md
+/docs/qa/evidence/mori-page-turns/
