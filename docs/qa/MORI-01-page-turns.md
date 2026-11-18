@@ -83,6 +83,8 @@ Measured maxima and sample totals are retained in the accompanying engine JSON f
 
 During development, the old transition-event assertions, late-readiness settlement race, validation-focus timing and mobile footer clipping failed verification and were corrected. An overloaded parallel run hit an unrelated auth wait timeout; the clean full run above passed.
 
+The first remote Chromium CRUD run also exposed an ambiguous writing-progress locator after splitting the footer. It now selects the exact right-side navigation and its canonical live counter, including review flows.
+
 Two legacy browser assumptions were also updated: the shell has three section links and no Mori feature chooser; reading now scrolls inside its body while the footer stays fixed. A stale transparent-delete-button color assertion was removed; target, focus, confirmation and recovery assertions remain.
 
 ## Evidence
