@@ -24,3 +24,4 @@ supabase/.temp/
 
 # Local review context — do not push to GitHub
 /review-context/
+/.scratch/mori-companion/
