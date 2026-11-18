@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
-import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, GripVertical, Plus, X } from 'lucide-react'
 import type { RecipeDraft, RecipeEditorState } from './draft'
 import { emptyRecipeDraft, editorState, moveRow, validateEditor } from './draft'
 import { confirmedSave, RecipeSubmissionError, submissionMessage } from './submission'
@@ -13,6 +13,7 @@ import { RecipeWritingTurns } from './RecipeWritingTurns'
 import { formPagePosition, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, recipeFormSection, visibleFormLeafIndices } from './physicalFormPages'
 import type { RecipeFormLeaf } from './physicalFormPages'
 import type { RecipeFormProps } from './RecipeForm'
+import { useIngredientDrag } from './useIngredientDrag'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
@@ -59,6 +60,10 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const [compact, setCompact] = useState(false)
   const requestedStart = useRef(0)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
+  const moveDialog = useRef<HTMLDialogElement>(null)
+  const movePosition = useRef<HTMLInputElement>(null)
+  const movingIngredient = useRef<string | null>(null)
+  const ingredientDrag = useIngredientDrag(`${single}:${compact}:${isTurning}:${pageAnchor}:${pending}`)
   const desktopReview = !single && !!reviewPages?.length
   const leaves = useMemo(() => recipeFormLeaves(state, single, desktopReview ? reviewPages.map(({ title }) => title) : [], compact), [state, single, desktopReview, reviewPages, compact])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
@@ -195,7 +200,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   function focusStable(key: string) { focusRequest.current = 'focus-key:' + key }
 
   function turnToPage(page: number): boolean {
-    if (pending || isTurning || page < 0 || page >= position.total) return false
+    if (pending || isTurning || ingredientDrag.active() || page < 0 || page >= position.total) return false
     const firstIndex = single ? page : page * 2
     const leaf = leaves[firstIndex]
     if (!leaf) return false
@@ -294,11 +299,31 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     focusStable(nextRow ? 'instruction:' + nextRow.key + ':text' : 'add-step')
   }
 
-  function moveIngredient(key: string, index: number, offset: number) {
-    change({ ...state, ingredients: moveRow(state.ingredients, index, offset) })
+  function moveIngredient(key: string, destination: number) {
+    const index = state.ingredients.findIndex((item) => item.key === key)
+    if (index < 0 || index === destination || destination < 0 || destination >= state.ingredients.length) return
+    const item = state.ingredients[index]
+    change({ ...state, ingredients: moveRow(state.ingredients, index, destination - index) })
     setPageAnchor('ingredient:' + key)
-    focusStable('ingredient:' + key + ':name')
-    setAnnouncement('Ingredient ' + (index + 1) + ' moved ' + (offset < 0 ? 'up.' : 'down.'))
+    focusStable('ingredient:' + key + (single ? ':name' : ':move'))
+    setAnnouncement(`${item.name.trim() || 'Ingredient ' + (index + 1)} moved to position ${destination + 1} of ${state.ingredients.length}.`)
+  }
+
+  function openIngredientMove(key: string, index: number) {
+    if (!moveDialog.current || !movePosition.current) return
+    movingIngredient.current = key
+    movePosition.current.value = String(index + 1)
+    moveDialog.current.showModal()
+    movePosition.current.select()
+  }
+
+  function confirmIngredientMove() {
+    const key = movingIngredient.current
+    const position = movePosition.current
+    if (!key || !position?.reportValidity()) return
+    const destination = position.valueAsNumber - 1
+    moveDialog.current?.close()
+    moveIngredient(key, destination)
   }
 
   function moveInstruction(key: string, index: number, offset: number) {
@@ -310,7 +335,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (submitting.current || saved || (reviewWorkflow && !finalPage)) return
+    if (submitting.current || ingredientDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !finalPage)) return
     setMessage(null)
     setCelebrating(false)
     const result = validateEditor(state)
@@ -367,7 +392,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const pageIndex = single ? currentLeafIndex : visibleIndices[1]
 
   function visitNextErrorPage() {
-    if (isTurning) return
+    if (isTurning || ingredientDrag.active()) return
     const index = otherErrorLeafIndices[0]
     if (index === undefined) return
     const path = errorPaths.find((candidate) => leafIndexForAnchor(leaves, leafKeyForFieldPath(candidate, state)) === index)
@@ -450,41 +475,57 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
         </div>
         <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
         {!items.length && <p className="editor-empty">No ingredients yet.</p>}
-        {items.map(({ item, rowIndex }) => <fieldset className="recipe-editor-row" key={item.key}>
-          <legend>Ingredient {rowIndex + 1}</legend>
-          {showExtractionHints && item.inferred && <div className="recipe-ai-estimate">
-            <span>AI suggested · Needs review</span>
-            <button className="button button-secondary" type="button" aria-label={`Mark as reviewed: ingredient ${rowIndex + 1}`} onClick={() => {
-              focusStable('ingredient:' + item.key + ':name')
-              change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, inferred: false } : row) })
-              setAnnouncement('Ingredient ' + (rowIndex + 1) + ' marked as reviewed.')
-            }}>Mark as reviewed</button>
-          </div>}
-          {showExtractionHints && !item.quantityText.trim() && (!item.quantity.trim() || !item.unit.trim()) && <p className="recipe-ai-gap" role="note">
-            {!item.quantity.trim() && !item.unit.trim() ? 'Quantity and unit not specified.' : !item.quantity.trim() ? 'Quantity not specified.' : 'Unit not specified.'}
-          </p>}
-          <div className="recipe-ingredient-fields">
-            <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>name</>} error={errors['ingredients.' + rowIndex + '.name']}>
-              <input {...field('ingredients.' + rowIndex + '.name', false, 'ingredient:' + item.key + ':name')} maxLength={200} value={item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, name: event.target.value } : row) })} />
-            </RecipeFormField>
-            <div className="recipe-amount-row">
-              <RecipeFormField id={field('ingredients.' + rowIndex + '.quantity').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>quantity</>} error={errors['ingredients.' + rowIndex + '.quantity']}>
-                <input {...field('ingredients.' + rowIndex + '.quantity', false, 'ingredient:' + item.key + ':quantity')} inputMode="decimal" value={item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantity: event.target.value } : row) })} />
+        {items.map(({ item, rowIndex }) => {
+          const card = <fieldset className={'recipe-editor-row' + (single ? '' : ' recipe-ingredient-card')}>
+            <legend className={single ? undefined : 'visually-hidden'}>Ingredient {rowIndex + 1}</legend>
+            {!single && <div className="recipe-ingredient-card__heading">
+              <button className="recipe-ingredient-control recipe-ingredient-handle" type="button"
+                title="Drag or move to position" aria-label={`Move ingredient ${rowIndex + 1}${item.name.trim() ? ': ' + item.name.trim() : ''}`}
+                aria-haspopup="dialog" data-form-focus-key={`ingredient:${item.key}:move`} disabled={state.ingredients.length < 2}
+                onPointerDown={(event) => ingredientDrag.begin(event, (destination) => moveIngredient(item.key, destination), () => setAnnouncement('Ingredient move cancelled.'))}
+                onClick={(event) => { if (ingredientDrag.shouldOpenMove(event)) openIngredientMove(item.key, rowIndex) }}>
+                <GripVertical size={19} aria-hidden="true" />
+              </button>
+              <span aria-hidden="true">Ingredient {rowIndex + 1}</span>
+              <button className="recipe-ingredient-control recipe-ingredient-remove" type="button" title="Remove ingredient"
+                aria-label={`Remove ingredient ${rowIndex + 1}`} onClick={() => removeIngredient(item.key, rowIndex)}><X size={17} aria-hidden="true" /></button>
+            </div>}
+            {showExtractionHints && item.inferred && <div className="recipe-ai-estimate">
+              <span>AI suggested · Needs review</span>
+              <button className="button button-secondary" type="button" aria-label={`Mark as reviewed: ingredient ${rowIndex + 1}`} onClick={() => {
+                focusStable('ingredient:' + item.key + ':name')
+                change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, inferred: false } : row) })
+                setAnnouncement('Ingredient ' + (rowIndex + 1) + ' marked as reviewed.')
+              }}>Mark as reviewed</button>
+            </div>}
+            {showExtractionHints && !item.quantityText.trim() && (!item.quantity.trim() || !item.unit.trim()) && <p className="recipe-ai-gap" role="note">
+              {!item.quantity.trim() && !item.unit.trim() ? 'Quantity and unit not specified.' : !item.quantity.trim() ? 'Quantity not specified.' : 'Unit not specified.'}
+            </p>}
+            <div className="recipe-ingredient-fields">
+              <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>name</>} error={errors['ingredients.' + rowIndex + '.name']}>
+                <input {...field('ingredients.' + rowIndex + '.name', false, 'ingredient:' + item.key + ':name')} maxLength={200} value={item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, name: event.target.value } : row) })} />
               </RecipeFormField>
-              <RecipeFormField id={field('ingredients.' + rowIndex + '.unit').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>unit</>} error={errors['ingredients.' + rowIndex + '.unit']}>
-                <input {...field('ingredients.' + rowIndex + '.unit', false, 'ingredient:' + item.key + ':unit')} maxLength={100} value={item.unit} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, unit: event.target.value } : row) })} />
+              <div className="recipe-amount-row">
+                <RecipeFormField id={field('ingredients.' + rowIndex + '.quantity').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>quantity</>} error={errors['ingredients.' + rowIndex + '.quantity']}>
+                  <input {...field('ingredients.' + rowIndex + '.quantity', false, 'ingredient:' + item.key + ':quantity')} inputMode="decimal" value={item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantity: event.target.value } : row) })} />
+                </RecipeFormField>
+                <RecipeFormField id={field('ingredients.' + rowIndex + '.unit').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>unit</>} error={errors['ingredients.' + rowIndex + '.unit']}>
+                  <input {...field('ingredients.' + rowIndex + '.unit', false, 'ingredient:' + item.key + ':unit')} maxLength={100} value={item.unit} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, unit: event.target.value } : row) })} />
+                </RecipeFormField>
+              </div>
+              <RecipeFormField id={field('ingredients.' + rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>amount description <small>(optional)</small></>} error={errors['ingredients.' + rowIndex + '.quantityText']}>
+                <input {...field('ingredients.' + rowIndex + '.quantityText', false, 'ingredient:' + item.key + ':quantityText')} maxLength={200} value={item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantityText: event.target.value } : row) })} />
               </RecipeFormField>
             </div>
-            <RecipeFormField id={field('ingredients.' + rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>amount description <small>(optional)</small></>} error={errors['ingredients.' + rowIndex + '.quantityText']}>
-              <input {...field('ingredients.' + rowIndex + '.quantityText', false, 'ingredient:' + item.key + ':quantityText')} maxLength={200} value={item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantityText: event.target.value } : row) })} />
-            </RecipeFormField>
-          </div>
-          <div className="recipe-row-actions">
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveIngredient(item.key, rowIndex, -1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' up'}><ArrowUp size={16} aria-hidden="true" /> Up</button>
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.ingredients.length - 1} onClick={() => moveIngredient(item.key, rowIndex, 1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' down'}><ArrowDown size={16} aria-hidden="true" /> Down</button>
-            <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeIngredient(item.key, rowIndex)} aria-label={'Remove ingredient ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /> Remove</button>
-          </div>
-        </fieldset>)}
+            {single && <div className="recipe-row-actions">
+              <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveIngredient(item.key, rowIndex - 1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' up'}><ArrowUp size={16} aria-hidden="true" /> Up</button>
+              <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.ingredients.length - 1} onClick={() => moveIngredient(item.key, rowIndex + 1)} aria-label={'Move ingredient ' + (rowIndex + 1) + ' down'}><ArrowDown size={16} aria-hidden="true" /> Down</button>
+              <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeIngredient(item.key, rowIndex)} aria-label={'Remove ingredient ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /> Remove</button>
+            </div>}
+          </fieldset>
+          return single ? <Fragment key={item.key}>{card}</Fragment>
+            : <div className="recipe-ingredient-slot" data-ingredient-slot={rowIndex} key={item.key}>{card}</div>
+        })}
         {(!items.length || containsLast) && <button className="button mm-row-add" type="button" name="add-ingredient" data-form-focus-key="add-ingredient" onClick={addIngredient} disabled={state.ingredients.length >= 100}><Plus size={16} aria-hidden="true" /> Add ingredient</button>}
       </section>
     } else {
@@ -576,5 +617,18 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
     {renderFrame ? renderFrame(content) : content}
+    <dialog className="recipe-ingredient-move" ref={moveDialog} aria-labelledby={prefix + '-move-title'}>
+      <h2 id={prefix + '-move-title'}>Move ingredient</h2>
+      <label htmlFor={prefix + '-move-position'}>Move to position</label>
+      <input id={prefix + '-move-position'} ref={movePosition} type="number" min={1} max={state.ingredients.length}
+        required aria-describedby={prefix + '-move-range'} onKeyDown={(event) => {
+          if (event.key === 'Enter') { event.preventDefault(); confirmIngredientMove() }
+        }} />
+      <p id={prefix + '-move-range'} className="field-hint">Choose a position from 1 to {state.ingredients.length}.</p>
+      <div className="actions">
+        <button type="button" className="mm-button mm-button--paper" onClick={() => moveDialog.current?.close()}>Cancel</button>
+        <button type="button" className="mm-button mm-button--burgundy" onClick={confirmIngredientMove}>Move ingredient</button>
+      </div>
+    </dialog>
   </form>
 }
