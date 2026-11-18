@@ -51,6 +51,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const [retryRequest, setRetryRequest] = useState<MoriRetry | null>(null)
   const id = useRef(1)
   const reviewSequence = useRef(0)
+  const reviewKeys = useRef(new WeakMap<MoriDraft, number>())
   const requestId = useRef(0)
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
@@ -60,6 +61,15 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   function say(role: Message['role'], text: string, draft?: MoriDraft) {
     const message = { id: id.current++, role, text, ...(draft ? { draft } : {}) }
     setMessages((current) => [...current, message])
+  }
+
+  function reviewKeyFor(draft: MoriDraft) {
+    let key = reviewKeys.current.get(draft)
+    if (key === undefined) {
+      key = ++reviewSequence.current
+      reviewKeys.current.set(draft, key)
+    }
+    return key
   }
 
   useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight }, [messages])
@@ -209,7 +219,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     const navigation = requestedNavigation(text)
     if (navigation) { openRoute(navigation.path, navigation.message, navigation.focus); return }
 
-    const explicitWorkflow = requestedWorkflow(text)
+    const explicitWorkflow = requestedWorkflow(text, mode === 'create' && followUp !== null)
     const selected = explicitWorkflow ?? mode
     if (!selected) {
       say('assistant', 'I can help make a recipe from cooking notes, suggest something from your pantry, or open your recipes. Pick one below or tell me what you need.')
@@ -240,7 +250,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       say('assistant', 'Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')
       navigate('/app/quick-entry/review', { state: {
         moriKeepOpen: true,
-        moriReviewKey: ++reviewSequence.current,
+        moriReviewKey: reviewKeyFor(draft),
         sourceJournalReturn: '/app/recipes',
       } })
       return
@@ -263,7 +273,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     navigate('/app/chef/review', { state: {
       moriKeepOpen: true,
       chefGenerationSucceeded: true,
-      moriReviewKey: ++reviewSequence.current,
+      moriReviewKey: reviewKeyFor(draft),
     } })
   }
 

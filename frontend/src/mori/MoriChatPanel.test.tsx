@@ -58,10 +58,10 @@ it('asks only for missing recipe fields and opens an unsaved editable review', a
   expect(screen.queryByText(/recipe name/)).toBeNull()
   expect(readQuickAiEntryDraftResult(userId).draft.handoff).toBeNull()
 
-  send('Tomatoes and broth; simmer until soft.')
+  send('I have tomatoes and broth; simmer until soft.')
   await screen.findByRole('button', { name: 'Review draft' })
   expect(extract).toHaveBeenCalledTimes(2)
-  expect(extract.mock.calls[1]?.[0]).toBe('I simmered tomatoes for soup.\n\nAdditional details: Tomatoes and broth; simmer until soft.')
+  expect(extract.mock.calls[1]?.[0]).toBe('I simmered tomatoes for soup.\n\nAdditional details: I have tomatoes and broth; simmer until soft.')
   expect(readQuickAiEntryDraftResult(userId).draft.handoff).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
@@ -70,6 +70,7 @@ it('asks only for missing recipe fields and opens an unsaved editable review', a
   const reviewDraft = { title: 'My edited soup', ingredients: [], instructions: [], rating: '', cookedDate: '', notes: '' }
   writeQuickAiEntryDraft(userId, { ...readQuickAiEntryDraftResult(userId).draft, reviewDraft })
   fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
   expect(screen.getAllByText('Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')).toHaveLength(2)
   expect(screen.queryByText(/already a Quick AI Entry draft in progress/)).toBeNull()
   expect(readQuickAiEntryDraftResult(userId).draft.reviewDraft).toEqual(reviewDraft)

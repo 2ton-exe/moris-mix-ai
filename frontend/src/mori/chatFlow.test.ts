@@ -15,6 +15,8 @@ describe('Mori chat intent and recipe details', () => {
     expect(requestedWorkflow('I cooked this last night')).toBe('create')
     expect(requestedWorkflow('What can I make with lentils?')).toBe('suggest')
     expect(requestedWorkflow('I have rice and eggs')).toBe('suggest')
+    expect(requestedWorkflow('I have tomatoes and broth', true)).toBeNull()
+    expect(requestedWorkflow('What can I cook with tomatoes?', true)).toBe('suggest')
     expect(requestedWorkflow('Tell me a joke')).toBeNull()
   })
 

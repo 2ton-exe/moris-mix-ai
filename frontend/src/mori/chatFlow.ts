@@ -21,8 +21,9 @@ export function requestedNavigation(text: string): MoriNavigation | null {
   return null
 }
 
-export function requestedWorkflow(text: string): MoriWorkflow | null {
-  if (/\b(?:what can i (?:cook|make)|what should i (?:cook|make)|find something to cook|meal idea|suggest\b|i have\b|we have\b)\b/i.test(text)) return 'suggest'
+export function requestedWorkflow(text: string, pendingCreateFollowUp = false): MoriWorkflow | null {
+  if (/\b(?:what can i (?:cook|make)|what should i (?:cook|make)|find something to cook|meal idea|suggest\b)\b/i.test(text) ||
+    (!pendingCreateFollowUp && /\b(?:i have|we have)\b/i.test(text))) return 'suggest'
   if (/\b(?:i (?:made|cooked)|we (?:made|cooked)|write (?:a )?recipe|record (?:a )?recipe|organize (?:my )?notes|recipe notes)\b/i.test(text)) return 'create'
   return null
 }
