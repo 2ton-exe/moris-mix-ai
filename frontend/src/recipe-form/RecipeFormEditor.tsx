@@ -432,21 +432,16 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const targetPage = single ? index : Math.floor(index / 2)
     const openErrorPage = () => {
       if (index >= 0) requestedStart.current = single ? index : Math.floor(index / 2) * 2
-      setPageAnchor(key)
       setPreviewAnchor(null)
-      if (path) focusField(path)
-      else focusRequest.current = 'leaf-heading'
+      if (path) prepareFieldForFocus(path)
+      else {
+        setPageAnchor(key)
+        focusRequest.current = 'leaf-heading'
+      }
       setAnnouncement('Opened another page with an error.')
     }
     if (targetPage !== position.page) {
-      const accepted = requestJournalPageTurnFrom(formRef.current, targetPage > position.page ? 'forward' : 'backward', () => setPreviewAnchor(key), () => {
-        requestedStart.current = single ? index : Math.floor(index / 2) * 2
-        setPageAnchor(key)
-        setPreviewAnchor(null)
-        if (path) focusField(path)
-        else focusRequest.current = 'leaf-heading'
-        setAnnouncement('Opened another page with an error.')
-      }, undefined, () => setPreviewAnchor(null))
+      const accepted = requestJournalPageTurnFrom(formRef.current, targetPage > position.page ? 'forward' : 'backward', () => setPreviewAnchor(key), openErrorPage, undefined, () => setPreviewAnchor(null))
       if (accepted) return
     }
     openErrorPage()
@@ -506,7 +501,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
           {reviewWorkflow && estimateCount === 0 && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('ingredients') ? 'Check fields' : 'Ready'}</span>}
         </div>
         <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
-        <div className="recipe-ingredient-list" hidden={desktop && Boolean(editingIngredientKey)}>
+        <div className="recipe-ingredient-list" hidden={desktop && Boolean(editing)}>
           {!items.length && <p className="editor-empty">No ingredients yet.</p>}
           {items.map(({ item, rowIndex }) => {
             const amount = item.quantityText.trim() || [item.quantity.trim(), item.unit.trim()].filter(Boolean).join(' ')
