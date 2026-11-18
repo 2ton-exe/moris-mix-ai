@@ -5,7 +5,7 @@ export type ChefProgressStage = 'pantry' | 'generating' | 'review' | 'saved'
 const steps = ['Pantry', 'Review idea', 'Your journal']
 
 export function ChefProgress({ stage }: { stage: ChefProgressStage }) {
-  const current = stage === 'pantry' ? 0 : stage === 'saved' ? 2 : 1
+  const current = stage === 'review' ? 1 : stage === 'saved' ? 2 : 0
 
   return <PaperCard className="mm-ai-chef__journey" surface="fresh" tape="sage">
     <p className="mm-ai-chef__journey-kicker">AI Chef</p>
@@ -13,7 +13,7 @@ export function ChefProgress({ stage }: { stage: ChefProgressStage }) {
     <ol aria-label="AI Chef progress">
       {steps.map((label, index) => <li key={label} className={index < current ? 'is-complete' : undefined} aria-current={index === current ? 'step' : undefined}>
         <span className="mm-ai-chef__journey-mark" aria-hidden="true">{index < current ? '✓' : index + 1}</span>
-        <span>{index < current && <span className="visually-hidden">Completed: </span>}{label}</span>
+        <span>{index < current && <span className="visually-hidden">Completed: </span>}{stage === 'generating' && index === current ? 'Preparing your recipe…' : label}</span>
       </li>)}
     </ol>
   </PaperCard>

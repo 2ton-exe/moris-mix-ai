@@ -200,7 +200,7 @@ try {
   const notes = page.getByRole('textbox', { name: 'Cooking notes' })
   await expect(notes).toHaveAttribute('maxlength', '10000')
   await expect(page.getByRole('link', { name: 'Back to journal' })).toBeVisible()
-  await expect(page.locator('.mm-quick-ai-intro .mm-mori')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Talk to Mori' })).toBeVisible()
 
   extractionMode = 'provider'
   const storageFailurePage = await context.newPage()
@@ -332,7 +332,12 @@ try {
   await page.screenshot({ path: path.join(outputDir, 'desktop-extracted-recipe-review.png'), fullPage: true })
 
   await page.getByRole('button', { name: 'Next: Instructions' }).click()
-  await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
+  const turningSheet = page.locator('[data-journal-page-turn]')
+  const companion = page.getByRole('group', { name: 'Mori companion' })
+  await expect(turningSheet).toHaveAttribute('data-direction', 'forward')
+  await expect(companion).toHaveAttribute('data-turn-direction', 'forward')
+  await expect(turningSheet).toHaveCount(0)
+  await expect(companion).not.toHaveAttribute('data-turn-direction', 'forward')
   await expect(page.locator('textarea[name="instructions.0.text"]:not([disabled])')).toHaveValue('Boil the chicken with garlic.')
   await page.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }).click()
   await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
@@ -430,7 +435,7 @@ try {
   await expect(page.getByText('private quota detail')).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Back to journal' }).click()
-  await expect(page).toHaveURL(`${origin}app`)
+  await expect(page).toHaveURL(`${origin}app/recipes`)
   await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('curry notes that remain after quota failure')
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
@@ -496,10 +501,10 @@ try {
   await reducedMotionPage.getByRole('textbox', { name: 'Cooking notes' }).fill('notes prepared with reduced motion enabled')
   extractionMode = 'slow-success'
   await reducedMotionPage.getByRole('button', { name: 'Organize my notes' }).click()
-  const loadingMori = reducedMotionPage.locator('.mm-quick-ai__loading .mm-mori')
-  await expect(loadingMori).toHaveAttribute('data-animated', 'true')
+  const loadingMori = reducedMotionPage.getByRole('group', { name: 'Mori companion' })
+  await expect(loadingMori).toHaveAttribute('data-activity', 'working')
   await expect(loadingMori).toBeVisible()
-  assert.equal(await loadingMori.locator('.mori-spoon').evaluate((element) => globalThis.getComputedStyle(element).animationName), 'none', 'Mori kept animating under reduced motion')
+  await expect(loadingMori.locator('.mm-mori')).not.toHaveAttribute('data-animated', 'true')
   await expect(reducedMotionPage.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(errors, [])
   await context.close()

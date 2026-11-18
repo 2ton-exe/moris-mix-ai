@@ -1,6 +1,4 @@
 /* Shared journal content compositions. The cover geometry lives in journal-shell.css. */
-.mm-desk-companion { position: relative; width: min(calc(100% - 48px), 1040px); margin: 28px auto 0; }
-.mm-desk-companion:empty { display: none; }
 .mm-desk .journal-footer { margin-top: auto; padding-top: 20px; color: var(--mm-color-ink-soft); font: 12px/1.6 var(--mm-font-sans); }
 .mm-desk .journal-footer a { display: inline-block; padding-block: 8px; text-decoration: underline; text-underline-offset: 3px; }
 .mm-desk footer span { color: inherit; padding: 0; }
@@ -38,7 +36,6 @@
 .mm-public-note p { margin: 8px 0; }
 .mm-public-note .mm-handwriting { font: 500 24px/1.4 var(--mm-font-hand); color: var(--mm-color-burgundy-700); }
 @media (max-width: 540px) {
-  .mm-desk-companion { width: calc(100% - 20px); }
   .mm-public-page .actions { align-items: stretch; flex-direction: column; }
   .mm-journal-page .recipe-card.mm-recipe-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .mm-journal-page .recipe-card.mm-recipe-card .mm-recipe-artwork { width: 140px; }

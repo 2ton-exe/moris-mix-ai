@@ -153,7 +153,7 @@ try {
       await page.getByRole('heading', { name: 'Combined match: rice & beans' }).waitFor()
       lastQuery = new globalThis.URLSearchParams(recipeRequests.at(-1))
       assert.equal(lastQuery.get('sort'), 'rating')
-      assert.equal(await page.getByRole('combobox', { name: 'Filters' }).isDisabled(), true)
+      await expect(page.getByRole('combobox', { name: 'Filters' })).toHaveCount(0)
 
       await searchInput.fill('slow')
       await page.getByRole('status').filter({ hasText: 'Waiting to search' }).waitFor()

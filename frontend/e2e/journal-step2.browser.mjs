@@ -179,7 +179,7 @@ try {
       await page.getByRole('link', { name: 'Search & index' }).click()
       await expect(page.getByRole('searchbox')).toHaveValue('pasta')
       await expect(page.getByRole('combobox', { name: 'Sort recipes' })).toHaveValue('rating')
-      await page.getByRole('link', { name: 'My scraps', exact: true }).click()
+      await page.getByRole('link', { name: 'Browse journal', exact: true }).click()
       await page.setViewportSize({ width: 390, height: 900 })
       await settleJournalLayout(page)
       await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))

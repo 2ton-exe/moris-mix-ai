@@ -65,7 +65,7 @@ try {
     async function checkShell(label) {
       await expect(page.getByRole('main')).toHaveCount(1)
       await expect(bookmarks).toBeVisible()
-      await expect(bookmarks.getByRole('link')).toHaveCount(3)
+      await expect(bookmarks.getByRole('link')).toHaveCount(4)
       await assertJournalGeometry(page, `${width}px ${label}`)
       const overflow = await page.evaluate(() => ({
         viewport: globalThis.innerWidth, document: globalThis.document.documentElement.scrollWidth,
@@ -86,6 +86,10 @@ try {
         }))
         assert.equal(focusState.focused && focusState.outline !== 'none', true, `${width}px ${label} bookmark ${await control.innerText()}: ${JSON.stringify(focusState)}`)
       }
+      await page.evaluate(() => {
+        globalThis.document.activeElement?.blur()
+        globalThis.scrollTo({ top: 0, behavior: 'instant' })
+      })
       await page.screenshot({ path: path.join(outputDir, `${width}-${label}.png`) })
     }
 
@@ -95,6 +99,24 @@ try {
     await assertJournalSemantics(page, `${width}px dashboard`)
     await expect(bookmarks.getByRole('link', { name: 'My recipes' })).toHaveAttribute('aria-current', 'page')
     await checkShell('dashboard')
+    if (width === 1440) {
+      const devtools = await context.newCDPSession(page)
+      for (const type of ['protanopia', 'deuteranopia', 'tritanopia']) {
+        await devtools.send('Emulation.setEmulatedVisionDeficiency', { type })
+        await page.screenshot({ path: path.join(outputDir, `1440-${type}.png`) })
+      }
+      await devtools.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' })
+      await devtools.detach()
+    }
+    await page.getByRole('link', { name: 'Search & index' }).click()
+    const results = page.getByRole('region', { name: 'Recipe index results' })
+    await expect(results.getByText('End of results.')).toBeVisible()
+    assert.ok(await results.getByRole('link', { name: `Open recipe ${recipe.title}` }).evaluate((link) => {
+      const end = link.closest('[role=region]').querySelector('.discovery-end')
+      return Boolean(link.compareDocumentPosition(end) & globalThis.Node.DOCUMENT_POSITION_FOLLOWING)
+    }), 'Collection completion follows the recipe results')
+    await checkShell('index')
+    await page.getByRole('link', { name: 'Browse journal' }).click()
     const companion = page.getByRole('group', { name: 'Mori companion' })
     const model = await moriBookmark.boundingBox()
     assert.ok(model, 'Mori has a visible draggable character')
@@ -119,6 +141,13 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-mori-assistant.png`) })
     await page.keyboard.press('Escape')
 
+    const parked = await moriBookmark.boundingBox()
+    assert.ok(parked)
+    await page.mouse.move(parked.x + parked.width / 2, parked.y + parked.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(model.x + model.width / 2, model.y + model.height / 2, { steps: 8 })
+    await page.mouse.up()
+
     await page.keyboard.press('Control+Home')
     await page.getByRole('link', { name: 'Skip to journal content' }).focus()
     await page.keyboard.press('Enter')
@@ -135,6 +164,7 @@ try {
     await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
     await expect(moriBookmark).toHaveAttribute('aria-expanded', 'false')
     await expect(bookmarks.getByRole('link', { name: 'My recipes' })).not.toHaveAttribute('aria-current', 'page')
+    await expect(bookmarks.getByRole('link', { name: 'Quick AI Entry' })).toHaveAttribute('aria-current', 'page')
     await checkShell('quick-entry')
     const sourceNotes = 'notes from the recipe collection'
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(sourceNotes)
@@ -170,7 +200,7 @@ try {
     // Direct edit loading and journal bookmarks retain the editor's dirty guard.
     await page.goto(`${origin}app/recipes/${recipe.id}/edit`)
     await expect(page.getByLabel('Recipe title')).toHaveValue(recipe.title)
-    await expect(bookmarks.locator('[aria-current]')).toHaveCount(0)
+    await expect(bookmarks.getByRole('link', { name: 'My recipes' })).toHaveAttribute('aria-current', 'page')
     await checkShell('edit')
     await bookmarks.getByRole('link', { name: 'New recipe' }).click()
     await expect(page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
@@ -224,6 +254,8 @@ try {
     if (width === 1440) {
       // Reflow equivalent to 200% in a 1440×900 viewport. Native browser zoom
       // and DPR are verified separately by journal-zoom.browser.mjs.
+      await page.evaluate(() => globalThis.localStorage.removeItem('moris-mix:mori-companion'))
+      await page.reload()
       await page.setViewportSize({ width: 720, height: 450 })
       await settleJournalLayout(page)
       await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))

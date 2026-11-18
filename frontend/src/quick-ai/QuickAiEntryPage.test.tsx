@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { createMemoryRouter, Link, Outlet, RouterProvider, useLocation } from 'react-router'
+import { createMemoryRouter, Outlet, RouterProvider, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
@@ -42,7 +42,6 @@ function JournalIndex() {
   return <section>
     <h1>Your journal</h1>
     <output data-testid="journal-location">{returnTo}</output>
-    <Link to="/app/quick-entry" state={{ journalReturn: returnTo }}>Quick AI Entry</Link>
   </section>
 }
 

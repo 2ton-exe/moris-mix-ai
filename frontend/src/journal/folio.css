@@ -13,8 +13,8 @@
 .mm-desk--writing .mm-form-identity .recipe-form-section:first-child h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .mm-desk--writing .recipe-form-field { min-width: 0; margin: 0 0 14px; }
 .mm-desk--writing .recipe-form-field label { display: block; margin-bottom: 4px; color: var(--mm-color-ink-soft); font: 700 11px/1.35 var(--mm-font-sans); letter-spacing: .07em; text-transform: uppercase; }
-.mm-desk--writing .recipe-form-field :is(input, textarea, select) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 7px 3px; border: 0; border-bottom: 2px solid rgb(87 70 53 / .48); border-radius: 0; color: var(--mm-color-ink); background: transparent; box-shadow: none; font: 400 16px/1.5 var(--mm-font-serif); }
-.mm-desk--writing .recipe-form-field :is(input, textarea)[name='title'] { font-size: 26px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.mm-desk--writing .recipe-form-field :is(input, textarea, select) { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 7px 3px; border: 0; border-bottom: 2px solid rgb(87 70 53 / .48); border-radius: 0; color: var(--mm-color-ink); background: transparent; box-shadow: none; font: 400 1rem/1.5 var(--mm-font-sans); }
+.mm-desk--writing .recipe-form-field :is(input, textarea)[name='title'] { font: 600 1.625rem/1.25 var(--mm-font-serif); overflow-wrap: anywhere; }
 @supports (field-sizing: content) {
   .mm-desk--writing .recipe-form-field textarea[name='title'] { field-sizing: content; max-height: 5lh; }
 }
@@ -60,7 +60,12 @@
 .mm-desk--writing .mm-writing-leaf .recipe-form-section { margin-bottom: 14px; }
 .mm-desk--writing .mm-writing-leaf .recipe-form-section h2 { margin-bottom: 10px; }
 .mm-desk--writing .mm-writing-leaf .recipe-form-field { margin-bottom: 10px; }
-.mm-desk--writing .mm-writing-leaf .recipe-editor-row { margin: 8px 0 14px; }
+.mm-desk--writing .mm-writing-leaf .recipe-editor-row {
+  margin: 8px 0 14px;
+  border-radius: var(--mm-radius-card);
+}
+.mm-desk--writing .recipe-row-actions .button,
+.mm-desk .mm-writing-turns .button { min-height: 44px; }
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-desk--writing .mm-journal-spread:has(.mm-writing-pages) { display: flex; flex-direction: column; overflow: hidden; }
   .mm-desk--writing .mm-journal-flyleaf:has(.mm-facing-content--form) { display: none; }

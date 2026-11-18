@@ -381,9 +381,13 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       <header className="mm-quick-ai-intro">
         <div>
           <h1 tabIndex={-1}>Quick AI Entry</h1>
-          <p className="mm-quick-ai-intro__copy">Turn cooking notes into a recipe draft.</p>
+          <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
         </div>
       </header>
+      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
+        <h2>Example cooking notes</h2>
+        <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
+      </PaperCard>
     </JournalFacingPage>
 
     <section className="mm-quick-ai" aria-label="Quick AI Entry notes">
@@ -399,13 +403,12 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               className="mm-quick-ai__textarea"
               id={notesId}
               name="notes"
-              rows={12}
+              rows={6}
               maxLength={MAX_EXTRACTION_INPUT_CHARS}
               value={draft.notes}
               disabled={loading}
               aria-invalid={validationMessage ? 'true' : undefined}
               aria-describedby={describedBy}
-              placeholder="e.g. Fry two eggs with garlic, then toss with leftover rice and a splash of soy sauce."
               onChange={(event) => updateNotes(event.currentTarget.value)}
             />
             {persistenceFailed && <div className="mm-quick-ai__storage-warning" id={persistenceWarningId} role="alert" aria-atomic="true">

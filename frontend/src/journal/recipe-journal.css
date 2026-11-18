@@ -6,7 +6,7 @@
   text-transform: uppercase;
 }
 .mm-journal-spread:has(.mm-facing-content--index) :is(.mm-journal-flyleaf, .mm-journal-page) {
-  background-color: var(--mm-color-kraft-200);
+  background-color: var(--mm-color-parchment-200);
   background-image: var(--mm-page-curve), var(--mm-tex-fibers), var(--mm-tex-specks), var(--mm-tex-grain), var(--mm-tex-mottle);
   box-shadow: inset 0 0 0 1px rgb(90 60 30 / .22), inset 0 0 50px rgb(90 60 30 / .2);
 }
@@ -32,8 +32,6 @@
   letter-spacing: normal;
   text-transform: none;
 }
-.mm-facing-content--index .discovery-fields input[type='search'] { color: #fff6ea; background: var(--mm-color-ink-soft) var(--mm-tex-grain); }
-.mm-facing-content--index .discovery-fields input::placeholder { color: #f0e4c8; opacity: 1; }
 .mm-facing-content--index .discovery-fields :disabled { color: var(--mm-color-ink-soft); background-color: rgb(253 248 236 / .6); }
 .mm-facing-content--index .discovery-availability {
   margin: 20px 0 0;

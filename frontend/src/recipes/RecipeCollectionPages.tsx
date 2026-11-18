@@ -5,17 +5,17 @@ import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPa
 import { RecipeCard } from './RecipeCard'
 import type { RecipeSummary } from './types'
 
-export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
+export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, end, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
   recipes?: RecipeSummary[]; pages: number[]; perPage: number; index: boolean
-  header: ReactNode; controls: ReactNode; status: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
+  header: ReactNode; controls: ReactNode; status: ReactNode; end: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
   const heading = <header className="mm-collection-heading">
-    {!index && <p className="mm-recipe-index__eyebrow">{`${recipes?.length ?? 0} scraps${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
+    {!index && <p className="mm-recipe-index__eyebrow">{`${recipes?.length ?? 0} ${recipes?.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
-    {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}. A place for the meals that become yours.</p>}
+    {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}.</p>}
     {header}
   </header>
   const entries = (page: number) => {
@@ -34,6 +34,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
       <div className="mm-page-body mm-index-results" role="region" aria-label="Recipe index results" tabIndex={0}>
         {status}
         {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={i + 1} indexCard />)}</ul> : empty}
+        {end}
       </div>
     </section>
     <JournalPageFooter><div className="mm-collection-footer">{pagination}</div></JournalPageFooter>
@@ -55,8 +56,9 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
         {recipes?.length ? <>
           {entries(right)}
           {hasMore && recipes.length < right * perPage && <p role="status">Opening this collection page…</p>}
-          {!hasMore && recipes.length < right * perPage && <Link to="/app/recipes/new" className="mm-empty-slot">+ Room for your next scrap</Link>}
+          {!hasMore && recipes.length < right * perPage && <Link to="/app/recipes/new" className="mm-empty-slot">+ Add a recipe</Link>}
         </> : empty}
+        {end}
       </div>
     </section>
     <JournalPageFooter><div className="mm-collection-footer">

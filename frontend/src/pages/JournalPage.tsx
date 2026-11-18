@@ -1,9 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { Link, Outlet, useLocation } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeSourceContext } from '../recipes/source'
 import { JournalShell } from '../journal/JournalShell'
-import { JournalCompanion } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import type { JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 
@@ -41,7 +40,6 @@ export default function JournalPage() {
       {error && <p className="field-error" role="alert">{error}</p>}
       {source.mode === 'preview' && <p className="recipe-preview-notice" role="note">Sample recipes · Development preview. These recipes are examples, not your saved collection.</p>}
       <Outlet />
-      <JournalCompanion><footer className="journal-footer">A place for the meals that become yours. <Link to="/demo-recipe">Demonstration recipe</Link></footer></JournalCompanion>
     </JournalShell>
   </JournalLogoutGuardContext.Provider>
 }

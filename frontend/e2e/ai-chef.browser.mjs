@@ -200,7 +200,7 @@ async function beginScenario(page, origin, name) {
   resetScenario(name)
   await page.evaluate(() => globalThis.sessionStorage.clear())
   await page.goto(origin + 'app/chef')
-  await expect(page.getByRole('heading', { name: /pantry/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /pantry/, level: 1 })).toBeVisible()
   const pantry = page.getByRole('textbox', { name: 'Pantry ingredient' })
   await pantry.fill('rice')
   await pantry.press('Enter')
@@ -259,8 +259,6 @@ try {
   assert.equal(requests.filter((request) => request.path === '/functions/v1/generate-recipe' ||
     (request.path === '/functions/v1/recipes' && request.method !== 'GET')).length, 0,
   'Opening Talk to Mori initiated AI generation or a recipe write')
-  await chooser.getByRole('link', { name: 'Organize cooking notes' }).focus()
-  await expect(chooser.getByRole('link', { name: 'Organize cooking notes' })).toBeFocused()
   await page.getByRole('link', { name: 'My recipes' }).focus()
   await expect(page.getByRole('link', { name: 'My recipes' })).toBeFocused()
   await expect(chooser).toBeVisible()
@@ -268,8 +266,7 @@ try {
   await page.keyboard.press('Escape')
   await expect(chooser).toHaveCount(0)
   await expect(moriBookmark).toBeFocused()
-  await moriBookmark.click()
-  await page.getByRole('link', { name: "Find something to cook" }).click()
+  await page.getByRole('navigation', { name: 'Journal sections' }).getByRole('link', { name: 'AI Chef' }).click()
   await expect(page).toHaveURL(`${origin}app/chef`)
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 

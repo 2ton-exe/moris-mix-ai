@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { ArrowRight, CookingPot } from 'lucide-react'
 import { useAuth } from '../auth/context'
 import type { RecipeSummary } from './types'
 import { recipeImageApi } from './imageApi'
@@ -74,14 +75,15 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {!indexCard && <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at}
+        {indexCard ? <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" /> : <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at}
           image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
         <div className="mm-recipe-card__copy">
           {!indexCard && <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>}
           <h2>{recipe.title.length > 100 ? `${recipe.title.slice(0, 100)}…` : recipe.title}</h2>
           <RecipeMetadata recipe={recipe} />
-          {!indexCard && <span className="recipe-card-link">Open scrap <span aria-hidden="true">→</span></span>}
+          {!indexCard && <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>}
         </div>
+        {indexCard && <ArrowRight className="mm-index-card__arrow" size={16} aria-hidden="true" />}
       </Link>
     </li>
   )

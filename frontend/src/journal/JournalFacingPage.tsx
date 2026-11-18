@@ -1,6 +1,6 @@
 import { useContext, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
+import { JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
 
 /** One live copy of the route's facing-page content, also used in single-page flow. */
 export function JournalFacingPage({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -15,11 +15,6 @@ export function JournalFacingPage({ children, className = '' }: { children: Reac
   }, [destination])
   const content = <div ref={contentRef} className={`mm-facing-content ${className}`}>{children}</div>
   return destination ? createPortal(content, destination) : content
-}
-
-export function JournalCompanion({ children }: { children: ReactNode }) {
-  const destination = useContext(JournalCompanionContext)
-  return destination ? createPortal(children, destination) : children
 }
 
 /** One footer, outside desktop body scroll regions and sticky in single-page flow. */
