@@ -162,6 +162,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false)
   const [logoutPending, setLogoutPending] = useState(false)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const [guidedNotes, setGuidedNotes] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   useMoriActivity(error
     ? { kind: 'confused', message: error.message }
@@ -183,6 +184,13 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const requestNumber = useRef(0)
   const inFlight = useRef(false)
   const mounted = useRef(true)
+  const moriFocusNotes = typeof location.state === 'object' && location.state !== null && 'moriFocus' in location.state && location.state.moriFocus === 'notes'
+  useEffect(() => {
+    if (!moriFocusNotes) return
+    const frame = window.requestAnimationFrame(() => { notesRef.current?.focus(); setGuidedNotes(true) })
+    const timeout = window.setTimeout(() => setGuidedNotes(false), 2200)
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timeout) }
+  }, [location.key, location.state, moriFocusNotes])
   const retryWait = draft.blockedUntil === null ? 0 : Math.max(0, Math.ceil((draft.blockedUntil - now) / 1000))
   const hasUnsavedContent = draft.notes.trim().length > 0 || handoff !== null
   const navigationConfirmation = useUnsavedChangesGuard(persistenceFailed && hasUnsavedContent, { warnOnUnload: true })
@@ -400,7 +408,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             <label htmlFor={notesId}>Cooking notes</label>
             <textarea
               ref={notesRef}
-              className="mm-quick-ai__textarea"
+              className={`mm-quick-ai__textarea${guidedNotes && moriFocusNotes ? ' mori-guided-focus' : ''}`}
               id={notesId}
               name="notes"
               rows={6}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
@@ -22,6 +22,7 @@ export function AIChefPage() {
 }
 
 function AIChefSession({ userId }: { userId: string }) {
+  const location = useLocation()
   const navigate = useNavigate()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const [pantryItems, setPantryItems] = useState(initialRead.draft.input.pantryItems)
@@ -38,9 +39,11 @@ function AIChefSession({ userId }: { userId: string }) {
   const [entryStatus, setEntryStatus] = useState('')
   const [storageIssue, setStorageIssue] = useState<string | null>(initialRead.status === 'available' ? null : initialRead.status)
   const [discardOpen, setDiscardOpen] = useState(false)
+  const [guidedPantry, setGuidedPantry] = useState(false)
   const inFlight = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const pantryInputRef = useRef<HTMLInputElement>(null)
+  const moriFocusPantry = typeof location.state === 'object' && location.state !== null && 'moriFocus' in location.state && location.state.moriFocus === 'pantry'
   useMoriActivity(requestError || entryError
     ? { kind: requestErrorForPantry || entryError ? 'attention' : 'confused', message: requestError ?? entryError ?? 'Check your pantry ingredients.' }
     : pending
@@ -51,6 +54,13 @@ function AIChefSession({ userId }: { userId: string }) {
     : { message: 'Tell me what you have, and I’ll make an idea for you to review.', action: { label: 'Add ingredients', onClick: () => pantryInputRef.current?.focus() } })
 
   useEffect(() => () => controller.current?.abort(), [])
+
+  useEffect(() => {
+    if (!moriFocusPantry) return
+    const frame = window.requestAnimationFrame(() => { pantryInputRef.current?.focus(); setGuidedPantry(true) })
+    const timeout = window.setTimeout(() => setGuidedPantry(false), 2200)
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timeout) }
+  }, [location.key, location.state, moriFocusPantry])
 
   useEffect(() => {
     if (!retryBlocked) return
@@ -259,6 +269,7 @@ function AIChefSession({ userId }: { userId: string }) {
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
           <input
             ref={pantryInputRef}
+            className={guidedPantry && moriFocusPantry ? 'mori-guided-focus' : undefined}
             id="ai-chef-pantry-item"
             type="text"
             value={pantryInput}

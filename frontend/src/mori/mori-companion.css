@@ -25,6 +25,30 @@
 .mori-pet-panel .mori-pet-close { display: grid; width: 44px; min-height: 44px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--mm-color-burgundy-800); transition: background-color 140ms ease, transform 140ms ease; }
 .mori-pet-panel .mori-pet-close:hover { background: var(--mm-color-parchment-200); transform: rotate(8deg); }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
+.mori-chat { display: grid; min-width: 0; gap: 9px; }
+.mori-chat-log { display: flex; max-height: 190px; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }
+.mori-chat-message { max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid rgb(128 92 59 / .22); border-radius: 12px 12px 12px 4px; background: #fffdf7; font-size: 13px; line-height: 1.4; }
+.mori-chat-message[data-role='user'] { align-self: flex-end; border-color: var(--mm-color-sage-500); border-radius: 12px 12px 4px 12px; background: var(--mm-color-sage-100); }
+.mori-chat-message p { margin: 0; white-space: pre-wrap; }
+.mori-chat-preview { display: grid; gap: 6px; margin-top: 8px; padding-top: 7px; border-top: 1px solid rgb(128 92 59 / .2); }
+.mori-chat-preview h3 { margin: 3px 0; font-size: 12px; }
+.mori-chat-preview :is(ul, ol) { margin: 0; padding-left: 18px; }
+.mori-chat-preview li { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--mm-color-espresso-700); font-size: 12px; }
+.mori-chat-preview span, .mori-chat-preview p { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; }
+.mori-chat-preview button { justify-self: start; margin-top: 2px; border-color: var(--mm-color-sage-700); background: var(--mm-color-sage-600); color: #fffdf7; }
+.mori-chat-shortcuts { display: flex; flex-wrap: wrap; gap: 5px; }
+.mori-chat-shortcuts button { flex: 1 1 auto; min-height: 44px; padding-inline: 8px; border-color: var(--mm-color-sage-500); font-size: 12px; }
+.mori-chat-pending { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--mm-color-sage-900); font-size: 12px; }
+.mori-chat-pending button { flex: 0 0 auto; min-height: 44px; border-color: var(--mm-color-brick-600); }
+.mori-chat-retry { display: flex; justify-content: flex-end; }
+.mori-chat-retry button { min-height: 44px; border-color: var(--mm-color-sage-700); }
+.mori-chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px; }
+.mori-chat-composer textarea { box-sizing: border-box; width: 100%; min-height: 48px; resize: vertical; padding: 8px 9px; border: 1px solid var(--mm-color-espresso-300); border-radius: 8px; background: #fffdf7; color: var(--mm-color-ink); font: 13px/1.4 var(--mm-font-sans); }
+.mori-chat-composer button { min-height: 48px; border-color: var(--mm-color-sage-700); background: var(--mm-color-sage-600); color: #fffdf7; }
+.mori-chat-composer :disabled, .mori-chat-shortcuts :disabled { cursor: not-allowed; opacity: .6; }
+.mori-chat-hint { margin: -5px 0 0 !important; color: var(--mm-color-espresso-700); font-size: 12px !important; }
+.mori-guided-focus { outline: 3px solid var(--mm-color-sage-700) !important; outline-offset: 3px; box-shadow: 0 0 0 6px rgb(166 189 143 / .3); animation: mori-focus-pulse 700ms ease-in-out 3; }
+@keyframes mori-focus-pulse { 50% { box-shadow: 0 0 0 10px rgb(166 189 143 / .16); } }
 .mori-pet-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .mori-pet-character[data-activity='idle'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-breathe 4s ease-in-out infinite; }
 .mori-pet-character[data-activity='curious'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-peek 2.8s ease-in-out infinite; }
@@ -39,7 +63,7 @@
 @keyframes mori-pet-breathe { 50% { transform: scaleY(1.025); } }
 @keyframes mori-pet-peek { 40%, 60% { transform: rotate(-5deg) translateY(-2px); } }
 @keyframes mori-pet-puzzle { 35% { transform: rotate(3deg); } 65% { transform: rotate(-3deg); } }
-@media (prefers-reduced-motion: reduce) { .mori-pet-character, .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg { animation: none !important; transition: none !important; transform: none !important; } }
+@media (prefers-reduced-motion: reduce) { .mori-pet-character, .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg, .mori-guided-focus { animation: none !important; transition: none !important; transform: none !important; } }
 .mori-pet-character[data-turn-direction] { transform-origin: 0 0; }
 .mori-pet-character { pointer-events: none; }
 .mori-pet-trigger { pointer-events: auto; }

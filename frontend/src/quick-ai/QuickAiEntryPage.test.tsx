@@ -90,6 +90,15 @@ afterEach(() => {
 })
 
 describe('Quick AI Entry', () => {
+  it('focuses and highlights the notes field when Mori sends the cook there', async () => {
+    const { router } = renderEntry()
+    await act(() => router.navigate('/app/quick-entry', { state: { moriFocus: 'notes' } }))
+    await waitFor(() => {
+      expect(document.activeElement).toBe(notesField())
+      expect(notesField().className).toContain('mori-guided-focus')
+    })
+  })
+
   it('restores an unsaved draft after session expiry and sign-in when storage fails', async () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError') })
     const router = createMemoryRouter([

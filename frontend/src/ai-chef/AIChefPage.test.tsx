@@ -88,6 +88,16 @@ afterEach(() => {
 })
 
 describe('AI Chef pantry and review workflow', () => {
+  it('focuses and highlights the pantry field when Mori sends the cook there', async () => {
+    const { router } = renderChef()
+    await act(() => router.navigate('/app/chef', { state: { moriFocus: 'pantry' } }))
+    await waitFor(() => {
+      const pantry = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+      expect(document.activeElement).toBe(pantry)
+      expect(pantry.className).toContain('mori-guided-focus')
+    })
+  })
+
   it('uses the shared page-aware companion and keeps recipe generation structured', () => {
     renderChef()
 
