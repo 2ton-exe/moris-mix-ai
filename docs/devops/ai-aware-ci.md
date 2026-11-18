@@ -38,7 +38,7 @@ The [November 15 production report](../ai-evaluation-report.md#production-enable
 ## Deployment/outage boundary
 
 - Neither the required CI test command nor [production AI-route smoke](../../scripts/ai-route-smoke.mjs) calls Gemini. The route smoke checks OPTIONS/CORS and unauthorized POST (HTTP 401); it is not an authenticated AI test or evidence of quota settlement.
-- The [main production workflow](../../.github/workflows/modular-main.yml) gates release on the successful core validation and its documented image-readiness conditions, **not** Gemini availability. The [AI architecture](../ai-architecture.md#6-failures-and-quota) documents degraded responses, and the application can continue non-AI recipe entry. Configuration and successful runs support **pipeline independence**, but no real worldwide Gemini outage was induced in this audit.
+- The [main production workflow](../../.github/workflows/modular-main.yml) gates release on the successful core validation and its documented image-readiness conditions, **not** Gemini availability. The [AI architecture](../ai-architecture.md#6-reliability-failure-behavior) documents degraded responses, and the application can continue non-AI recipe entry. Configuration and successful runs support **pipeline independence**, but no real worldwide Gemini outage was induced in this audit.
 - On [main run 44284529577](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44284529577), Frontend, Database, Edge/API, three-browser E2E, Hosted RLS, image readiness, Supabase/Cloudflare deployment, and the URL/runtime/AI-route smoke steps passed. This was a normal deployment. The `account-export` deploy was intentionally skipped, not passed.
 
 ## Ownership, remaining acceptance, and safe handoff
