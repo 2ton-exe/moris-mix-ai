@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type AnimationEvent, type CSSProperties, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { X } from 'lucide-react'
 import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
-import { JOURNAL_PAGE_TURN_FINISHED_EVENT } from '../journal/JournalPageTurn'
+import { mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { useMoriCompanionState } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
@@ -12,7 +12,6 @@ import './mori-companion.css'
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({ position: z.object({ x: z.number().finite(), y: z.number().finite() }).nullable() })
 type Position = { x: number; y: number }
-type PageTurn = { id: number; direction: 'forward' | 'backward'; startDistance: number; distance: number; verticalDistance: number; target: Position; duration: number; signature: string }
 function readPreferences() {
   try { return preferencesSchema.parse(JSON.parse(localStorage.getItem(storageKey) ?? 'null')) }
   catch { return { position: null } }
@@ -43,11 +42,12 @@ export function MoriCompanion() {
   const [open, setOpen] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
-  const [pageTurn, setPageTurn] = useState<PageTurn | null>(null)
+  const [pageTurn, setPageTurn] = useState(false)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
+  const character = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const bubble = useRef<HTMLDivElement>(null)
@@ -59,7 +59,6 @@ export function MoriCompanion() {
   const size = mobile ? 72 : 96
   const width = size + 20
   const height = size * 1.2 + 64
-  const tabletDock = useJournalMedia('(min-width: 601px) and (max-width: 760px)')
   const left = viewport.left + 8
   const top = viewport.top + 8
   const right = viewport.left + viewport.width - 8
@@ -68,7 +67,7 @@ export function MoriCompanion() {
     x: Math.max(left, Math.min(position.x, right - width)),
     y: Math.max(top, Math.min(position.y, bottom - height)),
   }), [left, right, width, top, bottom, height])
-  const position = clamp(preferences.position ?? { x: mobile ? left + 12 : right - width - 12, y: tabletDock ? top : bottom - height - 12 })
+  const position = clamp(preferences.position ?? { x: mobile ? left + 12 : right - width - 12, y: bottom - height - 12 })
   const actual = mobile ? { ...position, x: position.x < viewport.left + viewport.width / 2 ? left : Math.max(left, right - width) } : position
   const page = companionPage(location.pathname)
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
@@ -89,59 +88,52 @@ export function MoriCompanion() {
   useEffect(() => {
     const check = () => {
       setSuspended(Boolean(document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')))
-      const layer = document.querySelector<HTMLElement>('[data-journal-page-turn][data-direction]')
-      const book = layer?.closest<HTMLElement>('.mm-journal-book')
-      const direction = layer?.dataset.direction
-      if (!layer || !book || (direction !== 'forward' && direction !== 'backward')) {
-        return
-      }
-      if (layer.dataset.phase !== 'playing') return
-      const id = Number(layer.dataset.turnId)
-      const signature = `${id}:${direction}:${layer.dataset.layout}:${layer.dataset.duration}`
-      const rect = book.getBoundingClientRect()
-      const trackY = rect.bottom - size
-      const start = clamp({ x: rect.left + rect.width * (direction === 'forward' ? 0.22 : 0.78) - width / 2, y: trackY })
-      const target = clamp({ x: rect.left + rect.width * (direction === 'forward' ? 0.78 : 0.22) - width / 2, y: trackY })
-      setPageTurn((current) => current?.signature === signature ? current : {
-        id,
-        direction,
-        startDistance: start.x - actual.x,
-        distance: target.x - actual.x,
-        verticalDistance: target.y - actual.y,
-        target,
-        duration: (Number(layer.dataset.duration) || 580) + 140,
-        signature,
-      })
     }
     const observer = new MutationObserver(check)
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'role', 'data-phase'] })
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['open', 'aria-modal', 'role'] })
     check()
     return () => observer.disconnect()
-  }, [actual.x, actual.y, left, right, width, height, size, clamp])
-  useEffect(() => {
-    const finishTurn = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: number; completed: boolean }>).detail
-      if (pageTurn?.id !== detail.id) return
-      if (!detail.completed) {
-        setPageTurn(null)
-        return
-      }
-      setPreferences((previous) => ({ ...previous, position: pageTurn.target }))
-      setPageTurn({ ...pageTurn, startDistance: 0, distance: 0, verticalDistance: 0 })
-    }
-    document.addEventListener(JOURNAL_PAGE_TURN_FINISHED_EVENT, finishTurn)
-    return () => document.removeEventListener(JOURNAL_PAGE_TURN_FINISHED_EVENT, finishTurn)
-  }, [pageTurn])
-  useEffect(() => {
-    if (!reducedMotion || !pageTurn) return
-    setPreferences((previous) => ({ ...previous, position: pageTurn.target }))
-    setPageTurn(null)
-  }, [reducedMotion, pageTurn])
-  function finishPageRun(event: AnimationEvent<HTMLDivElement>) {
-    if (event.target !== event.currentTarget || event.animationName !== 'mori-pet-page-run' || !pageTurn) return
-    setPreferences((previous) => ({ ...previous, position: clamp(pageTurn.target) }))
-    setPageTurn(null)
-  }
+  }, [])
+  useLayoutEffect(() => {
+    const element = character.current
+    const svg = trigger.current?.querySelector('svg')
+    if (!element || !svg) return
+    const arm = svg.querySelector('[data-mori-grip-arm]')
+    const closed = svg.querySelector<SVGElement>('[data-mori-closed-mitt]')
+    const openMitt = svg.querySelector<SVGElement>('[data-mori-open-mitt]')
+    return registerTurnCompanion({
+      start(direction, single) {
+        element.dataset.turnDirection = direction
+        svg.style.transform = 'none'
+        const rect = element.getBoundingClientRect()
+        const art = svg.getBoundingClientRect()
+        const scale = art.width / 200
+        const offset = { x: art.left - rect.left, y: art.top - rect.top }
+        const mirror = !single && direction === 'backward'
+        const turnScale = single ? .6 : 1
+        setPageTurn(true)
+        setOpen(false)
+        return (frame, corner) => {
+          const hand = mittAnchor(frame.armAngle)
+          const target = { x: corner.x - (offset.x + (mirror ? 200 - hand.x : hand.x) * scale) * turnScale, y: corner.y - (offset.y + hand.y * scale) * turnScale }
+          const blend = frame.progress < .18 ? smooth(frame.progress / .18) : 1 - smooth((frame.progress - .9) / .1)
+          element.style.transform = `translate(${(target.x - rect.left) * blend}px, ${(target.y - rect.top) * blend}px) scale(${1 + (turnScale - 1) * blend})`
+          svg.style.transform = mirror ? 'scaleX(-1)' : 'none'
+          arm?.setAttribute('transform', `rotate(${frame.armAngle} 128 168)`)
+          if (closed) closed.style.opacity = String(frame.grip)
+          if (openMitt) openMitt.style.opacity = String(1 - frame.grip)
+          element.dataset.turnStage = frame.stage
+        }
+      },
+      stop() {
+        element.style.removeProperty('transform')
+        svg.style.removeProperty('transform')
+        delete element.dataset.turnDirection
+        delete element.dataset.turnStage
+        setPageTurn(false)
+      },
+    })
+  }, [size])
   useLayoutEffect(() => { if (open) heading.current?.focus() }, [open])
   const gap = 12
   const leftSpace = actual.x - left - gap
@@ -199,12 +191,11 @@ export function MoriCompanion() {
     left: actual.x,
     top: actual.y,
     width,
-    ...(pageTurn ? { '--mori-turn-start-distance': `${pageTurn.startDistance}px`, '--mori-turn-distance': `${pageTurn.distance}px`, '--mori-turn-y-distance': `${pageTurn.verticalDistance}px`, '--mori-turn-duration': `${pageTurn.duration}ms` } : {}),
   } as CSSProperties
   return <div className="mori-pet-root" inert={suspended} style={{ visibility: suspended ? 'hidden' : undefined }}>
     <span className="mori-pet-sr" aria-live="polite">{moved}</span>
     <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
-    <div key={pageTurn?.id ?? 'idle'} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} data-turn-direction={pageTurn?.direction} style={characterStyle} onAnimationEnd={finishPageRun}>
+    <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
       <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined}
         onClick={(event) => {
           if (pageTurn) { event.preventDefault(); return }
@@ -240,7 +231,7 @@ export function MoriCompanion() {
         }}
         onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
         onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>
-        <Mori size={size} mood={pageTurn ? 'turn' : open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
+        <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
       </button>
     </div>
     {open && !pageTurn && <div ref={bubble} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>

@@ -52,3 +52,9 @@
 @media (max-height: 450px) {
   .mm-desk .mm-journal-page:has(.mm-continuation) { min-height: 180px; }
 }
+
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-desk .mm-journal-spread:has(.mm-continuation) { overflow: hidden; }
+  .mm-desk .mm-journal-page:has(.mm-continuation) { height: 100%; padding-bottom: calc(var(--mm-footer-inset) + var(--mm-pagination-height) + var(--mm-footer-height, 0px) + 16px); }
+  .mm-desk .mm-journal-page:has(.mm-continuation) > .mm-journal-page-footer { position: absolute; bottom: var(--mm-footer-inset); left: var(--mm-footer-inset); right: var(--mm-footer-inset); width: auto; margin: 0; padding: 0; }
+}

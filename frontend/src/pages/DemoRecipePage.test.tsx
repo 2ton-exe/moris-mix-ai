@@ -37,7 +37,7 @@ it('shows loading then renders the validated recipe from the API', async () => {
   expect(screen.getByRole('link', { name: 'Back home' })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' }).getAttribute('href')).toBe('/home')
   const pages = screen.getByRole('navigation', { name: 'Recipe reading pages' })
-  expect(pages.closest('.mm-journal-page-footer')?.lastElementChild).toBe(pages)
+  expect(pages.closest('.mm-pagination-band')?.closest('.mm-journal-page-footer')).toBeTruthy()
   expect(screen.queryByRole('navigation', { name: 'Recipe actions' })).toBeNull()
   expect(screen.getAllByRole('link', { name: 'Home' })).toHaveLength(1)
   expect(screen.queryByRole('link', { name: 'Home →' })).toBeNull()

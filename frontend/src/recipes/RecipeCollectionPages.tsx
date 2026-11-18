@@ -1,12 +1,13 @@
+import { JournalPagination } from '../journal/JournalPagination'
 import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { RecipeCard } from './RecipeCard'
 import type { RecipeSummary } from './types'
 
-export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, pagination, turns, titleRef, empty, hasMore, ownerName, sort }: {
+export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
   recipes?: RecipeSummary[]; pages: number[]; perPage: number; index: boolean
-  header: ReactNode; controls: ReactNode; status: ReactNode; pagination: ReactNode; turns: ReactNode
+  header: ReactNode; controls: ReactNode; status: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
@@ -43,10 +44,10 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
     {left > 0 && <JournalFacingPage className="mm-facing-content--collection mm-page-column">
       <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>
       <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left}`} tabIndex={0}>{entries(left)}</div>
-      <span className="mm-recipe-page-number mm-collection-left-number" aria-hidden="true">p. {left}</span>
+
     </JournalFacingPage>}
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
-      {first && heading}
+      {first ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
       {!first && left === 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
       <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes <span>({recipes?.length ?? 0})</span></h2>
       <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}>
@@ -60,7 +61,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
     </section>
     <JournalPageFooter><div className="mm-collection-footer">
       <span className="visually-hidden" aria-live="polite" aria-atomic="true">{left > 0 ? `Collection pages ${left} and ${right}` : `Collection page ${right}`}</span>
-      <nav className="mm-page-turns" aria-label="Recipe index pages">{turns}<span className="mm-recipe-page-number" aria-hidden="true">p. {right}</span></nav>
+      <JournalPagination label="Recipe index pages" previous={previous} next={next} leftNumber={left > 0 ? `p. ${left}` : undefined} rightNumber={`p. ${right}`} />
       {pagination}
     </div></JournalPageFooter>
   </>

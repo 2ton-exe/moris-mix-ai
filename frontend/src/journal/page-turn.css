@@ -1,13 +1,10 @@
-.mm-journal-book {
-  perspective: 1800px;
-  perspective-origin: 50% 50%;
-}
+.mm-journal-book { perspective: none; }
 
 .mm-journal-spread { z-index: 30; }
 .mm-journal-ring-plate { z-index: 20; }
 .mm-journal-holes { z-index: 32; }
 .mm-journal-rings { z-index: auto; }
-.mm-journal-ring__half--left { z-index: 20; }
+.mm-journal-ring__half--left { z-index: 50; }
 .mm-journal-ring__half--right { z-index: 50; }
 .mm-journal-book[data-page-turning] .mm-journal-spread { pointer-events: none; }
 
@@ -19,16 +16,13 @@
   pointer-events: none;
 }
 
-.mm-turn-under,
-.mm-turn-cast,
-.mm-turn-leaf {
+.mm-turn-under, .mm-turn-leaf {
   position: absolute;
   top: var(--mm-overhang);
   width: var(--mm-page-width);
   height: var(--mm-page-height);
   pointer-events: none;
 }
-
 .mm-turn-under { z-index: 0; overflow: hidden; }
 .mm-turn-under--left { left: var(--mm-overhang); }
 .mm-turn-under--right { left: calc(var(--mm-board-width) + var(--mm-gutter) / 2); }
@@ -84,39 +78,8 @@
 .mm-turn-leaf--forward .mm-turn-face--back::after,
 .mm-turn-leaf--backward .mm-turn-face--front::after { right: auto; left: 0; }
 .mm-turn-face--back { transform: rotateY(180deg); }
-.mm-turn-face--blank {
-  border-radius: 2px var(--mm-radius-page) var(--mm-radius-page) 2px;
-  background-color: #f6eedb;
-  background-image: var(--mm-tex-grain), var(--mm-tex-mottle);
-}
-
-.mm-turn-face > :is(.mm-journal-flyleaf, .mm-journal-page) {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-  z-index: auto !important;
-  border-radius: inherit;
-}
 
 .mm-page-turn-layer :is(button, input, textarea, select):disabled { opacity: 1 !important; cursor: inherit !important; }
-.mm-turn-cast { z-index: 1; animation: mm-turn-shadow var(--mm-turn-duration, 580ms) ease-in-out both; }
-.mm-page-turn-layer[data-phase='ready'] .mm-turn-cast { animation-play-state: paused; }
-.mm-turn-cast--right {
-  left: calc(var(--mm-board-width) + var(--mm-gutter) / 2);
-  background: linear-gradient(90deg, rgb(25 14 6 / .34), rgb(25 14 6 / .1) 30%, transparent 62%);
-}
-.mm-turn-cast--left {
-  left: var(--mm-overhang);
-  background: linear-gradient(270deg, rgb(25 14 6 / .34), rgb(25 14 6 / .1) 30%, transparent 62%);
-}
-.mm-turn-cast--reveal { animation-name: mm-turn-cast-reveal; }
-.mm-turn-cast--land { animation-name: mm-turn-cast-land; }
 
 .mm-turn-leaf {
   z-index: 2;
@@ -124,7 +87,6 @@
   transform-style: preserve-3d;
   backface-visibility: visible;
   will-change: transform;
-  transition: transform var(--mm-turn-duration, 580ms) cubic-bezier(.22, 1, .36, 1);
   transform: rotateY(0deg);
 }
 .mm-turn-leaf--forward {
@@ -135,8 +97,6 @@
   left: var(--mm-overhang);
   transform-origin: calc(100% + var(--mm-gutter) / 2) 50%;
 }
-.mm-turn-leaf--forward[data-phase='playing'] { transform: rotateY(-180deg); }
-.mm-turn-leaf--backward[data-phase='playing'] { transform: rotateY(180deg); }
 
 .mm-turn-shade {
   position: absolute;
@@ -145,30 +105,10 @@
   pointer-events: none;
   opacity: 0;
 }
-.mm-turn-leaf[data-phase='playing'] .mm-turn-shade { animation: mm-turn-leaf-shadow var(--mm-turn-duration, 580ms) ease-in-out both; }
 .mm-turn-leaf--forward .mm-turn-face--front .mm-turn-shade,
 .mm-turn-leaf--backward .mm-turn-face--back .mm-turn-shade { background: linear-gradient(90deg, rgb(30 16 6 / .42), rgb(30 16 6 / .08) 45%, rgb(255 250 235 / .12) 92%); }
 .mm-turn-leaf--forward .mm-turn-face--back .mm-turn-shade,
 .mm-turn-leaf--backward .mm-turn-face--front .mm-turn-shade { background: linear-gradient(270deg, rgb(30 16 6 / .42), rgb(30 16 6 / .06) 50%); }
-
-@keyframes mm-turn-shadow {
-  0%, 100% { opacity: 0; }
-  46%, 54% { opacity: .18; }
-}
-@keyframes mm-turn-leaf-shadow {
-  0%, 100% { opacity: 0; }
-  44%, 56% { opacity: .18; }
-}
-@keyframes mm-turn-cast-reveal {
-  0%, 100% { opacity: 0; }
-  18% { opacity: .12; }
-  46%, 54% { opacity: .18; }
-  74% { opacity: .08; }
-}
-@keyframes mm-turn-cast-land {
-  0%, 100% { opacity: 0; }
-  42%, 58% { opacity: .18; }
-}
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-turn-under--left,
@@ -179,10 +119,41 @@
     left: var(--mm-ring-zone);
     transform-origin: 0 50%;
   }
-  .mm-turn-cast { display: none; }
   .mm-turn-face--back::after { display: none; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .mm-page-turn-layer { display: none !important; }
+
+/* The controller supplies every motion value; no competing CSS clocks. */
+.mm-page-turn-layer { perspective-origin: 50% var(--mm-overhang); }
+.mm-turn-leaf { transition: none; }
+.mm-turn-shade { animation: none !important; }
+.mm-turn-content { position: absolute; inset: 0; overflow: hidden; }
+.mm-turn-content > :is(.mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread),
+.mm-turn-under > :is(.mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  margin: 0 !important;
+  z-index: auto !important;
 }
+.mm-turn-under--single > .mm-journal-spread,
+.mm-turn-content > .mm-journal-spread { overflow-y: hidden !important; }
+.mm-turn-corner { position: absolute; top: 0; right: 0; width: 0; height: 0; }
+.mm-turn-leaf--backward .mm-turn-corner { right: auto; left: 0; }
+.mm-turn-face--front { transform: translateZ(.1px); }
+.mm-turn-face--back { transform: rotateY(180deg) translateZ(.1px); }
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-turn-leaf[data-layout='single'] .mm-turn-face--back { transform: translateZ(.1px); }
+  .mm-turn-leaf[data-layout='single'] .mm-turn-corner { left: auto; right: 0; }
+}
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-page-turn-layer { perspective-origin: var(--mm-ring-zone) var(--mm-overhang); }
+}
+.mm-turn-ground-shadow { position: absolute; inset: var(--mm-overhang); background: linear-gradient(90deg, transparent 15%, #271808 49%, #271808 51%, transparent 85%); opacity: var(--mm-turn-shadow, 0); }
+/* A footer belongs to one visible surface until the sheet crosses the spine. */
+.mm-journal-book[data-page-turning] > .mm-journal-spread :is(.mm-journal-page-footer, .mm-pagination-slot--left) { visibility: hidden; }
+.mm-turn-under--reveal :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-under-footer-opacity, 0); }
+.mm-turn-under--single .mm-journal-page-footer { visibility: hidden; }
+.mm-turn-under--retained :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-old-footer-opacity, 1); }

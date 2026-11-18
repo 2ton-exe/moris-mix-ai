@@ -65,12 +65,9 @@ function tree(path: string, state = authState(), duplicateConsumer = false) {
 
 function SecondListConsumer() { useRecipes(); return null }
 
-function finishPageTurn() {
-  const leaf = document.querySelector('.mm-turn-leaf')
-  if (!leaf) return
-  const event = new Event('transitionend', { bubbles: true })
-  Object.defineProperty(event, 'propertyName', { value: 'transform' })
-  fireEvent(leaf, event)
+async function finishPageTurn() {
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('animating'))
+  fireEvent(document.querySelector('[data-journal-page-turn]')!, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
 }
 
 it('reserves a card grid while loading, then renders collection metadata and detail links', async () => {
@@ -130,7 +127,7 @@ it('opens the collection against the inside cover, then fills both pages through
   expect(document.querySelector('.mm-journal-spread')?.hasAttribute('inert')).toBe(true)
   expect(document.querySelectorAll('.mm-journal-spread .mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
   expect(document.querySelectorAll('.mm-journal-spread .mm-journal-page [data-recipe-id]')).toHaveLength(2)
-  finishPageTurn()
+  await finishPageTurn()
   await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
   expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?leaf=2&entry=2')
   const selected = screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })

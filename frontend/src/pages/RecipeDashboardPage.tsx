@@ -176,9 +176,9 @@ export default function RecipeDashboardPage() {
           }}>{query.isFetchingNextPage ? 'Loading more…' : 'Load more'}</button>
         </div>}
         {query.isFetchingNextPage && <p role="status">Loading more recipes…</p>}
-        {source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext) && <p ref={endOfResults} className="discovery-end" role="status" tabIndex={-1}>End of results.</p>}
+
   </>
-  return <>
+  return <div data-journal-ready={query.isFetchNextPageError && turnSearch !== null ? 'error' : turnSearch !== null && (query.isPending || controls.waiting || ((recipes?.length ?? 0) < needed && query.hasNextPage)) ? 'false' : 'true'} className="mm-page-column">
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
@@ -189,6 +189,7 @@ export default function RecipeDashboardPage() {
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>
+        {source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext) && <p ref={endOfResults} className="discovery-end" role="status" tabIndex={-1}>End of results.</p>}
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
       {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
@@ -200,7 +201,7 @@ export default function RecipeDashboardPage() {
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
       empty={recipes ? empty : null} pagination={recipes ? pagination : null}
-      turns={<>
+      previous={<>
         {canPrevious ? <Link className="button mm-button--page-turn" to={pageLink(single ? leaf - 1 : Math.max(1, pages[0] - 2))}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}
           onClick={(event) => {
@@ -208,6 +209,8 @@ export default function RecipeDashboardPage() {
             event.preventDefault()
             turnCollectionPage(single ? leaf - 1 : Math.max(1, pages[0] - 2), 'backward')
           }}>← Previous page</Link> : <span />}
+      </>}
+      next={<>
         {canNext && <Link className="button mm-button--page-turn" to={pageLink(single ? leaf + 1 : rightPage + 1)}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}
           onClick={(event) => {
@@ -215,10 +218,9 @@ export default function RecipeDashboardPage() {
             event.preventDefault()
             turnCollectionPage(single ? leaf + 1 : rightPage + 1, 'forward')
           }}>Next page →</Link>}
-        {!canNext && !source.discovery && <span className="mm-collection-last">Last page</span>}
-        {rightPage > 1 && <Link className="button mm-button--page-turn" to={viewLink('index')} state={{ journalAccount: user?.id }}>Search &amp; index</Link>}
+
       </>}
     />
 
-  </>
+  </div>
 }

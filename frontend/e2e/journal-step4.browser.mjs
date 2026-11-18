@@ -123,7 +123,7 @@ async function snapshot(page, name) {
 }
 
 async function turnDiagnostics(page, reference = false) {
-  if (!reference) await expect(page.locator('[data-journal-page-turn][data-phase="playing"]')).toBeVisible()
+  if (!reference) await expect(page.locator('[data-journal-page-turn][data-phase="animating"]')).toBeVisible()
   return page.evaluate((reference) => {
     const leaf = globalThis.document.querySelector(reference ? '.turn-layer .leaf' : '.mm-turn-leaf')
     if (!leaf) return null
@@ -139,7 +139,7 @@ async function turnDiagnostics(page, reference = false) {
       animationTimingFunction: css.animationTimingFunction,
       transitionDuration: css.transitionDuration,
       transitionTimingFunction: css.transitionTimingFunction,
-      currentTime: leaf.getAnimations()[0]?.currentTime ?? null,
+      currentTime: reference ? leaf.getAnimations()[0]?.currentTime ?? null : Number(leaf.parentElement.dataset.progress) * 900,
       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       box: { width: css.width, height: css.height, offsetWidth: leaf.offsetWidth, offsetHeight: leaf.offsetHeight, boxSizing: css.boxSizing, left: css.left, top: css.top },
       perspective: parentCss ? { name: parent?.className, perspective: parentCss.perspective, perspectiveOrigin: parentCss.perspectiveOrigin, transform: parentCss.transform, transformStyle: parentCss.transformStyle, width: parentCss.width, height: parentCss.height } : null,
@@ -152,7 +152,11 @@ async function turnDiagnostics(page, reference = false) {
 
 async function holdTurnAtMidpoint(page, reference = false, animationTime = 410) {
   const selector = reference ? '.turn-layer' : '[data-journal-page-turn]'
-  if (!reference) await expect(page.locator(`${selector}[data-phase="playing"]`)).toBeVisible()
+  if (!reference) await expect(page.locator(`${selector}[data-phase="animating"]`)).toBeVisible()
+  if (!reference) {
+    await page.locator(selector).evaluate((node, time) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: time / 900 })), animationTime)
+    return [animationTime]
+  }
   return page.evaluate(({ selector, animationTime }) => {
     const layer = globalThis.document.querySelector(selector)
     const animations = layer?.getAnimations({ subtree: true }) ?? []
@@ -166,6 +170,10 @@ async function holdTurnAtMidpoint(page, reference = false, animationTime = 410) 
 
 async function resumeTurn(page, reference = false) {
   const selector = reference ? '.turn-layer' : '[data-journal-page-turn]'
+  if (!reference) {
+    await page.locator(selector).evaluate((node) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
+    return
+  }
   await page.evaluate((selector) => {
     globalThis.document.querySelector(selector)?.getAnimations({ subtree: true }).forEach((animation) => animation.play())
     globalThis.document.querySelector('.mori-pet-character[data-turn-direction]')?.getAnimations().forEach((animation) => animation.play())
@@ -174,16 +182,10 @@ async function resumeTurn(page, reference = false) {
 
 async function holdMoriAtMidpoint(page) {
   return page.locator('.mori-pet-character[data-turn-direction]').evaluate((character) => {
-    const animation = character.getAnimations()[0]
-    if (!animation) return null
-    animation.pause()
-    animation.currentTime = Number.parseFloat(globalThis.getComputedStyle(character).animationDuration) * 500
-    return {
-      direction: character.getAttribute('data-turn-direction'),
-      animationName: globalThis.getComputedStyle(character).animationName,
-      delta: Math.abs(character.getBoundingClientRect().x - Number.parseFloat(character.style.left)),
-      mood: character.querySelector('.mm-mori')?.getAttribute('data-mood'),
-    }
+    const hand = character.querySelector('[data-mori-hand]')
+    const point = new globalThis.DOMPoint(148, 190).matrixTransform(hand.getScreenCTM())
+    const corner = globalThis.document.querySelector('[data-page-corner]').getBoundingClientRect()
+    return { direction: character.dataset.turnDirection, separation: Math.hypot(point.x - corner.x, point.y - corner.y) }
   })
 }
 
@@ -232,9 +234,7 @@ try {
   const forwardTimes = await Promise.all([holdTurnAtMidpoint(appPage, false, 290), holdTurnAtMidpoint(referencePage, true, 410)])
   const forwardMori = await holdMoriAtMidpoint(appPage)
   assert.equal(forwardMori?.direction, 'forward')
-  assert.equal(forwardMori?.animationName, 'mori-pet-page-run')
-  assert.equal(forwardMori?.mood, 'turn')
-  assert.ok((forwardMori?.delta ?? 0) > 40, 'Mori runs across the book while the page turns')
+  assert.ok(forwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
   await expect(appPage.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
   await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
   assert.ok(forwardTimes.flat().length >= 2, 'Both spread turns expose leaf and lighting animations')
@@ -242,7 +242,7 @@ try {
   const forwardMidReference = await turnDiagnostics(referencePage, true)
   assert.ok(forwardMidCurrent, 'The current leaf remains active at the 290ms midpoint')
   assert.ok(forwardMidReference, 'The reference leaf remains active at the 410ms midpoint')
-  assert.equal(forwardMidCurrent.transitionDuration, '0.58s')
+  assert.equal(forwardMidCurrent.transitionDuration, '0s')
   assert.equal(forwardMidReference.animationDuration, '0.82s')
   assert.match(forwardMidCurrent.transform, /^matrix3d\(/)
   assert.notEqual(forwardMidReference.transform, 'none')
@@ -267,13 +267,11 @@ try {
   const backwardTimes = await Promise.all([holdTurnAtMidpoint(appPage, false, 290), holdTurnAtMidpoint(referencePage, true, 410)])
   const backwardMori = await holdMoriAtMidpoint(appPage)
   assert.equal(backwardMori?.direction, 'backward')
-  assert.equal(backwardMori?.animationName, 'mori-pet-page-run')
-  assert.equal(backwardMori?.mood, 'turn')
-  assert.ok((backwardMori?.delta ?? 0) > 40, 'Mori runs across the book when turning back')
+  assert.ok(backwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
   assert.ok(backwardTimes.flat().length >= 2, 'Both backward spread turns expose leaf and lighting animations')
   const backwardMidCurrent = await turnDiagnostics(appPage)
   const backwardMidReference = await turnDiagnostics(referencePage, true)
-  assert.equal(backwardMidCurrent.transitionDuration, '0.58s')
+  assert.equal(backwardMidCurrent.transitionDuration, '0s')
   assert.equal(backwardMidReference.animationDuration, '0.82s')
   assert.match(backwardMidCurrent.transform, /^matrix3d\(/)
   assert.notEqual(backwardMidReference.transform, 'none')
@@ -334,7 +332,7 @@ try {
   const singleCurrent = await turnDiagnostics(appPage)
   const singleReference = await turnDiagnostics(referencePage, true)
   assert.ok(singleTimes.flat().length >= 2)
-  assert.equal(singleCurrent.transitionDuration, '0.58s')
+  assert.equal(singleCurrent.transitionDuration, '0s')
   assert.equal(singleReference.animationDuration, '0.62s')
   assert.equal(singleReference.animationName, 'leaf-fwd-single')
   assert.match(singleCurrent.transform, /^matrix3d\(/)
@@ -359,7 +357,7 @@ try {
   await appPage.keyboard.press('Enter')
   await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
   const readForward = await turnDiagnostics(appPage)
-  assert.equal(readForward.transitionDuration, '0.58s')
+  assert.equal(readForward.transitionDuration, '0s')
   const snapshotCopy = appPage.locator('.mm-page-turn-layer [data-journal-turn-snapshot]')
   await expect(snapshotCopy.first()).toHaveAttribute('aria-hidden', 'true')
   await expect(snapshotCopy.first()).toHaveAttribute('inert', '')
@@ -462,8 +460,8 @@ try {
     'before-forward', 'forward-midpoint', 'forward-complete', 'backward-midpoint', 'backward-complete',
   ]
   const frame = (side, scene) => `<figure><figcaption>${side} · ${scene.replaceAll('-', ' ')}</figcaption><img src="${side}-1440-${scene}.png" alt="${side} ${scene}"></figure>`
-  await writeFile(path.join(output, 'comparison.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>UI-01 Step 4 physical page turns</title><style>body{font:15px system-ui;background:#f8f1e1;color:#2b211b;margin:24px}main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}figure{margin:0 0 20px}img{display:block;width:100%;height:auto}figcaption{padding:6px 0}@media(max-width:900px){main{grid-template-columns:1fr}}</style><h1>UI-01 Step 4 · original and current physical turns</h1><p>Chromium captures at 1440×900, 100% zoom. Both applications use the same six-recipe collection and the original source CSS. The production API is isolated and intercepted. MORI'S MIX frames are held at 290ms of its 580ms transition; original frames are held at 410ms of their 820ms animation. See <a href="measurements.json">turn measurements</a> and <a href="mori-forward-backward.webm">MORI'S MIX recording</a>.</p><main>${scenes.map((scene) => frame('reference', scene) + frame('current', scene)).join('')}</main><h2>Single-page and reduced motion</h2><main><figure><figcaption>Current · single-page midpoint, 390×900</figcaption><img src="current-390-single-midpoint.png" alt="Single page midpoint"></figure><figure><figcaption>Current · reduced motion, 1440×900</figcaption><img src="current-1440-reduced-motion.png" alt="Reduced motion page result"></figure></main></html>`)
-  await writeFile(path.join(output, 'single-page-comparison.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Single-page turn comparison</title><style>body{font:15px system-ui;background:#f8f1e1;color:#2b211b;margin:24px}main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}figure{margin:0}img{display:block;width:100%;height:auto}figcaption{padding:6px 0}@media(max-width:900px){main{grid-template-columns:1fr}}</style><h1>Single-page turn at 390×900</h1><p>Current MORI'S MIX is held at 290ms of its 580ms transition; the original Make reference is held at 310ms of its 620ms animation.</p><main><figure><figcaption>Original Make</figcaption><img src="reference-390-single-midpoint.png" alt="Original Make single-page midpoint"></figure><figure><figcaption>MORI'S MIX</figcaption><img src="current-390-single-midpoint.png" alt="MORI'S MIX single-page midpoint"></figure></main><p><a href="comparison.html">Spread turns</a> · <a href="measurements.json">Measurements</a></p></html>`)
+  await writeFile(path.join(output, 'comparison.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>UI-01 Step 4 physical page turns</title><style>body{font:15px system-ui;background:#f8f1e1;color:#2b211b;margin:24px}main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}figure{margin:0 0 20px}img{display:block;width:100%;height:auto}figcaption{padding:6px 0}@media(max-width:900px){main{grid-template-columns:1fr}}</style><h1>UI-01 Step 4 · original and current physical turns</h1><p>Chromium captures at 1440×900, 100% zoom. Both applications use the same six-recipe collection and the original source CSS. The production API is isolated and intercepted. MORI'S MIX frames are held at 290ms of its 900ms choreography; original frames are held at 410ms of their 820ms animation. See <a href="measurements.json">turn measurements</a> and <a href="mori-forward-backward.webm">MORI'S MIX recording</a>.</p><main>${scenes.map((scene) => frame('reference', scene) + frame('current', scene)).join('')}</main><h2>Single-page and reduced motion</h2><main><figure><figcaption>Current · single-page midpoint, 390×900</figcaption><img src="current-390-single-midpoint.png" alt="Single page midpoint"></figure><figure><figcaption>Current · reduced motion, 1440×900</figcaption><img src="current-1440-reduced-motion.png" alt="Reduced motion page result"></figure></main></html>`)
+  await writeFile(path.join(output, 'single-page-comparison.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Single-page turn comparison</title><style>body{font:15px system-ui;background:#f8f1e1;color:#2b211b;margin:24px}main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}figure{margin:0}img{display:block;width:100%;height:auto}figcaption{padding:6px 0}@media(max-width:900px){main{grid-template-columns:1fr}}</style><h1>Single-page turn at 390×900</h1><p>Current MORI'S MIX is held at 290ms of its 900ms choreography; the original Make reference is held at 310ms of its 620ms animation.</p><main><figure><figcaption>Original Make</figcaption><img src="reference-390-single-midpoint.png" alt="Original Make single-page midpoint"></figure><figure><figcaption>MORI'S MIX</figcaption><img src="current-390-single-midpoint.png" alt="MORI'S MIX single-page midpoint"></figure></main><p><a href="comparison.html">Spread turns</a> · <a href="measurements.json">Measurements</a></p></html>`)
   process.stdout.write(`Step 4 animation acceptance passed. Evidence: ${output}\n`)
 } finally {
   await appContext?.close().catch(() => undefined)

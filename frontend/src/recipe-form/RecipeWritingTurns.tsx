@@ -1,3 +1,4 @@
+import { JournalPagination } from '../journal/JournalPagination'
 import type { ReactNode } from 'react'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 
@@ -13,27 +14,14 @@ export function RecipeWritingTurns({ page, total, text, single, onTurn, review }
   if (review) {
     return <div className="mm-review-footer">
       <p className="mm-review-progress" role="status">{review.current}</p>
-      <nav className="mm-review-controls" aria-label="Recipe writing pages">
-        {review.exit}
-        {review.previous && <button type="button" className="button button-secondary" disabled={isTurning} onClick={() => onTurn(page - 1)}>
-          <span aria-hidden="true">←</span> Previous: {review.previous}
-        </button>}
-        {review.next
-          ? <button key="next" type="button" className="button button-primary" disabled={isTurning} onClick={(event) => { event.preventDefault(); onTurn(page + 1) }}>
-            Next: {review.next} <span aria-hidden="true">→</span>
-          </button>
-          : review.save}
-      </nav>
+      <nav className="mm-review-controls" aria-label="Recipe review actions">{review.exit}{!review.next && review.save}</nav>
+      <JournalPagination label="Recipe writing pages" leftNumber={text} rightNumber={text}
+        previous={review.previous && <button type="button" className="button mm-button--page-turn" disabled={isTurning} aria-label={`Previous: ${review.previous}`} onClick={() => onTurn(page - 1)}>← Previous</button>}
+        next={review.next && <button type="button" className="button mm-button--page-turn" disabled={isTurning} aria-label={`Next: ${review.next}`} onClick={() => onTurn(page + 1)}>Next →</button>} />
     </div>
   }
   const pageNoun = single ? 'Page' : 'Pages'
-  return <nav className="mm-reading-turns mm-writing-turns" aria-label="Recipe writing pages">
-    <button type="button" className="button mm-button--page-turn" aria-label={`Previous ${pageNoun}`} disabled={page === 0 || isTurning} onClick={() => onTurn(page - 1)}>
-      <span aria-hidden="true">←</span> Previous {pageNoun.toLowerCase()}
-    </button>
-    <span className="mm-reading-indicator" aria-live="polite" aria-atomic="true">{text}</span>
-    <button type="button" className="button mm-button--page-turn" aria-label={`Next ${pageNoun}`} disabled={page >= total - 1 || isTurning} onClick={() => onTurn(page + 1)}>
-      Next {pageNoun.toLowerCase()} <span aria-hidden="true">→</span>
-    </button>
-  </nav>
+  return <JournalPagination label="Recipe writing pages" leftNumber={text} rightNumber={text}
+    previous={page > 0 && <button type="button" className="button mm-button--page-turn" aria-label={`Previous ${pageNoun}`} disabled={isTurning} onClick={() => onTurn(page - 1)}>← Previous</button>}
+    next={page < total - 1 && <button type="button" className="button mm-button--page-turn" aria-label={`Next ${pageNoun}`} disabled={isTurning} onClick={() => onTurn(page + 1)}>Next →</button>} />
 }

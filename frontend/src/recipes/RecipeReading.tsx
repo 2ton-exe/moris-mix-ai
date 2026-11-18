@@ -80,7 +80,15 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   const current = previewPage ?? committedPage
   // Router transitions may commit after a second key event. Keep rapid turns
   // relative to the last requested page instead of a stale rendered closure.
+  const focusAfterTurn = useRef(false)
   const requestedPage = useRef(current)
+  useLayoutEffect(() => {
+    if (!isTurning && focusAfterTurn.current) {
+      focusAfterTurn.current = false
+      const target = single ? bodyRef.current : leftRef.current
+      target?.focus({ preventScroll: true })
+    }
+  }, [isTurning, single, bodyRef, leftRef])
   useLayoutEffect(() => { requestedPage.current = committedPage }, [committedPage, location.key])
   const spread = spreads[current]
   const identityVisible = spread[0]?.[0] === 'identity'
@@ -97,10 +105,10 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       requestedPage.current = index
       setPreviewPage(index)
     }, () => {
+      focusAfterTurn.current = true
       setPreviewPage(null)
       requestedPage.current = index
       void navigate({ pathname: location.pathname, search: nextSearch, hash: location.hash }, { state: location.state, preventScrollReset: true, flushSync: true })
-      requestAnimationFrame(() => (single ? bodyRef.current : leftRef.current)?.focus({ preventScroll: true }))
     }, expectedSearch, () => {
       requestedPage.current = committedPage
       setPreviewPage(null)
@@ -158,7 +166,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       <div ref={leftRef} className="mm-continuation-body mm-continuation-left" tabIndex={0} role="region" aria-label="Left recipe page">
         {!single && (identityVisible ? identity : <><h1 className="mm-continuation-title" tabIndex={-1}>Recipe continued</h1><ReadingUnits units={selectUnits(spread[0])} prefix="left" capacity={layout?.capacity} width={layout?.width} oversized={layout?.oversized} contentLimits={layout?.contentLimits} /></>)}
       </div>
-      <span className="mm-recipe-page-number mm-reading-left-folio" aria-hidden="true">{current === 0 ? 'From your journal' : `Continued · ${current * 2 + 1}`}</span>
+
     </JournalFacingPage>
     <div className="mm-reading-running-head">
       {single ? <span className="mm-reading-return">{back}</span> : <span>{current ? 'Recipe continued' : 'From your journal'}</span>}

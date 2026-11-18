@@ -1,7 +1,9 @@
 /* The transition context and snapshot helpers are consumed by shell/UI modules. */
 /* eslint react-refresh/only-export-components: off */
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, RefObject, TransitionEvent } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { RefObject } from 'react'
+import { flushSync } from 'react-dom'
+import { getTurnCompanion, projectCorner, TURN_DURATION, TURN_PERSPECTIVE, smooth, turnFrame } from './pageTurnMotion'
 
 export type JournalTurnDirection = 'forward' | 'backward'
 export type JournalTurnLayout = 'spread' | 'single'
@@ -22,18 +24,11 @@ interface PendingTurn {
   expectedSearch?: string
   commit: () => void
   cancel?: () => void
+  committed: boolean
+  immediate: boolean
 }
 
-interface VisualTurn extends PendingTurn {
-  phase: 'ready' | 'playing'
-  under: HTMLElement | null
-  underSide: 'left' | 'right' | 'single' | null
-  front: HTMLElement
-  back: HTMLElement | null
-  duration: number
-}
-
-type TurnState = (PendingTurn & { phase: 'capture' }) | VisualTurn | null
+type TurnState = (PendingTurn & { phase: 'preparing' | 'ready' | 'animating' | 'committing'; next?: PageSnapshot; singleUnder?: HTMLElement | null }) | null
 
 interface JournalPageTurnContextValue {
   isTurning: boolean
@@ -86,9 +81,20 @@ const defaultContext: JournalPageTurnContextValue = {
 
 const JournalPageTurnContext = createContext<JournalPageTurnContextValue>(defaultContext)
 
+const activeBooks = new Set<symbol>()
+const turnSubscribers = new Set<() => void>()
+function publishTurn(owner: symbol, active: boolean) {
+  if (active) activeBooks.add(owner)
+  else activeBooks.delete(owner)
+  turnSubscribers.forEach((listener) => listener())
+}
+const subscribeTurn = (listener: () => void) => { turnSubscribers.add(listener); return () => { turnSubscribers.delete(listener) } }
+const readTurning = () => activeBooks.size > 0
+
 export function useJournalPageTurn() {
   const { isTurning, requestPageTurn } = useContext(JournalPageTurnContext)
-  return { isTurning, requestPageTurn }
+  const externalTurn = useSyncExternalStore(subscribeTurn, readTurning, () => false)
+  return { isTurning: isTurning || externalTurn, requestPageTurn }
 }
 
 function withCurrentFormValues(source: HTMLElement, clone: HTMLElement) {
@@ -115,7 +121,17 @@ function withCurrentFormValues(source: HTMLElement, clone: HTMLElement) {
   const clonedElements = [clone, ...clone.querySelectorAll<HTMLElement>('*')]
   sourceElements.forEach((element, index) => {
     const copy = clonedElements[index]
-    if (copy) copy.scrollTop = element.scrollTop
+    if (copy) {
+      if (element.scrollTop || element.scrollLeft) {
+        copy.dataset.turnScrollTop = String(element.scrollTop)
+        copy.dataset.turnScrollLeft = String(element.scrollLeft)
+      }
+      if (element instanceof HTMLCanvasElement && copy instanceof HTMLCanvasElement) {
+        copy.width = element.width
+        copy.height = element.height
+        try { copy.getContext('2d')?.drawImage(element, 0, 0) } catch { /* A protected canvas keeps its reserved paper space. */ }
+      }
+    }
   })
 }
 
@@ -175,13 +191,22 @@ function clonePage(source: Element | null, prefix: string): HTMLElement | null {
   if (!(source instanceof HTMLElement) || getComputedStyle(source).display === 'none') return null
   const clone = source.cloneNode(true) as HTMLElement
   withCurrentFormValues(source, clone)
+  const images = clone.querySelectorAll('img')
+  source.querySelectorAll('img').forEach((image, index) => {
+    const copy = images[index]
+    if (!copy) return
+    const rect = image.getBoundingClientRect()
+    copy.style.width = `${rect.width}px`
+    copy.style.height = `${rect.height}px`
+    if (!image.complete) copy.style.visibility = 'hidden'
+  })
   sanitizeSnapshot(clone, prefix)
   return clone
 }
 
 function takePageSnapshot(book: HTMLElement, layout: JournalTurnLayout, prefix: string): PageSnapshot {
   if (layout === 'single') {
-    return { left: null, right: null, single: clonePage(book.querySelector('.mm-journal-page'), prefix) }
+    return { left: null, right: null, single: clonePage(book.querySelector('.mm-journal-spread'), prefix) }
   }
   return {
     left: clonePage(book.querySelector('.mm-journal-flyleaf'), `${prefix}-left`),
@@ -190,55 +215,54 @@ function takePageSnapshot(book: HTMLElement, layout: JournalTurnLayout, prefix: 
   }
 }
 
-export function JournalPageTurnLayer({ turn, finish }: { turn: TurnState; finish: (id: number) => void }) {
-  const underLeft = useRef<HTMLDivElement>(null)
-  const underRight = useRef<HTMLDivElement>(null)
-  const underSingle = useRef<HTMLDivElement>(null)
-  const frontFace = useRef<HTMLDivElement>(null)
-  const backFace = useRef<HTMLDivElement>(null)
-
-  useLayoutEffect(() => {
-    const containers = [underLeft.current, underRight.current, underSingle.current, frontFace.current, backFace.current]
-    containers.forEach((container) => container?.replaceChildren())
-    if (!turn || turn.phase === 'capture') return
-    const underTarget = turn.underSide === 'left' ? underLeft.current
-      : turn.underSide === 'right' ? underRight.current
-        : turn.underSide === 'single' ? underSingle.current : null
-    if (underTarget && turn.under) underTarget.appendChild(turn.under)
-    if (frontFace.current) frontFace.current.appendChild(turn.front)
-    if (backFace.current && turn.back) backFace.current.appendChild(turn.back)
-    return () => containers.forEach((container) => container?.replaceChildren())
-  }, [turn])
-
-  if (!turn || turn.phase === 'capture') return null
-  const leafClass = `mm-turn-leaf mm-turn-leaf--${turn.direction}`
-  const leafStyle = { '--mm-turn-duration': `${turn.duration}ms` } as CSSProperties
-  const onTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget && event.propertyName === 'transform') finish(turn.id)
+function installSnapshot(container: HTMLElement | null, snapshot: HTMLElement | null | undefined) {
+  container?.replaceChildren()
+  if (!container || !snapshot) return
+  container.appendChild(snapshot)
+  for (const element of [snapshot, ...snapshot.querySelectorAll<HTMLElement>('[data-turn-scroll-top]')]) {
+    element.scrollTop = Number(element.dataset.turnScrollTop ?? 0)
+    element.scrollLeft = Number(element.dataset.turnScrollLeft ?? 0)
   }
+}
 
-  return <div className="mm-page-turn-layer" data-journal-page-turn="true" data-turn-id={turn.id} data-direction={turn.direction} data-layout={turn.layout} data-duration={turn.duration} data-phase={turn.phase} aria-hidden="true" inert>
-    {turn.under && <div ref={underLeft} className="mm-turn-under mm-turn-under--left" />}
-    {turn.under && <div ref={underRight} className="mm-turn-under mm-turn-under--right" />}
-    {turn.under && <div ref={underSingle} className="mm-turn-under mm-turn-under--single" />}
-    {turn.layout === 'spread' && <>
-      <div className={`mm-turn-cast mm-turn-cast--${turn.direction === 'forward' ? 'right' : 'left'} mm-turn-cast--reveal`} />
-      <div className={`mm-turn-cast mm-turn-cast--${turn.direction === 'forward' ? 'left' : 'right'} mm-turn-cast--land`} />
-    </>}
-    <div key={turn.id} className={leafClass} style={leafStyle} data-direction={turn.direction} data-layout={turn.layout} data-phase={turn.phase} onTransitionEnd={onTransitionEnd}>
-      <div ref={frontFace} className="mm-turn-face mm-turn-face--front"><div className="mm-turn-shade" /></div>
-      <div ref={backFace} className={`mm-turn-face mm-turn-face--back${turn.back ? '' : ' mm-turn-face--blank'}`}><div className="mm-turn-shade" /></div>
-    </div>
+export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
+  const left = useRef<HTMLDivElement>(null)
+  const right = useRef<HTMLDivElement>(null)
+  const single = useRef<HTMLDivElement>(null)
+  const front = useRef<HTMLDivElement>(null)
+  const back = useRef<HTMLDivElement>(null)
+  const next = turn?.next
+  const forward = turn?.direction === 'forward'
+  useLayoutEffect(() => {
+    if (!turn) return
+    if (!next) {
+      installSnapshot(left.current, turn.old.left)
+      installSnapshot(right.current, turn.old.right)
+      installSnapshot(single.current, turn.old.single)
+    } else {
+      installSnapshot(single.current, turn.singleUnder)
+      installSnapshot(left.current, forward ? turn.old.left : next.left)
+      installSnapshot(right.current, forward ? next.right : turn.old.right)
+      installSnapshot(front.current, turn.layout === 'single' ? turn.old.single : forward ? turn.old.right : turn.old.left)
+      installSnapshot(back.current, turn.layout === 'single' ? next.single : forward ? next.left : next.right)
+    }
+    // Snapshots own no application state; their mounting must never replace the shading nodes.
+  }, [turn, next, forward])
+  if (!turn) return null
+  return <div className="mm-page-turn-layer" style={{ perspective: TURN_PERSPECTIVE }} data-journal-page-turn="true" data-turn-id={turn.id} data-direction={turn.direction} data-layout={turn.layout} data-duration={TURN_DURATION} data-phase={turn.phase} aria-hidden="true" inert>
+    <div ref={left} className={`mm-turn-under mm-turn-under--left${next ? (!forward ? ' mm-turn-under--reveal' : ' mm-turn-under--retained') : ''}`} />
+    <div ref={right} className={`mm-turn-under mm-turn-under--right${next ? (forward ? ' mm-turn-under--reveal' : ' mm-turn-under--retained') : ''}`} />
+    {turn.layout === 'single' && <div ref={single} className="mm-turn-under mm-turn-under--single" />}
+    {next && <div className="mm-turn-ground-shadow" />}
+    {next && <div className={`mm-turn-leaf mm-turn-leaf--${turn.direction}`} data-direction={turn.direction} data-layout={turn.layout}>
+      <div className="mm-turn-face mm-turn-face--front"><div ref={front} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
+      <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
+      <span data-page-corner="true" className="mm-turn-corner" />
+    </div>}
   </div>
 }
 
-export function useJournalPageTurnManager({
-  bookRef,
-  pathname,
-  search,
-  singleLayout,
-  reducedMotion,
-}: {
+export function useJournalPageTurnManager({ bookRef, pathname, search, singleLayout, reducedMotion }: {
   bookRef: RefObject<HTMLDivElement | null>
   pathname: string
   search: string
@@ -247,130 +271,197 @@ export function useJournalPageTurnManager({
 }) {
   const [turn, setTurn] = useState<TurnState>(null)
   const pending = useRef<PendingTurn | null>(null)
-  const active = useRef(false)
   const sequence = useRef(0)
-
-  const finish = useCallback((id: number) => {
-    if (pending.current?.id !== id) return
-    const request = pending.current
-    let completed = false
-    try {
-      request.commit()
-      completed = true
-    }
-    finally {
-      notifyTurnFinished(id, completed)
-      pending.current = null
-      active.current = false
-      setTurn((current) => current?.id === id ? null : current)
-    }
+  const owner = useRef(Symbol('journal-turn'))
+  const frame = useRef<number | null>(null)
+  const settleFrame = useRef<(() => void) | null>(null)
+  const stopCompanion = useRef<(() => void) | null>(null)
+  const clearMotion = useCallback(() => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current)
+    frame.current = null
+    settleFrame.current = null
+    stopCompanion.current?.()
+    stopCompanion.current = null
   }, [])
 
   const cancel = useCallback((id: number) => {
-    if (pending.current?.id !== id) return
     const request = pending.current
+    if (!request || request.id !== id || request.committed) return
     pending.current = null
-    active.current = false
+    publishTurn(owner.current, false)
+    clearMotion()
     try { request.cancel?.() }
-    finally {
-      notifyTurnFinished(id, false)
-      setTurn((current) => current?.id === id ? null : current)
-    }
-  }, [])
+    finally { notifyTurnFinished(id, false); setTurn(null) }
+  }, [clearMotion])
 
-  const requestPageTurn = useCallback((direction: JournalTurnDirection, prepare: () => void, commit: () => void, expectedSearch?: string, onCancel?: () => void) => {
-    if (active.current) return false
-    const book = bookRef.current
-    const layout: JournalTurnLayout = singleLayout ? 'single' : 'spread'
-    const id = ++sequence.current
-    const old = book ? takePageSnapshot(book, layout, `mm-turn-${id}-old`) : { left: null, right: null, single: null }
-    if (!book || (layout === 'single' ? !old.single : !old.right)) {
-      prepare()
-      commit()
-      return true
-    }
-    if (reducedMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      prepare()
-      commit()
-      return true
-    }
-
-    const pendingTurn: PendingTurn = { id, direction, layout, old, pathname, search, expectedSearch, commit, cancel: onCancel }
-    pending.current = pendingTurn
-    active.current = true
-    setTurn({ ...pendingTurn, phase: 'capture' })
-    try {
-      prepare()
-    } catch (error) {
+  const finish = useCallback((id: number) => {
+    const request = pending.current
+    if (!request || request.id !== id || request.committed) return
+    request.committed = true
+    settleFrame.current?.()
+    clearMotion()
+    setTurn((current) => current?.id === id ? { ...current, phase: 'committing' } : current)
+    try { request.commit() }
+    catch (error) {
       pending.current = null
-      active.current = false
+      publishTurn(owner.current, false)
+      request.cancel?.()
       setTurn(null)
-      onCancel?.()
+      notifyTurnFinished(id, false)
       throw error
     }
+  }, [clearMotion])
+
+  const requestPageTurn = useCallback((direction: JournalTurnDirection, prepare: () => void, commit: () => void, expectedSearch?: string, onCancel?: () => void) => {
+    if (pending.current) return false
+    const book = bookRef.current
+    const layout = singleLayout ? 'single' : 'spread'
+    const id = ++sequence.current
+    const old = book ? takePageSnapshot(book, layout, `mm-turn-${id}-old`) : { left: null, right: null, single: null }
+    if (!book || (layout === 'single' ? !old.single : !old.right)) { prepare(); commit(); return true }
+    const request: PendingTurn = { id, direction, layout, old, pathname, search, expectedSearch, commit, cancel: onCancel, committed: false, immediate: reducedMotion || globalThis.CSS?.supports?.('transform-style', 'preserve-3d') === false }
+    pending.current = request
+    publishTurn(owner.current, true)
+    setTurn({ ...request, phase: 'preparing' })
+    try {
+      flushSync(prepare)
+      if (request.immediate && !book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) finish(id)
+    }
+    catch (error) { cancel(id); throw error }
     return true
-  }, [bookRef, pathname, search, singleLayout, reducedMotion])
+  }, [bookRef, pathname, search, singleLayout, reducedMotion, cancel, finish])
 
   useLayoutEffect(() => {
-    if (!turn || turn.phase !== 'capture') return
+    if (!turn || turn.phase !== 'preparing') return
+    const started = performance.now()
     const request = pending.current
     const book = bookRef.current
-    if (!request || request.id !== turn.id || !book) return finish(turn.id)
-    const next = takePageSnapshot(book, request.layout, `mm-turn-${request.id}-next`)
-    let under: HTMLElement | null = null
-    let underSide: VisualTurn['underSide'] = null
-    let front: HTMLElement | null = null
-    let back: HTMLElement | null = null
-    if (request.layout === 'spread') {
-      if (request.direction === 'forward') {
-        front = request.old.right
-        back = next.left
-        under = request.old.left
-        underSide = 'left'
-      } else {
-        front = request.old.left
-        back = next.right
-        under = request.old.right
-        underSide = 'right'
+    if (!request || !book) return
+    const prepare = () => {
+      if (pending.current !== request) return
+      if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="error"]')) { cancel(request.id); return }
+      if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]') || (document.fonts?.status === 'loading' && performance.now() - started < 1000)) {
+        frame.current = requestAnimationFrame(prepare)
+        return
       }
-    } else {
-      front = request.old.single
-      back = next.single
+      // Images are noncritical: snapshots retain their reserved boxes; network delays never block a turn.
+      try {
+        const next = takePageSnapshot(book, request.layout, `mm-turn-${request.id}-next`)
+        if (request.immediate) finish(request.id)
+        else {
+          const singleUnder = request.layout === 'single' ? clonePage(book.querySelector('.mm-journal-spread'), `mm-turn-${request.id}-under`) : null
+          setTurn({ ...request, next, singleUnder, phase: 'ready' })
+        }
+      } catch { finish(request.id) }
     }
-    if (!front) return finish(request.id)
-    setTurn({ ...request, phase: 'ready', under, underSide, front, back, duration: 580 })
-  }, [turn, bookRef, finish])
+    frame.current = requestAnimationFrame(prepare)
+    return () => { if (frame.current !== null) cancelAnimationFrame(frame.current) }
+  }, [turn, bookRef, cancel, finish])
+
+  const motionId = turn?.id
+  const motionNext = turn?.next
+  const motionDirection = turn?.direction
+  const motionLayout = turn?.layout
+  useLayoutEffect(() => {
+    if (!motionId || !motionNext || !motionDirection || !motionLayout) return
+    const book = bookRef.current
+    const layer = book?.querySelector<HTMLElement>('[data-journal-page-turn]')
+    const leaf = layer?.querySelector<HTMLElement>('.mm-turn-leaf')
+    if (!book || !leaf || !layer) return finish(motionId)
+    const rect = book.getBoundingClientRect()
+    const paper = leaf.getBoundingClientRect()
+    const origin = parseFloat(getComputedStyle(leaf).transformOrigin)
+    const radius = motionLayout === 'single' || motionDirection === 'forward' ? paper.width - origin : -origin
+    const geometry = { left: rect.left, top: rect.top, width: rect.width, height: rect.height, hinge: paper.left - rect.left + origin, pageTop: paper.top - rect.top, radius, single: motionLayout === 'single' }
+    const companion = getTurnCompanion()
+    const move = companion?.start(motionDirection, motionLayout === 'single')
+    stopCompanion.current = companion ? () => companion.stop() : null
+    const shades = [...leaf.querySelectorAll<HTMLElement>('.mm-turn-shade')]
+    const front = leaf.querySelector<HTMLElement>('.mm-turn-face--front')!
+    const back = leaf.querySelector<HTMLElement>('.mm-turn-face--back')!
+    setTurn((current) => current?.id === motionId && current.phase === 'ready' ? { ...current, phase: 'animating' } : current)
+    const apply = (progress: number) => {
+      const value = turnFrame(progress, motionDirection, motionLayout === 'single')
+      leaf.style.transform = `rotateY(${value.angle}deg)`
+      shades.forEach((shade) => { shade.style.opacity = String(value.shade) })
+      layer.style.setProperty('--mm-turn-shadow', String(value.shade))
+      layer.style.setProperty('--mm-under-footer-opacity', String(smooth((value.travel - .5) * 2)))
+      layer.style.setProperty('--mm-old-footer-opacity', String(1 - smooth((value.travel - .3) * 5)))
+      if (motionLayout === 'single') {
+        front.style.visibility = value.travel < .5 ? 'visible' : 'hidden'
+        back.style.visibility = value.travel < .5 ? 'hidden' : 'visible'
+      }
+      layer.dataset.progress = String(progress)
+      layer.dataset.stage = value.stage
+      move?.(value, projectCorner(geometry, value.angle))
+    }
+    settleFrame.current = () => apply(1)
+    let started: number | null = null
+    const tick = (now: number) => {
+      if (pending.current?.id !== motionId || pending.current.committed) return
+      started ??= now
+      const progress = Math.min(1, (now - started) / TURN_DURATION)
+      apply(progress)
+      if (progress === 1) finish(motionId)
+      else frame.current = requestAnimationFrame(tick)
+    }
+    apply(0)
+    frame.current = requestAnimationFrame(tick)
+    // Development-only deterministic sampling measures the rendered SVG and paper independently.
+    const sample = (event: Event) => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current)
+      const progress = (event as CustomEvent<number>).detail
+      apply(progress)
+      if (progress >= 1) finish(motionId)
+    }
+    if (import.meta.env.DEV) layer.addEventListener('mm-journal-turn-sample', sample)
+    return () => { clearMotion(); layer.removeEventListener('mm-journal-turn-sample', sample) }
+  }, [motionId, motionNext, motionDirection, motionLayout, bookRef, finish, clearMotion])
 
   useLayoutEffect(() => {
-    if (!turn || turn.phase !== 'ready') return
-    const id = turn.id
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      setTurn((current) => current?.id === id && current.phase === 'ready' ? { ...current, phase: 'playing' } : current)
-    }))
-  }, [turn])
-
-  useLayoutEffect(() => {
-    if (!turn || turn.phase === 'capture') return
     const request = pending.current
-    if (!request || request.id !== turn.id) return finish(turn.id)
-    if (pathname !== request.pathname) return cancel(turn.id)
-    if (search !== request.search) {
-      if (request.expectedSearch === search) request.expectedSearch = undefined
-      else return cancel(turn.id)
+    if (!request || !turn) return
+    const expectedLocation = pathname === request.pathname && (request.expectedSearch === undefined || search === request.expectedSearch)
+    if (turn.phase === 'committing' && expectedLocation) {
+      const live = bookRef.current?.querySelector('.mm-journal-spread')
+      const acknowledge = () => {
+        if (pending.current !== request || live?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) return
+        pending.current = null
+        publishTurn(owner.current, false)
+        notifyTurnFinished(request.id, true)
+        setTurn(null)
+      }
+      const observer = new MutationObserver(acknowledge)
+      if (live) observer.observe(live, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-journal-ready', 'data-reading-ready'] })
+      acknowledge()
+      return () => observer.disconnect()
+    } else if (pathname !== request.pathname || (search !== request.search && search !== request.expectedSearch)) {
+      if (!request.committed) cancel(request.id)
+      else { pending.current = null; publishTurn(owner.current, false); clearMotion(); setTurn(null); notifyTurnFinished(request.id, false) }
     }
-  }, [turn, pathname, search, finish, cancel])
+  }, [turn, pathname, search, bookRef, cancel, clearMotion])
 
   useLayoutEffect(() => {
-    if (!turn) return
-    if (turn.layout !== (singleLayout ? 'single' : 'spread') || reducedMotion) finish(turn.id)
+    const settle = () => {
+      const request = pending.current
+      if (!request || request.committed) return
+      request.immediate = true
+      if (turn?.phase !== 'preparing') finish(request.id)
+    }
+    window.addEventListener('resize', settle)
+    if (reducedMotion || (turn && turn.layout !== (singleLayout ? 'single' : 'spread'))) settle()
+    return () => window.removeEventListener('resize', settle)
   }, [turn, singleLayout, reducedMotion, finish])
 
   useEffect(() => () => {
+    const request = pending.current
     pending.current = null
-    active.current = false
-  }, [])
+    publishTurn(owner.current, false)
+    clearMotion()
+    if (request) { if (!request.committed) request.cancel?.(); notifyTurnFinished(request.id, false) }
+  }, [clearMotion])
 
-  const value: JournalPageTurnContextValue = { isTurning: active.current || turn !== null, requestPageTurn, turn, finish }
+  const value: JournalPageTurnContextValue = { isTurning: turn !== null, requestPageTurn, turn, finish }
   return { contextValue: value, turn, finish, isTurning: value.isTurning }
 }
 

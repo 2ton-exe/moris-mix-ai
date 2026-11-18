@@ -393,8 +393,8 @@ try {
       turns.push({ page: await page.locator('.mm-writing-pages').getAttribute('data-form-page'), ...visible })
       visible.ingredients.forEach((label) => ingredients.add(label))
       visible.steps.forEach((label) => steps.add(label))
-      const next = page.locator('.mm-writing-turns button').last()
-      if (!(await next.isEnabled())) break
+      const next = page.getByRole('button', { name: /^Next Pages?$/ })
+      if (!(await next.count()) || !(await next.isEnabled())) break
       await turnPage(page, next)
     }
     return { ingredients, steps, turns }
@@ -537,8 +537,8 @@ try {
   await waitForKeyboardTurn(page, 0)
   await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
 
-  while (await page.locator('.mm-writing-turns button:last-child').isEnabled()) {
-    await turnPage(page, page.locator('.mm-writing-turns button:last-child'))
+  while (await page.getByRole('button', { name: /^Next Pages?$/ }).count()) {
+    await turnPage(page, page.getByRole('button', { name: /^Next Pages?$/ }))
   }
   const finalPage = await page.locator('.mm-writing-pages').first().getAttribute('data-form-page')
   await page.locator('.mm-writing-leaf').last().focus()
@@ -546,8 +546,8 @@ try {
   assert.equal(await keyboardWasPrevented(page, 'PageDown'), false)
   assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), finalPage)
 
-  while (await page.locator('.mm-writing-turns button:first-child').isEnabled()) {
-    await turnPage(page, page.locator('.mm-writing-turns button:first-child'))
+  while (await page.getByRole('button', { name: /^Previous Pages?$/ }).count()) {
+    await turnPage(page, page.getByRole('button', { name: /^Previous Pages?$/ }))
   }
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.locator('.mm-writing-leaf').first().focus()
@@ -574,8 +574,8 @@ try {
   await settleJournalLayout(page)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   for (;;) {
-    const next = page.locator('.mm-writing-turns button').last()
-    if (!(await next.isEnabled())) break
+    const next = page.getByRole('button', { name: /^Next Pages?$/ })
+    if (!(await next.count()) || !(await next.isEnabled())) break
     await turnPage(page, next)
   }
   await page.getByRole('button', { name: 'Save changes' }).click()

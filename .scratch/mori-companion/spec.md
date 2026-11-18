@@ -114,3 +114,11 @@ This delivery follows the existing browsing, photo upload, recipe save, Quick AI
 - The existing architecture decision for server-side Gemini, validated previews, and explicit confirmation before persistence remains in force. The dashboard-only inline dialogue documentation describes the prior presentation, which this design intentionally replaces.
 - The workspace already contains in-progress recipe and photo changes. Implement against the actual checkout and preserve those changes; this spec does not imply ownership of or permission to discard them.
 - Refinement remains outside scope where no distinct workflow exists. Do not build unused service adapters or expose unavailable AI actions.
+
+## PR #233 synchronized notebook turns (2026-11-18)
+
+The persistent companion explicitly registers its artwork with the notebook's single frame controller. One 900 ms normalized timeline owns approach, grab, pull, turn, release and settle. The SVG mitt anchor follows the same perspective-projected hinge geometry as the turning sheet, including sprite scale and mirroring. Public demonstration pages use the same controller without a companion.
+
+Outgoing paper is captured before destination preview. Collection cursor data and measured reading pagination explicitly report readiness. Visual snapshots remain inert; live forms, providers and route owners persist. A committed turn retains its final paper until the expected location and settled content acknowledge it. Resize and reduced motion settle accepted navigation; other route navigation cancels uncommitted work.
+
+Both papers own footer and punch-hole surfaces. Shared pagination slots reserve a 44 px target row, 28 px desktop paper insets and one baseline. Gold loop endpoints and paper apertures share spine dimensions and vertical ring positions. See issues/04-synchronized-page-turns.md and docs/qa/MORI-01-page-turns.md for verification and visual limitations.

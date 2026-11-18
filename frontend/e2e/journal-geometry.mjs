@@ -36,7 +36,7 @@ export async function assertJournalGeometry(page, label) {
     const layout = globalThis.getComputedStyle(spread).display === 'grid' ? 'spread' : 'single'
     const writer = !!globalThis.document.querySelector('.recipe-form .mm-writing-pages')
     const paper = layout === 'spread' ? right : spread
-    const activeScrollport = writer && layout === 'single' ? globalThis.document.querySelector('.recipe-form .mm-writing-leaf') : spread
+    const activeScrollport = layout === 'single' ? (writer ? globalThis.document.querySelector('.recipe-form .mm-writing-leaf') : globalThis.document.querySelector('.mm-recipe-reading-body') ?? spread) : spread
     const globalNav = globalThis.document.querySelector('.mm-global-nav')
     const tabs = [...globalThis.document.querySelectorAll('.mm-bookmark, .mm-global-nav__link')].map((tab) => {
       const box = rect(tab)
@@ -56,7 +56,7 @@ export async function assertJournalGeometry(page, label) {
     })
     const css = (selector) => globalThis.getComputedStyle(book.querySelector(selector))
     const paperBookmarks = book.querySelector('.mm-bookmarks')
-    const layers = { paper: globalThis.getComputedStyle(paper).zIndex, bookmarks: paperBookmarks ? globalThis.getComputedStyle(paperBookmarks).zIndex : null, rings: css('.mm-journal-rings').zIndex, stacks: [...book.querySelectorAll('.mm-journal-stack')].map((stack) => globalThis.getComputedStyle(stack).zIndex), spread: globalThis.getComputedStyle(spread).zIndex }
+    const layers = { paper: globalThis.getComputedStyle(paper).zIndex, bookmarks: paperBookmarks ? globalThis.getComputedStyle(paperBookmarks).zIndex : null, rings: css('.mm-journal-rings').zIndex, ringFront: [...book.querySelectorAll('.mm-journal-ring__half')].map((node) => globalThis.getComputedStyle(node).zIndex), stacks: [...book.querySelectorAll('.mm-journal-stack')].map((stack) => globalThis.getComputedStyle(stack).zIndex), spread: globalThis.getComputedStyle(spread).zIndex }
     const decorationIntercepts = [...book.querySelectorAll('.mm-journal-board, .mm-journal-stack, .mm-journal-binding, .mm-journal-ring-plate, .mm-journal-rings, .mm-journal-ring, .mm-journal-ring__half, .mm-journal-holes, .mm-journal-hole')].some((element) => globalThis.getComputedStyle(element).pointerEvents !== 'none')
     const outside = [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 8).map((element) => ({ name: String(element.className), box: rect(element) }))
     return { globalNavigation: Boolean(globalNav), viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
@@ -75,8 +75,9 @@ export async function assertJournalGeometry(page, label) {
   assert.equal(geometry.layout, viewport.width < 1100 || viewport.height < 640 ? 'single' : 'spread', `${label}: Make responsive breakpoint`)
   assert.deepEqual(geometry.layers.stacks, ['7', '7'], `${label}: physical stacks`)
   assert.equal(geometry.layers.bookmarks, geometry.tabs.some((tab) => tab.kind === 'bookmark') ? '11' : null, `${label}: bookmarks above paper`)
-  assert.equal(geometry.layers.paper, '10', `${label}: live paper`)
-  assert.equal(geometry.layers.rings, '25', `${label}: book hardware above the moving page leaf`)
+  assert.equal(geometry.layers.paper, geometry.layout === 'spread' ? '10' : '30', `${label}: live paper`)
+  assert.equal(geometry.layers.rings, 'auto', `${label}: hardware segments share the book stacking context`)
+  assert.ok(geometry.layers.ringFront.every((depth) => Number(depth) > 40), `${label}: front loops above the turning sheet`)
   assert.equal(geometry.decorationIntercepts, false, `${label}: decorative layer intercepts clicks`)
   if (geometry.layout === 'spread') {
     assert.ok(book.y >= 0 && book.bottom <= viewport.height, `${label}: cover clipped vertically: ${JSON.stringify(book)}`)
@@ -84,7 +85,7 @@ export async function assertJournalGeometry(page, label) {
     assert.ok(Math.abs(left.height - right.height) < 1, `${label}: unequal page heights`)
     assert.ok(Math.abs(spine.x + spine.width / 2 - book.x - book.width / 2) < 1, `${label}: spine off center`)
     assert.ok(Math.abs(right.width / right.height - .74) < .002, `${label}: source portrait paper ratio`)
-    assert.equal(geometry.layers.spread, 'auto', `${label}: desktop spread traps bookmark stacking`)
+    assert.equal(geometry.layers.spread, '30', `${label}: desktop spread traps bookmark stacking`)
     if (!geometry.globalNavigation) assert.ok(tabs.every((tab) => tab.attachedDistance >= 2 && tab.attachedDistance <= 5.5), `${label}: source tab insertion/translation`)
   } else {
     assert.equal(geometry.scrollport.overflowY, 'auto', `${label}: missing single-page scrollport`)

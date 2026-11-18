@@ -5,7 +5,7 @@ import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
 import { JournalSurface, PaperCard } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
-import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext } from './JournalLayoutContext'
+import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext, JournalPaginationContext } from './JournalLayoutContext'
 import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, useJournalPageTurnManager } from './JournalPageTurn'
 import type { JournalTurnDirection } from './JournalPageTurn'
 import { useJournalMedia } from './useJournalMedia'
@@ -21,6 +21,7 @@ function PaperHoles({ side }: { side: 'left' | 'right' }) {
 /** A flowing paper page. Route content keeps its existing semantics and state. */
 export function JournalPageContainer({ className = '', children, ...props }: ComponentPropsWithoutRef<'div'>) {
   return <div {...props} className={`mm-journal-page mm-surface--parchment ${className}`}>
+    <PaperHoles side="right" />
     {children}
   </div>
 }
@@ -55,6 +56,9 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   const bookRef = useRef<HTMLDivElement>(null)
   const [facingPage, setFacingPage] = useState<HTMLDivElement | null>(null)
   const [companion, setCompanion] = useState<HTMLDivElement | null>(null)
+  const [leftPagination, setLeftPagination] = useState<HTMLDivElement | null>(null)
+  const [singlePrevious, setSinglePrevious] = useState<HTMLDivElement | null>(null)
+  const [rightPagination, setRightPagination] = useState<HTMLDivElement | null>(null)
   const [footer, setFooter] = useState<HTMLDivElement | null>(null)
   const singleLayout = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
@@ -73,7 +77,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   }, [requestPageTurn])
   useLayoutEffect(() => {
     if (!footer || typeof ResizeObserver === 'undefined') return
-    const update = () => footer.parentElement?.style.setProperty('--mm-footer-height', `${footer.offsetHeight}px`)
+    const update = () => footer.closest<HTMLElement>('.mm-journal-page')?.style.setProperty('--mm-footer-height', `${footer.offsetHeight}px`)
     const observer = new ResizeObserver(update)
     observer.observe(footer)
     update()
@@ -107,20 +111,25 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
               <span className="mm-bookplate__rule" aria-hidden="true" />
               <p>Kept with care · MORI'S MIX</p>
             </PaperCard>
+            <PaperHoles side="left" />
             <div ref={setFacingPage} className="mm-facing-slot" />
+            <div ref={setLeftPagination} className="mm-pagination-slot mm-pagination-slot--left" />
           </section>
           <JournalPageContainer role="region" aria-label="Journal entries" tabIndex={0} className={pageClassName}>
             <JournalCompanionContext.Provider value={companion}>
               <JournalFacingPageContext.Provider value={facingPage}>
-                <JournalPageFooterContext.Provider value={footer}>{children}</JournalPageFooterContext.Provider>
+                <JournalPageFooterContext.Provider value={footer}>
+                  <JournalPaginationContext.Provider value={{ left: singleLayout ? singlePrevious : leftPagination, right: rightPagination }}>{children}</JournalPaginationContext.Provider>
+                </JournalPageFooterContext.Provider>
               </JournalFacingPageContext.Provider>
             </JournalCompanionContext.Provider>
+            <div className="mm-journal-page-footer">
+              <div ref={setFooter} className="mm-footer-actions" />
+              <div className="mm-pagination-band"><div ref={setSinglePrevious} className="mm-pagination-single-previous" /><div ref={setRightPagination} className="mm-pagination-slot mm-pagination-slot--right" /></div>
+            </div>
           </JournalPageContainer>
-          <div ref={setFooter} className="mm-journal-page-footer" />
         </main>
-        <PaperHoles side="left" />
-        <PaperHoles side="right" />
-        <JournalPageTurnLayer turn={pageTurn.turn} finish={pageTurn.finish} />
+        <JournalPageTurnLayer turn={pageTurn.turn} />
         <div className="mm-journal-rings" aria-hidden="true">
           {ringPositions.map((position) => <span key={position} className="mm-journal-ring" style={{ '--mm-ring-y': position } as CSSProperties}><span className="mm-journal-ring__half mm-journal-ring__half--left" /><span className="mm-journal-ring__half mm-journal-ring__half--right" /></span>)}
         </div>

@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Link, MemoryRouter, useLocation, useNavigate } from 'react-router'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { JournalShell } from '../journal/JournalShell'
@@ -32,31 +32,29 @@ function RouteView({ data = recipe }: { data?: RecipeDetail }) {
   </>
 }
 
+const live = () => within(document.querySelector<HTMLElement>('.mm-journal-book > .mm-journal-spread')!)
+
 beforeEach(() => { measured.single = false; measured.fallback = false })
 
-function finishPageTurn() {
-  const leaf = document.querySelector('.mm-turn-leaf')
-  if (leaf) {
-    const event = new Event('transitionend', { bubbles: true })
-    Object.defineProperty(event, 'propertyName', { value: 'transform' })
-    fireEvent(leaf, event)
-  }
+async function finishPageTurn() {
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('animating'))
+  fireEvent(document.querySelector('[data-journal-page-turn]')!, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
 }
 
 it('leaves boundary PageUp/PageDown actions available and only cancels valid page turns', async () => {
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
   const region = () => screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
   expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(true)
-  expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+  expect(live().getByText('Page 1 of 2')).toBeTruthy()
   expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(false)
-  await screen.findByText('Page 2 of 2')
+  await live().findByText('Page 2 of 2')
   expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(true)
-  expect(screen.getByText('Page 2 of 2')).toBeTruthy()
+  expect(live().getByText('Page 2 of 2')).toBeTruthy()
   expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
-  finishPageTurn()
+  await finishPageTurn()
   expect(document.querySelector('[data-journal-page-turn]')).toBeNull()
   expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(false)
-  await screen.findByText('Page 1 of 2')
+  await live().findByText('Page 1 of 2')
 })
 
 it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallback spread', (key) => {
@@ -66,8 +64,8 @@ it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallba
   region.focus()
   expect(fireEvent.keyDown(region, { key })).toBe(true)
   expect(document.activeElement).toBe(region)
-  expect(screen.getByText('Page 1 of 1')).toBeTruthy()
-  expect(screen.getByText('Page space is limited. Scroll this paper to continue reading.')).toBeTruthy()
+  expect(live().getByText('Page 1 of 1')).toBeTruthy()
+  expect(live().getByText('Page space is limited. Scroll this paper to continue reading.')).toBeTruthy()
 })
 
 it.each([
@@ -84,7 +82,7 @@ it.each([
   region.focus()
 
   expect(fireEvent.keyDown(region, { key })).toBe(true)
-  expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+  expect(live().getByText('Page 1 of 2')).toBeTruthy()
 })
 
 it('turns the page when PageDown reaches a fractional physical bottom', async () => {
@@ -99,67 +97,67 @@ it('turns the page when PageDown reaches a fractional physical bottom', async ()
 
   expect(region.scrollTop).toBe(199.5)
   expect(fireEvent.keyDown(region, { key: 'PageDown' })).toBe(false)
-  await screen.findByText('Page 2 of 2')
+  await live().findByText('Page 2 of 2')
 })
 
 it('turns through facing leaves with live announcements and preserves route return state', async () => {
   render(<MemoryRouter initialEntries={[{ pathname: '/app/recipes/reading-test', search: '?keep=value', state: { journalReturn: '/app/recipes?entry=6' } }]}><RouteView /></MemoryRouter>)
   expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
-  expect(screen.getByText('Rice')).toBeTruthy()
-  expect(screen.queryByText('Salt')).toBeNull()
-  expect((screen.getByRole('button', { name: 'Previous Page' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(live().getByText('Rice')).toBeTruthy()
+  expect(live().queryByText('Salt')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Previous Page' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Next Page' }))
   await waitFor(() => expect(document.querySelector('.mm-journal-spread')?.textContent).toContain('Salt'))
   expect(screen.getByTestId('location').textContent).toContain('?keep=value')
   expect(screen.getByTestId('location').textContent).not.toContain('read=ingredient-2')
   expect(screen.queryByRole('heading', { name: recipe.title })).toBeNull()
-  expect(screen.getByText('Cook gently.')).toBeTruthy()
-  expect(screen.getByText('First paragraph.')).toBeTruthy()
-  expect(screen.getByText('Last paragraph.')).toBeTruthy()
-  const indicator = screen.getByText('Page 2 of 2')
+  expect(live().getByText('Cook gently.')).toBeTruthy()
+  expect(live().getByText('First paragraph.')).toBeTruthy()
+  expect(live().getByText('Last paragraph.')).toBeTruthy()
+  const indicator = live().getByText('Page 2 of 2')
   expect(indicator.getAttribute('aria-live')).toBe('polite')
   expect(indicator.getAttribute('aria-atomic')).toBe('true')
-  expect((document.querySelector('.mm-reading-turns button:last-child') as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Next Page' })).toBeNull()
   expect(screen.getByTestId('location').textContent).toContain('?keep=value')
   expect(screen.getByTestId('location').textContent).not.toContain('read=ingredient-2')
-  finishPageTurn()
+  await finishPageTurn()
   expect(screen.getByTestId('location').textContent).toContain('?keep=value&read=ingredient-2')
   expect(screen.getByTestId('location').textContent).toContain('"journalReturn":"/app/recipes?entry=6"')
   fireEvent.click(screen.getByRole('button', { name: 'Browser back' }))
   await screen.findByRole('heading', { name: recipe.title })
   fireEvent.click(screen.getByRole('button', { name: 'Browser forward' }))
-  await screen.findByText('Salt')
+  await live().findByText('Salt')
 })
 
 it('restores a direct content anchor and keeps that item through reflow and data updates', async () => {
   const view = render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=ingredient-2']}><RouteView /></MemoryRouter>)
-  expect(screen.getByText('Salt')).toBeTruthy()
+  expect(live().getByText('Salt')).toBeTruthy()
   measured.single = true
   view.rerender(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=ingredient-2']}><RouteView data={{ ...recipe, notes: 'Updated notes.' }} /></MemoryRouter>)
-  expect(screen.getByText('Page 3 of 4')).toBeTruthy()
-  expect(screen.getByText('Salt')).toBeTruthy()
+  expect(live().getByText('Page 3 of 4')).toBeTruthy()
+  expect(live().getByText('Salt')).toBeTruthy()
   expect(screen.queryByRole('heading', { name: recipe.title })).toBeNull()
   fireEvent.keyDown(screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' }), { key: 'ArrowRight' })
-  await screen.findByText('Updated notes.')
-  expect(screen.getByText('Page 4 of 4')).toBeTruthy()
+  await live().findByText('Updated notes.')
+  expect(live().getByText('Page 4 of 4')).toBeTruthy()
 })
 
 it('provides a named bounded region for an oversized step and leaves its scroll keys alone', async () => {
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=ingredient-2']}><RouteView /></MemoryRouter>)
   const fallback = screen.getByRole('region', { name: /method|In the kitchen, instruction 1. Scroll to continue/ })
-  expect(screen.getByText('Long entry · scroll to continue')).toBeTruthy()
+  expect(live().getByText('Long entry · scroll to continue')).toBeTruthy()
   expect(fallback.textContent).toContain(recipe.instructions[0].text)
   expect(fallback.getAttribute('tabindex')).toBe('0')
   expect(fallback.style.maxHeight).not.toBe('')
   fireEvent.keyDown(fallback, { key: 'ArrowLeft' })
-  expect(screen.getByText('Page 2 of 2')).toBeTruthy()
+  expect(live().getByText('Page 2 of 2')).toBeTruthy()
   fireEvent.keyDown(screen.getByRole('region', { name: 'Left recipe page' }), { key: 'PageUp' })
-  await waitFor(() => expect(screen.getByText('Page 1 of 2')).toBeTruthy())
+  await waitFor(() => expect(live().getByText('Page 1 of 2')).toBeTruthy())
 })
 
 it('opens the first spread safely when a direct URL names an unavailable content anchor', () => {
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=removed-entry']}><RouteView /></MemoryRouter>)
   expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
-  expect(screen.getByText('Rice')).toBeTruthy()
-  expect((screen.getByRole('button', { name: 'Previous Page' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(live().getByText('Rice')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Previous Page' })).toBeNull()
 })

@@ -63,7 +63,7 @@ function setScrollGeometry(element: HTMLElement, { overflowY = 'auto', scrollHei
 }
 
 function nextPage() {
-  fireEvent.click(document.querySelector<HTMLButtonElement>('.mm-writing-turns button:last-child')!)
+  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
 }
 
 afterEach(() => {
@@ -118,7 +118,7 @@ it('does not consume PageUp on the first page or PageDown on the final page', ()
   expect(fireEvent.keyDown(first, { key: 'PageUp' })).toBe(true)
   expect(pageIndex()).toBe('0')
 
-  while (!(document.querySelector<HTMLButtonElement>('.mm-writing-turns button:last-child')?.disabled)) nextPage()
+  while (screen.queryByRole('button', { name: 'Next Pages' })) nextPage()
   const last = firstLeaf()
   setScrollGeometry(last, { scrollHeight: 100, clientHeight: 100 })
   const finalPage = pageIndex()

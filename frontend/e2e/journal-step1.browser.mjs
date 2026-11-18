@@ -270,7 +270,7 @@ try {
           await expect(remove).toBeFocused()
         }
         if (name === 'create') {
-          if (width < 1100) await page.locator('.mm-writing-turns button').last().click()
+          if (width < 1100) await page.getByRole('button', { name: /^Next Pages?$/ }).click()
           const add = page.getByRole('button', { name: 'Add ingredient', exact: true })
           await expect(add).toHaveCSS('min-height', '38px')
           await expect(page.getByRole('button', { name: 'Save recipe', exact: true })).toHaveCSS('min-height', '44px')
