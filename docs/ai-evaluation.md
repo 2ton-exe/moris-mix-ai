@@ -48,8 +48,11 @@ deno test --frozen-lockfile --node-modules-dir=auto --allow-env \
   supabase/functions/tests/eval_dataset_test.ts
 ```
 
-This file is part of the required Edge/API CI check, so it runs on every push
-and pull request. It requires no API key and makes no network calls.
+This file is part of the required Edge/API validation suite. It executes on
+`main` and on pull requests selecting full validation (including AI/prompt/schema
+changes). Verified prose-only PRs keep the required Edge/API check but skip its
+deterministic test step. The suite needs no Gemini key and makes no network calls;
+see the [AI-aware CI boundary](devops/ai-aware-ci.md).
 
 ## Run the live extraction evaluation (optional)
 
@@ -59,9 +62,13 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   supabase/functions/tests/ai_extraction_live.ts
 ```
 
-The live suite is intentionally manual: the free tier allows roughly 20
-requests per project per model per day, and every case costs one call. Use it
-to spot-check model quality before consultation or Demo Day, not in CI.
+The live suite is opt-in/manual and is not part of required PR or main CI.
+Current provider quotas depend on the authorized Google project, model and tier;
+check them before executing. The adapter can retry, so a passing case does not
+prove exactly one provider request. Coordinate an approved request/cost budget
+with the project owner and use synthetic inputs; see the
+[AI-aware CI boundary](devops/ai-aware-ci.md) and the dated
+[AI verification evidence](ai-evaluation-report.md).
 
 ## Adding or changing a case
 
