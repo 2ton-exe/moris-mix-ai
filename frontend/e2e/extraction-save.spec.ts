@@ -111,8 +111,9 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     }
     await expect(title).toHaveValue(reviewedTitle)
     const ingredients = await navigateToRecipeSection(page, 'Ingredients')
-    await ingredients.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
-    await expect(ingredients.getByLabel('Ingredient 1 name')).toHaveValue('free-range chicken')
+    const ingredientName = ingredients.getByLabel('Ingredient 1 name')
+    if (!(await ingredientName.isVisible())) await ingredients.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
+    await expect(ingredientName).toHaveValue('free-range chicken')
 
     const collectionPage = await page.context().newPage()
     try {
