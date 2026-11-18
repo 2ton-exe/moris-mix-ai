@@ -88,6 +88,9 @@ try {
       }
       await page.evaluate(() => {
         globalThis.document.activeElement?.blur()
+        for (const leaf of globalThis.document.querySelectorAll('.mm-journal-spread, .mm-journal-page, .mm-journal-flyleaf, .mm-page-body, .mm-writing-leaf')) {
+          leaf.scrollTop = 0
+        }
         globalThis.scrollTo({ top: 0, behavior: 'instant' })
       })
       await page.screenshot({ path: path.join(outputDir, `${width}-${label}.png`) })
