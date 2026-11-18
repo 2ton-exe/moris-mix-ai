@@ -55,13 +55,19 @@ function condition(expression, overrides = {}) {
   return Function(...Object.keys(context), `return (${source});`)(...Object.values(context));
 }
 
-test('production deployment pins every external action to a commit', () => {
-  const actions = release.steps.filter(step => step.uses && !step.uses.startsWith('./'));
-  assert.ok(actions.length > 0);
-  for (const step of actions) {
-    assert.match(step.uses, /^[^@\s]+@[a-f0-9]{40}$/, step.name);
-  }
-});
+for (const [name, job] of [
+  ['production deployment', release],
+  ['recipe image readiness', recipeImageReadiness],
+  ['scheduled image cleanup', scheduledCleanup.jobs.cleanup],
+]) {
+  test(`${name} pins every external action to a commit`, () => {
+    const actions = job.steps.filter(step => step.uses && !step.uses.startsWith('./'));
+    assert.ok(actions.length > 0, `${name} must have external actions to verify`);
+    for (const step of actions) {
+      assert.match(step.uses, /^[^@\s]+@[a-f0-9]{40}$/, step.name);
+    }
+  });
+}
 
 test('all workflow YAML parses, including the reusable production contract', () => {
   for (const name of readdirSync('.github/workflows').filter(n => /\.ya?ml$/.test(n))) {
@@ -397,7 +403,7 @@ test('recipe image cleanup requires the explicit production opt-in and unattende
   assert.equal(cleanup.if, "${{ github.ref == 'refs/heads/main' && vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true' }}");
   assert.equal(cleanup.environment, 'recipe-image-cleanup-production');
   assert.equal(cleanup.steps.length, 2);
-  assert.equal(cleanup.steps[0].uses, 'actions/checkout@v4');
+  assert.equal(cleanup.steps[0].uses, 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262');
   const invocation = cleanup.steps[1];
   assert.equal(invocation.name, 'Invoke recipe image cleanup');
   assert.deepEqual(invocation.env, {
