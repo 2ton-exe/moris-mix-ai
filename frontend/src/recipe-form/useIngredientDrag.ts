@@ -7,7 +7,7 @@ function visibleSlots(form: HTMLFormElement) {
   return Array.from(form.querySelectorAll<HTMLElement>('[data-ingredient-slot]')).flatMap((slot) => {
     const card = slot.querySelector('fieldset')
     const leaf = slot.closest('.mm-writing-leaf')
-    if (!card || !leaf) return []
+    if (!card || !leaf || card.offsetHeight === 0) return []
     const paper = leaf.getBoundingClientRect()
     const bounds = slot.getBoundingClientRect()
     const rect = new DOMRect(bounds.left + card.offsetLeft, bounds.top + card.offsetTop, card.offsetWidth, card.offsetHeight)

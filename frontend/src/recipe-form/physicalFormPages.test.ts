@@ -33,6 +33,10 @@ it('creates empty section leaves and follows a row across grouped page boundarie
   expect(narrowLeaves).toHaveLength(1 + 5 + 2)
   expect(leafIndexForAnchor(narrowLeaves, `ingredient:${movedKey}`)).toBe(4)
   expect(leafAnchorForPage(leaves[2])).toBe(`ingredient:${withRows.ingredients[2].key}`)
+
+  const desktopLeaves = recipeFormLeaves(withRows, false, [], false, true)
+  expect(desktopLeaves.filter(({ kind }) => kind === 'ingredients')).toHaveLength(1)
+  expect(desktopLeaves.find(({ kind }) => kind === 'ingredients')).toMatchObject({ rowKeys: withRows.ingredients.map(({ key }) => key) })
 })
 
 it('groups facing leaves on desktop and exposes one numbered leaf on narrow layouts', () => {

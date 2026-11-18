@@ -309,6 +309,7 @@ try {
   await expect(page).toHaveURL(`${origin}app/quick-entry/review`)
   await expect(page.getByRole('heading', { name: 'Review your recipe' })).toBeVisible()
   await expect(page.getByLabel('Recipe title')).toHaveValue('Garlic soy chicken')
+  await page.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
   await expect(page.getByLabel('Ingredient 1 amount description (optional)')).toHaveValue('some')
   const quantity = await page.getByLabel('Ingredient 1 quantity').boundingBox()
   const unit = await page.getByLabel('Ingredient 1 unit').boundingBox()

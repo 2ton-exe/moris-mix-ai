@@ -28,12 +28,12 @@ function sectionLeaves(rows: { key: string }[], kind: 'ingredients' | 'instructi
 }
 
 /** Keep identity fixed and group rows only when the paper can fit them. */
-export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitles: string[] = [], compact = false): RecipeFormLeaf[] {
+export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitles: string[] = [], compact = false, desktop = false): RecipeFormLeaf[] {
   const groupSize = single || compact ? 1 : FORM_ROWS_PER_LEAF
   return [
     { key: 'identity', kind: 'identity' },
     ...reviewTitles.map((title, index): RecipeFormLeaf => ({ key: `review:${index}`, kind: 'review', index, title })),
-    ...sectionLeaves(state.ingredients, 'ingredients', groupSize),
+    ...sectionLeaves(state.ingredients, 'ingredients', desktop ? Math.max(1, state.ingredients.length) : groupSize),
     ...sectionLeaves(state.instructions, 'instructions', groupSize),
   ]
 }
