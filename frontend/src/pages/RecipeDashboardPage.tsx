@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
@@ -8,11 +8,8 @@ import { DiscoveryControls } from '../recipes/DiscoveryControls'
 import { useDiscoveryControls } from '../recipes/useDiscoveryControls'
 import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
 import { RecipeSourceContext } from '../recipes/source'
-import { Mori } from '../journal/Mori'
 import { PaperCard, Tape } from '../journal/Scrapbook'
-import { MoriDialogueLauncher } from '../journal/MoriDialogue'
-import type { MoriDialogueLine } from '../journal/MoriDialogue'
-import { JournalCompanion } from '../journal/JournalFacingPage'
+import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPageContext } from '../journal/JournalLayoutContext'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -27,6 +24,7 @@ export default function RecipeDashboardPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
+  const [turnSearch, setTurnSearch] = useState<string | null>(null)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
   const facingPage = useContext(JournalFacingPageContext)
@@ -81,9 +79,10 @@ export default function RecipeDashboardPage() {
   const phone = useJournalMedia('(max-width: 599.98px)')
   const perPage = phone ? 1 : 2
   const indexView = params.get('view') === 'index' || (params.get('view') !== 'collection' && (Boolean(controls.draft.search) || controls.criteria.sort !== 'newest' || controls.criteria.searchMode !== 'title' || Object.keys(controls.criteria.filters).length > 0))
-  const anchored = new URLSearchParams(params)
-  const entry = Number(params.get('entry'))
-  const hasAnchor = params.has('entry') && Number.isSafeInteger(entry) && entry >= 0
+  const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
+  const anchored = new URLSearchParams(displayParams)
+  const entry = Number(displayParams.get('entry'))
+  const hasAnchor = displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
   if (hasAnchor) anchored.set('leaf', String(Math.floor(entry / perPage) + 1))
   const leaf = journalPage(anchored, recipes?.length ?? 0, { hasMore: query.hasNextPage || query.isPending, perPage })
   const spread = Math.floor(leaf / 2)
@@ -104,11 +103,12 @@ export default function RecipeDashboardPage() {
   const turnCollectionPage = (page: number, direction: 'forward' | 'backward') => {
     if (isTurning || page < 1) return
     const search = pageSearch(page)
-    requestPageTurn(direction, () => {
+    requestPageTurn(direction, () => setTurnSearch(search), () => {
+      setTurnSearch(null)
       void navigate({ pathname: location.pathname, search, hash: location.hash }, {
         state: { journalAccount: user?.id }, preventScrollReset: true, flushSync: true,
       })
-    }, search)
+    }, search, () => setTurnSearch(null))
   }
   const viewLink = (view: 'collection' | 'index') => {
     const next = new URLSearchParams(params)
@@ -129,38 +129,19 @@ export default function RecipeDashboardPage() {
     if (card) { card.focus(); restoredLocation.current = restoreKey }
   }, [recipes, restoreKey, returnFocusId])
   useEffect(() => {
-    if (params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
-  }, [leaf, params, returnFocusId])
+    if (!isTurning && params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
+  }, [isTurning, leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
-  const moriLines: readonly MoriDialogueLine[] = recipes?.length === 0 && !hasSearch
-    ? [{
-      id: 'empty-journal', speaker: 'Mori', expression: 'cheer',
-      text: "Welcome to your MORI'S MIX journal. This fresh page is ready for a recipe you love and the little details that make it yours.",
-      choices: [
-        { id: 'start-recipe', label: 'Write your first recipe' },
-        { id: 'maybe-later', label: 'Maybe later' },
-      ],
-    }]
-    : recipes?.length === 0
-      ? [{
-        id: 'no-matches', speaker: 'Mori', expression: 'think',
-        text: 'No recipe cards match this search yet. Try a different title or ingredient, or clear the search to see your full collection.',
-        choices: [{ id: 'clear-search', label: 'Clear my search', nextLineId: 'search-cleared' }],
-      }, {
-        id: 'search-cleared', speaker: 'Mori', expression: 'wave',
-        text: 'Your search is cleared. The collection below will show the recipes that match your current view.',
-      }]
-      : [{
-        id: 'recipe-index', speaker: 'Mori', expression: 'wave',
-        text: 'Your saved recipes live in the collection below. Search by title or ingredient, then open a scrap to revisit its ingredients, method, and notes.',
-        choices: [
-          { id: 'show-collection', label: 'Show me the collection', nextLineId: 'collection-tip' },
-          { id: 'start-recipe', label: 'Write another recipe' },
-        ],
-      }, {
-        id: 'collection-tip', speaker: 'Mori', expression: 'happy',
-        text: 'Choose any recipe card in the index to open its full journal entry.',
-      }]
+  const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
+  useMoriGuidance(!guidanceAvailable || recipes?.length !== 0 ? null : {
+    message: hasSearch
+      ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
+      : "Your fresh journal is ready for a recipe you love. Let's write your first scrap.",
+    action: hasSearch
+      ? { label: 'Clear my search', onClick: controls.reset }
+      : { label: 'Write your first recipe', onClick: () => navigate('/app/recipes/new') },
+  })
+  useMoriActivity(query.error ? { kind: 'confused', message: 'The collection needs a little attention. Use the recipe error controls to try again.' } : null)
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
             <h2 id="no-results-heading" tabIndex={-1}>No recipes match your search.</h2>
@@ -171,7 +152,6 @@ export default function RecipeDashboardPage() {
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
             <PaperCard surface="fresh" className="mm-recipe-empty__card">
               <Tape variant="sage" className="mm-recipe-empty__tape" />
-              <Mori mood="wave" size={126} label="Mori the chef waving hello" animated />
               <p className="mm-recipe-index__eyebrow">A fresh page for MORI'S MIX</p>
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
               <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>
@@ -196,9 +176,9 @@ export default function RecipeDashboardPage() {
           }}>{query.isFetchingNextPage ? 'Loading more…' : 'Load more'}</button>
         </div>}
         {query.isFetchingNextPage && <p role="status">Loading more recipes…</p>}
-        {source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext) && <p ref={endOfResults} className="discovery-end" role="status" tabIndex={-1}>End of results.</p>}
+
   </>
-  return <>
+  return <div data-journal-ready={query.isFetchNextPageError && turnSearch !== null ? 'error' : turnSearch !== null && (query.isPending || controls.waiting || ((recipes?.length ?? 0) < needed && query.hasNextPage)) ? 'false' : 'true'} className="mm-page-column">
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
@@ -209,6 +189,7 @@ export default function RecipeDashboardPage() {
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>
+        {source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext) && <p ref={endOfResults} className="discovery-end" role="status" tabIndex={-1}>End of results.</p>}
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
       {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
@@ -220,7 +201,7 @@ export default function RecipeDashboardPage() {
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
       empty={recipes ? empty : null} pagination={recipes ? pagination : null}
-      turns={<>
+      previous={<>
         {canPrevious ? <Link className="button mm-button--page-turn" to={pageLink(single ? leaf - 1 : Math.max(1, pages[0] - 2))}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}
           onClick={(event) => {
@@ -228,6 +209,8 @@ export default function RecipeDashboardPage() {
             event.preventDefault()
             turnCollectionPage(single ? leaf - 1 : Math.max(1, pages[0] - 2), 'backward')
           }}>← Previous page</Link> : <span />}
+      </>}
+      next={<>
         {canNext && <Link className="button mm-button--page-turn" to={pageLink(single ? leaf + 1 : rightPage + 1)}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}
           onClick={(event) => {
@@ -235,13 +218,9 @@ export default function RecipeDashboardPage() {
             event.preventDefault()
             turnCollectionPage(single ? leaf + 1 : rightPage + 1, 'forward')
           }}>Next page →</Link>}
-        {!canNext && !source.discovery && <span className="mm-collection-last">Last page</span>}
-        {rightPage > 1 && <Link className="button mm-button--page-turn" to={viewLink('index')} state={{ journalAccount: user?.id }}>Search &amp; index</Link>}
+
       </>}
     />
-    {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <JournalCompanion><MoriDialogueLauncher
-      lines={moriLines} completionText="Whenever you are ready, your journal is here."
-      onChoice={(choice) => { if (choice.id === 'clear-search') controls.reset() }}
-    /></JournalCompanion>}
-  </>
+
+  </div>
 }

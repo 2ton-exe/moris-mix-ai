@@ -1,35 +1,73 @@
-# Mori dialogue UI foundation (UI-01 Phase G)
+# Mori companion
 
-Phase G adds an optional, inline dialogue note to the authenticated recipe index. It reuses the Phase A `Mori` illustration, `PaperCard`, `Stamp`, existing type and color tokens, and the Phase B journal shell. The note is deliberately not mounted on create/edit forms, recipe detail, or modal dialogs.
+Mori is an optional companion shared by signed-in recipe and AI pages. It replaces
+the dashboard's inline note and the older floating feature chooser. One full
+Mori stays outside the physical book; the bookplate keeps its static emblem.
+Modal confirmations may show Mori while the companion is suspended.
 
-## Presentation interface
+## Real activity
 
-`frontend/src/journal/MoriDialogue.tsx` exports the reusable `MoriDialogue` surface and `MoriDialogueLauncher`, plus these presentation types:
+Workflow owners supply activity and guidance to a shared presentation context.
+Browsing is idle, photo preparation/upload is curious, extraction is working,
+and Chef generation is thinking. A confirmed recipe save briefly celebrates.
+Actionable errors and required input take precedence; clearing or unmounting the
+owning workflow clears its activity. Requests and their results never wait for
+animation. Mori does not issue requests, retry, save, or edit automatically.
 
-- `MoriDialogueLine`: stable line `id`, `speaker`, `text`, optional `MoriMood` expression, and optional choices.
-- `MoriDialogueChoice`: stable choice `id`, visible `label`, and optional `nextLineId` referencing another supplied line.
-- `MoriDialogueStatus`: `ready`, `pending`, `error`, or `complete`.
-- `MoriDialogueProps`: supplied lines/copy, optional pending/error/retry/complete callbacks, typewriter preference, and a required close callback.
+The current integration checkout already contains extraction and Chef screens;
+the older checkout inspected during the initial interview did not. Those existing
+workflows are connected without adding AI features or changing API contracts.
 
-The component owns only ephemeral presentation state: current line, typewriter reveal progress, completion, and closing animation. Callers provide every line and action. The launcher's `start-recipe` choice navigates to the existing `/app/recipes/new` route; all other navigation or mutations must remain caller-owned. There is no dialogue persistence, global provider, generated response, or network request.
+## Interaction
 
-The dashboard's predetermined guidance covers an empty collection, no search matches, and a loaded collection. It is shown only after collection data is available and starts closed. It makes no claim to know recipe contents beyond the existing screen state.
+**Talk to Mori** opens a nonmodal speech bubble with a short page label, safe
+page-specific guidance, and an action only when that action belongs to the
+current workflow. Recipe identifiers, recipe content, and account details are
+not copied into the companion message. The bubble stays beside Mori with a tail
+pointing toward him, and flips above or below only when the viewport leaves too
+little room at either side. While it is open, Mori uses an open-mouth speaking
+pose with a small motion. Reduced motion keeps the pose still. Drag Mori's
+character to reposition him; when focused, use the arrow keys. Position is
+stored on this device; unavailable or malformed storage falls back to defaults
+without blocking recipe work.
 
-## Interaction and accessibility
+Automatic activity changes do not open the bubble or move focus. Opening focuses
+the bubble heading, Escape/close restores focus, and focus is not trapped. Existing
+workflow loading, error, validation, and confirmation messages remain authoritative.
+Movement feedback uses a polite status region; decorative animation is not
+announced. A drag does not also activate the Talk button. No sound, roaming,
+generated conversation, or companion operation history is introduced.
 
-- Opening moves focus to Mori's speaker heading. Closing restores focus to the launcher.
-- Escape closes the note. It is a labelled `region`, not a modal dialog; keyboard focus remains free to move through the page.
-- The full text is exposed once through a polite status region while visual text animates. “Show full message” reveals the rest immediately; choices are available during typing.
-- Reduced-motion preference disables the typewriter and CSS transitions/animations.
-- Long lines wrap, action rows wrap, and the portrait moves above the text at very narrow widths.
-- A route change unmounts the inline note and clears its timers.
+Turning a page briefly sends the same companion across the book with a paper-grab
+pose. Page snapshots do not contain full Mori figures, and reduced motion skips
+the run.
 
-## Future service coordination
+The companion remains outside public/authentication pages and yields to modal
+dialogs. Its provider is keyed to the authenticated user, so transient activity
+cannot survive an account change. Route-specific activity and guidance are scoped
+to their owners while Mori's position survives recipe navigation.
 
-FE-08 through FE-11 may use this UI as a presentation surface after their owning teams agree on the service contract. Coordinate those requirements with backend/full-stack owners before implementation. Decisions still needed include authenticated request/response shape, provenance and confidence metadata, pending/error/retry semantics, limits and cancellation, data retention/privacy, and whether a user must review and confirm extracted or generated recipe data before any save request. UI-01 does not define that contract and does not send AI requests or write recipes.
+## Verification
 
-## Validation record
+The application browser seam uses synthetic sessions and intercepted API responses.
+The existing Mori browser journey covers keyboard operation, character dragging,
+position persistence, bubble reachability, route scope, narrow layouts, and
+reduced motion without production services. Component integration tests cover
+activity ownership/precedence and actual workflow status transitions. Existing
+shell and Chef browser journeys retain feature navigation and focus checks.
 
-The component unit tests cover opening, dismissal, focus restoration, choices, completion, typewriter skip, reduced motion, long copy, route unmount, and the absence of network writes. `frontend/e2e/mori-dialogue.browser.mjs` uses a synthetic local session and intercepted read-only GET requests to exercise keyboard behavior, responsive widths, empty guidance, reduced motion, 200% zoom, and route changes without contacting production Supabase.
+Run from the frontend directory with the repository's Node 24 runtime:
 
-Screen-reader output was reviewed through DOM semantics and status-region behavior; no manual screen-reader session was performed.
+```sh
+pnpm test
+pnpm lint
+pnpm build
+node e2e/mori-dialogue.browser.mjs
+node e2e/journal-shell.browser.mjs
+node e2e/ai-chef.browser.mjs
+```
+
+The browser script keeps its existing filename so external acceptance commands
+continue to work. Screenshots are written to the temporary directory printed by
+the script. Automated semantic checks do not substitute for a manual screen-reader
+session or physical-device testing.

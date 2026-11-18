@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalReadingTurns } from '../journal/JournalReadingTurns'
@@ -75,11 +75,21 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   const spreads = readingSpreads(pages, single)
   const anchor = new URLSearchParams(location.search).get('read') ?? 'identity'
   const found = spreads.findIndex((spread) => spread.some((leaf) => leaf.includes(anchor)))
-  const current = Math.max(0, found)
+  const committedPage = Math.max(0, found)
+  const [previewPage, setPreviewPage] = useState<number | null>(null)
+  const current = previewPage ?? committedPage
   // Router transitions may commit after a second key event. Keep rapid turns
   // relative to the last requested page instead of a stale rendered closure.
+  const focusAfterTurn = useRef(false)
   const requestedPage = useRef(current)
-  useLayoutEffect(() => { requestedPage.current = current }, [current, location.key])
+  useLayoutEffect(() => {
+    if (!isTurning && focusAfterTurn.current) {
+      focusAfterTurn.current = false
+      const target = single ? bodyRef.current : leftRef.current
+      target?.focus({ preventScroll: true })
+    }
+  }, [isTurning, single, bodyRef, leftRef])
+  useLayoutEffect(() => { requestedPage.current = committedPage }, [committedPage, location.key])
   const spread = spreads[current]
   const identityVisible = spread[0]?.[0] === 'identity'
   const selectUnits = (ids: string[] = []) => units.filter((unit) => ids.includes(unit.id))
@@ -93,9 +103,16 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     const expectedSearch = nextSearch ? `?${nextSearch}` : ''
     requestPageTurn(index > requestedPage.current ? 'forward' : 'backward', () => {
       requestedPage.current = index
+      setPreviewPage(index)
+    }, () => {
+      focusAfterTurn.current = true
+      setPreviewPage(null)
+      requestedPage.current = index
       void navigate({ pathname: location.pathname, search: nextSearch, hash: location.hash }, { state: location.state, preventScrollReset: true, flushSync: true })
-      requestAnimationFrame(() => (single ? bodyRef.current : leftRef.current)?.focus({ preventScroll: true }))
-    }, expectedSearch)
+    }, expectedSearch, () => {
+      requestedPage.current = committedPage
+      setPreviewPage(null)
+    })
   }
   useLayoutEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -123,11 +140,12 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   }, [current, bodyRef, leftRef])
   useLayoutEffect(() => {
     // Moving between facing and single leaves can detach the focused heading.
+    if (isTurning) return
     if (document.activeElement !== document.body) return
     const region = single ? bodyRef.current : leftRef.current
     const heading = region?.querySelector<HTMLElement>('h1[tabindex="-1"]')
     ;(heading ?? region)?.focus({ preventScroll: true })
-  }, [single, current, bodyRef, leftRef])
+  }, [single, current, isTurning, bodyRef, leftRef])
 
   const identity = <div className="mm-recipe-identity mm-reading-identity" role="region" aria-label="Recipe identity and details" tabIndex={0}>
     {publicDemo && <h1 className="mm-demo-title" tabIndex={-1}>Demonstration recipe</h1>}
@@ -148,7 +166,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       <div ref={leftRef} className="mm-continuation-body mm-continuation-left" tabIndex={0} role="region" aria-label="Left recipe page">
         {!single && (identityVisible ? identity : <><h1 className="mm-continuation-title" tabIndex={-1}>Recipe continued</h1><ReadingUnits units={selectUnits(spread[0])} prefix="left" capacity={layout?.capacity} width={layout?.width} oversized={layout?.oversized} contentLimits={layout?.contentLimits} /></>)}
       </div>
-      <span className="mm-recipe-page-number mm-reading-left-folio" aria-hidden="true">{current === 0 ? 'From your journal' : `Continued · ${current * 2 + 1}`}</span>
+
     </JournalFacingPage>
     <div className="mm-reading-running-head">
       {single ? <span className="mm-reading-return">{back}</span> : <span>{current ? 'Recipe continued' : 'From your journal'}</span>}

@@ -1,10 +1,9 @@
 .mm-ai-chef { width: 100%; max-width: 860px; min-width: 0; margin-inline: auto; }
-.mm-ai-chef__heading { display: flex; align-items: center; justify-content: space-between; gap: clamp(12px, 2vw, 26px); min-width: 0; margin: 0 0 18px; }
+.mm-ai-chef__heading { min-width: 0; margin: 0 0 18px; }
 .mm-ai-chef__heading > div { min-width: 0; }
 .mm-ai-chef__heading h1 { margin: 4px 0 8px; color: var(--mm-color-burgundy-900); font: 600 clamp(25px, 3vw, 34px)/1.12 var(--mm-font-serif); overflow-wrap: anywhere; }
 .mm-ai-chef__heading h1:focus { outline: 2px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
 .mm-ai-chef__heading .intro { max-width: 62ch; margin: 0; color: var(--mm-color-ink-soft); line-height: 1.6; }
-.mm-ai-chef__heading > .mm-mori { flex: 0 0 auto; }
 .mm-ai-chef__paper { width: 100%; min-width: 0; padding: clamp(16px, 2.5vw, 24px); border: 1px solid var(--mm-color-parchment-400); box-shadow: var(--mm-shadow-paper); }
 .mm-ai-chef__form, .mm-ai-chef__form fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; }
 .mm-ai-chef__form fieldset { padding: 0; border: 0; }
@@ -20,7 +19,9 @@
 .mm-ai-chef__pantry-list ul { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin: 0; padding: 0; list-style: none; }
 .mm-ai-chef__pantry-list li { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; padding: 5px 8px 5px 11px; border: 1px solid var(--mm-color-parchment-500); border-radius: 999px; color: var(--mm-color-ink); background: #fffdf7; font: 14px/1.4 var(--mm-font-sans); overflow-wrap: anywhere; }
 .mm-ai-chef__pantry-list li > span { min-width: 0; overflow-wrap: anywhere; }
-.mm-ai-chef__empty { margin: 0; color: var(--mm-color-ink-soft); font: 14px/1.5 var(--mm-font-serif); font-style: italic; }
+.mm-ai-chef__empty { display: grid; gap: 3px; margin: 0; color: var(--mm-color-ink-soft); font: 14px/1.5 var(--mm-font-serif); }
+.mm-ai-chef__empty strong { color: var(--mm-color-burgundy-900); font-style: normal; }
+.mm-ai-chef__empty span { font-style: italic; }
 .mm-ai-chef__remove { flex: 0 0 auto; min-height: 44px; min-width: 44px; padding: 3px 5px; border: 0; border-radius: 3px; color: var(--mm-color-burgundy-800); background: transparent; font: 600 11px/1.2 var(--mm-font-sans); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .mm-ai-chef__preferences-label { margin: 2px 0 -8px; color: var(--mm-color-burgundy-900); font: 600 17px/1.3 var(--mm-font-serif); }
 .mm-ai-chef__preferences-label span { color: var(--mm-color-ink-soft); font: 400 13px/1.4 var(--mm-font-sans); }
@@ -58,6 +59,26 @@
 .mm-ai-chef__parent-choice-status { color: var(--mm-color-ink-soft); font-size: 13px; }
 .mm-ai-chef__selection-count { margin-top: 9px !important; color: var(--mm-color-burgundy-900) !important; font-weight: 650; }
 .mm-ai-chef__selection-feedback { margin-bottom: 0 !important; }
+.mm-desk .mm-journal-flyleaf:has(.mm-facing-content--ai-chef) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #9fae8b;
+  background-image: var(--mm-page-curve), var(--mm-tex-endpaper), var(--mm-tex-grain);
+  background-size: auto, auto, 180px 180px;
+  box-shadow: inset 0 0 0 1px rgb(40 50 30 / .24), inset 0 0 30px rgb(40 50 30 / .24);
+}
+.mm-desk .mm-journal-flyleaf:has(.mm-facing-content--ai-chef) .mm-facing-slot { display: grid; height: 100%; place-items: center; }
+.mm-facing-content--ai-chef { display: grid; width: min(100%, 340px); min-height: 100%; place-items: center; }
+.mm-ai-chef__journey { box-sizing: border-box; width: min(100%, 320px); padding: 22px 20px 18px; }
+.mm-ai-chef__journey-kicker { margin: 0 0 5px; color: var(--mm-color-burgundy-700); font: 700 10px/1.3 var(--mm-font-sans); letter-spacing: .16em; text-transform: uppercase; }
+.mm-ai-chef__journey h2 { margin: 0 0 16px; color: var(--mm-color-burgundy-900); font: 600 22px/1.2 var(--mm-font-serif); }
+.mm-ai-chef__journey ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mm-ai-chef__journey li { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 9px; min-height: 40px; padding: 5px 8px; border-radius: 4px; color: var(--mm-color-ink-soft); font: 500 14px/1.35 var(--mm-font-sans); }
+.mm-ai-chef__journey li[aria-current='step'] { color: var(--mm-color-ink); background: rgb(220 230 203 / .8); box-shadow: inset 0 0 0 1px rgb(74 96 55 / .24); }
+.mm-ai-chef__journey li.is-complete { color: var(--mm-color-ink); }
+.mm-ai-chef__journey-mark { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--mm-color-sage-700); border-radius: 50%; color: var(--mm-color-sage-900); font: 650 12px/1 var(--mm-font-sans); }
 .mm-ai-chef__lineage-recovery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; border-left: 3px solid var(--mm-color-burgundy-700); background: var(--mm-color-rose-100, #f5e2dc); }
 .mm-ai-chef__lineage-recovery p { flex: 1 1 100%; margin: 0; color: var(--mm-color-ink); line-height: 1.5; overflow-wrap: anywhere; }
 .mm-ai-chef__lineage-recovery .button { max-width: 100%; white-space: normal; }
@@ -66,12 +87,12 @@
 .mm-ai-chef :where(input, textarea, button, a):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
 
 @media (max-width: 560px) {
-  .mm-ai-chef__heading { align-items: flex-start; }
-  .mm-ai-chef__heading > .mm-mori { width: 60px; height: 60px; }
+  .mm-desk .mm-journal-flyleaf:has(.mm-facing-content--ai-chef) { display: block; background-color: #9fae8b; background-image: var(--mm-page-curve), var(--mm-tex-endpaper), var(--mm-tex-grain); }
+  .mm-desk .mm-journal-flyleaf:has(.mm-facing-content--ai-chef) .mm-facing-slot { height: auto; }
+  .mm-facing-content--ai-chef { min-height: 0; }
   .mm-ai-chef__resume { grid-template-columns: minmax(0, 1fr); }
   .mm-ai-chef__resume-actions { align-items: stretch; }
   .mm-ai-chef__resume-actions .button { flex: 1 1 150px; }
 }
 @media (max-width: 399px) {
-  .mm-ai-chef__heading > .mm-mori { display: none; }
 }

@@ -23,7 +23,7 @@ export async function readAllRecipePages(page) {
       id: node.dataset.unit, text: node.querySelector('.mm-unit-content').textContent,
     }))))
     const next = page.getByRole('button', { name: 'Next Page', exact: true })
-    if (await next.isDisabled()) return result
+    if (!(await next.count()) || await next.isDisabled()) return result
     const previous = await page.locator('.mm-reading-indicator').textContent()
     await next.click()
     await page.waitForFunction((previous) => globalThis.document.querySelector('.mm-reading-indicator').textContent !== previous, previous)
@@ -37,7 +37,7 @@ export async function findReadingContent(page, locator) {
   for (let turn = 0; turn < 300; turn++) {
     if (await locator.count() && await locator.first().isVisible()) return
     const next = page.getByRole('button', { name: 'Next Page', exact: true })
-    if (await next.isDisabled()) break
+    if (!(await next.count()) || await next.isDisabled()) break
     await next.click()
     await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
   }

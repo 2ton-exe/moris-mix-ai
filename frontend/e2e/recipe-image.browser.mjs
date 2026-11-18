@@ -208,7 +208,7 @@ try {
         await expect(identity.getByRole('img', { name: 'Ginger rice photo' })).toHaveCount(0)
         await page.goto(`${appOrigin}/demo-recipe`)
         await expect(page.getByRole('heading', { name: demoFixture.recipe.title })).toBeVisible()
-        const pages = page.getByRole('navigation', { name: 'Recipe reading pages' })
+        const pages = page.getByRole('navigation', { name: 'Recipe reading pages', exact: true })
         await pages.scrollIntoViewIfNeeded()
         await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveCount(1)
         await expect(page.getByRole('link', { name: 'Home →' })).toHaveCount(0)

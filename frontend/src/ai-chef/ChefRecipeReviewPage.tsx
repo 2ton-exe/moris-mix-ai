@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
-import { Mori } from '../journal/Mori'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
 import type { RecipeDraft, RecipeEditorState } from '../recipe-form/draft'
@@ -13,6 +13,7 @@ import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
 import { readChefDraftResult, writeChefDraft } from './draft'
+import { ChefProgress } from './ChefProgress'
 import type { ChefDraftReadStatus, ChefDraftWriteResult, ChefReviewHandoff } from './draft'
 import { LineageApiError, lineageApi, lineageFailureMessage, lineageMatchesSelection } from './lineage'
 import './aiChef.css'
@@ -129,9 +130,13 @@ export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
 
 function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const stored = initialRead.draft
+  const generationSucceeded = useRef(Boolean(stored.handoff) && typeof location.state === 'object' && location.state !== null &&
+    'chefGenerationSucceeded' in location.state && location.state.chefGenerationSucceeded === true)
+  useMoriActivity(generationSucceeded.current ? { kind: 'celebrating', message: 'Your recipe idea is ready for review.' } : null)
   const originalHandoff = useRef(stored.handoff)
   const [dirty, setDirty] = useState(false)
   const [saved, setSaved] = useState(Boolean(stored.handoff?.savedRecipeId))
@@ -154,6 +159,10 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const lineageLock = useRef(false)
   const lineageController = useRef<AbortController | null>(null)
   const navigationConfirmation = useUnsavedChangesGuard(dirty || (saved && storageIssue !== null), { warnOnUnload: storageIssue !== null })
+
+  useEffect(() => {
+    if (generationSucceeded.current) navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, navigate])
 
   useEffect(() => () => lineageController.current?.abort(), [])
 
@@ -394,6 +403,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     </>}
     renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
       headingTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
+      facingPageContent={<ChefProgress stage={saved ? 'saved' : 'review'} />}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 
@@ -518,7 +528,6 @@ function ReviewUnavailable({ userEmail, status }: { userEmail?: string; status: 
           <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
           <p className="intro">{storageMessage}</p>
         </div>
-        <Mori mood="think" size={82} />
       </header>
       <Link className="button button-primary" to="/app/chef">Open AI Chef</Link>
     </JournalFacingPage>

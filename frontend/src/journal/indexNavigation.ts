@@ -12,12 +12,6 @@ export function journalReturnTo(state: unknown, fallback = '/app/recipes') {
   return fallback
 }
 
-/** Preserve the current journal page when opening Quick AI Entry from Talk to Mori. */
-export function journalReturnFromLocation(location: { pathname: string; search: string; hash?: string; state: unknown }, fallback = '/app/recipes') {
-  if (QUICK_AI_ENTRY_PATH.test(location.pathname)) return journalReturnTo(location.state, fallback)
-  return journalReturnTo({ journalReturn: `${location.pathname}${location.search}${location.hash ?? ''}` }, fallback)
-}
-
 // Presentation parameters only; BE-08 continuations remain owned by its adapter.
 export function readJournalCriteria(params: URLSearchParams, source?: Pick<RecipeDiscoverySource, 'searchModes' | 'sorts' | 'filters'>): RecipeDiscoveryCriteria {
   const scope = source?.searchModes.find((value) => value === params.get('scope')) ?? source?.searchModes[0] ?? 'title'

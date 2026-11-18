@@ -4,3 +4,5 @@ import { createContext } from 'react'
 export const JournalFacingPageContext = createContext<HTMLDivElement | null>(null)
 export const JournalCompanionContext = createContext<HTMLDivElement | null>(null)
 export const JournalPageFooterContext = createContext<HTMLDivElement | null>(null)
+
+export const JournalPaginationContext = createContext<{ left: HTMLDivElement | null; right: HTMLDivElement | null }>({ left: null, right: null })

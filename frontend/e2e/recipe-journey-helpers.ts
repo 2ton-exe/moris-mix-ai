@@ -51,14 +51,15 @@ export async function createRecipe(page: Page, title: string): Promise<string> {
 
 export async function navigateToRecipeSection(page: Page, sectionName: string) {
   const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
-  const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages' })
+  const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages', exact: true })
   const nextPage = pageNavigation.getByRole('button', { name: /^Next(?: Pages?$|:)/ })
-  const pagePosition = pageNavigation.getByText(/of \d+$/).or(page.locator('.mm-review-progress'))
+  const pagePosition = pageNavigation.locator('.mm-pagination-number')
 
   while (!(await section.isVisible())) {
     await expect(nextPage).toBeEnabled()
     const currentPosition = await pagePosition.innerText()
     await nextPage.click()
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
     await expect(pagePosition).not.toHaveText(currentPosition)
   }
 
@@ -72,6 +73,7 @@ export async function finishRecipeReview(page: Page) {
     const progress = page.locator('.mm-review-progress')
     const current = await progress.innerText()
     await next.click()
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
     await expect(progress).not.toHaveText(current)
   }
   await expect(page.getByRole('button', { name: 'Save recipe' })).toBeVisible()

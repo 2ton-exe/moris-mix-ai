@@ -25,7 +25,7 @@ export function useReadingPagination(contentKey: string, single: boolean) {
       const capacity = Math.floor(Math.min(body.clientHeight, !single && liveLeft ? liveLeft.clientHeight : Infinity)) - 8
       const width = Math.floor(Math.min(body.clientWidth, !single && liveLeft ? liveLeft.clientWidth : Infinity)) - 8
       // A zero-sized portal/body has not joined the physical shell yet.
-      if (capacity <= 0 || width <= 0) return
+      if (body.clientHeight <= 0 || width <= 0) return
       if (capacity < 160 || width < 80) {
         flushSync(() => { setMeasurable(false); setLayout(null); setReadyKey(contentKey) })
         return
@@ -52,7 +52,12 @@ export function useReadingPagination(contentKey: string, single: boolean) {
         setReadyKey(contentKey)
       })
     }
-    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure) }
+    const schedule = () => {
+      if (disposed) return
+      setReadyKey(null)
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    }
     // Before fonts settle, keep the complete recipe in a bounded scrolling body.
     void (document.fonts?.ready ?? Promise.resolve()).then(() => { fontsReady = true; schedule() })
     document.fonts?.addEventListener('loadingdone', schedule)

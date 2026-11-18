@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
+import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
+import { MoriCompanion } from '../mori/MoriCompanion'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthContext } from '../auth/context'
@@ -24,9 +26,9 @@ function Probe() { currentClient = useQueryClient(); return null }
 function auth(id: string | null = 'cook-a'): AuthState {
   return { user: id ? { id } : null, isAuthenticated: !!id, isLoading: false } as AuthState
 }
-function tree(id: string | null = 'cook-a', path = '/app/recipes?view=index') {
+function tree(id: string | null = 'cook-a', path = '/app/recipes?view=index', companion = false) {
   return <StrictMode><MemoryRouter initialEntries={[path]}><AuthContext.Provider value={auth(id)}>
-    <RecipeQueryProvider source={source}><Probe /><RecipeDashboardPage /></RecipeQueryProvider>
+    <RecipeQueryProvider source={source}><Probe />{companion ? <MoriCompanionProvider><RecipeDashboardPage /><MoriCompanion /></MoriCompanionProvider> : <RecipeDashboardPage />}</RecipeQueryProvider>
   </AuthContext.Provider></MemoryRouter></StrictMode>
 }
 function deferred<T>() {
@@ -119,40 +121,26 @@ it('distinguishes an empty journal from no search matches and clears the search'
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
 })
 
-it('keeps the search-cleared conversation and focus while the replacement query is pending and after it loads', async () => {
+it('updates companion guidance when clearing a search while preserving the open panel', async () => {
+  localStorage.clear()
   const replacement = deferred<RecipeDiscoveryPage>()
   page.mockImplementation(({ criteria }) => criteria.search === 'missing'
     ? Promise.resolve({ recipes: [], nextPage: null }) : replacement.promise)
-  render(tree('cook-a', '/app/recipes?view=index&q=missing'))
+  render(tree('cook-a', '/app/recipes?view=index&q=missing', true))
   await screen.findByRole('heading', { name: 'No recipes match your search.' })
-  fireEvent.click(screen.getByRole('button', { name: 'Journal tips' }))
-  const dialogue = screen.getByRole('region', { name: 'Mori' })
-  const choice = within(dialogue).getByRole('button', { name: 'Clear my search' })
-  choice.focus()
-  fireEvent.click(choice)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  const panel = screen.getByRole('region', { name: 'Mori' })
+  fireEvent.click(within(panel).getByRole('button', { name: 'Clear my search' }))
   await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: '' }) })))
-  expect(screen.getByRole('region', { name: 'Mori' })).toBe(dialogue)
+  expect(screen.getByRole('region', { name: 'Mori' })).toBe(panel)
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
-  expect(card()).toBeNull()
-  const reveal = within(dialogue).queryByRole('button', { name: 'Show full message' })
-  if (reveal) fireEvent.click(reveal)
-  const followUp = 'Your search is cleared. The collection below will show the recipes that match your current view.'
-  expect(dialogue.querySelector('.mm-mori-dialogue__text')?.textContent).toBe(followUp)
-  const next = within(dialogue).getByRole('button', { name: 'Continue' })
-  expect(document.activeElement).toBe(next)
   await act(async () => replacement.resolve({ recipes: [rice], nextPage: null }))
   await ready()
-  expect(screen.getByRole('region', { name: 'Mori' })).toBe(dialogue)
-  expect(dialogue.querySelector('.mm-mori-dialogue__text')?.textContent).toBe(followUp)
-  expect(document.activeElement).toBe(next)
-  fireEvent.click(next)
-  expect(within(dialogue).getByRole('status').textContent).toContain('Whenever you are ready')
-  fireEvent.click(within(dialogue).getByRole('button', { name: "Close Mori's note" }))
-  await waitFor(() => expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull())
-  const trigger = await screen.findByRole('button', { name: 'Journal tips', expanded: false })
-  expect(document.activeElement).toBe(trigger)
-  fireEvent.click(trigger)
-  expect(screen.getByRole('button', { name: 'Show me the collection' })).toBeTruthy()
+  expect(within(panel).getByText('Your recipe collection is open. Choose a scrap to revisit it.')).toBeTruthy()
+  expect(within(panel).queryByText(/Your saved recipes live in the collection/)).toBeNull()
+  fireEvent.click(within(panel).getByRole('button', { name: 'Close Mori' }))
+  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Talk to Mori' }))
 })
 
 it('renders a safe first-page failure with retry', async () => {

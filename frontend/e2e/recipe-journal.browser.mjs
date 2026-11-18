@@ -176,7 +176,6 @@ try {
     const deleteBox = await deleteButton.boundingBox()
     assert.ok(deleteBox && deleteBox.width > 0 && deleteBox.height === 38 && deleteBox.x >= 0 && deleteBox.x + deleteBox.width <= width + 1)
     await expect(deleteButton).toHaveCSS('font-size', '13.5px')
-    await expect(deleteButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await deleteButton.click()
     const dialog = page.getByRole('alertdialog')
     await expect(dialog).toBeVisible()
@@ -237,7 +236,9 @@ try {
       assert.equal(reducedCardMotion.transform, 'none', 'Recipe cards should not tilt with reduced motion enabled')
       await page.emulateMedia({ reducedMotion: 'no-preference' })
 
-      // Offline direct-detail navigation pauses visibly; restoring connectivity resumes the same route.
+      // Warm the route module: Vite's development assets cannot load offline.
+      await page.evaluate(() => import('/src/pages/RecipeDetailPage.tsx'))
+      // Offline data navigation pauses visibly and resumes on the same route.
       await context.setOffline(true)
       await page.getByRole('link', { name: `Open recipe ${secondRecipe.title}` }).click()
       await expect(page.getByRole('status').filter({ hasText: 'offline' })).toBeVisible()

@@ -9,7 +9,6 @@ export function RecipeScrapArtwork({ title, cookedAt, size = 'card', image }: {
   title: string
   cookedAt?: string | null
   size?: 'card' | 'detail'
-  mood?: 'stir' | 'cheer' | 'wave'
 }) {
   return <figure className={`mm-recipe-artwork mm-recipe-artwork--${size}`}>
     <Tape variant={size === 'detail' ? 'sage' : 'mustard'} className="mm-recipe-artwork__tape" />

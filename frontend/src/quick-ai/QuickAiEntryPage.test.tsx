@@ -7,6 +7,8 @@ import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import { ProtectedRoute } from '../auth/AuthRoutes'
 import type { AuthState } from '../auth/context'
+import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
+import { MoriCompanion } from '../mori/MoriCompanion'
 import { JournalShell } from '../journal/JournalShell'
 import { InvalidExtractionResponse } from './extractRecipe'
 import type { QuickAiEntryHandoff } from './extractRecipe'
@@ -31,7 +33,7 @@ function authState(userId = 'cook-a', logout = vi.fn(async () => {})): AuthState
 }
 
 function JournalLayout() {
-  return <JournalShell><Outlet /></JournalShell>
+  return <MoriCompanionProvider><JournalShell><Outlet /></JournalShell><MoriCompanion /></MoriCompanionProvider>
 }
 
 function JournalIndex() {
@@ -40,7 +42,7 @@ function JournalIndex() {
   return <section>
     <h1>Your journal</h1>
     <output data-testid="journal-location">{returnTo}</output>
-    <Link to="/app/quick-entry" state={{ journalReturn: returnTo }}>Return to Quick AI Entry</Link>
+    <Link to="/app/quick-entry" state={{ journalReturn: returnTo }}>Quick AI Entry</Link>
   </section>
 }
 
@@ -79,6 +81,7 @@ beforeEach(() => {
     }
   })
   sessionStorage.clear()
+  localStorage.clear()
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -194,7 +197,7 @@ describe('Quick AI Entry', () => {
     })
     const { router } = renderEntry({ initialEntry: '/app/recipes' })
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     const sourceNotes = 'notes before browser back'
     enterNotes(sourceNotes)
 
@@ -320,7 +323,7 @@ describe('Quick AI Entry', () => {
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
     expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'Return to Quick AI Entry' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
 
@@ -332,7 +335,7 @@ describe('Quick AI Entry', () => {
     restored.unmount()
   })
 
-  it('opens Quick AI Entry from Talk to Mori, returns to the exact journal location, and restores the unsaved preview', async () => {
+  it('keeps Quick AI Entry in the journal workflow and restores the unsaved preview at its exact source location', async () => {
     const journalLocation = '/app/recipes?q=rice&sort=rating&leaf=2#collection-heading'
     const extract = vi.fn<Extract>().mockResolvedValue(recipe)
     renderEntry({ extract, initialEntry: journalLocation })
@@ -345,11 +348,15 @@ describe('Quick AI Entry', () => {
     moriBookmark.focus()
     expect(document.activeElement).toBe(moriBookmark)
     fireEvent.click(moriBookmark)
-    expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
+    const moriPanel = screen.getByRole('region', { name: 'Mori' })
+    expect(moriPanel.textContent).toContain('My recipes')
+    expect(moriPanel.querySelector('nav')).toBeNull()
+    expect(moriPanel.textContent).not.toContain('Organize cooking notes')
+    fireEvent.keyDown(moriPanel, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
 
     expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Talk to Mori' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('button', { name: 'Talk to Mori' }).getAttribute('aria-expanded')).toBe('false')
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBeNull()
     expect(bookmarks).toBeTruthy()
 
@@ -364,7 +371,7 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
 
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Organize cooking notes' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()
@@ -399,11 +406,15 @@ describe('Quick AI Entry', () => {
     fireEvent.click(submit)
 
     expect(screen.getByRole('status').textContent).toContain('Mori is organizing your notes')
-    expect(document.querySelector('.mm-quick-ai__loading .mm-mori')?.getAttribute('data-animated')).toBe('true')
+    expect(document.querySelector('.mm-quick-ai__loading .mm-mori')).toBeNull()
+    expect(document.querySelectorAll('.mori-pet-root .mm-mori')).toHaveLength(1)
     expect(notesField().disabled).toBe(true)
     expect(extract).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    expect(screen.getByText('Sorting your cooking notes into a recipe…')).toBeTruthy()
     await act(async () => resolve(recipe))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
+    expect(screen.queryByText('Sorting your cooking notes into a recipe…')).toBeNull()
   })
 
   it('preserves original notes after a network failure and retries the same text', async () => {
@@ -581,7 +592,7 @@ describe('Quick AI Entry', () => {
     enterNotes('private notes for cook A')
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
     expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'Return to Quick AI Entry' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     expect(await screen.findByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', 'private notes for cook A')
     first.unmount()
 
@@ -647,7 +658,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Back to journal' }))
     expect(await screen.findByRole('heading', { name: 'Your journal' })).toBeTruthy()
     expect(signal.aborted).toBe(true)
-    fireEvent.click(screen.getByRole('link', { name: 'Return to Quick AI Entry' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     expect(await screen.findByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', 'notes survive the trip back')
     await act(async () => resolve(recipe))
 

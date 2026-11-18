@@ -1,30 +1,28 @@
-/* The page leaf follows the Make book's centered binding and page geometry. */
-.mm-journal-book {
-  perspective: 2800px;
-  perspective-origin: 50% 42%;
-}
+.mm-journal-book { perspective: none; }
 
-/* The rings remain above the moving paper; bookmarks stay tucked under it. */
-.mm-journal-rings { z-index: 25; }
+.mm-journal-spread { z-index: 30; }
+.mm-journal-ring-plate { z-index: 20; }
+.mm-journal-holes { z-index: 32; }
+.mm-journal-rings { z-index: auto; }
+.mm-journal-ring__half--left { z-index: 50; }
+.mm-journal-ring__half--right { z-index: 50; }
+.mm-journal-book[data-page-turning] .mm-journal-spread { pointer-events: none; }
 
 .mm-page-turn-layer {
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: 40;
   overflow: visible;
   pointer-events: none;
 }
 
-.mm-turn-under,
-.mm-turn-cast,
-.mm-turn-leaf {
+.mm-turn-under, .mm-turn-leaf {
   position: absolute;
   top: var(--mm-overhang);
   width: var(--mm-page-width);
   height: var(--mm-page-height);
   pointer-events: none;
 }
-
 .mm-turn-under { z-index: 0; overflow: hidden; }
 .mm-turn-under--left { left: var(--mm-overhang); }
 .mm-turn-under--right { left: calc(var(--mm-board-width) + var(--mm-gutter) / 2); }
@@ -39,69 +37,49 @@
   box-shadow: inset 0 0 0 .7px rgb(120 88 46 / .24), 0 1px 0 #e7dac0;
 }
 
+.mm-turn-face::before {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  inset-block: 0;
+  width: min(8%, 40px);
+  pointer-events: none;
+}
+
+.mm-turn-leaf--forward .mm-turn-face--front::before,
+.mm-turn-leaf--backward .mm-turn-face--back::before {
+  left: 0;
+  background: linear-gradient(90deg, rgb(28 20 13 / .16), transparent 24px);
+}
+
+.mm-turn-leaf--forward .mm-turn-face--back::before,
+.mm-turn-leaf--backward .mm-turn-face--front::before {
+  right: 0;
+  background: linear-gradient(270deg, rgb(28 20 13 / .16), transparent 24px);
+}
+
 .mm-turn-leaf--forward .mm-turn-face--front { border-radius: 2px var(--mm-radius-page) var(--mm-radius-page) 2px; }
 .mm-turn-leaf--forward .mm-turn-face--back { border-radius: var(--mm-radius-page) 2px 2px var(--mm-radius-page); }
 .mm-turn-leaf--backward .mm-turn-face--front { border-radius: var(--mm-radius-page) 2px 2px var(--mm-radius-page); }
 .mm-turn-leaf--backward .mm-turn-face--back { border-radius: 2px var(--mm-radius-page) var(--mm-radius-page) 2px; }
 
-.mm-turn-face--front::after,
-.mm-turn-face--back::after {
+.mm-turn-face::after {
   content: '';
   position: absolute;
   z-index: 2;
   inset-block: 0;
   right: 0;
-  width: 3px;
+  width: 1px;
   pointer-events: none;
   background: linear-gradient(90deg, rgb(92 68 42 / .2), rgb(255 251 235 / .76) 42%, rgb(92 68 42 / .24));
   box-shadow: 1px 0 2px rgb(36 20 8 / .22);
 }
 
+.mm-turn-leaf--forward .mm-turn-face--back::after,
+.mm-turn-leaf--backward .mm-turn-face--front::after { right: auto; left: 0; }
 .mm-turn-face--back { transform: rotateY(180deg); }
-.mm-turn-face--blank {
-  border-radius: 2px var(--mm-radius-page) var(--mm-radius-page) 2px;
-  background-color: #f6eedb;
-  background-image: var(--mm-tex-grain), var(--mm-tex-mottle);
-}
 
-.mm-turn-face > :is(.mm-journal-flyleaf, .mm-journal-page) {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-  z-index: auto !important;
-  border-radius: inherit;
-}
-
-.mm-page-turn-layer :is(button, input, textarea, select):disabled {
-  opacity: 1 !important;
-  cursor: inherit !important;
-}
-
-.mm-turn-cast {
-  z-index: 1;
-  animation-duration: var(--mm-turn-duration, 820ms);
-  animation-timing-function: linear;
-  animation-fill-mode: both;
-}
-
-.mm-turn-cast--right {
-  left: calc(var(--mm-board-width) + var(--mm-gutter) / 2);
-  background: linear-gradient(90deg, rgb(25 14 6 / .5), rgb(25 14 6 / .14) 30%, transparent 62%);
-}
-
-.mm-turn-cast--left {
-  left: var(--mm-overhang);
-  background: linear-gradient(270deg, rgb(25 14 6 / .5), rgb(25 14 6 / .14) 30%, transparent 62%);
-}
-
-.mm-turn-cast--reveal { animation-name: mm-turn-cast-reveal; }
-.mm-turn-cast--land { animation-name: mm-turn-cast-land; }
+.mm-page-turn-layer :is(button, input, textarea, select):disabled { opacity: 1 !important; cursor: inherit !important; }
 
 .mm-turn-leaf {
   z-index: 2;
@@ -109,82 +87,28 @@
   transform-style: preserve-3d;
   backface-visibility: visible;
   will-change: transform;
-  animation-duration: var(--mm-turn-duration, 820ms);
-  animation-timing-function: cubic-bezier(.45, .05, .22, 1);
-  animation-fill-mode: both;
+  transform: rotateY(0deg);
 }
-
 .mm-turn-leaf--forward {
   left: calc(var(--mm-board-width) + var(--mm-gutter) / 2);
   transform-origin: calc(var(--mm-gutter) / -2) 50%;
-  animation-name: mm-turn-forward;
 }
-
 .mm-turn-leaf--backward {
   left: var(--mm-overhang);
   transform-origin: calc(100% + var(--mm-gutter) / 2) 50%;
-  animation-name: mm-turn-backward;
 }
 
-.mm-turn-leaf .mm-turn-shade {
+.mm-turn-shade {
   position: absolute;
   z-index: 3;
   inset: 0;
   pointer-events: none;
-  animation-duration: var(--mm-turn-duration, 820ms);
-  animation-timing-function: cubic-bezier(.45, .05, .22, 1);
-  animation-fill-mode: both;
+  opacity: 0;
 }
-
-.mm-turn-leaf--forward .mm-turn-face--front .mm-turn-shade {
-  background: linear-gradient(90deg, rgb(30 16 6 / .42), rgb(30 16 6 / .08) 45%, rgb(255 250 235 / .12) 92%);
-  animation-name: mm-turn-shade-front;
-}
-.mm-turn-leaf--forward .mm-turn-face--back .mm-turn-shade {
-  background: linear-gradient(270deg, rgb(30 16 6 / .42), rgb(30 16 6 / .06) 50%);
-  animation-name: mm-turn-shade-back;
-}
-.mm-turn-leaf--backward .mm-turn-face--front .mm-turn-shade {
-  background: linear-gradient(270deg, rgb(30 16 6 / .42), rgb(30 16 6 / .08) 45%, rgb(255 250 235 / .12) 92%);
-  animation-name: mm-turn-shade-front;
-}
-.mm-turn-leaf--backward .mm-turn-face--back .mm-turn-shade {
-  background: linear-gradient(90deg, rgb(30 16 6 / .42), rgb(30 16 6 / .06) 50%);
-  animation-name: mm-turn-shade-back;
-}
-
-@keyframes mm-turn-forward {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(-180deg); }
-}
-
-@keyframes mm-turn-backward {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(180deg); }
-}
-
-@keyframes mm-turn-shade-front {
-  0% { opacity: 0; }
-  48%, 100% { opacity: 1; }
-}
-
-@keyframes mm-turn-shade-back {
-  0%, 52% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-@keyframes mm-turn-cast-reveal {
-  0% { opacity: 0; }
-  14% { opacity: 1; }
-  46% { opacity: .45; }
-  56%, 100% { opacity: 0; }
-}
-
-@keyframes mm-turn-cast-land {
-  0%, 48% { opacity: 0; }
-  80% { opacity: .85; }
-  100% { opacity: 0; }
-}
+.mm-turn-leaf--forward .mm-turn-face--front .mm-turn-shade,
+.mm-turn-leaf--backward .mm-turn-face--back .mm-turn-shade { background: linear-gradient(90deg, rgb(30 16 6 / .42), rgb(30 16 6 / .08) 45%, rgb(255 250 235 / .12) 92%); }
+.mm-turn-leaf--forward .mm-turn-face--back .mm-turn-shade,
+.mm-turn-leaf--backward .mm-turn-face--front .mm-turn-shade { background: linear-gradient(270deg, rgb(30 16 6 / .42), rgb(30 16 6 / .06) 50%); }
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-turn-under--left,
@@ -193,28 +117,43 @@
   .mm-turn-leaf--forward,
   .mm-turn-leaf--backward {
     left: var(--mm-ring-zone);
-    transform-origin: -7px 50%;
+    transform-origin: 0 50%;
   }
-  .mm-turn-leaf--forward { animation-name: mm-turn-single-forward; }
-  .mm-turn-leaf--backward { animation-name: mm-turn-single-backward; }
-  .mm-turn-cast--left,
-  .mm-turn-cast--right { left: var(--mm-ring-zone); }
-  .mm-turn-cast { display: none; }
   .mm-turn-face--back::after { display: none; }
 }
 
-@keyframes mm-turn-single-forward {
-  0% { transform: rotateY(0deg); opacity: 1; }
-  70% { opacity: 1; }
-  100% { transform: rotateY(-160deg); opacity: 0; }
-}
 
-@keyframes mm-turn-single-backward {
-  0% { transform: rotateY(-160deg); opacity: 0; }
-  30% { opacity: 1; }
-  100% { transform: rotateY(0deg); opacity: 1; }
+/* The controller supplies every motion value; no competing CSS clocks. */
+.mm-page-turn-layer { perspective-origin: 50% var(--mm-overhang); }
+.mm-turn-leaf { transition: none; }
+.mm-turn-shade { animation: none !important; }
+.mm-turn-content { position: absolute; inset: 0; overflow: hidden; }
+.mm-turn-content > :is(.mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread),
+.mm-turn-under > :is(.mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread) {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  margin: 0 !important;
+  z-index: auto !important;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .mm-page-turn-layer { display: none !important; }
+.mm-turn-under--single > .mm-journal-spread,
+.mm-turn-content > .mm-journal-spread { overflow-y: hidden !important; }
+.mm-turn-corner { position: absolute; top: 0; right: 0; width: 0; height: 0; }
+.mm-turn-leaf--backward .mm-turn-corner { right: auto; left: 0; }
+.mm-turn-face--front { transform: translateZ(.1px); }
+.mm-turn-face--back { transform: rotateY(180deg) translateZ(.1px); }
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-turn-leaf[data-layout='single'] .mm-turn-face--back { transform: translateZ(.1px); }
+  .mm-turn-leaf[data-layout='single'] .mm-turn-corner { left: auto; right: 0; }
 }
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .mm-page-turn-layer { perspective-origin: var(--mm-ring-zone) var(--mm-overhang); }
+}
+.mm-turn-ground-shadow { position: absolute; inset: var(--mm-overhang); background: linear-gradient(90deg, transparent 15%, #271808 49%, #271808 51%, transparent 85%); opacity: var(--mm-turn-shadow, 0); }
+/* A footer belongs to one visible surface until the sheet crosses the spine. */
+.mm-journal-book[data-page-turning] > .mm-journal-spread :is(.mm-journal-page-footer, .mm-pagination-slot--left) { visibility: hidden; }
+.mm-turn-under--reveal :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-under-footer-opacity, 0); }
+.mm-turn-under--single .mm-journal-page-footer { visibility: hidden; }
+.mm-turn-under--retained :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-old-footer-opacity, 1); }

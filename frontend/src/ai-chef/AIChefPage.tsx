@@ -4,13 +4,15 @@ import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
-import { Mori } from '../journal/Mori'
+import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
+import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { PaperCard } from '../journal/Scrapbook'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS, addPantryItems, pantryEntryErrorMessage, splitPastedPantryText } from './pantry'
 import { generateRecipeApi, generateRecipeErrorMessage, generateRecipeRequestSchema } from './generateRecipe'
 import type { ChefReviewHandoff } from './draft'
 import { readChefDraftResult, writeChefDraft } from './draft'
+import { ChefProgress } from './ChefProgress'
 import './aiChef.css'
 
 export function AIChefPage() {
@@ -39,6 +41,14 @@ function AIChefSession({ userId }: { userId: string }) {
   const inFlight = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const pantryInputRef = useRef<HTMLInputElement>(null)
+  useMoriActivity(requestError || entryError
+    ? { kind: requestErrorForPantry || entryError ? 'attention' : 'confused', message: requestError ?? entryError ?? 'Check your pantry ingredients.' }
+    : pending
+      ? { kind: 'thinking', message: 'Thinking of something delicious for your pantry…' }
+      : null)
+  useMoriGuidance(pending ? null : handoff
+    ? { message: 'Your recipe idea is waiting in review.', action: { label: 'Return to review', onClick: () => navigate('/app/chef/review') } }
+    : { message: 'Tell me what you have, and I’ll make an idea for you to review.', action: { label: 'Add ingredients', onClick: () => pantryInputRef.current?.focus() } })
 
   useEffect(() => () => controller.current?.abort(), [])
 
@@ -158,7 +168,7 @@ function AIChefSession({ userId }: { userId: string }) {
       }
       const writeResult = writeChefDraft(userId, nextDraft)
       setStorageIssue(writeResult.persisted ? null : writeResult.reason)
-      navigate('/app/chef/review')
+      navigate('/app/chef/review', { state: { chefGenerationSucceeded: true } })
     } catch (error) {
       if (requestController.signal.aborted && !timedOut) return
       const wait = error instanceof HttpError ? retryAfterSeconds(error.retryAfter) : undefined
@@ -196,7 +206,11 @@ function AIChefSession({ userId }: { userId: string }) {
       : <button className="button button-secondary mm-button--small" type="button" onClick={retryDraftStorage}>Try saving this request again</button>}
   </div>
 
-  return <section className="mm-ai-chef" aria-labelledby="ai-chef-title">
+  const progressStage = handoff?.savedRecipeId ? 'saved' : handoff ? 'review' : pending ? 'generating' : 'pantry'
+
+  return <>
+    <JournalFacingPage className="mm-facing-content--ai-chef"><ChefProgress stage={progressStage} /></JournalFacingPage>
+    <section className="mm-ai-chef" aria-labelledby="ai-chef-title">
     {discardOpen && <UnsavedChangesDialog
       title={handoff?.savedRecipeId ? 'Keep the saved recipe?' : 'Discard Mori’s recipe preview?'}
       message={handoff?.savedRecipeId
@@ -210,9 +224,8 @@ function AIChefSession({ userId }: { userId: string }) {
       <div>
         <p className="mm-recipe-index__eyebrow">AI Chef</p>
         <h1 id="ai-chef-title" tabIndex={-1}>What’s in your pantry?</h1>
-        <p className="intro">Tell Mori what you have and add any short cooking preferences. Mori will suggest a recipe for you to review before you save it.</p>
+        <p className="intro">Add what you have; Mori will suggest a recipe for you to review.</p>
       </div>
-      <Mori mood="think" size={82} />
     </header>
 
     {storageWarning}
@@ -241,7 +254,7 @@ function AIChefSession({ userId }: { userId: string }) {
     <form className="mm-ai-chef__form" onSubmit={(event) => { void requestSuggestion(event) }}>
       <fieldset disabled={pending || handoff !== null}>
         <legend>Pantry ingredients</legend>
-        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} items. Press Enter or choose Add ingredient. Duplicate items are skipped.</p>
+        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Paste a comma- or line-separated list; duplicates are skipped.</p>
         <div className="mm-ai-chef__ingredient-entry">
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
           <input
@@ -283,7 +296,7 @@ function AIChefSession({ userId }: { userId: string }) {
         <p className="visually-hidden" role="status" aria-live="polite">{entryStatus}</p>
         <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${savedInputCount} ${savedInputCount === 1 ? 'item' : 'items'}`}>
           {pantryItems.length === 0
-            ? <p className="mm-ai-chef__empty">Your pantry list will appear here.</p>
+            ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
             : <ul>{pantryItems.map((item, index) => <li key={`${item.toLowerCase()}-${index}`}>
               <span>{item}</span>
               <button className="mm-ai-chef__remove" type="button" aria-label={`Remove ${item}`} onClick={() => removeIngredient(index)}>Remove</button>
@@ -299,18 +312,19 @@ function AIChefSession({ userId }: { userId: string }) {
           rows={3}
           onChange={(event) => updatePreferences(event.currentTarget.value)}
         />
-        <p id="ai-chef-preferences-help" className="mm-ai-chef__help">Preferences apply to this request only. {preferences.length} / {MAX_PREFERENCES_CHARS} characters.</p>
+        <p id="ai-chef-preferences-help" className="mm-ai-chef__help">This request only · {preferences.length} / {MAX_PREFERENCES_CHARS}</p>
       </fieldset>
 
       {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending || retryBlocked} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
       <div className="mm-ai-chef__actions">
         <button className="button button-primary" type="submit" disabled={pending || retryBlocked || handoff !== null}>{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
         {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
-        {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your pantry and preparing a recipe. This can take a little while.</p>}
+        {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your ingredients; this can take a little while.</p>}
       </div>
     </form>
 
-    <p className="mm-ai-chef__save-note">Nothing is added to your journal until you review the recipe and choose Save recipe.</p>
+    <p className="mm-ai-chef__save-note">Nothing is saved until you choose Save recipe.</p>
     </PaperCard>
-  </section>
+    </section>
+  </>
 }
