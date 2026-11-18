@@ -348,7 +348,7 @@ try {
   for (const width of [1440, 768, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
-    await expect(page.getByLabel('Recipe title')).toBeVisible()
+    await expect(page.getByLabel('Ingredient 1 quantity')).toHaveValue('1.5')
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Recipe review horizontal overflow at ${width}px`)
     await page.screenshot({ path: path.join(outputDir, `recipe-review-${width}.png`), fullPage: true })
   }
@@ -435,7 +435,7 @@ try {
   await expect(page.getByText('private quota detail')).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Back to journal' }).click()
-  await expect(page).toHaveURL(`${origin}app/recipes`)
+  await expect(page).toHaveURL(`${origin}app`)
   await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('curry notes that remain after quota failure')
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()

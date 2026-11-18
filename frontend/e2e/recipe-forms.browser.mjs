@@ -390,7 +390,11 @@ try {
     const turns = []
     for (;;) {
       const visible = await collectVisibleRows()
-      turns.push({ page: await page.locator('.mm-writing-pages').getAttribute('data-form-page'), ...visible })
+      const overflow = await page.locator('.mm-journal-book > .mm-journal-spread .mm-writing-leaf').evaluateAll((leaves) => leaves
+        .filter((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)
+        .map((leaf) => [leaf.dataset.writingLeafKey, leaf.scrollHeight, leaf.clientHeight]))
+      turns.push({ page: await page.locator('.mm-writing-pages').getAttribute('data-form-page'), ...visible, overflow })
+      if (turns.length === 2) await page.screenshot({ path: path.join(outputDir, 'ingredient-continuation-1440.png') })
       visible.ingredients.forEach((label) => ingredients.add(label))
       visible.steps.forEach((label) => steps.add(label))
       const next = page.getByRole('button', { name: /^Next Pages?$/ })
@@ -403,6 +407,7 @@ try {
   const allPages = await collectRowsAcrossPages()
   assert.equal(allPages.ingredients.size, 18, `All ingredient rows must be reachable on physical pages: ${JSON.stringify(allPages.turns)}`)
   assert.equal(allPages.steps.size, 14, 'All instruction steps must be reachable on physical pages')
+  assert.deepEqual(allPages.turns.flatMap(({ overflow }) => overflow), [], 'Regular edit leaves fit the paper at 1440×900')
 
   // Move ingredient 6 down across a desktop spread boundary and keep focus on its stable row.
   while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) > 1) {
@@ -413,6 +418,17 @@ try {
   await page.getByRole('button', { name: 'Move ingredient 6 down' }).click()
   await expect(page.getByLabel('Ingredient 7 name')).toHaveValue(movedValue)
   await expect(page.getByLabel('Ingredient 7 name')).toBeFocused()
+  const movedIngredient = page.getByLabel('Ingredient 7 name')
+  const position = page.getByRole('navigation', { name: 'Recipe writing pages', exact: true }).locator('.mm-pagination-number')
+  const widePosition = await position.innerText()
+  await movedIngredient.evaluate((input) => input.setSelectionRange(2, 5))
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(position).not.toHaveText(widePosition)
+  await expect(movedIngredient).toBeFocused()
+  assert.deepEqual(await movedIngredient.evaluate((input) => [input.selectionStart, input.selectionEnd]), [2, 5])
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(position).toHaveText(widePosition)
+  await expect(movedIngredient).toBeFocused()
   while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) < 5) {
     await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
   }

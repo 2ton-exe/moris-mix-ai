@@ -371,6 +371,32 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     ? handoff.selectedParentIds.length > 0 ? 'Recipe and selected parent links saved.' : 'Recipe saved.'
     : saved ? 'Recipe saved. Parent links still need attention.' : undefined
 
+  const generationNotice = (range?: { start: number; end: number }) => <ChefGenerationNotice
+    range={range}
+    handoff={handoff}
+    saved={saved}
+    selectedParentIds={safeSelectedParentIds(handoff)}
+    selectionDisabled={saved || Boolean(handoff.savedRecipeId)}
+    selectionAnnouncement={selectionAnnouncement}
+    lineageStatus={lineageStatus}
+    lineageMessage={lineageMessage}
+    lineageBusy={lineageBusy}
+    storageUnavailable={storageIssue !== null}
+    onParentSelection={changeParentSelection}
+    onRetryLineage={() => { void retryLineage() }}
+  />
+
+  const parentCount = uniqueCandidateParents(handoff).length
+  const firstParentCount = 2
+  const continuationCount = 3
+  const reviewPages = [
+    { title: 'Recipe inspiration', content: <>{generationNotice({ start: 0, end: firstParentCount })}{storageNotice}</> },
+    ...Array.from({ length: Math.ceil(Math.max(0, parentCount - firstParentCount) / continuationCount) }, (_, page) => {
+      const start = firstParentCount + page * continuationCount
+      return { title: 'Recipe inspiration continued', content: generationNotice({ start, end: start + continuationCount }) }
+    }),
+  ]
+
   return <RecipeForm key={userId} mode="create"
     initialValues={reviewDraft ? undefined : initialValues}
     initialEditorState={reviewDraft ?? undefined}
@@ -385,22 +411,9 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     onEditorStateChange={storeReviewDraft}
     cancelLabel="Back to AI Chef"
     onCancel={() => navigate('/app/chef')}
-    notice={<>
-      <ChefGenerationNotice
-        handoff={handoff}
-        saved={saved}
-        selectedParentIds={safeSelectedParentIds(handoff)}
-        selectionDisabled={saved || Boolean(handoff.savedRecipeId)}
-        selectionAnnouncement={selectionAnnouncement}
-        lineageStatus={lineageStatus}
-        lineageMessage={lineageMessage}
-        lineageBusy={lineageBusy}
-        storageUnavailable={storageIssue !== null}
-        onParentSelection={changeParentSelection}
-        onRetryLineage={() => { void retryLineage() }}
-      />
-      {storageNotice}
-    </>}
+    notice={<>{generationNotice()}{storageNotice}</>}
+    reviewPages={reviewPages}
+    reviewStatus={storageNotice}
     renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
       headingTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
       facingPageContent={<ChefProgress stage={saved ? 'saved' : 'review'} />}
@@ -419,6 +432,7 @@ function ChefGenerationNotice({
   storageUnavailable,
   onParentSelection,
   onRetryLineage,
+  range,
 }: {
   handoff: ChefReviewHandoff
   saved: boolean
@@ -431,9 +445,12 @@ function ChefGenerationNotice({
   storageUnavailable: boolean
   onParentSelection: (parentId: string, selected: boolean) => void
   onRetryLineage: () => void
+  range?: { start: number; end: number }
 }) {
   const { request, response } = handoff
+  const first = !range || range.start === 0
   const flavorScores = response.recipe.flavor_scores
+  const parents = uniqueCandidateParents(handoff).slice(range?.start ?? 0, range?.end)
   const contextMessage = response.context.status === 'NO_SAVED_RECIPES'
     ? 'This is a fresh start. Mori did not have saved recipes to use as inspiration, so the suggestion came from your pantry request.'
     : response.context.status === 'NO_PANTRY_OVERLAP'
@@ -442,15 +459,15 @@ function ChefGenerationNotice({
         ? 'Mori found ' + response.context.matchedCandidateCount + ' saved ' + (response.context.matchedCandidateCount === 1 ? 'recipe' : 'recipes') + ' to use as inspiration.'
         : 'Mori could not use an empty pantry request.'
 
-  return <section className="recipe-form-notice mm-ai-chef__review-notice" aria-label="AI Chef generation details">
-    <strong>{saved ? 'AI Chef recipe saved to your journal' : 'AI Chef recipe · unsaved preview'}</strong>
+  return <section className="recipe-form-notice mm-ai-chef__review-notice" aria-label={first ? 'AI Chef generation details' : 'More AI Chef parent recipes'}>
+    {first && <><strong>{saved ? 'AI Chef recipe saved to your journal' : 'AI Chef recipe · unsaved preview'}</strong>
     <p>{saved
       ? lineageStatus === 'confirmed' && selectedParentIds.length > 0
         ? 'Your recipe and the parent links you selected were saved.'
         : lineageStatus === 'confirmed'
           ? 'Your recipe was saved. No parent recipes were selected.'
           : 'Your recipe is saved. Parent links are separate and have not been confirmed.'
-      : 'Generation has not saved a recipe or created any lineage. Choose Save recipe only after you finish reviewing.'}</p>
+      : range ? 'Review the draft before saving it.' : 'Generation has not saved a recipe or created any lineage. Choose Save recipe only after you finish reviewing.'}</p>
     <p className="mm-ai-chef__context">{contextMessage}</p>
     <details>
       <summary>Pantry and preferences used for this request</summary>
@@ -464,12 +481,12 @@ function ChefGenerationNotice({
         <strong>{substitution.original}</strong><span aria-hidden="true"> → </span><strong>{substitution.replacement}</strong>
         {substitution.reason && <p>{substitution.reason}</p>}
       </li>)}</ul>
-    </section>}
+    </section>}</>}
     <section aria-label="Suggested parent recipes" className="mm-ai-chef__suggestions">
-      <h2>Recipe inspiration from your journal</h2>
-      <p>Mori found these recipes in your journal that may have inspired this creation. Choose which ones you want to connect to your new recipe. Only selected recipes will be linked when you save.</p>
+      {!range && <h2>Recipe inspiration from your journal</h2>}
+      {first && !saved && response.parents.length > 0 && <p>Only selected recipes will be linked when you save.</p>}
       {response.parents.length > 0
-        ? <ul className="mm-ai-chef__parent-choices">{uniqueCandidateParents(handoff).map((parent) => {
+        ? <ul className="mm-ai-chef__parent-choices">{parents.map((parent) => {
           const selected = selectedParentIds.some((id) => id.toLowerCase() === parent.id.toLowerCase())
           const limitReached = !selected && selectedParentIds.length >= 10
           const parentStatus = selectionDisabled
@@ -479,6 +496,7 @@ function ChefGenerationNotice({
             <label className="mm-ai-chef__parent-choice">
               <input
                 type="checkbox"
+                data-form-focus-key={`chef-parent:${parent.id}`}
                 checked={selected}
                 disabled={selectionDisabled || limitReached}
                 onChange={(event) => onParentSelection(parent.id, event.currentTarget.checked)}
@@ -493,10 +511,10 @@ function ChefGenerationNotice({
         : <p>{response.context.status === 'NO_SAVED_RECIPES' ? 'There are no saved recipes to suggest yet.' : 'Mori did not suggest any parent recipes.'}</p>}
       {response.parents.length > 0 && <>
         <p className="mm-ai-chef__selection-count">{selectedParentIds.length} of 10 parent recipes selected.</p>
-        {!saved && <p className="mm-ai-chef__selection-feedback">Selected recipes will only be linked after you choose Save recipe.</p>}
+        {!range && !saved && <p className="mm-ai-chef__selection-feedback">Selected recipes will only be linked after you choose Save recipe.</p>}
         {selectionAnnouncement && <p className="visually-hidden" role="status" aria-live="polite">{selectionAnnouncement}</p>}
       </>}
-      {saved && lineageMessage && <div className="mm-ai-chef__lineage-recovery" role={lineageBusy ? 'status' : 'alert'}>
+      {first && saved && lineageMessage && <div className="mm-ai-chef__lineage-recovery" role={lineageBusy ? 'status' : 'alert'}>
         <p>{lineageMessage}</p>
         {lineageStatus === 'pending' && handoff.savedRecipeId && <button
           className="button button-secondary mm-button--small"
@@ -507,7 +525,7 @@ function ChefGenerationNotice({
         {handoff.savedRecipeId && <Link className="button button-secondary mm-button--small" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved recipe</Link>}
       </div>}
     </section>
-    {flavorScores && <details>
+    {first && flavorScores && <details>
       <summary>Mori’s optional flavor estimates</summary>
       <p>These estimates are informational only. They are not recipe fields and will not be saved.</p>
       <ul>{Object.entries(flavorScores).map(([flavor, score]) => <li key={flavor}>{flavor}: {score} / 5</li>)}</ul>

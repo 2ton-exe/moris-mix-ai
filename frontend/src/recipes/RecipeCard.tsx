@@ -21,6 +21,17 @@ export function RecipeMetadata({ recipe, showCookedAt = true }: { recipe: Recipe
   )
 }
 
+export function RecipeIndexCardContent({ recipe }: { recipe: RecipeSummary }) {
+  return <>
+    <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
+    <div className="mm-recipe-card__copy">
+      <h2>{recipe.title}</h2>
+      <RecipeMetadata recipe={recipe} />
+    </div>
+    <ArrowRight className="mm-index-card__arrow" size={16} aria-hidden="true" />
+  </>
+}
+
 export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean }) {
   const { user } = useAuth()
   const location = useLocation()
@@ -75,15 +86,15 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {indexCard ? <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" /> : <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at}
-          image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
+        {indexCard ? <RecipeIndexCardContent recipe={recipe} /> : <><RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at}
+          image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />
         <div className="mm-recipe-card__copy">
-          {!indexCard && <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>}
+          <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>
           <h2>{recipe.title.length > 100 ? `${recipe.title.slice(0, 100)}…` : recipe.title}</h2>
           <RecipeMetadata recipe={recipe} />
-          {!indexCard && <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>}
+          <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>
         </div>
-        {indexCard && <ArrowRight className="mm-index-card__arrow" size={16} aria-hidden="true" />}
+        </>}
       </Link>
     </li>
   )

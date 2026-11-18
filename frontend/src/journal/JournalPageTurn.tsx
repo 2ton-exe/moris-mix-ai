@@ -200,6 +200,7 @@ function clonePage(source: Element | null, prefix: string): HTMLElement | null {
     copy.style.height = `${rect.height}px`
     if (!image.complete) copy.style.visibility = 'hidden'
   })
+  clone.querySelectorAll('.mm-index-measure, .mm-reading-measure').forEach((element) => element.remove())
   sanitizeSnapshot(clone, prefix)
   return clone
 }
@@ -231,23 +232,26 @@ export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
   const single = useRef<HTMLDivElement>(null)
   const front = useRef<HTMLDivElement>(null)
   const back = useRef<HTMLDivElement>(null)
+  const old = turn?.old
   const next = turn?.next
+  const singleUnder = turn?.singleUnder
+  const singleLeaf = turn?.layout === 'single'
   const forward = turn?.direction === 'forward'
   useLayoutEffect(() => {
-    if (!turn) return
+    if (!old) return
     if (!next) {
-      installSnapshot(left.current, turn.old.left)
-      installSnapshot(right.current, turn.old.right)
-      installSnapshot(single.current, turn.old.single)
+      installSnapshot(left.current, old.left)
+      installSnapshot(right.current, old.right)
+      installSnapshot(single.current, old.single)
     } else {
-      installSnapshot(single.current, turn.singleUnder)
-      installSnapshot(left.current, forward ? turn.old.left : next.left)
-      installSnapshot(right.current, forward ? next.right : turn.old.right)
-      installSnapshot(front.current, turn.layout === 'single' ? turn.old.single : forward ? turn.old.right : turn.old.left)
-      installSnapshot(back.current, turn.layout === 'single' ? next.single : forward ? next.left : next.right)
+      installSnapshot(single.current, singleUnder)
+      installSnapshot(left.current, forward ? old.left : next.left)
+      installSnapshot(right.current, forward ? next.right : old.right)
+      installSnapshot(front.current, singleLeaf ? old.single : forward ? old.right : old.left)
+      installSnapshot(back.current, singleLeaf ? next.single : forward ? next.left : next.right)
     }
     // Snapshots own no application state; their mounting must never replace the shading nodes.
-  }, [turn, next, forward])
+  }, [old, next, singleUnder, singleLeaf, forward])
   if (!turn) return null
   return <div className="mm-page-turn-layer" style={{ perspective: TURN_PERSPECTIVE }} data-journal-page-turn="true" data-turn-id={turn.id} data-direction={turn.direction} data-layout={turn.layout} data-duration={TURN_DURATION} data-phase={turn.phase} aria-hidden="true" inert>
     <div ref={left} className={`mm-turn-under mm-turn-under--left${next ? (!forward ? ' mm-turn-under--reveal' : ' mm-turn-under--retained') : ''}`} />
@@ -325,7 +329,9 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     setTurn({ ...request, phase: 'preparing' })
     try {
       flushSync(prepare)
-      if (request.immediate && !book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) finish(id)
+      const live = book.querySelector('.mm-journal-spread')
+      if (live?.querySelector('[data-journal-ready="error"]')) cancel(id)
+      else if (request.immediate && !live?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) finish(id)
     }
     catch (error) { cancel(id); throw error }
     return true

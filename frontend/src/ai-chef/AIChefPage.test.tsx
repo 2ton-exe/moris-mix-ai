@@ -134,15 +134,15 @@ describe('AI Chef pantry and review workflow', () => {
       ['Rice', 'tomatoes'], 'quick, no frying', expect.objectContaining({ userId: 'chef-cook', signal: expect.any(AbortSignal) }),
     ])
     expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Tomato egg rice')
-    expect((screen.getByLabelText('Ingredient 1 amount description (optional)') as HTMLInputElement).value).toBe('leftover')
-    expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('')
-    expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
-    fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
-    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     const details = within(screen.getByRole('region', { name: 'AI Chef generation details' }))
     expect(details.getByText('bell pepper')).toBeTruthy()
     expect(details.getByText('Garden rice')).toBeTruthy()
     expect(details.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+    expect((screen.getByLabelText('Ingredient 1 amount description (optional)') as HTMLInputElement).value).toBe('leftover')
+    expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
+    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -622,12 +622,20 @@ describe('AI Chef pantry and review workflow', () => {
     addIngredient('rice')
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     await screen.findByRole('heading', { name: "Review Mori's recipe." })
-    expect(screen.getAllByRole('checkbox')).toHaveLength(11)
-    for (let index = 0; index < 10; index += 1) {
-      fireEvent.click(screen.getAllByRole('checkbox')[index])
+    async function turnReview(direction: 'Next' | 'Previous') {
+      fireEvent.click(screen.getByRole('button', { name: direction + ' Pages' }))
+      await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('animating'))
+      fireEvent(document.querySelector('[data-journal-page-turn]')!, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
     }
-    expect(screen.getByText('10 of 10 parent recipes selected.')).toBeTruthy()
-    expect(screen.getAllByRole('checkbox')[10]).toHaveProperty('disabled', true)
+    for (let index = 1; index <= 10; index += 1) {
+      const name = new RegExp(`^Parent ${index} `)
+      if (!screen.queryByRole('checkbox', { name })) await turnReview('Next')
+      fireEvent.click(screen.getByRole('checkbox', { name }))
+    }
+    expect(screen.getAllByText('10 of 10 parent recipes selected.').length).toBeGreaterThan(0)
+    expect(screen.getByRole('checkbox', { name: /^Parent 11 / })).toHaveProperty('disabled', true)
+    await turnReview('Previous')
+    expect(screen.getByRole('checkbox', { name: /^Parent 4 / })).toHaveProperty('checked', true)
   })
 })
 

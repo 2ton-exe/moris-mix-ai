@@ -91,7 +91,13 @@ try {
   await expect(page.getByLabel('Recipe title')).toBeFocused()
   await expect(page.getByLabel('Recipe title')).toBeInViewport()
   await page.getByLabel('Recipe title').fill('Zoomed writing')
-  await page.locator('.mm-writing-leaf').focus()
+  const identityLeaf = page.locator('[data-writing-leaf-key="identity"]')
+  await identityLeaf.focus()
+  if (await identityLeaf.evaluate((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)) {
+    await page.keyboard.press('PageDown')
+    await expect.poll(() => identityLeaf.evaluate((leaf) => leaf.scrollTop)).toBeGreaterThan(0)
+    await identityLeaf.evaluate((leaf) => { leaf.scrollTop = leaf.scrollHeight })
+  }
   await page.keyboard.press('PageDown')
   await expect(page.locator('[data-writing-leaf-key^="ingredients-empty"] h2')).toBeFocused()
   await page.keyboard.press('PageDown')

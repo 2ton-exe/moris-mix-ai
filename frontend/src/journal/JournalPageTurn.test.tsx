@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { JournalFacingPage } from './JournalFacingPage'
 import { JournalShell } from './JournalShell'
 import { useJournalPageTurn } from './JournalPageTurn'
+import { TURN_DURATION } from './pageTurnMotion'
 
 let matchMediaDescriptor: PropertyDescriptor | undefined
 function mockMatchMedia(matches: (query: string) => boolean) {
@@ -90,7 +91,7 @@ it('previews without committing, preserves inert snapshots, blocks overlap, and 
   const layer = document.querySelector<HTMLElement>('[data-journal-page-turn]')!
   expect(layer.dataset.direction).toBe('forward')
   expect(layer.dataset.layout).toBe('spread')
-  expect(layer.dataset.duration).toBe('900')
+  expect(layer.dataset.duration).toBe(String(TURN_DURATION))
   expect(layer.getAttribute('aria-hidden')).toBe('true')
   expect(layer.hasAttribute('inert')).toBe(true)
   expect(document.querySelector('#right-title')?.textContent).toBe('Right page 1')
@@ -126,7 +127,7 @@ it('previews without committing, preserves inert snapshots, blocks overlap, and 
   advance()
   const reverse = document.querySelector<HTMLElement>('[data-journal-page-turn]')!
   expect(reverse.dataset.direction).toBe('backward')
-  expect(reverse.dataset.duration).toBe('900')
+  expect(reverse.dataset.duration).toBe(String(TURN_DURATION))
   sample(1)
   expect(document.querySelector('#right-title')?.textContent).toBe('Right page 0')
   expect(document.querySelector('[data-journal-page-turn]')).toBeNull()
@@ -154,7 +155,7 @@ it('uses one timing and cancels a preview when a route interrupts a single-page 
   advance()
   const layer = document.querySelector<HTMLElement>('[data-journal-page-turn]')!
   expect(layer.dataset.layout).toBe('single')
-  expect(layer.dataset.duration).toBe('900')
+  expect(layer.dataset.duration).toBe(String(TURN_DURATION))
   expect(layer.querySelectorAll('.mm-turn-cast')).toHaveLength(0)
   expect(screen.getByTestId('route-state').textContent).toBe('/app/recipes · page 1 · committed 0')
   fireEvent.click(screen.getByTestId('leave-route'))

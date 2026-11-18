@@ -4,6 +4,7 @@ export const FORM_ROWS_PER_LEAF = 2
 
 export type RecipeFormLeaf =
   | { key: 'identity'; kind: 'identity' }
+  | { key: `review:${number}`; kind: 'review'; index: number; title: string }
   | { key: 'ingredients-empty'; kind: 'ingredients-empty'; rowKeys: [] }
   | { key: `ingredients:${number}`; kind: 'ingredients'; rowKeys: string[] }
   | { key: 'instructions-empty'; kind: 'instructions-empty'; rowKeys: [] }
@@ -26,11 +27,12 @@ function sectionLeaves(rows: { key: string }[], kind: 'ingredients' | 'instructi
   }))
 }
 
-/** Keep identity fixed; wide leaves group two rows while single-page layouts give each row its own leaf. */
-export function recipeFormLeaves(state: RecipeEditorState, single = false): RecipeFormLeaf[] {
-  const groupSize = single ? 1 : FORM_ROWS_PER_LEAF
+/** Keep identity fixed and group rows only when the paper can fit them. */
+export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitles: string[] = [], compact = false): RecipeFormLeaf[] {
+  const groupSize = single || compact ? 1 : FORM_ROWS_PER_LEAF
   return [
     { key: 'identity', kind: 'identity' },
+    ...reviewTitles.map((title, index): RecipeFormLeaf => ({ key: `review:${index}`, kind: 'review', index, title })),
     ...sectionLeaves(state.ingredients, 'ingredients', groupSize),
     ...sectionLeaves(state.instructions, 'instructions', groupSize),
   ]
@@ -81,5 +83,6 @@ export function formPagePosition(pageIndex: number, leafCount: number, single: b
 
 export function recipeFormSection(leaf: RecipeFormLeaf) {
   if (leaf.kind === 'identity') return 'Recipe details'
+  if (leaf.kind === 'review') return leaf.title
   return leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Instructions'
 }

@@ -155,3 +155,12 @@
 @media (forced-colors: active) {
   .mm-quick-ai__sheet, .mm-quick-ai__textarea, .mm-quick-ai__preview, .mm-quick-ai__storage-warning { border: 1px solid CanvasText; }
 }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-quick-ai__back { margin-bottom: 10px; }
+  .mm-quick-ai__sheet { padding: clamp(12px, 2vw, 20px); }
+  .mm-quick-ai__textarea { height: clamp(10rem, calc(var(--mm-page-height) - 290px), 30rem); resize: none; }
+  .mm-quick-ai__actions { margin-bottom: 0; }
+  .mm-quick-ai__example { margin-top: 24px; max-width: 24rem; }
+  .mm-quick-ai:has(.mm-quick-ai__error, .mm-quick-ai__storage-warning, .mm-quick-ai__preview, .mm-quick-ai__loading, .mm-quick-ai__validation, .mm-quick-ai__cooldown) .mm-quick-ai__textarea { height: 12rem; }
+}

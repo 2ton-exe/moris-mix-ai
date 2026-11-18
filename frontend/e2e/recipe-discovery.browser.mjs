@@ -34,7 +34,7 @@ try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  for (const width of [1280, 375, 320]) {
+  for (const width of [1440, 375, 320]) {
     const context = await browser.newContext({ viewport: { width, height: 900 } })
     const page = await context.newPage()
     const pageErrors = []
@@ -44,7 +44,7 @@ try {
     page.on('pageerror', (error) => pageErrors.push(error.message))
     const recipes = Array.from({ length: 25 }, (_, index) => ({
       id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`,
-      user_id: userId, title: `Browser test recipe ${index + 1}`,
+      user_id: userId, title: index === 9 ? 'A long title for the cookbook index '.repeat(5).trim() : `Browser test recipe ${index + 1}`,
       star_rating: 4, cooked_at: '2026-10-25',
     }))
     await context.route('**/*', async (route) => {
@@ -103,11 +103,64 @@ try {
     await page.getByRole('alert').filter({ hasText: 'Could not load more' }).waitFor()
     const retryButton = page.getByRole('button', { name: 'Retry loading more' })
     assert.equal(await retryButton.evaluate((element) => element === globalThis.document.activeElement), true)
-    assert.equal(await page.locator('.recipe-grid > li').count(), 24)
+    const indexResults = page.getByRole('region', { name: 'Recipe index results' })
+    const cards = indexResults.getByRole('link', { name: /^Open recipe/ })
+    const desktop = width === 1440
+    if (desktop) {
+      assert.ok(await cards.count() < 24)
+      assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 2), 'The index fits the desktop viewport')
+    }
+    else assert.equal(await cards.count(), 24)
     await page.keyboard.press('Enter')
-    await page.getByText('End of results.', { exact: true }).waitFor()
-    assert.equal(await page.getByText('End of results.').evaluate((element) => element === globalThis.document.activeElement), true)
-    assert.equal(await page.locator('.recipe-grid > li').count(), 25)
+    await page.getByRole('heading', { name: 'Saved recipes (25)' }).waitFor()
+    if (desktop) {
+      const next = page.getByRole('link', { name: 'Next page' })
+      const previous = page.getByRole('link', { name: 'Previous page' })
+      const layer = page.locator('[data-journal-page-turn="true"]')
+      async function sampleTurn(direction) {
+        await expect(layer).toHaveAttribute('data-phase', 'animating')
+        await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: .57 })))
+        await expect(layer).toHaveAttribute('data-direction', direction)
+        const distance = await layer.evaluate((element) => {
+          const corner = element.querySelector('[data-page-corner]').getBoundingClientRect()
+          const hand = globalThis.document.querySelector('[data-mori-hand]')
+          const point = new globalThis.DOMPoint(hand.cx.baseVal.value, hand.cy.baseVal.value).matrixTransform(hand.getScreenCTM())
+          return Math.hypot(corner.x - point.x, corner.y - point.y)
+        })
+        assert.ok(distance <= 2, `${direction} turn separates Mori's mitt from the sheet by ${distance}px`)
+        await page.screenshot({ path: path.join(outputDir, `1440-turn-${direction}.png`) })
+        await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
+        await expect(layer).toHaveCount(0)
+      }
+      await next.click()
+      await sampleTurn('forward')
+      await previous.click()
+      await sampleTurn('backward')
+      const seen = new Set()
+      while (true) {
+        const dimensions = await indexResults.evaluate((element) => ({ used: element.scrollHeight, size: element.clientHeight }))
+        assert.ok(dimensions.used <= dimensions.size + 2, `Index leaf overflows: ${JSON.stringify(dimensions)}`)
+        for (const href of await cards.evaluateAll((links) => links.map((link) => link.getAttribute('href')))) {
+          assert.ok(!seen.has(href), `Repeated card ${href}`)
+          seen.add(href)
+        }
+        if (!await next.count()) break
+        const target = await next.getAttribute('href')
+        await next.click()
+        await page.waitForURL(new URL(target, origin).href)
+        await expect(page.locator('[data-journal-page-turn="true"]')).toHaveCount(0)
+      }
+      await page.getByText('End of results.', { exact: true }).waitFor()
+      assert.equal(seen.size, 25)
+      await page.goBack()
+      await expect(next).toBeVisible()
+      await page.goForward()
+      await expect(page.getByText('End of results.')).toBeVisible()
+    } else {
+      await page.getByText('End of results.', { exact: true }).waitFor()
+      assert.equal(await page.getByText('End of results.').evaluate((element) => element === globalThis.document.activeElement), true)
+      assert.equal(await cards.count(), 25)
+    }
     assert.equal(await page.getByRole('button', { name: 'Load more' }).count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
     assert.deepEqual(recipeRequests, [
@@ -115,7 +168,17 @@ try {
       '?pagination=cursor&limit=24&sort=newest&cursor=cursor-1',
       '?pagination=cursor&limit=24&sort=newest&cursor=cursor-1',
     ])
-    if (width === 1280) {
+    if (width === 1440) {
+      const cdp = await context.newCDPSession(page)
+      for (const type of ['deuteranopia', 'protanopia', 'tritanopia']) {
+        await cdp.send('Emulation.setEmulatedVisionDeficiency', { type })
+        const active = page.getByRole('link', { name: 'My recipes' })
+        await expect(active).toHaveAttribute('aria-current', 'page')
+        assert.ok(Number(await active.evaluate((element) => globalThis.getComputedStyle(element).fontWeight)) >= 700)
+        assert.ok(await indexResults.getByRole('img', { name: '4 out of 5 stars' }).count())
+        await page.screenshot({ path: path.join(outputDir, `1440-index-${type}.png`) })
+      }
+      await cdp.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' })
       const searchInput = page.getByRole('searchbox', { name: 'Search recipes' })
       const searchScope = page.getByRole('combobox', { name: 'Search in' })
       const sort = page.getByRole('combobox', { name: 'Sort recipes' })

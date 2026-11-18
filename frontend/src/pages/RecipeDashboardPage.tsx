@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
@@ -24,6 +24,10 @@ export default function RecipeDashboardPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
+  const [catalogStarts, setCatalogStarts] = useState([0])
+  const measureCatalog = useCallback((starts: number[]) => {
+    setCatalogStarts((current) => current.length === starts.length && current.every((start, index) => start === starts[index]) ? current : starts)
+  }, [])
   const [turnSearch, setTurnSearch] = useState<string | null>(null)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
@@ -60,7 +64,7 @@ export default function RecipeDashboardPage() {
     const focused = document.activeElement
     if (focused !== document.body && document.contains(focused)) return
     const target = query.isFetchNextPageError ? retryPageButton.current
-      : query.hasNextPage ? loadMoreButton.current : endOfResultsRef.current
+      : (query.hasNextPage ? loadMoreButton.current : endOfResultsRef.current) ?? document.querySelector<HTMLElement>('[data-index-next]')
     target?.focus()
   }, [query.hasNextPage, query.isFetchNextPageError, query.isFetchingNextPage])
   useEffect(() => {
@@ -79,6 +83,7 @@ export default function RecipeDashboardPage() {
   const phone = useJournalMedia('(max-width: 599.98px)')
   const perPage = phone ? 1 : 2
   const indexView = params.get('view') === 'index' || (params.get('view') !== 'collection' && (Boolean(controls.draft.search) || controls.criteria.sort !== 'newest' || controls.criteria.searchMode !== 'title' || Object.keys(controls.criteria.filters).length > 0))
+  const pagedIndex = indexView && !single && typeof ResizeObserver !== 'undefined'
   const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
   const anchored = new URLSearchParams(displayParams)
   const entry = Number(displayParams.get('entry'))
@@ -88,6 +93,10 @@ export default function RecipeDashboardPage() {
   const spread = Math.floor(leaf / 2)
   const pages = single ? [leaf] : spread === 0 ? [0, 1] : [spread * 2, spread * 2 + 1]
   const rightPage = pages.at(-1)!
+  const catalogPage = catalogStarts.filter((start) => start <= (hasAnchor ? entry : 0)).length - 1
+  const catalogStart = catalogStarts[catalogPage] ?? 0
+  const nextCatalogStart = catalogStarts[catalogPage + 1]
+  const previousCatalogStart = catalogStarts[catalogPage - 1]
   const needed = indexView && hasAnchor ? entry + 1 : rightPage * perPage
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
@@ -95,13 +104,14 @@ export default function RecipeDashboardPage() {
   useEffect(() => { if (!recipeLink(returnFocusId)) collectionTitle.current?.focus() }, [facingPage, returnFocusId])
   const pageSearch = (page: number) => {
     const next = new URLSearchParams(params)
-    next.set('leaf', String(page))
-    next.set('entry', String((page - 1) * perPage))
+    if (pagedIndex) next.delete('leaf')
+    else next.set('leaf', String(page))
+    next.set('entry', String(pagedIndex ? page : (page - 1) * perPage))
     return `?${next}`
   }
   const pageLink = (page: number) => ({ pathname: location.pathname, search: pageSearch(page), hash: location.hash })
   const turnCollectionPage = (page: number, direction: 'forward' | 'backward') => {
-    if (isTurning || page < 1) return
+    if (isTurning || page < (pagedIndex ? 0 : 1)) return
     const search = pageSearch(page)
     requestPageTurn(direction, () => setTurnSearch(search), () => {
       setTurnSearch(null)
@@ -113,6 +123,8 @@ export default function RecipeDashboardPage() {
   const viewLink = (view: 'collection' | 'index') => {
     const next = new URLSearchParams(params)
     next.set('view', view)
+    next.delete('entry')
+    next.delete('leaf')
     return `?${next}`
   }
   // A spread is a window over server results, never an assertion of their total.
@@ -121,8 +133,10 @@ export default function RecipeDashboardPage() {
   useEffect(() => {
     if ((!indexView || hasAnchor) && recipes && recipes.length < needed && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError && !controls.waiting) void query.loadMore()
   }, [indexView, hasAnchor, recipes, needed, query, controls.waiting])
-  const canNext = (recipes?.length ?? 0) > needed || query.hasNextPage
-  const canPrevious = single ? leaf > 1 : spread > 0
+  const nextPage = pagedIndex ? nextCatalogStart
+    : (recipes?.length ?? 0) > needed || query.hasNextPage ? single ? leaf + 1 : rightPage + 1 : undefined
+  const previousPage = pagedIndex ? previousCatalogStart
+    : (single ? leaf > 1 : spread > 0) ? single ? leaf - 1 : Math.max(1, pages[0] - 2) : undefined
   useEffect(() => {
     if (!recipes || restoredLocation.current === restoreKey) return
     const card = recipeLink(returnFocusId)
@@ -178,8 +192,9 @@ export default function RecipeDashboardPage() {
         {query.isFetchingNextPage && <p role="status">Loading more recipes…</p>}
 
   </>
-  return <div data-journal-ready={query.isFetchNextPageError && turnSearch !== null ? 'error' : turnSearch !== null && (query.isPending || controls.waiting || ((recipes?.length ?? 0) < needed && query.hasNextPage)) ? 'false' : 'true'} className="mm-page-column">
+  return <div data-journal-ready={(query.isFetchNextPageError || query.isPaused) && turnSearch !== null ? 'error' : turnSearch !== null && (query.isPending || controls.waiting || ((recipes?.length ?? 0) < needed && query.hasNextPage)) ? 'false' : 'true'} className="mm-page-column">
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
+      catalog={pagedIndex ? { start: catalogStart, end: nextCatalogStart ?? recipes?.length ?? 0, indicator: `Page ${catalogPage + 1}`, measure: measureCatalog } : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
         <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
@@ -197,25 +212,25 @@ export default function RecipeDashboardPage() {
       {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update" role="status">Updating your collection…</p>}
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
-      endOfResults={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (indexView || !canNext)
+      endOfResults={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (nextPage === undefined || (indexView && !pagedIndex))
         ? <p ref={endOfResultsRef} className="discovery-end" role="status" tabIndex={-1}>End of results.</p> : null}
       empty={recipes ? empty : null} pagination={recipes ? pagination : null}
       previous={<>
-        {canPrevious ? <Link className="button mm-button--page-turn" to={pageLink(single ? leaf - 1 : Math.max(1, pages[0] - 2))}
+        {previousPage !== undefined ? <Link className="button mm-button--page-turn" to={pageLink(previousPage)}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}
           onClick={(event) => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
             event.preventDefault()
-            turnCollectionPage(single ? leaf - 1 : Math.max(1, pages[0] - 2), 'backward')
+            turnCollectionPage(previousPage, 'backward')
           }}>← Previous page</Link> : <span />}
       </>}
       next={<>
-        {canNext && <Link className="button mm-button--page-turn" to={pageLink(single ? leaf + 1 : rightPage + 1)}
+        {nextPage !== undefined && <Link className="button mm-button--page-turn" data-index-next={pagedIndex || undefined} to={pageLink(nextPage)}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}
           onClick={(event) => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
             event.preventDefault()
-            turnCollectionPage(single ? leaf + 1 : rightPage + 1, 'forward')
+            turnCollectionPage(nextPage, 'forward')
           }}>Next page →</Link>}
 
       </>}

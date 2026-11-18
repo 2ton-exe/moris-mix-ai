@@ -45,16 +45,16 @@ it('leaves boundary PageUp/PageDown actions available and only cancels valid pag
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
   const region = () => screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
   expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(true)
-  expect(live().getByText('Page 1 of 2')).toBeTruthy()
+  expect(live().getByText('Pages 1–2 of 4')).toBeTruthy()
   expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(false)
-  await live().findByText('Page 2 of 2')
+  await live().findByText('Pages 3–4 of 4')
   expect(fireEvent.keyDown(region(), { key: 'PageDown' })).toBe(true)
-  expect(live().getByText('Page 2 of 2')).toBeTruthy()
+  expect(live().getByText('Pages 3–4 of 4')).toBeTruthy()
   expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
   await finishPageTurn()
   expect(document.querySelector('[data-journal-page-turn]')).toBeNull()
   expect(fireEvent.keyDown(region(), { key: 'PageUp' })).toBe(false)
-  await live().findByText('Page 1 of 2')
+  await live().findByText('Pages 1–2 of 4')
 })
 
 it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallback spread', (key) => {
@@ -64,7 +64,7 @@ it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallba
   region.focus()
   expect(fireEvent.keyDown(region, { key })).toBe(true)
   expect(document.activeElement).toBe(region)
-  expect(live().getByText('Page 1 of 1')).toBeTruthy()
+  expect(live().getByText('Pages 1–2 of 2')).toBeTruthy()
   expect(live().getByText('Page space is limited. Scroll this paper to continue reading.')).toBeTruthy()
 })
 
@@ -82,7 +82,7 @@ it.each([
   region.focus()
 
   expect(fireEvent.keyDown(region, { key })).toBe(true)
-  expect(live().getByText('Page 1 of 2')).toBeTruthy()
+  expect(live().getByText('Pages 1–2 of 4')).toBeTruthy()
 })
 
 it('turns the page when PageDown reaches a fractional physical bottom', async () => {
@@ -97,7 +97,7 @@ it('turns the page when PageDown reaches a fractional physical bottom', async ()
 
   expect(region.scrollTop).toBe(199.5)
   expect(fireEvent.keyDown(region, { key: 'PageDown' })).toBe(false)
-  await live().findByText('Page 2 of 2')
+  await live().findByText('Pages 3–4 of 4')
 })
 
 it('turns through facing leaves with live announcements and preserves route return state', async () => {
@@ -114,7 +114,7 @@ it('turns through facing leaves with live announcements and preserves route retu
   expect(live().getByText('Cook gently.')).toBeTruthy()
   expect(live().getByText('First paragraph.')).toBeTruthy()
   expect(live().getByText('Last paragraph.')).toBeTruthy()
-  const indicator = live().getByText('Page 2 of 2')
+  const indicator = live().getByText('Pages 3–4 of 4')
   expect(indicator.getAttribute('aria-live')).toBe('polite')
   expect(indicator.getAttribute('aria-atomic')).toBe('true')
   expect(screen.queryByRole('button', { name: 'Next Page' })).toBeNull()
@@ -150,9 +150,9 @@ it('provides a named bounded region for an oversized step and leaves its scroll 
   expect(fallback.getAttribute('tabindex')).toBe('0')
   expect(fallback.style.maxHeight).not.toBe('')
   fireEvent.keyDown(fallback, { key: 'ArrowLeft' })
-  expect(live().getByText('Page 2 of 2')).toBeTruthy()
+  expect(live().getByText('Pages 3–4 of 4')).toBeTruthy()
   fireEvent.keyDown(screen.getByRole('region', { name: 'Left recipe page' }), { key: 'PageUp' })
-  await waitFor(() => expect(live().getByText('Page 1 of 2')).toBeTruthy())
+  await waitFor(() => expect(live().getByText('Pages 1–2 of 4')).toBeTruthy())
 })
 
 it('opens the first spread safely when a direct URL names an unavailable content anchor', () => {

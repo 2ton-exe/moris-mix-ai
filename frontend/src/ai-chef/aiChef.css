@@ -96,3 +96,42 @@
 }
 @media (max-width: 399px) {
 }
+
+.mm-desk .mm-review-leaf > h2 {
+  margin: 0 0 12px;
+  padding-block-end: 8px;
+  border-bottom: 1px solid var(--mm-border-paper);
+  font: 600 22px/1.2 var(--mm-font-serif);
+}
+.mm-desk .mm-review-leaf .mm-ai-chef__review-notice {
+  margin: 0;
+  padding: 10px 12px;
+  gap: 7px;
+  border: 1px solid var(--mm-border-paper);
+  background: var(--mm-color-fresh) var(--mm-tex-grain);
+  font-size: .875rem;
+}
+.mm-review-leaf .mm-ai-chef__context { padding-block: 6px; }
+.mm-review-leaf .mm-ai-chef__suggestions h2 { margin-bottom: 4px; }
+.mm-review-leaf .mm-ai-chef__parent-choice { padding-block: 6px; }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-facing-content--editor .mm-ai-chef__journey {
+    width: 100%;
+    margin-block: 12px 16px;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    border: 0;
+  }
+  .mm-facing-content--editor .mm-ai-chef__journey :is(.mm-tape, .mm-ai-chef__journey-kicker, h2) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .mm-facing-content--editor .mm-ai-chef__journey ol { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .mm-facing-content--editor .mm-ai-chef__journey li { gap: 5px; font-size: 13px; }
+}

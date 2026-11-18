@@ -43,7 +43,6 @@
 .mm-collection-entry:is(:hover, :focus-visible), .mm-index-card:is(:hover, :focus-visible) {
   border-color: var(--mm-color-burgundy-600);
 }
-.mm-collection-entry:hover .mm-recipe-artwork { translate: 0 -2px; }
 .mm-empty-slot { display: flex; align-items: center; flex: none; min-height: 60px; margin-top: 20px; padding: 10px 16px; border: 2px dashed rgb(120 92 60 / .38); border-radius: 8px; color: var(--mm-color-burgundy-700); text-decoration: none; font: 600 17px/1.4 var(--mm-font-serif); }
 .mm-desk .mm-recipe-empty { min-height: 0; padding: 22px 10px; border: 0; background: transparent; }
 .mm-desk .mm-recipe-empty__card { padding: 24px 16px; }
@@ -66,7 +65,7 @@
 .mm-desk .mm-facing-content--index .discovery-fields input::placeholder { color: var(--mm-color-ink-soft); }
 .mm-desk .mm-facing-content--index .discovery-availability { margin-top: 16px; padding: 12px; font-size: 12px; line-height: 1.5; }
 .mm-desk .mm-facing-content--index .discovery-active { gap: 8px; }
-.mm-desk .recipe-grid.mm-index-entries { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 0; padding: 4px; }
+.mm-desk .recipe-grid.mm-index-entries { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0; padding: 4px; }
 .mm-index-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -160,7 +159,6 @@
   .mm-collection-entry { transition: none; transform: none; }
   .mm-desk .button, .mm-desk .mm-collection-entry .mm-recipe-artwork { transition: none; }
   .mm-desk .button:hover, .mm-desk .button:active { transform: none; }
-  .mm-collection-entry:hover .mm-recipe-artwork { translate: none; }
 }
 @media (forced-colors: active) {
   .mm-index-card, .mm-reading-notes, .mm-journal-page-footer { border: 1px solid CanvasText; }
@@ -191,11 +189,28 @@
   .mm-pagination-slot--left { display: none; }
   .mm-pagination-band { display: flex; align-items: center; gap: 4px; }
   .mm-pagination-single-previous { display: block; }
-  .mm-pagination-single-previous .mm-pagination-left-number { display: none; }
   .mm-pagination-slot--right { flex: 1; min-width: 0; }
   .mm-pagination-half { gap: 4px; font-size: 13px; }
   .mm-desk .mm-pagination-half .button { padding-inline: 4px; font-size: 12px; }
   .mm-pagination-number { text-align: center; flex: 1; white-space: normal; }
 }
 .mm-journal-page-footer:not(:has(.mm-footer-actions > *, .mm-pagination-half)), .mm-pagination-slot--left:empty { display: none; }
-.mm-pagination-half :is(.mm-pagination-left-number, .mm-pagination-number) { font: inherit; }
+.mm-pagination-half .mm-pagination-number { font: inherit; }
+
+.mm-desk .mm-index-card h2 { overflow-wrap: anywhere; }
+.mm-index-measure {
+  position: fixed;
+  inset: 0 auto auto -20000px;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout paint;
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  :is(.mm-collection-entry, .mm-index-card) {
+    transition: translate var(--mm-duration-fast) ease-out, box-shadow var(--mm-duration-fast) ease-out, border-color var(--mm-duration-fast) ease-out;
+  }
+  :is(.mm-collection-entry, .mm-index-card):hover { translate: 0 -2px; box-shadow: var(--mm-shadow-paper); }
+  :is(.mm-collection-entry, .mm-index-card):active { translate: 0 1px; transition-duration: 100ms; }
+  .mm-desk .button.mm-button--page-turn:active:not(:disabled, [aria-disabled='true']) { translate: 0 1px; }
+}

@@ -91,6 +91,9 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   }, [isTurning, single, bodyRef, leftRef])
   useLayoutEffect(() => { requestedPage.current = committedPage }, [committedPage, location.key])
   const spread = spreads[current]
+  const firstLeaf = (single ? current : current * 2) + 1
+  const leafCount = pages.length + 1
+  const indicator = spread.length === 1 ? `Page ${firstLeaf} of ${leafCount}` : `Pages ${firstLeaf}–${firstLeaf + 1} of ${leafCount}`
   const identityVisible = spread[0]?.[0] === 'identity'
   const selectUnits = (ids: string[] = []) => units.filter((unit) => ids.includes(unit.id))
   const turn = (index: number) => {
@@ -182,7 +185,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       {actions && <nav className="mm-reading-footer" aria-label="Recipe actions">
         <div className="mm-reading-footer__actions">{actions}</div>
       </nav>}
-      <JournalReadingTurns page={current} total={spreads.length} onTurn={turn} />
+      <JournalReadingTurns page={current} total={spreads.length} indicator={indicator} onTurn={turn} />
     </JournalPageFooter>
   </article>
 }

@@ -1,16 +1,42 @@
 import { JournalPagination } from '../journal/JournalPagination'
-import type { ReactNode, Ref } from 'react'
+import { useLayoutEffect, useRef, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
-import { RecipeCard } from './RecipeCard'
+import { RecipeCard, RecipeIndexCardContent } from './RecipeCard'
+import { paginateReading } from './readingPagination'
 import type { RecipeSummary } from './types'
 
-export function RecipeCollectionPages({ recipes, pages, perPage, index, header, controls, status, endOfResults, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
+export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog, header, controls, status, endOfResults, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
   recipes?: RecipeSummary[]; pages: number[]; perPage: number; index: boolean
+  catalog?: { start: number; end: number; indicator: string; measure: (starts: number[]) => void }
   header: ReactNode; controls: ReactNode; status: ReactNode; endOfResults: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
+  const results = useRef<HTMLDivElement>(null)
+  const bank = useRef<HTMLUListElement>(null)
+  const measureCatalog = catalog?.measure
+  useLayoutEffect(() => {
+    const viewport = results.current
+    const list = bank.current
+    if (!viewport || !list || !measureCatalog || typeof ResizeObserver === 'undefined') return
+    const measure = () => {
+      const padding = getComputedStyle(viewport)
+      // Reserve space for result feedback, list padding, and focused card outlines.
+      const capacity = viewport.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom) - 44
+      if (capacity <= 0) return
+      list.style.width = `${viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)}px`
+      const starts = paginateReading(Array.from(list.children, (row, offset) => ({
+        id: String(offset), section: 'index', headingHeight: 0, height: row.getBoundingClientRect().height,
+      })), capacity).map((page) => Number(page[0] ?? 0))
+      measureCatalog(starts)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(viewport)
+    observer.observe(list)
+    measure()
+    return () => observer.disconnect()
+  }, [measureCatalog, recipes, index])
   const heading = <header className="mm-collection-heading">
     {!index && <p className="mm-recipe-index__eyebrow">{`${recipes?.length ?? 0} ${recipes?.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : 'Your cooking journal'}</h1>
@@ -27,17 +53,23 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
   if (index) return <>
     <JournalFacingPage className="mm-facing-content--index mm-page-column">
       {heading}
-      <div className="mm-page-body" role="region" aria-label="Recipe search controls" tabIndex={0}>{controls}</div>
+      <div className="mm-page-body" role="region" aria-label="Recipe search controls" tabIndex={0}>{controls}{catalog && pagination}</div>
     </JournalFacingPage>
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
       <h2 id="collection-heading" className="collection-heading" tabIndex={-1}>Saved recipes <span>({recipes?.length ?? 0})</span></h2>
-      <div className="mm-page-body mm-index-results" role="region" aria-label="Recipe index results" tabIndex={0}>
+      <div ref={results} className="mm-page-body mm-index-results" role="region" aria-label="Recipe index results" tabIndex={0}>
         {status}
-        {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={i + 1} indexCard />)}</ul> : empty}
+        {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.slice(catalog?.start ?? 0, catalog?.end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={(catalog?.start ?? 0) + i + 1} indexCard />)}</ul> : empty}
         {endOfResults}
       </div>
+      {catalog && !!recipes?.length && <ul ref={bank} className="recipe-grid mm-index-entries mm-index-measure" aria-hidden="true" inert>
+        {recipes.map((recipe) => <li className="mm-recipe-card-slot" key={recipe.id}><div className="mm-index-card"><RecipeIndexCardContent recipe={recipe} /></div></li>)}
+      </ul>}
     </section>
-    <JournalPageFooter><div className="mm-collection-footer">{pagination}</div></JournalPageFooter>
+    <JournalPageFooter><div className="mm-collection-footer">
+      {catalog && <JournalPagination label="Recipe index pages" previous={previous} next={next} rightNumber={catalog.indicator} />}
+      {!catalog && pagination}
+    </div></JournalPageFooter>
   </>
   const [left, right] = pages.length === 2 ? pages : [0, pages[0]]
   const first = right === 1
@@ -63,7 +95,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, header, 
     </section>
     <JournalPageFooter><div className="mm-collection-footer">
       <span className="visually-hidden" aria-live="polite" aria-atomic="true">{left > 0 ? `Collection pages ${left} and ${right}` : `Collection page ${right}`}</span>
-      <JournalPagination label="Recipe index pages" previous={previous} next={next} leftNumber={left > 0 ? `p. ${left}` : undefined} rightNumber={`p. ${right}`} />
+      <JournalPagination label="Collection pages" previous={previous} next={next} rightNumber={left > 0 ? `Pages ${left}–${right}` : `Page ${right}`} />
       {pagination}
     </div></JournalPageFooter>
   </>
