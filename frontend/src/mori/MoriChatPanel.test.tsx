@@ -6,7 +6,7 @@ import type { GenerateRecipeResponse } from '../ai-chef/generateRecipe'
 import { generateRecipeApi } from '../ai-chef/generateRecipe'
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai/draft'
 import type { ExtractedRecipe } from '../quick-ai/extractRecipe'
-import { extractRecipeApi } from '../quick-ai/extractRecipe'
+import { extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider } from './MoriCompanionContext'
 import { MoriChatPanel } from './MoriChatPanel'
@@ -109,6 +109,42 @@ it('retrieves a pantry suggestion and keeps its saved-recipe lineage in the revi
     saved: false,
     response: { candidate_token: 'opaque-candidate-token', parents: [{ title: 'Saved egg rice' }], context: { status: 'MATCHED' } },
   })
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+})
+
+it('switches workflows when a later message clearly asks for the other recipe task', async () => {
+  const extract = vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe('Tomato soup'))
+  const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderChat('mori-chat-workflow-switch')
+
+  send('I have rice and eggs')
+  await screen.findByRole('button', { name: 'Review recipe' })
+  send('I cooked tomato soup with tomatoes and broth. Simmer it.')
+  await waitFor(() => expect(extract).toHaveBeenCalledOnce())
+  expect(extract.mock.calls[0]?.[0]).toBe('I cooked tomato soup with tomatoes and broth. Simmer it.')
+
+  send('What can I cook with beans?; quick')
+  await waitFor(() => expect(generate).toHaveBeenCalledTimes(2))
+  expect(generate.mock.calls[1]?.slice(0, 2)).toEqual([['beans'], 'quick'])
+})
+
+it('keeps original notes available when a follow-up would exceed the extraction limit', async () => {
+  const sourceNotes = 'n'.repeat(MAX_EXTRACTION_INPUT_CHARS - 40)
+  const extract = vi.spyOn(extractRecipeApi, 'extract')
+    .mockResolvedValueOnce(recipe('Tomato soup', [], []))
+    .mockResolvedValueOnce(recipe())
+  renderChat('mori-chat-long-follow-up')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send(sourceNotes)
+  await screen.findByText('I’m only missing the ingredients and the cooking steps. What should I add?')
+  send('x'.repeat(60))
+  await screen.findByText(/Keep the cooking notes to/)
+  expect(extract).toHaveBeenCalledOnce()
+
+  send('x')
+  await screen.findByRole('button', { name: 'Review draft' })
+  expect(extract.mock.calls[1]?.[0]).toBe(`${sourceNotes}\n\nAdditional details: x`)
 })
 
 it('cancels an in-flight request and ignores a late API response', async () => {

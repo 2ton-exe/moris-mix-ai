@@ -29,8 +29,13 @@ function sourceNotesReturn(state: unknown) {
 
 export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
+  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an extracted recipe.</p>
-  return <ExtractedRecipeReviewSession key={user.id} userId={user.id} save={save} />
+  const moriReviewKey = typeof location.state === 'object' && location.state !== null &&
+    'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
+    ? location.state.moriReviewKey
+    : 'initial'
+  return <ExtractedRecipeReviewSession key={`${user.id}:${moriReviewKey}`} userId={user.id} save={save} />
 }
 
 function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {

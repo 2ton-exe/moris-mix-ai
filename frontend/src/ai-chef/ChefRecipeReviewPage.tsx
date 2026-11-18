@@ -124,8 +124,13 @@ async function persistOrReconcileLineage(
 
 export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
+  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an AI Chef recipe.</p>
-  return <ChefReviewSession key={user.id} userId={user.id} save={save} />
+  const moriReviewKey = typeof location.state === 'object' && location.state !== null &&
+    'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
+    ? location.state.moriReviewKey
+    : 'initial'
+  return <ChefReviewSession key={`${user.id}:${moriReviewKey}`} userId={user.id} save={save} />
 }
 
 function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
@@ -134,8 +139,9 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const { user } = useAuth()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const stored = initialRead.draft
-  const generationSucceeded = useRef(Boolean(stored.handoff) && typeof location.state === 'object' && location.state !== null &&
-    'chefGenerationSucceeded' in location.state && location.state.chefGenerationSucceeded === true)
+  const reviewRouteState = useRef(location.state)
+  const generationSucceeded = useRef(Boolean(stored.handoff) && typeof reviewRouteState.current === 'object' && reviewRouteState.current !== null &&
+    'chefGenerationSucceeded' in reviewRouteState.current && reviewRouteState.current.chefGenerationSucceeded === true)
   useMoriActivity(generationSucceeded.current ? { kind: 'celebrating', message: 'Your recipe idea is ready for review.' } : null)
   const originalHandoff = useRef(stored.handoff)
   const [dirty, setDirty] = useState(false)
@@ -161,7 +167,13 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const navigationConfirmation = useUnsavedChangesGuard(dirty || (saved && storageIssue !== null), { warnOnUnload: storageIssue !== null })
 
   useEffect(() => {
-    if (generationSucceeded.current) navigate(location.pathname, { replace: true, state: null })
+    if (!generationSucceeded.current) return
+    const state = typeof reviewRouteState.current === 'object' && reviewRouteState.current !== null ? reviewRouteState.current : null
+    const nextState = state ? {
+      ...('moriKeepOpen' in state && state.moriKeepOpen === true ? { moriKeepOpen: true } : {}),
+      ...('moriReviewKey' in state ? { moriReviewKey: state.moriReviewKey } : {}),
+    } : null
+    navigate(location.pathname, { replace: true, state: nextState })
   }, [location.pathname, navigate])
 
   useEffect(() => () => lineageController.current?.abort(), [])

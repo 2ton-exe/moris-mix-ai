@@ -50,6 +50,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const [followUp, setFollowUp] = useState<{ notes: string } | null>(null)
   const [retryRequest, setRetryRequest] = useState<MoriRetry | null>(null)
   const id = useRef(1)
+  const reviewSequence = useRef(0)
   const requestId = useRef(0)
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
@@ -208,15 +209,18 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     const navigation = requestedNavigation(text)
     if (navigation) { openRoute(navigation.path, navigation.message, navigation.focus); return }
 
-    const selected = mode ?? requestedWorkflow(text)
+    const explicitWorkflow = requestedWorkflow(text)
+    const selected = explicitWorkflow ?? mode
     if (!selected) {
       say('assistant', 'I can help make a recipe from cooking notes, suggest something from your pantry, or open your recipes. Pick one below or tell me what you need.')
       return
     }
-    if (!mode) setMode(selected)
+    if (explicitWorkflow) {
+      setMode(explicitWorkflow)
+      if (explicitWorkflow !== mode) setFollowUp(null)
+    }
     if (selected === 'create') {
       const notes = followUp ? `${followUp.notes}\n\nAdditional details: ${text}` : text
-      setFollowUp(null)
       await createRecipe(notes)
       return
     }
@@ -234,7 +238,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       }
       if (!sameHandoff) writeQuickAiEntryDraft(userId, { notes: draft.handoff.sourceNotes, blockedUntil: null, blockedReason: null, handoff: draft.handoff })
       say('assistant', 'Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')
-      navigate('/app/quick-entry/review', { state: { moriKeepOpen: true, sourceJournalReturn: '/app/recipes' } })
+      navigate('/app/quick-entry/review', { state: {
+        moriKeepOpen: true,
+        moriReviewKey: ++reviewSequence.current,
+        sourceJournalReturn: '/app/recipes',
+      } })
       return
     }
 
@@ -252,7 +260,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         handoff: draft.handoff,
       })
     say('assistant', 'Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')
-    navigate('/app/chef/review', { state: { moriKeepOpen: true, chefGenerationSucceeded: true } })
+    navigate('/app/chef/review', { state: {
+      moriKeepOpen: true,
+      chefGenerationSucceeded: true,
+      moriReviewKey: ++reviewSequence.current,
+    } })
   }
 
   function submitOnShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {

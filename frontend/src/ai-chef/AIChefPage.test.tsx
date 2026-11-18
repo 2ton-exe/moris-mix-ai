@@ -98,6 +98,24 @@ describe('AI Chef pantry and review workflow', () => {
     })
   })
 
+  it('keeps Mori open and loads a new handoff on an in-place AI Chef review navigation', async () => {
+    const { router } = renderChef()
+    await act(() => router.navigate('/app/chef/review', { state: { moriKeepOpen: true, moriReviewKey: 0 } }))
+    expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+
+    writeChefDraft('chef-cook', {
+      input: { pantryItems: ['rice'], pantryInput: '', preferences: '' },
+      handoff: { request: { pantryItems: ['rice'] }, response, selectedParentIds: [], saved: false },
+    })
+    await act(() => router.navigate('/app/chef/review', {
+      state: { moriKeepOpen: true, chefGenerationSucceeded: true, moriReviewKey: 1 },
+    }))
+
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    await waitFor(() => expect(router.state.location.state).toEqual({ moriKeepOpen: true, moriReviewKey: 1 }))
+    expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+  })
+
   it('uses the shared page-aware companion and keeps recipe generation structured', () => {
     renderChef()
 
