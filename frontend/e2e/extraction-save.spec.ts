@@ -97,7 +97,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     })
 
     await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
-    const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages', exact: true })
+    const pageNavigation = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
     const pagePosition = page.locator('.mm-review-progress')
     const currentPosition = await pagePosition.innerText()
     await pageNavigation.getByRole('button', { name: /^Previous:/ }).click()
