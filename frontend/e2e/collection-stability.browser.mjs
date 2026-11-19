@@ -74,12 +74,18 @@ try {
     await page.goto(`${origin}app?entry=0`)
     await page.getByRole('heading', { name: 'Saved recipes (5)' }).waitFor()
     await page.waitForTimeout(500)
+    await expect(page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li')).toHaveCount(2)
     const seen = new Set()
     for (let turn = 0; turn < recipes.length; turn++) {
-      const links = page.locator('.mm-collection-body .mm-collection-entries a')
-      for (const href of await links.evaluateAll(elements => elements.map(e => e.getAttribute('href')))) {
-        assert.ok(!seen.has(href), `Recipe repeated across pages: ${href}`)
-        seen.add(href)
+      const lists = page.locator('.mm-collection-body > .mm-collection-entries')
+      for (const list of await lists.all()) {
+        const remaining = recipes.length - seen.size
+        assert.equal(await list.locator(':scope > li').count(), Math.min(2, remaining), 'Each desktop leaf must fit two ordinary recipes')
+        assert.ok(await list.evaluate(e => e.getBoundingClientRect().bottom <= e.parentElement.getBoundingClientRect().bottom + 2), 'Cards must stay above the footer')
+        for (const href of await list.locator('a').evaluateAll(elements => elements.map(e => e.getAttribute('href')))) {
+          assert.ok(!seen.has(href), `Recipe repeated across pages: ${href}`)
+          seen.add(href)
+        }
       }
       const next = page.getByRole('link', { name: 'Next page' })
       if (!await next.count()) break
