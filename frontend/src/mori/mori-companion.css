@@ -34,12 +34,12 @@
 .mori-chat-log { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }
 .mori-chat-message { flex-shrink: 0; max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid rgb(128 92 59 / .22); border-radius: 12px 12px 12px 4px; background: #fffdf7; font-size: 13px; line-height: 1.4; }
 .mori-chat-message[data-role='user'] { align-self: flex-end; border-color: var(--mm-color-sage-500); border-radius: 12px 12px 4px 12px; background: var(--mm-color-sage-100); }
-.mori-chat-message p { margin: 0; white-space: pre-wrap; }
+.mori-pet-panel .mori-chat-message p { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 .mori-chat-preview { display: grid; gap: 6px; margin-top: 8px; padding-top: 7px; border-top: 1px solid rgb(128 92 59 / .2); }
 .mori-chat-preview h3 { margin: 3px 0; font-size: 12px; }
 .mori-chat-preview :is(ul, ol) { margin: 0; padding-left: 18px; }
 .mori-chat-preview li { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--mm-color-espresso-700); font-size: 12px; }
-.mori-chat-preview span, .mori-chat-preview p { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; }
+.mori-chat-preview span, .mori-pet-panel .mori-chat-preview p { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; }
 .mori-chat-preview button { justify-self: start; margin-top: 2px; border-color: var(--mm-color-burgundy-700); background: var(--mm-color-burgundy-700); color: #fffdf7; }
 .mori-chat-shortcuts { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--mm-color-sage-500) transparent; }
 .mori-chat-shortcuts button { flex: 0 0 auto; min-height: 44px; padding-inline: 8px; border-color: transparent; background: transparent; font-size: 12px; }
@@ -75,3 +75,30 @@
 .mori-pet-character[data-turn-direction] .mori-pet-trigger { pointer-events: none; }
 
 .mori-chat-shortcuts button[aria-pressed='true'] { background: var(--mm-color-sage-100); border-color: var(--mm-color-sage-500); }
+
+@media (min-width: 769px) {
+  .mori-pet-panel[data-chat='true'] > header { padding-bottom: 4px; }
+  .mori-pet-panel[data-chat='true'] h2 { font-size: 30px; }
+  .mori-pet-panel .mori-chat-task { margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--mm-border-paper); font-size: 13px; }
+  .mori-chat-log { gap: 10px; padding: 4px 4px 8px 0; }
+  .mori-chat-message { box-sizing: border-box; max-width: 94%; padding: 10px 12px; }
+  .mori-chat-message[data-role='user'] { max-width: 88%; }
+  .mori-chat-preview { gap: 8px; margin-top: 12px; padding-top: 10px; }
+  .mori-chat-preview > strong { font-size: 15px; line-height: 1.4; }
+  .mori-chat-preview h3 { margin: 0 0 4px; font-weight: 600; }
+  .mori-chat-preview li { line-height: 1.5; }
+  .mori-chat-composer { gap: 8px; padding-top: 10px; border-top: 1px solid var(--mm-border-paper); }
+  .mori-chat-composer textarea { min-height: 60px; padding: 10px; font-size: 14px; line-height: 1.5; caret-color: var(--mm-color-burgundy-700); }
+  .mori-chat-composer textarea::placeholder { color: var(--mm-color-espresso-700); opacity: 1; }
+  .mori-chat-composer button { min-height: 60px; padding-inline: 14px; border-radius: 8px; font-weight: 600; }
+  .mori-chat-shortcuts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; overflow: visible; }
+  .mori-chat-shortcuts button { grid-column: span 2; padding-inline: 4px; border-radius: 6px; line-height: 1.25; }
+  .mori-chat-shortcuts button:nth-child(-n+2) { grid-column: span 3; border-color: var(--mm-border-paper); }
+  .mori-pet-panel .mori-chat-hint { margin: 0 !important; font-size: 11px !important; line-height: 1.4; }
+  .mori-chat-pending { padding: 8px 0; line-height: 1.5; }
+  .mori-chat-retry button { background: var(--mm-color-parchment-50); }
+  .mori-chat :is(button, textarea) { transition: background-color 140ms ease, border-color 140ms ease; }
+  .mori-chat button:enabled:hover { background: var(--mm-color-sage-100); border-color: var(--mm-color-sage-700); }
+  .mori-chat :is(.mori-chat-composer, .mori-chat-preview) button:enabled:hover { background: var(--mm-color-burgundy-800); border-color: var(--mm-color-burgundy-800); }
+  .mori-chat ::selection { background: var(--mm-color-sage-100); color: var(--mm-color-ink); }
+}

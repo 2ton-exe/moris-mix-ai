@@ -208,6 +208,16 @@ try {
     assert.equal(chatGeometry.fits, true, 'Composer must remain inside the panel')
     if (width === 1440) assert.equal(chatGeometry.height, 460, 'Desktop chat must use its full available height')
     assert.equal(chatGeometry.overflow, 'hidden', 'The transcript owns vertical scrolling')
+    if (width === 1440) {
+      const shortcutsFit = await panel.locator('.mori-chat-shortcuts').evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        return [...element.querySelectorAll('button')].every((button) => {
+          const rect = button.getBoundingClientRect()
+          return rect.left >= bounds.left && rect.right <= bounds.right && rect.bottom <= bounds.bottom
+        })
+      })
+      assert.equal(shortcutsFit, true, 'Every desktop shortcut must fit without horizontal scrolling')
+    }
     await page.screenshot({ path: path.join(outputDir, `${width}-companion.png`) })
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
