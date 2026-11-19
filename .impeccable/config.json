@@ -40,5 +40,6 @@
         "reason": "Agent: Existing paper-journal UI uses token-colored rails to distinguish request/storage errors, recipe context, and lineage recovery state."
       }
     ]
-  }
+  },
+  "buildPath": "code"
 }

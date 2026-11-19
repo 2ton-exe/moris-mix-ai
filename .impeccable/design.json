@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T13:32:32Z",
+  "title": "Design System: Mori’s Mix",
+  "extensions": {
+    "colorMeta": {
+      "burgundy-leather": {
+        "role": "primary",
+        "displayName": "Burgundy Leather",
+        "canonical": "#622031",
+        "tonalRamp": [
+          "#250a12",
+          "#39111c",
+          "#4c1825",
+          "#622031",
+          "#772a3d",
+          "#8f3b4e",
+          "#ca8290",
+          "#faf0f1"
+        ]
+      },
+      "burgundy-deep": {
+        "role": "primary",
+        "displayName": "Deep Burgundy Leather",
+        "canonical": "#4c1825",
+        "tonalRamp": [
+          "#250a12",
+          "#39111c",
+          "#4c1825",
+          "#622031",
+          "#772a3d",
+          "#8f3b4e",
+          "#ca8290",
+          "#faf0f1"
+        ]
+      },
+      "garden-sage": {
+        "role": "secondary",
+        "displayName": "Garden Sage",
+        "canonical": "#596a4b",
+        "tonalRamp": [
+          "#283024",
+          "#364030",
+          "#46543c",
+          "#596a4b",
+          "#71855f",
+          "#8c9e78",
+          "#a9b896",
+          "#f2f4ee"
+        ]
+      },
+      "garden-sage-light": {
+        "role": "secondary",
+        "displayName": "Pale Garden Sage",
+        "canonical": "#e1e7d8",
+        "tonalRamp": [
+          "#283024",
+          "#364030",
+          "#46543c",
+          "#596a4b",
+          "#71855f",
+          "#8c9e78",
+          "#a9b896",
+          "#f2f4ee"
+        ]
+      },
+      "garden-sage-deep": {
+        "role": "secondary",
+        "displayName": "Deep Garden Sage",
+        "canonical": "#283024",
+        "tonalRamp": [
+          "#283024",
+          "#364030",
+          "#46543c",
+          "#596a4b",
+          "#71855f",
+          "#8c9e78",
+          "#a9b896",
+          "#f2f4ee"
+        ]
+      },
+      "antique-brass": {
+        "role": "tertiary",
+        "displayName": "Antique Brass",
+        "canonical": "#b28a3d",
+        "tonalRamp": [
+          "#5c3f15",
+          "#65491c",
+          "#8b6a2b",
+          "#b28a3d",
+          "#cfa95b",
+          "#e8cd88",
+          "#f3e2ad",
+          "#fcf6e6"
+        ]
+      },
+      "mustard-gold": {
+        "role": "tertiary",
+        "displayName": "Mustard Gold",
+        "canonical": "#bf8826",
+        "tonalRamp": [
+          "#5c3f15",
+          "#7a5319",
+          "#9b6b1d",
+          "#bf8826",
+          "#d8a23a",
+          "#e5bb5d",
+          "#efd48f",
+          "#fcf6e6"
+        ]
+      },
+      "warm-parchment": {
+        "role": "neutral",
+        "displayName": "Warm Parchment",
+        "canonical": "#f8f1e1",
+        "tonalRamp": [
+          "#9c8052",
+          "#bc9f6c",
+          "#d4ba8a",
+          "#e5d3ac",
+          "#f0e4c8",
+          "#f8f1e1",
+          "#fdfaf3",
+          "#fffcf3"
+        ]
+      },
+      "fresh-paper": {
+        "role": "neutral",
+        "displayName": "Fresh Paper",
+        "canonical": "#fffcf3",
+        "tonalRamp": [
+          "#9c8052",
+          "#bc9f6c",
+          "#d4ba8a",
+          "#e5d3ac",
+          "#f0e4c8",
+          "#f8f1e1",
+          "#fdfaf3",
+          "#fffcf3"
+        ]
+      },
+      "paper-control": {
+        "role": "neutral",
+        "displayName": "Paper Control",
+        "canonical": "#fdf8ec",
+        "tonalRamp": [
+          "#9c8052",
+          "#bc9f6c",
+          "#d4ba8a",
+          "#e5d3ac",
+          "#f0e4c8",
+          "#f8f1e1",
+          "#fdfaf3",
+          "#fffcf3"
+        ]
+      },
+      "espresso-ink": {
+        "role": "neutral",
+        "displayName": "Espresso Ink",
+        "canonical": "#2b211b",
+        "tonalRamp": [
+          "#18110d",
+          "#271d17",
+          "#372920",
+          "#4a382a",
+          "#5f4835",
+          "#785c43",
+          "#98785a",
+          "#d6c1ad"
+        ]
+      },
+      "soft-ink": {
+        "role": "neutral",
+        "displayName": "Soft Ink",
+        "canonical": "#5b4a3d",
+        "tonalRamp": [
+          "#18110d",
+          "#271d17",
+          "#372920",
+          "#4a382a",
+          "#5f4835",
+          "#785c43",
+          "#98785a",
+          "#d6c1ad"
+        ]
+      },
+      "kraft-paper": {
+        "role": "neutral",
+        "displayName": "Kraft Paper",
+        "canonical": "#dac093",
+        "tonalRamp": [
+          "#98734a",
+          "#b48d5c",
+          "#c9a674",
+          "#dac093",
+          "#e9d8b9",
+          "#e5d3ac",
+          "#f0e4c8",
+          "#f8f1e1"
+        ]
+      },
+      "brick-error": {
+        "role": "error",
+        "displayName": "Brick Error",
+        "canonical": "#9a3324",
+        "tonalRamp": [
+          "#320000",
+          "#520000",
+          "#720500",
+          "#932d1e",
+          "#b54c3b",
+          "#d76a58",
+          "#ff937f",
+          "#ffc0ab"
+        ]
+      },
+      "lilac-paper": {
+        "role": "tertiary",
+        "displayName": "Lilac Paper",
+        "canonical": "#e6dff0",
+        "tonalRamp": [
+          "#0d0913",
+          "#241f2b",
+          "#3d3845",
+          "#585260",
+          "#756e7d",
+          "#928c9b",
+          "#bbb4c4",
+          "#e8e1f2"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Recipe and page titles on reading surfaces."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section and editor headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card and content-section titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Recipe content, instructions, and supporting copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Compact metadata, form labels, and stamps."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Functional button text."
+      },
+      "handwritten": {
+        "displayName": "Handwritten Note",
+        "purpose": "Short annotations and selected empty-state copy."
+      },
+      "mono": {
+        "displayName": "Compact Mono",
+        "purpose": "Search values and compact data-like text."
+      },
+      "chat": {
+        "displayName": "Chat",
+        "purpose": "Compact, readable copy inside Mori Companion messages."
+      }
+    },
+    "shadows": [
+      {
+        "name": "paper",
+        "value": "0 1px 1px rgb(54 36 20 / 0.14), 0 3px 8px -2px rgb(54 36 20 / 0.2)",
+        "purpose": "Notes and cards resting on a page."
+      },
+      {
+        "name": "lifted",
+        "value": "0 2px 4px rgb(40 24 12 / 0.18), 0 14px 28px -8px rgb(40 24 12 / 0.42)",
+        "purpose": "An active or raised card."
+      },
+      {
+        "name": "desk",
+        "value": "0 2px 3px rgb(30 18 8 / 0.28), 0 18px 40px -10px rgb(30 18 8 / 0.5)",
+        "purpose": "A large surface on the oak desk."
+      },
+      {
+        "name": "button-edge",
+        "value": "0 2px 0 var(--mm-button-edge), 0 5px 10px -3px rgb(40 10 15 / 0.45)",
+        "purpose": "A tactile edge under primary actions."
+      }
+    ],
+    "motion": [
+      {
+        "name": "duration-fast",
+        "value": "180ms",
+        "purpose": "Short material and control transitions."
+      },
+      {
+        "name": "ease-page",
+        "value": "cubic-bezier(0.45, 0.05, 0.22, 1)",
+        "purpose": "Journal page movement."
+      },
+      {
+        "name": "ease-soft",
+        "value": "cubic-bezier(0.3, 0.7, 0.2, 1)",
+        "purpose": "Bookmarks and gentle surface movement."
+      },
+      {
+        "name": "ease-spring",
+        "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "purpose": "Small character or decorative movement."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Removes nonessential transitions and character movement."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "spread-to-reading-flow",
+        "value": "max-width: 1099.98px or max-height: 639.98px"
+      },
+      {
+        "name": "ai-chef-panel",
+        "value": "max-width: 560px"
+      },
+      {
+        "name": "compact-toolbar",
+        "value": "max-width: 540px"
+      },
+      {
+        "name": "bookmark-tabs",
+        "value": "max-width: 460px"
+      },
+      {
+        "name": "narrow-detail",
+        "value": "max-width: 450px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Tactile main action with a pressed burgundy edge.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Save recipe</button>",
+      "css": ".ds-button-primary { min-height: 44px; padding: 0 1.15em; border: 0; border-radius: 10px; color: #fff6ea; background: var(--mm-color-burgundy-700); box-shadow: inset 0 1px 0 rgb(255 255 255 / .18), inset 0 -2px 0 rgb(0 0 0 / .22), 0 2px 0 var(--mm-color-burgundy-900), 0 5px 10px -3px rgb(40 10 15 / .45); font: 650 15px/1.1 var(--mm-font-sans); letter-spacing: .01em; cursor: pointer; transition: transform 120ms ease, box-shadow 160ms ease, background-color 160ms ease; } .ds-button-primary:hover:not(:disabled) { background-color: var(--mm-color-burgundy-600); } .ds-button-primary:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), 0 1px 3px rgb(40 10 15 / .4); } .ds-button-primary:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; } .ds-button-primary:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }"
+    },
+    {
+      "name": "Paper Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet secondary action on lightly textured paper.",
+      "html": "<button class=\"ds-button-paper\" type=\"button\">Keep editing</button>",
+      "css": ".ds-button-paper { min-height: 44px; padding: 0 1.15em; border: 0; border-radius: 10px; color: var(--mm-color-ink); background: #fdf8ec var(--mm-tex-grain); box-shadow: inset 0 0 0 1.5px rgb(60 42 28 / .5), 0 2px 0 rgb(60 42 28 / .28), 0 4px 8px -4px rgb(40 24 10 / .3); font: 650 15px/1.1 var(--mm-font-sans); cursor: pointer; transition: box-shadow 160ms ease, background-color 160ms ease; } .ds-button-paper:hover:not(:disabled) { background-color: var(--mm-color-fresh); box-shadow: inset 0 0 0 1.5px rgb(60 42 28 / .72), 0 2px 0 rgb(60 42 28 / .32), 0 5px 10px -4px rgb(40 24 10 / .34); } .ds-button-paper:active:not(:disabled) { box-shadow: inset 0 0 0 1.5px rgb(60 42 28 / .7); } .ds-button-paper:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; } .ds-button-paper:disabled { opacity: .55; cursor: not-allowed; }"
+    },
+    {
+      "name": "Parchment Card",
+      "kind": "card",
+      "refersTo": "card-paper",
+      "description": "Reading or note surface that rests close to the page.",
+      "html": "<article class=\"ds-card-paper\"><h3>From the kitchen</h3><p>A note worth keeping.</p></article>",
+      "css": ".ds-card-paper { padding: 24px; border: 1px solid var(--mm-border-paper); border-radius: 3px; color: var(--mm-color-ink); background-color: var(--mm-color-parchment-100); background-image: var(--mm-tex-grain), var(--mm-tex-mottle); box-shadow: var(--mm-shadow-paper); font: 400 16px/1.7 var(--mm-font-sans); } .ds-card-paper h3 { margin: 0 0 8px; font: 600 21px/1.2 var(--mm-font-serif); } .ds-card-paper p { margin: 0; }"
+    },
+    {
+      "name": "Parchment Feature Sheet",
+      "kind": "card",
+      "refersTo": "card-feature",
+      "description": "Larger paper surface for guided tasks and AI workflows.",
+      "html": "<article class=\"ds-feature-sheet\"><h3>Quick AI Entry</h3><p>Turn cooking notes into a recipe draft.</p></article>",
+      "css": ".ds-feature-sheet { min-width: 0; padding: clamp(15px, 2.5vw, 24px); border: 1px solid var(--mm-color-parchment-400); border-radius: var(--mm-radius-card); color: var(--mm-color-ink); background-color: var(--mm-color-parchment-50); box-shadow: 0 2px 4px rgb(40 24 10 / .18), 0 14px 24px -14px rgb(30 15 5 / .38), inset 0 0 0 4px rgb(255 255 255 / .38); } .ds-feature-sheet h3 { margin: 0 0 8px; font: 600 21px/1.2 var(--mm-font-serif); } .ds-feature-sheet p { margin: 0; color: var(--mm-color-ink-soft); font: 400 16px/1.6 var(--mm-font-sans); }"
+    },
+    {
+      "name": "Framed Text Field",
+      "kind": "input",
+      "refersTo": "input-framed",
+      "description": "Clear, warm field for auth and discovery tasks.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-email\">Email</label><input class=\"ds-input-framed\" id=\"ds-email\" type=\"email\" autocomplete=\"email\" />",
+      "css": ".ds-field-label { display: block; margin: 0 0 6px; color: var(--mm-color-ink-soft); font: 700 11.5px/1.2 var(--mm-font-sans); letter-spacing: .12em; text-transform: uppercase; } .ds-input-framed { width: 100%; min-width: 0; min-height: 46px; padding: 10px 12px; border: 1.5px solid rgb(60 42 28 / .38); border-radius: 9px; color: var(--mm-color-ink); background: rgb(255 253 247 / .94); box-shadow: inset 0 1px 2px rgb(60 42 28 / .08); font: 450 16px/1.3 var(--mm-font-sans); } .ds-input-framed:focus-visible { border-color: var(--mm-color-burgundy-700); outline: 0; box-shadow: 0 0 0 3px rgb(239 212 143 / .7), inset 0 1px 2px rgb(60 42 28 / .08); } .ds-input-framed[aria-invalid='true'] { border-color: var(--mm-color-brick-600); box-shadow: 0 0 0 1px var(--mm-color-brick-600); }"
+    },
+    {
+      "name": "Ruled Recipe Field",
+      "kind": "input",
+      "refersTo": "recipe-field-ruled",
+      "description": "Writing field that sits directly on the recipe page.",
+      "html": "<label class=\"ds-recipe-label\" for=\"ds-title\">Recipe title</label><input class=\"ds-recipe-field\" id=\"ds-title\" value=\"Sunday tomato soup\" />",
+      "css": ".ds-recipe-label { display: block; margin-bottom: 4px; color: var(--mm-color-ink-soft); font: 700 11px/1.35 var(--mm-font-sans); letter-spacing: .07em; text-transform: uppercase; } .ds-recipe-field { display: block; width: 100%; min-height: 44px; padding: 7px 3px; border: 0; border-bottom: 2px solid rgb(87 70 53 / .48); border-radius: 0; color: var(--mm-color-ink); background: transparent; box-shadow: none; font: 400 16px/1.5 var(--mm-font-serif); } .ds-recipe-field:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }"
+    },
+    {
+      "name": "Bookmark Navigation",
+      "kind": "nav",
+      "refersTo": "nav-bookmark",
+      "description": "Physical tab links that mark the current journal section.",
+      "html": "<nav class=\"ds-bookmarks\" aria-label=\"Journal sections\"><a class=\"ds-bookmark\" href=\"#\" aria-current=\"page\">My recipes</a><a class=\"ds-bookmark ds-bookmark--mustard\" href=\"#\">New recipe</a></nav>",
+      "css": ".ds-bookmarks { display: flex; flex-direction: column; gap: 10px; } .ds-bookmark { display: flex; align-items: center; width: 130px; height: 46px; padding: 0 8px 0 30px; border-radius: 0 12px 12px 0; color: var(--mm-color-sage-900); background: var(--mm-color-sage-300); box-shadow: 1px 2px 3px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .35); font: 650 13.5px/1.05 var(--mm-font-sans); text-decoration: none; transform: translateX(-14px); transition: transform 220ms var(--mm-ease-soft), box-shadow 220ms ease; } .ds-bookmark--mustard { color: var(--mm-color-mustard-800); background: var(--mm-color-mustard-300); } .ds-bookmark:hover { transform: translateX(-6px); } .ds-bookmark[aria-current='page'] { transform: translateX(0); box-shadow: 2px 3px 6px rgb(0 0 0 / .32), inset 0 1px 0 rgb(255 255 255 / .4); } .ds-bookmark:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 2px; } @media (max-width: 1099.98px) { .ds-bookmarks { flex-direction: row; gap: 6px; } .ds-bookmark { width: auto; height: 54px; padding: 11px 14px 0; border-radius: 12px 12px 0 0; transform: translateY(8px); } .ds-bookmark:hover { transform: translateY(4px); } .ds-bookmark[aria-current='page'] { transform: translateY(0); } }"
+    },
+    {
+      "name": "Sage Recipe Tag",
+      "kind": "chip",
+      "refersTo": "tag-sage",
+      "description": "Compact category label with readable color contrast.",
+      "html": "<span class=\"ds-tag-sage\">Vegetarian</span>",
+      "css": ".ds-tag-sage { display: inline-block; max-width: 100%; padding: 4px 8px; border: 1px solid currentColor; border-radius: 3px; color: var(--mm-color-sage-800); background: var(--mm-color-sage-100); font: 600 12px/1.4 var(--mm-font-sans); letter-spacing: .06em; overflow-wrap: anywhere; }"
+    },
+    {
+      "name": "Mori Companion Messages",
+      "kind": "custom",
+      "refersTo": "chat-message-mori",
+      "description": "Paper and sage message bubbles distinguish Mori from the cook.",
+      "html": "<section class=\"ds-chat-log\" aria-label=\"Conversation with Mori\"><p class=\"ds-chat-message ds-chat-message--mori\">I can turn those notes into a draft.</p><p class=\"ds-chat-message ds-chat-message--user\">Let’s review it first.</p></section>",
+      "css": ".ds-chat-log { display: flex; flex-direction: column; gap: 8px; } .ds-chat-message { max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid rgb(128 92 59 / .22); border-radius: 12px 12px 12px 4px; color: var(--mm-color-ink); background: #fffdf7; font: 400 13px/1.4 var(--mm-font-sans); } .ds-chat-message--user { align-self: flex-end; border-color: var(--mm-color-sage-500); border-radius: 12px 12px 4px 12px; background: var(--mm-color-sage-100); }"
+    },
+    {
+      "name": "AI Recipe Draft Preview",
+      "kind": "card",
+      "refersTo": "recipe-preview",
+      "description": "Reviewable recipe preview with a separate next action.",
+      "html": "<article class=\"ds-recipe-preview\" aria-label=\"Editable recipe draft\"><p class=\"ds-recipe-preview__label\">Draft · Review before saving</p><h3>Tomato and basil noodles</h3><p>A short recipe summary appears here.</p><a class=\"ds-recipe-preview__action\" href=\"#\">Review full draft</a></article>",
+      "css": ".ds-recipe-preview { min-width: 0; margin-top: 22px; padding: clamp(15px, 2.5vw, 22px); border: 1px solid var(--mm-color-sage-400); border-left: 5px solid var(--mm-color-sage-700); border-radius: 3px; color: var(--mm-color-ink); background: var(--mm-color-fresh) var(--mm-tex-grain); box-shadow: var(--mm-shadow-paper); overflow-wrap: anywhere; } .ds-recipe-preview__label { margin: 0 0 6px; color: var(--mm-color-sage-900); font: 700 11px/1.4 var(--mm-font-sans); letter-spacing: .08em; text-transform: uppercase; } .ds-recipe-preview h3 { margin: 0 0 8px; font: 600 21px/1.2 var(--mm-font-serif); } .ds-recipe-preview p:not(.ds-recipe-preview__label) { margin: 0 0 12px; color: var(--mm-color-ink-soft); font: 400 14px/1.5 var(--mm-font-sans); } .ds-recipe-preview__action { display: inline-flex; min-height: 44px; align-items: center; padding: 0 12px; border-radius: 8px; color: var(--mm-color-sage-900); background: var(--mm-color-sage-100); font: 650 13px/1.2 var(--mm-font-sans); text-decoration: none; } .ds-recipe-preview__action:hover { background: var(--mm-color-sage-200); } .ds-recipe-preview__action:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Handmade Recipe Ledger",
+    "overview": "Mori's Mix should feel like a well-used recipe book kept open on an oak kitchen table: personal, warm, tactile, and quietly playful. Parchment pages, a burgundy leather cover, paper tabs, brass details, and Mori's rat-chef identity make the journal recognizable without turning cooking tasks into decoration.\n\nMaterials do much of the storytelling; restraint protects the work. Oak and leather anchor the screen, paper carries reading and writing, and small stamps or handwritten notes add personality. Buttons and bookmarks can feel physical, while recipe text and fields stay calm and legible. Mori's companion repeats paper and sage in compact chat bubbles. AI-created recipes remain visibly reviewable as drafts, with saving presented as a separate, explicit action.",
+    "keyCharacteristics": [
+      "Oak, leather, parchment, and kraft-paper surfaces with restrained grain.",
+      "Fraunces headings paired with Figtree interface text and occasional Caveat notes.",
+      "Burgundy for primary actions, sage for support, brass for hardware, and lilac for active AI Chef progress.",
+      "Soft paper lift, a deeper desk shadow, pressed button edges, physical bookmark tabs, and Mori's paper-and-sage chat bubbles."
+    ],
+    "rules": [
+      {
+        "name": "The Ledger Mark Rule",
+        "body": "Burgundy identifies the brand and primary actions; Garden Sage carries supporting actions and states; Antique Brass stays on hardware and small editorial accents; Lilac Paper marks AI Chef progress; Warm Parchment and Espresso Ink do most of the reading.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Hand Rule",
+        "body": "Use Fraunces and Figtree for nearly all product text. Save Caveat for a short note or flourish where handwriting adds meaning.",
+        "section": "typography"
+      },
+      {
+        "name": "The Page-Layer Rule",
+        "body": "Give paper a soft ambient lift, reserve the deepest shadow for the journal on the desk, and use pressed edges for actions that should feel tactile.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep reading and writing surfaces warm and quiet: parchment backgrounds, Espresso Ink body text, and unobtrusive grain.",
+      "Do use Fraunces for editorial hierarchy, Figtree for functional copy, and Caveat only for short handwritten notes.",
+      "Do make primary actions burgundy and give controls a visible keyboard focus treatment.",
+      "Do let secondary controls and status accents take their own color role: Garden Sage for support, Antique Brass for hardware and small marks.",
+      "Do make AI drafts read as editable previews, and show the explicit save action as a separate confirmation step."
+    ],
+    "donts": [
+      "Don't use Caveat for instructions, form labels, or long passages.",
+      "Don't put tape, paper clips, or stamps over a control or its text; they are decorative.",
+      "Don't let grain, stains, or shadow compete with recipe text; keep body content on high-contrast paper.",
+      "Don't present a generated recipe draft with the same saved state as an account-owned recipe before the cook confirms it."
+    ]
+  }
+}
