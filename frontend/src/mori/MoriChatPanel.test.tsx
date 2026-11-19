@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
+import { HttpError } from '../api/http'
 import { readChefDraftResult, writeChefDraft } from '../ai-chef/draft'
 import type { GenerateRecipeResponse } from '../ai-chef/generateRecipe'
 import { generateRecipeApi } from '../ai-chef/generateRecipe'
@@ -238,6 +239,59 @@ it('retries a failed pantry request with the exact original prompt', async () =>
   await screen.findByRole('button', { name: 'Review recipe' })
   expect(generate).toHaveBeenCalledTimes(2)
   expect(generate.mock.calls[0]?.slice(0, 2)).toEqual(generate.mock.calls[1]?.slice(0, 2))
+})
+
+it('keeps a fresh message in the composer while its workflow is cooling down', async () => {
+  const extract = vi.spyOn(extractRecipeApi, 'extract').mockRejectedValue(
+    new HttpError('http', 'private rate detail', 429, undefined, '60'),
+  )
+  renderChat('mori-chat-create-cooldown-composer')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send('I cooked tomatoes with broth and simmered until soft.')
+  await screen.findByRole('button', { name: 'Retry same request' })
+
+  send('I also cooked beans with onions until tender.')
+
+  expect((screen.getByRole('textbox', { name: 'Message Mori' }) as HTMLTextAreaElement).value)
+    .toBe('I also cooked beans with onions until tender.')
+  expect(extract).toHaveBeenCalledOnce()
+  expect(screen.getByText(/rate-limited for cooking notes/)).toBeTruthy()
+})
+
+it('keeps Retry-After deadlines independent for cooking notes and pantry ideas', async () => {
+  const extract = vi.spyOn(extractRecipeApi, 'extract').mockRejectedValue(
+    new HttpError('http', 'private rate detail', 429, undefined, '60'),
+  )
+  const generate = vi.spyOn(generateRecipeApi, 'generate').mockRejectedValue(
+    new HttpError('http', 'private rate detail', 429, undefined, '10'),
+  )
+  renderChat('mori-chat-independent-cooldowns')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send('I cooked tomatoes with broth and simmered until soft.')
+  await screen.findByRole('button', { name: 'Retry same request' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  send('rice and eggs; quick')
+  await screen.findByRole('button', { name: 'Retry same request' })
+
+  expect(screen.getAllByRole('timer').map((timer) => timer.textContent).join(' ')).toContain('cooking notes')
+  expect(screen.getAllByRole('timer').map((timer) => timer.textContent).join(' ')).toContain('pantry ideas')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send('I cooked beans and onions until tender.')
+  await screen.findByText(/rate-limited for cooking notes/)
+  expect(extract).toHaveBeenCalledOnce()
+  expect((screen.getByRole('textbox', { name: 'Message Mori' }) as HTMLTextAreaElement).value)
+    .toBe('I cooked beans and onions until tender.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  send('rice and peas; spicy')
+  await screen.findByText(/rate-limited for pantry ideas/)
+  expect(generate).toHaveBeenCalledOnce()
+  expect((screen.getByRole('textbox', { name: 'Message Mori' }) as HTMLTextAreaElement).value)
+    .toBe('rice and peas; spicy')
 })
 
 it('keeps Mori and the conversation open across its own route navigation', async () => {
