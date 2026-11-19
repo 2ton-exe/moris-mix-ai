@@ -14,20 +14,20 @@ import type { ExtractedRecipe, QuickAiEntryHandoff } from '../quick-ai/extractRe
 import { extractRecipeApi, InvalidExtractionResponse, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
 import { mapExtractedRecipeToDraft } from '../quick-ai/recipeDraft'
 import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requestedWorkflow } from './chatFlow'
-import { useMoriActivity } from './MoriCompanionContext'
+import { useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
 
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
 type MoriCooldowns = Partial<Record<MoriRetry['kind'], number>>
-type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft }
+type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft; reviewKey?: number }
 
-function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: (draft: MoriDraft) => void; disabled: boolean }) {
+function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; onReview: (draft: MoriDraft) => void; disabled: boolean; consumed: boolean }) {
   const recipe: ExtractedRecipe = draft.kind === 'create' ? draft.handoff.recipe : draft.handoff.response.recipe
   const ingredients = recipe.ingredients.slice(0, 3)
   const instructions = recipe.instructions.slice(0, 2)
   return <div className="mori-chat-preview">
     <strong>{recipe.title}</strong>
-    <span>Unsaved draft</span>
+    <span>{consumed ? 'Saved to your journal' : 'Unsaved draft'}</span>
     <div><h3>Ingredients</h3>
       {ingredients.length ? <ul>{ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>{[
         ingredient.quantityText ?? (ingredient.quantity === null ? '' : String(ingredient.quantity)), ingredient.unit, ingredient.name,
@@ -45,7 +45,7 @@ function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: 
           ? 'No saved recipes were available for this idea.'
           : 'No saved recipe matched; this idea is based on your pantry request.'}
     </p>}
-    <button type="button" disabled={disabled} onClick={() => onReview(draft)}>{draft.kind === 'create' ? 'Review draft' : 'Review recipe'}</button>
+    <button type="button" disabled={disabled || consumed} onClick={() => onReview(draft)}>{consumed ? 'Saved' : draft.kind === 'create' ? 'Review draft' : 'Review recipe'}</button>
   </div>
 }
 
@@ -68,6 +68,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const log = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
   const composerId = useId()
+  const { completedReviewKeys } = useMoriReviewCompletion()
   const [promptSelection, setPromptSelection] = useState(0)
   const selectedPromptCaret = useRef<number | null>(null)
   useLayoutEffect(() => {
@@ -95,7 +96,9 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   function say(role: Message['role'], text: string, draft?: MoriDraft) {
-    const message = { id: id.current++, role, text, ...(draft ? { draft } : {}) }
+    const reviewKey = draft ? ++reviewSequence.current : undefined
+    if (draft && reviewKey !== undefined) reviewKeys.current.set(draft, reviewKey)
+    const message: Message = { id: id.current++, role, text, ...(draft ? { draft, reviewKey } : {}) }
     setMessages((current) => [...current, message])
   }
 
@@ -103,10 +106,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     const reviewPath = draft.kind === 'create' ? '/app/quick-entry/review' : '/app/chef/review'
     if (sameHandoff && location.pathname === reviewPath) {
       const state = location.state
-      return typeof state === 'object' && state !== null &&
+      const routeKey = typeof state === 'object' && state !== null &&
         'moriReviewKey' in state && typeof state.moriReviewKey === 'number'
         ? state.moriReviewKey
         : undefined
+      if (routeKey !== undefined && reviewKeys.current.get(draft) === routeKey) return routeKey
     }
     let key = reviewKeys.current.get(draft)
     if (key === undefined) {
@@ -319,6 +323,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   function openReview(draft: MoriDraft) {
+    if (completedReviewKeys.has(reviewKeyFor(draft, false))) return
     if (draft.kind === 'create') {
       const current = readQuickAiEntryDraftResult(userId)
       const sameHandoff = current.draft.handoff && JSON.stringify(current.draft.handoff) === JSON.stringify(draft.handoff)
@@ -377,16 +382,19 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       const element = event.currentTarget
       followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
     }}>
-      {messages.map((message) => <article key={message.id} className="mori-chat-message" data-role={message.role} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
-        <p>{message.text}</p>
-        {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
-          const retry = retryRequest
-          setRetryRequest(null)
-          if (retry.kind === 'create') void createRecipe(retry.notes)
-          else void suggestRecipe(retry.prompt)
-        }}>Retry same request</button></div>}
-        {message.draft && <DraftCard draft={message.draft} disabled={pending} onReview={openReview} />}
-      </article>)}
+      {messages.map((message) => {
+        const reviewKey = message.reviewKey
+        return <article key={message.id} className="mori-chat-message" data-role={message.role} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
+          <p>{message.text}</p>
+          {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
+            const retry = retryRequest
+            setRetryRequest(null)
+            if (retry.kind === 'create') void createRecipe(retry.notes)
+            else void suggestRecipe(retry.prompt)
+          }}>Retry same request</button></div>}
+          {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending} consumed={completedReviewKeys.has(reviewKey)} onReview={openReview} />}
+        </article>
+      })}
     {(['create', 'suggest'] as const).map((kind) => {
       const seconds = retryWaitFor(kind)
       return seconds > 0 && <p key={kind} role="timer" aria-live="off">Wait at least {seconds} {seconds === 1 ? 'second' : 'seconds'} before Mori can retry {kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>

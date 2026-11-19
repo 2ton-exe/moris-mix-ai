@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { moriReviewKeyFromState } from '../mori/routeState'
+import { useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
@@ -39,6 +40,7 @@ export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) 
 function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { markReviewCompleted } = useMoriReviewCompletion()
   const { user, logout } = useAuth()
   const registerLogoutGuard = useContext(JournalLogoutGuardContext)
   const [initialRead] = useState(() => readQuickAiEntryDraftResult(userId))
@@ -138,6 +140,8 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   async function submit(draft: RecipeDraft, context: { signal: AbortSignal }) {
     const confirmation = await recipeSave(draft, context)
     if (confirmedSave(confirmation)) {
+      const reviewKey = moriReviewKeyFromState(location.state)
+      if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
       consumeHandoff()
       setConsumed(true)
     }

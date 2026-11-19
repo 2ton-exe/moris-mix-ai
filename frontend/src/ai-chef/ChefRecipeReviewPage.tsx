@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { moriReviewKeyFromState } from '../mori/routeState'
-import { useMoriActivity } from '../mori/MoriCompanionContext'
+import { useMoriActivity, useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -134,6 +134,7 @@ export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
 function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { markReviewCompleted } = useMoriReviewCompletion()
   const { user } = useAuth()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const stored = initialRead.draft
@@ -237,6 +238,8 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   async function submit(draft: RecipeDraft, context: { signal: AbortSignal }) {
     const confirmation = await recipeSave(draft, context)
     if (!confirmedSave(confirmation) || !handoff) return confirmation
+    const reviewKey = moriReviewKeyFromState(location.state)
+    if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
     setSaved(true)
     if (handoff.savedRecipeId) {
       return {
