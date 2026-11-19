@@ -343,6 +343,7 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const request = pending.current
     const book = bookRef.current
     if (!request || !book) return
+    // ResizeObserver pagination must settle before the destination is frozen.
     let settled = false
     const prepare = () => {
       if (pending.current !== request) return
