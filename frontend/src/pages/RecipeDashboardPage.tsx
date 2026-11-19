@@ -98,7 +98,9 @@ export default function RecipeDashboardPage() {
   if (hasAnchor) anchored.set('leaf', String(pagedCollection
     ? Math.max(1, collectionStarts.filter((start) => start <= entry).length)
     : Math.floor(entry / perPage) + 1))
-  const leaf = journalPage(anchored, recipes?.length ?? 0, { hasMore: query.hasNextPage || query.isPending, perPage })
+  const leaf = journalPage(anchored, pagedCollection ? collectionStarts.length : recipes?.length ?? 0, {
+    hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : perPage,
+  })
   const spread = Math.floor(leaf / 2)
   const pages = single ? [leaf] : spread === 0 ? [0, 1] : [spread * 2, spread * 2 + 1]
   const rightPage = pages.at(-1)!
