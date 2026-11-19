@@ -101,7 +101,12 @@ function startFunctionServer(frontendDir, e2eWorkdir, cliEnv) {
     path.join(e2eSupabaseDir, 'functions.env'),
   ], {
     cwd: frontendDir,
-    env: cliEnv,
+    env: {
+      ...cliEnv,
+      AI_EXTRACT_ENABLED: 'true',
+      AI_GENERATE_ENABLED: 'true',
+      AI_CANDIDATE_TOKEN_SECRET: 'qa03-local-candidate-token-secret-only',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })

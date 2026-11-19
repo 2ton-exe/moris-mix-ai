@@ -137,7 +137,12 @@ it('continues a long cooking step across measured units without an inner scroll 
   const body = screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
   const paragraphs = Array.from(body.querySelectorAll('.mm-reading-method p'))
   expect(paragraphs.length).toBeGreaterThan(1)
-  expect(paragraphs.map((paragraph) => paragraph.textContent).join('')).toContain(recipe.instructions[0].text)
+  const visibleText = paragraphs.map((paragraph) => {
+    const clone = paragraph.cloneNode(true) as HTMLParagraphElement
+    clone.querySelectorAll('.visually-hidden').forEach((label) => label.remove())
+    return clone.textContent
+  }).join('')
+  expect(visibleText).toContain(recipe.instructions[0].text)
   expect(getComputedStyle(body).overflowY).not.toBe('auto')
   expect(live().getByText('Pages 3–4 of 4')).toBeTruthy()
   fireEvent.keyDown(screen.getByRole('region', { name: 'Left recipe page' }), { key: 'PageUp' })

@@ -46,6 +46,9 @@ export async function assertJournalGeometry(page, label) {
       const matrix = new globalThis.DOMMatrixReadOnly(css.transform)
       return {
         label: tab.textContent, ...box,
+        current: tab.getAttribute('aria-current') === 'page',
+        zIndex: css.zIndex,
+        backgroundColor: css.backgroundColor,
         iconInteractive: hit(icon.x + icon.width / 2, icon.y + icon.height / 2),
         labelInteractive: hit(box.right - 16, box.y + box.height / 2),
         transform: { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d },
@@ -56,7 +59,7 @@ export async function assertJournalGeometry(page, label) {
     const layers = { paper: globalThis.getComputedStyle(paper).zIndex, rings: css('.mm-journal-rings').zIndex, ringFront: [...book.querySelectorAll('.mm-journal-ring__half')].map((node) => globalThis.getComputedStyle(node).zIndex), stacks: [...book.querySelectorAll('.mm-journal-stack')].map((stack) => globalThis.getComputedStyle(stack).zIndex), spread: globalThis.getComputedStyle(spread).zIndex }
     const decorationIntercepts = [...book.querySelectorAll('.mm-journal-board, .mm-journal-stack, .mm-journal-binding, .mm-journal-ring-plate, .mm-journal-rings, .mm-journal-ring, .mm-journal-ring__half, .mm-journal-holes, .mm-journal-hole')].some((element) => globalThis.getComputedStyle(element).pointerEvents !== 'none')
     const outside = [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 8).map((element) => ({ name: String(element.className), box: rect(element) }))
-    return { viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
+    return { viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), paperBackgroundColor: globalThis.getComputedStyle(right).backgroundColor, spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
   })
   assert.ok(geometry.documentWidth <= geometry.viewport.width, `${label}: horizontal document overflow ${JSON.stringify(geometry.outside)}`)
   const { book, left, right, spine, tabs, viewport } = geometry
@@ -86,9 +89,13 @@ export async function assertJournalGeometry(page, label) {
     assert.ok(!['auto', 'scroll'].includes(geometry.scrollport.overflowY), `${label}: paper content should use page turns, not an inner scrollport`)
   }
   assert.ok(tabs.length >= 3, `${label}: journal tabs missing`)
-  assert.ok(Math.abs(Math.max(...tabs.map((tab) => tab.bottom)) - book.top) <= 1, `${label}: tabs detach from the cover`)
+  const activeTabs = tabs.filter((tab) => tab.current)
+  assert.equal(activeTabs.length, 1, `${label}: exactly one route-derived tab is current`)
+  assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
+  assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
+  assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
   for (const tab of tabs) {
-    assert.ok(tab.bottom <= book.y + 1 && tab.left >= book.left && tab.right <= book.right, `${label}: tab overlaps or overhangs the book: ${tab.label}`)
+    assert.ok(tab.bottom <= right.bottom + 1 && tab.left >= right.left && tab.right <= right.right, `${label}: tab overhangs the right page: ${tab.label}`)
     assert.ok(tab.x >= 0 && tab.right <= viewport.width && tab.y >= 0, `${label}: tab clipped: ${tab.label}`)
     assert.ok(tab.iconInteractive && tab.labelInteractive, `${label}: tab icon or label covered: ${tab.label}`)
     assert.equal(tab.decoration, 'none', `${label}: unsupported active underline`)

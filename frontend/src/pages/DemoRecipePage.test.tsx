@@ -6,6 +6,21 @@ import App from '../App'
 import { getDemoRecipe, parseDemoRecipeResponse } from '../api/demoRecipe'
 import { HttpError } from '../api/http'
 
+const readingPages = vi.hoisted(() => [[
+  ...Array.from({ length: 20 }, (_, index) => `ingredient-${index}`),
+  ...Array.from({ length: 20 }, (_, index) => `instruction-${index}`),
+  ...Array.from({ length: 20 }, (_, index) => `note-${index}`),
+  'ingredients-empty', 'instructions-empty', 'notes-empty', 'flavors',
+]])
+
+vi.mock('../recipes/useReadingPagination', () => ({
+  useReadingPagination: () => ({
+    bodyRef: { current: null }, leftRef: { current: null }, bankRef: { current: null },
+    measurable: false, ready: true, textChunkSize: 10_000,
+    layout: { pages: readingPages, capacity: 1_000, width: 400 },
+  }),
+}))
+
 vi.mock('../api/demoRecipe', async (importOriginal) => {
   const original = await importOriginal<typeof import('../api/demoRecipe')>()
   return { ...original, getDemoRecipe: vi.fn() }

@@ -98,7 +98,6 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
       {account}
     </header>
     <div className="mm-journal-stage" id="journal">
-      {publicNavigation ? <PublicLinks attached /> : <JournalNavigation />}
       <div ref={bookRef} className="mm-journal-book" data-page-turning={pageTurn.isTurning || undefined}>
         <JournalSurface material="leather" className="mm-journal-board mm-journal-board--left" aria-hidden="true" />
         <JournalSurface material="leather" className="mm-journal-board mm-journal-board--right" aria-hidden="true" />
@@ -120,6 +119,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
             <div ref={setLeftPagination} className="mm-pagination-slot mm-pagination-slot--left" />
           </section>
           <JournalPageContainer role="region" aria-label="Journal entries" tabIndex={0} className={pageClassName}>
+            {publicNavigation ? <PublicLinks attached /> : <JournalNavigation />}
             <JournalFacingPageContext.Provider value={facingPage}>
               <JournalPageFooterContext.Provider value={footer}>
                 <JournalPaginationContext.Provider value={{ left: singleLayout ? singlePrevious : leftPagination, right: rightPagination }}>{children}</JournalPaginationContext.Provider>

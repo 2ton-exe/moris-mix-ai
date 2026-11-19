@@ -73,6 +73,22 @@ function renderEntry({
 const notesField = () => screen.getByRole('textbox', { name: 'Cooking notes' }) as HTMLTextAreaElement
 const enterNotes = (notes: string) => fireEvent.change(notesField(), { target: { value: notes } })
 
+async function finishPageTurn(target: () => boolean) {
+  await waitFor(() => {
+    const turn = document.querySelector<HTMLElement>('[data-journal-page-turn]')
+    if (turn) expect(turn.getAttribute('data-phase')).toBe('animating')
+    else {
+      expect(document.querySelector('.mm-journal-book')?.hasAttribute('data-page-turning')).toBe(false)
+      expect(target()).toBe(true)
+    }
+  })
+  const turn = document.querySelector<HTMLElement>('[data-journal-page-turn]')
+  if (turn) {
+    fireEvent(turn, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
+    await waitFor(() => expect(document.querySelector('.mm-journal-book')?.hasAttribute('data-page-turning')).toBe(false))
+  }
+}
+
 beforeEach(() => {
   vi.stubGlobal('Request', class TestRequest extends NativeRequest {
     constructor(input: RequestInfo | URL, init?: RequestInit) {
@@ -288,6 +304,7 @@ describe('Quick AI Entry', () => {
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Review recipe draft' }).getAttribute('href')).toBe('/app/quick-entry/review')
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Cooking notes' })))
     expect(await screen.findByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledWith(sourceNotes, expect.objectContaining({ userId: 'cook-a', signal: expect.any(AbortSignal) }))
     expect(onExtracted).toHaveBeenCalledWith({ sourceNotes, recipe, saved: false })
@@ -306,6 +323,7 @@ describe('Quick AI Entry', () => {
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
     expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Cooking notes' })))
     await screen.findByRole('textbox', { name: 'Cooking notes' })
     expect(screen.getByRole('alert').textContent).toContain('preserved in memory for this account')
     expect(readQuickAiEntryDraft('cook-a').handoff?.recipe.title).toBe('Garlic soy chicken')
@@ -313,6 +331,7 @@ describe('Quick AI Entry', () => {
     failWrites = false
     fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('link', { name: 'Review recipe draft' })))
     expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toHaveProperty('href', expect.stringContaining('/app/quick-entry/review'))
   })
 
@@ -328,6 +347,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Cooking notes' })))
     await screen.findByRole('textbox', { name: 'Cooking notes' })
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
 
@@ -335,6 +355,7 @@ describe('Quick AI Entry', () => {
     const restored = renderEntry()
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Cooking notes' })))
     await screen.findByRole('textbox', { name: 'Cooking notes' })
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()
@@ -380,6 +401,7 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Quick AI Entry' }))
     expect(await screen.findByText('Unsaved preview')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Cooking notes' })))
     await screen.findByRole('textbox', { name: 'Cooking notes' })
     expect(screen.getByRole('textbox', { name: 'Cooking notes' })).toHaveProperty('value', sourceNotes)
     expect(extract).toHaveBeenCalledOnce()
@@ -396,6 +418,8 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
     expect(await screen.findByRole('heading', { name: 'Garlic soy chicken' })).toBeTruthy()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await screen.findByRole('textbox', { name: 'Cooking notes' })
     enterNotes('new notes that need a fresh extraction')
     expect(screen.queryByRole('heading', { name: 'Garlic soy chicken' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))

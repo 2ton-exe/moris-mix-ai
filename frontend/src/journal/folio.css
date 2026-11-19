@@ -1,7 +1,12 @@
 /* UI-01 writing folio: one form owns both leaves and its compact footer. */
 .recipe-form:has(.mm-desk--writing) { margin: 0; min-width: 0; }
 .mm-desk--writing .recipe-form-content { height: 100%; min-height: 0; }
-.mm-desk--writing :is(.mm-journal-flyleaf, .mm-journal-page) { background-color: #fbf9f2; background-image: var(--mm-page-curve), var(--mm-tex-grain); }
+.mm-desk--writing :is(.mm-journal-flyleaf, .mm-journal-page) {
+  --mm-journal-paper-color: #fbf9f2;
+  --mm-journal-paper-image: var(--mm-page-curve), var(--mm-tex-grain);
+  background-color: var(--mm-journal-paper-color);
+  background-image: var(--mm-journal-paper-image);
+}
 .mm-desk--writing .mm-facing-content--editor { flex: none; }
 .mm-desk--writing .mm-facing-content--form { flex: 1; min-height: 0; }
 .mm-desk--writing .mm-recipe-editor-heading { display: block; margin: 0 0 18px; }

@@ -78,12 +78,31 @@ function addIngredient(value: string) {
   fireEvent.keyDown(input, { key: 'Enter' })
 }
 
-function nextChefPage() {
-  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+async function finishJournalTurn(target: () => boolean) {
+  await waitFor(() => {
+    const turn = document.querySelector<HTMLElement>('[data-journal-page-turn]')
+    if (turn) expect(turn.getAttribute('data-phase')).toBe('animating')
+    else {
+      expect(document.querySelector('.mm-journal-book')?.hasAttribute('data-page-turning')).toBe(false)
+      expect(target()).toBe(true)
+    }
+  })
+  const turn = document.querySelector<HTMLElement>('[data-journal-page-turn]')
+  if (turn) {
+    fireEvent(turn, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
+    await waitFor(() => expect(document.querySelector('.mm-journal-book')?.hasAttribute('data-page-turning')).toBe(false))
+  }
 }
 
-function openPreferences() {
-  while (!screen.queryByRole('textbox', { name: /^Cooking preferences/ })) nextChefPage()
+async function nextChefPage() {
+  const current = screen.getByRole('region', { name: /AI Chef page (\d+)/ }).getAttribute('aria-label')!
+  const nextPage = Number(/AI Chef page (\d+)/.exec(current)?.[1]) + 1
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+  await finishJournalTurn(() => Boolean(screen.queryByRole('region', { name: new RegExp(`AI Chef page ${nextPage}`) })))
+}
+
+async function openPreferences() {
+  while (!screen.queryByRole('textbox', { name: /^Cooking preferences/ })) await nextChefPage()
 }
 
 beforeEach(() => {
@@ -135,19 +154,19 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelectorAll('li')).toHaveLength(2)
 
-    nextChefPage()
+    await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('eggs')
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('garlic')
-    nextChefPage()
+    await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 3/ }).textContent).toContain('salt')
-    nextChefPage()
+    await nextChefPage()
 
     const preferences = 'a'.repeat(400) + 'b'.repeat(400) + 'c'.repeat(150)
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: preferences } })
     expect(screen.getByText('This request only · 950 / 1000 characters')).toBeTruthy()
     const preferenceParts = [(screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value]
     while (screen.queryByRole('button', { name: 'Next page' })) {
-      nextChefPage()
+      await nextChefPage()
       const nextPart = screen.queryByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement | null
       if (!nextPart) break
       preferenceParts.push(nextPart.value)
@@ -172,7 +191,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('Rice')
     fireEvent.click(screen.getByRole('button', { name: 'Remove tomatoes' }))
     addIngredient('tomatoes')
-    openPreferences()
+    await openPreferences()
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'quick, no frying' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
@@ -214,7 +233,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(generate).not.toHaveBeenCalled()
 
     addIngredient('rice')
-    openPreferences()
+    await openPreferences()
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'spicy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect((await screen.findByRole('alert')).textContent).toContain('today’s AI Chef limit')
@@ -676,9 +695,9 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     await screen.findByRole('heading', { name: "Review Mori's recipe." })
     async function turnReview(direction: 'Next' | 'Previous') {
+      const currentOptions = JSON.stringify(screen.queryAllByRole('checkbox').map((checkbox) => checkbox.parentElement?.textContent))
       fireEvent.click(screen.getByRole('button', { name: direction + ' Pages' }))
-      await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('animating'))
-      fireEvent(document.querySelector('[data-journal-page-turn]')!, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
+      await finishJournalTurn(() => JSON.stringify(screen.queryAllByRole('checkbox').map((checkbox) => checkbox.parentElement?.textContent)) !== currentOptions)
     }
     for (let index = 1; index <= 10; index += 1) {
       const name = new RegExp(`^Parent ${index} `)

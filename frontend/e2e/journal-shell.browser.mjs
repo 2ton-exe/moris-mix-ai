@@ -33,7 +33,7 @@ try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  for (const width of [1440, 768, 375, 320]) {
+  for (const width of [1440, 1280, 1100, 768, 375, 320]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' })
     const page = await context.newPage()
     const errors = []

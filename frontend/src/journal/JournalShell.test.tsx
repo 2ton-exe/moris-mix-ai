@@ -6,6 +6,7 @@ import { JournalShell } from './JournalShell'
 it('keeps public links alongside the signed-in recipe tabs', () => {
   render(<MemoryRouter initialEntries={['/app/recipes']}><JournalShell><h1>My recipes</h1></JournalShell></MemoryRouter>)
   const recipes = screen.getByRole('navigation', { name: 'Journal sections' })
+  expect(recipes.parentElement?.classList.contains('mm-journal-page')).toBe(true)
   expect(recipes.closest('.mm-desk')?.classList.contains('mm-desk--with-companion')).toBe(true)
   expect(within(recipes).getByRole('link', { name: 'My recipes' }).getAttribute('href')).toBe('/app/recipes')
   expect(within(recipes).getByRole('link', { name: 'New recipe' }).getAttribute('href')).toBe('/app/recipes/new')
@@ -34,7 +35,9 @@ it('keeps Quick AI Entry current through draft review and keeps its direct desti
   unmount()
 
   render(<MemoryRouter initialEntries={['/app/recipes?view=index&leaf=2']}><JournalShell><h1>Index</h1></JournalShell></MemoryRouter>)
-  expect(within(screen.getByRole('navigation', { name: 'Journal sections' })).getByRole('link', { name: 'Quick AI Entry' }).getAttribute('href')).toBe('/app/quick-entry')
+  const paginatedSections = screen.getByRole('navigation', { name: 'Journal sections' })
+  expect(within(paginatedSections).getByRole('link', { name: 'My recipes' }).getAttribute('aria-current')).toBe('page')
+  expect(within(paginatedSections).getByRole('link', { name: 'Quick AI Entry' }).getAttribute('href')).toBe('/app/quick-entry')
 })
 
 it('preserves public bookmarks and identifies the active page', () => {

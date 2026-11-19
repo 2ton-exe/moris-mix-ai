@@ -95,7 +95,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   const firstLeaf = (single ? current : current * 2) + 1
   const leafCount = pages.length + 1
   const indicator = spread.length === 1 ? `Page ${firstLeaf} of ${leafCount}` : `Pages ${firstLeaf}–${firstLeaf + 1} of ${leafCount}`
-  const identityVisible = spread[0]?.[0] === 'identity'
+  const identityVisible = !layout || spread[0]?.[0] === 'identity'
   const selectUnits = (ids: string[] = []) => units.filter((unit) => ids.includes(unit.id))
   const turn = (index: number) => {
     if (index < 0 || index >= spreads.length || isTurning) return
@@ -169,7 +169,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     </div>
     <div className="mm-reading-request-status">{status}</div>
     <div ref={bodyRef} className="mm-continuation-body mm-recipe-reading-body" tabIndex={0} role="region" aria-label="Recipe ingredients, instructions and notes">
-      {ready && !layout && <p role="status">Preparing recipe pages…</p>}
+      {!ready && !layout && <p role="status">Preparing recipe pages…</p>}
       {single && identityVisible ? identity : <>{single && <h1 className="mm-continuation-title" tabIndex={-1}>Recipe continued</h1>}<ReadingUnits units={selectUnits(single ? spread?.[0] : spread?.[1])} prefix="right" width={layout?.width} />{!ready && !identityVisible && <p role="status">Preparing recipe pages…</p>}</>}
       {!single && current > 0 && !spread[1] && <p className="mm-reading-end">End of this recipe.</p>}
     </div>
