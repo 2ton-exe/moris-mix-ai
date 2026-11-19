@@ -340,6 +340,29 @@ class ComponentHintTests(unittest.TestCase):
                     self.assertEqual(cli.stdout, " ".join(expected) + "\n")
                     self.assertEqual(cli.stderr, "")
 
+    def test_role_creation_and_attributes_are_fixed_private_hints(self):
+        cases = [
+            (b'CREATE ROLE "SYNTHETIC_PRIVATE_ROLE";', 'create-role'),
+            (b'CREATE ROLE synthetic WITH NOLOGIN NOSUPERUSER;', 'create-role'),
+            (b'ALTER ROLE synthetic WITH NOSUPERUSER INHERIT CREATEROLE CREATEDB LOGIN NOREPLICATION NOBYPASSRLS;', 'alter-role-attributes'),
+            (b'ALTER ROLE synthetic SUPERUSER;', 'alter-role-attributes'),
+            (b'CREATE ROLE synthetic PASSWORD \'SYNTHETIC_PRIVATE_PASSWORD\';', 'unknown'),
+            (b'ALTER ROLE synthetic CONNECTION LIMIT 2;', 'unknown'),
+            (b'ALTER ROLE synthetic WITH;', 'unknown'),
+            (b'CREATE ROLE synthetic; SELECT 1;', 'unknown'),
+            (b'-- CREATE ROLE synthetic;', 'unknown'),
+        ]
+        for statement, expected in cases:
+            with self.subTest(statement=statement), tempfile.TemporaryDirectory() as td:
+                roles = Path(td) / 'roles.sql'
+                roles.write_bytes(statement + b'\n')
+                record = b'psql:/backup/roles.sql:1: ERROR:  42501\n'
+                self.assertEqual(diagnostic_hints(record, 3, roles),
+                                 ('roles.sql', 'insufficient-privilege', expected))
+                # A recognized-looking line inside a multiline prefix stays unknown.
+                roles.write_bytes(b"SELECT 'open\n" + statement + b'\n')
+                self.assertEqual(statement_class_from_file(roles, 2), 'unknown')
+
     def test_role_lookup_rejects_ambiguous_invalid_and_unsupported_lines(self):
         accepted = b"psql:/backup/roles.sql:2: ERROR:  42501\n"
         with tempfile.TemporaryDirectory() as td:
@@ -676,6 +699,19 @@ python3() {
         self.assertIn("untrusted_error_category_hint=insufficient-privilege", result.stdout)
         self.assertIn("untrusted_statement_class_hint=role-membership-grant", result.stdout)
         self.assertNotIn("SYNTHETIC_PRIVATE", result.stdout + result.stderr)
+
+    def test_workflow_accepts_new_role_classes_without_private_output(self):
+        for statement, expected in [
+            (b'CREATE ROLE "SYNTHETIC_PRIVATE_ROLE";', 'create-role'),
+            (b'ALTER ROLE "SYNTHETIC_PRIVATE_ROLE" WITH SUPERUSER;', 'alter-role-attributes'),
+        ]:
+            with self.subTest(expected=expected):
+                result, _ = self.run_diagnostic(
+                    'restore', 3, stderr='psql:/backup/roles.sql:1: ERROR:  42501\n',
+                    roles_sql=statement + b'\n')
+                self.assertEqual(result.returncode, 3)
+                self.assertIn('untrusted_statement_class_hint=' + expected, result.stdout)
+                self.assertNotIn('SYNTHETIC_PRIVATE', result.stdout + result.stderr)
 
     def test_classifier_failure_or_unexpected_output_is_unknown(self):
         for mode in ("crash", "invalid"):

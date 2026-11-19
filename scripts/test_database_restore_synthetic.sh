@@ -205,6 +205,23 @@ SQL
 expect_failure role-membership-insufficient-privilege 3 roles.sql insufficient-privilege role-membership-grant
 cp "$root/roles-base.sql" "$fixture/roles.sql"
 
+# A deliberately unprivileged role cannot create roles or elevate itself.
+# Both trials use only invented roles and must roll back the initial sentinel role.
+for statement_class in create-role alter-role-attributes; do
+  cat >> "$fixture/roles.sql" <<'SQL'
+GRANT devops_restore_synthetic TO postgres WITH SET TRUE;
+SET ROLE devops_restore_synthetic;
+SELECT 'SYNTHETIC_FAILURE_REACHED';
+SQL
+  if [[ "$statement_class" == create-role ]]; then
+    echo 'CREATE ROLE devops_synthetic_forbidden;' >> "$fixture/roles.sql"
+  else
+    echo 'ALTER ROLE devops_restore_synthetic WITH SUPERUSER;' >> "$fixture/roles.sql"
+  fi
+  expect_failure "$statement_class-insufficient-privilege" 3 roles.sql insufficient-privilege "$statement_class"
+  cp "$root/roles-base.sql" "$fixture/roles.sql"
+done
+
 # The separate -c SQL action returns 1 in pinned psql; it has no file context.
 replication_command="SET session_replication_role = 'synthetic_invalid_role'"
 expect_failure replication-command 1 unknown
