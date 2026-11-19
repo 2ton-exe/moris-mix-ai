@@ -128,6 +128,13 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           element.style.transform = `translate(${(target.x - rect.left) * blend}px, ${(target.y - rect.top) * blend}px) scale(${1 + (turnScale - 1) * blend})`
           svg.style.transform = mirror ? 'scaleX(-1)' : 'none'
           arm?.setAttribute('transform', `rotate(${frame.armAngle} 128 168)`)
+          if (frame.attached) {
+            const matrix = svg.getScreenCTM()
+            if (matrix) {
+              const rendered = new DOMPoint(hand.x, hand.y).matrixTransform(matrix)
+              element.style.transform = `translate(${(target.x - rect.left) * blend + corner.x - rendered.x}px, ${(target.y - rect.top) * blend + corner.y - rendered.y}px) scale(${1 + (turnScale - 1) * blend})`
+            }
+          }
           if (closed) closed.style.opacity = String(frame.grip)
           if (openMitt) openMitt.style.opacity = String(1 - frame.grip)
           element.dataset.turnStage = frame.stage
