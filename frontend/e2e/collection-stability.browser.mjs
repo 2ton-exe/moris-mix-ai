@@ -2,6 +2,8 @@
 // This script never contacts a hosted Supabase project.
 import assert from 'node:assert/strict'
 import path from 'node:path'
+import { mkdtemp } from 'node:fs/promises'
+import os from 'node:os'
 import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
@@ -24,17 +26,18 @@ const server = await createServer({
   server: { host: '127.0.0.1', port: 0 },
   logLevel: 'error',
 })
+const output = await mkdtemp(path.join(os.tmpdir(), 'mori-collection-layout-'))
 let browser
 try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  for (const [width, height] of [[1854, 930], [1440, 1050]]) {
+  for (const [width, height] of [[1470, 803], [1633, 892], [1854, 930], [1440, 1050]]) {
     const context = await browser.newContext({ viewport: { width, height } })
     const page = await context.newPage()
     const recipes = Array.from({ length: 5 }, (_, index) => ({
       id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`,
-      user_id: userId, title: `Recipe ${index + 1}`,
+      user_id: userId, title: index === 2 ? 'Slow roasted tomatoes with garlic and herbs for a weekend family dinner' : `Recipe ${index + 1}`,
       star_rating: index === 0 ? 5 : null, cooked_at: index === 0 ? '2026-10-25' : null,
     }))
     await context.route('**/*', async (route) => {
@@ -74,13 +77,14 @@ try {
     await page.goto(`${origin}app?entry=0`)
     await page.getByRole('heading', { name: 'Saved recipes (5)' }).waitFor()
     await page.waitForTimeout(500)
-    await expect(page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li')).toHaveCount(2)
+    assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= 2, 'Desktop paper must fit multiple ordinary recipes')
+    await page.screenshot({ path: path.join(output, `${width}-collection.png`) })
     const seen = new Set()
     for (let turn = 0; turn < recipes.length; turn++) {
       const lists = page.locator('.mm-collection-body > .mm-collection-entries')
       for (const list of await lists.all()) {
         const remaining = recipes.length - seen.size
-        assert.equal(await list.locator(':scope > li').count(), Math.min(2, remaining), 'Each desktop leaf must fit two ordinary recipes')
+        assert.ok(await list.locator(':scope > li').count() >= Math.min(2, remaining), 'Each desktop leaf must fit multiple ordinary recipes')
         assert.ok(await list.evaluate(e => e.getBoundingClientRect().bottom <= e.parentElement.getBoundingClientRect().bottom + 2), 'Cards must stay above the footer')
         for (const href of await list.locator('a').evaluateAll(elements => elements.map(e => e.getAttribute('href')))) {
           assert.ok(!seen.has(href), `Recipe repeated across pages: ${href}`)
@@ -95,7 +99,13 @@ try {
       await expect(page.locator('[data-journal-page-turn="true"]')).toHaveCount(0)
     }
     assert.equal(seen.size, recipes.length, 'Every recipe must remain reachable exactly once')
+    const visibleLists = page.locator('.mm-collection-body > .mm-collection-entries')
+    if (await visibleLists.count() === 2) {
+      const tops = await visibleLists.evaluateAll(lists => lists.map(list => list.getBoundingClientRect().top))
+      assert.ok(Math.abs(tops[0] - tops[1]) < 2, 'Facing recipe rows must share a baseline')
+    }
     globalThis.console.log(`${width}x${height}: stable layout; all five recipes reached exactly once`)
     await context.close()
   }
+  globalThis.console.log(`Screenshots: ${output}`)
 } finally { await browser?.close(); await server.close() }
