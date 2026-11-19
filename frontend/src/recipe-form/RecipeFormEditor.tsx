@@ -10,7 +10,7 @@ import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPa
 import { requestJournalPageTurnFrom, useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { RecipeWritingTurns } from './RecipeWritingTurns'
-import { formPagePosition, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, recipeFormSection, visibleFormLeafIndices } from './physicalFormPages'
+import { DEFAULT_FORM_TEXT_CHARS_PER_LEAF, formPagePosition, formTextPageColumns, formTextPageLimit, formTextPageRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, recipeFormSection, replaceFormTextPart, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
 import type { RecipeFormLeaf } from './physicalFormPages'
 import type { RecipeFormProps } from './RecipeForm'
 import { useIngredientDrag } from './useIngredientDrag'
@@ -18,23 +18,10 @@ import { IngredientEmoji } from './IngredientEmojiView'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
-const PAGE_SCROLL_TOLERANCE = 2
-
-function canScrollInDirection(target: Element, direction: 'up' | 'down') {
-  let current: Element | null = target
-  while (current) {
-    if (current instanceof HTMLElement) {
-      const overflowY = window.getComputedStyle(current).overflowY
-      if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
-        const remaining = direction === 'down'
-          ? current.scrollHeight - current.clientHeight - current.scrollTop
-          : current.scrollTop
-        if (remaining > PAGE_SCROLL_TOLERANCE) return true
-      }
-    }
-    current = current.parentElement
-  }
-  return false
+function resizeTextarea(target: EventTarget | null) {
+  if (!(target instanceof HTMLTextAreaElement)) return
+  target.style.height = 'auto'
+  target.style.height = `${target.scrollHeight}px`
 }
 
 export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPages, reviewStatus, supplement }: RecipeFormEditorProps) {
@@ -57,10 +44,12 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const controller = useRef<AbortController | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const focusRequest = useRef<string | null>(null)
-  const ingredientListScrollTop = useRef<number | null>(null)
   const lastFocusedControl = useRef<{ key: string; start: number | null; end: number | null; direction: 'forward' | 'backward' | 'none' | null } | null>(null)
   const previousLayout = useRef('')
   const [compact, setCompact] = useState(false)
+  const [textPageLength, setTextPageLength] = useState(DEFAULT_FORM_TEXT_CHARS_PER_LEAF)
+  const [textPageRows, setTextPageRows] = useState(12)
+  const [textPageColumns, setTextPageColumns] = useState(56)
   const requestedStart = useRef(0)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const desktop = useJournalMedia('(min-width: 1100px)')
@@ -69,7 +58,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const movingIngredient = useRef<string | null>(null)
   const ingredientDrag = useIngredientDrag(`${single}:${compact}:${isTurning}:${pageAnchor}:${pending}`)
   const desktopReview = !single && !!reviewPages?.length
-  const leaves = useMemo(() => recipeFormLeaves(state, single, desktopReview ? reviewPages.map(({ title }) => title) : [], compact, desktop), [state, single, desktopReview, reviewPages, compact, desktop])
+  const leaves = useMemo(() => recipeFormLeaves(state, single, desktopReview ? reviewPages.map(({ title }) => title) : [], compact, desktop, textPageLength, textPageRows, textPageColumns), [state, single, desktopReview, reviewPages, compact, desktop, textPageLength, textPageRows, textPageColumns])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
@@ -124,6 +113,32 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     return () => observer.disconnect()
   }, [single, compact, rememberFocus])
 
+  useLayoutEffect(() => {
+    const form = formRef.current
+    if (!form) return
+    const measure = () => {
+      const leaf = form.querySelector<HTMLElement>('.mm-writing-leaf')
+      if (!leaf || leaf.clientWidth <= 0 || leaf.clientHeight <= 0) return
+      const next = formTextPageLimit(leaf.clientWidth, leaf.clientHeight)
+      const nextRows = formTextPageRows(leaf.clientHeight)
+      const nextColumns = formTextPageColumns(leaf.clientWidth)
+      setTextPageLength((current) => current === next ? current : next)
+      setTextPageRows((current) => current === nextRows ? current : nextRows)
+      setTextPageColumns((current) => current === nextColumns ? current : nextColumns)
+    }
+    const book = form.querySelector<HTMLElement>('.mm-journal-book')
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    if (book) observer?.observe(book)
+    form.querySelectorAll('.mm-writing-leaf').forEach((leaf) => observer?.observe(leaf))
+    window.addEventListener('resize', measure)
+    measure()
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [single, compact, leaves.length, visibleIndices.join(',')])
+
+  useLayoutEffect(() => {
+    formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
+  }, [state, leaves])
+
   // One controlled draft owns every value. Only current leaves are mounted.
   useLayoutEffect(() => {
     const layout = single ? 'single' : compact ? 'compact' : 'spread'
@@ -159,14 +174,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const named = formRef.current?.elements.namedItem(request.slice('name:'.length))
       target = named instanceof HTMLElement ? named : formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
-    const restoreScroll = request.endsWith(':edit') && ingredientListScrollTop.current !== null
-      ? formRef.current?.querySelector<HTMLElement>('[data-writing-leaf-key^="ingredients"]')
-      : null
-    if (restoreScroll && ingredientListScrollTop.current !== null) {
-      restoreScroll.scrollTop = ingredientListScrollTop.current
-      ingredientListScrollTop.current = null
-    }
-    target?.focus({ preventScroll: request === 'leaf-heading' || Boolean(restoreScroll) })
+    target?.focus({ preventScroll: true })
   }, [state, errors, pending, isTurning, pageAnchor, single, compact, desktop, editingIngredientKey, leaves])
 
   useLayoutEffect(() => {
@@ -198,8 +206,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     setMessage(null)
   }
 
-  function field(path: string, hint = false, focusKey = path) {
-    const id = prefix + '-' + path
+  function field(path: string, hint = false, focusKey = path, id = prefix + '-' + path) {
     return {
       id, name: path, 'aria-invalid': Boolean(errors[path]),
       'aria-describedby': [hint ? id + '-hint' : '', errors[path] ? id + '-error' : ''].filter(Boolean).join(' ') || undefined,
@@ -212,8 +219,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
 
   function openIngredientEditor(key: string) {
     if (!desktop) return
-    const leaf = formRef.current?.querySelector<HTMLElement>('[data-writing-leaf-key^="ingredients"]')
-    ingredientListScrollTop.current = leaf?.scrollTop ?? 0
     setEditingIngredientKey(key)
     focusStable('ingredient:' + key + ':name')
   }
@@ -252,8 +257,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const direction = event.key === 'ArrowRight' || event.key === 'PageDown' ? 1
       : event.key === 'ArrowLeft' || event.key === 'PageUp' ? -1 : 0
     if (!direction) return
-    if (event.key === 'PageDown' && canScrollInDirection(target, 'down')) return
-    if (event.key === 'PageUp' && canScrollInDirection(target, 'up')) return
     const page = single ? requestedStart.current : Math.floor(requestedStart.current / 2)
     if (turnToPage(page + direction)) event.preventDefault()
   }
@@ -318,7 +321,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     change({ ...state, instructions: [...state.instructions, { key, text: '' }] })
     setPageAnchor('instruction:' + key)
     setAnnouncement('Cooking step added.')
-    focusStable('instruction:' + key + ':text')
+    focusStable('instruction:' + key + ':text:0')
   }
 
   function removeStep(key: string, index: number) {
@@ -327,7 +330,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const nextRow = next[Math.min(index, next.length - 1)]
     setPageAnchor(nextRow ? 'instruction:' + nextRow.key : 'instructions-empty')
     setAnnouncement('Step ' + (index + 1) + ' removed.')
-    focusStable(nextRow ? 'instruction:' + nextRow.key + ':text' : 'add-step')
+    focusStable(nextRow ? 'instruction:' + nextRow.key + ':text:0' : 'add-step')
   }
 
   function moveIngredient(key: string, destination: number) {
@@ -360,7 +363,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   function moveInstruction(key: string, index: number, offset: number) {
     change({ ...state, instructions: moveRow(state.instructions, index, offset) })
     setPageAnchor('instruction:' + key)
-    focusStable('instruction:' + key + ':text')
+    focusStable('instruction:' + key + ':text:0')
     setAnnouncement('Step ' + (index + 1) + ' moved ' + (offset < 0 ? 'up.' : 'down.'))
   }
 
@@ -450,9 +453,10 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   function renderLeaf(leaf: RecipeFormLeaf, index: number) {
     const leafNumber = index + 1
     const headingId = prefix + '-leaf-' + index
+    const noteParts = splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns)
     const sectionTitle = reviewWorkflow || leaf.kind === 'review'
       ? recipeFormSection(leaf)
-      : leaf.kind === 'identity' ? 'Recipe identity' : leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Cooking method'
+      : leaf.kind === 'identity' ? 'Recipe identity' : leaf.kind === 'notes' ? 'Personal notes' : leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Cooking method'
     let pageContent: ReactNode
 
     if (leaf.kind === 'identity') {
@@ -476,12 +480,22 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
               </select>
             </RecipeFormField>
           </div>
-          <RecipeFormField id={field('notes').id} label="Notes" error={errors.notes} hint={notesSupported ? undefined : 'Local draft only. Notes have no published saving contract yet and stay on this page.'}>
-            <textarea {...field('notes', !notesSupported)} maxLength={20_000} rows={reviewWorkflow ? 3 : 5} value={state.notes} onChange={(event) => change({ ...state, notes: event.target.value })} />
+          <RecipeFormField id={field('notes').id} label="Notes" error={errors.notes} hint={notesSupported ? undefined : 'Local draft only. Notes have no published saving contract yet.'}>
+            <textarea {...field('notes', !notesSupported, 'notes:0')} data-form-page-anchor="notes:0" data-form-autosize maxLength={Math.max(noteParts[0].length, 20_000 - state.notes.length + noteParts[0].length)} rows={4} value={noteParts[0]} onChange={(event) => change({ ...state, notes: replaceFormTextPart(noteParts, 0, event.target.value) })} />
           </RecipeFormField>
         </section>
         {supplement}
       </>
+    } else if (leaf.kind === 'notes') {
+      const partText = noteParts[leaf.part] ?? ''
+      const fieldId = `${prefix}-notes-${leaf.part}`
+      const continued = leaf.part > 0
+      pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
+        <div className="recipe-section-heading"><h2 id={headingId} tabIndex={-1}>Personal notes{continued && <span className="mm-continued"> · continued</span>}</h2></div>
+        <RecipeFormField id={fieldId} label={continued ? 'Notes, continued' : 'Notes'} error={errors.notes} hint={notesSupported ? undefined : 'Local draft only. Notes have no published saving contract yet.'}>
+          <textarea {...field('notes', !notesSupported, `notes:${leaf.part}`, fieldId)} data-form-page-anchor={`notes:${leaf.part}`} data-form-autosize maxLength={Math.max(partText.length, 20_000 - state.notes.length + partText.length)} rows={5} value={partText} onChange={(event) => change({ ...state, notes: replaceFormTextPart(noteParts, leaf.part, event.target.value) })} />
+        </RecipeFormField>
+      </section>
     } else if (leaf.kind === 'review') {
       pageContent = <section className="mm-review-leaf" aria-labelledby={headingId}>
         <h2 id={headingId} tabIndex={-1}>{leaf.title}</h2>
@@ -631,8 +645,9 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     } else {
       const items = leaf.kind === 'instructions' ? leaf.rowKeys.map((key) => {
         const rowIndex = state.instructions.findIndex((row) => row.key === key)
-        return rowIndex >= 0 ? { item: state.instructions[rowIndex], rowIndex } : null
-      }).filter((entry): entry is { item: RecipeEditorState['instructions'][number]; rowIndex: number } => entry !== null) : []
+        const part = leaf.kind === 'instructions' ? leaf.textParts.find((entry) => entry.rowKey === key)?.part ?? 0 : 0
+        return rowIndex >= 0 ? { item: state.instructions[rowIndex], rowIndex, part } : null
+      }).filter((entry): entry is { item: RecipeEditorState['instructions'][number]; rowIndex: number; part: number } => entry !== null) : []
       const containsLast = items.some(({ item }) => item.key === state.instructions.at(-1)?.key)
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
@@ -640,17 +655,22 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
           {reviewWorkflow && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('instructions') ? 'Check fields' : 'Ready'}</span>}
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
-        {items.map(({ item, rowIndex }) => <fieldset className="recipe-editor-row" key={item.key}>
-          <legend>Step {rowIndex + 1}{state.instructions.length > 1 ? ' of ' + state.instructions.length : ''}</legend>
-          <RecipeFormField id={field('instructions.' + rowIndex + '.text').id} label={'Step ' + (rowIndex + 1) + ' description'} error={errors['instructions.' + rowIndex + '.text']}>
-            <textarea {...field('instructions.' + rowIndex + '.text', false, 'instruction:' + item.key + ':text')} maxLength={2_000} rows={4} value={item.text} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: event.target.value } : row) })} />
+        {items.map(({ item, rowIndex, part }) => {
+          const parts = splitInstructionText(item.text, textPageLength, textPageRows, textPageColumns)
+          const partText = parts[part] ?? ''
+          const fieldId = `${prefix}-instructions-${rowIndex}-${part}`
+          return <fieldset className="recipe-editor-row" key={item.key}>
+          <legend>Step {rowIndex + 1}{state.instructions.length > 1 ? ' of ' + state.instructions.length : ''}{part > 0 ? ' · continued' : ''}</legend>
+          <RecipeFormField id={fieldId} label={'Step ' + (rowIndex + 1) + (part > 0 ? ' continued' : '') + ' description'} error={errors['instructions.' + rowIndex + '.text']}>
+            <textarea {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={`instruction:${item.key}:part:${part}`} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
           </RecipeFormField>
-          <div className="recipe-row-actions">
+          {part === 0 && <div className="recipe-row-actions">
             <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveInstruction(item.key, rowIndex, -1)} aria-label={'Move step ' + (rowIndex + 1) + ' up'}><ArrowUp size={16} aria-hidden="true" /> Up</button>
             <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.instructions.length - 1} onClick={() => moveInstruction(item.key, rowIndex, 1)} aria-label={'Move step ' + (rowIndex + 1) + ' down'}><ArrowDown size={16} aria-hidden="true" /> Down</button>
             <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeStep(item.key, rowIndex)} aria-label={'Remove step ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /> Remove</button>
-          </div>
-        </fieldset>)}
+          </div>}
+        </fieldset>
+        })}
         {(!items.length || containsLast) && <button className="button mm-row-add" type="button" name="add-step" data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> Add cooking step</button>}
       </section>
     }
@@ -711,9 +731,9 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const target = event.target
       rememberFocus(target)
       if (target.dataset.formFocusKey && target.matches('input[name], textarea[name], select[name]')) {
-        setPageAnchor(leafKeyForFieldPath(target.getAttribute('name') ?? '', state))
+        setPageAnchor(target.dataset.formPageAnchor ?? leafKeyForFieldPath(target.getAttribute('name') ?? '', state))
       }
-    }} onInputCapture={(event) => rememberFocus(event.target)}
+    }} onInputCapture={(event) => { resizeTextarea(event.target); rememberFocus(event.target) }}
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
     {renderFrame ? renderFrame(content) : content}

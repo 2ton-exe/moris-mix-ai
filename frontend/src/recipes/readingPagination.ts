@@ -18,7 +18,29 @@ export function readingParagraphs(text: string): string[] {
   return paragraphs
 }
 
-/** Keep semantic entries whole. An entry larger than a leaf gets its own fallback. */
+/** Split long prose into lossless chunks, keeping each Unicode character whole. */
+export function splitReadingText(text: string, limit: number): string[] {
+  if (!text) return [text]
+  if (!Number.isFinite(limit) || limit < 1 || text.length <= limit) return [text]
+  const chunks: string[] = []
+  let offset = 0
+  while (offset < text.length) {
+    let end = Math.min(offset + limit, text.length)
+    if (end < text.length && end > offset && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end++
+    if (end === text.length) {
+      chunks.push(text.slice(offset))
+      break
+    }
+    const candidate = text.slice(offset, end)
+    const boundary = Math.max(candidate.lastIndexOf(' '), candidate.lastIndexOf('\n'), candidate.lastIndexOf('\t'))
+    const cut = boundary >= Math.floor(limit * .6) ? offset + boundary + 1 : end
+    chunks.push(text.slice(offset, cut))
+    offset = cut
+  }
+  return chunks
+}
+
+/** Keep semantic entries whole when they fit; oversized entries occupy a leaf alone. */
 export function paginateReading(items: ReadingMeasurement[], capacity: number): string[][] {
   if (!Number.isFinite(capacity) || capacity <= 0) return [items.map((item) => item.id)]
   const pages: string[][] = []

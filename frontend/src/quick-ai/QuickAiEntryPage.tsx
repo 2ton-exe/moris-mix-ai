@@ -1,18 +1,21 @@
-import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
-import type { FormEvent, Ref } from 'react'
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { FormEvent, KeyboardEvent, Ref } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
-import { JournalFacingPage } from '../journal/JournalFacingPage'
+import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
+import { JournalPagination } from '../journal/JournalPagination'
+import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
+import { formTextPageLimit, formTextRows, replaceFormTextPart, splitFormText } from '../recipe-form/physicalFormPages'
 import { InvalidExtractionResponse, extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from './extractRecipe'
-import type { ExtractedRecipe, QuickAiEntryHandoff } from './extractRecipe'
+import type { QuickAiEntryHandoff } from './extractRecipe'
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from './draft'
 import type { QuickAiBlockReason, QuickAiEntryDraft } from './draft'
 import './quickAiEntry.css'
@@ -102,11 +105,6 @@ function describeExtractionError(error: unknown): EntryError {
   }
 }
 
-function renderIngredient(ingredient: ExtractedRecipe['ingredients'][number]) {
-  const amount = ingredient.quantityText ?? (ingredient.quantity === null ? '' : String(ingredient.quantity))
-  return [amount, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
-}
-
 function RecipePreview({ handoff, reviewState, headingRef }: { handoff: QuickAiEntryHandoff; reviewState: { journalReturn: string; sourceJournalReturn: string }; headingRef: Ref<HTMLHeadingElement> }) {
   return <section className="mm-quick-ai__preview" aria-labelledby="quick-ai-preview-title">
     <div className="mm-quick-ai__preview-header">
@@ -116,20 +114,8 @@ function RecipePreview({ handoff, reviewState, headingRef }: { handoff: QuickAiE
     <div className="mm-quick-ai__preview-actions">
       <Link className="button button-primary" to="/app/quick-entry/review" state={reviewState}>Review recipe draft</Link>
     </div>
-    <h3>Ingredients</h3>
-    {handoff.recipe.ingredients.length > 0
-      ? <ul>{handoff.recipe.ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>
-        {renderIngredient(ingredient)}{ingredient.inferred && <span> (estimated)</span>}
-      </li>)}</ul>
-      : <p>No ingredients were identified.</p>}
-    <h3>Method</h3>
-    {handoff.recipe.instructions.length > 0
-      ? <ol>{handoff.recipe.instructions.map((instruction) => <li key={instruction.step}>{instruction.text}</li>)}</ol>
-      : <p>No method steps were identified.</p>}
-    <details>
-      <summary>View original notes</summary>
-      <blockquote>{handoff.sourceNotes}</blockquote>
-    </details>
+    <p>{handoff.recipe.ingredients.length} ingredients · {handoff.recipe.instructions.length} cooking steps</p>
+    <p>Open the review page to see every ingredient and step before saving. Turn back to your notes pages to edit the original text.</p>
   </section>
 }
 
@@ -148,6 +134,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   extract: ExtractRecipe
   onExtracted?: (handoff: QuickAiEntryHandoff) => void
 }) {
+  const { isTurning, requestPageTurn } = useJournalPageTurn()
   const location = useLocation()
   const navigate = useNavigate()
   const { logout } = useAuth()
@@ -163,6 +150,12 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const [logoutPending, setLogoutPending] = useState(false)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  const [notesPerPage, setNotesPerPage] = useState(480)
+  const [charactersPerRow, setCharactersPerRow] = useState(56)
+  const [notesRows, setNotesRows] = useState(12)
+  const [notesPage, setNotesPage] = useState(0)
+  const [showPreview, setShowPreview] = useState(initialRead.draft.handoff !== null)
+  const [turningPage, setTurningPage] = useState<number | null>(null)
   useMoriActivity(error
     ? { kind: 'confused', message: error.message }
     : validationMessage
@@ -177,6 +170,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const validationId = useId()
   const persistenceWarningId = useId()
   const notesRef = useRef<HTMLTextAreaElement>(null)
+  const requestedNotesPage = useRef(0)
+  const focusNotesAfterTurn = useRef(false)
   const previewHeadingRef = useRef<HTMLHeadingElement>(null)
   const focusNewPreview = useRef(false)
   const requestRef = useRef<AbortController | null>(null)
@@ -184,8 +179,54 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const inFlight = useRef(false)
   const mounted = useRef(true)
   const retryWait = draft.blockedUntil === null ? 0 : Math.max(0, Math.ceil((draft.blockedUntil - now) / 1000))
+  const noteParts = splitFormText(draft.notes, notesPerPage, notesRows, charactersPerRow)
+  const pageCount = noteParts.length + (handoff ? 1 : 0)
+  const page = turningPage ?? (showPreview && handoff ? noteParts.length : Math.min(notesPage, noteParts.length - 1))
+  const notePart = noteParts[page] ?? ''
   const hasUnsavedContent = draft.notes.trim().length > 0 || handoff !== null
   const navigationConfirmation = useUnsavedChangesGuard(persistenceFailed && hasUnsavedContent, { warnOnUnload: true })
+
+  useLayoutEffect(() => {
+    const notes = notesRef.current
+    const spread = notes?.closest<HTMLElement>('.mm-journal-spread')
+    if (!notes || !spread) return
+    const measure = () => {
+      const width = notes.clientWidth
+      const height = spread.clientHeight
+      if (width <= 0 || height <= 0) return
+      const columns = Math.max(1, Math.floor(width / 8))
+      const rows = Math.max(3, Math.floor((height - 420) / 32))
+      setCharactersPerRow((current) => current === columns ? current : columns)
+      setNotesRows((current) => current === rows ? current : rows)
+      const nextLimit = Math.max(1, Math.floor(Math.min(MAX_EXTRACTION_INPUT_CHARS, 1_600, formTextPageLimit(width, height) * .7, columns * rows)))
+      setNotesPerPage((current) => current === nextLimit ? current : nextLimit)
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(spread)
+    observer?.observe(notes)
+    window.addEventListener('resize', measure)
+    measure()
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [page])
+
+  useEffect(() => {
+    setNotesPage((current) => Math.min(current, noteParts.length - 1))
+  }, [noteParts.length])
+
+  useLayoutEffect(() => {
+    requestedNotesPage.current = page
+    if (!isTurning && focusNotesAfterTurn.current) {
+      focusNotesAfterTurn.current = false
+      const target = handoff && page === noteParts.length ? previewHeadingRef.current : notesRef.current
+      target?.focus({ preventScroll: true })
+    }
+  }, [handoff, isTurning, page, noteParts.length])
+
+  useLayoutEffect(() => {
+    const notes = notesRef.current
+    if (!notes || notesPerPage <= 1 || notes.scrollHeight <= notes.clientHeight + 1) return
+    setNotesPerPage((current) => Math.max(1, Math.floor(current * .7)))
+  }, [charactersPerRow, notePart, notesPerPage])
 
   const persistDraft = useCallback((nextDraft: QuickAiEntryDraft) => {
     const result = writeQuickAiEntryDraft(userId, nextDraft)
@@ -202,11 +243,16 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   useEffect(() => {
     if (!handoff || !focusNewPreview.current) return
     focusNewPreview.current = false
+    setShowPreview(true)
+  }, [handoff])
+
+  useLayoutEffect(() => {
+    if (!handoff || page !== noteParts.length) return
     const active = document.activeElement
     if (active === document.body || notesRef.current?.form?.contains(active)) {
       previewHeadingRef.current?.focus()
     }
-  }, [handoff])
+  }, [handoff, page, noteParts.length])
 
   useEffect(() => {
     if (!registerLogoutGuard) return
@@ -244,7 +290,36 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setValidationMessage(null)
     setError(null)
     setHandoff(null)
+    setShowPreview(false)
+    setTurningPage(null)
     setCopyStatus(null)
+  }
+
+  function turnNotesPage(nextPage: number) {
+    const from = requestedNotesPage.current
+    if (nextPage < 0 || nextPage >= pageCount || nextPage === page || isTurning) return false
+    const accepted = requestPageTurn(nextPage > from ? 'forward' : 'backward', () => {
+      requestedNotesPage.current = nextPage
+      setTurningPage(nextPage)
+    }, () => {
+      requestedNotesPage.current = nextPage
+      setNotesPage(Math.min(nextPage, noteParts.length - 1))
+      setShowPreview(Boolean(handoff && nextPage === noteParts.length))
+      setTurningPage(null)
+      focusNotesAfterTurn.current = true
+    }, undefined, () => {
+      requestedNotesPage.current = page
+      setTurningPage(null)
+    })
+    return accepted
+  }
+
+  function handlePageKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+      || event.target instanceof Element && event.target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return
+    const direction = event.key === 'PageDown' || event.key === 'ArrowRight' ? 1
+      : event.key === 'PageUp' || event.key === 'ArrowLeft' ? -1 : 0
+    if (direction && turnNotesPage(page + direction)) event.preventDefault()
   }
 
   async function copyNotes() {
@@ -390,12 +465,12 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       </PaperCard>
     </JournalFacingPage>
 
-    <section className="mm-quick-ai" aria-label="Quick AI Entry notes">
+    <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes">
       <nav className="mm-quick-ai__back" aria-label="Sheet navigation">
         <Link to={journalReturnTo(location.state)}><span aria-hidden="true">←</span> Back to journal</Link>
       </nav>
-      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet">
-        <form onSubmit={handleSubmit} noValidate>
+      {page < noteParts.length && <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet" role="region" aria-label={`Cooking notes page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
+        <form id={notesId + '-form'} onSubmit={handleSubmit} noValidate>
           <div className="mm-quick-ai__field">
             <label htmlFor={notesId}>Cooking notes</label>
             <textarea
@@ -403,13 +478,13 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               className="mm-quick-ai__textarea"
               id={notesId}
               name="notes"
-              rows={6}
-              maxLength={MAX_EXTRACTION_INPUT_CHARS}
-              value={draft.notes}
+              rows={Math.max(3, formTextRows(notePart, charactersPerRow))}
+              maxLength={Math.max(notePart.length, MAX_EXTRACTION_INPUT_CHARS - draft.notes.length + notePart.length)}
+              value={notePart}
               disabled={loading}
               aria-invalid={validationMessage ? 'true' : undefined}
               aria-describedby={describedBy}
-              onChange={(event) => updateNotes(event.currentTarget.value)}
+              onChange={(event) => updateNotes(replaceFormTextPart(noteParts, page, event.currentTarget.value))}
             />
             {persistenceFailed && <div className="mm-quick-ai__storage-warning" id={persistenceWarningId} role="alert" aria-atomic="true">
               <p>{draft.notes.trim()
@@ -452,12 +527,18 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
           </div>
         </div>}
-      </PaperCard>
+      </PaperCard>}
 
-      {handoff && <RecipePreview handoff={handoff} headingRef={previewHeadingRef} reviewState={{
+      {handoff && page === noteParts.length && <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet mm-quick-ai__preview-page" role="region" aria-label={`Recipe preview, page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
+        <RecipePreview handoff={handoff} headingRef={previewHeadingRef} reviewState={{
         journalReturn: '/app/quick-entry',
         sourceJournalReturn: journalReturnTo(location.state),
-      }} />}
+        }} />
+      </PaperCard>}
     </section>
+    <JournalPageFooter><JournalPagination label="Cooking notes pages" rightNumber={`Page ${page + 1} of ${pageCount}`}
+      previous={page > 0 && <button type="button" className="button mm-button--page-turn" aria-label="Previous page" disabled={isTurning} onClick={() => turnNotesPage(page - 1)}>← Previous</button>}
+      next={page < pageCount - 1 && <button type="button" className="button mm-button--page-turn" aria-label="Next page" disabled={isTurning} onClick={() => turnNotesPage(page + 1)}>Next →</button>} />
+    </JournalPageFooter>
   </>
 }

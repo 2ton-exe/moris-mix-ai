@@ -75,49 +75,27 @@ async function prepare(context, origin, authenticated = true) {
 async function readRecipe(page, recipe, label, isDemo = false) {
   await settleJournalLayout(page)
   await settleReadingPages(page)
-  const scrollingFallback = await page.locator('.mm-continuation.is-fallback').count() > 0
+  await expect(page.locator('.mm-continuation.is-measured')).toHaveCount(1)
   const viewport = await page.evaluate(() => ({ width: globalThis.innerWidth, height: globalThis.innerHeight, dpr: globalThis.devicePixelRatio, windowWidth: globalThis.outerWidth }))
   await expect(page.getByRole('button', { name: 'Previous Page', exact: true })).toBeDisabled()
   const observed = []
   const dataRequestsBefore = requests.filter((pathname) => pathname.startsWith('/functions/v1/')).length
   let turns = 0
-  let fallbacks = 0
   for (; turns < 200; turns++) {
     await assertJournalSemantics(page, `${label} turn ${turns}`)
     const bounds = await page.evaluate(() => {
       const bodies = [...globalThis.document.querySelectorAll('.mm-continuation-body')].filter((body) => body.getBoundingClientRect().height > 0)
       return {
         documentWidth: globalThis.document.documentElement.scrollWidth, width: globalThis.innerWidth,
-        bodies: bodies.map((body) => ({ height: body.clientHeight, content: body.scrollHeight, identity: !!body.querySelector('.mm-reading-identity') })),
+        bodies: bodies.map((body) => ({ height: body.clientHeight, content: body.scrollHeight })),
         footer: globalThis.document.querySelector('.mm-journal-page-footer').getBoundingClientRect().toJSON(),
         book: globalThis.document.querySelector('.mm-journal-book').getBoundingClientRect().toJSON(),
       }
     })
     assert.ok(bounds.documentWidth <= bounds.width, `${label}: horizontal overflow`)
-    for (const body of bounds.bodies) if (!body.identity && !scrollingFallback) assert.ok(body.content <= body.height + 2, `${label}: unneeded body scrolling ${JSON.stringify(bounds)}`)
-    if (scrollingFallback) {
-      await expect(page.getByText('Page space is limited. Scroll this paper to continue reading.')).toBeVisible()
-      const body = page.locator('.mm-recipe-reading-body')
-      await body.focus()
-      assert.ok(await body.evaluate((element) => element.clientHeight > 0))
-      await page.keyboard.press('End')
-      await expect.poll(() => body.evaluate((element) => element.scrollTop + element.clientHeight >= element.scrollHeight - 1)).toBe(true)
-    }
-    if (scrollingFallback && bounds.footer.bottom > bounds.book.bottom + 1) {
-      await page.locator('.mm-journal-page-footer').scrollIntoViewIfNeeded()
-      const footer = await page.locator('.mm-journal-page-footer').boundingBox()
-      assert.ok(footer.y + footer.height <= bounds.book.bottom + 1, `${label}: fallback footer is unreachable`)
-    } else assert.ok(bounds.footer.bottom <= bounds.book.bottom + 1, `${label}: footer outside book`)
+    for (const body of bounds.bodies) assert.ok(body.content <= body.height + 2, `${label}: reading content overflows its physical page ${JSON.stringify(bounds)}`)
+    assert.ok(bounds.footer.bottom <= bounds.book.bottom + 1, `${label}: footer outside book`)
     observed.push(...await page.locator('.mm-continuation-body [data-unit]').evaluateAll((nodes) => nodes.map((node) => ({ id: node.dataset.unit, text: node.querySelector('.mm-unit-content').textContent }))))
-    const regions = page.locator('.mm-continuation-body .mm-unit-fallback .mm-unit-content')
-    for (let i = 0; i < await regions.count(); i++) {
-      fallbacks++
-      const region = regions.nth(i)
-      await region.focus()
-      await expect(region).toHaveCSS('overflow-y', 'auto')
-      await page.keyboard.press('End')
-      await expect.poll(() => region.evaluate((element) => element.scrollTop + element.clientHeight >= element.scrollHeight - 1), { message: `${label}: fallback end inaccessible by keyboard` }).toBe(true)
-    }
     if (turns === 0) await captureReading(page, `${label}-first`)
     const next = page.getByRole('button', { name: 'Next Page', exact: true })
     if (await next.isDisabled()) break
@@ -129,14 +107,27 @@ async function readRecipe(page, recipe, label, isDemo = false) {
   }
   assert.ok(turns < 200)
   assert.equal(new Set(observed.map((unit) => unit.id)).size, observed.length, `${label}: repeated semantic entries`)
-  assert.deepEqual(observed.filter((unit) => unit.id.startsWith('ingredient-')).map((unit) => unit.text), recipe.ingredients.map((item) => {
+  const readParts = (prefix, instructions = false) => {
+    const parts = new Map()
+    for (const unit of observed) {
+      const match = new RegExp(`^${prefix}-(\\d+)(?:-part-(\\d+))?$`).exec(unit.id)
+      if (!match) continue
+      const [, row, part = '0'] = match
+      const text = instructions && Number(part) > 0 ? unit.text.replace(/^\d+Step \d+, continued: /, '') : unit.text
+      const entries = parts.get(Number(row)) ?? []
+      entries[Number(part)] = text
+      parts.set(Number(row), entries)
+    }
+    return [...parts].sort(([a], [b]) => a - b).map(([, text]) => text.join(''))
+  }
+  assert.deepEqual(readParts('ingredient'), recipe.ingredients.map((item) => {
     const amount = item.quantityText ?? [item.quantity, item.unit].filter((part) => part !== null).join(' ')
     return amount ? `${amount} ${item.name}` : item.name
   }), `${label}: complete ordered ingredients`)
-  assert.deepEqual(observed.filter((unit) => unit.id.startsWith('instruction-')).map((unit) => unit.text), [...recipe.instructions].sort((a, b) => a.step - b.step).map((step) => `${step.step}${step.text}`), `${label}: complete ordered steps`)
+  assert.deepEqual(readParts('instruction', true), [...recipe.instructions].sort((a, b) => a.step - b.step).map((step) => `${step.step}${step.text}`), `${label}: complete ordered steps`)
   if (!isDemo && recipe.notes) assert.equal(observed.filter((unit) => unit.id.startsWith('note-')).map((unit) => unit.text).join(''), recipe.notes, `${label}: lossless notes`)
   if (recipe.flavor_scores) for (const [name, score] of Object.entries(recipe.flavor_scores)) assert.ok(observed.find((unit) => unit.id === 'flavors')?.text.includes(`${name}${score} / 5`))
-  measurements.push({ label, viewport, turns: turns + 1, units: observed.length, fallbacks, scrollingFallback })
+  measurements.push({ label, viewport, turns: turns + 1, units: observed.length })
   assert.equal(requests.filter((pathname) => pathname.startsWith('/functions/v1/')).length, dataRequestsBefore, `${label}: reading turns must not fetch backend cursors or recipes`)
 }
 
@@ -201,29 +192,6 @@ try {
     await context.close()
     process.stdout.write(`${width}px: ${testedCases} content cases, complete ordering, bounds, focus, history, reload, anchor resize and collection restoration passed.\n`)
   }
-  // Force the observed paper capacity below the pagination threshold while
-  // retaining a facing spread, so both boundary keys must scroll the paper.
-  const fallbackContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
-  await prepare(fallbackContext, origin)
-  const fallbackPage = await fallbackContext.newPage()
-  await fallbackPage.goto(`${origin}app/recipes/${cases[7].id}`)
-  await fallbackPage.addStyleTag({ content: '.mm-continuation-body { height: 140px !important; min-height: 140px !important; max-height: 140px !important; }' })
-  await fallbackPage.locator('.mm-continuation.is-fallback[data-reading-ready="true"]').waitFor()
-  await expect(fallbackPage.getByRole('button', { name: 'Previous Page', exact: true })).toBeDisabled()
-  await expect(fallbackPage.getByRole('button', { name: 'Next Page', exact: true })).toBeDisabled()
-  const fallbackBody = fallbackPage.locator('.mm-recipe-reading-body')
-  await fallbackBody.focus()
-  const fallbackUrl = fallbackPage.url()
-  await fallbackPage.keyboard.press('PageDown')
-  await expect.poll(() => fallbackBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-  const afterPageDown = await fallbackBody.evaluate((element) => element.scrollTop)
-  await fallbackPage.keyboard.press('PageUp')
-  await expect.poll(() => fallbackBody.evaluate((element) => element.scrollTop)).toBeLessThan(afterPageDown)
-  await expect(fallbackBody).toBeFocused()
-  await expect(fallbackPage).toHaveURL(fallbackUrl)
-  await fallbackContext.close()
-  process.stdout.write('Fallback paper: PageDown/PageUp scroll at both boundaries without navigation or focus loss.\n')
-
   const publicContext = await browser.newContext({ viewport: { width: 390, height: 900 } })
   await prepare(publicContext, origin, false)
   const publicPage = await publicContext.newPage()
@@ -259,7 +227,7 @@ try {
   assert.ok(requests.includes('/functions/v1/demo-recipe'))
   assert.deepEqual(errors, [])
   await writeFile(path.join(output, 'measurements.json'), JSON.stringify(measurements, null, 2))
-  await writeFile(path.join(output, 'index.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UI-01 Step 3A reading evidence</title><style>body{font:16px/1.6 system-ui;background:#eee4ce;color:#382a21;margin:24px}section{margin:32px 0}article{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}img{width:100%;height:auto}figure{margin:0}a{color:inherit}</style><h1>Physical recipe continuation</h1><p>Actual Chromium captures of production routes, with isolated sessions and intercepted recipe responses. Native 200% uses browser zoom and unscaled CDP captures. No fixture data is shipped in the app.</p>${measurements.map((entry) => `<section><h2>${entry.label}</h2><p>${entry.turns} reading views; ${entry.units} complete semantic entries; ${entry.scrollingFallback ? 'limited-height paper scrolling fallback' : `${entry.fallbacks} oversized-entry fallbacks`}.</p><article>${['first', ...(entry.turns > 1 ? ['continuation'] : [])].map((view) => `<figure><figcaption>${view}</figcaption><a href="${entry.label}-${view}.png"><img loading="lazy" src="${entry.label}-${view}.png" alt="${entry.label}, ${view}"></a></figure>`).join('')}</article></section>`).join('')}</html>`)
+  await writeFile(path.join(output, 'index.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UI-01 Step 3A reading evidence</title><style>body{font:16px/1.6 system-ui;background:#eee4ce;color:#382a21;margin:24px}section{margin:32px 0}article{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}img{width:100%;height:auto}figure{margin:0}a{color:inherit}</style><h1>Physical recipe continuation</h1><p>Actual Chromium captures of production routes, with isolated sessions and intercepted recipe responses. Native 200% uses browser zoom and unscaled CDP captures. No fixture data is shipped in the app.</p>${measurements.map((entry) => `<section><h2>${entry.label}</h2><p>${entry.turns} reading views; ${entry.units} complete semantic entries.</p><article>${['first', ...(entry.turns > 1 ? ['continuation'] : [])].map((view) => `<figure><figcaption>${view}</figcaption><a href="${entry.label}-${view}.png"><img loading="lazy" src="${entry.label}-${view}.png" alt="${entry.label}, ${view}"></a></figure>`).join('')}</article></section>`).join('')}</html>`)
   process.stdout.write('Public demo retry/return and native 200% complete reading passed.\n')
 } finally {
   await nativeContext?.close()

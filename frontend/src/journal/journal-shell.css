@@ -127,10 +127,7 @@
   z-index: 10;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--mm-color-kraft-500) transparent;
-  scroll-padding-block: 24px;
+  overflow: visible;
   color: var(--mm-color-ink);
 }
 .mm-journal-flyleaf {
@@ -256,7 +253,7 @@
 .mm-stationery--tape { width: 90px; left: 8px; bottom: 12px; }
 .mm-stationery--ring-stain { width: 130px; right: 3%; top: 550px; opacity: .55; }
 
-/* Original breakpoint; keep the existing shared scrollport and reading order. */
+/* At narrow or short viewports, use the same paper with one physical leaf visible. */
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-journal-stage {
     --mm-tab-reserve: 0px;
@@ -265,7 +262,7 @@
     --mm-overhang: 9px;
     --mm-gutter: 0px;
     --mm-page-width: min(calc(100vw - 2 * var(--mm-overhang) - var(--mm-ring-zone) - 26px), 620px);
-    --mm-page-height: max(320px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 14px));
+    --mm-page-height: max(500px, calc(100dvh - var(--mm-top-ui) - 2 * var(--mm-overhang) - 14px));
     --mm-board-width: calc(var(--mm-page-width) + var(--mm-ring-zone) + var(--mm-overhang));
     --mm-radius-out: 16px;
     --mm-radius-page: 12px;
@@ -283,10 +280,7 @@
     left: var(--mm-ring-zone);
     width: var(--mm-page-width);
     display: block;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--mm-color-kraft-500) transparent;
-    scroll-padding-block: 20px;
+    overflow: visible;
     background: var(--mm-color-parchment-100) var(--mm-tex-grain);
     border-radius: 2px var(--mm-radius-page) var(--mm-radius-page) 2px;
   }
@@ -309,7 +303,7 @@
 @media (min-width: 600.02px) and (max-width: 1099.98px), (min-width: 600.02px) and (max-height: 639.98px) {
   .mm-desk--with-companion .mm-journal-stage {
     --mm-page-width: min(calc(100vw - 178px), 620px);
-    /* Leave desk space for Mori's default position while the leaf scrolls. */
+    /* Leave desk space for Mori's default position beside the single leaf. */
     margin-inline-end: max(136px, calc((100% - var(--mm-board-width)) / 2));
   }
 }

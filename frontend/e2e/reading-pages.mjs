@@ -9,7 +9,6 @@ export async function settleReadingPages(page) {
     const single = globalThis.matchMedia('(max-width: 1099.98px), (max-height: 639.98px)').matches
     const height = Math.floor(Math.min(right.clientHeight, single ? Infinity : left.clientHeight)) - 8
     const width = Math.floor(Math.min(right.clientWidth, single ? Infinity : left.clientWidth)) - 8
-    if (height > 0 && width > 0 && (height < 160 || width < 80)) return article.classList.contains('is-fallback')
     return Number(article.dataset.readingCapacity) === height && Number(article.dataset.readingWidth) === width
   })
 }

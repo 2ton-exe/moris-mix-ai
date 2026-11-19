@@ -57,6 +57,8 @@ class RouterTestRequest extends NativeRequest {
   }
 }
 
+let matchMediaDescriptor: PropertyDescriptor | undefined
+
 function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })) } = {}) {
   const state = authState(userId)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -76,13 +78,28 @@ function addIngredient(value: string) {
   fireEvent.keyDown(input, { key: 'Enter' })
 }
 
+function nextChefPage() {
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+}
+
+function openPreferences() {
+  while (!screen.queryByRole('textbox', { name: /^Cooking preferences/ })) nextChefPage()
+}
+
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  matchMediaDescriptor ??= Object.getOwnPropertyDescriptor(window, 'matchMedia')
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: (query: string) => ({
+    matches: query.includes('prefers-reduced-motion'), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }) })
   vi.stubGlobal('Request', RouterTestRequest)
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  if (matchMediaDescriptor) Object.defineProperty(window, 'matchMedia', matchMediaDescriptor)
+  else Reflect.deleteProperty(window, 'matchMedia')
+  matchMediaDescriptor = undefined
   localStorage.clear()
   sessionStorage.clear()
 })
@@ -110,6 +127,39 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
   })
 
+  it('continues pantry entries and preferences onto physical pages without changing the request text', async () => {
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    renderChef()
+    const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+    fireEvent.change(input, { target: { value: 'rice, beans, eggs, tomatoes, onion, garlic, salt' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelectorAll('li')).toHaveLength(2)
+
+    nextChefPage()
+    expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('eggs')
+    expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('garlic')
+    nextChefPage()
+    expect(screen.getByRole('region', { name: /AI Chef page 3/ }).textContent).toContain('salt')
+    nextChefPage()
+
+    const preferences = 'a'.repeat(400) + 'b'.repeat(400) + 'c'.repeat(150)
+    fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: preferences } })
+    expect(screen.getByText('This request only · 950 / 1000 characters')).toBeTruthy()
+    const preferenceParts = [(screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value]
+    while (screen.queryByRole('button', { name: 'Next page' })) {
+      nextChefPage()
+      const nextPart = screen.queryByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement | null
+      if (!nextPart) break
+      preferenceParts.push(nextPart.value)
+    }
+    expect(preferenceParts.join('')).toBe(preferences)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    expect(generate.mock.calls[0]?.[0]).toEqual(['rice', 'beans', 'eggs', 'tomatoes', 'onion', 'garlic', 'salt'])
+    expect(generate.mock.calls[0]?.[1]).toBe(preferences)
+  })
+
   it('creates and removes pantry tokens, accepts preferences, and shows a validated unsaved review', async () => {
     const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn(async () => ({ id: 'saved-chef-recipe' }))
@@ -122,6 +172,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('Rice')
     fireEvent.click(screen.getByRole('button', { name: 'Remove tomatoes' }))
     addIngredient('tomatoes')
+    openPreferences()
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'quick, no frying' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
@@ -163,12 +214,14 @@ describe('AI Chef pantry and review workflow', () => {
     expect(generate).not.toHaveBeenCalled()
 
     addIngredient('rice')
+    openPreferences()
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'spicy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect((await screen.findByRole('alert')).textContent).toContain('today’s AI Chef limit')
     await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('confused'))
-    expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
     expect((screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value).toBe('spicy')
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
 
     expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
     fireEvent.submit(document.querySelector('.mm-ai-chef__form')!)

@@ -32,6 +32,20 @@ export function RecipeIndexCardContent({ recipe }: { recipe: RecipeSummary }) {
   </>
 }
 
+export function RecipeCollectionCardMeasure({ recipe, folio }: { recipe: RecipeSummary; folio: number }) {
+  return <li className="mm-recipe-card-slot">
+    <div className={`mm-collection-entry${folio % 2 === 0 ? ' is-flipped' : ''}`}>
+      <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} />
+      <div className="mm-recipe-card__copy">
+        <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
+        <h2>{recipe.title}</h2>
+        <RecipeMetadata recipe={recipe} />
+        <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>
+      </div>
+    </div>
+  </li>
+}
+
 export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean }) {
   const { user } = useAuth()
   const location = useLocation()
@@ -90,7 +104,7 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />
         <div className="mm-recipe-card__copy">
           <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>
-          <h2>{recipe.title.length > 100 ? `${recipe.title.slice(0, 100)}…` : recipe.title}</h2>
+          <h2>{recipe.title}</h2>
           <RecipeMetadata recipe={recipe} />
           <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>
         </div>

@@ -83,7 +83,7 @@ export async function assertJournalGeometry(page, label) {
     assert.ok(Math.abs(right.width / right.height - .74) < .002, `${label}: source portrait paper ratio`)
     assert.equal(geometry.layers.spread, '30', `${label}: desktop spread depth`)
   } else {
-    assert.equal(geometry.scrollport.overflowY, 'auto', `${label}: missing single-page scrollport`)
+    assert.ok(!['auto', 'scroll'].includes(geometry.scrollport.overflowY), `${label}: paper content should use page turns, not an inner scrollport`)
   }
   assert.ok(tabs.length >= 3, `${label}: journal tabs missing`)
   assert.ok(Math.abs(Math.max(...tabs.map((tab) => tab.bottom)) - book.top) <= 1, `${label}: tabs detach from the cover`)
