@@ -15,6 +15,8 @@ const validationWorkflows = [
   'reusable-staging.yml',
   'reusable-production.yml',
   'database-backup.yml',
+  'modular-main.yml',
+  'recipe-image-upload-cleanup.yml',
 ];
 
 for (const file of validationWorkflows) {
