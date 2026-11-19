@@ -146,7 +146,7 @@ try {
 
         await page.goto(`${appOrigin}/app/recipes/${recipeId}/edit`)
         await expect(page.getByLabel('Recipe title')).toHaveValue('Ginger rice')
-        const imagePanel = page.getByRole('region', { name: 'Recipe image' })
+        const imagePanel = page.getByRole('region', { name: 'Recipe image', exact: true })
         if (width >= 1100) {
           while (!await imagePanel.isVisible()) {
             await page.getByRole('button', { name: 'Next Pages' }).click()
