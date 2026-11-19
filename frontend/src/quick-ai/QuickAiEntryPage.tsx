@@ -5,6 +5,7 @@ import { HttpError } from '../api/http'
 import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
+import { useMoriFieldFocus } from '../mori/routeState'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
@@ -184,13 +185,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const requestNumber = useRef(0)
   const inFlight = useRef(false)
   const mounted = useRef(true)
-  const moriFocusNotes = typeof location.state === 'object' && location.state !== null && 'moriFocus' in location.state && location.state.moriFocus === 'notes'
-  useEffect(() => {
-    if (!moriFocusNotes) return
-    const frame = window.requestAnimationFrame(() => { notesRef.current?.focus(); setGuidedNotes(true) })
-    const timeout = window.setTimeout(() => setGuidedNotes(false), 2200)
-    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timeout) }
-  }, [location.key, location.state, moriFocusNotes])
+  const moriFocusNotes = useMoriFieldFocus('notes', notesRef, setGuidedNotes)
   const retryWait = draft.blockedUntil === null ? 0 : Math.max(0, Math.ceil((draft.blockedUntil - now) / 1000))
   const hasUnsavedContent = draft.notes.trim().length > 0 || handoff !== null
   const navigationConfirmation = useUnsavedChangesGuard(persistenceFailed && hasUnsavedContent, { warnOnUnload: true })

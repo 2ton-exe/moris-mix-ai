@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
+import { moriReviewKeyFromState } from '../mori/routeState'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -126,10 +127,7 @@ export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
   const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an AI Chef recipe.</p>
-  const moriReviewKey = typeof location.state === 'object' && location.state !== null &&
-    'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
-    ? location.state.moriReviewKey
-    : 'initial'
+  const moriReviewKey = moriReviewKeyFromState(location.state)
   return <ChefReviewSession key={`${user.id}:${moriReviewKey}`} userId={user.id} save={save} />
 }
 

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
+import { moriReviewKeyFromState } from '../mori/routeState'
 import { JournalShell } from '../journal/JournalShell'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -31,10 +32,7 @@ export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) 
   const { user } = useAuth()
   const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an extracted recipe.</p>
-  const moriReviewKey = typeof location.state === 'object' && location.state !== null &&
-    'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
-    ? location.state.moriReviewKey
-    : 'initial'
+  const moriReviewKey = moriReviewKeyFromState(location.state)
   return <ExtractedRecipeReviewSession key={`${user.id}:${moriReviewKey}`} userId={user.id} save={save} />
 }
 
