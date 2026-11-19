@@ -237,6 +237,7 @@
   justify-content: flex-end;
   gap: 0;
   padding: 0;
+  padding-inline-end: var(--mm-radius-page);
   pointer-events: none;
 }
 .mm-bookmark {
@@ -285,11 +286,16 @@
 .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']:hover { box-shadow: 0 -3px 6px rgb(40 24 10 / .16); }
 @media (min-width: 1100px) and (min-height: 640px) {
   .mm-journal-page { --mm-journal-tab-pop: 2px; }
-  .mm-journal-page > .mm-bookmarks--journal { padding-inline-end: var(--mm-radius-page); }
+  /* A full-width seam mask flattens the rounded outer paper corner. */
+  .mm-journal-page::before { content: none; }
+  .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page'],
+  .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']::after {
+    background-image: var(--mm-tex-grain), var(--mm-tex-mottle);
+  }
   .mm-journal-page > .mm-bookmarks .mm-bookmark { border-color: rgb(120 90 50 / .14); box-shadow: 0 1px 2px rgb(40 24 10 / .1), inset 0 1px 0 rgb(255 255 255 / .36); }
-  .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page'] { transform: translateY(calc(0px - var(--mm-journal-tab-pop))); box-shadow: 0 -2px 5px rgb(40 24 10 / .08); }
+  .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page'] { transform: translateY(calc(0px - var(--mm-journal-tab-pop))); box-shadow: 0 -1px 3px -1px rgb(40 24 10 / .12); }
   .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']::after { bottom: calc(-2px - var(--mm-journal-tab-pop)); height: calc(3px + var(--mm-journal-tab-pop)); }
-  .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']:hover { box-shadow: 0 -2px 6px rgb(40 24 10 / .1); }
+  .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']:hover { box-shadow: 0 -1px 3px -1px rgb(40 24 10 / .12); }
 }
 .mm-desk :where(a, button, input, textarea, select, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
 .mm-bookmarks .mm-bookmark:focus-visible { outline-offset: 2px; }

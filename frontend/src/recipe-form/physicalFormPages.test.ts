@@ -76,3 +76,15 @@ it('keeps long notes and instruction text intact across writing leaves', () => {
   expect(leafIndexForAnchor(leaves, 'instruction:' + state.instructions[0].key + ':part:5')).toBe(leaves.indexOf(instructionLeaves[5]))
   expect(leafKeyForFieldPath('notes', state)).toBe('identity')
 })
+
+it.each([223, 224, 225, 226])('splits emoji near the row boundary after %i ASCII characters', (length) => {
+  const text = 'a'.repeat(length) + '😀😀'
+  const parts = splitFormText(text, 600, 4, 56)
+  expect(parts.join('')).toBe(text)
+  expect(parts.length).toBeGreaterThan(1)
+  for (const part of parts) {
+    expect(part.length).toBeGreaterThan(0)
+    expect(formTextRows(part, 56)).toBeLessThanOrEqual(4)
+    expect(part).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/)
+  }
+})

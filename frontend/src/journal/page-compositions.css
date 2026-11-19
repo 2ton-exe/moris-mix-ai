@@ -29,7 +29,6 @@
 .mm-collection-entry .mm-recipe-card__copy { display: block; padding: 0; }
 .mm-collection-entry .mm-recipe-card__folio { position: static; display: block; margin-bottom: 4px; font: 500 18px/1 var(--mm-font-hand); }
 .mm-desk .mm-collection-entry h2 { margin: 0 0 12px; font: 600 clamp(19px, 1.9vw, 27px)/1.12 var(--mm-font-serif); color: var(--mm-color-ink); overflow-wrap: anywhere; }
-.mm-collection-entry .recipe-card-link { display: inline-flex; gap: 5px; margin: 8px 0 0; padding: 0; font: 700 12px/1.2 var(--mm-font-sans); color: var(--mm-color-burgundy-700); letter-spacing: .07em; text-transform: uppercase; }
 .mm-desk .mm-recipe-metadata { display: flex; flex-wrap: wrap; gap: 10px 12px; margin: 0; }
 .mm-desk .mm-recipe-metadata > div { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .mm-desk .mm-recipe-metadata dt { font-size: 11px; }
@@ -127,6 +126,12 @@
 .mm-reading-footer { justify-content: space-between; }
 .mm-reading-footer .recipe-delete-control { margin: 0; }
 .mm-desk .mm-demo-title { margin: 0 0 14px; color: var(--mm-color-ink-soft); font: 600 20px/1.2 var(--mm-font-serif); }
+
+/* Keep two ordinary recipe scraps within the desktop collection body. */
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-collection-entry { grid-template-columns: minmax(0, 36%) minmax(0, 1fr); }
+  .mm-collection-entry.is-flipped { grid-template-columns: minmax(0, 1fr) minmax(0, 36%); }
+}
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   /* Keep the reading order complete on each physical leaf. */

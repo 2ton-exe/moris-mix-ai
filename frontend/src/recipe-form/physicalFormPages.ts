@@ -26,10 +26,11 @@ export function splitFormText(text: string, limit = DEFAULT_FORM_TEXT_CHARS_PER_
       let low = offset + 1
       let high = end
       while (low < high) {
-        let middle = Math.ceil((low + high) / 2)
+        const midpoint = Math.ceil((low + high) / 2)
+        let middle = midpoint
         if (middle < text.length && /[\uD800-\uDBFF]/.test(text[middle - 1]) && /[\uDC00-\uDFFF]/.test(text[middle])) middle++
-        if (formTextRows(text.slice(offset, middle), columns) <= rows) low = middle
-        else high = middle - 1
+        if (formTextRows(text.slice(offset, middle), columns) <= rows) low = midpoint
+        else high = midpoint - 1
       }
       end = low
       if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end++

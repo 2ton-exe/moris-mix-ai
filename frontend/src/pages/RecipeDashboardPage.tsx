@@ -98,7 +98,9 @@ export default function RecipeDashboardPage() {
   if (hasAnchor) anchored.set('leaf', String(pagedCollection
     ? Math.max(1, collectionStarts.filter((start) => start <= entry).length)
     : Math.floor(entry / perPage) + 1))
-  const leaf = journalPage(anchored, recipes?.length ?? 0, { hasMore: query.hasNextPage || query.isPending, perPage })
+  const leaf = journalPage(anchored, pagedCollection ? collectionStarts.length : recipes?.length ?? 0, {
+    hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : perPage,
+  })
   const spread = Math.floor(leaf / 2)
   const pages = single ? [leaf] : spread === 0 ? [0, 1] : [spread * 2, spread * 2 + 1]
   const rightPage = pages.at(-1)!
@@ -179,12 +181,10 @@ export default function RecipeDashboardPage() {
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
             <PaperCard surface="fresh" className="mm-recipe-empty__card">
               <Tape variant="sage" className="mm-recipe-empty__tape" />
-              <p className="mm-recipe-index__eyebrow">A fresh page for MORI'S MIX</p>
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
               <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>
-              <Link className="button button-primary" to="/app/recipes/new">Add Your First Scrap</Link>
+              <Link className="button button-primary" to="/app/recipes/new">Add your first recipe</Link>
               <Link className="button button-secondary" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Organize cooking notes with Mori</Link>
-              <span className="mm-handwriting mm-recipe-empty__note">Your first recipe becomes page one.</span>
             </PaperCard>
           </section>
 )

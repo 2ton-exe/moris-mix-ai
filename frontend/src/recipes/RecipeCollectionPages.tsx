@@ -23,12 +23,16 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     if (!viewport || !list || !measureCatalog || typeof ResizeObserver === 'undefined') return
     const measure = () => {
       const padding = getComputedStyle(viewport)
-      // Reserve space for result feedback, list padding, and focused card outlines.
-      const capacity = viewport.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom) - 64
+      const listStyle = getComputedStyle(list)
+      // paginateReading already includes 10px between entries.
+      const gap = index ? 0 : (parseFloat(listStyle.rowGap) || 0) - 10
+      // The index reserves feedback space; collection pages use their actual list padding.
+      const reserve = index ? 64 : parseFloat(listStyle.paddingTop) + parseFloat(listStyle.paddingBottom)
+      const capacity = viewport.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom) - reserve + gap
       if (capacity <= 0) return
       list.style.width = `${viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)}px`
       const starts = paginateReading(Array.from(list.children, (row, offset) => ({
-        id: String(offset), section: 'index', headingHeight: 0, height: row.getBoundingClientRect().height,
+        id: String(offset), section: 'index', headingHeight: 0, height: row.getBoundingClientRect().height + gap,
       })), capacity).map((page) => Number(page[0] ?? 0))
       measureCatalog(starts)
     }
@@ -82,7 +86,8 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
 
     </JournalFacingPage>}
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
-      {first ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
+      {/* Keep desktop page capacity independent of the selected spread. */}
+      {first || pages.length === 2 ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
       {!first && left === 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
       <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes <span>({recipes?.length ?? 0})</span></h2>
       <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}>

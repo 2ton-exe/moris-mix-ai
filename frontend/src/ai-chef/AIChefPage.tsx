@@ -316,7 +316,6 @@ function AIChefSession({ userId }: { userId: string }) {
       <section ref={pageRef} className="mm-ai-chef__page" role="region" aria-label={`AI Chef page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
         <header className="mm-ai-chef__heading">
           <div>
-            <p className="mm-recipe-index__eyebrow">AI Chef</p>
             <h1 id="ai-chef-title" tabIndex={-1}>What’s in your pantry?</h1>
             <p className="intro">Add what you have; Mori will suggest a recipe for you to review.</p>
           </div>
@@ -400,7 +399,7 @@ function AIChefSession({ userId }: { userId: string }) {
         </>}
         {page > 0 && page < preferencesStartPage && <section className="mm-ai-chef__pantry-pages" aria-labelledby="ai-chef-pantry-page-title">
           <h2 id="ai-chef-pantry-page-title" tabIndex={-1}>Pantry ingredients · continued</h2>
-          <p className="mm-ai-chef__help">Page {page} of {pantryPageCount}. Remove an item here or return to the first page to add more.</p>
+          <p className="mm-ai-chef__help">Page {page} of {pantryPageCount}. Return to the first page to add ingredients.</p>
           <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${savedInputCount} ${savedInputCount === 1 ? 'item' : 'items'}`}>
             <ul>{pantryItems.slice(previewItems + (page - 1) * pantryPageSize, previewItems + page * pantryPageSize).map((item, index) => <li key={`${item.toLowerCase()}-${index + previewItems}`}>
               <span>{item}</span>
@@ -409,8 +408,7 @@ function AIChefSession({ userId }: { userId: string }) {
           </section>
         </section>}
         {page >= preferencesStartPage && !handoff && <>
-        <h2 className="mm-ai-chef__pane-title" tabIndex={-1}>{preferenceParts.length > 1 ? 'Cooking preferences · continued' : 'Cooking preferences'}</h2>
-        <label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label>
+        <h2 className="mm-ai-chef__pane-title" tabIndex={-1}><label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label></h2>
         <textarea
           id="ai-chef-preferences"
           value={preferencePart}

@@ -40,7 +40,6 @@ export function RecipeCollectionCardMeasure({ recipe, folio }: { recipe: RecipeS
         <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
         <h2>{recipe.title}</h2>
         <RecipeMetadata recipe={recipe} />
-        <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>
       </div>
     </div>
   </li>
@@ -106,7 +105,6 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>
           <h2>{recipe.title}</h2>
           <RecipeMetadata recipe={recipe} />
-          <span className="recipe-card-link">Read recipe <span aria-hidden="true">→</span></span>
         </div>
         </>}
       </Link>

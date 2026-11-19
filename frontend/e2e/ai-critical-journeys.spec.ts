@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { finishRecipeReview, createRecipe, signIn, waitForCollection } from './recipe-journey-helpers'
+import { finishRecipeReview, createRecipe, navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
 
 async function addPantryItem(page: Page, item: string) {
   const input = page.getByRole('textbox', { name: 'Pantry ingredient' })
@@ -10,10 +10,20 @@ async function addPantryItem(page: Page, item: string) {
 
 async function openChefPreferences(page: Page) {
   const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
+  const nextPage = page.getByRole('button', { name: 'Next page' })
   while (!await preferences.isVisible()) {
-    await page.getByRole('button', { name: 'Next page' }).click()
+    await nextPage.click()
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   }
   return preferences
+}
+
+async function expectPantryItemAndReturnToPreferences(page: Page, item: string) {
+  await page.getByRole('button', { name: 'Previous page' }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: /^Pantry list,/ })).toContainText(item)
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -66,7 +76,7 @@ async function readSavedRecipeState(page: Page, context: Awaited<ReturnType<type
   return { recipes, lineage: Object.fromEntries(lineage) }
 }
 
-test('AI Chef saves a reviewed recipe and only the selected parent lineage at a mobile viewport', async ({ page }) => {
+test('AI Chef saves a reviewed recipe and only the selected parent lineage', async ({ page }) => {
   test.setTimeout(120_000)
 
   const marker = `QA03 Chef ${crypto.randomUUID()}`
@@ -139,7 +149,10 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage at a 
   await test.step('Review one suggested parent and save the edited recipe', async () => {
     parent = generated.parents.find((candidate) => candidate.title === parentTitle)
     expect(parent).toBeTruthy()
-    await page.getByRole('checkbox', { name: new RegExp(parentTitle) }).check()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const inspiration = await navigateToRecipeSection(page, 'Recipe inspiration')
+    await inspiration.getByRole('checkbox', { name: new RegExp(parentTitle) }).check()
+    await finishRecipeReview(page)
     await page.getByLabel('Recipe title').fill(reviewedTitle)
     expect(recipeWrites).toHaveLength(0)
     expect(lineageWrites).toHaveLength(0)
@@ -275,7 +288,7 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     await preferences.fill('qa03:malformed')
     await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
     await expect(page.getByRole('alert')).toContainText('Mori returned a recipe that could not be checked safely.')
-    await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
+    await expectPantryItemAndReturnToPreferences(page, 'rice')
     await expect(preferences).toHaveValue('qa03:malformed')
 
     await preferences.fill('qa03:provider-failure')
@@ -289,7 +302,7 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     expect(providerFailureResponse.status()).toBe(503)
     await expect(page.getByRole('alert')).toContainText('The AI service is temporarily unavailable.', { timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
-    await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
+    await expectPantryItemAndReturnToPreferences(page, 'rice')
     await expect(preferences).toHaveValue('qa03:provider-failure')
     expect(generationRequests).toHaveLength(2)
     expect(recipeWrites).toHaveLength(0)
@@ -361,7 +374,7 @@ test('QA-05 quota exhaustion keeps Quick AI and Chef drafts unsaved', async ({ p
     expect(response.status()).toBe(429)
     await expect(response.json()).resolves.toMatchObject({ error: { code: 'QUOTA_EXCEEDED' } })
     await expect(page.getByRole('alert')).toContainText('reached today’s AI Chef limit')
-    await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
+    await expectPantryItemAndReturnToPreferences(page, 'rice')
     await expect(preferences).toHaveValue('QA05_QUOTA_EXHAUSTED')
     expect(recipeWrites).toHaveLength(0)
     expect(lineageWrites).toHaveLength(0)

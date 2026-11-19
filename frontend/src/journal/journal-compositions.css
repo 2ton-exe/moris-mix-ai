@@ -15,7 +15,6 @@
 .mm-journal-page .recipe-card.mm-recipe-card { grid-template-columns: 100px minmax(0, 1fr); min-height: 184px; height: auto; gap: 15px; padding: 21px 14px 14px; }
 .mm-journal-page .mm-recipe-card h2 { font-size: 22px; line-height: 1.2; }
 .mm-journal-page .mm-recipe-card__stamp { font-size: 10px; }
-.mm-journal-page .recipe-card-link { font-size: 12px; letter-spacing: .03em; }
 .mm-recipe-card__copy { padding-top: 6px; }
 .mm-recipe-empty { min-height: 0; padding: 22px 10px; }
 .mm-recipe-empty__card { padding: 24px 16px; }

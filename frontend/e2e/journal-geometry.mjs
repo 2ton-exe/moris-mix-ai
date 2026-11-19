@@ -61,7 +61,7 @@ export async function assertJournalGeometry(page, label) {
     const decorationIntercepts = [...book.querySelectorAll('.mm-journal-board, .mm-journal-stack, .mm-journal-binding, .mm-journal-ring-plate, .mm-journal-rings, .mm-journal-ring, .mm-journal-ring__half, .mm-journal-holes, .mm-journal-hole')].some((element) => globalThis.getComputedStyle(element).pointerEvents !== 'none')
     const outside = [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 8).map((element) => ({ name: String(element.className), box: rect(element) }))
     const paperStyle = globalThis.getComputedStyle(right)
-    return { viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), pageRadius: parseFloat(paperStyle.borderTopRightRadius), paperBackgroundColor: paperStyle.backgroundColor, paperBackgroundImage: paperStyle.backgroundImage, spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
+    return { viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), paper: rect(paper), pageRadius: parseFloat(globalThis.getComputedStyle(paper).borderTopRightRadius), paperBackgroundColor: paperStyle.backgroundColor, paperBackgroundImage: paperStyle.backgroundImage, spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
   })
   assert.ok(geometry.documentWidth <= geometry.viewport.width, `${label}: horizontal document overflow ${JSON.stringify(geometry.outside)}`)
   const { book, left, right, spine, tabs, viewport } = geometry
@@ -87,11 +87,11 @@ export async function assertJournalGeometry(page, label) {
     assert.ok(Math.abs(spine.x + spine.width / 2 - book.x - book.width / 2) < 1, `${label}: spine off center`)
     assert.ok(Math.abs(right.width / right.height - .74) < .002, `${label}: source portrait paper ratio`)
     assert.equal(geometry.layers.spread, '30', `${label}: desktop spread depth`)
-    assert.ok(tabs.every((tab) => tab.right <= right.right - geometry.pageRadius + 1), `${label}: tabs clear the rounded top-right paper corner`)
   } else {
     assert.ok(!['auto', 'scroll'].includes(geometry.scrollport.overflowY), `${label}: paper content should use page turns, not an inner scrollport`)
   }
   assert.ok(tabs.length >= 3, `${label}: journal tabs missing`)
+  assert.ok(tabs.every((tab) => tab.right <= geometry.paper.right - geometry.pageRadius + 1), `${label}: tabs clear the rounded top-right paper corner`)
   const activeTabs = tabs.filter((tab) => tab.current)
   assert.equal(activeTabs.length, 1, `${label}: exactly one route-derived tab is current`)
   assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)

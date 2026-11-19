@@ -46,7 +46,7 @@
 }
 @media (max-width: 599.98px) {
   .mm-desk .mm-reading-identity { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 14px; }
-  .mm-desk .mm-reading-identity .mm-recipe-artwork--detail { --mm-photo-width: min(52cqw, 180px); }
+  .mm-desk .mm-reading-identity .mm-recipe-artwork--detail { --mm-photo-width: min(72cqw, 180px); }
   .mm-desk .mm-reading-identity .mm-recipe-detail__summary { width: 100%; }
 }
 @media (max-width: 1099.98px), (max-height: 639.98px) {
