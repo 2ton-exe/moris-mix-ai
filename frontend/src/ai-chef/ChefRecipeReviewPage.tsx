@@ -542,7 +542,6 @@ function ReviewUnavailable({ userEmail, status }: { userEmail?: string; status: 
       <nav className="mm-recipe-detail__back" aria-label="Sheet navigation"><Link to="/app/chef">← Back to AI Chef</Link></nav>
       <header className="mm-recipe-editor-heading">
         <div>
-          <p className="mm-recipe-index__eyebrow">AI recipe preview</p>
           <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
           <p className="intro">{storageMessage}</p>
         </div>

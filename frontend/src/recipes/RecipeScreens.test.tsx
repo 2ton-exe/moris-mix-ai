@@ -185,7 +185,7 @@ it('shows a physically empty journal and directs the cook to add a real first sc
   vi.mocked(source.list).mockResolvedValue([])
   render(tree('/app/recipes'))
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
-  const firstScrap = screen.getByRole('link', { name: 'Add Your First Scrap' })
+  const firstScrap = screen.getByRole('link', { name: 'Add your first recipe' })
   expect(firstScrap.getAttribute('href')).toBe('/app/recipes/new')
   expect(screen.queryByRole('link', { name: /Explore a demonstration recipe/ })).toBeNull()
   fireEvent.click(firstScrap)

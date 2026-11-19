@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
-import { BookOpen, ChefHat, House, Info, NotebookPen, Sparkles } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
 import { JournalSurface, PaperCard } from './Scrapbook'
@@ -30,9 +29,9 @@ function PublicLinks({ attached = false }: { attached?: boolean }) {
   const { pathname } = useLocation()
   const path = pathname.replace(/\/+$/, '')
   return <nav className={attached ? 'mm-bookmarks' : 'mm-desk-utilities'} aria-label={attached ? 'Journal sections' : 'Public pages'}>
-    <Link className="mm-bookmark" to="/home" aria-current={path === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
-    <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={path === '/about' ? 'page' : undefined}><Info size={16} aria-hidden="true" />About</Link>
-    <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={path === '/demo-recipe' ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />Demo recipe</Link>
+    <Link className="mm-bookmark" to="/home" aria-current={path === '/home' ? 'page' : undefined}>Home</Link>
+    <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={path === '/about' ? 'page' : undefined}>About</Link>
+    <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={path === '/demo-recipe' ? 'page' : undefined}>Demo recipe</Link>
   </nav>
 }
 
@@ -45,10 +44,10 @@ function JournalNavigation() {
   const collection = path === '/app' || path === '/app/recipes'
   const returnState = collection ? { journalReturn: pathname + search + hash } : undefined
   return <nav className="mm-bookmarks mm-bookmarks--journal" aria-label="Journal sections">
-    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !quickEntry && !chef ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
-    <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" state={creating ? state : returnState} aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
-    <Link className="mm-bookmark mm-bookmark--rose" to="/app/quick-entry" state={path === '/app/quick-entry' ? state : returnState} aria-current={quickEntry ? 'page' : undefined}><Sparkles size={16} aria-hidden="true" />Quick AI Entry</Link>
-    <Link className="mm-bookmark mm-bookmark--lilac" to="/app/chef" aria-current={chef ? 'page' : undefined}><ChefHat size={16} aria-hidden="true" />AI Chef</Link>
+    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !quickEntry && !chef ? 'page' : undefined}>My recipes</Link>
+    <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" state={creating ? state : returnState} aria-current={creating ? 'page' : undefined}>New recipe</Link>
+    <Link className="mm-bookmark mm-bookmark--rose" to="/app/quick-entry" state={path === '/app/quick-entry' ? state : returnState} aria-current={quickEntry ? 'page' : undefined}>Quick AI Entry</Link>
+    <Link className="mm-bookmark mm-bookmark--lilac" to="/app/chef" aria-current={chef ? 'page' : undefined}>AI Chef</Link>
   </nav>
 }
 

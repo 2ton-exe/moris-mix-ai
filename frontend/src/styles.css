@@ -110,7 +110,6 @@ a:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid 
 .recipe-metadata div { display: flex; gap: 6px; }
 .recipe-metadata dt { color: #67717f; }
 .recipe-metadata dd { margin: 0; color: #344a3e; }
-.recipe-card-link { display: flex; justify-content: space-between; gap: 16px; margin-top: auto; padding-top: 24px; font-size: 13px; font-weight: 600; color: #344a3e; }
 .journal-empty { width: 100%; border: 1px dashed #b5c5bc; border-radius: 12px; padding: 48px 32px; text-align: center; background: #f1f5f2; }
 .empty-mark { font-size: 38px; color: #567765; }
 .journal-empty h2 { font-weight: 600; letter-spacing: -.03em; font-size: clamp(24px, 4vw, 32px); }

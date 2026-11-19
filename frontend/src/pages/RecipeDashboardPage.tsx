@@ -181,12 +181,10 @@ export default function RecipeDashboardPage() {
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
             <PaperCard surface="fresh" className="mm-recipe-empty__card">
               <Tape variant="sage" className="mm-recipe-empty__tape" />
-              <p className="mm-recipe-index__eyebrow">A fresh page for MORI'S MIX</p>
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
               <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>
-              <Link className="button button-primary" to="/app/recipes/new">Add Your First Scrap</Link>
+              <Link className="button button-primary" to="/app/recipes/new">Add your first recipe</Link>
               <Link className="button button-secondary" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Organize cooking notes with Mori</Link>
-              <span className="mm-handwriting mm-recipe-empty__note">Your first recipe becomes page one.</span>
             </PaperCard>
           </section>
 )

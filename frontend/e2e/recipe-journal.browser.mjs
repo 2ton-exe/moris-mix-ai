@@ -287,7 +287,7 @@ try {
   await empty.page.goto(`${origin}app/recipes`)
   await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
   await expect(empty.page.locator('.recipe-grid > li')).toHaveCount(0)
-  const add = empty.page.getByRole('link', { name: 'Add Your First Scrap' })
+  const add = empty.page.getByRole('link', { name: 'Add your first recipe' })
   await expect(add).toHaveAttribute('href', '/app/recipes/new')
   await add.click()
   await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
