@@ -357,6 +357,8 @@ try {
     await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
     await page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
     const panel = page.getByRole('region', { name: 'Mori', exact: true })
+    await panel.getByRole('textbox', { name: 'Message Mori' }).fill('Hello Mori')
+    await panel.getByRole('button', { name: 'Send', exact: true }).click()
     assert.ok((await panel.getByRole('log').boundingBox()).height >= 70, 'Short windows must preserve readable messages')
     for (const button of await panel.locator('.mori-chat-shortcuts button').all()) {
       await button.scrollIntoViewIfNeeded()
