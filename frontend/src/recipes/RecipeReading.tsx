@@ -169,8 +169,8 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     </div>
     <div className="mm-reading-request-status">{status}</div>
     <div ref={bodyRef} className="mm-continuation-body mm-recipe-reading-body" tabIndex={0} role="region" aria-label="Recipe ingredients, instructions and notes">
-      {!ready && !layout && <p role="status">Preparing recipe pages…</p>}
-      {single && identityVisible ? identity : <>{single && <h1 className="mm-continuation-title" tabIndex={-1}>Recipe continued</h1>}<ReadingUnits units={selectUnits(single ? spread?.[0] : spread?.[1])} prefix="right" width={layout?.width} />{!ready && !identityVisible && <p role="status">Preparing recipe pages…</p>}</>}
+      {!ready && !layout && <p aria-live="polite">Preparing recipe pages…</p>}
+      {single && identityVisible ? identity : <>{single && <h1 className="mm-continuation-title" tabIndex={-1}>Recipe continued</h1>}<ReadingUnits units={selectUnits(single ? spread?.[0] : spread?.[1])} prefix="right" width={layout?.width} />{!ready && !identityVisible && <p aria-live="polite">Preparing recipe pages…</p>}</>}
       {!single && current > 0 && !spread[1] && <p className="mm-reading-end">End of this recipe.</p>}
     </div>
     <div ref={bankRef} className="mm-reading-measure" aria-hidden="true" inert>{measurable && <ReadingUnits units={units} prefix="measure" measured />}</div>

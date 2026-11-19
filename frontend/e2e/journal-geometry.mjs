@@ -49,6 +49,7 @@ export async function assertJournalGeometry(page, label) {
         current: tab.getAttribute('aria-current') === 'page',
         zIndex: css.zIndex,
         backgroundColor: css.backgroundColor,
+        backgroundImage: css.backgroundImage,
         iconInteractive: hit(icon.x + icon.width / 2, icon.y + icon.height / 2),
         labelInteractive: hit(box.right - 16, box.y + box.height / 2),
         transform: { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d },
@@ -59,7 +60,8 @@ export async function assertJournalGeometry(page, label) {
     const layers = { paper: globalThis.getComputedStyle(paper).zIndex, rings: css('.mm-journal-rings').zIndex, ringFront: [...book.querySelectorAll('.mm-journal-ring__half')].map((node) => globalThis.getComputedStyle(node).zIndex), stacks: [...book.querySelectorAll('.mm-journal-stack')].map((stack) => globalThis.getComputedStyle(stack).zIndex), spread: globalThis.getComputedStyle(spread).zIndex }
     const decorationIntercepts = [...book.querySelectorAll('.mm-journal-board, .mm-journal-stack, .mm-journal-binding, .mm-journal-ring-plate, .mm-journal-rings, .mm-journal-ring, .mm-journal-ring__half, .mm-journal-holes, .mm-journal-hole')].some((element) => globalThis.getComputedStyle(element).pointerEvents !== 'none')
     const outside = [...globalThis.document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > globalThis.innerWidth + 1).slice(0, 8).map((element) => ({ name: String(element.className), box: rect(element) }))
-    return { viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), paperBackgroundColor: globalThis.getComputedStyle(right).backgroundColor, spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
+    const paperStyle = globalThis.getComputedStyle(right)
+    return { viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight }, layout, writer, book: rect(book), left: scroll(left), right: scroll(right), pageRadius: parseFloat(paperStyle.borderTopRightRadius), paperBackgroundColor: paperStyle.backgroundColor, paperBackgroundImage: paperStyle.backgroundImage, spine: rect(book.querySelector(layout === 'spread' ? '.mm-journal-binding' : '.mm-journal-ring')), scrollport: scroll(activeScrollport), tabs, layers, decorationIntercepts, documentWidth: globalThis.document.documentElement.scrollWidth, outside }
   })
   assert.ok(geometry.documentWidth <= geometry.viewport.width, `${label}: horizontal document overflow ${JSON.stringify(geometry.outside)}`)
   const { book, left, right, spine, tabs, viewport } = geometry
@@ -85,6 +87,7 @@ export async function assertJournalGeometry(page, label) {
     assert.ok(Math.abs(spine.x + spine.width / 2 - book.x - book.width / 2) < 1, `${label}: spine off center`)
     assert.ok(Math.abs(right.width / right.height - .74) < .002, `${label}: source portrait paper ratio`)
     assert.equal(geometry.layers.spread, '30', `${label}: desktop spread depth`)
+    assert.ok(tabs.every((tab) => tab.right <= right.right - geometry.pageRadius + 1), `${label}: tabs clear the rounded top-right paper corner`)
   } else {
     assert.ok(!['auto', 'scroll'].includes(geometry.scrollport.overflowY), `${label}: paper content should use page turns, not an inner scrollport`)
   }
@@ -93,6 +96,7 @@ export async function assertJournalGeometry(page, label) {
   assert.equal(activeTabs.length, 1, `${label}: exactly one route-derived tab is current`)
   assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
   assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
+  assert.equal(activeTabs[0].backgroundImage, geometry.paperBackgroundImage, `${label}: active tab uses the page paper texture`)
   assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
   for (const tab of tabs) {
     assert.ok(tab.bottom <= right.bottom + 1 && tab.left >= right.left && tab.right <= right.right, `${label}: tab overhangs the right page: ${tab.label}`)

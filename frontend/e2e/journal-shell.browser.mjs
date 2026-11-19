@@ -83,8 +83,12 @@ try {
           focused: element === globalThis.document.activeElement,
           focusVisible: element.matches(':focus-visible'),
           outline: globalThis.getComputedStyle(element).outlineStyle,
+          zIndex: globalThis.getComputedStyle(element).zIndex,
+          current: element.getAttribute('aria-current') === 'page',
+          bookmark: element.matches('.mm-bookmark'),
         }))
         assert.equal(focusState.focused && focusState.outline !== 'none', true, `${width}px ${label} bookmark ${await control.innerText()}: ${JSON.stringify(focusState)}`)
+        if (focusState.bookmark && !focusState.current) assert.equal(focusState.zIndex, '2', `${width}px ${label} focused tab layers above inactive dividers`)
       }
       await page.evaluate(() => {
         globalThis.document.activeElement?.blur()
@@ -102,6 +106,12 @@ try {
     await assertJournalSemantics(page, `${width}px dashboard`)
     await expect(bookmarks.getByRole('link', { name: 'My recipes' })).toHaveAttribute('aria-current', 'page')
     await checkShell('dashboard')
+    await page.goto(`${origin}app/chef`)
+    await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
+    await expect(bookmarks.getByRole('link', { name: 'AI Chef' })).toHaveAttribute('aria-current', 'page')
+    await checkShell('chef')
+    await page.goto(`${origin}app`)
+    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
     if (width === 1440) {
       const devtools = await context.newCDPSession(page)
       for (const type of ['protanopia', 'deuteranopia', 'tritanopia']) {
