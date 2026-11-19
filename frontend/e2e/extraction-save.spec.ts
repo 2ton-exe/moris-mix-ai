@@ -57,6 +57,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
 
   await test.step('sign in and extract a unique preview without creating a recipe', async () => {
     await signIn(page, localE2eUser)
+    await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/app/quick-entry')
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
     await page.getByRole('button', { name: 'Organize my notes' }).click()
