@@ -113,6 +113,49 @@ it('retrieves a pantry suggestion and keeps its saved-recipe lineage in the revi
   expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
 })
 
+it('keeps the active Quick AI review key for an equivalent handoff', async () => {
+  const notes = 'Tomato soup with tomatoes and broth; simmer until tender.'
+  vi.spyOn(extractRecipeApi, 'extract')
+    .mockResolvedValueOnce(recipe())
+    .mockResolvedValueOnce(recipe())
+  renderChat('mori-chat-equivalent-quick-review')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send(notes)
+  await screen.findByRole('button', { name: 'Review draft' })
+  fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry/review'))
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+
+  send(notes)
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Review draft' })).toHaveLength(2))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Review draft' })[1]!)
+
+  expect(await screen.findAllByText('Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')).toHaveLength(2)
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+})
+
+it('keeps the active AI Chef review key for an equivalent suggestion', async () => {
+  const prompt = 'What can I cook with rice and eggs; quick and spicy?'
+  vi.spyOn(generateRecipeApi, 'generate')
+    .mockResolvedValueOnce(suggestion())
+    .mockResolvedValueOnce(suggestion())
+  renderChat('mori-chat-equivalent-chef-review')
+
+  send(prompt)
+  await screen.findByRole('button', { name: 'Review recipe' })
+  fireEvent.click(screen.getByRole('button', { name: 'Review recipe' }))
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/chef/review'))
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+
+  send(prompt)
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Review recipe' })).toHaveLength(2))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Review recipe' })[1]!)
+
+  expect(await screen.findAllByText('Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')).toHaveLength(2)
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+})
+
 it('switches workflows when a later message clearly asks for the other recipe task', async () => {
   const extract = vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe('Tomato soup'))
   const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())

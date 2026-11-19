@@ -64,7 +64,15 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     setMessages((current) => [...current, message])
   }
 
-  function reviewKeyFor(draft: MoriDraft) {
+  function reviewKeyFor(draft: MoriDraft, sameHandoff: boolean) {
+    const reviewPath = draft.kind === 'create' ? '/app/quick-entry/review' : '/app/chef/review'
+    if (sameHandoff && location.pathname === reviewPath) {
+      const state = location.state
+      return typeof state === 'object' && state !== null &&
+        'moriReviewKey' in state && typeof state.moriReviewKey === 'number'
+        ? state.moriReviewKey
+        : undefined
+    }
     let key = reviewKeys.current.get(draft)
     if (key === undefined) {
       key = ++reviewSequence.current
@@ -253,9 +261,10 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       }
       if (!sameHandoff) writeQuickAiEntryDraft(userId, { notes: draft.handoff.sourceNotes, blockedUntil: null, blockedReason: null, handoff: draft.handoff })
       say('assistant', 'Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')
+      const reviewKey = reviewKeyFor(draft, sameHandoff === true)
       navigate('/app/quick-entry/review', { state: {
         moriKeepOpen: true,
-        moriReviewKey: reviewKeyFor(draft),
+        ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }),
         sourceJournalReturn: '/app/recipes',
       } })
       return
@@ -275,10 +284,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         handoff: draft.handoff,
       })
     say('assistant', 'Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')
+    const reviewKey = reviewKeyFor(draft, sameSuggestion === true)
     navigate('/app/chef/review', { state: {
       moriKeepOpen: true,
       chefGenerationSucceeded: true,
-      moriReviewKey: reviewKeyFor(draft),
+      ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }),
     } })
   }
 
