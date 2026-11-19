@@ -221,3 +221,19 @@ it('opens an existing AI Chef review instead of targeting its disabled pantry fi
   expect(screen.getByText(/already have a pantry idea waiting in review/)).toBeTruthy()
   expect(readChefDraftResult(userId).draft.handoff?.response.candidate_token).toBe('opaque-candidate-token')
 })
+
+it('preserves the active AI Chef review key when Pantry opens its existing idea', async () => {
+  const userId = 'mori-chat-active-chef-review'
+  writeChefDraft(userId, {
+    input: { pantryItems: ['rice'], pantryInput: '', preferences: '' },
+    handoff: { request: { pantryItems: ['rice'] }, response: suggestion(), selectedParentIds: [], saved: false },
+  })
+  render(<MemoryRouter initialEntries={[{ pathname: '/app/chef/review', state: { moriKeepOpen: true, moriReviewKey: 17 } }]}>
+    <MoriCompanionProvider><MoriCompanion userId={userId} /><Location /></MoriCompanionProvider>
+  </MemoryRouter>)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Pantry' }))
+
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":17'))
+  expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+})

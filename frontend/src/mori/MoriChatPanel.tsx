@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { MAX_PANTRY_ITEM_CHARS, MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS } from '../ai-chef/pantry'
 import { readChefDraftResult, writeChefDraft } from '../ai-chef/draft'
 import type { ChefReviewHandoff } from '../ai-chef/draft'
@@ -43,6 +43,7 @@ function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: 
 
 export function MoriChatPanel({ userId }: { userId: string }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [messages, setMessages] = useState<Message[]>([{ id: 0, role: 'assistant', text: 'Hi, I’m Mori! I can turn cooking notes into a recipe, find an idea from your pantry, or take you to the right spot.' }])
   const [mode, setMode] = useState<'create' | 'suggest' | null>(null)
   const [composer, setComposer] = useState('')
@@ -129,7 +130,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     setRetryRequest(null)
     if (path === '/app/chef' && focus === 'pantry' && readChefDraftResult(userId).draft.handoff) {
       say('assistant', 'You already have a pantry idea waiting in review. I’m opening it so you can finish or discard it before starting another one.')
-      navigate('/app/chef/review', { state: { moriKeepOpen: true } })
+      const reviewKey = location.pathname === '/app/chef/review' && typeof location.state === 'object' && location.state !== null &&
+        'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
+        ? location.state.moriReviewKey
+        : undefined
+      navigate('/app/chef/review', { state: { moriKeepOpen: true, ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }) } })
       return
     }
     say('assistant', message)
