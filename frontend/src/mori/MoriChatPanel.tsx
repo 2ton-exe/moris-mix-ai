@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { ArrowRight, BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
-import { Mori } from '../journal/Mori'
+import { BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
+import { SuggestedPrompts } from './SuggestedPrompts'
+import { promptCaret, suggestionContext } from './suggestions'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
 import { MAX_PANTRY_ITEM_CHARS, MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS } from '../ai-chef/pantry'
@@ -51,7 +52,7 @@ function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: 
 export function MoriChatPanel({ userId }: { userId: string }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [messages, setMessages] = useState<Message[]>([{ id: 0, role: 'assistant', text: 'Hi, I’m Mori! I can turn cooking notes into a recipe, find an idea from your pantry, or take you to the right spot.' }])
+  const [messages, setMessages] = useState<Message[]>([])
   const [mode, setMode] = useState<'create' | 'suggest' | null>(null)
   const [composer, setComposer] = useState('')
   const [pending, setPending] = useState(false)
@@ -66,8 +67,18 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
-  const introduced = useRef(new Set<'create' | 'suggest'>())
   const composerId = useId()
+  const [promptSelection, setPromptSelection] = useState(0)
+  const selectedPromptCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const caret = selectedPromptCaret.current
+    const input = document.getElementById(composerId)
+    if (caret !== null && input instanceof HTMLTextAreaElement) {
+      input.focus()
+      input.setSelectionRange(caret, caret)
+      selectedPromptCaret.current = null
+    }
+  }, [composer, composerId, promptSelection])
   useMoriActivity(pending ? { kind: 'working', message: 'I’m putting your recipe together…' } : null)
 
   useEffect(() => {
@@ -191,18 +202,6 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     }
     say('assistant', message)
     navigate(path, { state: { moriKeepOpen: true, ...(focus ? { moriFocus: focus } : {}) } })
-  }
-
-  function start(workflow: 'create' | 'suggest') {
-    if (mode === workflow) return
-    setMode(workflow)
-    setFollowUp(null)
-    setRetryRequest(null)
-    if (introduced.current.has(workflow)) return
-    introduced.current.add(workflow)
-    say('assistant', workflow === 'create'
-      ? 'Tell me the messy version: what it’s called, what went in, and how you cooked it. I’ll ask only for required details that are missing.'
-      : 'What ingredients do you have? You can add optional preferences after a semicolon, like “rice, eggs; quick and spicy.”')
   }
 
   async function createRecipe(notes: string) {
@@ -379,12 +378,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
     }}>
       {messages.map((message) => <article key={message.id} className="mori-chat-message" data-role={message.role} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
-        {message.id === 0 ? <div className="mori-chat-welcome">
-          <div className="mori-chat-introduction"><Mori size={76} mood="wave" /><div><h3>Hi, I’m Mori!</h3><p>{message.text.replace('Hi, I’m Mori! ', '')}</p></div></div>
-          <button className="mori-chat-feature" type="button" disabled={pending} onClick={() => start('suggest')}>
-            <span><strong>Cook with your ingredients</strong></span><ArrowRight size={20} aria-hidden="true" />
-          </button>
-        </div> : <p>{message.text}</p>}
+        <p>{message.text}</p>
         {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
           const retry = retryRequest
           setRetryRequest(null)
@@ -399,13 +393,14 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     })}
     </div>
     {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
-    <section className="mori-chat-prompts" aria-labelledby={`${composerId}-prompts`}>
-      <h3 id={`${composerId}-prompts`}>Suggested prompts</h3>
-      <div role="group" aria-label="Suggested prompts">
-        <button type="button" disabled={pending} aria-pressed={mode === 'create'} onClick={() => start('create')}>Create recipe</button>
-        <button type="button" disabled={pending} aria-pressed={mode === 'suggest'} onClick={() => start('suggest')}>Cooking idea</button>
-      </div>
-    </section>
+    <SuggestedPrompts context={suggestionContext(location.pathname)} busy={pending} draft={composer} onSelect={prompt => {
+      setMode(prompt.workflow)
+      setFollowUp(null)
+      setRetryRequest(null)
+      setPromptSelection(value => value + 1)
+      selectedPromptCaret.current = promptCaret(prompt.message)
+      setComposer(prompt.message)
+    }} />
     {example && <p id={`${composerId}-example`} className="mori-chat-example">{example}</p>}
     <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
       <label className="mori-chat-label" htmlFor={composerId}>Message Mori</label>

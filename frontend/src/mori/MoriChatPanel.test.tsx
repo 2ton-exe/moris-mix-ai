@@ -21,6 +21,11 @@ function renderChat(userId: string) {
   return render(<MemoryRouter initialEntries={['/app/recipes']}><MoriChatPanel userId={userId} /><Location /></MemoryRouter>)
 }
 
+function choosePrompt(label: 'Record a recipe' | 'Use my ingredients') {
+  fireEvent.click(screen.getByRole('button', { name: 'See more' }))
+  fireEvent.click(screen.getByRole('button', { name: label }))
+}
+
 function send(text: string) {
   fireEvent.change(screen.getByRole('textbox', { name: 'Message Mori' }), { target: { value: text } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
@@ -53,7 +58,7 @@ it('asks only for missing recipe fields and opens an unsaved editable review', a
     .mockResolvedValueOnce(recipe())
   renderChat(userId)
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('I simmered tomatoes for soup.')
   await screen.findByText('I’m only missing the ingredients and the cooking steps. What should I add?')
   expect(screen.queryByText(/recipe name/)).toBeNull()
@@ -84,7 +89,7 @@ it('preserves a pending Quick AI draft instead of replacing it', async () => {
   vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe())
   renderChat(userId)
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('Tomatoes, broth, simmer until soft.')
   await screen.findByRole('button', { name: 'Review draft' })
   fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
@@ -99,7 +104,7 @@ it('retrieves a pantry suggestion and keeps its saved-recipe lineage in the revi
   const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
   renderChat(userId)
 
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  choosePrompt('Use my ingredients')
   send('What can I cook with rice and eggs; quick and spicy')
   await screen.findByRole('button', { name: 'Review recipe' })
   expect(generate).toHaveBeenCalledWith(['rice', 'eggs'], 'quick and spicy', expect.objectContaining({ userId }))
@@ -121,7 +126,7 @@ it('keeps the active Quick AI review key for an equivalent handoff', async () =>
     .mockResolvedValueOnce(recipe())
   renderChat('mori-chat-equivalent-quick-review')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send(notes)
   await screen.findByRole('button', { name: 'Review draft' })
   fireEvent.click(screen.getByRole('button', { name: 'Review draft' }))
@@ -180,7 +185,7 @@ it('keeps original notes available when a follow-up would exceed the extraction 
     .mockResolvedValueOnce(recipe())
   renderChat('mori-chat-long-follow-up')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send(sourceNotes)
   await screen.findByText('I’m only missing the ingredients and the cooking steps. What should I add?')
   send('x'.repeat(60))
@@ -198,7 +203,7 @@ it('cancels an in-flight request and ignores a late API response', async () => {
   vi.spyOn(extractRecipeApi, 'extract').mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
   renderChat(userId)
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('Tomatoes and broth, simmer until soft.')
   fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
   await screen.findByText(/I stopped that request/)
@@ -231,7 +236,7 @@ it('retries a failed pantry request with the exact original prompt', async () =>
     .mockRejectedValueOnce(new Error('offline'))
     .mockResolvedValueOnce(suggestion())
   renderChat('mori-chat-retry')
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  choosePrompt('Use my ingredients')
   send('rice and eggs; quick and spicy')
 
   const retry = await screen.findByRole('button', { name: 'Retry same request' })
@@ -249,7 +254,7 @@ it('keeps a fresh message in the composer while its workflow is cooling down', a
   )
   renderChat('mori-chat-create-cooldown-composer')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('I cooked tomatoes with broth and simmered until soft.')
   await screen.findByRole('button', { name: 'Retry same request' })
 
@@ -270,25 +275,25 @@ it('keeps Retry-After deadlines independent for cooking notes and pantry ideas',
   )
   renderChat('mori-chat-independent-cooldowns')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('I cooked tomatoes with broth and simmered until soft.')
   await screen.findByRole('button', { name: 'Retry same request' })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  choosePrompt('Use my ingredients')
   send('rice and eggs; quick')
   await screen.findByRole('button', { name: 'Retry same request' })
 
   expect(screen.getAllByRole('timer').map((timer) => timer.textContent).join(' ')).toContain('cooking notes')
   expect(screen.getAllByRole('timer').map((timer) => timer.textContent).join(' ')).toContain('pantry ideas')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('I cooked beans and onions until tender.')
   await screen.findByText(/rate-limited for cooking notes/)
   expect(extract).toHaveBeenCalledOnce()
   expect((screen.getByRole('textbox', { name: 'Message Mori' }) as HTMLTextAreaElement).value)
     .toBe('I cooked beans and onions until tender.')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  choosePrompt('Use my ingredients')
   send('rice and peas; spicy')
   await screen.findByText(/rate-limited for pantry ideas/)
   expect(generate).toHaveBeenCalledOnce()
@@ -341,22 +346,14 @@ it('preserves the active AI Chef review key when Pantry opens its existing idea'
 })
 
 
-it('keeps task introductions unique and preserves unsent input across task changes', () => {
+it('fills and focuses an editable prompt without sending', () => {
   renderChat('mori-chat-tasks')
-  const input = screen.getByRole('textbox', { name: 'Message Mori' })
-  fireEvent.change(input, { target: { value: 'My unfinished notes' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
-  expect(screen.getAllByText(/Tell me the messy version/)).toHaveLength(1)
-  expect(input).toHaveProperty('value', 'My unfinished notes')
-  expect(screen.getByRole('button', { name: 'Create recipe' }).getAttribute('aria-pressed')).toBe('true')
-  fireEvent.click(screen.getByRole('button', { name: 'Open recipes' }))
-  expect(screen.getByText('How can I help?')).toBeTruthy()
-  expect(input).toHaveProperty('value', 'My unfinished notes')
+  const count = screen.queryAllByRole('article').length
+  choosePrompt('Record a recipe')
+  expect(screen.getByRole('textbox', { name: 'Message Mori' })).toHaveProperty('value', 'Write a recipe from these cooking notes: ')
+  expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Message Mori' }))
+  expect(screen.queryAllByRole('article')).toHaveLength(count)
 })
-
 
 it('preserves the reading position when a new turn arrives', () => {
   renderChat('mori-chat-scroll')
@@ -367,19 +364,18 @@ it('preserves the reading position when a new turn arrives', () => {
   })
   log.scrollTop = 100
   fireEvent.scroll(log)
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send('hello')
   expect(log.scrollTop).toBe(100)
   log.scrollTop = 800
   fireEvent.scroll(log)
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  send('hello again')
   expect(log.scrollTop).toBe(1000)
 })
 
 it('identifies speakers and announces pending work outside the busy transcript', async () => {
   vi.spyOn(extractRecipeApi, 'extract').mockImplementation(() => new Promise(() => {}))
   renderChat('mori-chat-accessible-speakers')
-  expect(screen.getByRole('article', { name: 'Mori' })).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   send('I simmered rice with tomatoes until soft.')
   expect(screen.getByRole('article', { name: 'You' }).textContent).toContain('I simmered')
   const status = await screen.findByText('Mori is working on your request.')
@@ -388,19 +384,40 @@ it('identifies speakers and announces pending work outside the busy transcript',
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 })
 
-it('separates suggested tasks from navigation and keeps examples on workflow re-entry', () => {
+it('separates the prompt library from journal navigation', () => {
   renderChat('mori-chat-clear-actions')
-  const prompts = screen.getByRole('group', { name: 'Suggested prompts' })
+  expect(screen.getByRole('group', { name: 'Suggested prompts' })).toBeTruthy()
   const navigation = screen.getByRole('navigation', { name: 'Open a journal page' })
-  expect(prompts.contains(screen.getByRole('button', { name: 'Create recipe' }))).toBe(true)
   expect(navigation.contains(screen.getByRole('button', { name: 'Open recipes' }))).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
-  const composer = screen.getByRole('textbox', { name: 'Message Mori' })
-  fireEvent.change(composer, { target: { value: 'My unfinished notes' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  choosePrompt('Use my ingredients')
   expect(screen.getByText('Example: “rice, eggs; quick and spicy”')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  choosePrompt('Record a recipe')
   expect(screen.getByText(/Example: “Tomato rice/)).toBeTruthy()
-  expect(composer.getAttribute('aria-describedby')).toBe(screen.getByText(/Example: “Tomato rice/).id)
-  expect(screen.getByDisplayValue('My unfinished notes')).toBe(composer)
+})
+
+it('places the caret in the ingredient slot and preserves the selected meal preference', async () => {
+  const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderChat('mori-chip-preferences')
+  fireEvent.click(screen.getByRole('button', { name: 'See more' }))
+  fireEvent.click(screen.getByRole('button', { name: 'No-oven idea' }))
+  const input = screen.getByRole('textbox', { name: 'Message Mori' })
+  if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected textarea')
+  expect(document.activeElement).toBe(input)
+  const caret = input.selectionStart
+  fireEvent.change(input, { target: { value: input.value.slice(0, caret) + 'rice, eggs' + input.value.slice(caret) } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(generate).toHaveBeenCalledOnce())
+  expect(generate.mock.calls[0]?.slice(0, 2)).toEqual([['rice', 'eggs'], 'no oven'])
+})
+
+it('refocuses the ingredient slot when the same prompt is selected again', () => {
+  renderChat('mori-reselect-prompt')
+  for (let attempt = 0; attempt < 2; attempt++) {
+    fireEvent.click(screen.getByRole('button', { name: 'See more' }))
+    fireEvent.click(screen.getByRole('button', { name: 'No-oven idea' }))
+    const input = screen.getByRole('textbox', { name: 'Message Mori' })
+    expect(document.activeElement).toBe(input)
+    if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected textarea')
+    expect(input.selectionStart).toBe(input.value.indexOf(';'))
+  }
 })

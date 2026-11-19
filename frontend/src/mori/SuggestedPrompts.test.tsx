@@ -1,0 +1,32 @@
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import { SuggestedPrompts } from './SuggestedPrompts'
+afterEach(cleanup)
+it('keeps suggestions stable during typing, shuffles without changing a draft, and opens the library', () => {
+  const onSelect = vi.fn()
+  const { rerender } = render(<SuggestedPrompts context="pantry" busy={false} draft="" onSelect={onSelect} />)
+  const labels = () => within(screen.getByRole('group', { name: 'Suggested prompts' })).getAllByRole('button').map(b => b.textContent)
+  const original = labels()
+  rerender(<SuggestedPrompts context="notes" busy={false} draft="my draft" onSelect={onSelect} />)
+  expect(labels()).toEqual(original)
+  fireEvent.click(screen.getByRole('button', { name: 'Shuffle suggested prompts' }))
+  expect(labels().some(label => original.includes(label))).toBe(false)
+  expect(onSelect).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'See more' }))
+  expect(labels()).toHaveLength(30)
+  fireEvent.click(screen.getByRole('button', { name: 'Record a recipe' }))
+  expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ message: 'Write a recipe from these cooking notes: ' }))
+  expect(screen.getByRole('button', { name: 'See more' })).toBeTruthy()
+})
+it('defers context changes while a suggestion has focus', () => {
+  const onSelect = vi.fn()
+  const { rerender } = render(<SuggestedPrompts context="pantry" busy={false} draft="" onSelect={onSelect} />)
+  const group = screen.getByRole('group', { name: 'Suggested prompts' })
+  const button = within(group).getAllByRole('button')[0]!
+  fireEvent.focus(button)
+  const original = group.textContent
+  rerender(<SuggestedPrompts context="notes" busy={false} draft="" onSelect={onSelect} />)
+  expect(group.textContent).toBe(original)
+  fireEvent.blur(button, { relatedTarget: document.body })
+  expect(group.textContent).not.toBe(original)
+})
