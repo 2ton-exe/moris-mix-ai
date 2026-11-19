@@ -90,7 +90,7 @@ export default function RecipeDashboardPage() {
   const collectionCriteriaKey = JSON.stringify(controls.criteria)
   useEffect(() => { setCollectionStarts([0]) }, [collectionCriteriaKey, indexView])
   const pagedIndex = indexView && typeof ResizeObserver !== 'undefined'
-  const pagedCollection = !indexView && typeof ResizeObserver !== 'undefined'
+  const pagedCollection = !indexView && !single && typeof ResizeObserver !== 'undefined'
   const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
   const anchored = new URLSearchParams(displayParams)
   const entry = Number(displayParams.get('entry'))
