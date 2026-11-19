@@ -1,5 +1,5 @@
 import { JournalPagination } from '../journal/JournalPagination'
-import { useLayoutEffect, useRef, type ReactNode, type Ref } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { RecipeCard, RecipeCollectionCardMeasure, RecipeIndexCardContent } from './RecipeCard'
@@ -14,6 +14,17 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
+  const headingRef = useRef<HTMLElement>(null)
+  const [headingHeight, setHeadingHeight] = useState(0)
+  useLayoutEffect(() => {
+    const element = headingRef.current
+    if (!element || index || typeof ResizeObserver === 'undefined') return
+    const measure = () => setHeadingHeight(element.getBoundingClientRect().height + parseFloat(getComputedStyle(element).marginBottom))
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    measure()
+    return () => observer.disconnect()
+  }, [index, pages.length])
   const results = useRef<HTMLDivElement>(null)
   const bank = useRef<HTMLUListElement>(null)
   const measureCatalog = index ? catalog?.measure : collection?.measure
@@ -42,7 +53,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     measure()
     return () => observer.disconnect()
   }, [measureCatalog, recipes, index])
-  const heading = <header className="mm-collection-heading">
+  const heading = <header ref={headingRef} className="mm-collection-heading">
     {!index && <p className="mm-recipe-index__eyebrow">{`${recipes?.length ?? 0} ${recipes?.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
@@ -50,7 +61,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     {header}
   </header>
   const entries = (page: number) => {
-    const offset = collection?.starts[page - 1] ?? (page - 1) * perPage
+    const offset = collection ? collection.starts[page - 1] ?? recipes?.length ?? 0 : (page - 1) * perPage
     const end = collection ? collection.starts[page] ?? recipes?.length ?? offset : offset + perPage
     return <ul className="recipe-grid mm-collection-entries" aria-label={`Recipes on page ${page}`}>
       {recipes?.slice(offset, end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={offset + i + 1} />)}
@@ -81,6 +92,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
   const first = right === 1
   return <>
     {left > 0 && <JournalFacingPage className="mm-facing-content--collection mm-page-column">
+      <div className="mm-collection-heading-space" style={{ height: headingHeight }} aria-hidden="true" />
       <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>
       <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left}`} tabIndex={0}>{entries(left)}</div>
 

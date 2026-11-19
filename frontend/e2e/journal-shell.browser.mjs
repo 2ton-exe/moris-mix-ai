@@ -76,9 +76,8 @@ try {
       for (const control of controls) {
         const box = await control.boundingBox()
         assert.ok(box && box.width >= 44 && box.height >= 44)
-        await control.focus()
-        await page.keyboard.press('Shift+Tab')
         await page.keyboard.press('Tab')
+        await control.focus()
         const focusState = await control.evaluate((element) => ({
           focused: element === globalThis.document.activeElement,
           focusVisible: element.matches(':focus-visible'),

@@ -23,6 +23,6 @@ export default function CreateRecipePage({ save, notesSupported = true }: { save
   }
   const navigationConfirmation = useUnsavedChangesGuard(dirty)
   return <RecipeForm key={user?.id ?? 'signed-out'} mode="create" onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
-    supplement={savedRecipe?.userId === user?.id && savedRecipe && <RecipeImagePanel key={`${user?.id}:${savedRecipe.id}`} recipeId={savedRecipe.id} recipeTitle={savedRecipe.title} allowUpload />}
+    supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && savedRecipe?.userId === user?.id && savedRecipe && <RecipeImagePanel key={`${user?.id}:${savedRecipe.id}`} recipeId={savedRecipe.id} recipeTitle={savedRecipe.title} allowUpload />}
     renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
 }

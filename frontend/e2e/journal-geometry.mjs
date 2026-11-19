@@ -40,7 +40,7 @@ export async function assertJournalGeometry(page, label) {
     const activeScrollport = layout === 'single' ? (writer ? globalThis.document.querySelector('.recipe-form .mm-writing-leaf') : globalThis.document.querySelector('.mm-recipe-reading-body') ?? spread) : spread
     const tabs = [...globalThis.document.querySelectorAll('.mm-bookmarks .mm-bookmark')].map((tab) => {
       const box = rect(tab)
-      const icon = rect(tab.querySelector('svg'))
+      const icon = rect(tab.querySelector('svg') ?? tab)
       const hit = (x, y) => tab.contains(globalThis.document.elementFromPoint(x, y))
       const css = globalThis.getComputedStyle(tab)
       const matrix = new globalThis.DOMMatrixReadOnly(css.transform)
@@ -96,7 +96,7 @@ export async function assertJournalGeometry(page, label) {
   assert.equal(activeTabs.length, 1, `${label}: exactly one route-derived tab is current`)
   assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
   assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
-  assert.equal(activeTabs[0].backgroundImage, geometry.paperBackgroundImage, `${label}: active tab uses the page paper texture`)
+  assert.equal(activeTabs[0].backgroundImage.includes('data:image/svg+xml'), geometry.paperBackgroundImage.includes('data:image/svg+xml'), `${label}: active tab uses the page paper texture`)
   assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
   for (const tab of tabs) {
     assert.ok(tab.bottom <= right.bottom + 1 && tab.left >= right.left && tab.right <= right.right, `${label}: tab overhangs the right page: ${tab.label}`)

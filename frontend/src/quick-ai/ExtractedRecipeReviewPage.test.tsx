@@ -116,6 +116,25 @@ it('opens the review workflow with extraction fields and original notes kept sep
   expect(save).not.toHaveBeenCalled()
 })
 
+it('reloads a new Mori handoff when navigation stays on the review route', async () => {
+  const userId = 'mori-in-place-review'
+  const { router } = renderReview({ userId })
+  expect(screen.queryByLabelText('Recipe title')).toBeNull()
+
+  writeQuickAiEntryDraft(userId, {
+    notes: sourceNotes,
+    blockedUntil: null,
+    blockedReason: null,
+    handoff,
+    reviewDraft: null,
+  })
+  await act(() => router.navigate('/app/quick-entry/review', {
+    state: { moriKeepOpen: true, moriReviewKey: 1, sourceJournalReturn: '/app/recipes' },
+  }))
+
+  expect((await screen.findByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
+})
+
 it('persists corrected and temporarily invalid fields across remounts without saving', () => {
   const first = renderReview()
   fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: '  My edited rice  ' } })

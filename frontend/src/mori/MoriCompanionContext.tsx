@@ -4,15 +4,20 @@ export type MoriActivity = { kind: 'idle' | 'curious' | 'working' | 'thinking' |
 type Guidance = { message: string; action?: { label: string; onClick: () => void } }
 const idle: MoriActivity = { kind: 'idle', message: 'A little inspiration, whenever you need it.' }
 const priority = { idle: 0, celebrating: 1, curious: 2, working: 2, thinking: 2, confused: 3, attention: 3 }
+const noCompletedReviewKeys: ReadonlySet<number> = new Set()
+const ignoreReviewCompletion: (key: number) => void = () => {}
 const MoriContext = createContext<{
   activity: MoriActivity; guidance: Guidance | null
   setActivity: (id: string, value: MoriActivity | null) => void
   setGuidance: (id: string, value: Guidance | null) => void
+  completedReviewKeys: ReadonlySet<number>
+  markReviewCompleted: (key: number) => void
 } | null>(null)
 
 export function MoriCompanionProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Record<string, MoriActivity>>({})
   const [guidances, setGuidances] = useState<Record<string, Guidance>>({})
+  const [completedReviewKeys, setCompletedReviewKeys] = useState<ReadonlySet<number>>(() => new Set())
   const setActivity = useCallback((id: string, value: MoriActivity | null) => {
     setActivities((previous) => {
       const next = { ...previous }
@@ -32,9 +37,12 @@ export function MoriCompanionProvider({ children }: { children: ReactNode }) {
       return next
     })
   }, [])
+  const markReviewCompleted = useCallback((key: number) => {
+    setCompletedReviewKeys((previous) => previous.has(key) ? previous : new Set([...previous, key]))
+  }, [])
   const activity = Object.values(activities).reduce((selected, entry) => priority[entry.kind] >= priority[selected.kind] ? entry : selected, idle)
   const guidance = Object.values(guidances).at(-1) ?? null
-  return <MoriContext.Provider value={{ activity, guidance, setActivity, setGuidance }}>{children}</MoriContext.Provider>
+  return <MoriContext.Provider value={{ activity, guidance, setActivity, setGuidance, completedReviewKeys, markReviewCompleted }}>{children}</MoriContext.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- optional activity hooks share the provider contract
@@ -71,4 +79,13 @@ export function useMoriGuidance(guidance: Guidance | null) {
 export function useMoriCompanionState() {
   const context = useContext(MoriContext)
   return { activity: context?.activity ?? idle, guidance: context?.guidance ?? null }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- review completion is shared by route pages and the companion chat
+export function useMoriReviewCompletion() {
+  const context = useContext(MoriContext)
+  return {
+    completedReviewKeys: context?.completedReviewKeys ?? noCompletedReviewKeys,
+    markReviewCompleted: context?.markReviewCompleted ?? ignoreReviewCompletion,
+  }
 }

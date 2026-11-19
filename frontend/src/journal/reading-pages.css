@@ -4,7 +4,7 @@
 .mm-desk .mm-continuation-body { flex: 1 1 0; min-height: 0; min-width: 0; overflow: visible; padding: 4px; }
 .mm-desk .mm-continuation-body:focus-visible { outline-offset: -3px; }
 .mm-desk .mm-continuation-left { margin-bottom: 12px; }
-.mm-desk .mm-reading-identity { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr); align-items: center; gap: clamp(12px, 2vw, 22px); min-height: 0; padding: 12px 0; }
+.mm-desk .mm-reading-identity { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr); align-items: start; gap: clamp(12px, 2vw, 22px); min-height: 0; padding: 12px 0; }
 .mm-desk .mm-reading-identity .mm-recipe-artwork--detail { --mm-photo-width: min(100%, calc(var(--mm-page-height) * .32)); width: var(--mm-photo-width); margin: 0 auto; }
 .mm-desk .mm-reading-identity .mm-recipe-detail__summary h1 { font-size: clamp(27px, 2.5vw, 38px); }
 .mm-desk .mm-reading-left-folio { flex: none; padding-top: 8px; border-top: 1.5px dashed rgb(120 92 60 / .3); }

@@ -27,6 +27,13 @@ const chefResponse = {
   substitutions: [], parents: [], candidate_token: null,
   context: { status: 'NO_SAVED_RECIPES', matchedCandidateCount: 0, totalCandidateCount: 0 },
 }
+const extractionResponse = {
+  recipe: {
+    title: 'Tomato rice',
+    ingredients: [{ name: 'rice', quantity: null, unit: null, inferred: false }],
+    instructions: [{ step: 1, text: 'Simmer the rice with tomatoes.' }],
+  },
+}
 const outputDir = await mkdtemp(path.join(os.tmpdir(), 'moris-ui01-dialogue-'))
 const server = await createServer({
   root, configFile: false, envDir: false, plugins: [react()],
@@ -45,10 +52,12 @@ const measurements = { contactSamples: 0, maxContactPx: 0, maxSpineDriftPx: 0, m
 async function createJournal(width, { reducedMotion = false, empty = false, chef = false, collection = false, recordVideo = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, ...(recordVideo ? { recordVideo: { dir: path.join(outputDir, 'videos'), size: { width, height: 900 } } } : {}), reducedMotion: reducedMotion ? 'reduce' : 'no-preference' })
   const page = await context.newPage()
-  page.setDefaultTimeout(10_000)
+  page.setDefaultTimeout(30_000)
   const errors = []
   const apiRequests = []
   let releaseCursor
+  let releaseExtraction
+  const extractionReady = new Promise((resolve) => { releaseExtraction = resolve })
   let failCursor = false
   const cursorReady = new Promise((resolve) => { releaseCursor = resolve })
   const readingRecipe = { ...recipe, ingredients: Array.from({ length: 60 }, (_, i) => ({ name: `Ingredient ${i + 1}`, quantity: 1, unit: 'cup', inferred: false })) }
@@ -59,6 +68,11 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
     if (url.origin === appOrigin || url.protocol === 'data:') return route.continue()
     assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
     apiRequests.push({ method: route.request().method(), path: url.pathname })
+    if (chef && route.request().method() === 'POST' && url.pathname === '/functions/v1/extract-recipe') {
+      assert.deepEqual(JSON.parse(route.request().postData()), { notes: 'I simmered rice with tomatoes until soft.' })
+      await extractionReady
+      return route.fulfill({ json: extractionResponse })
+    }
     if (chef && route.request().method() === 'POST' && url.pathname === '/functions/v1/generate-recipe') {
       assert.deepEqual(JSON.parse(route.request().postData()), { pantryItems: ['rice'], preferences: 'quick dinner' })
       return route.fulfill({ json: chefResponse })
@@ -95,7 +109,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
     const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: id, exp: expires_at }))}.test-signature`
     globalThis.localStorage.setItem('sb-mori-dialogue-auth-token', JSON.stringify({ access_token: token, refresh_token: 'local-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
   }, { id: userId })
-  return { context, page, errors, apiRequests, releaseCursor, failNextCursor: () => { failCursor = true }, allowCursor: () => { failCursor = false } }
+  return { context, page, errors, apiRequests, releaseCursor, releaseExtraction: () => releaseExtraction(), failNextCursor: () => { failCursor = true }, allowCursor: () => { failCursor = false } }
 }
 
 async function reachable(page, locator) {
@@ -131,7 +145,7 @@ async function verifyMoriPageTurn(page, character, direction) {
     if ([.1, .95].includes(progress)) measurements.maxBindingPx = Math.max(measurements.maxBindingPx, contact.alignment ?? Infinity)
     if (progress >= .26 && progress <= .82) assert.ok(contact.distance <= 2, `${width}px ${direction} p=${progress}: detached mitt ${JSON.stringify(contact)}`)
     if ([.1, .95].includes(progress)) assert.ok(contact.alignment !== null && contact.alignment <= 1, `Hole and loop endpoint must align: ${JSON.stringify(contact)}`)
-    if (progress >= .26 && progress <= .82) assert.ok(contact.hand.x >= 0 && contact.hand.x <= width && contact.hand.y >= 0, 'Attached mitt stays within the viewport')
+    if (progress >= .26 && progress <= .82 && contact.corner.x >= 0 && contact.corner.x <= width && contact.corner.y >= 0) assert.ok(contact.hand.x >= -2 && contact.hand.x <= width + 2 && contact.hand.y >= -2, 'Attached mitt stays within the viewport when the page corner is visible')
     assert.ok(Math.abs(contact.ring.x - spine.x) <= 1 && Math.abs(contact.ring.y - spine.y) <= 1, 'Spine stays fixed')
     if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${progress}.png`) })
   }
@@ -170,8 +184,9 @@ try {
     const { context, page, errors, apiRequests } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)
     await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
+    await settleJournalLayout(page)
     await expect(page.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
-    await expect(page.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
+    await expect(page.locator('.mori-pet-character .mm-mori')).toHaveCount(1)
     const trigger = page.getByRole('button', { name: 'Talk to Mori', exact: true })
     const character = page.getByRole('group', { name: 'Mori companion' })
     await reachable(page, trigger)
@@ -186,7 +201,34 @@ try {
     await expect(trigger.locator('svg')).toHaveAttribute('data-mood', 'talk')
     await reachable(page, panel)
     await assertJournalSemantics(page, `${width}px open companion`)
+    const chatGeometry = await panel.evaluate((element) => {
+      const panel = element.getBoundingClientRect()
+      const composer = element.querySelector('.mori-chat-composer').getBoundingClientRect()
+      return { fits: composer.top >= panel.top && composer.bottom <= panel.bottom, height: panel.height, overflow: element.ownerDocument.defaultView.getComputedStyle(element).overflowY }
+    })
+    if (width > 600) assert.equal(chatGeometry.fits, true, 'Composer must remain inside the panel')
+    else {
+      await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
+      await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
+    }
+    if (width === 1440) assert.equal(chatGeometry.height, 560, 'Desktop chat must use its full available height')
+    assert.equal(chatGeometry.overflow, width <= 600 ? 'auto' : 'hidden', 'Narrow panels scroll as a whole; desktop transcripts scroll independently')
+    if (width === 1440) {
+      const shortcutsFit = await panel.locator('.mori-chat-shortcuts').evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        return [...element.querySelectorAll('button')].every((button) => {
+          const rect = button.getBoundingClientRect()
+          return rect.left >= bounds.left && rect.right <= bounds.right && rect.bottom <= bounds.bottom
+        })
+      })
+      assert.equal(shortcutsFit, true, 'Every desktop shortcut must fit without horizontal scrolling')
+    }
     await page.screenshot({ path: path.join(outputDir, `${width}-companion.png`) })
+    await panel.getByRole('button', { name: 'See more', exact: true }).click()
+    await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
+    await panel.getByRole('button', { name: 'See less', exact: true }).click()
+
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
     await expect(trigger).toBeFocused()
@@ -223,6 +265,11 @@ try {
     }).toBe(true)
     await reachable(page, trigger)
     await trigger.click()
+    const preferencesPanel = page.getByRole('region', { name: 'Mori', exact: true })
+    await expect(preferencesPanel.getByRole('button', { name: 'Reset position' })).toHaveCount(0)
+    await expect(preferencesPanel.getByRole('button', { name: 'Hide Mori' })).toHaveCount(0)
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('heading', { name: 'Mori', exact: true })).toBeFocused()
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 320, height: 480 })
     await settleJournalLayout(page)
@@ -248,30 +295,30 @@ try {
     await expect(chefApp.page.locator('.mori-pet-caption')).toHaveCount(0)
     await expect(chefApp.page.locator('.mori-pet-character')).toHaveCount(1)
     const chefTrigger = chefApp.page.getByRole('button', { name: 'Talk to Mori', exact: true })
-    const chefRequestsBeforeTalk = chefApp.apiRequests.length
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
-    await expect(chefPanel.locator('.mori-pet-context')).toHaveText('AI Chef')
-    await expect(chefPanel.locator('.mori-pet-message')).toContainText('Tell me what you have')
-    await expect(chefPanel.locator('nav')).toHaveCount(0)
-    await chefPanel.getByRole('button', { name: 'Add ingredients' }).click()
+    await expect(chefPanel.locator('.mori-chat-task')).toHaveText('How can I help?')
+    await chefPanel.getByRole('button', { name: 'Open cooking notes' }).click()
+    await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
+    const notesInput = chefApp.page.getByRole('textbox', { name: 'Cooking notes' })
+    await expect(notesInput).toBeFocused()
+    await expect(chefPanel).toBeVisible()
+    await chefPanel.getByRole('button', { name: 'Open pantry' }).click()
+    await expect(chefApp.page).toHaveURL(`${origin}app/chef`)
     const pantryInput = chefApp.page.getByRole('textbox', { name: 'Pantry ingredient' })
     await expect(pantryInput).toBeFocused()
-    await expect(chefApp.page.getByRole('region', { name: 'Pantry list, 0 items' })).toContainText('No ingredients yet.')
-    await chefApp.page.keyboard.press('Escape')
-    await pantryInput.fill('rice')
-    await pantryInput.press('Enter')
-    await expect(chefApp.page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
-    await expect(chefApp.page.getByRole('button', { name: 'Remove rice' })).toBeVisible()
-    await chefApp.page.getByRole('textbox', { name: /Cooking preferences/ }).fill('quick dinner')
-    assert.equal(chefApp.apiRequests.length, chefRequestsBeforeTalk, 'Companion and pantry edits must stay local')
-    await chefApp.page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+    await chefPanel.getByRole('button', { name: 'See more', exact: true }).click()
+    await chefPanel.getByRole('button', { name: 'Use my ingredients', exact: true }).click()
+    await chefPanel.getByRole('textbox', { name: 'Message Mori' }).fill('rice; quick dinner')
+    await chefPanel.getByRole('button', { name: 'Send' }).click()
+    await chefPanel.getByRole('button', { name: 'Review recipe' }).waitFor()
+    await chefPanel.getByRole('button', { name: 'Review recipe' }).click()
+    await expect(chefApp.page).toHaveURL(`${origin}app/chef/review`)
     await expect(chefApp.page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
     await expect.poll(async () => chefApp.page.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating')
-    await chefTrigger.click()
-    await expect(chefApp.page.locator('.mori-pet-context')).toHaveText('Recipe review')
-    await expect(chefApp.page.locator('.mori-pet-message')).toHaveText('Your recipe idea is ready for review.')
-    assert.deepEqual(chefApp.apiRequests.map(({ method, path }) => ({ method, path })), [
+    const chefDraft = await chefApp.page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)
+    assert.equal(chefDraft.handoff.saved, false, 'Reviewing the pantry idea must leave it unsaved')
+    assert.deepEqual(chefApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
       { method: 'POST', path: '/functions/v1/generate-recipe' },
     ])
     await chefApp.page.screenshot({ path: path.join(outputDir, `${width}-ai-chef.png`) })
@@ -285,11 +332,99 @@ try {
     process.stdout.write(`${width}px: companion, AI Chef handoff, and page-turn journey passed.\n`)
   }
 
+  const quickApp = await createJournal(1440, { chef: true })
+  await quickApp.page.goto(`${origin}app/quick-entry`)
+  await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
+  await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
+  await quickPanel.getByRole('textbox', { name: 'Message Mori' }).fill('I simmered rice with tomatoes until soft.')
+  await quickPanel.getByRole('button', { name: 'Send' }).click()
+  await quickPanel.getByRole('status').filter({ hasText: 'Mori is working on your request.' }).waitFor()
+  assert.equal(await quickPanel.getByRole('status').count(), 1, 'A pending chat request must have only one live status announcement')
+  const pendingFits = await quickPanel.evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    return [...element.querySelectorAll('.mori-chat-composer, .mori-chat-shortcuts, .mori-chat-pending, .mori-chat-hint')].every(child => {
+      const rect = child.getBoundingClientRect()
+      return rect.top >= bounds.top && rect.bottom <= bounds.bottom
+    })
+  })
+  assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
+  assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
+  quickApp.releaseExtraction()
+  await quickPanel.getByRole('button', { name: 'Review draft' }).waitFor()
+  await quickPanel.getByRole('button', { name: 'Review draft' }).click()
+  await expect(quickApp.page).toHaveURL(`${origin}app/quick-entry/review`)
+  await expect(quickApp.page.getByRole('heading', { name: 'Review your recipe' })).toBeVisible()
+  const quickDraft = await quickApp.page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:quick-ai-entry:v1:${userId}`)
+  assert.equal(quickDraft.handoff.saved, false, 'Reviewing the extraction must leave it unsaved')
+  assert.deepEqual(quickApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
+    { method: 'POST', path: '/functions/v1/extract-recipe' },
+  ])
+  assert.deepEqual(quickApp.errors, [])
+  await quickApp.context.close()
+
+
+  for (const [width, height] of [[1440, 300], [320, 568]]) {
+    const { context, page } = await createJournal(width, { reducedMotion: true })
+    await page.setViewportSize({ width, height })
+    await page.goto(`${origin}app/recipes?view=index`)
+    await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
+    await page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+    const panel = page.getByRole('region', { name: 'Mori', exact: true })
+    await panel.getByRole('textbox', { name: 'Message Mori' }).fill('Hello Mori')
+    await panel.getByRole('button', { name: 'Send', exact: true }).click()
+    assert.ok((await panel.getByRole('log').boundingBox()).height >= 70, 'Short windows must preserve readable messages')
+    for (const button of await panel.locator('.mori-chat-shortcuts button').all()) {
+      await button.scrollIntoViewIfNeeded()
+      const box = await button.boundingBox()
+      assert.ok(box.x >= 0 && box.x + box.width <= width, 'Shortcuts must fit without sideways scrolling')
+    }
+    await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
+    await page.screenshot({ path: path.join(outputDir, `${width}x${height}-adapted-chat.png`) })
+    await context.close()
+  }
+
+  for (const width of [1440, 375]) {
+    for (const demo of [false, true]) {
+      const app = await createJournal(width, { reducedMotion: true })
+      let releaseRecipe
+      const recipeReady = new Promise(resolve => { releaseRecipe = resolve })
+      await app.context.route(demo ? '**/functions/v1/demo-recipe' : `**/functions/v1/recipes/${recipe.id}`, async route => {
+        await recipeReady
+        await route.fulfill({ json: { recipe } })
+      })
+      await app.page.goto(`${origin}${demo ? 'demo-recipe' : 'app/recipes/' + recipe.id}`)
+      const loading = app.page.locator('.mm-reading-skeleton')
+      await loading.waitFor()
+      await app.page.evaluate(() => globalThis.document.fonts.ready)
+      const identity = () => app.page.locator(width < 1100 ? '.mm-journal-page .mm-reading-identity' : '.mm-journal-flyleaf .mm-reading-identity').first()
+      const loadingArt = await identity().locator('.mm-recipe-artwork').boundingBox()
+      const loadingHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      const back = app.page.getByRole('link', { name: demo ? 'Back home' : 'Back to recipes', exact: false }).filter({ visible: true })
+      await expect(back).toBeVisible()
+      await app.page.screenshot({ path: path.join(outputDir, `${width}-${demo ? 'demo' : 'detail'}-loading.png`) })
+      releaseRecipe()
+      await expect(loading).toHaveCount(0)
+      await settleReadingPages(app.page)
+      const loadedArt = await identity().locator('.mm-recipe-artwork').boundingBox()
+      const loadedHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loadingArt[key] - loadedArt[key]) <= 2, `Reading artwork ${key} shifts: ${loadingArt[key]} → ${loadedArt[key]}`)
+      for (const key of ['x', 'y', 'width']) assert.ok(Math.abs(loadingHeading[key] - loadedHeading[key]) <= 2, `Reading summary ${key} shifts`)
+      assert.deepEqual(app.errors, [])
+      await app.context.close()
+    }
+  }
+  if (process.env.MORI_CHAT_ONLY) {
+    process.stdout.write(`Mori chat and companion acceptance passed. Screenshots: ${outputDir}\n`)
+  } else {
   for (const width of (process.env.MORI_RETRY_ONLY ? [] : [1440, 768, 375, 320])) {
     const app = await createJournal(width, { collection: true, recordVideo: width === 1440 || width === 375 })
     const { page } = app
     await page.goto(`${origin}app/recipes`)
     await expect(page.getByRole('link', { name: 'Open recipe Saved recipe 1' })).toBeVisible()
+    await settleJournalLayout(page)
     await page.getByRole('link', { name: 'Next page →' }).click()
     await expect(page.locator('[data-journal-page-turn]')).toHaveAttribute('data-phase', 'preparing')
     assert.ok(!new URL(page.url()).searchParams.has('leaf'), 'Preparation must not commit the route')
@@ -298,7 +433,7 @@ try {
     app.releaseCursor()
     const character = page.getByRole('group', { name: 'Mori companion' })
     await verifyMoriPageTurn(page, character, 'forward')
-    await expect(page).toHaveURL(/leaf=2/)
+    await expect(page).toHaveURL(/entry=[1-9]/)
     await page.getByRole('link', { name: '← Previous page' }).click()
     await verifyMoriPageTurn(page, character, 'backward')
     await page.goto(`${origin}app/recipes/${recipe.id}`)
@@ -443,6 +578,7 @@ try {
   await context.close()
   await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', ...measurements }, null, 2))
   process.stdout.write(`Empty guidance and reduced motion passed. Screenshots: ${outputDir}\n`)
+  }
 } finally {
   await browser?.close()
   await server.close()

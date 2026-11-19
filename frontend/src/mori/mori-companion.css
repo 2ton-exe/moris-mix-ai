@@ -19,12 +19,41 @@
 .mori-pet-panel h2 { font-family: var(--mm-font-hand); font-size: 26px; margin: 0; }
 .mori-pet-panel p { margin: 10px 0 12px; font-size: 14px; line-height: 1.5; }
 .mori-pet-panel .mori-pet-context { margin: 12px 0 4px; color: var(--mm-color-burgundy-700); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.mori-pet-panel .mori-pet-message { margin: 0 0 12px; padding: 10px 12px; border: 1px solid rgb(128 92 59 / .22); border-radius: 12px 12px 12px 4px; background: #fffdf7 var(--mm-tex-grain); }
+.mori-pet-panel .mori-pet-message { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--mm-border-paper); border-radius: 12px 12px 12px 4px; background: var(--mm-color-fresh) var(--mm-tex-grain); }
 .mori-pet-panel button, .mori-pet-panel a { min-height: 44px; font: inherit; font-size: 13px; }
 .mori-pet-panel button { cursor: pointer; border: 1px solid var(--mm-border-paper); border-radius: 4px; padding: 4px 8px; background: var(--mm-color-parchment-100); color: inherit; }
 .mori-pet-panel .mori-pet-close { display: grid; width: 44px; min-height: 44px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--mm-color-burgundy-800); transition: background-color 140ms ease, transform 140ms ease; }
 .mori-pet-panel .mori-pet-close:hover { background: var(--mm-color-parchment-200); transform: rotate(8deg); }
+.mori-pet-show { position: fixed; right: 12px; bottom: 12px; z-index: 45; min-height: 44px; padding: 8px 12px; border: 1px solid var(--mm-color-espresso-300); border-radius: 999px; background: var(--mm-color-parchment-50); color: var(--mm-color-ink); font: 600 13px/1.2 var(--mm-font-sans); box-shadow: 0 4px 14px rgb(47 33 26 / .18); cursor: pointer; }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
+.mori-pet-panel[data-chat='true'] { display: flex; flex-direction: column; height: 460px; overflow: hidden; }
+.mori-pet-panel[data-chat='true'] > header { flex: 0 0 auto; }
+.mori-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; gap: 8px; }
+.mori-chat > :not(.mori-chat-log) { flex-shrink: 0; }
+.mori-pet-panel .mori-chat-task { margin: 0 0 4px; color: var(--mm-color-burgundy-700); font-size: 12px; font-weight: 600; }
+.mori-chat-log { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }
+.mori-chat-message { flex-shrink: 0; max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid var(--mm-border-paper); border-radius: 12px 12px 12px 4px; background: var(--mm-color-fresh); font-size: 13px; line-height: 1.4; }
+.mori-chat-message[data-role='user'] { align-self: flex-end; border-color: var(--mm-color-sage-500); border-radius: 12px 12px 4px 12px; background: var(--mm-color-sage-100); }
+.mori-pet-panel .mori-chat-message p { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+.mori-chat-preview { display: grid; gap: 6px; margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--mm-border-paper); }
+.mori-chat-preview h3 { margin: 3px 0; font-size: 12px; }
+.mori-chat-preview :is(ul, ol) { margin: 0; padding-left: 18px; }
+.mori-chat-preview li { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--mm-color-espresso-700); font-size: 12px; }
+.mori-chat-preview span, .mori-pet-panel .mori-chat-preview p { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; }
+.mori-chat-preview button { justify-self: start; margin-top: 2px; border-color: var(--mm-color-burgundy-700); background: var(--mm-color-burgundy-700); color: var(--mm-color-fresh); }
+.mori-chat-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.mori-chat-shortcuts button { min-width: 0; min-height: 44px; padding-inline: 8px; border-color: transparent; background: transparent; font-size: 12px; }
+.mori-chat-pending { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--mm-color-sage-900); font-size: 12px; }
+.mori-chat-pending button { flex: 0 0 auto; min-height: 44px; border-color: var(--mm-color-brick-600); }
+.mori-chat-retry { display: flex; justify-content: flex-end; margin-top: 8px; }
+.mori-chat-retry button { min-height: 44px; border-color: var(--mm-color-sage-700); }
+.mori-chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px; }
+.mori-chat-composer textarea { box-sizing: border-box; width: 100%; min-height: 48px; max-height: 96px; resize: vertical; padding: 8px 9px; border: 1px solid var(--mm-color-espresso-500); border-radius: 8px; background: var(--mm-color-fresh); color: var(--mm-color-ink); font: 13px/1.4 var(--mm-font-sans); }
+.mori-chat-composer button { min-height: 48px; border-color: var(--mm-color-burgundy-700); background: var(--mm-color-burgundy-700); color: var(--mm-color-fresh); }
+.mori-chat-composer :disabled, .mori-chat-shortcuts :disabled { cursor: not-allowed; opacity: .6; }
+.mori-chat-hint { margin: -5px 0 0 !important; color: var(--mm-color-espresso-700); font-size: 12px !important; }
+.mori-guided-focus { outline: 3px solid var(--mm-color-sage-700) !important; outline-offset: 3px; box-shadow: 0 0 0 6px rgb(166 189 143 / .3); animation: mori-focus-pulse 700ms ease-in-out 3; }
+@keyframes mori-focus-pulse { 50% { box-shadow: 0 0 0 10px rgb(166 189 143 / .16); } }
 .mori-pet-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .mori-pet-character[data-activity='idle'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-breathe 4s ease-in-out infinite; }
 .mori-pet-character[data-activity='curious'] .mori-body-all { transform-origin: center bottom; animation: mori-pet-peek 2.8s ease-in-out infinite; }
@@ -39,8 +68,81 @@
 @keyframes mori-pet-breathe { 50% { transform: scaleY(1.025); } }
 @keyframes mori-pet-peek { 40%, 60% { transform: rotate(-5deg) translateY(-2px); } }
 @keyframes mori-pet-puzzle { 35% { transform: rotate(3deg); } 65% { transform: rotate(-3deg); } }
-@media (prefers-reduced-motion: reduce) { .mori-pet-character, .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg { animation: none !important; transition: none !important; transform: none !important; } }
+@media (prefers-reduced-motion: reduce) { .mori-pet-character, .mori-pet-character *, .mori-pet-bubble, .mori-pet-trigger svg, .mori-guided-focus { animation: none !important; transition: none !important; transform: none !important; } }
 .mori-pet-character[data-turn-direction] { transform-origin: 0 0; }
 .mori-pet-character { pointer-events: none; }
 .mori-pet-trigger { pointer-events: auto; }
 .mori-pet-character[data-turn-direction] .mori-pet-trigger { pointer-events: none; }
+
+
+@media (min-width: 769px) {
+  .mori-pet-panel[data-chat='true'] > header { padding-bottom: 4px; }
+  .mori-pet-panel[data-chat='true'] h2 { font-size: 30px; }
+  .mori-pet-panel .mori-chat-task { margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--mm-border-paper); font-size: 13px; }
+  .mori-chat-log { gap: 10px; padding: 4px 4px 8px 0; }
+  .mori-chat-message { box-sizing: border-box; max-width: 94%; padding: 10px 12px; }
+  .mori-chat-message[data-role='user'] { max-width: 88%; }
+  .mori-chat-preview { gap: 8px; margin-top: 12px; padding-top: 10px; }
+  .mori-chat-preview > strong { font-size: 15px; line-height: 1.4; }
+  .mori-chat-preview h3 { margin: 0 0 4px; font-weight: 600; }
+  .mori-chat-preview li { line-height: 1.5; }
+  .mori-chat-composer { gap: 8px; padding-top: 10px; border-top: 1px solid var(--mm-border-paper); }
+  .mori-chat-composer textarea { min-height: 60px; padding: 10px; font-size: 14px; line-height: 1.5; caret-color: var(--mm-color-burgundy-700); }
+  .mori-chat-composer textarea::placeholder { color: var(--mm-color-espresso-700); opacity: 1; }
+  .mori-chat-composer button { min-height: 60px; padding-inline: 14px; border-radius: 8px; font-weight: 600; }
+  .mori-chat-shortcuts button { padding-inline: 4px; border-radius: 6px; line-height: 1.25; }
+  .mori-pet-panel .mori-chat-hint { margin: 0 !important; font-size: 11px !important; line-height: 1.4; }
+  .mori-chat-pending { padding: 8px 0; line-height: 1.5; }
+  .mori-chat-retry button { background: var(--mm-color-parchment-50); }
+  .mori-chat :is(button, textarea) { transition: background-color 140ms ease, border-color 140ms ease; }
+  .mori-chat button:enabled:hover { background: var(--mm-color-sage-100); border-color: var(--mm-color-sage-700); }
+  .mori-chat :is(.mori-chat-composer, .mori-chat-preview) button:enabled:hover { background: var(--mm-color-burgundy-800); border-color: var(--mm-color-burgundy-800); }
+  .mori-chat ::selection { background: var(--mm-color-sage-100); color: var(--mm-color-ink); }
+}
+
+@media (max-height: 500px), (max-width: 600px) {
+  .mori-pet-panel[data-chat='true'] { overflow-y: auto; }
+  .mori-pet-panel[data-chat='true'] .mori-chat { flex: none; }
+  .mori-chat-log { flex: none; overflow: visible; }
+}
+
+.mori-chat-prompts h3 { margin: 0 0 6px; color: var(--mm-color-burgundy-800); font: 600 16px/1.2 var(--mm-font-serif); }
+.mori-chat-prompts button[aria-pressed='true'] { background: var(--mm-color-sage-100); border-color: var(--mm-color-sage-700); }
+.mori-chat-prompts button:disabled { opacity: .6; cursor: not-allowed; }
+.mori-pet-panel .mori-chat-example { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; line-height: 1.4; }
+.mori-chat-shortcuts { border: 1px solid var(--mm-border-paper); border-radius: 12px; padding: 4px; background: var(--mm-color-parchment-100); }
+.mori-chat-shortcuts button { display: flex; align-items: center; justify-content: center; gap: 6px; grid-column: auto; border: 0; }
+.mori-chat-shortcuts svg, .mori-chat-prompts svg { flex: none; }
+@media (min-width: 1100px) {
+  .mori-pet-panel[data-chat='true'] { height: 560px; padding: 16px 20px; border-radius: 24px 24px 24px 5px; }
+}
+
+.mori-chat-label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; }
+
+.mori-prompts-heading { display: flex; align-items: center; gap: 4px; }
+.mori-prompts-heading h3 { flex: 1; }
+.mori-pet-panel .mori-prompts-heading button { flex: none; min-height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 0; background: transparent; font-size: 11px; }
+.mori-chat-prompts > .mori-prompts-chips { display: flex; flex-wrap: wrap; gap: 4px; box-sizing: border-box; height: 68px; overflow: auto; align-content: start; padding: 4px; margin-inline: -4px; scrollbar-width: thin; scrollbar-color: var(--mm-color-sage-500) transparent; }
+.mori-pet-panel .mori-prompts-chips button, .mori-pet-panel .mori-prompts-library button { flex: none; min-height: 27px; display: inline-flex; gap: 5px; padding: 4px 8px; border-radius: 999px; font-size: 11px; line-height: 1.2; white-space: nowrap; }
+.mori-chat-prompts > .mori-prompts-library { display: block; max-height: 160px; overflow: auto; padding: 4px; scrollbar-width: thin; scrollbar-color: var(--mm-color-sage-500) transparent; }
+.mori-prompts-library h4 { margin: 8px 0 4px; font-size: 12px; }
+.mori-prompts-library section > div { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.mori-prompts-chips { animation: mori-prompts-in 150ms ease-out; }
+.mori-pet-panel .mori-chat-prompts button:enabled:active { background: var(--mm-color-sage-100); }
+@keyframes mori-prompts-in { from { opacity: .5; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mori-prompts-chips { animation: none; } }
+@media (pointer: coarse) {
+  .mori-pet-panel .mori-chat-prompts button { min-height: 44px; }
+  .mori-chat-prompts > .mori-prompts-chips { height: 96px; }
+}
+
+.mori-pet-panel > header h2:focus-visible { outline: none; }
+.mori-pet-panel:has(.mori-prompts-library) { overflow-y: auto; }
+.mori-pet-panel:has(.mori-prompts-library) .mori-chat { flex: none; }
+.mori-pet-panel:has(.mori-prompts-library) .mori-chat-log { flex: none; max-height: 160px; }
+
+@media (min-width: 1100px) {
+  .mori-chat-shortcuts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .mori-chat-shortcuts button { flex-direction: column; gap: 4px; padding: 6px 2px; font-size: 11px; }
+}

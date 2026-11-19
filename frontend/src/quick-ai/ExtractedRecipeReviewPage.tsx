@@ -1,6 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { moriReviewKeyFromState } from '../mori/routeState'
+import { useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
@@ -29,13 +31,16 @@ function sourceNotesReturn(state: unknown) {
 
 export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
+  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an extracted recipe.</p>
-  return <ExtractedRecipeReviewSession key={user.id} userId={user.id} save={save} />
+  const reviewIdentity = moriReviewKeyFromState(location.state)
+  return <ExtractedRecipeReviewSession key={`${user.id}:${reviewIdentity}`} userId={user.id} save={save} />
 }
 
 function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { markReviewCompleted } = useMoriReviewCompletion()
   const { user, logout } = useAuth()
   const registerLogoutGuard = useContext(JournalLogoutGuardContext)
   const [initialRead] = useState(() => readQuickAiEntryDraftResult(userId))
@@ -84,7 +89,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       setStorageIssue('handoff-changed')
       return false
     }
-    const next = { ...current, handoff: null, reviewDraft: null }
+    const next = { ...current, handoff: null, reviewDraft: null, completedReview: true }
     lastKnownDraftRef.current = next
     const writeResult: QuickAiDraftWriteResult = writeQuickAiEntryDraft(userId, next)
     setStorageIssue(writeResult.persisted ? null : 'saved-clear-failed')
@@ -135,6 +140,8 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   async function submit(draft: RecipeDraft, context: { signal: AbortSignal }) {
     const confirmation = await recipeSave(draft, context)
     if (confirmedSave(confirmation)) {
+      const reviewKey = moriReviewKeyFromState(location.state)
+      if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
       consumeHandoff()
       setConsumed(true)
     }

@@ -200,6 +200,12 @@ function clonePage(source: Element | null, prefix: string): HTMLElement | null {
     copy.style.height = `${rect.height}px`
     if (!image.complete) copy.style.visibility = 'hidden'
   })
+  const sourceTop = source.getBoundingClientRect().top
+  const sourceFooters = source.querySelectorAll<HTMLElement>('.mm-journal-page-footer')
+  clone.querySelectorAll<HTMLElement>('.mm-journal-page-footer').forEach((footer, index) => {
+    const original = sourceFooters[index]
+    if (original) footer.dataset.turnFooterTop = String(original.getBoundingClientRect().top - sourceTop)
+  })
   clone.querySelectorAll('.mm-index-measure, .mm-reading-measure').forEach((element) => element.remove())
   sanitizeSnapshot(clone, prefix)
   return clone
@@ -224,6 +230,12 @@ function installSnapshot(container: HTMLElement | null, snapshot: HTMLElement | 
     element.scrollTop = Number(element.dataset.turnScrollTop ?? 0)
     element.scrollLeft = Number(element.dataset.turnScrollLeft ?? 0)
   }
+  // Sticky footers use the live scrollport, which the frozen sheet does not share.
+  const top = snapshot.getBoundingClientRect().top
+  snapshot.querySelectorAll<HTMLElement>('[data-turn-footer-top]').forEach((footer) => {
+    footer.style.removeProperty('translate')
+    footer.style.translate = `0 ${Number(footer.dataset.turnFooterTop) - (footer.getBoundingClientRect().top - top)}px`
+  })
 }
 
 export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
@@ -343,10 +355,18 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const request = pending.current
     const book = bookRef.current
     if (!request || !book) return
+    // ResizeObserver pagination must settle before the destination is frozen.
+    let settled = false
     const prepare = () => {
       if (pending.current !== request) return
       if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="error"]')) { cancel(request.id); return }
       if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]') || (document.fonts?.status === 'loading' && performance.now() - started < 1000)) {
+        settled = false
+        frame.current = requestAnimationFrame(prepare)
+        return
+      }
+      if (!settled) {
+        settled = true
         frame.current = requestAnimationFrame(prepare)
         return
       }

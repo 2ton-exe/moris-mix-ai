@@ -9,8 +9,7 @@ function visibleSlots(form: HTMLFormElement) {
     const leaf = slot.closest('.mm-writing-leaf')
     if (!card || !leaf || card.offsetHeight === 0) return []
     const paper = leaf.getBoundingClientRect()
-    const bounds = slot.getBoundingClientRect()
-    const rect = new DOMRect(bounds.left + card.offsetLeft, bounds.top + card.offsetTop, card.offsetWidth, card.offsetHeight)
+    const rect = card.getBoundingClientRect()
     if (rect.bottom <= paper.top || rect.top >= paper.bottom) return []
     return [{ slot, card, leaf, rect, paper, index: Number(slot.dataset.ingredientSlot) }]
   })

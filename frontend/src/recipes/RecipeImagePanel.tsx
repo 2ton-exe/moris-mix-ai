@@ -301,7 +301,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   if (!framed && !allowUpload && !showEmpty && !loading && !currentDownload && !downloadError) return null
 
   return <section className={`recipe-image-panel${framed ? ' recipe-image-panel--framed' : ''}`} aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
-    {(allowUpload || showEmpty) && <h2 id={`${id}-heading`}>Recipe image</h2>}
+    {(allowUpload || showEmpty) && <h2 id={`${id}-heading`} tabIndex={-1}>Recipe image</h2>}
     {loading && (allowUpload || showEmpty) && <p role="status">Loading current recipe image…</p>}
     {framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail"
       image={currentDownload && !downloadError ? <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} /> : undefined} />

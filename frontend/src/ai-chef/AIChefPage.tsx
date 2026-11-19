@@ -5,6 +5,7 @@ import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
 import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
+import { useMoriFieldFocus } from '../mori/routeState'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -44,6 +45,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const [entryStatus, setEntryStatus] = useState('')
   const [storageIssue, setStorageIssue] = useState<string | null>(initialRead.status === 'available' ? null : initialRead.status)
   const [discardOpen, setDiscardOpen] = useState(false)
+  const [guidedPantry, setGuidedPantry] = useState(false)
   const [chefPage, setChefPage] = useState(0)
   const [previewPage, setPreviewPage] = useState<number | null>(null)
   const [preferenceColumns, setPreferenceColumns] = useState(56)
@@ -51,6 +53,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const inFlight = useRef(false)
   const controller = useRef<AbortController | null>(null)
   const pantryInputRef = useRef<HTMLInputElement>(null)
+  const moriFocusPantry = useMoriFieldFocus('pantry', pantryInputRef, setGuidedPantry)
   const pageRef = useRef<HTMLElement>(null)
   const requestedPage = useRef(0)
   const focusAfterTurn = useRef<'heading' | 'pantry' | null>(null)
@@ -119,7 +122,7 @@ function AIChefSession({ userId }: { userId: string }) {
 
   function persistInput(next: { pantryItems: string[]; pantryInput: string; preferences: string }) {
     if (handoff) return
-    const nextDraft = { input: next, handoff: null }
+    const nextDraft = { input: next, handoff: null, completedReview: false }
     const result = writeChefDraft(userId, nextDraft)
     setStorageIssue(result.persisted ? null : result.reason)
   }
@@ -135,7 +138,7 @@ function AIChefSession({ userId }: { userId: string }) {
       setStorageIssue('handoff-changed')
       return
     }
-    const result = writeChefDraft(userId, { input: { pantryItems, pantryInput, preferences }, handoff })
+    const result = writeChefDraft(userId, { input: { pantryItems, pantryInput, preferences }, handoff, completedReview: current.draft.completedReview })
     setStorageIssue(result.persisted ? null : result.reason)
   }
 
@@ -252,6 +255,7 @@ function AIChefSession({ userId }: { userId: string }) {
       const nextDraft = {
         input: { pantryItems, pantryInput, preferences },
         handoff: nextHandoff,
+        completedReview: false,
       }
       const writeResult = writeChefDraft(userId, nextDraft)
       setStorageIssue(writeResult.persisted ? null : writeResult.reason)
@@ -345,6 +349,7 @@ function AIChefSession({ userId }: { userId: string }) {
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
           <input
             ref={pantryInputRef}
+            className={guidedPantry && moriFocusPantry ? 'mori-guided-focus' : undefined}
             id="ai-chef-pantry-item"
             type="text"
             value={pantryInput}

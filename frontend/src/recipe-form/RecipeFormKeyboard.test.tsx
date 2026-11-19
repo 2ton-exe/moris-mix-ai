@@ -14,13 +14,13 @@ const manyRows = {
 }
 
 let matchMediaDescriptor: PropertyDescriptor | undefined
-function mockMatchMedia(single: boolean, reducedMotion: boolean) {
+function mockMatchMedia(single: boolean, reducedMotion: boolean, desktop = false) {
   matchMediaDescriptor ??= Object.getOwnPropertyDescriptor(window, 'matchMedia')
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     writable: true,
     value: (query: string) => ({
-      matches: query.includes('prefers-reduced-motion') ? reducedMotion : query.includes('max-width') && single,
+      matches: query.includes('prefers-reduced-motion') ? reducedMotion : query.includes('min-width') ? desktop : query.includes('max-width') && single,
       media: query,
       onchange: null,
       addListener: vi.fn(),
@@ -169,4 +169,18 @@ it('does not consume an arrow key when the journal rejects an overlapping page t
 
   expect(fireEvent.keyDown(firstLeaf(), { key: 'ArrowRight' })).toBe(true)
   expect(pageIndex()).toBe('1')
+})
+
+
+it('gives desktop image controls their own writing leaf', () => {
+  mockMatchMedia(false, true, true)
+  render(<MemoryRouter><RecipeForm mode="create" supplement={<section aria-label="Image controls">Choose a photo<input aria-label="Photo caption" defaultValue="" /></section>} /></MemoryRouter>)
+  expect(screen.queryByRole('region', { name: 'Image controls' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+  expect(screen.getByRole('region', { name: 'Image controls' })).toBeTruthy()
+  expect(screen.queryByLabelText('Recipe title')).toBeNull()
+  fireEvent.change(screen.getByLabelText('Photo caption'), { target: { value: 'Keep this selection' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Previous Pages' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+  expect(screen.getByLabelText('Photo caption')).toHaveProperty('value', 'Keep this selection')
 })

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
-import { useMoriActivity } from '../mori/MoriCompanionContext'
+import { moriReviewKeyFromState } from '../mori/routeState'
+import { useMoriActivity, useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -124,18 +125,22 @@ async function persistOrReconcileLineage(
 
 export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
+  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an AI Chef recipe.</p>
-  return <ChefReviewSession key={user.id} userId={user.id} save={save} />
+  const reviewIdentity = moriReviewKeyFromState(location.state)
+  return <ChefReviewSession key={`${user.id}:${reviewIdentity}`} userId={user.id} save={save} />
 }
 
 function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { markReviewCompleted } = useMoriReviewCompletion()
   const { user } = useAuth()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const stored = initialRead.draft
-  const generationSucceeded = useRef(Boolean(stored.handoff) && typeof location.state === 'object' && location.state !== null &&
-    'chefGenerationSucceeded' in location.state && location.state.chefGenerationSucceeded === true)
+  const reviewRouteState = useRef(location.state)
+  const generationSucceeded = useRef(Boolean(stored.handoff) && typeof reviewRouteState.current === 'object' && reviewRouteState.current !== null &&
+    'chefGenerationSucceeded' in reviewRouteState.current && reviewRouteState.current.chefGenerationSucceeded === true)
   useMoriActivity(generationSucceeded.current ? { kind: 'celebrating', message: 'Your recipe idea is ready for review.' } : null)
   const originalHandoff = useRef(stored.handoff)
   const [dirty, setDirty] = useState(false)
@@ -161,7 +166,13 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const navigationConfirmation = useUnsavedChangesGuard(dirty || (saved && storageIssue !== null), { warnOnUnload: storageIssue !== null })
 
   useEffect(() => {
-    if (generationSucceeded.current) navigate(location.pathname, { replace: true, state: null })
+    if (!generationSucceeded.current) return
+    const state = typeof reviewRouteState.current === 'object' && reviewRouteState.current !== null ? reviewRouteState.current : null
+    const nextState = state ? {
+      ...('moriKeepOpen' in state && state.moriKeepOpen === true ? { moriKeepOpen: true } : {}),
+      ...('moriReviewKey' in state ? { moriReviewKey: state.moriReviewKey } : {}),
+    } : null
+    navigate(location.pathname, { replace: true, state: nextState })
   }, [location.pathname, navigate])
 
   useEffect(() => () => lineageController.current?.abort(), [])
@@ -217,7 +228,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     }
     const clearableHandoff = current.handoff ?? handoff
     if (!clearableHandoff || clearableHandoff.lineageStatus !== 'confirmed') return null
-    const next = { ...current, handoff: null }
+    const next = { ...current, handoff: null, completedReview: true }
     setLastKnownDraft(next)
     const result = writeChefDraft(userId, next)
     setStorageIssue(result.persisted ? null : 'saved-clear-failed')
@@ -227,6 +238,8 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   async function submit(draft: RecipeDraft, context: { signal: AbortSignal }) {
     const confirmation = await recipeSave(draft, context)
     if (!confirmedSave(confirmation) || !handoff) return confirmation
+    const reviewKey = moriReviewKeyFromState(location.state)
+    if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
     setSaved(true)
     if (handoff.savedRecipeId) {
       return {

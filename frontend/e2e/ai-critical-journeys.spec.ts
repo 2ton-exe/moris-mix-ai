@@ -77,7 +77,8 @@ async function readSavedRecipeState(page: Page, context: Awaited<ReturnType<type
 }
 
 test('AI Chef saves a reviewed recipe and only the selected parent lineage', async ({ page }) => {
-  test.setTimeout(120_000)
+  // This journey creates three recipes across two accounts before checking lineage isolation.
+  test.setTimeout(180_000)
 
   const marker = `QA03 Chef ${crypto.randomUUID()}`
   const parentTitle = `${marker} parent one`

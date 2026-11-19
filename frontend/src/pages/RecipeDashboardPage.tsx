@@ -90,11 +90,11 @@ export default function RecipeDashboardPage() {
   const collectionCriteriaKey = JSON.stringify(controls.criteria)
   useEffect(() => { setCollectionStarts([0]) }, [collectionCriteriaKey, indexView])
   const pagedIndex = indexView && typeof ResizeObserver !== 'undefined'
-  const pagedCollection = !indexView && typeof ResizeObserver !== 'undefined'
+  const pagedCollection = !indexView && !single && typeof ResizeObserver !== 'undefined'
   const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
   const anchored = new URLSearchParams(displayParams)
   const entry = Number(displayParams.get('entry'))
-  const hasAnchor = displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
+  const hasAnchor = !(turnSearch !== null && !indexView && displayParams.has('leaf')) && displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
   if (hasAnchor) anchored.set('leaf', String(pagedCollection
     ? Math.max(1, collectionStarts.filter((start) => start <= entry).length)
     : Math.floor(entry / perPage) + 1))
@@ -122,16 +122,19 @@ export default function RecipeDashboardPage() {
     next.set('entry', String(pagedIndex ? page : pagedCollection ? collectionStarts[page - 1] ?? recipes?.length ?? 0 : (page - 1) * perPage))
     return `?${next}`
   }
+  const latestPageSearch = useRef(pageSearch)
+  latestPageSearch.current = pageSearch
   const pageLink = (page: number) => ({ pathname: location.pathname, search: pageSearch(page), hash: location.hash })
   const turnCollectionPage = (page: number, direction: 'forward' | 'backward') => {
     if (isTurning || page < (pagedIndex ? 0 : 1)) return
     const search = pageSearch(page)
-    requestPageTurn(direction, () => setTurnSearch(search), () => {
+    requestPageTurn(direction, () => setTurnSearch(pagedIndex ? search : `${search}&leaf=${page}`), () => {
+      const settledSearch = latestPageSearch.current(page)
       setTurnSearch(null)
-      void navigate({ pathname: location.pathname, search, hash: location.hash }, {
+      void navigate({ pathname: location.pathname, search: settledSearch, hash: location.hash }, {
         state: { journalAccount: user?.id }, preventScrollReset: true, flushSync: true,
       })
-    }, search, () => setTurnSearch(null))
+    }, undefined, () => setTurnSearch(null))
   }
   const viewLink = (view: 'collection' | 'index') => {
     const next = new URLSearchParams(params)
@@ -147,7 +150,7 @@ export default function RecipeDashboardPage() {
     if ((!indexView || hasAnchor) && recipes && recipes.length < needed && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError && !controls.waiting) void query.loadMore()
   }, [indexView, hasAnchor, recipes, needed, query, controls.waiting])
   const nextPage = pagedIndex ? nextCatalogStart
-    : pagedCollection ? collectionStarts[rightPage] !== undefined ? rightPage + 1 : undefined
+    : pagedCollection ? collectionStarts[rightPage] !== undefined || query.hasNextPage ? rightPage + 1 : undefined
     : (recipes?.length ?? 0) > needed || query.hasNextPage ? single ? leaf + 1 : rightPage + 1 : undefined
   const previousPage = pagedIndex ? previousCatalogStart
     : pagedCollection ? spread > 0 ? pages[0] - 1 : undefined
@@ -217,7 +220,7 @@ export default function RecipeDashboardPage() {
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
-      {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton />}
+      {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton index={indexView} />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
       {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
         restoreFirstPageFocus.current = true

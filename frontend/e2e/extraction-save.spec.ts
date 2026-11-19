@@ -98,9 +98,14 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
       instructions: expect.arrayContaining([expect.objectContaining({ text: 'Cook the chicken slowly until tender.' })]),
     })
 
-    await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
     const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
       .getByRole('button', { name: /^Previous:/ })
+    while (!await page.getByLabel('Step 1 description').isVisible()) {
+      await expect(previous).toBeEnabled()
+      await previous.click()
+      await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+    }
+    await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
     const pagePosition = page.locator('.mm-review-progress')
     const title = page.getByLabel('Recipe title')
     while (!(await title.isVisible())) {

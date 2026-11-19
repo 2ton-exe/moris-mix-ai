@@ -11,7 +11,7 @@ import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
 function RecipeWorkspace() {
   const { user } = useAuth()
-  return <MoriCompanionProvider key={user?.id}><Outlet /><MoriCompanion /></MoriCompanionProvider>
+  return <MoriCompanionProvider key={user?.id}><Outlet /><MoriCompanion userId={user?.id} /></MoriCompanionProvider>
 }
 
 const AuthPage = lazy(() => import('./pages/AuthPage'))

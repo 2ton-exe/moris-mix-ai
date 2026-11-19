@@ -5,6 +5,7 @@ import { HttpError } from '../api/http'
 import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
+import { useMoriFieldFocus } from '../mori/routeState'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -149,6 +150,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false)
   const [logoutPending, setLogoutPending] = useState(false)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
+  const [guidedNotes, setGuidedNotes] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [notesPerPage, setNotesPerPage] = useState(480)
   const [charactersPerRow, setCharactersPerRow] = useState(56)
@@ -178,12 +180,13 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   const requestNumber = useRef(0)
   const inFlight = useRef(false)
   const mounted = useRef(true)
+  const moriFocusNotes = useMoriFieldFocus('notes', notesRef, setGuidedNotes)
   const retryWait = draft.blockedUntil === null ? 0 : Math.max(0, Math.ceil((draft.blockedUntil - now) / 1000))
   const noteParts = splitFormText(draft.notes, notesPerPage, notesRows, charactersPerRow)
   const pageCount = noteParts.length + (handoff ? 1 : 0)
   const page = turningPage ?? (showPreview && handoff ? noteParts.length : Math.min(notesPage, noteParts.length - 1))
   const notePart = noteParts[page] ?? ''
-  const hasUnsavedContent = draft.notes.trim().length > 0 || handoff !== null
+  const hasUnsavedContent = (draft.notes.trim().length > 0 && draft.completedReview !== true) || handoff !== null
   const navigationConfirmation = useUnsavedChangesGuard(persistenceFailed && hasUnsavedContent, { warnOnUnload: true })
 
   useLayoutEffect(() => {
@@ -284,7 +287,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   }, [draft, error?.code, now, persistDraft, userId])
 
   function updateNotes(notes: string) {
-    const nextDraft = { ...draft, notes, handoff: null, reviewDraft: null }
+    const nextDraft = { ...draft, notes, handoff: null, reviewDraft: null, completedReview: false }
     setDraft(nextDraft)
     persistDraft(nextDraft)
     setValidationMessage(null)
@@ -357,7 +360,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setLoading(true)
     setError(null)
     setValidationMessage(null)
-    const pendingDraft = { ...draft, handoff: null, reviewDraft: null }
+    const pendingDraft = { ...draft, handoff: null, reviewDraft: null, completedReview: false }
     setDraft(pendingDraft)
     persistDraft(pendingDraft)
     setHandoff(null)
@@ -375,7 +378,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       const recipe = await extract(sourceNotes, { userId, signal: controller.signal })
       if (controller.signal.aborted || !mounted.current || requestNumber.current !== currentRequest) return
       const nextHandoff: QuickAiEntryHandoff = { sourceNotes, recipe, saved: false }
-      const completedDraft = { ...pendingDraft, handoff: nextHandoff }
+      const completedDraft = { ...pendingDraft, handoff: nextHandoff, completedReview: false }
       setDraft(completedDraft)
       persistDraft(completedDraft)
       focusNewPreview.current = true
@@ -475,7 +478,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             <label htmlFor={notesId}>Cooking notes</label>
             <textarea
               ref={notesRef}
-              className="mm-quick-ai__textarea"
+              className={`mm-quick-ai__textarea${guidedNotes && moriFocusNotes ? ' mori-guided-focus' : ''}`}
               id={notesId}
               name="notes"
               rows={Math.max(3, formTextRows(notePart, charactersPerRow))}
