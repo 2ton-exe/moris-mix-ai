@@ -9,7 +9,7 @@ import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai
 import type { ExtractedRecipe } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
 import { MoriCompanion } from './MoriCompanion'
-import { MoriCompanionProvider } from './MoriCompanionContext'
+import { MoriCompanionProvider, useMoriReviewCompletion } from './MoriCompanionContext'
 import { MoriChatPanel } from './MoriChatPanel'
 
 function Location() {
@@ -17,8 +17,33 @@ function Location() {
   return <output data-testid="location">{location.pathname}|{JSON.stringify(location.state)}</output>
 }
 
+function ConfirmSavedHandoff({ userId }: { userId: string }) {
+  const location = useLocation()
+  const { markReviewCompleted } = useMoriReviewCompletion()
+  if (location.pathname !== '/app/quick-entry/review' && location.pathname !== '/app/chef/review') return null
+  const reviewKey = typeof location.state === 'object' && location.state !== null &&
+    'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
+    ? location.state.moriReviewKey
+    : undefined
+  return <button type="button" onClick={() => {
+    if (location.pathname === '/app/quick-entry/review') {
+      const current = readQuickAiEntryDraftResult(userId).draft
+      writeQuickAiEntryDraft(userId, { ...current, handoff: null, reviewDraft: null, completedReview: true })
+    } else {
+      writeChefDraft(userId, { ...readChefDraftResult(userId).draft, handoff: null, completedReview: true })
+    }
+    if (reviewKey !== undefined) markReviewCompleted(reviewKey)
+  }}>Confirm save</button>
+}
+
 function renderChat(userId: string) {
   return render(<MemoryRouter initialEntries={['/app/recipes']}><MoriChatPanel userId={userId} /><Location /></MemoryRouter>)
+}
+
+function renderIntegratedChat(userId: string) {
+  return render(<MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider>
+    <MoriChatPanel userId={userId} /><ConfirmSavedHandoff userId={userId} /><Location />
+  </MoriCompanionProvider></MemoryRouter>)
 }
 
 function choosePrompt(label: 'Record a recipe' | 'Use my ingredients') {
@@ -160,6 +185,43 @@ it('keeps the active AI Chef review key for an equivalent suggestion', async () 
 
   expect(await screen.findAllByText('Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')).toHaveLength(2)
   expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+})
+
+it('consumes equivalent Quick AI chat cards together after a confirmed save', async () => {
+  const notes = 'Tomato soup with tomatoes and broth; simmer until tender.'
+  const userId = 'mori-chat-consumed-quick'
+  vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe())
+  renderIntegratedChat(userId)
+
+  choosePrompt('Record a recipe')
+  send(notes)
+  await screen.findByRole('button', { name: 'Review draft' })
+  send(notes)
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Review draft' })).toHaveLength(2))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Review draft' })[1]!)
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Saved' })).toHaveLength(2))
+  expect(screen.getAllByRole('button', { name: 'Saved' }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true)
+})
+
+it('consumes equivalent Chef chat cards together after a confirmed save', async () => {
+  const prompt = 'What can I cook with rice and eggs; quick and spicy?'
+  const userId = 'mori-chat-consumed-chef'
+  vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderIntegratedChat(userId)
+
+  send(prompt)
+  await screen.findByRole('button', { name: 'Review recipe' })
+  send(prompt)
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Review recipe' })).toHaveLength(2))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Review recipe' })[1]!)
+  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm save' }))
+
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Saved' })).toHaveLength(2))
+  expect(screen.getAllByRole('button', { name: 'Saved' }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true)
 })
 
 it('switches workflows when a later message clearly asks for the other recipe task', async () => {

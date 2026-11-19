@@ -62,7 +62,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const [now, setNow] = useState(() => Date.now())
   const id = useRef(1)
   const reviewSequence = useRef(0)
-  const reviewKeys = useRef(new WeakMap<MoriDraft, number>())
+  const reviewKeys = useRef(new Map<string, number>())
   const requestId = useRef(0)
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
@@ -96,26 +96,19 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   function say(role: Message['role'], text: string, draft?: MoriDraft) {
-    const reviewKey = draft ? ++reviewSequence.current : undefined
-    if (draft && reviewKey !== undefined) reviewKeys.current.set(draft, reviewKey)
+    const reviewKey = draft ? reviewKeyFor(draft) : undefined
     const message: Message = { id: id.current++, role, text, ...(draft ? { draft, reviewKey } : {}) }
     setMessages((current) => [...current, message])
   }
 
-  function reviewKeyFor(draft: MoriDraft, sameHandoff: boolean) {
-    const reviewPath = draft.kind === 'create' ? '/app/quick-entry/review' : '/app/chef/review'
-    if (sameHandoff && location.pathname === reviewPath) {
-      const state = location.state
-      const routeKey = typeof state === 'object' && state !== null &&
-        'moriReviewKey' in state && typeof state.moriReviewKey === 'number'
-        ? state.moriReviewKey
-        : undefined
-      if (routeKey !== undefined && reviewKeys.current.get(draft) === routeKey) return routeKey
-    }
-    let key = reviewKeys.current.get(draft)
-    if (key === undefined) {
+  function reviewKeyFor(draft: MoriDraft) {
+    const identity = draft.kind === 'create'
+      ? JSON.stringify(['create', draft.handoff])
+      : JSON.stringify(['suggest', draft.handoff.request, draft.handoff.response])
+    let key = reviewKeys.current.get(identity)
+    if (key === undefined || completedReviewKeys.has(key)) {
       key = ++reviewSequence.current
-      reviewKeys.current.set(draft, key)
+      reviewKeys.current.set(identity, key)
     }
     return key
   }
@@ -322,8 +315,8 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     await suggestRecipe(text)
   }
 
-  function openReview(draft: MoriDraft) {
-    if (completedReviewKeys.has(reviewKeyFor(draft, false))) return
+  function openReview(draft: MoriDraft, reviewKey: number) {
+    if (completedReviewKeys.has(reviewKey)) return
     if (draft.kind === 'create') {
       const current = readQuickAiEntryDraftResult(userId)
       const sameHandoff = current.draft.handoff && JSON.stringify(current.draft.handoff) === JSON.stringify(draft.handoff)
@@ -334,7 +327,6 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       }
       if (!sameHandoff) writeQuickAiEntryDraft(userId, { notes: draft.handoff.sourceNotes, blockedUntil: null, blockedReason: null, handoff: draft.handoff })
       say('assistant', 'Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')
-      const reviewKey = reviewKeyFor(draft, sameHandoff === true)
       navigate('/app/quick-entry/review', { replace: location.pathname === '/app/quick-entry/review', state: {
         moriKeepOpen: true,
         ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }),
@@ -358,7 +350,6 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         completedReview: false,
       })
     say('assistant', 'Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')
-    const reviewKey = reviewKeyFor(draft, sameSuggestion === true)
     navigate('/app/chef/review', { replace: location.pathname === '/app/chef/review', state: {
       moriKeepOpen: true,
       chefGenerationSucceeded: true,
@@ -392,7 +383,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
             if (retry.kind === 'create') void createRecipe(retry.notes)
             else void suggestRecipe(retry.prompt)
           }}>Retry same request</button></div>}
-          {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending} consumed={completedReviewKeys.has(reviewKey)} onReview={openReview} />}
+          {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending} consumed={completedReviewKeys.has(reviewKey)} onReview={(draft) => openReview(draft, reviewKey)} />}
         </article>
       })}
     {(['create', 'suggest'] as const).map((kind) => {
