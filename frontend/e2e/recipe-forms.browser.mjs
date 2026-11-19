@@ -70,43 +70,6 @@ async function keyboardWasPrevented(page, key) {
   return page.evaluate((lastKey) => globalThis.__mmKeyboardEvents.filter((event) => event.key === lastKey).at(-1)?.defaultPrevented, key)
 }
 
-async function scrollableAncestors(leaf) {
-  return leaf.evaluate((target) => {
-    const regions = []
-    for (let element = target; element; element = element.parentElement) {
-      const overflowY = globalThis.getComputedStyle(element).overflowY
-      if (!['auto', 'scroll', 'overlay'].includes(overflowY) || element.scrollHeight <= element.clientHeight + 2) continue
-      const label = element.dataset.writingLeafKey ? `leaf:${element.dataset.writingLeafKey}`
-        : element.classList.contains('mm-journal-spread') ? 'spread'
-          : element.classList.contains('mm-journal-page') ? 'page'
-            : element.tagName.toLowerCase()
-      regions.push({ label, scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight })
-    }
-    return regions
-  })
-}
-
-async function waitForNativeScroll(leaf, before, direction) {
-  await expect.poll(async () => {
-    const after = await scrollableAncestors(leaf)
-    return after.some((region) => {
-      const previous = before.find((candidate) => candidate.label === region.label)?.scrollTop ?? (direction === 'down' ? -Infinity : Infinity)
-      return direction === 'down' ? region.scrollTop > previous : region.scrollTop < previous
-    })
-  }).toBe(true)
-}
-
-async function waitForScrollSettle(leaf) {
-  let previous = ''
-  let stable = 0
-  await expect.poll(async () => {
-    const current = JSON.stringify((await scrollableAncestors(leaf)).map(({ label, scrollTop }) => ({ label, scrollTop })))
-    stable = current === previous ? stable + 1 : 0
-    previous = current
-    return stable >= 2
-  }, { interval: 100, timeout: 3000 }).toBe(true)
-}
-
 async function waitForKeyboardTurn(page, expectedPage) {
   await expect(page.locator('.mm-writing-pages').first()).toHaveAttribute('data-form-page', String(expectedPage))
   if (await page.evaluate(() => globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches)) return
@@ -422,7 +385,7 @@ try {
   await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
 
-  // Ingredients stay together on one scrollable desktop leaf; instructions remain paginated.
+  // Long writing data continues across physical leaves without dropping rows.
   await page.goto(editUrl(longRecipe.id))
   await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
   await page.evaluate(() => globalThis.document.fonts.ready)
@@ -442,7 +405,8 @@ try {
         .filter((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)
         .map((leaf) => [leaf.dataset.writingLeafKey, leaf.scrollHeight, leaf.clientHeight]))
       turns.push({ page: await page.locator('.mm-writing-pages').getAttribute('data-form-page'), ...visible, overflow })
-      if (turns.length === 1) await page.screenshot({ path: path.join(outputDir, 'ingredient-scroll-1440.png') })
+      assert.deepEqual(overflow, [], 'Writing leaves must fit their page without an inner scrolling region')
+      if (turns.length === 1) await page.screenshot({ path: path.join(outputDir, 'ingredient-pages-1440.png') })
       visible.ingredients.forEach((label) => ingredients.add(label))
       visible.steps.forEach((label) => steps.add(label))
       const next = page.getByRole('button', { name: /^Next Pages?$/ })
@@ -455,49 +419,48 @@ try {
   const allPages = await collectRowsAcrossPages()
   assert.equal(allPages.ingredients.size, 18, `All ingredient rows must be reachable on physical pages: ${JSON.stringify(allPages.turns)}`)
   assert.equal(allPages.steps.size, 14, 'All instruction steps must be reachable on physical pages')
-  const ingredientTurn = allPages.turns.find(({ ingredients }) => ingredients.length > 0)
-  assert.deepEqual(ingredientTurn?.ingredients, Array.from({ length: 18 }, (_, index) => String(index)), 'All ingredients share one desktop leaf')
-  assert.equal(allPages.turns.filter(({ ingredients }) => ingredients.length > 0).length, 1, 'Ingredients do not continue onto another leaf')
-  assert(ingredientTurn?.overflow.some(([key]) => key === 'ingredients:0'), 'The ingredient leaf scrolls when its condensed list exceeds the page')
+  assert.deepEqual([...allPages.ingredients].sort((a, b) => Number(a) - Number(b)), Array.from({ length: 18 }, (_, index) => String(index)), 'All ingredients continue in their original order')
+  assert.deepEqual(allPages.turns.flatMap(({ ingredients }) => ingredients).map(Number), Array.from({ length: 18 }, (_, index) => index), 'Physical pages retain ingredient order')
+  assert.ok(allPages.turns.filter(({ ingredients }) => ingredients.length > 0).length > 1, 'Large ingredient lists continue to later physical leaves')
 
-  // Reorder within the ingredient leaf, then use the position dialog for a distant row.
+  // Reorder within one leaf, then use the position dialog for a row on a later leaf.
   while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) > 0) {
     await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   }
   const thirdGrip = await page.getByRole('button', { name: /^Move ingredient 3:/ }).boundingBox()
-  const sixthGrip = await page.getByRole('button', { name: /^Move ingredient 6:/ }).boundingBox()
-  assert(thirdGrip && sixthGrip)
+  const fourthGrip = await page.getByRole('button', { name: /^Move ingredient 4:/ }).boundingBox()
+  assert(thirdGrip && fourthGrip)
   const writesBeforeMoves = saveRequests.length
   const ingredientName = (number) => page.locator(`[data-ingredient-slot="${number - 1}"] .recipe-ingredient-summary__name`).textContent()
-  const [third, fourth, fifth, sixth] = await Promise.all([3, 4, 5, 6].map(ingredientName))
+  const [third, fourth] = await Promise.all([3, 4].map(ingredientName))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.mouse.move(thirdGrip.x + thirdGrip.width / 2, thirdGrip.y + thirdGrip.height / 2)
   await page.mouse.down()
-  await page.mouse.move(sixthGrip.x + sixthGrip.width / 2, sixthGrip.y + sixthGrip.height / 2, { steps: 12 })
+  await page.mouse.move(fourthGrip.x + fourthGrip.width / 2, fourthGrip.y + fourthGrip.height / 2, { steps: 12 })
   await expect(page.locator('[data-ingredient-drop="slot"]')).toHaveCount(1)
   await expect(page.locator('.mm-writing-pages')).toHaveAttribute('data-form-page', '0')
   await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   assert.equal(await page.locator('.recipe-ingredient-card:popover-open').evaluate((element) => globalThis.getComputedStyle(element).scale), 'none')
   await page.mouse.up()
-  await expect(page.locator('[data-ingredient-slot="5"] .recipe-ingredient-summary__name')).toHaveText(third)
-  assert.deepEqual(await Promise.all([4, 5, 6, 7].map(ingredientName)), [fourth, fifth, sixth, third])
-  await expect(page.getByRole('button', { name: `Move ingredient 6: ${third}` })).toBeFocused()
-  await page.getByRole('button', { name: `Edit ingredient 6: ${third}` }).click()
-  await expect(page.getByLabel('Ingredient 6 name')).toHaveValue(third)
-  await expect(page.getByLabel('Ingredient 6 quantity')).toHaveValue('3')
+  await expect(page.locator('[data-ingredient-slot="3"] .recipe-ingredient-summary__name')).toHaveText(third)
+  assert.deepEqual(await Promise.all([3, 4].map(ingredientName)), [fourth, third])
+  await expect(page.getByRole('button', { name: `Move ingredient 4: ${third}` })).toBeFocused()
+  await page.getByRole('button', { name: `Edit ingredient 4: ${third}` }).click()
+  await expect(page.getByLabel('Ingredient 4 name')).toHaveValue(third)
+  await expect(page.getByLabel('Ingredient 4 quantity')).toHaveValue('3')
   await page.getByRole('button', { name: 'Done' }).click()
   assert.equal(saveRequests.length, writesBeforeMoves)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
 
-  const movedValue = await ingredientName(6)
-  const sixthHandle = page.getByRole('button', { name: `Move ingredient 6: ${movedValue}` })
-  await sixthHandle.focus()
+  const movedValue = await ingredientName(4)
+  const movedHandle = page.getByRole('button', { name: `Move ingredient 4: ${movedValue}` })
+  await movedHandle.focus()
   await page.keyboard.press('Enter')
   const moveDialog = page.getByRole('dialog', { name: 'Move ingredient' })
   await expect(moveDialog.getByLabel('Move to position')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(moveDialog).toHaveCount(0)
-  await expect(sixthHandle).toBeFocused()
+  await expect(movedHandle).toBeFocused()
   await page.keyboard.press('Space')
   await page.keyboard.press('1')
   await page.keyboard.press('8')
@@ -521,7 +484,7 @@ try {
   const stepFourDescription = page.getByLabel('Step 4 description')
   while (!(await stepFourDescription.isVisible())) {
     const nextPage = page.getByRole('button', { name: 'Next Pages' })
-    assert(await nextPage.isEnabled(), 'Step 4 must remain reachable after ingredients share one leaf')
+    assert(await nextPage.isEnabled(), 'Step 4 must remain reachable after ingredients continue across leaves')
     await turnPage(page, nextPage)
   }
   const movedStep = await stepFourDescription.inputValue()
@@ -532,7 +495,6 @@ try {
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
   for (const width of [1440, 1280, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
-    // The preceding row controls and the previous viewport may have scrolled the document.
     // Check the journal's layout from the top of the page at each viewport.
     await page.evaluate(() => globalThis.scrollTo(0, 0))
     await settleJournalLayout(page)
@@ -546,27 +508,16 @@ try {
     if (width === 320) await page.screenshot({ path: path.join(outputDir, 'long-form-320.png'), fullPage: true })
   }
 
-  // Real Chromium keyboard regression. Constrain the long identity leaf to
-  // model an overflowing paper region across desktop and narrow reflow widths.
+  // Real Chromium keyboard regression for physical page turns.
   for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }]) {
     await page.setViewportSize({ width, height })
     await page.goto(editUrl(longRecipe.id))
     await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
     await settleJournalLayout(page)
     await installKeyboardAudit(page)
-    await page.getByLabel('Recipe title').fill('Keyboard scroll draft survives turns')
+    await page.getByLabel('Recipe title').fill('Keyboard page turn draft survives turns')
     const leaf = page.locator('.mm-writing-leaf').first()
     assert.equal(await leaf.getAttribute('data-writing-leaf-key'), 'identity')
-    await leaf.evaluate((element) => {
-      element.style.flex = 'none'
-      element.style.height = '180px'
-      element.style.maxHeight = 'none'
-      element.scrollTop = 0
-    })
-    await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
-    await leaf.focus()
-    let regions = await scrollableAncestors(leaf)
-    assert.ok(regions.some((region) => region.label === 'leaf:identity' && region.scrollHeight > region.clientHeight + 2), `${width}px: identity writing leaf must have a real browser scroll range: ${JSON.stringify(regions)}`)
 
     // Inputs keep their native PageDown behavior and do not change pages.
     await page.getByLabel('Recipe title').focus()
@@ -574,38 +525,6 @@ try {
     assert.equal(await keyboardWasPrevented(page, 'PageDown'), false, `${width}px: PageDown in the title control must remain native`)
     assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
     await leaf.focus()
-    await leaf.evaluate((element) => { element.scrollTop = 0 })
-
-    let before = await scrollableAncestors(leaf)
-    await page.keyboard.press('PageDown')
-    await waitForNativeScroll(leaf, before, 'down')
-    await waitForScrollSettle(leaf)
-    regions = await scrollableAncestors(leaf)
-    assert.ok(regions.some((region) => region.scrollTop > (before.find((candidate) => candidate.label === region.label)?.scrollTop ?? 0)), `${width}px: PageDown must change a writing scrollTop`)
-    assert.equal(await keyboardWasPrevented(page, 'PageDown'), false)
-    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
-
-    before = regions
-    await page.keyboard.press('PageUp')
-    await waitForNativeScroll(leaf, before, 'up')
-    await waitForScrollSettle(leaf)
-    regions = await scrollableAncestors(leaf)
-    assert.ok(regions.some((region) => region.scrollTop < (before.find((candidate) => candidate.label === region.label)?.scrollTop ?? Infinity)), `${width}px: PageUp must change a writing scrollTop`)
-    assert.equal(await keyboardWasPrevented(page, 'PageUp'), false)
-    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
-
-    for (let scroll = 0; scroll < 12; scroll++) {
-      regions = await scrollableAncestors(leaf)
-      if (!regions.some((region) => region.scrollHeight - region.clientHeight - region.scrollTop > 2)) break
-      before = regions
-      await page.keyboard.press('PageDown')
-      assert.equal(await keyboardWasPrevented(page, 'PageDown'), false, `${width}px: PageDown must remain native before the bottom`)
-      await waitForNativeScroll(leaf, before, 'down')
-      await waitForScrollSettle(leaf)
-      assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
-    }
-    regions = await scrollableAncestors(leaf)
-    assert.ok(!regions.some((region) => region.scrollHeight - region.clientHeight - region.scrollTop > 2), `${width}px: repeated PageDown should reach the writing leaf bottom`)
     await page.keyboard.press('PageDown')
     assert.equal(await keyboardWasPrevented(page, 'PageDown'), true, `${width}px: accepted boundary turn consumes PageDown`)
     await waitForKeyboardTurn(page, 1)
@@ -614,8 +533,8 @@ try {
     await page.keyboard.press('PageUp')
     assert.equal(await keyboardWasPrevented(page, 'PageUp'), true, `${width}px: accepted top-boundary turn consumes PageUp`)
     await waitForKeyboardTurn(page, 0)
-    await expect(page.getByLabel('Recipe title')).toHaveValue('Keyboard scroll draft survives turns')
-    process.stdout.write(`Keyboard scroll: native PageUp/PageDown and boundary turns passed at ${width}×${height}.\n`)
+    await expect(page.getByLabel('Recipe title')).toHaveValue('Keyboard page turn draft survives turns')
+    process.stdout.write(`Keyboard page turns: PageUp/PageDown and boundary behavior passed at ${width}×${height}.\n`)
   }
 
   // Invalid first/last turns stay native. Arrows, rejected requests, animation,

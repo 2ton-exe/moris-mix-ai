@@ -8,6 +8,14 @@ async function addPantryItem(page: Page, item: string) {
   await input.press('Enter')
 }
 
+async function openChefPreferences(page: Page) {
+  const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
+  while (!await preferences.isVisible()) {
+    await page.getByRole('button', { name: 'Next page' }).click()
+  }
+  return preferences
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
@@ -104,7 +112,8 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage at a 
     await page.goto('/app/chef')
     await expectNoHorizontalOverflow(page)
     await addPantryItem(page, 'olive oil')
-    await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill(marker)
+    const preferences = await openChefPreferences(page)
+    await preferences.fill(marker)
     const generationResponse = page.waitForResponse((response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/generate-recipe',
     )
@@ -183,7 +192,7 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage at a 
     await test.step('Deny another account’s valid token access to the owner’s child lineage', async () => {
       await otherPage!.goto('/app/chef')
       await addPantryItem(otherPage!, 'olive oil')
-      await otherPage!.getByRole('textbox', { name: /^Cooking preferences/ }).fill(`${marker} other account`)
+      await (await openChefPreferences(otherPage!)).fill(`${marker} other account`)
       const otherGenerationResponsePromise = otherPage!.waitForResponse((response) =>
         response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/generate-recipe',
       )
@@ -262,7 +271,7 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
 
   await test.step('Keep malformed and unavailable Chef responses retryable without writes', async () => {
     await addPantryItem(page, 'rice')
-    const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
+    const preferences = await openChefPreferences(page)
     await preferences.fill('qa03:malformed')
     await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
     await expect(page.getByRole('alert')).toContainText('Mori returned a recipe that could not be checked safely.')
@@ -342,7 +351,7 @@ test('QA-05 quota exhaustion keeps Quick AI and Chef drafts unsaved', async ({ p
   await test.step('Keep Chef input after quota exhaustion with no persistence', async () => {
     await page.goto('/app/chef')
     await addPantryItem(page, 'rice')
-    const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
+    const preferences = await openChefPreferences(page)
     await preferences.fill('QA05_QUOTA_EXHAUSTED')
     const responsePromise = page.waitForResponse((response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/generate-recipe',

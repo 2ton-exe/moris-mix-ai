@@ -10,6 +10,8 @@ export interface QuickAiEntryDraft {
   blockedUntil: number | null
   blockedReason: QuickAiBlockReason | null
   handoff: QuickAiEntryHandoff | null
+  /** Source notes remain visible after saving, but no longer block another handoff. */
+  completedReview?: boolean
   /** Present only for an editable FE-09 draft paired with a validated handoff. */
   reviewDraft?: RecipeEditorState | null
 }
@@ -26,7 +28,7 @@ function warnBeforeUnload(event: BeforeUnloadEvent) {
 function updateUnloadWarning() {
   if (typeof window === 'undefined') return
   window.removeEventListener('beforeunload', warnBeforeUnload)
-  if ([...memoryDrafts.values()].some((draft) => draft.notes.length > 0 || draft.handoff !== null || draft.reviewDraft != null)) {
+  if ([...memoryDrafts.values()].some((draft) => (draft.notes.length > 0 && draft.completedReview !== true) || draft.handoff !== null || draft.reviewDraft != null)) {
     window.addEventListener('beforeunload', warnBeforeUnload)
   }
 }
@@ -97,6 +99,7 @@ export function readQuickAiEntryDraftResult(userId: string, storage?: Storage): 
   }
 
   const draft: QuickAiEntryDraft = { notes: value.notes, blockedUntil: blockedReason ? blockedUntil : null, blockedReason, handoff }
+  if ('completedReview' in value && value.completedReview === true) draft.completedReview = true
   if (reviewDraft !== undefined) draft.reviewDraft = reviewDraft
   return { draft, status: 'available' }
 }

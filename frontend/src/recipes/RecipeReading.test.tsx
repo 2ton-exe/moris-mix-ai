@@ -6,11 +6,11 @@ import { JournalShell } from '../journal/JournalShell'
 import { RecipeReading } from './RecipeReading'
 import type { RecipeDetail } from './types'
 
-const measured = vi.hoisted(() => ({ single: false, fallback: false, pages: [['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1', 'note-0', 'note-1', 'flavors']] }))
+const measured = vi.hoisted(() => ({ single: false, ready: true, pages: [['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1', 'instruction-1-part-1', 'instruction-1-part-2', 'instruction-1-part-3', 'instruction-1-part-4', 'instruction-1-part-5', 'instruction-1-part-6', 'note-0', 'note-1', 'flavors']] }))
 vi.mock('../journal/useJournalMedia', () => ({ useJournalMedia: () => measured.single }))
 vi.mock('./useReadingPagination', () => ({ useReadingPagination: () => ({
-  bodyRef: createRef(), leftRef: createRef(), bankRef: createRef(), measurable: false, ready: true,
-  layout: measured.fallback ? null : { pages: measured.pages, capacity: 400, oversized: ['instruction-1'] },
+  bodyRef: createRef(), leftRef: createRef(), bankRef: createRef(), measurable: false, ready: measured.ready,
+  textChunkSize: 600, layout: measured.ready ? { pages: measured.pages, capacity: 400, width: 400 } : null,
 }) }))
 
 const recipe: RecipeDetail = {
@@ -34,7 +34,11 @@ function RouteView({ data = recipe }: { data?: RecipeDetail }) {
 
 const live = () => within(document.querySelector<HTMLElement>('.mm-journal-book > .mm-journal-spread')!)
 
-beforeEach(() => { measured.single = false; measured.fallback = false })
+beforeEach(() => {
+  measured.single = false
+  measured.ready = true
+  measured.pages = [['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1', 'instruction-1-part-1', 'instruction-1-part-2', 'instruction-1-part-3', 'instruction-1-part-4', 'instruction-1-part-5', 'instruction-1-part-6', 'note-0', 'note-1', 'flavors']]
+})
 
 async function finishPageTurn() {
   await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('animating'))
@@ -57,47 +61,33 @@ it('leaves boundary PageUp/PageDown actions available and only cancels valid pag
   await live().findByText('Pages 1–2 of 4')
 })
 
-it.each(['PageUp', 'PageDown'])('leaves %s available to scroll the single fallback spread', (key) => {
-  measured.fallback = true
+it('keeps the identity visible while measured page boundaries are prepared', () => {
+  measured.ready = false
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
-  const region = screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
-  region.focus()
-  expect(fireEvent.keyDown(region, { key })).toBe(true)
-  expect(document.activeElement).toBe(region)
-  expect(live().getByText('Pages 1–2 of 2')).toBeTruthy()
-  expect(live().getByText('Page space is limited. Scroll this paper to continue reading.')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: recipe.title })).toBeTruthy()
+  expect(live().getByText('Preparing recipe pages…')).toBeTruthy()
+  expect(live().queryByText(/Scroll this paper/)).toBeNull()
 })
 
-it.each([
-  { key: 'PageDown', scrollTop: 0 },
-  { key: 'PageUp', scrollTop: 100 },
-])('leaves $key available while the identity leaf can scroll', ({ key, scrollTop }) => {
+it('restores an exact content anchor without matching a longer entry prefix', () => {
+  measured.pages = [['ingredient-10-part-1'], ['ingredient-1']]
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=ingredient-1']}><RouteView /></MemoryRouter>)
+  expect(live().getByText('Page 3 of 3')).toBeTruthy()
+})
+
+it('uses PageDown for physical navigation even when an identity element has a scroll range', async () => {
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
   const region = screen.getByRole('region', { name: 'Left recipe page' })
   Object.defineProperties(region, {
     clientHeight: { configurable: true, value: 100 },
     scrollHeight: { configurable: true, value: 300 },
   })
-  region.scrollTop = scrollTop
+  region.scrollTop = 100
   region.focus()
 
-  expect(fireEvent.keyDown(region, { key })).toBe(true)
-  expect(live().getByText('Pages 1–2 of 4')).toBeTruthy()
-})
-
-it('turns the page when PageDown reaches a fractional physical bottom', async () => {
-  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
-  const region = screen.getByRole('region', { name: 'Left recipe page' })
-  Object.defineProperties(region, {
-    clientHeight: { configurable: true, value: 100 },
-    scrollHeight: { configurable: true, value: 300 },
-  })
-  region.scrollTop = 199.5
-  region.focus()
-
-  expect(region.scrollTop).toBe(199.5)
   expect(fireEvent.keyDown(region, { key: 'PageDown' })).toBe(false)
   await live().findByText('Pages 3–4 of 4')
+  await finishPageTurn()
 })
 
 it('turns through facing leaves with live announcements and preserves route return state', async () => {
@@ -142,14 +132,18 @@ it('restores a direct content anchor and keeps that item through reflow and data
   expect(live().getByText('Page 4 of 4')).toBeTruthy()
 })
 
-it('provides a named bounded region for an oversized step and leaves its scroll keys alone', async () => {
-  render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=ingredient-2']}><RouteView /></MemoryRouter>)
-  const fallback = screen.getByRole('region', { name: /method|In the kitchen, instruction 1. Scroll to continue/ })
-  expect(live().getByText('Long entry · scroll to continue')).toBeTruthy()
-  expect(fallback.textContent).toContain(recipe.instructions[0].text)
-  expect(fallback.getAttribute('tabindex')).toBe('0')
-  expect(fallback.style.maxHeight).not.toBe('')
-  fireEvent.keyDown(fallback, { key: 'ArrowLeft' })
+it('continues a long cooking step across measured units without an inner scroll region', async () => {
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=instruction-1']}><RouteView /></MemoryRouter>)
+  const body = screen.getByRole('region', { name: 'Recipe ingredients, instructions and notes' })
+  const paragraphs = Array.from(body.querySelectorAll('.mm-reading-method p'))
+  expect(paragraphs.length).toBeGreaterThan(1)
+  const visibleText = paragraphs.map((paragraph) => {
+    const clone = paragraph.cloneNode(true) as HTMLParagraphElement
+    clone.querySelectorAll('.visually-hidden').forEach((label) => label.remove())
+    return clone.textContent
+  }).join('')
+  expect(visibleText).toContain(recipe.instructions[0].text)
+  expect(getComputedStyle(body).overflowY).not.toBe('auto')
   expect(live().getByText('Pages 3–4 of 4')).toBeTruthy()
   fireEvent.keyDown(screen.getByRole('region', { name: 'Left recipe page' }), { key: 'PageUp' })
   await waitFor(() => expect(live().getByText('Pages 1–2 of 4')).toBeTruthy())

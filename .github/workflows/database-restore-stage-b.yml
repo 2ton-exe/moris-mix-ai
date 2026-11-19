@@ -204,7 +204,7 @@ jobs:
                 diagnostic_details="$(python3 scripts/classify_restore_component.py --details \
                   "$RUNNER_TEMP/private-restore-stderr.log" "$rc" \
                   "$RUNNER_TEMP/restore-verified-sql/roles.sql" 2> /dev/null)" || diagnostic_details=
-                if [[ "$diagnostic_details" =~ ^(roles[.]sql|schema[.]sql|history-schema[.]sql|data[.]sql|history-data[.]sql|unknown)\ (insufficient-privilege|undefined-object|duplicate-object|unknown)\ (role-membership-grant|alter-role-set|unknown)$ ]]; then
+                if [[ "$diagnostic_details" =~ ^(roles[.]sql|schema[.]sql|history-schema[.]sql|data[.]sql|history-data[.]sql|unknown)\ (insufficient-privilege|undefined-object|duplicate-object|unknown)\ (role-membership-grant|alter-role-set|create-role|alter-role-attributes|unknown)$ ]]; then
                   read -r component_hint error_category_hint statement_class_hint <<< "$diagnostic_details"
                 fi
               fi
@@ -217,7 +217,7 @@ jobs:
                 *) error_category_hint=unknown ;;
               esac
               case "$statement_class_hint" in
-                role-membership-grant|alter-role-set|unknown) ;;
+                role-membership-grant|alter-role-set|create-role|alter-role-attributes|unknown) ;;
                 *) statement_class_hint=unknown ;;
               esac
               printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d component_hint=%s untrusted_error_category_hint=%s untrusted_statement_class_hint=%s; private output suppressed\n' \

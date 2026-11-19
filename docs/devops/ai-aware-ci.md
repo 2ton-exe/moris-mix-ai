@@ -1,0 +1,57 @@
+# AI-aware CI and provider-safety boundaries (DEVOPS-07 / #162)
+
+**Evidence checked:** 2026-11-19 on `main` at `790bd75075f9c4b6e4be6b0c449c5e41a186decf`. This is a description of implemented delivery controls and dated test observations, not a live-provider or billing audit.
+
+## Required validation and triggers
+
+| Trigger/path | Actual CI behavior | Gemini calls? |
+| --- | --- | --- |
+| Pull request changing AI source, prompts, schemas, tests, or any other non-prose file | `modular-pr-validation.yml` classifies the complete PR diff and invokes full Frontend, Database, and Edge/API validation; E2E also runs, with eligible same-repository non-draft PRs staged after core validation | No live Gemini in required tests |
+| Verified Markdown-only change under `docs/` or `README.md` | Required check contexts remain present but use their documented lighter paths; the Edge/API deterministic tests, E2E, and staging do **not** execute | No |
+| Missing/invalid/ambiguous classifier evidence, mixed changes, workflow edits, or deletions | Classifier fails closed to the full validation path | No live Gemini in required tests |
+| Push to `main` | Full validation, including Edge/API deterministic tests and hosted RLS, followed by the separately gated deployment and provider-free route smoke | No live Gemini in required validation or route smoke |
+
+Sources: [PR caller](../../.github/workflows/modular-pr-validation.yml), [main caller](../../.github/workflows/modular-main.yml), [path classifier](../../scripts/ci-path-classifier.mjs), and [Stage A explanation](modular-workflows.md). Paths under `supabase/**`, including `_shared/ai/prompts.ts` and `eval_dataset.ts`, are outside the prose allowlist and cannot select the lighter path. A new test file must still be added to the explicitly enumerated Edge/API test command when appropriate; the classifier does not automatically discover new test files.
+
+### Deterministic AI quality gate
+
+[Reusable Edge/API validation](../../.github/workflows/reusable-edge-api.yml) explicitly runs `ai_contracts_test.ts`, `ai_journeys_test.ts`, `eval_dataset_test.ts`, `gemini_adapter_test.ts`, `extract_recipe_test.ts`, and `generate_recipe_test.ts` alongside other backend tests. The required Deno command omits `--allow-net`, does not receive a production `GEMINI_API_KEY`, and uses mocked provider transport. It cannot serve as evidence of a successful live Gemini request.
+
+The AI-owned [versioned dataset](../../supabase/functions/_shared/ai/eval_dataset.ts) is `2.1.1`; the [prompt file](../../supabase/functions/_shared/ai/prompts.ts) declares extraction `1.0.0` and Chef `1.1.0` at this checkpoint. Offline tests exercise real parsers, Zod schemas, error mappings, and explicit fixture expectations, not equality to a particular generated paragraph. They verify contracts and selected failure handling, **not** model accuracy, security against prompt injection, or the provider's real failure distribution. Dataset and prompt version bumps are a review/documentation convention, **not a separately enforced automatic version-bump gate**. The AI engineer owns prompts, fixture cases, and quality decisions; DevOps integrates and verifies their tests.
+
+**Execution evidence:** [Modular Main Validation run 44284529577](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44284529577) on `790bd75075f9c4b6e4be6b0c449c5e41a186decf` completed successfully, including the actual `Run deterministic Edge/API tests` step and nested hosted RLS. This establishes execution on that SHA; a passing docs-only PR check would not establish execution of the skipped tests.
+
+## Provider, secret, quota, and cost boundary
+
+- Production provider requests originate in Supabase Edge Functions, not in the frontend or routine PR CI. The application uses server-side `GEMINI_API_KEY`, the Chef candidate-token secret `AI_CANDIDATE_TOKEN_SECRET`, and opt-in flags `AI_EXTRACT_ENABLED` / `AI_GENERATE_ENABLED`. Kill switches `AI_EXTRACT_DISABLED` and `AI_GENERATE_DISABLED` override those opt-ins. Record **names and roles only**, never values.
+- The AI owner's [November 14–15 evaluation record](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14) documents a dedicated Gemini project, an API-restricted key, and a separately authorized, cost-guarded live verification. The [restoration record](../ai-evaluation-report.md#production-restoration-verification-2026-11-15) reports that the production opt-ins were restored and extraction/Chef previews worked; do **not** confuse this later state with the earlier temporary kill-switch test. Current secret values or enablement state have not been re-audited by this documentation change.
+- The backend has an application-level per-user daily `AI_DAILY_LIMIT` (default 20 logical operations), short-window controls, reservation/settlement behavior, bounded adapter retry, and stable failure responses; see [AI architecture](../ai-architecture.md) and [quota implementation](../../supabase/functions/_shared/ai/quota.ts). This is **not** an enforced project-wide Gemini monetary cap. A logical operation may contain more than one provider attempt due to retry.
+- **Still requires authorized provider-administrator evidence:** ownership of the Google project and key, its current service tier and project-level quotas, billing state and who can be charged, whether an enforceable spend ceiling exists, and whether an independently quota-scoped test project/key exists. API key restrictions or multiple keys in one project do not, by themselves, demonstrate isolated quota or a hard cost cap. No secret value or billing account data belongs in GitHub.
+- The separate hosted Supabase RLS test database is **not** proof of a separate Gemini evaluation project. Staging currently does not constitute independently configured Gemini-provider staging merely because a staging frontend exists.
+
+### Live-provider smoke decision
+
+**Decision as of 2026-11-19:** retain the existing *opt-in, human-authorized* live verification outside ordinary required CI; **defer an automated scheduled live-Gemini workflow** until the provider/project owner establishes suitable cost, quota, and credential boundaries. Do not add the existing three-case `ai_extraction_live.ts` or model-discovery `ai_connectivity.ts` unchanged as a supposedly single-request scheduled smoke: retries and discovery may increase call count.
+
+The [November 15 production report](../ai-evaluation-report.md#production-enablement-verification-2026-11-15) records one successful cost-guarded extraction and one Chef request, their request IDs, settled application quota, and the feature-flag sequence. Subsequent browser previews were separately observed. These **manual tests are not an automated scheduled smoke**, broad safety evaluation, reliability benchmark, or proof of a provider-wide spending cap. If a scheduled check is later authorized, it must be a separately scoped, synthetic, narrowly bounded, non-required workflow with a dedicated authorized key/project, explicit request/attempt ceiling, a safe skip/failure state, and no production release dependency. Any implementation needs its own review and execution evidence.
+
+## Deployment/outage boundary
+
+- Neither the required CI test command nor [production AI-route smoke](../../scripts/ai-route-smoke.mjs) calls Gemini. The route smoke checks OPTIONS/CORS and unauthorized POST (HTTP 401); it is not an authenticated AI test or evidence of quota settlement.
+- The [main production workflow](../../.github/workflows/modular-main.yml) gates release on the successful core validation and its documented image-readiness conditions, **not** Gemini availability. The [AI architecture](../ai-architecture.md#6-reliability-failure-behavior) documents degraded responses, and the application can continue non-AI recipe entry. Configuration and successful runs support **pipeline independence**, but no real worldwide Gemini outage was induced in this audit.
+- On [main run 44284529577](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44284529577), Frontend, Database, Edge/API, three-browser E2E, Hosted RLS, image readiness, Supabase/Cloudflare deployment, and the URL/runtime/AI-route smoke steps passed. This was a normal deployment. The `account-export` deploy was intentionally skipped, not passed.
+
+## Ownership, remaining acceptance, and safe handoff
+
+| Responsibility | Owner |
+| --- | --- |
+| CI triggers, required checks, delivery independence, safe secret integration, reporting and incident/rollback documentation | DevOps (Haresco) |
+| Prompt versions, fixtures, model acceptance criteria, provider behavior and quality evaluation | AI engineer (Sioson) |
+| API rate limiting, quota reservation/settlement, hosted concurrency and backend failure contracts | Backend (Ramos) |
+| Integration/review and full E2E release journeys | Belen with the relevant owners |
+| Google project/key ownership, billing/quota policy, approved provisioning | Authorized Google project administrator with DevOps coordination |
+
+Before marking issue #162 complete, reconcile its tasks individually against these references and verify the unresolved Google provider-cost/credential claims with the authorized owner. A documented decision **not** to schedule live provider calls for safety is not proof that the rubric's scheduled-smoke excellent tier was achieved. Avoid setting live secrets/flags or incurring provider cost solely to make a checkbox green.
+
+Related evidence: [issue #162](https://github.com/2ton-exe/moris-mix-ai/issues/162), [merged PR #207](https://github.com/2ton-exe/moris-mix-ai/pull/207), [AI evaluation guidance](../ai-evaluation.md), [deployment runbook](deployment-runbook.md).
+

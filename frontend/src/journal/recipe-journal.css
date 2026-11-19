@@ -6,8 +6,10 @@
   text-transform: uppercase;
 }
 .mm-journal-spread:has(.mm-facing-content--index) :is(.mm-journal-flyleaf, .mm-journal-page) {
-  background-color: var(--mm-color-parchment-200);
-  background-image: var(--mm-page-curve), var(--mm-tex-fibers), var(--mm-tex-specks), var(--mm-tex-grain), var(--mm-tex-mottle);
+  --mm-journal-paper-color: var(--mm-color-parchment-200);
+  --mm-journal-paper-image: var(--mm-page-curve), var(--mm-tex-fibers), var(--mm-tex-specks), var(--mm-tex-grain), var(--mm-tex-mottle);
+  background-color: var(--mm-journal-paper-color);
+  background-image: var(--mm-journal-paper-image);
   box-shadow: inset 0 0 0 1px rgb(90 60 30 / .22), inset 0 0 50px rgb(90 60 30 / .2);
 }
 .mm-facing-content--index { display: flex; flex-direction: column; gap: 16px; }

@@ -26,8 +26,19 @@ ERROR_CATEGORIES = {
     b"42704": "undefined-object",
     b"42710": "duplicate-object",
 }
-STATEMENT_CLASSES = {"role-membership-grant", "alter-role-set", "unknown"}
+STATEMENT_CLASSES = {"role-membership-grant", "alter-role-set", "create-role",
+                     "alter-role-attributes", "unknown"}
 IDENTIFIER = rb'(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:[^"\r\n]|"")+")'
+# Deliberately limited to boolean role attributes, not arbitrary SQL or secrets.
+# pg_dumpall normally emits CREATE ROLE followed by ALTER ROLE ... WITH.
+ROLE_ATTRIBUTE = rb'(?:NO)?(?:SUPERUSER|INHERIT|CREATEROLE|CREATEDB|LOGIN|REPLICATION|BYPASSRLS)'
+ROLE_ATTRIBUTES = ROLE_ATTRIBUTE + rb'(?: ' + ROLE_ATTRIBUTE + rb')*'
+CREATE_ROLE = re.compile(
+    rb'CREATE ROLE ' + IDENTIFIER + rb'(?: (?:WITH )?' + ROLE_ATTRIBUTES + rb')?;'
+)
+ALTER_ROLE_ATTRIBUTES = re.compile(
+    rb'ALTER ROLE ' + IDENTIFIER + rb' (?:WITH )?' + ROLE_ATTRIBUTES + rb';'
+)
 ROLE_MEMBERSHIP_GRANT = re.compile(
     rb"GRANT " + IDENTIFIER + rb" TO " + IDENTIFIER
     + rb"(?: WITH (?:ADMIN OPTION|INHERIT (?:TRUE|FALSE)|SET (?:TRUE|FALSE))"
@@ -154,6 +165,10 @@ def statement_class_from_file(path: Path, line_number: int) -> str:
                     return "role-membership-grant"
                 if ALTER_ROLE_SET.fullmatch(line):
                     return "alter-role-set"
+                if CREATE_ROLE.fullmatch(line):
+                    return "create-role"
+                if ALTER_ROLE_ATTRIBUTES.fullmatch(line):
+                    return "alter-role-attributes"
                 return "unknown"
     except OSError:
         return "unknown"

@@ -244,9 +244,13 @@ try {
     await expect(page.getByRole('button', { name: 'Show Mori' })).toBeFocused()
     await page.reload()
     await expect(page.getByRole('button', { name: 'Show Mori' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
+    await settleJournalLayout(page)
     await page.getByRole('button', { name: 'Show Mori' }).click()
     await expect(trigger).toBeFocused()
     await trigger.click()
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('heading', { name: 'Mori', exact: true })).toBeFocused()
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 320, height: 480 })
     await settleJournalLayout(page)
@@ -398,13 +402,7 @@ try {
     await landscape.page.goto(`${origin}${route}`)
     if (route.endsWith(recipe.id)) {
       await settleReadingPages(landscape.page)
-      if (!(await landscape.page.getByRole(next.role, { name: next.name, exact: true }).count())) {
-        const scrollable = await landscape.page.locator('.mm-recipe-reading-body').evaluate((node) => node.scrollHeight > node.clientHeight && node.clientHeight >= 40)
-        assert.ok(scrollable, 'Short landscape retains a readable scrolling fallback')
-        await expect(landscape.page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number')).toContainText('Page 1 of 1')
-        await landscape.page.screenshot({ path: path.join(outputDir, '720-short-reading-fallback.png') })
-        continue
-      }
+      await expect(landscape.page.getByRole(next.role, { name: next.name, exact: true })).toBeVisible()
     }
     await landscape.page.getByRole(next.role, { name: next.name, exact: true }).click()
     await verifyMoriPageTurn(landscape.page, landscapeCharacter, 'forward')

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { paginateReading, readingParagraphs, readingSpreads, type ReadingMeasurement } from './readingPagination'
+import { paginateReading, readingParagraphs, readingSpreads, splitReadingText, type ReadingMeasurement } from './readingPagination'
 
 const row = (id: string, section = 'ingredients', height = 60): ReadingMeasurement => ({ id, section, height, headingHeight: 20 })
 
@@ -8,6 +8,16 @@ it('keeps paragraph boundaries and every original newline, including a final sin
     expect(readingParagraphs(text).join('')).toBe(text)
   }
   expect(readingParagraphs('First\r\n\r\nLast\r\n')).toEqual(['First\r\n\r\n', 'Last\r\n'])
+})
+
+it('splits long prose into bounded, lossless continuations', () => {
+  expect(splitReadingText('', 120)).toEqual([''])
+  for (const text of ['A long note. '.repeat(200), 'A\nline\nwith breaks '.repeat(100), 'unbroken'.repeat(120)]) {
+    const parts = splitReadingText(text, 120)
+    expect(parts.every((part) => part.length <= 120)).toBe(true)
+    expect(parts.join('')).toBe(text)
+  }
+  expect(splitReadingText('😀a', 1)).toEqual(['😀', 'a'])
 })
 
 it('packs complete rows, charging a section heading only at a section or leaf boundary', () => {

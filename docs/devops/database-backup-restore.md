@@ -152,7 +152,9 @@ For a PostgreSQL script failure (`restore` exit code 3), Stage B may emit the
 existing `component_hint` and two additional **untrusted** hints for a uniquely
 framed `roles.sql` error: a category mapped from the fixed SQLSTATE allowlist
 (`42501`, `42704`, `42710`) and a conservative statement class for a recognized
-single-line role-membership `GRANT` or `ALTER ROLE ... SET`. The statement lookup
+single-line role-membership `GRANT`, `ALTER ROLE ... SET`, `CREATE ROLE`, or
+`ALTER ROLE` with boolean role attributes. Creation supports an optional boolean
+attribute list; password, connection-limit and validity clauses remain unsupported. The statement lookup
 uses only the verified `roles.sql` file and the reported line number, which may
 identify the statement's ending line. Unsupported forms and unreadable role
 files produce an `unknown` statement class; malformed or ambiguous records and

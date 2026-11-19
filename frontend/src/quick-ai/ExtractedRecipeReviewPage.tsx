@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
-import { moriReviewKeyFromState } from '../mori/routeState'
 import { JournalShell } from '../journal/JournalShell'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -30,10 +29,10 @@ function sourceNotesReturn(state: unknown) {
 
 export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
-  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an extracted recipe.</p>
-  const moriReviewKey = moriReviewKeyFromState(location.state)
-  return <ExtractedRecipeReviewSession key={`${user.id}:${moriReviewKey}`} userId={user.id} save={save} />
+  const handoff = readQuickAiEntryDraftResult(user.id).draft.handoff
+  const reviewIdentity = handoff ? JSON.stringify([handoff.sourceNotes, handoff.recipe]) : 'missing'
+  return <ExtractedRecipeReviewSession key={`${user.id}:${reviewIdentity}`} userId={user.id} save={save} />
 }
 
 function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
@@ -87,7 +86,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       setStorageIssue('handoff-changed')
       return false
     }
-    const next = { ...current, handoff: null, reviewDraft: null }
+    const next = { ...current, handoff: null, reviewDraft: null, completedReview: true }
     lastKnownDraftRef.current = next
     const writeResult: QuickAiDraftWriteResult = writeQuickAiEntryDraft(userId, next)
     setStorageIssue(writeResult.persisted ? null : 'saved-clear-failed')

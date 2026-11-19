@@ -3,8 +3,9 @@
 .mm-desk .mm-journal-flyleaf:has(.mm-page-column) { display: flex; justify-content: flex-start; overflow: visible; }
 .mm-desk .mm-journal-page:has(.mm-page-column) { overflow: visible; padding-bottom: calc(var(--mm-page-height) * .045 + var(--mm-footer-height, 0px) + 10px); }
 .mm-desk .mm-facing-slot:has(.mm-page-column) { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.mm-desk .mm-page-body { flex: 1; min-width: 0; min-height: 0; flex-shrink: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--mm-color-kraft-500) transparent; scroll-padding-block: 16px; padding: 4px 6px 18px 2px; }
+.mm-desk .mm-page-body { flex: 1; min-width: 0; min-height: 0; flex-shrink: 1; overflow: visible; padding: 4px 6px 18px 2px; }
 .mm-page-body:focus-visible { outline-offset: -3px; }
+.mm-pagination-measure { position: fixed; top: 0; left: -20000px; visibility: hidden; pointer-events: none; contain: layout style; }
 .mm-journal-page-footer { position: absolute; z-index: 10; right: calc(var(--mm-page-width) * .07); bottom: calc(var(--mm-page-height) * .045); width: calc(var(--mm-page-width) * .845); padding-top: 8px; border-top: 1.5px dashed rgb(120 92 60 / .3); }
 .mm-journal-page-footer:empty { display: none; }
 .mm-journal-page-footer :is(p, .request-state, .discovery-pagination, .discovery-end) { margin: 4px 0; }
@@ -128,7 +129,7 @@
 .mm-desk .mm-demo-title { margin: 0 0 14px; color: var(--mm-color-ink-soft); font: 600 20px/1.2 var(--mm-font-serif); }
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
-  /* Complete left-to-right reading order in the existing shared scrollport. */
+  /* Keep the reading order complete on each physical leaf. */
   .mm-desk .mm-journal-flyleaf:has(.mm-page-column) { display: block; overflow: visible; }
   .mm-desk .mm-journal-page:has(.mm-page-column) { padding-bottom: 16px; overflow: visible; }
   .mm-desk .mm-page-column, .mm-desk .mm-facing-slot:has(.mm-page-column) { display: block; height: auto; min-height: 0; }

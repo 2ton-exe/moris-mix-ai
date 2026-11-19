@@ -41,6 +41,7 @@ const reviewHandoffSchema = z.object({
 const chefDraftSchema = z.object({
   input: pantryInputSchema,
   handoff: reviewHandoffSchema.nullable(),
+  completedReview: z.boolean().optional(),
 })
 
 export interface ChefPantryInput {
@@ -62,6 +63,7 @@ export interface ChefReviewHandoff {
 export interface ChefDraft {
   input: ChefPantryInput
   handoff: ChefReviewHandoff | null
+  completedReview?: boolean
 }
 
 export const emptyChefDraft = (): ChefDraft => ({
@@ -73,8 +75,9 @@ const memoryDrafts = new Map<string, ChefDraft>()
 const storageKey = (userId: string) => `moris-mix:ai-chef:v1:${encodeURIComponent(userId)}`
 
 function hasContent(draft: ChefDraft) {
-  return draft.input.pantryItems.length > 0 || draft.input.pantryInput.length > 0 ||
-    draft.input.preferences.length > 0 || draft.handoff !== null
+  return draft.handoff !== null || (draft.completedReview !== true && (
+    draft.input.pantryItems.length > 0 || draft.input.pantryInput.length > 0 || draft.input.preferences.length > 0
+  ))
 }
 
 function warnBeforeUnload(event: BeforeUnloadEvent) {

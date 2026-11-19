@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
-import { moriReviewKeyFromState } from '../mori/routeState'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -125,10 +124,10 @@ async function persistOrReconcileLineage(
 
 export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
-  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an AI Chef recipe.</p>
-  const moriReviewKey = moriReviewKeyFromState(location.state)
-  return <ChefReviewSession key={`${user.id}:${moriReviewKey}`} userId={user.id} save={save} />
+  const handoff = readChefDraftResult(user.id).draft.handoff
+  const reviewIdentity = handoff ? JSON.stringify([handoff.request, handoff.response]) : 'missing'
+  return <ChefReviewSession key={`${user.id}:${reviewIdentity}`} userId={user.id} save={save} />
 }
 
 function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
@@ -227,7 +226,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     }
     const clearableHandoff = current.handoff ?? handoff
     if (!clearableHandoff || clearableHandoff.lineageStatus !== 'confirmed') return null
-    const next = { ...current, handoff: null }
+    const next = { ...current, handoff: null, completedReview: true }
     setLastKnownDraft(next)
     const result = writeChefDraft(userId, next)
     setStorageIssue(result.persisted ? null : 'saved-clear-failed')

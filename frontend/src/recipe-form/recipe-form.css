@@ -77,7 +77,7 @@
   background-color: var(--mm-color-parchment-50);
   font: 450 16px/1.55 var(--mm-font-sans);
 }
-.mm-journal-editor .recipe-form-field textarea { resize: vertical; }
+.mm-journal-editor .recipe-form-field textarea { resize: none; }
 .mm-journal-editor .recipe-form-field [aria-invalid="true"] {
   border-color: var(--mm-color-brick-700);
   box-shadow: inset 3px 0 var(--mm-color-brick-700);
@@ -437,7 +437,7 @@
   .recipe-ingredient-edit-step__title .recipe-ingredient-emoji { width: 26px; height: 26px; object-fit: contain; }
   .recipe-ingredient-summary { display: flex; align-items: center; min-width: 0; gap: 8px; }
   .recipe-ingredient-summary__amount { flex: none; color: var(--mm-color-espresso-800); font: 700 14px/1.3 var(--mm-font-sans); white-space: nowrap; }
-  .recipe-ingredient-summary__name { min-width: 0; overflow: hidden; color: var(--mm-color-ink); font: 500 14px/1.35 var(--mm-font-sans); text-overflow: ellipsis; white-space: nowrap; }
+  .recipe-ingredient-summary__name { min-width: 0; color: var(--mm-color-ink); font: 500 14px/1.35 var(--mm-font-sans); overflow-wrap: anywhere; }
   .recipe-ingredient-summary__name.is-empty { color: var(--mm-color-ink-soft); font-style: italic; }
   .recipe-ingredient-compact__actions { display: flex; align-items: center; gap: 1px; }
   .recipe-ingredient-compact__actions .recipe-ingredient-control { width: 38px; height: 40px; }

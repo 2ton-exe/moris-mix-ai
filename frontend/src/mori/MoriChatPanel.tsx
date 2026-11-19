@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { HttpError } from '../api/http'
+import { retryAfterSeconds } from '../api/retryAfter'
 import { MAX_PANTRY_ITEM_CHARS, MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS } from '../ai-chef/pantry'
 import { readChefDraftResult, writeChefDraft } from '../ai-chef/draft'
 import type { ChefReviewHandoff } from '../ai-chef/draft'
@@ -7,11 +9,13 @@ import { generateRecipeApi, generateRecipeErrorMessage, generateRecipeRequestSch
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai/draft'
 import type { ExtractedRecipe, QuickAiEntryHandoff } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, InvalidExtractionResponse, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
+import { mapExtractedRecipeToDraft } from '../quick-ai/recipeDraft'
 import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requestedWorkflow } from './chatFlow'
 import { useMoriActivity } from './MoriCompanionContext'
 
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
+type MoriCooldown = { kind: MoriRetry['kind']; until: number }
 type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft }
 
 function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: (draft: MoriDraft) => void; disabled: boolean }) {
@@ -50,6 +54,8 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const [pending, setPending] = useState(false)
   const [followUp, setFollowUp] = useState<{ notes: string } | null>(null)
   const [retryRequest, setRetryRequest] = useState<MoriRetry | null>(null)
+  const [cooldown, setCooldown] = useState<MoriCooldown | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const id = useRef(1)
   const reviewSequence = useRef(0)
   const reviewKeys = useRef(new WeakMap<MoriDraft, number>())
@@ -57,7 +63,15 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
   const composerId = useId()
+  const retryWait = cooldown ? Math.max(0, Math.ceil((cooldown.until - now) / 1000)) : 0
   useMoriActivity(pending ? { kind: 'working', message: 'I’m putting your recipe together…' } : null)
+
+  useEffect(() => {
+    if (!cooldown) return
+    if (cooldown.until <= now) { setCooldown(null); return }
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(1000, cooldown.until - now))
+    return () => window.clearTimeout(timer)
+  }, [cooldown, now])
 
   function say(role: Message['role'], text: string, draft?: MoriDraft) {
     const message = { id: id.current++, role, text, ...(draft ? { draft } : {}) }
@@ -86,6 +100,22 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     const active = request.current
     if (active) { request.current = null; requestId.current++; window.clearTimeout(active.timeout); active.controller.abort() }
   }, [])
+
+  function startCooldown(kind: MoriRetry['kind'], error: unknown) {
+    if (!(error instanceof HttpError) || error.status !== 429) return
+    const seconds = retryAfterSeconds(error.retryAfter)
+    if (seconds === undefined || seconds <= 0) return
+    setCooldown({ kind, until: Date.now() + seconds * 1000 })
+    setNow(Date.now())
+  }
+
+  function waitForCooldown(kind: MoriRetry['kind']) {
+    if (!cooldown || cooldown.kind !== kind) return false
+    const seconds = Math.max(0, Math.ceil((cooldown.until - Date.now()) / 1000))
+    if (seconds === 0) { setCooldown(null); return false }
+    say('assistant', `Mori is temporarily rate-limited for ${kind === 'create' ? 'cooking notes' : 'pantry ideas'}. Wait at least ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before trying again.`)
+    return true
+  }
 
   async function ask<T>(
     action: (signal: AbortSignal) => Promise<T>,
@@ -142,7 +172,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         'moriReviewKey' in location.state && typeof location.state.moriReviewKey === 'number'
         ? location.state.moriReviewKey
         : undefined
-      navigate('/app/chef/review', { state: { moriKeepOpen: true, ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }) } })
+      navigate('/app/chef/review', { replace: location.pathname === '/app/chef/review', state: { moriKeepOpen: true, ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }) } })
       return
     }
     say('assistant', message)
@@ -159,6 +189,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   async function createRecipe(notes: string) {
+    if (waitForCooldown('create')) return
     if (notes.length > MAX_EXTRACTION_INPUT_CHARS) {
       say('assistant', `Keep the cooking notes to ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters or fewer.`)
       return
@@ -173,12 +204,18 @@ export function MoriChatPanel({ userId }: { userId: string }) {
           say('assistant', `I’m only missing ${missing.join(' and ')}. What should I add?`)
           return
         }
+        if (!mapExtractedRecipeToDraft(recipe)) {
+          setFollowUp({ notes })
+          say('assistant', 'This recipe does not fit the editor yet. Your original cooking notes are still here; tell me what to correct, such as a shorter recipe title, and I’ll try again.')
+          return
+        }
         setFollowUp(null)
         say('assistant', `Here’s an editable draft of “${recipe.title}”. Review it before saving.`, {
           kind: 'create', handoff: { sourceNotes: notes, recipe, saved: false },
         })
       },
       (error, timedOut) => {
+        startCooldown('create', error)
         setFollowUp({ notes })
         setRetryRequest({ kind: 'create', notes })
         if (timedOut) return 'Mori took too long to organize those notes. They’re still in this chat; please try again.'
@@ -191,6 +228,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   async function suggestRecipe(prompt: string) {
+    if (waitForCooldown('suggest')) return
     const { pantryItems, preferences } = parsePantryPrompt(prompt)
     const parsed = generateRecipeRequestSchema.safeParse({ pantryItems, ...(preferences ? { preferences } : {}) })
     if (!parsed.success) {
@@ -203,6 +241,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       (signal) => generateRecipeApi.generate(parsed.data.pantryItems, parsed.data.preferences ?? '', { userId, signal }),
       (response) => {
         setRetryRequest(null)
+        if (!mapExtractedRecipeToDraft(response.recipe)) {
+          setComposer(prompt)
+          say('assistant', 'This idea does not fit the recipe editor yet. Your pantry request is back in the message box so you can adjust it and try again.')
+          return
+        }
         say('assistant', `I found an idea using your pantry. Review “${response.recipe.title}” before saving.`, {
           kind: 'suggest', handoff: {
             request: parsed.data,
@@ -213,6 +256,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         })
       },
       (error, timedOut) => {
+        startCooldown('suggest', error)
         setRetryRequest({ kind: 'suggest', prompt })
         return generateRecipeErrorMessage(error, timedOut)
       },
@@ -254,7 +298,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     if (draft.kind === 'create') {
       const current = readQuickAiEntryDraftResult(userId)
       const sameHandoff = current.draft.handoff && JSON.stringify(current.draft.handoff) === JSON.stringify(draft.handoff)
-      const hasContent = current.draft.notes.length > 0 || current.draft.handoff !== null || current.draft.reviewDraft != null || current.draft.blockedUntil !== null
+      const hasContent = (current.draft.notes.length > 0 && current.draft.completedReview !== true) || current.draft.handoff !== null || current.draft.reviewDraft != null || current.draft.blockedUntil !== null
       if (current.status === 'read-failed' || (hasContent && !sameHandoff)) {
         say('assistant', 'There’s already a Quick AI Entry draft in progress, so I left it untouched. Open Cooking Notes to review it first.')
         return
@@ -262,7 +306,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       if (!sameHandoff) writeQuickAiEntryDraft(userId, { notes: draft.handoff.sourceNotes, blockedUntil: null, blockedReason: null, handoff: draft.handoff })
       say('assistant', 'Your unsaved draft is ready in review. Nothing will be saved to your journal until you confirm there.')
       const reviewKey = reviewKeyFor(draft, sameHandoff === true)
-      navigate('/app/quick-entry/review', { state: {
+      navigate('/app/quick-entry/review', { replace: location.pathname === '/app/quick-entry/review', state: {
         moriKeepOpen: true,
         ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }),
         sourceJournalReturn: '/app/recipes',
@@ -274,7 +318,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     const sameSuggestion = current.draft.handoff &&
       JSON.stringify(current.draft.handoff.request) === JSON.stringify(draft.handoff.request) &&
       JSON.stringify(current.draft.handoff.response) === JSON.stringify(draft.handoff.response)
-    const hasContent = current.draft.input.pantryItems.length > 0 || current.draft.input.pantryInput.length > 0 || current.draft.input.preferences.length > 0 || current.draft.handoff !== null
+    const hasContent = current.draft.handoff !== null || (current.draft.completedReview !== true && (current.draft.input.pantryItems.length > 0 || current.draft.input.pantryInput.length > 0 || current.draft.input.preferences.length > 0))
     if (current.status === 'read-failed' || (hasContent && !sameSuggestion)) {
       say('assistant', 'There’s already an AI Chef draft in progress, so I left it untouched. Open the pantry page to review it first.')
       return
@@ -282,10 +326,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     if (!sameSuggestion) writeChefDraft(userId, {
         input: { pantryItems: draft.handoff.request.pantryItems, pantryInput: '', preferences: draft.handoff.request.preferences ?? '' },
         handoff: draft.handoff,
+        completedReview: false,
       })
     say('assistant', 'Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')
     const reviewKey = reviewKeyFor(draft, sameSuggestion === true)
-    navigate('/app/chef/review', { state: {
+    navigate('/app/chef/review', { replace: location.pathname === '/app/chef/review', state: {
       moriKeepOpen: true,
       chefGenerationSucceeded: true,
       ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }),
@@ -304,7 +349,8 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       </article>)}
     </div>
     {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
-    {retryRequest && !pending && <div className="mori-chat-retry"><button type="button" onClick={() => {
+    {cooldown && retryWait > 0 && <p role="timer" aria-live="off">Wait at least {retryWait} {retryWait === 1 ? 'second' : 'seconds'} before Mori can retry {cooldown.kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>}
+    {retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWait > 0 && retryRequest.kind === cooldown?.kind} onClick={() => {
       const retry = retryRequest
       setRetryRequest(null)
       if (retry.kind === 'create') void createRecipe(retry.notes)

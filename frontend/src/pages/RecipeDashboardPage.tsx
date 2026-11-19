@@ -25,8 +25,12 @@ export default function RecipeDashboardPage() {
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [catalogStarts, setCatalogStarts] = useState([0])
+  const [collectionStarts, setCollectionStarts] = useState([0])
   const measureCatalog = useCallback((starts: number[]) => {
     setCatalogStarts((current) => current.length === starts.length && current.every((start, index) => start === starts[index]) ? current : starts)
+  }, [])
+  const measureCollection = useCallback((starts: number[]) => {
+    setCollectionStarts((current) => current.length === starts.length && current.every((start, index) => start === starts[index]) ? current : starts)
   }, [])
   const [turnSearch, setTurnSearch] = useState<string | null>(null)
   const { user } = useAuth()
@@ -83,12 +87,17 @@ export default function RecipeDashboardPage() {
   const phone = useJournalMedia('(max-width: 599.98px)')
   const perPage = phone ? 1 : 2
   const indexView = params.get('view') === 'index' || (params.get('view') !== 'collection' && (Boolean(controls.draft.search) || controls.criteria.sort !== 'newest' || controls.criteria.searchMode !== 'title' || Object.keys(controls.criteria.filters).length > 0))
-  const pagedIndex = indexView && !single && typeof ResizeObserver !== 'undefined'
+  const collectionCriteriaKey = JSON.stringify(controls.criteria)
+  useEffect(() => { setCollectionStarts([0]) }, [collectionCriteriaKey, indexView])
+  const pagedIndex = indexView && typeof ResizeObserver !== 'undefined'
+  const pagedCollection = !indexView && typeof ResizeObserver !== 'undefined'
   const displayParams = turnSearch === null ? params : new URLSearchParams(turnSearch)
   const anchored = new URLSearchParams(displayParams)
   const entry = Number(displayParams.get('entry'))
   const hasAnchor = displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
-  if (hasAnchor) anchored.set('leaf', String(Math.floor(entry / perPage) + 1))
+  if (hasAnchor) anchored.set('leaf', String(pagedCollection
+    ? Math.max(1, collectionStarts.filter((start) => start <= entry).length)
+    : Math.floor(entry / perPage) + 1))
   const leaf = journalPage(anchored, recipes?.length ?? 0, { hasMore: query.hasNextPage || query.isPending, perPage })
   const spread = Math.floor(leaf / 2)
   const pages = single ? [leaf] : spread === 0 ? [0, 1] : [spread * 2, spread * 2 + 1]
@@ -97,16 +106,18 @@ export default function RecipeDashboardPage() {
   const catalogStart = catalogStarts[catalogPage] ?? 0
   const nextCatalogStart = catalogStarts[catalogPage + 1]
   const previousCatalogStart = catalogStarts[catalogPage - 1]
-  const needed = indexView && hasAnchor ? entry + 1 : rightPage * perPage
+  const collectionNeeded = collectionStarts[rightPage] ?? (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
+  const needed = hasAnchor ? Math.max(entry + 1, pagedCollection ? collectionNeeded : 0)
+    : pagedCollection ? collectionNeeded : rightPage * perPage
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
-  const restoreKey = `${location.key}:${indexView}:${single}:${perPage}:${returnFocusId ?? ''}`
+  const restoreKey = `${location.key}:${indexView}:${single}:${perPage}:${pagedCollection ? collectionStarts.join(',') : ''}:${returnFocusId ?? ''}`
   useEffect(() => { if (!recipeLink(returnFocusId)) collectionTitle.current?.focus() }, [facingPage, returnFocusId])
   const pageSearch = (page: number) => {
     const next = new URLSearchParams(params)
-    if (pagedIndex) next.delete('leaf')
+    if (pagedIndex || pagedCollection) next.delete('leaf')
     else next.set('leaf', String(page))
-    next.set('entry', String(pagedIndex ? page : (page - 1) * perPage))
+    next.set('entry', String(pagedIndex ? page : pagedCollection ? collectionStarts[page - 1] ?? recipes?.length ?? 0 : (page - 1) * perPage))
     return `?${next}`
   }
   const pageLink = (page: number) => ({ pathname: location.pathname, search: pageSearch(page), hash: location.hash })
@@ -134,8 +145,10 @@ export default function RecipeDashboardPage() {
     if ((!indexView || hasAnchor) && recipes && recipes.length < needed && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError && !controls.waiting) void query.loadMore()
   }, [indexView, hasAnchor, recipes, needed, query, controls.waiting])
   const nextPage = pagedIndex ? nextCatalogStart
+    : pagedCollection ? collectionStarts[rightPage] !== undefined ? rightPage + 1 : undefined
     : (recipes?.length ?? 0) > needed || query.hasNextPage ? single ? leaf + 1 : rightPage + 1 : undefined
   const previousPage = pagedIndex ? previousCatalogStart
+    : pagedCollection ? spread > 0 ? pages[0] - 1 : undefined
     : (single ? leaf > 1 : spread > 0) ? single ? leaf - 1 : Math.max(1, pages[0] - 2) : undefined
   useEffect(() => {
     if (!recipes || restoredLocation.current === restoreKey) return
@@ -195,6 +208,7 @@ export default function RecipeDashboardPage() {
   return <div data-journal-ready={(query.isFetchNextPageError || query.isPaused) && turnSearch !== null ? 'error' : turnSearch !== null && (query.isPending || controls.waiting || ((recipes?.length ?? 0) < needed && query.hasNextPage)) ? 'false' : 'true'} className="mm-page-column">
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       catalog={pagedIndex ? { start: catalogStart, end: nextCatalogStart ?? recipes?.length ?? 0, indicator: `Page ${catalogPage + 1}`, measure: measureCatalog } : undefined}
+      collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
         <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>

@@ -18,6 +18,21 @@ import { defaultRecipeSource, RecipeIntegrationUnavailable } from './source'
 import { previewRecipes, previewRecipeSource } from './testing/previewAdapter'
 import type { RecipeDetail, RecipeSource, RecipeSummary } from './types'
 
+const readingPages = vi.hoisted(() => [[
+  ...Array.from({ length: 20 }, (_, index) => `ingredient-${index}`),
+  ...Array.from({ length: 20 }, (_, index) => `instruction-${index}`),
+  ...Array.from({ length: 20 }, (_, index) => `note-${index}`),
+  'ingredients-empty', 'instructions-empty', 'notes-empty', 'flavors',
+]])
+
+vi.mock('./useReadingPagination', () => ({
+  useReadingPagination: () => ({
+    bodyRef: { current: null }, leftRef: { current: null }, bankRef: { current: null },
+    measurable: false, ready: true, textChunkSize: 10_000,
+    layout: { pages: readingPages, capacity: 1_000, width: 400 },
+  }),
+}))
+
 function authState(id: string | null = 'cook-a', token = 'current-token'): AuthState {
   const user = id ? { id, aud: 'authenticated', email: `${id}@example.test`, app_metadata: {}, user_metadata: {}, created_at: '2026-10-19' } : null
   const session: Session | null = user ? { user, access_token: token, refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer' } : null
