@@ -58,7 +58,7 @@ it('restores the saved visibility preference and survives unavailable storage', 
   expect(screen.getByText('Mori moved left.')).toBeTruthy()
 })
 
-it('supports keyboard repositioning, resetting, hiding, and showing', () => {
+it('supports keyboard repositioning without reset or hide controls', () => {
   render(<Companion />)
   const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
   const character = screen.getByRole('group', { name: 'Mori companion' })
@@ -69,15 +69,8 @@ it('supports keyboard repositioning, resetting, hiding, and showing', () => {
   fireEvent.click(trigger)
   const panel = screen.getByRole('region', { name: 'Mori' })
   expect(panel.querySelector('.mori-pet-message')?.getAttribute('role')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Reset position' }))
-  expect(parseFloat(character.style.left)).toBe(defaultX)
-  expect(screen.getByText('Mori returned to the default spot.')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Hide Mori' }))
-  expect(screen.queryByRole('group', { name: 'Mori companion' })).toBeNull()
-  const show = screen.getByRole('button', { name: 'Show Mori' })
-  expect(document.activeElement).toBe(show)
-  fireEvent.click(show)
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Talk to Mori' }))
+  expect(screen.queryByRole('button', { name: 'Reset position' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Hide Mori' })).toBeNull()
 })
 
 it('ignores other pointers while a primary pointer is dragging Mori', () => {

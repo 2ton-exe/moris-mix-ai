@@ -24,6 +24,7 @@ function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: 
   const instructions = recipe.instructions.slice(0, 2)
   return <div className="mori-chat-preview">
     <strong>{recipe.title}</strong>
+    <span>Unsaved draft</span>
     <div><h3>Ingredients</h3>
       {ingredients.length ? <ul>{ingredients.map((ingredient, index) => <li key={`${ingredient.name}-${index}`}>{[
         ingredient.quantityText ?? (ingredient.quantity === null ? '' : String(ingredient.quantity)), ingredient.unit, ingredient.name,
@@ -62,6 +63,8 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const requestId = useRef(0)
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
+  const followLatest = useRef(true)
+  const introduced = useRef(new Set<'create' | 'suggest'>())
   const composerId = useId()
   useMoriActivity(pending ? { kind: 'working', message: 'I’m putting your recipe together…' } : null)
 
@@ -100,7 +103,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     return key
   }
 
-  useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight }, [messages])
+  useEffect(() => { if (log.current && followLatest.current) log.current.scrollTop = log.current.scrollHeight }, [messages])
   useEffect(() => () => {
     const active = request.current
     if (active) { request.current = null; requestId.current++; window.clearTimeout(active.timeout); active.controller.abort() }
@@ -172,6 +175,8 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   function openRoute(path: string, message: string, focus?: 'notes' | 'pantry') {
+    setMode(null)
+    setFollowUp(null)
     setRetryRequest(null)
     if (path === '/app/chef' && focus === 'pantry' && readChefDraftResult(userId).draft.handoff) {
       say('assistant', 'You already have a pantry idea waiting in review. I’m opening it so you can finish or discard it before starting another one.')
@@ -187,9 +192,12 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   function start(workflow: 'create' | 'suggest') {
+    if (mode === workflow) return
     setMode(workflow)
     setFollowUp(null)
     setRetryRequest(null)
+    if (introduced.current.has(workflow)) return
+    introduced.current.add(workflow)
     say('assistant', workflow === 'create'
       ? 'Tell me the messy version: what it’s called, what went in, and how you cooked it. I’ll ask only for required details that are missing.'
       : 'What ingredients do you have? You can add optional preferences after a semicolon, like “rice, eggs; quick and spicy.”')
@@ -357,35 +365,39 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   }
 
   return <div className="mori-chat">
-    <div ref={log} className="mori-chat-log" role="log" aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions">
+    <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
+    <div ref={log} className="mori-chat-log" role="log" aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
+      const element = event.currentTarget
+      followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
+    }}>
       {messages.map((message) => <article key={message.id} className="mori-chat-message" data-role={message.role}>
         <p>{message.text}</p>
+        {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
+          const retry = retryRequest
+          setRetryRequest(null)
+          if (retry.kind === 'create') void createRecipe(retry.notes)
+          else void suggestRecipe(retry.prompt)
+        }}>Retry same request</button></div>}
         {message.draft && <DraftCard draft={message.draft} disabled={pending} onReview={openReview} />}
       </article>)}
-    </div>
     {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
     {(['create', 'suggest'] as const).map((kind) => {
       const seconds = retryWaitFor(kind)
       return seconds > 0 && <p key={kind} role="timer" aria-live="off">Wait at least {seconds} {seconds === 1 ? 'second' : 'seconds'} before Mori can retry {kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>
     })}
-    {retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
-      const retry = retryRequest
-      setRetryRequest(null)
-      if (retry.kind === 'create') void createRecipe(retry.notes)
-      else void suggestRecipe(retry.prompt)
-    }}>Retry same request</button></div>}
-    <div className="mori-chat-shortcuts" role="group" aria-label="Mori shortcuts">
-      <button type="button" disabled={pending} onClick={() => start('create')}>Create recipe</button>
-      <button type="button" disabled={pending} onClick={() => start('suggest')}>Cooking idea</button>
-      <button type="button" disabled={pending} onClick={() => openRoute('/app/recipes', 'Opening your recipe collection.')}>My recipes</button>
-      <button type="button" disabled={pending} onClick={() => openRoute('/app/quick-entry', 'Opening your cooking notes.', 'notes')}>Cooking notes</button>
-      <button type="button" disabled={pending} onClick={() => openRoute('/app/chef', 'Opening the pantry field.', 'pantry')}>Pantry</button>
     </div>
     <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
       <label className="mori-pet-sr" htmlFor={composerId}>Message Mori</label>
       <textarea id={composerId} rows={2} value={composer} disabled={pending} placeholder="Tell Mori what you need…" onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
       <button type="submit" disabled={pending || !composer.trim()}>Send</button>
     </form>
+    <div className="mori-chat-shortcuts" role="group" aria-label="Mori shortcuts">
+      <button type="button" disabled={pending} aria-pressed={mode === 'create'} onClick={() => start('create')}>Create recipe</button>
+      <button type="button" disabled={pending} aria-pressed={mode === 'suggest'} onClick={() => start('suggest')}>Cooking idea</button>
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/recipes', 'Opening your recipe collection.')}>My recipes</button>
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/quick-entry', 'Opening your cooking notes.', 'notes')}>Cooking notes</button>
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/chef', 'Opening the pantry field.', 'pantry')}>Pantry</button>
+    </div>
     <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
   </div>
 }

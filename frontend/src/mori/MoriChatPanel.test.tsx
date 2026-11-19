@@ -234,7 +234,9 @@ it('retries a failed pantry request with the exact original prompt', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
   send('rice and eggs; quick and spicy')
 
-  await screen.findByRole('button', { name: 'Retry same request' })
+  const retry = await screen.findByRole('button', { name: 'Retry same request' })
+  expect(retry.closest('article')?.textContent).toContain('could not finish the request')
+  expect(retry.closest('[role="log"]')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Retry same request' }))
   await screen.findByRole('button', { name: 'Review recipe' })
   expect(generate).toHaveBeenCalledTimes(2)
@@ -302,8 +304,7 @@ it('keeps Mori and the conversation open across its own route navigation', async
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry'))
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
   expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Hide Mori' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Show Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Close Mori' }))
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
   expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
 })
@@ -337,4 +338,39 @@ it('preserves the active AI Chef review key when Pantry opens its existing idea'
 
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":17'))
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
+})
+
+
+it('keeps task introductions unique and preserves unsent input across task changes', () => {
+  renderChat('mori-chat-tasks')
+  const input = screen.getByRole('textbox', { name: 'Message Mori' })
+  fireEvent.change(input, { target: { value: 'My unfinished notes' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  expect(screen.getAllByText(/Tell me the messy version/)).toHaveLength(1)
+  expect(input).toHaveProperty('value', 'My unfinished notes')
+  expect(screen.getByRole('button', { name: 'Create recipe' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: 'My recipes' }))
+  expect(screen.getByText('How can I help?')).toBeTruthy()
+  expect(input).toHaveProperty('value', 'My unfinished notes')
+})
+
+
+it('preserves the reading position when a new turn arrives', () => {
+  renderChat('mori-chat-scroll')
+  const log = screen.getByRole('log')
+  Object.defineProperties(log, {
+    scrollHeight: { configurable: true, value: 1000 },
+    clientHeight: { configurable: true, value: 200 },
+  })
+  log.scrollTop = 100
+  fireEvent.scroll(log)
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  expect(log.scrollTop).toBe(100)
+  log.scrollTop = 800
+  fireEvent.scroll(log)
+  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  expect(log.scrollTop).toBe(1000)
 })

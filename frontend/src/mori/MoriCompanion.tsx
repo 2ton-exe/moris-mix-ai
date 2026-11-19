@@ -175,7 +175,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       ? Math.min(380, viewport.width - 16, rightSpace)
       : Math.min(380, viewport.width - 16)
   const maxPanelHeight = Math.max(0, Math.min(460, viewport.height - 16, verticalSpace))
-  const measuredPanelHeight = Math.min(bubbleHeight, maxPanelHeight)
+  const measuredPanelHeight = userId ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
   const mouthY = actual.y + size * 0.67
   const panelLeft = placement === 'left'
     ? actual.x - gap - panelWidth
@@ -188,7 +188,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       ? Math.max(top, Math.min(actual.y - gap - measuredPanelHeight, bottom - measuredPanelHeight))
       : Math.max(top, Math.min(actual.y + height + gap, bottom - measuredPanelHeight))
   const availablePanelHeight = Math.max(0, Math.min(maxPanelHeight, bottom - panelTop))
-  const visiblePanelHeight = Math.min(bubbleHeight, availablePanelHeight)
+  const visiblePanelHeight = userId ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
   const tailOffset = placement === 'left' || placement === 'right'
     ? Math.max(14, Math.min(visiblePanelHeight - 14, mouthY - panelTop))
     : Math.max(20, Math.min(panelWidth - 20, actual.x + width / 2 - panelLeft))
@@ -199,18 +199,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight])
 
   function close() { setOpen(false); trigger.current?.focus() }
-  function hide() {
-    focusAfterVisibilityChange.current = true
-    setOpen(false)
-    setPreferences((previous) => ({ ...previous, hidden: true }))
-  }
   function show() {
     focusAfterVisibilityChange.current = true
     setPreferences((previous) => ({ ...previous, hidden: false }))
-  }
-  function resetPosition() {
-    setPreferences((previous) => ({ ...previous, position: null }))
-    setMoved('Mori returned to the default spot.')
   }
   function move(x: number, y: number, description?: string) {
     if (mobile && description && x !== actual.x) x = x < actual.x ? left : right - width
@@ -276,19 +267,15 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       </div>
       <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
         <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
-        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
-          <p className="mori-pet-context">{page.label}</p>
-          <p className="mori-pet-message">{companionMessage}</p>
+          {!userId && <><p className="mori-pet-context">{page.label}</p>
+          <p className="mori-pet-message">{companionMessage}</p></>}
           {userId && <MoriChatPanel key={userId} userId={userId} />}
-          {activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
+          {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
           }}>{pageGuidance.action.label}</button>}
-          <div className="mori-pet-controls">
-            <button type="button" onClick={resetPosition}>Reset position</button>
-            <button type="button" onClick={hide}>Hide Mori</button>
-          </div>
         </section>
       </div>
     </div>
