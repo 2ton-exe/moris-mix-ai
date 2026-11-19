@@ -348,7 +348,7 @@ deno test --frozen-lockfile --node-modules-dir=auto --allow-env \
 # The full deterministic Edge/API suite: the list in
 # .github/workflows/reusable-edge-api.yml is authoritative.
 
-# Optional live extraction spot check (consumes ~3 of ~20 daily calls)
+# Optional live extraction spot check (provider requests/cost vary; approved use only)
 RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   deno test --allow-env --allow-net \
   supabase/functions/tests/ai_extraction_live.ts
