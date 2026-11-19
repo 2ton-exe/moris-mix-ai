@@ -62,6 +62,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
+  const visibleIndicesKey = visibleIndices.join(',')
   const finalPage = position.page === position.total - 1
   const reviewValidation = useMemo(() => reviewWorkflow ? validateEditor(state) : null, [reviewWorkflow, state])
   const invalidReviewFields = reviewValidation?.success === false ? reviewValidation.error.issues.map(({ path }) => path[0]) : []
@@ -133,7 +134,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     window.addEventListener('resize', measure)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
-  }, [single, compact, leaves.length, visibleIndices.join(',')])
+  }, [single, compact, leaves.length, visibleIndicesKey])
 
   useLayoutEffect(() => {
     formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
