@@ -53,12 +53,17 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
   const section = page.getByRole('region', { name: new RegExp(`^${sectionName}, page \\d+$`) })
   const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages', exact: true })
   const nextPage = pageNavigation.getByRole('button', { name: /^Next(?: Pages?$|:)/ })
+  const previousPage = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true }).getByRole('button', { name: /^Previous/ })
   const pagePosition = pageNavigation.locator('.mm-pagination-number')
 
+  // A responsive layout change can put the requested section behind the current leaf.
+  let backwards = false
   while (!(await section.first().isVisible())) {
-    await expect(nextPage).toBeEnabled()
+    if (!(await nextPage.count())) backwards = true
+    const turn = backwards ? previousPage : nextPage
+    await expect(turn, `Cannot reach recipe section: ${sectionName}`).toBeEnabled()
     const currentPosition = await pagePosition.innerText()
-    await nextPage.click()
+    await turn.click()
     await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
     await expect(pagePosition).not.toHaveText(currentPosition)
   }
