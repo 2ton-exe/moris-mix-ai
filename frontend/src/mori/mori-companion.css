@@ -104,8 +104,31 @@
 }
 
 .mori-chat-shortcuts button:nth-child(-n+2) { grid-column: span 3; }
-@media (max-height: 500px) {
+@media (max-height: 500px), (max-width: 600px) {
   .mori-pet-panel[data-chat='true'] { overflow-y: auto; }
   .mori-pet-panel[data-chat='true'] .mori-chat { flex: none; }
   .mori-chat-log { flex: none; overflow: visible; }
 }
+
+.mori-chat-prompts h3 { margin: 0 0 6px; color: var(--mm-color-burgundy-800); font: 600 16px/1.2 var(--mm-font-serif); }
+.mori-chat-prompts > div { display: flex; gap: 8px; }
+.mori-chat-prompts button { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; border-radius: 12px; }
+.mori-chat-prompts button[aria-pressed='true'] { background: var(--mm-color-sage-100); border-color: var(--mm-color-sage-700); }
+.mori-chat-prompts button:disabled { opacity: .6; cursor: not-allowed; }
+.mori-pet-panel .mori-chat-example { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; line-height: 1.4; }
+.mori-chat-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--mm-border-paper); padding-top: 6px; }
+.mori-chat-shortcuts button, .mori-chat-shortcuts button:nth-child(-n+2) { display: flex; align-items: center; justify-content: center; gap: 6px; grid-column: auto; border: 0; }
+.mori-chat-shortcuts svg, .mori-chat-prompts svg { flex: none; }
+.mori-chat-message:has(.mori-chat-welcome) { max-width: 100%; padding: 0; border: 0; background: transparent; }
+.mori-chat-introduction { display: flex; align-items: center; gap: 12px; padding: 4px 0 12px; }
+.mori-chat-introduction > svg { flex: none; }
+.mori-chat-introduction h3 { margin: 0 0 6px; color: var(--mm-color-burgundy-800); font: 600 23px/1.15 var(--mm-font-serif); }
+.mori-pet-panel .mori-chat-feature { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; text-align: left; border-radius: 16px; background: var(--mm-color-burgundy-50); color: var(--mm-color-burgundy-800); }
+.mori-chat-feature > svg { flex: none; }
+.mori-chat-feature > span { flex: 1; }
+.mori-chat-feature strong { display: block; font: 600 18px/1.2 var(--mm-font-serif); }
+@media (min-width: 1100px) {
+  .mori-pet-panel[data-chat='true'] { height: 640px; padding: 16px 20px; border-radius: 24px 24px 24px 5px; }
+}
+
+.mori-chat-label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; }

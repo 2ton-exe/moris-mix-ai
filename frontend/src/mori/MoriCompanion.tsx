@@ -169,12 +169,14 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const aboveSpace = actual.y - top - gap
   const placement = sideSpace >= Math.min(340, viewport.width - 16) ? side : belowSpace >= aboveSpace ? 'bottom' : 'top'
   const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : bottom - top
+  const preferredWidth = userId && viewport.width >= 1100 ? 520 : 380
+  const preferredHeight = userId && viewport.width >= 1100 ? 640 : 460
   const panelWidth = placement === 'left'
-    ? Math.min(380, viewport.width - 16, leftSpace)
+    ? Math.min(preferredWidth, viewport.width - 16, leftSpace)
     : placement === 'right'
-      ? Math.min(380, viewport.width - 16, rightSpace)
-      : Math.min(380, viewport.width - 16)
-  const maxPanelHeight = Math.max(0, Math.min(460, viewport.height - 16, verticalSpace))
+      ? Math.min(preferredWidth, viewport.width - 16, rightSpace)
+      : Math.min(preferredWidth, viewport.width - 16)
+  const maxPanelHeight = Math.max(0, Math.min(preferredHeight, viewport.height - 16, verticalSpace))
   const measuredPanelHeight = userId ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
   const mouthY = actual.y + size * 0.67
   const panelLeft = placement === 'left'

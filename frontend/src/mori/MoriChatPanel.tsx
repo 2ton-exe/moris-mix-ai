@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
+import { ArrowRight, BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
+import { Mori } from '../journal/Mori'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
 import { MAX_PANTRY_ITEM_CHARS, MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS } from '../ai-chef/pantry'
@@ -364,6 +366,12 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) event.currentTarget.form?.requestSubmit()
   }
 
+  const example = mode === 'create'
+    ? 'Example: “Tomato rice, rice, tomatoes and broth. Simmer until tender.”'
+    : mode === 'suggest'
+      ? 'Example: “rice, eggs; quick and spicy”'
+      : ''
+
   return <div className="mori-chat">
     <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
     <div ref={log} className="mori-chat-log" role="log" aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
@@ -371,7 +379,12 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
     }}>
       {messages.map((message) => <article key={message.id} className="mori-chat-message" data-role={message.role} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
-        <p>{message.text}</p>
+        {message.id === 0 ? <div className="mori-chat-welcome">
+          <div className="mori-chat-introduction"><Mori size={76} mood="wave" /><div><h3>Hi, I’m Mori!</h3><p>{message.text.replace('Hi, I’m Mori! ', '')}</p></div></div>
+          <button className="mori-chat-feature" type="button" disabled={pending} onClick={() => start('suggest')}>
+            <span><strong>Cook with your ingredients</strong></span><ArrowRight size={20} aria-hidden="true" />
+          </button>
+        </div> : <p>{message.text}</p>}
         {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
           const retry = retryRequest
           setRetryRequest(null)
@@ -386,18 +399,25 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     })}
     </div>
     {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
+    <section className="mori-chat-prompts" aria-labelledby={`${composerId}-prompts`}>
+      <h3 id={`${composerId}-prompts`}>Suggested prompts</h3>
+      <div role="group" aria-label="Suggested prompts">
+        <button type="button" disabled={pending} aria-pressed={mode === 'create'} onClick={() => start('create')}>Create recipe</button>
+        <button type="button" disabled={pending} aria-pressed={mode === 'suggest'} onClick={() => start('suggest')}>Cooking idea</button>
+      </div>
+    </section>
+    {example && <p id={`${composerId}-example`} className="mori-chat-example">{example}</p>}
     <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
-      <label className="mori-pet-sr" htmlFor={composerId}>Message Mori</label>
-      <textarea id={composerId} rows={2} value={composer} disabled={pending} placeholder="Tell Mori what you need…" onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
+      <label className="mori-chat-label" htmlFor={composerId}>Message Mori</label>
+      <textarea id={composerId} rows={2} value={composer} disabled={pending} aria-describedby={example ? `${composerId}-example` : undefined} placeholder={mode === 'create' ? 'What did you cook, and how?' : mode === 'suggest' ? 'What ingredients do you have?' : 'Tell Mori what you need…'} onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
       <button type="submit" disabled={pending || !composer.trim()}>Send</button>
     </form>
-    <div className="mori-chat-shortcuts" role="group" aria-label="Mori shortcuts">
-      <button type="button" disabled={pending} aria-pressed={mode === 'create'} onClick={() => start('create')}>Create recipe</button>
-      <button type="button" disabled={pending} aria-pressed={mode === 'suggest'} onClick={() => start('suggest')}>Cooking idea</button>
-      <button type="button" disabled={pending} onClick={() => openRoute('/app/recipes', 'Opening your recipe collection.')}>My recipes</button>
-      <button type="button" disabled={pending} onClick={() => openRoute('/app/quick-entry', 'Opening your cooking notes.', 'notes')}>Cooking notes</button>
-      <button type="button" disabled={pending} onClick={() => openRoute('/app/chef', 'Opening the pantry field.', 'pantry')}>Pantry</button>
-    </div>
+    <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/recipes', 'Opening your recipe collection.')}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/recipes/new', 'Opening a new recipe.')}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/quick-entry', 'Opening your cooking notes.', 'notes')}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
+      <button type="button" disabled={pending} onClick={() => openRoute('/app/chef', 'Opening the pantry field.', 'pantry')}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
+    </nav>
     <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
   </div>
 }

@@ -299,7 +299,7 @@ it('keeps Retry-After deadlines independent for cooking notes and pantry ideas',
 it('keeps Mori and the conversation open across its own route navigation', async () => {
   render(<MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider><MoriCompanion userId="mori-chat-route" /><Location /></MoriCompanionProvider></MemoryRouter>)
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Cooking notes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open cooking notes' }))
 
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry'))
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
@@ -317,7 +317,7 @@ it('opens an existing AI Chef review instead of targeting its disabled pantry fi
   })
   render(<MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider><MoriCompanion userId={userId} /><Location /></MoriCompanionProvider></MemoryRouter>)
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Pantry' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open pantry' }))
 
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/chef/review'))
   expect(screen.getByText(/already have a pantry idea waiting in review/)).toBeTruthy()
@@ -334,7 +334,7 @@ it('preserves the active AI Chef review key when Pantry opens its existing idea'
     <MoriCompanionProvider><MoriCompanion userId={userId} /><Location /></MoriCompanionProvider>
   </MemoryRouter>)
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Pantry' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Open pantry' }))
 
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":17'))
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
@@ -352,7 +352,7 @@ it('keeps task introductions unique and preserves unsent input across task chang
   expect(screen.getAllByText(/Tell me the messy version/)).toHaveLength(1)
   expect(input).toHaveProperty('value', 'My unfinished notes')
   expect(screen.getByRole('button', { name: 'Create recipe' }).getAttribute('aria-pressed')).toBe('true')
-  fireEvent.click(screen.getByRole('button', { name: 'My recipes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Open recipes' }))
   expect(screen.getByText('How can I help?')).toBeTruthy()
   expect(input).toHaveProperty('value', 'My unfinished notes')
 })
@@ -386,4 +386,21 @@ it('identifies speakers and announces pending work outside the busy transcript',
   expect(status.closest('[aria-busy="true"]')).toBeNull()
   expect(screen.getByRole('log').getAttribute('aria-busy')).toBe('true')
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+})
+
+it('separates suggested tasks from navigation and keeps examples on workflow re-entry', () => {
+  renderChat('mori-chat-clear-actions')
+  const prompts = screen.getByRole('group', { name: 'Suggested prompts' })
+  const navigation = screen.getByRole('navigation', { name: 'Open a journal page' })
+  expect(prompts.contains(screen.getByRole('button', { name: 'Create recipe' }))).toBe(true)
+  expect(navigation.contains(screen.getByRole('button', { name: 'Open recipes' }))).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  const composer = screen.getByRole('textbox', { name: 'Message Mori' })
+  fireEvent.change(composer, { target: { value: 'My unfinished notes' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
+  expect(screen.getByText('Example: “rice, eggs; quick and spicy”')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  expect(screen.getByText(/Example: “Tomato rice/)).toBeTruthy()
+  expect(composer.getAttribute('aria-describedby')).toBe(screen.getByText(/Example: “Tomato rice/).id)
+  expect(screen.getByDisplayValue('My unfinished notes')).toBe(composer)
 })
