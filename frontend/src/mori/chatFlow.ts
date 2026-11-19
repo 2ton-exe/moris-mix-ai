@@ -9,9 +9,6 @@ export function requestedNavigation(text: string): MoriNavigation | null {
   if (/\b(?:show|open|go to|take me to)\b.*\b(?:my recipes|recipe collection|journal)\b/.test(value)) {
     return { path: '/app/recipes', message: 'Opening your recipe collection.' }
   }
-  if (/\b(?:open|go to|take me to|show)\b.*\b(?:blank|new) recipe(?: form)?\b/.test(value)) {
-    return { path: '/app/recipes/new', message: 'Opening a blank recipe sheet.' }
-  }
   if (/\b(?:where|how(?: do i)?|help|open|show|go to|take me to|point me to|point to)\b.*\b(?:pantry|ingredient field|ingredients field|(?:add|enter|type|put) ingredients?)\b/.test(value)) {
     return { path: '/app/chef', focus: 'pantry', message: 'Opening the pantry field.' }
   }

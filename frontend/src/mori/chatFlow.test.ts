@@ -7,7 +7,7 @@ describe('Mori chat intent and recipe details', () => {
     expect(requestedNavigation('Show me the pantry field')).toMatchObject({ path: '/app/chef', focus: 'pantry' })
     expect(requestedNavigation('Point me to where I can add ingredients')).toMatchObject({ path: '/app/chef', focus: 'pantry' })
     expect(requestedNavigation('Where are my cooking notes?')).toMatchObject({ path: '/app/quick-entry', focus: 'notes' })
-    expect(requestedNavigation('Open a blank recipe form')).toMatchObject({ path: '/app/recipes/new' })
+    expect(requestedNavigation('Open a blank recipe form')).toBeNull()
     expect(requestedNavigation('Click delete on my account')).toBeNull()
   })
 

@@ -24,6 +24,8 @@
 .mori-pet-panel button { cursor: pointer; border: 1px solid var(--mm-border-paper); border-radius: 4px; padding: 4px 8px; background: var(--mm-color-parchment-100); color: inherit; }
 .mori-pet-panel .mori-pet-close { display: grid; width: 44px; min-height: 44px; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--mm-color-burgundy-800); transition: background-color 140ms ease, transform 140ms ease; }
 .mori-pet-panel .mori-pet-close:hover { background: var(--mm-color-parchment-200); transform: rotate(8deg); }
+.mori-pet-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+.mori-pet-show { position: fixed; right: 12px; bottom: 12px; z-index: 45; min-height: 44px; padding: 8px 12px; border: 1px solid var(--mm-color-espresso-300); border-radius: 999px; background: var(--mm-color-parchment-50); color: var(--mm-color-ink); font: 600 13px/1.2 var(--mm-font-sans); box-shadow: 0 4px 14px rgb(47 33 26 / .18); cursor: pointer; }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
 .mori-chat { display: grid; min-width: 0; gap: 9px; }
 .mori-chat-log { display: flex; max-height: 190px; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }

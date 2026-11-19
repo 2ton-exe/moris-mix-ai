@@ -27,6 +27,13 @@ const chefResponse = {
   substitutions: [], parents: [], candidate_token: null,
   context: { status: 'NO_SAVED_RECIPES', matchedCandidateCount: 0, totalCandidateCount: 0 },
 }
+const extractionResponse = {
+  recipe: {
+    title: 'Tomato rice',
+    ingredients: [{ name: 'rice', quantity: null, unit: null, inferred: false }],
+    instructions: [{ step: 1, text: 'Simmer the rice with tomatoes.' }],
+  },
+}
 const outputDir = await mkdtemp(path.join(os.tmpdir(), 'moris-ui01-dialogue-'))
 const server = await createServer({
   root, configFile: false, envDir: false, plugins: [react()],
@@ -59,6 +66,10 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
     if (url.origin === appOrigin || url.protocol === 'data:') return route.continue()
     assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
     apiRequests.push({ method: route.request().method(), path: url.pathname })
+    if (chef && route.request().method() === 'POST' && url.pathname === '/functions/v1/extract-recipe') {
+      assert.deepEqual(JSON.parse(route.request().postData()), { notes: 'I simmered rice with tomatoes until soft.' })
+      return route.fulfill({ json: extractionResponse })
+    }
     if (chef && route.request().method() === 'POST' && url.pathname === '/functions/v1/generate-recipe') {
       assert.deepEqual(JSON.parse(route.request().postData()), { pantryItems: ['rice'], preferences: 'quick dinner' })
       return route.fulfill({ json: chefResponse })
@@ -223,6 +234,16 @@ try {
     }).toBe(true)
     await reachable(page, trigger)
     await trigger.click()
+    const preferencesPanel = page.getByRole('region', { name: 'Mori', exact: true })
+    await preferencesPanel.getByRole('button', { name: 'Reset position' }).click()
+    await expect(page.locator('.mori-pet-sr').first()).toHaveText('Mori returned to the default spot.')
+    await preferencesPanel.getByRole('button', { name: 'Hide Mori' }).click()
+    await expect(page.getByRole('button', { name: 'Show Mori' })).toBeFocused()
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Show Mori' })).toBeVisible()
+    await page.getByRole('button', { name: 'Show Mori' }).click()
+    await expect(trigger).toBeFocused()
+    await trigger.click()
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 320, height: 480 })
     await settleJournalLayout(page)
@@ -248,30 +269,29 @@ try {
     await expect(chefApp.page.locator('.mori-pet-caption')).toHaveCount(0)
     await expect(chefApp.page.locator('.mori-pet-character')).toHaveCount(1)
     const chefTrigger = chefApp.page.getByRole('button', { name: 'Talk to Mori', exact: true })
-    const chefRequestsBeforeTalk = chefApp.apiRequests.length
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
     await expect(chefPanel.locator('.mori-pet-context')).toHaveText('AI Chef')
-    await expect(chefPanel.locator('.mori-pet-message')).toContainText('Tell me what you have')
-    await expect(chefPanel.locator('nav')).toHaveCount(0)
-    await chefPanel.getByRole('button', { name: 'Add ingredients' }).click()
+    await chefPanel.getByRole('button', { name: 'Cooking notes' }).click()
+    await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
+    const notesInput = chefApp.page.getByRole('textbox', { name: 'Cooking notes' })
+    await expect(notesInput).toBeFocused()
+    await expect(chefPanel).toBeVisible()
+    await chefPanel.getByRole('button', { name: 'Pantry' }).click()
+    await expect(chefApp.page).toHaveURL(`${origin}app/chef`)
     const pantryInput = chefApp.page.getByRole('textbox', { name: 'Pantry ingredient' })
     await expect(pantryInput).toBeFocused()
-    await expect(chefApp.page.getByRole('region', { name: 'Pantry list, 0 items' })).toContainText('No ingredients yet.')
-    await chefApp.page.keyboard.press('Escape')
-    await pantryInput.fill('rice')
-    await pantryInput.press('Enter')
-    await expect(chefApp.page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
-    await expect(chefApp.page.getByRole('button', { name: 'Remove rice' })).toBeVisible()
-    await chefApp.page.getByRole('textbox', { name: /Cooking preferences/ }).fill('quick dinner')
-    assert.equal(chefApp.apiRequests.length, chefRequestsBeforeTalk, 'Companion and pantry edits must stay local')
-    await chefApp.page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+    await chefPanel.getByRole('button', { name: 'Cooking idea' }).click()
+    await chefPanel.getByRole('textbox', { name: 'Message Mori' }).fill('rice; quick dinner')
+    await chefPanel.getByRole('button', { name: 'Send' }).click()
+    await chefPanel.getByRole('button', { name: 'Review recipe' }).waitFor()
+    await chefPanel.getByRole('button', { name: 'Review recipe' }).click()
+    await expect(chefApp.page).toHaveURL(`${origin}app/chef/review`)
     await expect(chefApp.page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
     await expect.poll(async () => chefApp.page.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating')
-    await chefTrigger.click()
-    await expect(chefApp.page.locator('.mori-pet-context')).toHaveText('Recipe review')
-    await expect(chefApp.page.locator('.mori-pet-message')).toHaveText('Your recipe idea is ready for review.')
-    assert.deepEqual(chefApp.apiRequests.map(({ method, path }) => ({ method, path })), [
+    const chefDraft = await chefApp.page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)
+    assert.equal(chefDraft.handoff.saved, false, 'Reviewing the pantry idea must leave it unsaved')
+    assert.deepEqual(chefApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
       { method: 'POST', path: '/functions/v1/generate-recipe' },
     ])
     await chefApp.page.screenshot({ path: path.join(outputDir, `${width}-ai-chef.png`) })
@@ -285,6 +305,30 @@ try {
     process.stdout.write(`${width}px: companion, AI Chef handoff, and page-turn journey passed.\n`)
   }
 
+  const quickApp = await createJournal(1440, { chef: true })
+  await quickApp.page.goto(`${origin}app/quick-entry`)
+  await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  await quickPanel.getByRole('button', { name: 'Create recipe' }).click()
+  await quickPanel.getByRole('textbox', { name: 'Message Mori' }).fill('I simmered rice with tomatoes until soft.')
+  await quickPanel.getByRole('button', { name: 'Send' }).click()
+  await quickPanel.getByRole('status').filter({ hasText: 'Mori is working on your request.' }).waitFor()
+  assert.equal(await quickPanel.getByRole('status').count(), 1, 'A pending chat request must have only one live status announcement')
+  await quickPanel.getByRole('button', { name: 'Review draft' }).waitFor()
+  await quickPanel.getByRole('button', { name: 'Review draft' }).click()
+  await expect(quickApp.page).toHaveURL(`${origin}app/quick-entry/review`)
+  await expect(quickApp.page.getByRole('heading', { name: 'Review your recipe' })).toBeVisible()
+  const quickDraft = await quickApp.page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:quick-ai-entry:v1:${userId}`)
+  assert.equal(quickDraft.handoff.saved, false, 'Reviewing the extraction must leave it unsaved')
+  assert.deepEqual(quickApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
+    { method: 'POST', path: '/functions/v1/extract-recipe' },
+  ])
+  assert.deepEqual(quickApp.errors, [])
+  await quickApp.context.close()
+
+  if (process.env.MORI_CHAT_ONLY) {
+    process.stdout.write(`Mori chat and companion acceptance passed. Screenshots: ${outputDir}\n`)
+  } else {
   for (const width of (process.env.MORI_RETRY_ONLY ? [] : [1440, 768, 375, 320])) {
     const app = await createJournal(width, { collection: true, recordVideo: width === 1440 || width === 375 })
     const { page } = app
@@ -449,6 +493,7 @@ try {
   await context.close()
   await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', ...measurements }, null, 2))
   process.stdout.write(`Empty guidance and reduced motion passed. Screenshots: ${outputDir}\n`)
+  }
 } finally {
   await browser?.close()
   await server.close()

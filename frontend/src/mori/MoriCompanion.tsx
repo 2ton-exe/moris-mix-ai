@@ -11,11 +11,14 @@ import type { MoriActivity } from './MoriCompanionContext'
 import './mori-companion.css'
 
 const storageKey = 'moris-mix:mori-companion'
-const preferencesSchema = z.object({ position: z.object({ x: z.number().finite(), y: z.number().finite() }).nullable() })
+const preferencesSchema = z.object({
+  hidden: z.boolean().default(false),
+  position: z.object({ x: z.number().finite(), y: z.number().finite() }).nullable(),
+})
 type Position = { x: number; y: number }
 function readPreferences() {
   try { return preferencesSchema.parse(JSON.parse(localStorage.getItem(storageKey) ?? 'null')) }
-  catch { return { position: null } }
+  catch { return { hidden: false, position: null } }
 }
 const moods: Record<MoriActivity['kind'], MoriMood> = { idle: 'happy', curious: 'think', working: 'stir', thinking: 'think', celebrating: 'cheer', confused: 'worried', attention: 'wave' }
 function readViewport() {
@@ -50,10 +53,12 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
+  const showButton = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const bubble = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
+  const focusAfterVisibilityChange = useRef(false)
   const headingId = useId()
   const panelId = useId()
   const moveHintId = useId()
@@ -142,6 +147,12 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     })
   }, [size])
   useLayoutEffect(() => { if (open) heading.current?.focus() }, [open])
+  useLayoutEffect(() => {
+    if (!focusAfterVisibilityChange.current) return
+    focusAfterVisibilityChange.current = false
+    if (preferences.hidden) showButton.current?.focus()
+    else trigger.current?.focus()
+  }, [preferences.hidden])
   const gap = 12
   const leftSpace = actual.x - left - gap
   const rightSpace = right - (actual.x + width) - gap
@@ -181,6 +192,19 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight])
 
   function close() { setOpen(false); trigger.current?.focus() }
+  function hide() {
+    focusAfterVisibilityChange.current = true
+    setOpen(false)
+    setPreferences((previous) => ({ ...previous, hidden: true }))
+  }
+  function show() {
+    focusAfterVisibilityChange.current = true
+    setPreferences((previous) => ({ ...previous, hidden: false }))
+  }
+  function resetPosition() {
+    setPreferences((previous) => ({ ...previous, position: null }))
+    setMoved('Mori returned to the default spot.')
+  }
   function move(x: number, y: number, description?: string) {
     if (mobile && description && x !== actual.x) x = x < actual.x ? left : right - width
     setPreferences((previous) => ({ ...previous, position: clamp({ x, y }) }))
@@ -199,6 +223,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     top: actual.y,
     width,
   } as CSSProperties
+  if (preferences.hidden) return <div className="mori-pet-root" inert={suspended} style={{ visibility: suspended ? 'hidden' : undefined }}>
+    <button ref={showButton} className="mori-pet-show" type="button" onClick={show}>Show Mori</button>
+  </div>
   return <div className="mori-pet-root" inert={suspended} style={{ visibility: suspended ? 'hidden' : undefined }}>
     <span className="mori-pet-sr" aria-live="polite">{moved}</span>
     <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
@@ -246,12 +273,16 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
         <p className="mori-pet-context">{page.label}</p>
-        <p className="mori-pet-message" role="status" aria-live="polite" aria-atomic="true">{companionMessage}</p>
+        <p className="mori-pet-message">{companionMessage}</p>
         {userId && <MoriChatPanel key={userId} userId={userId} />}
         {activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
           pageGuidance.action?.onClick()
           if (!bubble.current?.contains(document.activeElement)) setOpen(false)
         }}>{pageGuidance.action.label}</button>}
+        <div className="mori-pet-controls">
+          <button type="button" onClick={resetPosition}>Reset position</button>
+          <button type="button" onClick={hide}>Hide Mori</button>
+        </div>
       </section>
     </div>
   </div>
