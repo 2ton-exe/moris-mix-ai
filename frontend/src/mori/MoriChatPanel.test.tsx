@@ -205,6 +205,10 @@ it('keeps Mori and the conversation open across its own route navigation', async
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry'))
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
   expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Hide Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Show Mori' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
 })
 
 it('opens an existing AI Chef review instead of targeting its disabled pantry field', async () => {

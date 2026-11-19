@@ -56,6 +56,8 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
   const errors = []
   const apiRequests = []
   let releaseCursor
+  let releaseExtraction
+  const extractionReady = new Promise((resolve) => { releaseExtraction = resolve })
   let failCursor = false
   const cursorReady = new Promise((resolve) => { releaseCursor = resolve })
   const readingRecipe = { ...recipe, ingredients: Array.from({ length: 60 }, (_, i) => ({ name: `Ingredient ${i + 1}`, quantity: 1, unit: 'cup', inferred: false })) }
@@ -68,6 +70,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
     apiRequests.push({ method: route.request().method(), path: url.pathname })
     if (chef && route.request().method() === 'POST' && url.pathname === '/functions/v1/extract-recipe') {
       assert.deepEqual(JSON.parse(route.request().postData()), { notes: 'I simmered rice with tomatoes until soft.' })
+      await extractionReady
       return route.fulfill({ json: extractionResponse })
     }
     if (chef && route.request().method() === 'POST' && url.pathname === '/functions/v1/generate-recipe') {
@@ -106,7 +109,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
     const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: id, exp: expires_at }))}.test-signature`
     globalThis.localStorage.setItem('sb-mori-dialogue-auth-token', JSON.stringify({ access_token: token, refresh_token: 'local-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
   }, { id: userId })
-  return { context, page, errors, apiRequests, releaseCursor, failNextCursor: () => { failCursor = true }, allowCursor: () => { failCursor = false } }
+  return { context, page, errors, apiRequests, releaseCursor, releaseExtraction: () => releaseExtraction(), failNextCursor: () => { failCursor = true }, allowCursor: () => { failCursor = false } }
 }
 
 async function reachable(page, locator) {
@@ -314,6 +317,7 @@ try {
   await quickPanel.getByRole('button', { name: 'Send' }).click()
   await quickPanel.getByRole('status').filter({ hasText: 'Mori is working on your request.' }).waitFor()
   assert.equal(await quickPanel.getByRole('status').count(), 1, 'A pending chat request must have only one live status announcement')
+  quickApp.releaseExtraction()
   await quickPanel.getByRole('button', { name: 'Review draft' }).waitFor()
   await quickPanel.getByRole('button', { name: 'Review draft' }).click()
   await expect(quickApp.page).toHaveURL(`${origin}app/quick-entry/review`)
