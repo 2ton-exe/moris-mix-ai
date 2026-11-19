@@ -109,7 +109,7 @@ it('opens the review workflow with extraction fields and original notes kept sep
   expect(screen.getByRole('heading', { name: 'Review your recipe' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Save recipe' })).toBeNull()
   fireEvent.submit(screen.getByRole('form', { name: 'Create recipe' }))
-  expect(within(screen.getByRole('group', { name: 'soy sauce' })).queryByText('Quantity and unit not specified.')).toBeNull()
+  expect(within(screen.getByRole('group', { name: 'Ingredient 2' })).queryByText('Quantity and unit not specified.')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /^Next: Ingredients and Instructions$/ }))
   expect(screen.getByText('Quantity and unit not specified.')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Save recipe' })).toBeTruthy()

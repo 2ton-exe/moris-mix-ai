@@ -63,8 +63,8 @@
   margin: 0 auto;
   padding: 22px 28px 26px;
   border: 1px solid rgb(120 90 50 / .16);
-  border-radius: 7px;
-  background-color: #fcf7eb;
+  border-radius: var(--mm-radius-card);
+  background-color: var(--mm-color-parchment-50);
   background-image: repeating-linear-gradient(180deg, transparent 0 33px, rgb(110 150 190 / .18) 33px 34px), var(--mm-tex-grain);
   box-shadow: 0 1px 1px rgb(40 24 10 / .18), 0 2px 0 #e6dac4, 0 3px 1px rgb(40 24 10 / .12), 0 22px 40px -12px rgb(40 24 10 / .55);
   animation: mm-auth-arrive 420ms var(--mm-ease-soft) both;
@@ -91,7 +91,7 @@
   min-height: 46px;
   padding: 10px 12px;
   border: 1.5px solid rgb(60 42 28 / .38);
-  border-radius: 9px;
+  border-radius: var(--mm-radius-control);
   color: var(--mm-color-ink);
   background: rgb(255 253 247 / .94);
   font: 450 16px/1.3 var(--mm-font-sans);
@@ -144,7 +144,7 @@
   aspect-ratio: .74;
   justify-self: center;
   border: 1px solid rgb(37 10 18 / .7);
-  border-radius: 8px 16px 16px 8px;
+  border-radius: 12px 28px 28px 12px;
   box-shadow: 10px 15px 20px rgb(30 15 5 / .38), 24px 36px 58px -14px rgb(30 15 5 / .58), inset 0 0 0 1px rgb(255 205 195 / .1);
   transform: rotate(-3deg);
 }

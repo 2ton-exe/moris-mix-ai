@@ -24,7 +24,7 @@ export async function waitForCollection(page: Page) {
 }
 
 export async function createRecipe(page: Page, title: string): Promise<string> {
-  await page.getByRole('link', { name: 'Start a recipe' }).click()
+  await page.getByRole('link', { name: 'New recipe' }).click()
   await page.getByLabel('Recipe title').fill(title)
   const ingredients = await navigateToRecipeSection(page, 'Ingredients')
   await ingredients.getByRole('button', { name: 'Add ingredient' }).click()
@@ -55,7 +55,7 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
   const nextPage = pageNavigation.getByRole('button', { name: /^Next(?: Pages?$|:)/ })
   const pagePosition = pageNavigation.locator('.mm-pagination-number')
 
-  while (!(await section.isVisible())) {
+  while (!(await section.first().isVisible())) {
     await expect(nextPage).toBeEnabled()
     const currentPosition = await pagePosition.innerText()
     await nextPage.click()
@@ -63,7 +63,7 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
     await expect(pagePosition).not.toHaveText(currentPosition)
   }
 
-  await expect(section).toBeVisible()
+  await expect(section.first()).toBeVisible()
   return section
 }
 

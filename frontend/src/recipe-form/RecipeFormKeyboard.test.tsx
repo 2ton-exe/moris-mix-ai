@@ -74,38 +74,20 @@ afterEach(() => {
   matchMediaDescriptor = undefined
 })
 
-it('keeps PageDown available to scroll an overflowing desktop writing leaf', () => {
+it('turns a writing page with PageDown even if its content has a scroll range', () => {
   renderForm()
   const leaf = firstLeaf()
   setScrollGeometry(leaf)
-
-  expect(fireEvent.keyDown(leaf, { key: 'PageDown' })).toBe(true)
-  expect(pageIndex()).toBe('0')
-})
-
-it('keeps PageUp available to scroll upward without turning pages', () => {
-  renderForm()
-  const leaf = firstLeaf()
-  setScrollGeometry(leaf, { scrollTop: 120 })
-
-  expect(fireEvent.keyDown(leaf, { key: 'PageUp' })).toBe(true)
-  expect(pageIndex()).toBe('0')
-})
-
-it('turns forward only when PageDown reaches the bottom of a writing leaf', () => {
-  renderForm()
-  const leaf = firstLeaf()
-  setScrollGeometry(leaf, { scrollTop: 298 })
 
   expect(fireEvent.keyDown(leaf, { key: 'PageDown' })).toBe(false)
   expect(pageIndex()).toBe('1')
 })
 
-it('turns backward only when PageUp reaches the top of a writing leaf', () => {
+it('turns backward with PageUp even if its content has a scroll range', () => {
   renderForm()
   nextPage()
   const leaf = firstLeaf()
-  setScrollGeometry(leaf)
+  setScrollGeometry(leaf, { scrollTop: 120 })
 
   expect(fireEvent.keyDown(leaf, { key: 'PageUp' })).toBe(false)
   expect(pageIndex()).toBe('0')
@@ -165,7 +147,7 @@ it('preserves native key behavior in controls, links, editable content, and with
 it.each([
   { name: 'desktop leaf', single: false, scrollElement: 'leaf' as const },
   { name: 'mobile spread ancestor', single: true, scrollElement: 'spread' as const },
-])('preserves native PageDown scrolling through the $name scroll region', ({ single, scrollElement }) => {
+])('uses PageDown to turn through the $name even when its ancestor could scroll', ({ single, scrollElement }) => {
   renderForm({ single })
   const leaf = firstLeaf()
   const spread = document.querySelector<HTMLElement>('.mm-journal-spread')!
@@ -175,8 +157,8 @@ it.each([
     setScrollGeometry(spread)
   }
 
-  expect(fireEvent.keyDown(leaf, { key: 'PageDown' })).toBe(true)
-  expect(pageIndex()).toBe('0')
+  expect(fireEvent.keyDown(leaf, { key: 'PageDown' })).toBe(false)
+  expect(pageIndex()).toBe('1')
 })
 
 it('does not consume an arrow key when the journal rejects an overlapping page turn', () => {

@@ -1,4 +1,4 @@
-import { useContext, useRef } from 'react'
+import { useContext, useMemo, useRef } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
@@ -37,8 +37,10 @@ export function useRecipeDiscovery(criteria: RecipeDiscoveryCriteria, waiting: b
   const pages = infinite.data?.pages
   // Map preserves the server's first position for each ID while allowing a
   // later overlapping page to update that card's metadata.
-  const uniqueRecipes = pages && new Map(pages.flatMap((page) => page.recipes).map((recipe) => [recipe.id, recipe]))
-  const recipes = adapter ? uniqueRecipes && [...uniqueRecipes.values()] : legacy.data
+  const uniqueRecipes = useMemo(() => pages && [...new Map(
+    pages.flatMap((page) => page.recipes).map((recipe) => [recipe.id, recipe]),
+  ).values()], [pages])
+  const recipes = adapter ? uniqueRecipes : legacy.data
   const loadingMore = useRef(false)
   async function loadMore() {
     if (loadingMore.current || infinite.isFetching || !infinite.hasNextPage) return

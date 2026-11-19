@@ -47,7 +47,7 @@ async function checkFlow(page, label) {
       if (style.display === 'none') continue
       if (element.matches('.mm-journal-page:has(.mm-writing-pages)')) {
         const leaf = element.querySelector('.mm-writing-leaf')
-        if (!leaf || globalThis.getComputedStyle(leaf).overflowY !== 'auto') problems.push('missing bounded recipe writing leaf')
+        if (!leaf || ['auto', 'scroll'].includes(globalThis.getComputedStyle(leaf).overflowY)) problems.push('recipe writing leaf must use page navigation')
       } else if (['hidden', 'clip'].includes(style.overflowY)) {
         problems.push(`clipped paper: ${element.className}`)
       }
@@ -66,7 +66,7 @@ async function capture(page, width, name) {
   await page.evaluate(() => globalThis.document.fonts.ready)
   await checkFlow(page, `${width}px ${name}`)
   if (await page.locator('.mm-journal-book').count()) {
-    await page.evaluate(() => { for (const element of globalThis.document.querySelectorAll('.mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread')) element.scrollTop = 0; globalThis.scrollTo(0, 0) })
+    await page.evaluate(() => globalThis.scrollTo(0, 0))
     measurements.push({ name, ...await assertJournalGeometry(page, `${width} ${name}`) })
   }
   await page.screenshot({ path: path.join(output, `${width}-${name}.png`), fullPage: true })
@@ -151,7 +151,7 @@ try {
     await capture(page, width, 'edit-sheet')
     await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
 
-    await page.getByRole('link', { name: 'Start a recipe' }).click()
+    await page.getByRole('link', { name: 'New recipe' }).click()
     await expect(page.getByRole('heading', { name: 'New recipe' })).toBeFocused()
     await capture(page, width, 'create-sheet')
     const title = page.getByLabel('Recipe title')

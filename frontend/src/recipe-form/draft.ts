@@ -99,8 +99,9 @@ export function validateEditor(state: RecipeEditorState) {
 
 export function moveRow<T>(rows: T[], index: number, offset: number): T[] {
   const target = index + offset
-  if (target < 0 || target >= rows.length) return rows
+  if (index < 0 || index >= rows.length || target < 0 || target >= rows.length || index === target) return rows
   const next = [...rows]
-  ;[next[index], next[target]] = [next[target], next[index]]
+  const [moved] = next.splice(index, 1)
+  next.splice(target, 0, moved)
   return next
 }

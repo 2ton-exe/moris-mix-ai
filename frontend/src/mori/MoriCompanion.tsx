@@ -101,6 +101,7 @@ export function MoriCompanion() {
     const arm = svg.querySelector('[data-mori-grip-arm]')
     const closed = svg.querySelector<SVGElement>('[data-mori-closed-mitt]')
     const openMitt = svg.querySelector<SVGElement>('[data-mori-open-mitt]')
+    const neutralArm = arm?.getAttribute('transform')
     return registerTurnCompanion({
       start(direction, single) {
         element.dataset.turnDirection = direction
@@ -128,6 +129,10 @@ export function MoriCompanion() {
       stop() {
         element.style.removeProperty('transform')
         svg.style.removeProperty('transform')
+        if (neutralArm == null) arm?.removeAttribute('transform')
+        else arm?.setAttribute('transform', neutralArm)
+        closed?.style.removeProperty('opacity')
+        openMitt?.style.removeProperty('opacity')
         delete element.dataset.turnDirection
         delete element.dataset.turnStage
         setPageTurn(false)

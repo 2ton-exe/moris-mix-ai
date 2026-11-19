@@ -9,7 +9,9 @@ export function useReadingPagination(contentKey: string, single: boolean) {
   const bankRef = useRef<HTMLDivElement>(null)
   const [measurable, setMeasurable] = useState(false)
   const [readyKey, setReadyKey] = useState<string | null>(null)
-  const [layout, setLayout] = useState<{ pages: string[][]; capacity: number; width: number; oversized: string[]; contentLimits: Record<string, number>; key: string } | null>(null)
+  const [textChunkSize, setTextChunkSize] = useState(600)
+  const [layout, setLayout] = useState<{ pages: string[][]; capacity: number; width: number; key: string } | null>(null)
+  const measuredGeometry = useRef('')
 
   useLayoutEffect(() => {
     const body = bodyRef.current
@@ -26,9 +28,17 @@ export function useReadingPagination(contentKey: string, single: boolean) {
       const width = Math.floor(Math.min(body.clientWidth, !single && liveLeft ? liveLeft.clientWidth : Infinity)) - 8
       // A zero-sized portal/body has not joined the physical shell yet.
       if (body.clientHeight <= 0 || width <= 0) return
-      if (capacity < 160 || width < 80) {
-        flushSync(() => { setMeasurable(false); setLayout(null); setReadyKey(contentKey) })
+      if (capacity <= 0 || width <= 0) {
+        flushSync(() => { setMeasurable(false); setLayout(null); setReadyKey(null) })
         return
+      }
+      const geometry = `${contentKey}:${single}:${capacity}:${width}`
+      if (geometry !== measuredGeometry.current) {
+        measuredGeometry.current = geometry
+        if (textChunkSize !== 600) {
+          flushSync(() => { setTextChunkSize(600); setLayout(null); setReadyKey(null) })
+          return
+        }
       }
       setMeasurable(true)
       bank.style.width = `${width}px`
@@ -38,13 +48,14 @@ export function useReadingPagination(contentKey: string, single: boolean) {
         const heading = unit.querySelector<HTMLElement>('.mm-unit-heading')!
         return { id: unit.dataset.unit!, section: unit.dataset.section!, height: unit.getBoundingClientRect().height,
           headingHeight: heading.getBoundingClientRect().height + 8,
-          noticeHeight: unit.querySelector<HTMLElement>('.mm-long-entry')!.getBoundingClientRect().height + 8,
-          overhead: unit.getBoundingClientRect().height - unit.querySelector<HTMLElement>('.mm-unit-content')!.getBoundingClientRect().height }
+          }
       })
       if (items.some((item) => !item.height)) return
-      const next = { pages: paginateReading(items, capacity), capacity, width,
-        oversized: items.filter((item) => item.height > capacity).map((item) => item.id),
-        contentLimits: Object.fromEntries(items.map((item) => [item.id, Math.max(24, capacity - item.overhead - item.noticeHeight - 4)])), key: contentKey }
+      if (items.some((item) => item.height > capacity) && textChunkSize > 1) {
+        flushSync(() => { setTextChunkSize(Math.max(1, Math.floor(textChunkSize * .7))); setLayout(null); setReadyKey(null) })
+        return
+      }
+      const next = { pages: paginateReading(items, capacity), capacity, width, key: contentKey }
       // Publish the measured bank and its boundaries together before the next
       // paint; a key press must not use the previous viewport's page map.
       flushSync(() => {
@@ -58,7 +69,7 @@ export function useReadingPagination(contentKey: string, single: boolean) {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(measure)
     }
-    // Before fonts settle, keep the complete recipe in a bounded scrolling body.
+    // Measure only after the reading font settles so page breaks match what readers see.
     void (document.fonts?.ready ?? Promise.resolve()).then(() => { fontsReady = true; schedule() })
     document.fonts?.addEventListener('loadingdone', schedule)
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
@@ -73,7 +84,7 @@ export function useReadingPagination(contentKey: string, single: boolean) {
       document.fonts?.removeEventListener('loadingdone', schedule)
       window.removeEventListener('resize', schedule)
     }
-  }, [contentKey, single, measurable])
+  }, [contentKey, single, measurable, textChunkSize])
 
-  return { bodyRef, leftRef, bankRef, measurable, ready: readyKey === contentKey, layout: layout?.key === contentKey ? layout : null }
+  return { bodyRef, leftRef, bankRef, measurable, ready: readyKey === contentKey, textChunkSize, layout: layout?.key === contentKey ? layout : null }
 }

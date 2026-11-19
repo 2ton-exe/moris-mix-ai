@@ -200,7 +200,7 @@ async function beginScenario(page, origin, name) {
   resetScenario(name)
   await page.evaluate(() => globalThis.sessionStorage.clear())
   await page.goto(origin + 'app/chef')
-  await expect(page.getByRole('heading', { name: /pantry/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /pantry/, level: 1 })).toBeVisible()
   const pantry = page.getByRole('textbox', { name: 'Pantry ingredient' })
   await pantry.fill('rice')
   await pantry.press('Enter')
@@ -241,7 +241,7 @@ try {
   const origin = server.resolvedUrls.local[0]
   appOrigin = new URL(origin).origin
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -259,8 +259,6 @@ try {
   assert.equal(requests.filter((request) => request.path === '/functions/v1/generate-recipe' ||
     (request.path === '/functions/v1/recipes' && request.method !== 'GET')).length, 0,
   'Opening Talk to Mori initiated AI generation or a recipe write')
-  await chooser.getByRole('link', { name: 'Organize cooking notes' }).focus()
-  await expect(chooser.getByRole('link', { name: 'Organize cooking notes' })).toBeFocused()
   await page.getByRole('link', { name: 'My recipes' }).focus()
   await expect(page.getByRole('link', { name: 'My recipes' })).toBeFocused()
   await expect(chooser).toBeVisible()
@@ -268,8 +266,7 @@ try {
   await page.keyboard.press('Escape')
   await expect(chooser).toHaveCount(0)
   await expect(moriBookmark).toBeFocused()
-  await moriBookmark.click()
-  await page.getByRole('link', { name: "Find something to cook" }).click()
+  await page.getByRole('navigation', { name: 'Journal sections' }).getByRole('link', { name: 'AI Chef' }).click()
   await expect(page).toHaveURL(`${origin}app/chef`)
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 
@@ -307,18 +304,18 @@ try {
   assert.equal(generation.authorization, `Bearer ${session.access_token}`)
   assert.deepEqual(generation.body, { pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
   assert.equal(recipeWrites.length, 0, 'Generation saved a recipe before review')
-  // The long review notice and recipe fields share a bounded leaf scrollport.
   const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
-  const bounds = await reviewLeaf.evaluate((leaf) => {
-    const spread = leaf.closest('.mm-journal-spread').getBoundingClientRect()
-    const rect = leaf.getBoundingClientRect()
-    leaf.scrollTop = leaf.scrollHeight
-    const bottom = leaf.scrollTop
-    leaf.scrollTop = 0
-    return { height: leaf.clientHeight, scrollHeight: leaf.scrollHeight, bottom, top: leaf.scrollTop, inside: rect.top >= spread.top && rect.bottom <= spread.bottom + 1 }
-  })
-  assert.ok(bounds.height > 100 && bounds.scrollHeight > bounds.height && bounds.inside, `Review leaf is not bounded: ${JSON.stringify(bounds)}`)
-  assert.ok(bounds.bottom > 0 && bounds.top === 0, `Review leaf cannot scroll both ways: ${JSON.stringify(bounds)}`)
+  const bounds = await reviewLeaf.evaluate((leaf) => ({
+    height: leaf.clientHeight,
+    scrollHeight: leaf.scrollHeight,
+    side: leaf.closest('.mm-journal-page') ? 'right' : 'left',
+    hasEditor: Boolean(leaf.querySelector('textarea, input[name="title"]')),
+    blocks: [...leaf.querySelectorAll('section, section > *, details, summary')].map((node) => [node.tagName, node.className, Math.round(node.getBoundingClientRect().height), node.textContent.trim().slice(0, 60)]),
+  }))
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-review-inspiration-1440.png'), fullPage: true })
+  assert.equal(bounds.side, 'right')
+  assert.equal(bounds.hasEditor, false)
+  assert.ok(bounds.scrollHeight <= bounds.height + 2, `Review material should fit its own page: ${JSON.stringify(bounds)}`)
   await assertJournalSemantics(page, 'AI Chef recipe review')
   await expect(page.getByLabel('Recipe title')).toHaveValue('Egg and rice skillet')
   await expect(page.getByRole('region', { name: 'Suggested substitutions' })).toContainText('firm tofu')

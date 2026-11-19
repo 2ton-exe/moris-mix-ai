@@ -13,6 +13,18 @@ afterEach(() => vi.restoreAllMocks())
 const editable = { ...recipeFormFixture, notes: '' }
 const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
 const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
+function moveIngredient(position: number, destination: number) {
+  const dialog = document.querySelector('dialog')
+  if (!dialog) throw new Error('The ingredient move dialog is missing')
+  dialog.showModal = () => { dialog.open = true }
+  dialog.close = () => { dialog.open = false }
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^Move ingredient ${position}:`) }))
+  const move = screen.getByRole('dialog', { name: 'Move ingredient' })
+  expect(move).toBe(dialog)
+  fill('Move to position', String(destination))
+  click('Move ingredient')
+}
+
 const nextPages = () => click('Next Pages')
 const previousPages = () => click('Previous Pages')
 function deferred<T>() {
@@ -83,7 +95,7 @@ it('adds ingredients, edits amounts, removes rows and submits normalized values'
   fill('Ingredient 3 name', 'mint')
   fill('Ingredient 3 quantity', '1')
   previousPages()
-  click('Move ingredient 1 down')
+  moveIngredient(1, 2)
   expect((screen.getByLabelText('Ingredient 2 name') as HTMLInputElement).value).toBe(' rice ')
   nextPages()
   expect((screen.getByLabelText('Ingredient 3 name') as HTMLInputElement).value).toBe('mint')
@@ -97,16 +109,18 @@ it('adds ingredients, edits amounts, removes rows and submits normalized values'
   ] })
 })
 
-it('follows a reordered ingredient across physical pages and restores focus with its value', () => {
-  render(<RecipeForm mode="edit" initialValues={editable} />)
+it('retains the keyed input and its AI estimate when the ingredient moves', () => {
+  const ingredients = editable.ingredients.map((item, index) => index === 0 ? { ...item, inferred: true } : item)
+  render(<RecipeForm mode="edit" initialValues={{ ...editable, ingredients }} showExtractionHints />)
   const first = screen.getByLabelText('Ingredient 1 name')
   fill('Ingredient 1 name', 'brown rice')
-  click('Move ingredient 1 down')
+  moveIngredient(1, 2)
   const moved = screen.getByLabelText('Ingredient 2 name')
   expect(moved).toBe(first)
   expect((moved as HTMLInputElement).value).toBe('brown rice')
-  expect(document.activeElement).toBe(moved)
-  expect(screen.getByText('Ingredient 1 moved down.')).toBeTruthy()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move ingredient 2: brown rice' }))
+  expect(screen.getByText('brown rice moved to position 2 of 2.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Mark as reviewed: ingredient 2' })).toBeTruthy()
 })
 
 it('adds, edits, removes and reorders multiline steps with contiguous sequence positions', async () => {

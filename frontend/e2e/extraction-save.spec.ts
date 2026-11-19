@@ -57,6 +57,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
 
   await test.step('sign in and extract a unique preview without creating a recipe', async () => {
     await signIn(page, localE2eUser)
+    await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/app/quick-entry')
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
     await page.getByRole('button', { name: 'Organize my notes' }).click()
@@ -71,6 +72,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     await page.getByLabel('Recipe title').fill(reviewedTitle)
 
     const ingredients = await navigateToRecipeSection(page, 'Ingredients')
+    await ingredients.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
     await ingredients.getByLabel('Ingredient 1 name').fill('free-range chicken')
 
     const cookingMethod = await navigateToRecipeSection(page, 'Instructions')
@@ -97,14 +99,22 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     })
 
     await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
-    const pageNavigation = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
+    const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
+      .getByRole('button', { name: /^Previous:/ })
     const pagePosition = page.locator('.mm-review-progress')
-    const currentPosition = await pagePosition.innerText()
-    await pageNavigation.getByRole('button', { name: /^Previous:/ }).click()
-    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
-    await expect(pagePosition).not.toHaveText(currentPosition)
-    await expect(page.getByLabel('Recipe title')).toHaveValue(reviewedTitle)
-    await expect(page.getByRole('textbox', { name: 'Ingredient 1 name' }).filter({ visible: true })).toHaveValue('free-range chicken')
+    const title = page.getByLabel('Recipe title')
+    while (!(await title.isVisible())) {
+      await expect(previous).toBeEnabled()
+      const currentPosition = await pagePosition.innerText()
+      await previous.click()
+      await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+      await expect(pagePosition).not.toHaveText(currentPosition)
+    }
+    await expect(title).toHaveValue(reviewedTitle)
+    const ingredients = await navigateToRecipeSection(page, 'Ingredients')
+    const ingredientName = ingredients.getByLabel('Ingredient 1 name')
+    if (!(await ingredientName.isVisible())) await ingredients.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
+    await expect(ingredientName).toHaveValue('free-range chicken')
 
     const collectionPage = await page.context().newPage()
     try {

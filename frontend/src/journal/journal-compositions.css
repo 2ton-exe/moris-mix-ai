@@ -1,6 +1,4 @@
 /* Shared journal content compositions. The cover geometry lives in journal-shell.css. */
-.mm-desk-companion { position: relative; width: min(calc(100% - 48px), 1040px); margin: 28px auto 0; }
-.mm-desk-companion:empty { display: none; }
 .mm-desk .journal-footer { margin-top: auto; padding-top: 20px; color: var(--mm-color-ink-soft); font: 12px/1.6 var(--mm-font-sans); }
 .mm-desk .journal-footer a { display: inline-block; padding-block: 8px; text-decoration: underline; text-underline-offset: 3px; }
 .mm-desk footer span { color: inherit; padding: 0; }
@@ -17,7 +15,6 @@
 .mm-journal-page .recipe-card.mm-recipe-card { grid-template-columns: 100px minmax(0, 1fr); min-height: 184px; height: auto; gap: 15px; padding: 21px 14px 14px; }
 .mm-journal-page .mm-recipe-card h2 { font-size: 22px; line-height: 1.2; }
 .mm-journal-page .mm-recipe-card__stamp { font-size: 10px; }
-.mm-journal-page .recipe-card-link { font-size: 12px; letter-spacing: .03em; }
 .mm-recipe-card__copy { padding-top: 6px; }
 .mm-recipe-empty { min-height: 0; padding: 22px 10px; }
 .mm-recipe-empty__card { padding: 24px 16px; }
@@ -38,7 +35,6 @@
 .mm-public-note p { margin: 8px 0; }
 .mm-public-note .mm-handwriting { font: 500 24px/1.4 var(--mm-font-hand); color: var(--mm-color-burgundy-700); }
 @media (max-width: 540px) {
-  .mm-desk-companion { width: calc(100% - 20px); }
   .mm-public-page .actions { align-items: stretch; flex-direction: column; }
   .mm-journal-page .recipe-card.mm-recipe-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .mm-journal-page .recipe-card.mm-recipe-card .mm-recipe-artwork { width: 140px; }

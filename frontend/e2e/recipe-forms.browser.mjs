@@ -70,43 +70,6 @@ async function keyboardWasPrevented(page, key) {
   return page.evaluate((lastKey) => globalThis.__mmKeyboardEvents.filter((event) => event.key === lastKey).at(-1)?.defaultPrevented, key)
 }
 
-async function scrollableAncestors(leaf) {
-  return leaf.evaluate((target) => {
-    const regions = []
-    for (let element = target; element; element = element.parentElement) {
-      const overflowY = globalThis.getComputedStyle(element).overflowY
-      if (!['auto', 'scroll', 'overlay'].includes(overflowY) || element.scrollHeight <= element.clientHeight + 2) continue
-      const label = element.dataset.writingLeafKey ? `leaf:${element.dataset.writingLeafKey}`
-        : element.classList.contains('mm-journal-spread') ? 'spread'
-          : element.classList.contains('mm-journal-page') ? 'page'
-            : element.tagName.toLowerCase()
-      regions.push({ label, scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight })
-    }
-    return regions
-  })
-}
-
-async function waitForNativeScroll(leaf, before, direction) {
-  await expect.poll(async () => {
-    const after = await scrollableAncestors(leaf)
-    return after.some((region) => {
-      const previous = before.find((candidate) => candidate.label === region.label)?.scrollTop ?? (direction === 'down' ? -Infinity : Infinity)
-      return direction === 'down' ? region.scrollTop > previous : region.scrollTop < previous
-    })
-  }).toBe(true)
-}
-
-async function waitForScrollSettle(leaf) {
-  let previous = ''
-  let stable = 0
-  await expect.poll(async () => {
-    const current = JSON.stringify((await scrollableAncestors(leaf)).map(({ label, scrollTop }) => ({ label, scrollTop })))
-    stable = current === previous ? stable + 1 : 0
-    previous = current
-    return stable >= 2
-  }, { interval: 100, timeout: 3000 }).toBe(true)
-}
-
 async function waitForKeyboardTurn(page, expectedPage) {
   await expect(page.locator('.mm-writing-pages').first()).toHaveAttribute('data-form-page', String(expectedPage))
   if (await page.evaluate(() => globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches)) return
@@ -241,40 +204,86 @@ try {
   await page.getByLabel('Ingredient 1 name').fill('Tomatoes')
   await page.getByLabel('Ingredient 1 quantity').fill('some')
   await page.getByLabel('Ingredient 1 unit').fill('pieces')
+  await page.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Add ingredient' }).click()
   await page.getByLabel('Ingredient 2 name').fill('Olive oil')
   await page.getByLabel('Ingredient 2 quantity').fill('a few')
   await page.getByLabel('Ingredient 2 unit').fill('tbsp')
+  await page.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Add ingredient' }).click()
   await page.getByLabel('Ingredient 3 name').fill('Basil')
   await page.getByLabel('Ingredient 3 quantity').fill('some')
   await page.getByLabel('Ingredient 3 unit').fill('leaves')
+  await page.getByRole('button', { name: 'Done' }).click()
+  assert.equal(await page.locator('[data-writing-leaf-key^="ingredients"]').count(), 1, 'Desktop keeps all ingredients on one leaf')
   await expect(page.getByRole('alertdialog')).toHaveCount(0, 'Page turns stay within the draft and do not trigger the route guard')
-  const readsBeforePageTurns = recipeReadRequests.length
-  await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
-  await expect(page.getByLabel('Ingredient 1 name')).toHaveValue('Tomatoes')
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByLabel('Ingredient 1 quantity')).toBeFocused()
   await expect(page.getByLabel('Ingredient 1 quantity')).toHaveAttribute('aria-invalid', 'true')
-  await expect(page.getByRole('button', { name: /another recipe page with errors/i })).toContainText('1 other page has errors')
-  await page.getByRole('button', { name: /another recipe page with errors/i }).click()
-  await page.locator('[data-journal-page-turn]').waitFor({ state: 'attached' })
-  await page.locator('[data-journal-page-turn]').waitFor({ state: 'detached' })
-  await expect(page.getByLabel('Ingredient 3 quantity')).toBeFocused()
-  await expect(page.getByLabel('Ingredient 3 quantity')).toHaveAttribute('aria-invalid', 'true')
-  assert.equal(recipeReadRequests.length, readsBeforePageTurns, 'Page navigation must not make recipe API requests')
-  await page.getByLabel('Ingredient 3 quantity').fill('1')
-  await page.getByRole('button', { name: 'Remove ingredient 3' }).click()
+  await expect(page.getByRole('button', { name: /another recipe page with errors/i })).toHaveCount(0)
   await page.getByLabel('Ingredient 1 quantity').fill('3')
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: /^Edit ingredient 2:/ }).click()
   await page.getByLabel('Ingredient 2 quantity').fill('2')
-  await page.getByRole('button', { name: 'Move ingredient 1 down' }).click()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: /^Edit ingredient 1:/ }).click()
+  await page.getByLabel('Ingredient 1 amount description (optional)').fill('about three')
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Remove ingredient 3' }).click()
+  const tomatoHandle = page.getByRole('button', { name: 'Move ingredient 1: Tomatoes' })
+  const sourceGrip = await tomatoHandle.boundingBox()
+  const destinationGrip = await page.getByRole('button', { name: 'Move ingredient 2: Olive oil' }).boundingBox()
+  assert(sourceGrip && destinationGrip)
+  assert.equal(await tomatoHandle.evaluate((element) => globalThis.getComputedStyle(element).cursor), 'grab')
+  const createSpread = await page.locator('.mm-writing-pages').getAttribute('data-form-page')
+  const savesBeforeDrag = saveRequests.length
+  const x = sourceGrip.x + sourceGrip.width / 2
+  const y = sourceGrip.y + sourceGrip.height / 2
+  const destinationY = destinationGrip.y + destinationGrip.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x, destinationY, { steps: 8 })
+  await expect(page.locator('.recipe-ingredient-card:popover-open')).toHaveCount(1)
+  await expect(page.locator('[data-ingredient-drop="slot"]')).toHaveCount(1)
+  const liftedGrip = await tomatoHandle.boundingBox()
+  assert(liftedGrip && Math.abs(liftedGrip.y + liftedGrip.height / 2 - destinationY) < 5, 'The lifted grip tracks the pointer')
+  await expect(page.locator('.mm-writing-pages')).toHaveAttribute('data-form-page', createSpread)
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await page.locator('[data-ingredient-drop] > fieldset').evaluate((card) => Promise.all(card.getAnimations().map((animation) => animation.finished)))
+  await page.screenshot({ path: path.join(outputDir, 'ingredient-drag-1440.png') })
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await expect(page.locator('.recipe-ingredient-card:popover-open')).toHaveCount(0)
+  await expect(page.locator('[data-ingredient-slot="0"] .recipe-ingredient-summary__name')).toHaveText('Tomatoes')
+  await expect(page.getByRole('dialog', { name: 'Move ingredient' })).toHaveCount(0)
+
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x, destinationY, { steps: 8 })
+  await expect(page.locator('.recipe-ingredient-card:popover-open')).toHaveCount(1)
+  await expect(page.locator('[data-ingredient-drop="slot"]')).toHaveCount(1)
+  await page.mouse.up()
+  const movedTomato = page.getByRole('button', { name: 'Move ingredient 2: Tomatoes' })
+  await expect(page.locator('[data-ingredient-slot="1"] .recipe-ingredient-summary__name')).toHaveText('Tomatoes')
+  await expect(movedTomato).toBeFocused()
+  await page.getByRole('button', { name: 'Edit ingredient 2: Tomatoes' }).click()
   await expect(page.getByLabel('Ingredient 2 name')).toHaveValue('Tomatoes')
-  await expect(page.getByLabel('Ingredient 2 name')).toBeFocused()
-  await page.getByRole('button', { name: 'Remove ingredient 2' }).click()
+  await expect(page.getByLabel('Ingredient 2 quantity')).toHaveValue('3')
+  await expect(page.getByLabel('Ingredient 2 unit')).toHaveValue('pieces')
+  await expect(page.getByLabel('Ingredient 2 amount description (optional)')).toHaveValue('about three')
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('dialog', { name: 'Move ingredient' })).toHaveCount(0)
+  assert.equal(saveRequests.length, savesBeforeDrag, 'A drop must not save the draft')
+  await expect(page.getByRole('button', { name: /Move ingredient \d (up|down)/ })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Remove ingredient 2' }).press('Enter')
+  await expect(page.locator('[data-ingredient-slot="0"] .recipe-ingredient-summary__name')).toHaveText('Olive oil')
+  await page.getByRole('button', { name: 'Edit ingredient 1: Olive oil' }).click()
   await expect(page.getByLabel('Ingredient 1 name')).toHaveValue('Olive oil')
   await expect(page.getByLabel('Ingredient 1 quantity')).toHaveValue('2')
   await expect(page.getByLabel('Ingredient 1 unit')).toHaveValue('tbsp')
+  await page.getByRole('button', { name: 'Done' }).click()
 
+  const readsBeforePageTurns = recipeReadRequests.length
   await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
   await page.getByRole('button', { name: 'Add cooking step' }).click()
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')
@@ -282,6 +291,7 @@ try {
   await page.getByLabel('Step 2 description').fill('Warm the olive oil.')
   await page.getByRole('button', { name: 'Move step 1 down' }).click()
   await expect(page.getByLabel('Step 1 description')).toHaveValue('Warm the olive oil.')
+  assert.equal(recipeReadRequests.length, readsBeforePageTurns, 'Page navigation must not make recipe API requests')
   await expect(page.getByLabel('Step 2 description')).toHaveValue('Chop the tomatoes.')
   await page.getByRole('button', { name: 'Remove step 2' }).click()
   await expect(page.getByLabel('Step 1 description')).toHaveValue('Warm the olive oil.')
@@ -304,7 +314,7 @@ try {
   await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   await expect(page.getByLabel('Recipe title')).toHaveValue('Mori’s tomato supper')
   await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('A little olive oil made the edges sweet.')
-  await expect(page.getByLabel('Ingredient 1 name')).toHaveValue('Olive oil')
+  await expect(page.locator('[data-ingredient-slot="0"] .recipe-ingredient-summary__name')).toHaveText('Olive oil')
   await page.getByRole('button', { name: 'Save recipe' }).click()
   await expect(page.getByText('Recipe saved.')).toBeVisible()
   assert.equal(saveRequests.length, 2)
@@ -360,8 +370,9 @@ try {
   await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
   await expect(page.getByLabel('Recipe title')).toHaveValue('A favorite revisited')
   assert.equal(saveRequests.at(-1).method, 'PATCH')
-  await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  await page.getByRole('button', { name: /^Edit ingredient 3:/ }).click()
   await expect(page.getByLabel('Ingredient 3 name')).toHaveValue('garlic')
+  await page.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved.')).toBeVisible()
   assert.equal(saveRequests.at(-1).method, 'PATCH')
@@ -374,13 +385,13 @@ try {
   await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
 
-  // Long content becomes sequential writing pages at wide sizes and one page at narrow sizes.
+  // Long writing data continues across physical leaves without dropping rows.
   await page.goto(editUrl(longRecipe.id))
   await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
   await page.evaluate(() => globalThis.document.fonts.ready)
   await page.screenshot({ path: path.join(outputDir, 'long-form-1440.png'), fullPage: true })
   async function collectVisibleRows() {
-    const ingredients = await page.locator('input[name^="ingredients."][name$=".name"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('name')))
+    const ingredients = await page.locator('[data-ingredient-slot]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-ingredient-slot')))
     const steps = await page.locator('textarea[name^="instructions."][name$=".text"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('name')))
     return { ingredients, steps }
   }
@@ -390,7 +401,12 @@ try {
     const turns = []
     for (;;) {
       const visible = await collectVisibleRows()
-      turns.push({ page: await page.locator('.mm-writing-pages').getAttribute('data-form-page'), ...visible })
+      const overflow = await page.locator('.mm-journal-book > .mm-journal-spread .mm-writing-leaf').evaluateAll((leaves) => leaves
+        .filter((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)
+        .map((leaf) => [leaf.dataset.writingLeafKey, leaf.scrollHeight, leaf.clientHeight]))
+      turns.push({ page: await page.locator('.mm-writing-pages').getAttribute('data-form-page'), ...visible, overflow })
+      assert.deepEqual(overflow, [], 'Writing leaves must fit their page without an inner scrolling region')
+      if (turns.length === 1) await page.screenshot({ path: path.join(outputDir, 'ingredient-pages-1440.png') })
       visible.ingredients.forEach((label) => ingredients.add(label))
       visible.steps.forEach((label) => steps.add(label))
       const next = page.getByRole('button', { name: /^Next Pages?$/ })
@@ -403,21 +419,75 @@ try {
   const allPages = await collectRowsAcrossPages()
   assert.equal(allPages.ingredients.size, 18, `All ingredient rows must be reachable on physical pages: ${JSON.stringify(allPages.turns)}`)
   assert.equal(allPages.steps.size, 14, 'All instruction steps must be reachable on physical pages')
+  assert.deepEqual([...allPages.ingredients].sort((a, b) => Number(a) - Number(b)), Array.from({ length: 18 }, (_, index) => String(index)), 'All ingredients continue in their original order')
+  assert.deepEqual(allPages.turns.flatMap(({ ingredients }) => ingredients).map(Number), Array.from({ length: 18 }, (_, index) => index), 'Physical pages retain ingredient order')
+  assert.ok(allPages.turns.filter(({ ingredients }) => ingredients.length > 0).length > 1, 'Large ingredient lists continue to later physical leaves')
 
-  // Move ingredient 6 down across a desktop spread boundary and keep focus on its stable row.
-  while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) > 1) {
+  // Reorder within one leaf, then use the position dialog for a row on a later leaf.
+  while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) > 0) {
     await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   }
-  await expect(page.getByLabel('Ingredient 6 name')).toBeVisible()
-  const movedValue = await page.getByLabel('Ingredient 6 name').inputValue()
-  await page.getByRole('button', { name: 'Move ingredient 6 down' }).click()
-  await expect(page.getByLabel('Ingredient 7 name')).toHaveValue(movedValue)
-  await expect(page.getByLabel('Ingredient 7 name')).toBeFocused()
-  while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) < 5) {
-    await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  const thirdGrip = await page.getByRole('button', { name: /^Move ingredient 3:/ }).boundingBox()
+  const fourthGrip = await page.getByRole('button', { name: /^Move ingredient 4:/ }).boundingBox()
+  assert(thirdGrip && fourthGrip)
+  const writesBeforeMoves = saveRequests.length
+  const ingredientName = (number) => page.locator(`[data-ingredient-slot="${number - 1}"] .recipe-ingredient-summary__name`).textContent()
+  const [third, fourth] = await Promise.all([3, 4].map(ingredientName))
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.mouse.move(thirdGrip.x + thirdGrip.width / 2, thirdGrip.y + thirdGrip.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(fourthGrip.x + fourthGrip.width / 2, fourthGrip.y + fourthGrip.height / 2, { steps: 12 })
+  await expect(page.locator('[data-ingredient-drop="slot"]')).toHaveCount(1)
+  await expect(page.locator('.mm-writing-pages')).toHaveAttribute('data-form-page', '0')
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  assert.equal(await page.locator('.recipe-ingredient-card:popover-open').evaluate((element) => globalThis.getComputedStyle(element).scale), 'none')
+  await page.mouse.up()
+  await expect(page.locator('[data-ingredient-slot="3"] .recipe-ingredient-summary__name')).toHaveText(third)
+  assert.deepEqual(await Promise.all([3, 4].map(ingredientName)), [fourth, third])
+  await expect(page.getByRole('button', { name: `Move ingredient 4: ${third}` })).toBeFocused()
+  await page.getByRole('button', { name: `Edit ingredient 4: ${third}` }).click()
+  await expect(page.getByLabel('Ingredient 4 name')).toHaveValue(third)
+  await expect(page.getByLabel('Ingredient 4 quantity')).toHaveValue('3')
+  await page.getByRole('button', { name: 'Done' }).click()
+  assert.equal(saveRequests.length, writesBeforeMoves)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+
+  const movedValue = await ingredientName(4)
+  const movedHandle = page.getByRole('button', { name: `Move ingredient 4: ${movedValue}` })
+  await movedHandle.focus()
+  await page.keyboard.press('Enter')
+  const moveDialog = page.getByRole('dialog', { name: 'Move ingredient' })
+  await expect(moveDialog.getByLabel('Move to position')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(moveDialog).toHaveCount(0)
+  await expect(movedHandle).toBeFocused()
+  await page.keyboard.press('Space')
+  await page.keyboard.press('1')
+  await page.keyboard.press('8')
+  await expect(moveDialog.getByLabel('Move to position')).toHaveValue('18')
+  await page.screenshot({ path: path.join(outputDir, 'ingredient-move-position-1440.png') })
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-ingredient-slot="17"] .recipe-ingredient-summary__name')).toHaveText(movedValue)
+  await expect(page.getByRole('button', { name: `Move ingredient 18: ${movedValue}` })).toBeFocused()
+  await expect(page.getByText(`${movedValue} moved to position 18 of 18.`)).toHaveCount(1)
+  assert.equal(saveRequests.length, writesBeforeMoves, 'Neither drag nor keyboard reordering should save the recipe')
+  await page.getByRole('button', { name: `Edit ingredient 18: ${movedValue}` }).click()
+  const movedIngredient = page.getByLabel('Ingredient 18 name')
+  await movedIngredient.focus()
+  await movedIngredient.evaluate((input) => input.setSelectionRange(2, 5))
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(movedIngredient).toBeFocused()
+  assert.deepEqual(await movedIngredient.evaluate((input) => [input.selectionStart, input.selectionEnd]), [2, 5])
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(movedIngredient).toBeFocused()
+  await page.getByRole('button', { name: 'Done' }).click()
+  const stepFourDescription = page.getByLabel('Step 4 description')
+  while (!(await stepFourDescription.isVisible())) {
+    const nextPage = page.getByRole('button', { name: 'Next Pages' })
+    assert(await nextPage.isEnabled(), 'Step 4 must remain reachable after ingredients continue across leaves')
+    await turnPage(page, nextPage)
   }
-  await expect(page.getByLabel('Step 4 description')).toBeVisible()
-  const movedStep = await page.getByLabel('Step 4 description').inputValue()
+  const movedStep = await stepFourDescription.inputValue()
   await page.getByRole('button', { name: 'Move step 4 down' }).click()
   await expect(page.getByLabel('Step 5 description')).toHaveValue(movedStep)
   await expect(page.getByLabel('Step 5 description')).toBeFocused()
@@ -425,7 +495,6 @@ try {
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
   for (const width of [1440, 1280, 1024, 390, 320]) {
     await page.setViewportSize({ width, height: 900 })
-    // The preceding row controls and the previous viewport may have scrolled the document.
     // Check the journal's layout from the top of the page at each viewport.
     await page.evaluate(() => globalThis.scrollTo(0, 0))
     await settleJournalLayout(page)
@@ -439,27 +508,16 @@ try {
     if (width === 320) await page.screenshot({ path: path.join(outputDir, 'long-form-320.png'), fullPage: true })
   }
 
-  // Real Chromium keyboard regression. Constrain the long identity leaf to
-  // model an overflowing paper region across desktop and narrow reflow widths.
+  // Real Chromium keyboard regression for physical page turns.
   for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }]) {
     await page.setViewportSize({ width, height })
     await page.goto(editUrl(longRecipe.id))
     await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
     await settleJournalLayout(page)
     await installKeyboardAudit(page)
-    await page.getByLabel('Recipe title').fill('Keyboard scroll draft survives turns')
+    await page.getByLabel('Recipe title').fill('Keyboard page turn draft survives turns')
     const leaf = page.locator('.mm-writing-leaf').first()
     assert.equal(await leaf.getAttribute('data-writing-leaf-key'), 'identity')
-    await leaf.evaluate((element) => {
-      element.style.flex = 'none'
-      element.style.height = '180px'
-      element.style.maxHeight = 'none'
-      element.scrollTop = 0
-    })
-    await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
-    await leaf.focus()
-    let regions = await scrollableAncestors(leaf)
-    assert.ok(regions.some((region) => region.label === 'leaf:identity' && region.scrollHeight > region.clientHeight + 2), `${width}px: identity writing leaf must have a real browser scroll range: ${JSON.stringify(regions)}`)
 
     // Inputs keep their native PageDown behavior and do not change pages.
     await page.getByLabel('Recipe title').focus()
@@ -467,38 +525,6 @@ try {
     assert.equal(await keyboardWasPrevented(page, 'PageDown'), false, `${width}px: PageDown in the title control must remain native`)
     assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
     await leaf.focus()
-    await leaf.evaluate((element) => { element.scrollTop = 0 })
-
-    let before = await scrollableAncestors(leaf)
-    await page.keyboard.press('PageDown')
-    await waitForNativeScroll(leaf, before, 'down')
-    await waitForScrollSettle(leaf)
-    regions = await scrollableAncestors(leaf)
-    assert.ok(regions.some((region) => region.scrollTop > (before.find((candidate) => candidate.label === region.label)?.scrollTop ?? 0)), `${width}px: PageDown must change a writing scrollTop`)
-    assert.equal(await keyboardWasPrevented(page, 'PageDown'), false)
-    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
-
-    before = regions
-    await page.keyboard.press('PageUp')
-    await waitForNativeScroll(leaf, before, 'up')
-    await waitForScrollSettle(leaf)
-    regions = await scrollableAncestors(leaf)
-    assert.ok(regions.some((region) => region.scrollTop < (before.find((candidate) => candidate.label === region.label)?.scrollTop ?? Infinity)), `${width}px: PageUp must change a writing scrollTop`)
-    assert.equal(await keyboardWasPrevented(page, 'PageUp'), false)
-    assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
-
-    for (let scroll = 0; scroll < 12; scroll++) {
-      regions = await scrollableAncestors(leaf)
-      if (!regions.some((region) => region.scrollHeight - region.clientHeight - region.scrollTop > 2)) break
-      before = regions
-      await page.keyboard.press('PageDown')
-      assert.equal(await keyboardWasPrevented(page, 'PageDown'), false, `${width}px: PageDown must remain native before the bottom`)
-      await waitForNativeScroll(leaf, before, 'down')
-      await waitForScrollSettle(leaf)
-      assert.equal(await page.locator('.mm-writing-pages').first().getAttribute('data-form-page'), '0')
-    }
-    regions = await scrollableAncestors(leaf)
-    assert.ok(!regions.some((region) => region.scrollHeight - region.clientHeight - region.scrollTop > 2), `${width}px: repeated PageDown should reach the writing leaf bottom`)
     await page.keyboard.press('PageDown')
     assert.equal(await keyboardWasPrevented(page, 'PageDown'), true, `${width}px: accepted boundary turn consumes PageDown`)
     await waitForKeyboardTurn(page, 1)
@@ -507,8 +533,8 @@ try {
     await page.keyboard.press('PageUp')
     assert.equal(await keyboardWasPrevented(page, 'PageUp'), true, `${width}px: accepted top-boundary turn consumes PageUp`)
     await waitForKeyboardTurn(page, 0)
-    await expect(page.getByLabel('Recipe title')).toHaveValue('Keyboard scroll draft survives turns')
-    process.stdout.write(`Keyboard scroll: native PageUp/PageDown and boundary turns passed at ${width}×${height}.\n`)
+    await expect(page.getByLabel('Recipe title')).toHaveValue('Keyboard page turn draft survives turns')
+    process.stdout.write(`Keyboard page turns: PageUp/PageDown and boundary behavior passed at ${width}×${height}.\n`)
   }
 
   // Invalid first/last turns stay native. Arrows, rejected requests, animation,

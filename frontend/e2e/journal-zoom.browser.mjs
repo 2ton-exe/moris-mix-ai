@@ -60,7 +60,6 @@ try {
   async function capture(name) {
     await page.evaluate(async () => {
       await globalThis.document.fonts.ready
-      for (const element of globalThis.document.querySelectorAll('.mm-journal-spread')) element.scrollTop = 0
       globalThis.scrollTo(0, 0)
     })
     const zoom = await page.evaluate(() => ({ dpr: globalThis.devicePixelRatio, innerWidth: globalThis.innerWidth, outerWidth: globalThis.outerWidth, cssZoom: globalThis.document.documentElement.style.zoom }))
@@ -91,7 +90,7 @@ try {
   await expect(page.getByLabel('Recipe title')).toBeFocused()
   await expect(page.getByLabel('Recipe title')).toBeInViewport()
   await page.getByLabel('Recipe title').fill('Zoomed writing')
-  await page.locator('.mm-writing-leaf').focus()
+  await page.locator('[data-writing-leaf-key="identity"]').focus()
   await page.keyboard.press('PageDown')
   await expect(page.locator('[data-writing-leaf-key^="ingredients-empty"] h2')).toBeFocused()
   await page.keyboard.press('PageDown')

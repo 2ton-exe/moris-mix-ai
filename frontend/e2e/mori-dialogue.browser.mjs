@@ -350,13 +350,7 @@ try {
     await landscape.page.goto(`${origin}${route}`)
     if (route.endsWith(recipe.id)) {
       await settleReadingPages(landscape.page)
-      if (!(await landscape.page.getByRole(next.role, { name: next.name, exact: true }).count())) {
-        const scrollable = await landscape.page.locator('.mm-recipe-reading-body').evaluate((node) => node.scrollHeight > node.clientHeight && node.clientHeight >= 40)
-        assert.ok(scrollable, 'Short landscape retains a readable scrolling fallback')
-        await expect(landscape.page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number')).toContainText('Page 1 of 1')
-        await landscape.page.screenshot({ path: path.join(outputDir, '720-short-reading-fallback.png') })
-        continue
-      }
+      await expect(landscape.page.getByRole(next.role, { name: next.name, exact: true })).toBeVisible()
     }
     await landscape.page.getByRole(next.role, { name: next.name, exact: true }).click()
     await verifyMoriPageTurn(landscape.page, landscapeCharacter, 'forward')

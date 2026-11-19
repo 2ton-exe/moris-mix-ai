@@ -57,6 +57,8 @@ class RouterTestRequest extends NativeRequest {
   }
 }
 
+let matchMediaDescriptor: PropertyDescriptor | undefined
+
 function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })) } = {}) {
   const state = authState(userId)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -76,13 +78,47 @@ function addIngredient(value: string) {
   fireEvent.keyDown(input, { key: 'Enter' })
 }
 
+async function finishJournalTurn(target: () => boolean) {
+  await waitFor(() => {
+    const turn = document.querySelector<HTMLElement>('[data-journal-page-turn]')
+    if (turn) expect(turn.getAttribute('data-phase')).toBe('animating')
+    else {
+      expect(document.querySelector('.mm-journal-book')?.hasAttribute('data-page-turning')).toBe(false)
+      expect(target()).toBe(true)
+    }
+  })
+  const turn = document.querySelector<HTMLElement>('[data-journal-page-turn]')
+  if (turn) {
+    fireEvent(turn, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
+    await waitFor(() => expect(document.querySelector('.mm-journal-book')?.hasAttribute('data-page-turning')).toBe(false))
+  }
+}
+
+async function nextChefPage() {
+  const current = screen.getByRole('region', { name: /AI Chef page (\d+)/ }).getAttribute('aria-label')!
+  const nextPage = Number(/AI Chef page (\d+)/.exec(current)?.[1]) + 1
+  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+  await finishJournalTurn(() => Boolean(screen.queryByRole('region', { name: new RegExp(`AI Chef page ${nextPage}`) })))
+}
+
+async function openPreferences() {
+  while (!screen.queryByRole('textbox', { name: /^Cooking preferences/ })) await nextChefPage()
+}
+
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  matchMediaDescriptor ??= Object.getOwnPropertyDescriptor(window, 'matchMedia')
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: (query: string) => ({
+    matches: query.includes('prefers-reduced-motion'), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }) })
   vi.stubGlobal('Request', RouterTestRequest)
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  if (matchMediaDescriptor) Object.defineProperty(window, 'matchMedia', matchMediaDescriptor)
+  else Reflect.deleteProperty(window, 'matchMedia')
+  matchMediaDescriptor = undefined
   localStorage.clear()
   sessionStorage.clear()
 })
@@ -110,6 +146,39 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
   })
 
+  it('continues pantry entries and preferences onto physical pages without changing the request text', async () => {
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    renderChef()
+    const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+    fireEvent.change(input, { target: { value: 'rice, beans, eggs, tomatoes, onion, garlic, salt' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelectorAll('li')).toHaveLength(2)
+
+    await nextChefPage()
+    expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('eggs')
+    expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('garlic')
+    await nextChefPage()
+    expect(screen.getByRole('region', { name: /AI Chef page 3/ }).textContent).toContain('salt')
+    await nextChefPage()
+
+    const preferences = 'a'.repeat(400) + 'b'.repeat(400) + 'c'.repeat(150)
+    fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: preferences } })
+    expect(screen.getByText('This request only · 950 / 1000 characters')).toBeTruthy()
+    const preferenceParts = [(screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value]
+    while (screen.queryByRole('button', { name: 'Next page' })) {
+      await nextChefPage()
+      const nextPart = screen.queryByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement | null
+      if (!nextPart) break
+      preferenceParts.push(nextPart.value)
+    }
+    expect(preferenceParts.join('')).toBe(preferences)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    expect(generate.mock.calls[0]?.[0]).toEqual(['rice', 'beans', 'eggs', 'tomatoes', 'onion', 'garlic', 'salt'])
+    expect(generate.mock.calls[0]?.[1]).toBe(preferences)
+  })
+
   it('creates and removes pantry tokens, accepts preferences, and shows a validated unsaved review', async () => {
     const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn(async () => ({ id: 'saved-chef-recipe' }))
@@ -122,6 +191,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('Rice')
     fireEvent.click(screen.getByRole('button', { name: 'Remove tomatoes' }))
     addIngredient('tomatoes')
+    await openPreferences()
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'quick, no frying' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
@@ -134,15 +204,15 @@ describe('AI Chef pantry and review workflow', () => {
       ['Rice', 'tomatoes'], 'quick, no frying', expect.objectContaining({ userId: 'chef-cook', signal: expect.any(AbortSignal) }),
     ])
     expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Tomato egg rice')
-    expect((screen.getByLabelText('Ingredient 1 amount description (optional)') as HTMLInputElement).value).toBe('leftover')
-    expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('')
-    expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
-    fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
-    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     const details = within(screen.getByRole('region', { name: 'AI Chef generation details' }))
     expect(details.getByText('bell pepper')).toBeTruthy()
     expect(details.getByText('Garden rice')).toBeTruthy()
     expect(details.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+    expect((screen.getByLabelText('Ingredient 1 amount description (optional)') as HTMLInputElement).value).toBe('leftover')
+    expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
+    expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -163,12 +233,14 @@ describe('AI Chef pantry and review workflow', () => {
     expect(generate).not.toHaveBeenCalled()
 
     addIngredient('rice')
+    await openPreferences()
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'spicy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect((await screen.findByRole('alert')).textContent).toContain('today’s AI Chef limit')
     await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('confused'))
-    expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
     expect((screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value).toBe('spicy')
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
 
     expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
     fireEvent.submit(document.querySelector('.mm-ai-chef__form')!)
@@ -622,12 +694,20 @@ describe('AI Chef pantry and review workflow', () => {
     addIngredient('rice')
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     await screen.findByRole('heading', { name: "Review Mori's recipe." })
-    expect(screen.getAllByRole('checkbox')).toHaveLength(11)
-    for (let index = 0; index < 10; index += 1) {
-      fireEvent.click(screen.getAllByRole('checkbox')[index])
+    async function turnReview(direction: 'Next' | 'Previous') {
+      const currentOptions = JSON.stringify(screen.queryAllByRole('checkbox').map((checkbox) => checkbox.parentElement?.textContent))
+      fireEvent.click(screen.getByRole('button', { name: direction + ' Pages' }))
+      await finishJournalTurn(() => JSON.stringify(screen.queryAllByRole('checkbox').map((checkbox) => checkbox.parentElement?.textContent)) !== currentOptions)
     }
-    expect(screen.getByText('10 of 10 parent recipes selected.')).toBeTruthy()
-    expect(screen.getAllByRole('checkbox')[10]).toHaveProperty('disabled', true)
+    for (let index = 1; index <= 10; index += 1) {
+      const name = new RegExp(`^Parent ${index} `)
+      if (!screen.queryByRole('checkbox', { name })) await turnReview('Next')
+      fireEvent.click(screen.getByRole('checkbox', { name }))
+    }
+    expect(screen.getAllByText('10 of 10 parent recipes selected.').length).toBeGreaterThan(0)
+    expect(screen.getByRole('checkbox', { name: /^Parent 11 / })).toHaveProperty('disabled', true)
+    await turnReview('Previous')
+    expect(screen.getByRole('checkbox', { name: /^Parent 4 / })).toHaveProperty('checked', true)
   })
 })
 

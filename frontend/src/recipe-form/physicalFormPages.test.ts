@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { editorState } from './draft'
-import { FORM_ROWS_PER_LEAF, formPagePosition, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, visibleFormLeafIndices } from './physicalFormPages'
+import { FORM_ROWS_PER_LEAF, formPagePosition, formTextRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, splitFormText, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
 import { recipeFormFixture } from './testing/fixtures'
 
 it('keeps identity first and groups complete ordered rows by section', () => {
@@ -13,6 +13,7 @@ it('keeps identity first and groups complete ordered rows by section', () => {
   expect(leafKeyForFieldPath('ingredients.1.quantity', state)).toBe(`ingredient:${state.ingredients[1].key}`)
   expect(leafKeyForFieldPath('instructions.0.text', state)).toBe(`instruction:${state.instructions[0].key}`)
   expect(leafKeyForFieldPath('title', state)).toBe('identity')
+  expect(leafKeyForFieldPath('notes', state)).toBe('identity')
 })
 
 it('creates empty section leaves and follows a row across grouped page boundaries', () => {
@@ -33,6 +34,12 @@ it('creates empty section leaves and follows a row across grouped page boundarie
   expect(narrowLeaves).toHaveLength(1 + 5 + 2)
   expect(leafIndexForAnchor(narrowLeaves, `ingredient:${movedKey}`)).toBe(4)
   expect(leafAnchorForPage(leaves[2])).toBe(`ingredient:${withRows.ingredients[2].key}`)
+
+  const desktopLeaves = recipeFormLeaves(withRows, false, [], false, true)
+  const desktopIngredientLeaves = desktopLeaves.filter(({ kind }) => kind === 'ingredients')
+  expect(desktopIngredientLeaves).toHaveLength(2)
+  expect(desktopIngredientLeaves[0]).toMatchObject({ rowKeys: withRows.ingredients.slice(0, 4).map(({ key }) => key) })
+  expect(desktopIngredientLeaves[1]).toMatchObject({ rowKeys: withRows.ingredients.slice(4).map(({ key }) => key) })
 })
 
 it('groups facing leaves on desktop and exposes one numbered leaf on narrow layouts', () => {
@@ -42,4 +49,42 @@ it('groups facing leaves on desktop and exposes one numbered leaf on narrow layo
   expect(visibleFormLeafIndices(3, 5, true)).toEqual([3])
   expect(formPagePosition(3, 5, false)).toMatchObject({ page: 1, total: 3, text: 'Pages 3–4 of 5' })
   expect(formPagePosition(3, 5, true)).toMatchObject({ page: 3, total: 5, text: 'Page 4 of 5' })
+})
+
+it('keeps long notes and instruction text intact across writing leaves', () => {
+  const notes = 'Keep every line.\n'.repeat(100)
+  const instruction = 'Stir gently, then wait. '.repeat(70)
+  const state = editorState({ ...recipeFormFixture, notes, instructions: [{ step: 1, text: instruction }] })
+  const leaves = recipeFormLeaves(state, false, [], false, false, 300, 12, 40)
+  const noteLeaves = leaves.filter((leaf) => leaf.kind === 'notes')
+  const instructionLeaves = leaves.filter((leaf) => leaf.kind === 'instructions')
+  expect(noteLeaves.length).toBeGreaterThan(5)
+  expect(leaves.indexOf(noteLeaves[0])).toBe(1)
+  expect(instructionLeaves).toHaveLength(6)
+  const noteParts = splitIdentityNotes(notes, 300, 12, 40)
+  const instructionParts = splitInstructionText(instruction, 300, 12, 40)
+  expect(noteParts.every((part) => formTextRows(part, 40) <= 12)).toBe(true)
+  expect(instructionParts[0].length).toBeLessThanOrEqual(300)
+  expect(formTextRows(instructionParts[0], 40)).toBeLessThanOrEqual(8)
+  expect(instructionParts.slice(1).every((part) => formTextRows(part, 40) <= 10)).toBe(true)
+  expect(noteParts.join('')).toBe(notes)
+  expect(instructionParts.join('')).toBe(instruction)
+  expect(splitFormText('😀a', 1)).toEqual(['😀', 'a'])
+  expect(leafIndexForAnchor(leaves, 'notes:0')).toBe(0)
+  expect(leafIndexForAnchor(leaves, 'notes:5')).toBe(leaves.indexOf(noteLeaves[4]))
+  expect(leafIndexForAnchor(recipeFormLeaves(editorState(recipeFormFixture)), 'notes:1')).toBe(0)
+  expect(leafIndexForAnchor(leaves, 'instruction:' + state.instructions[0].key + ':part:5')).toBe(leaves.indexOf(instructionLeaves[5]))
+  expect(leafKeyForFieldPath('notes', state)).toBe('identity')
+})
+
+it.each([223, 224, 225, 226])('splits emoji near the row boundary after %i ASCII characters', (length) => {
+  const text = 'a'.repeat(length) + '😀😀'
+  const parts = splitFormText(text, 600, 4, 56)
+  expect(parts.join('')).toBe(text)
+  expect(parts.length).toBeGreaterThan(1)
+  for (const part of parts) {
+    expect(part.length).toBeGreaterThan(0)
+    expect(formTextRows(part, 56)).toBeLessThanOrEqual(4)
+    expect(part).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/)
+  }
 })

@@ -1,6 +1,6 @@
 export type TurnDirection = 'forward' | 'backward'
 export type TurnStage = 'approach' | 'grab' | 'pull' | 'turn' | 'release' | 'settle'
-export const TURN_DURATION = 900
+export const TURN_DURATION = 780
 export const TURN_PERSPECTIVE = 1800
 const clamp = (n: number) => Math.max(0, Math.min(1, n))
 export const smooth = (n: number) => { const t = clamp(n); return t * t * (3 - 2 * t) }

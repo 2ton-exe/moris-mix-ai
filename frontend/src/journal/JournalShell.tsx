@@ -1,11 +1,10 @@
 import { useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
-import { BookOpen, ChefHat, House, Info, NotebookPen } from 'lucide-react'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
 import { JournalSurface, PaperCard } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
-import { JournalCompanionContext, JournalFacingPageContext, JournalPageFooterContext, JournalPaginationContext } from './JournalLayoutContext'
+import { JournalFacingPageContext, JournalPageFooterContext, JournalPaginationContext } from './JournalLayoutContext'
 import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, useJournalPageTurnManager } from './JournalPageTurn'
 import type { JournalTurnDirection } from './JournalPageTurn'
 import { useJournalMedia } from './useJournalMedia'
@@ -26,23 +25,29 @@ export function JournalPageContainer({ className = '', children, ...props }: Com
   </div>
 }
 
-function JournalNavigation({ publicNavigation = false, label = 'Journal sections' }: { publicNavigation?: boolean; label?: string }) {
-  const location = useLocation()
-  const { pathname } = location
-  const path = pathname.replace(/\/+$/, '') || '/'
-  const creating = path === '/app/recipes/new'
-  const editing = /^\/app\/recipes\/[^/]+\/edit$/.test(path)
-  const chef = /^\/app\/chef(?:\/|$)/.test(path)
-  const aiWorkflow = /^\/app\/(?:quick-entry|chef)(?:\/|$)/.test(path)
-  if (publicNavigation) return <nav className="mm-bookmarks" aria-label={label}>
-    <Link className="mm-bookmark" to="/home" aria-current={pathname === '/home' ? 'page' : undefined}><House size={16} aria-hidden="true" />Home</Link>
-    <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={pathname === '/about' ? 'page' : undefined}><Info size={16} aria-hidden="true" />About</Link>
-    <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={pathname === '/demo-recipe' ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />Demo recipe</Link>
+function PublicLinks({ attached = false }: { attached?: boolean }) {
+  const { pathname } = useLocation()
+  const path = pathname.replace(/\/+$/, '')
+  return <nav className={attached ? 'mm-bookmarks' : 'mm-desk-utilities'} aria-label={attached ? 'Journal sections' : 'Public pages'}>
+    <Link className="mm-bookmark" to="/home" aria-current={path === '/home' ? 'page' : undefined}>Home</Link>
+    <Link className="mm-bookmark mm-bookmark--mustard" to="/about" aria-current={path === '/about' ? 'page' : undefined}>About</Link>
+    <Link className="mm-bookmark mm-bookmark--cream" to="/demo-recipe" aria-current={path === '/demo-recipe' ? 'page' : undefined}>Demo recipe</Link>
   </nav>
-  return <nav className="mm-global-nav" aria-label="Journal sections">
-    <Link className="mm-global-nav__link" to="/app/recipes" aria-current={!creating && !editing && !aiWorkflow ? 'page' : undefined}><BookOpen size={16} aria-hidden="true" />My recipes</Link>
-    <Link className="mm-global-nav__link" to="/app/recipes/new" aria-current={creating ? 'page' : undefined}><NotebookPen size={16} aria-hidden="true" />New recipe</Link>
-    <Link className="mm-global-nav__link" to="/app/chef" aria-current={chef ? 'page' : undefined}><ChefHat size={16} aria-hidden="true" />AI Chef</Link>
+}
+
+function JournalNavigation() {
+  const { pathname, search, hash, state } = useLocation()
+  const path = pathname.replace(/\/+$/, '')
+  const creating = path === '/app/recipes/new'
+  const quickEntry = /^\/app\/quick-entry(?:\/|$)/.test(path)
+  const chef = /^\/app\/chef(?:\/|$)/.test(path)
+  const collection = path === '/app' || path === '/app/recipes'
+  const returnState = collection ? { journalReturn: pathname + search + hash } : undefined
+  return <nav className="mm-bookmarks mm-bookmarks--journal" aria-label="Journal sections">
+    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !quickEntry && !chef ? 'page' : undefined}>My recipes</Link>
+    <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" state={creating ? state : returnState} aria-current={creating ? 'page' : undefined}>New recipe</Link>
+    <Link className="mm-bookmark mm-bookmark--rose" to="/app/quick-entry" state={path === '/app/quick-entry' ? state : returnState} aria-current={quickEntry ? 'page' : undefined}>Quick AI Entry</Link>
+    <Link className="mm-bookmark mm-bookmark--lilac" to="/app/chef" aria-current={chef ? 'page' : undefined}>AI Chef</Link>
   </nav>
 }
 
@@ -52,10 +57,9 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   mode?: 'journal' | 'reading' | 'writing' | 'demo'; publicNavigation?: boolean; ownerName?: string
 }) {
   const location = useLocation()
-  const companionEnabled = !publicNavigation && location.pathname.startsWith('/app/')
+  const companionEnabled = !publicNavigation && (location.pathname === '/app' || location.pathname.startsWith('/app/'))
   const bookRef = useRef<HTMLDivElement>(null)
   const [facingPage, setFacingPage] = useState<HTMLDivElement | null>(null)
-  const [companion, setCompanion] = useState<HTMLDivElement | null>(null)
   const [leftPagination, setLeftPagination] = useState<HTMLDivElement | null>(null)
   const [singlePrevious, setSinglePrevious] = useState<HTMLDivElement | null>(null)
   const [rightPagination, setRightPagination] = useState<HTMLDivElement | null>(null)
@@ -89,7 +93,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     <a className="mm-skip-link" href="#journal-content">Skip to journal content</a>
     <header className="mm-desk-toolbar">
       <Link className="mm-desk-brand" to={publicNavigation ? '/home' : '/app/recipes'}><BrandMark /></Link>
-      {!publicNavigation && <JournalNavigation />}
+      {!publicNavigation && <PublicLinks />}
       {account}
     </header>
     <div className="mm-journal-stage" id="journal">
@@ -100,29 +104,26 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         <div className="mm-journal-ring-plate" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--left" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--right" aria-hidden="true" />
-        <JournalNavigation publicNavigation label={publicNavigation ? 'Journal sections' : 'Journal bookmarks'} />
         <main className="mm-journal-spread" id="journal-content" tabIndex={-1} inert={pageTurn.isTurning} aria-busy={pageTurn.isTurning || undefined}>
           <section className="mm-journal-flyleaf" aria-label="Facing journal page" tabIndex={0}>
             <PaperCard className="mm-bookplate" surface="fresh">
               <MoriEmblem size={46} />
-              <span className="mm-bookplate__ex-libris">Ex libris</span>
+              <span className="mm-bookplate__ex-libris">Cooking journal</span>
               <p>This journal belongs to</p>
               <p className="mm-bookplate__title">{ownerName}</p>
               <span className="mm-bookplate__rule" aria-hidden="true" />
-              <p>Kept with care · MORI'S MIX</p>
             </PaperCard>
             <PaperHoles side="left" />
             <div ref={setFacingPage} className="mm-facing-slot" />
             <div ref={setLeftPagination} className="mm-pagination-slot mm-pagination-slot--left" />
           </section>
           <JournalPageContainer role="region" aria-label="Journal entries" tabIndex={0} className={pageClassName}>
-            <JournalCompanionContext.Provider value={companion}>
-              <JournalFacingPageContext.Provider value={facingPage}>
-                <JournalPageFooterContext.Provider value={footer}>
-                  <JournalPaginationContext.Provider value={{ left: singleLayout ? singlePrevious : leftPagination, right: rightPagination }}>{children}</JournalPaginationContext.Provider>
-                </JournalPageFooterContext.Provider>
-              </JournalFacingPageContext.Provider>
-            </JournalCompanionContext.Provider>
+            {publicNavigation ? <PublicLinks attached /> : <JournalNavigation />}
+            <JournalFacingPageContext.Provider value={facingPage}>
+              <JournalPageFooterContext.Provider value={footer}>
+                <JournalPaginationContext.Provider value={{ left: singleLayout ? singlePrevious : leftPagination, right: rightPagination }}>{children}</JournalPaginationContext.Provider>
+              </JournalPageFooterContext.Provider>
+            </JournalFacingPageContext.Provider>
             <div className="mm-journal-page-footer">
               <div ref={setFooter} className="mm-footer-actions" />
               <div className="mm-pagination-band"><div ref={setSinglePrevious} className="mm-pagination-single-previous" /><div ref={setRightPagination} className="mm-pagination-slot mm-pagination-slot--right" /></div>
@@ -135,7 +136,6 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         </div>
       </div>
     </div>
-    <div ref={setCompanion} className="mm-desk-companion" />
     {/* Portalled confirmations stay above the physical leaves and rings. */}
     <div id="journal-overlays" />
   </JournalSurface>

@@ -205,14 +205,7 @@ try {
     assert.ok(longUnits.some((unit) => unit.text.includes('long personal note from the margin')))
     assert.ok(longUnits.some((unit) => unit.text.includes('unbrokennote')))
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Long detail overflow at ${width}px`)
-    const frameBeforeScroll = await page.locator('.mm-journal-book').boundingBox()
-    const bindingBeforeScroll = await page.locator('.mm-journal-binding').boundingBox()
-    const note = page.locator('.mm-continuation-body').getByText(/unbrokennote/)
-    if (await note.count()) { await note.scrollIntoViewIfNeeded(); await expect(note).toBeInViewport() }
-    if (width >= 1000) {
-      assert.deepEqual(await page.locator('.mm-journal-book').boundingBox(), frameBeforeScroll, 'Reading scroll moved the cover')
-      assert.deepEqual(await page.locator('.mm-journal-binding').boundingBox(), bindingBeforeScroll, 'Reading scroll moved the binding')
-    }
+    assert.ok(longUnits.some((unit) => unit.text.includes('unbrokennote')), 'Long notes remain available on a physical continuation page')
     await page.screenshot({ path: path.join(outputDir, `${width}-long-detail.png`), fullPage: true })
 
     if (width === 1440) {
@@ -294,7 +287,7 @@ try {
   await empty.page.goto(`${origin}app/recipes`)
   await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
   await expect(empty.page.locator('.recipe-grid > li')).toHaveCount(0)
-  const add = empty.page.getByRole('link', { name: 'Add Your First Scrap' })
+  const add = empty.page.getByRole('link', { name: 'Add your first recipe' })
   await expect(add).toHaveAttribute('href', '/app/recipes/new')
   await add.click()
   await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
