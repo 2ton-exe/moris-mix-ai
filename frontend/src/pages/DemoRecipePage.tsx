@@ -4,7 +4,7 @@ import { getDemoRecipe } from '../api/demoRecipe'
 import type { DemoRecipe } from '../api/demoRecipe'
 import { HttpError } from '../api/http'
 import { ErrorState } from '../components/ErrorState'
-import { LoadingState } from '../components/LoadingState'
+import { RecipeReadingSkeleton } from '../recipes/RecipeStates'
 
 import { JournalShell } from '../journal/JournalShell'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
@@ -45,11 +45,11 @@ export default function DemoRecipePage() {
 
   return (
     <JournalShell mode="demo" publicNavigation pageClassName="mm-demo-sheet">
-      {request.status !== 'success' && <JournalFacingPage className="mm-facing-content--demo">
+      {request.status === 'error' && <JournalFacingPage className="mm-facing-content--demo">
         <h1 tabIndex={-1}>Demonstration recipe</h1>
         <Link className="button button-secondary" to="/home">Back home</Link>
       </JournalFacingPage>}
-      {request.status === 'loading' && <LoadingState message="Loading demonstration recipe…" />}
+      {request.status === 'loading' && <RecipeReadingSkeleton publicDemo back={<Link to="/home"><span aria-hidden="true">←</span> Back home</Link>} />}
       {request.status === 'error' &&
         <ErrorState message={request.message} onRetry={request.canRetry ? retry : undefined} />}
       {request.status === 'success' && <RecipeReading recipe={request.recipe} publicDemo

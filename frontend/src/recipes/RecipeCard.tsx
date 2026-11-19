@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { ArrowRight, CookingPot } from 'lucide-react'
 import { useAuth } from '../auth/context'
@@ -21,26 +21,32 @@ export function RecipeMetadata({ recipe, showCookedAt = true }: { recipe: Recipe
   )
 }
 
-export function RecipeIndexCardContent({ recipe }: { recipe: RecipeSummary }) {
+export function RecipeIndexCardContent({ recipe }: { recipe?: RecipeSummary }) {
   return <>
     <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
     <div className="mm-recipe-card__copy">
-      <h2>{recipe.title}</h2>
-      <RecipeMetadata recipe={recipe} />
+      <h2>{recipe ? recipe.title : <span className="mm-skeleton-line" />}</h2>
+      {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
     </div>
     <ArrowRight className="mm-index-card__arrow" size={16} aria-hidden="true" />
+  </>
+}
+
+export function RecipeCollectionCardContent({ recipe, folio, image }: { recipe?: RecipeSummary; folio: number; image?: ReactNode }) {
+  return <>
+    <RecipeScrapArtwork title={recipe?.title ?? ''} cookedAt={recipe?.cooked_at} loading={!recipe} image={image} />
+    <div className="mm-recipe-card__copy">
+      <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
+      <h2>{recipe ? recipe.title : <span className="mm-skeleton-line" />}</h2>
+      {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
+    </div>
   </>
 }
 
 export function RecipeCollectionCardMeasure({ recipe, folio }: { recipe: RecipeSummary; folio: number }) {
   return <li className="mm-recipe-card-slot">
     <div className={`mm-collection-entry${folio % 2 === 0 ? ' is-flipped' : ''}`}>
-      <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} />
-      <div className="mm-recipe-card__copy">
-        <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
-        <h2>{recipe.title}</h2>
-        <RecipeMetadata recipe={recipe} />
-      </div>
+      <RecipeCollectionCardContent recipe={recipe} folio={folio} />
     </div>
   </li>
 }
@@ -53,7 +59,6 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const photoRequest = useRef<AbortController | null>(null)
   const refreshAttempted = useRef(false)
-  const number = String(folio).padStart(2, '0')
   const returnParams = new URLSearchParams(location.search)
   if (indexCard || folio > 1 || returnParams.has('entry')) returnParams.set('entry', String(folio - 1))
   const returnSearch = returnParams.toString()
@@ -99,14 +104,8 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {indexCard ? <RecipeIndexCardContent recipe={recipe} /> : <><RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at}
-          image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />
-        <div className="mm-recipe-card__copy">
-          <span className="mm-recipe-card__folio" aria-hidden="true">No. {number}</span>
-          <h2>{recipe.title}</h2>
-          <RecipeMetadata recipe={recipe} />
-        </div>
-        </>}
+        {indexCard ? <RecipeIndexCardContent recipe={recipe} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio}
+          image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
       </Link>
     </li>
   )

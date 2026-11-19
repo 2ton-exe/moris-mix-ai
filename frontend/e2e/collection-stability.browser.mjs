@@ -40,6 +40,8 @@ try {
       user_id: userId, title: index === 2 ? 'Slow roasted tomatoes with garlic and herbs for a weekend family dinner' : `Recipe ${index + 1}`,
       star_rating: index === 0 ? 5 : null, cooked_at: index === 0 ? '2026-10-25' : null,
     }))
+    let releaseRecipes
+    const recipesReady = new Promise(resolve => { releaseRecipes = resolve })
     await context.route('**/*', async (route) => {
       const url = new URL(route.request().url())
       if (url.origin === new URL(origin).origin) {
@@ -52,6 +54,7 @@ try {
       assert.equal(url.pathname, '/functions/v1/recipes')
       assert.equal(route.request().method(), 'GET')
       assert.match(route.request().headers().authorization, /^Bearer /)
+      await recipesReady
       return route.fulfill({ json: { recipes, has_more: false, next_cursor: null } })
     })
     await page.addInitScript(({ userId }) => {
@@ -61,8 +64,24 @@ try {
       globalThis.localStorage.setItem('sb-fe07-auth-token', JSON.stringify({ access_token: token, refresh_token: 'test-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
     }, { userId })
     await page.goto(`${origin}app?entry=1`)
+    const loadingCard = page.locator('.mm-journal-page .mm-skeleton-card').first()
+    await loadingCard.waitFor()
+    await page.evaluate(() => globalThis.document.fonts.ready)
+    await expect.poll(() => page.locator('.mm-journal-page .recipe-loading ul').evaluate(element => element.getBoundingClientRect().bottom <= element.closest('.mm-page-body').getBoundingClientRect().bottom + 2)).toBe(true)
+    const loadingGeometry = await loadingCard.boundingBox()
+    const loadingArt = await loadingCard.locator('.mm-recipe-artwork').boundingBox()
+    await page.screenshot({ path: path.join(output, `${width}-loading.png`) })
+    releaseRecipes()
     await page.getByRole('heading', { name: 'Saved recipes (5)' }).waitFor()
     await page.waitForTimeout(1000)
+    const loadedCard = page.locator('.mm-journal-page .mm-collection-entry').first()
+    const loadedGeometry = await loadedCard.boundingBox()
+    const loadedArt = await loadedCard.locator('.mm-recipe-artwork').boundingBox()
+    for (const key of ['x', 'y', 'width', 'height']) {
+      assert.ok(Math.abs(loadingGeometry[key] - loadedGeometry[key]) <= 2, `Card ${key} shifts during loading: ${loadingGeometry[key]} → ${loadedGeometry[key]}`)
+      assert.ok(Math.abs(loadingArt[key] - loadedArt[key]) <= 2, `Thumbnail ${key} shifts during loading: ${loadingArt[key]} → ${loadedArt[key]}`)
+    }
+
     const states = await page.evaluate(async () => {
       const samples = []
       for (let i=0;i<120;i++) {

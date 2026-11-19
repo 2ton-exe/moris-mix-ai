@@ -150,8 +150,6 @@
 .mm-recipe-index .discovery-fields :focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
 .mm-recipe-index .discovery-fields :disabled { color: var(--mm-color-ink-soft); background-color: var(--mm-color-parchment-100); }
 .mm-recipe-index .discovery-availability, .mm-recipe-index .discovery-active p, .mm-recipe-index .discovery-end { color: var(--mm-color-ink-soft); }
-.mm-recipe-index .recipe-skeleton { border-color: var(--mm-color-parchment-400); border-radius: 3px; background: var(--mm-color-parchment-50) var(--mm-tex-grain); box-shadow: var(--mm-shadow-paper); }
-.mm-recipe-index .recipe-skeleton span { background: linear-gradient(90deg, var(--mm-color-parchment-200), var(--mm-color-parchment-100), var(--mm-color-parchment-200)); }
 
 .mm-recipe-detail { width: 100%; min-width: 0; }
 .mm-recipe-detail__back { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 17px; color: var(--mm-color-burgundy-800); }

@@ -5,6 +5,7 @@ import { JournalReadingTurns } from '../journal/JournalReadingTurns'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperClip, Tape } from '../journal/Scrapbook'
+import { RecipeIdentity } from './RecipeIdentity'
 import { RecipeMetadata } from './RecipeCard'
 import { RecipeScrapArtwork } from './RecipeScrapArtwork'
 import { readingParagraphs, readingSpreads, splitReadingText } from './readingPagination'
@@ -143,16 +144,10 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     ;(heading ?? region)?.focus({ preventScroll: true })
   }, [single, current, isTurning, bodyRef, leftRef])
 
-  const identity = <div className="mm-recipe-identity mm-reading-identity" role="region" aria-label="Recipe identity and details" tabIndex={0}>
-    {publicDemo && <h1 className="mm-demo-title" tabIndex={-1}>Demonstration recipe</h1>}
-    {artwork ?? <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} size="detail" />}
-    <header className="mm-recipe-detail__summary">
-      {publicDemo ? <h2>{recipe.title}</h2> : <h1 ref={titleRef} tabIndex={-1}>{recipe.title}</h1>}
-      <span className="mm-title-swash" aria-hidden="true" />
-      <RecipeMetadata recipe={recipe} />
-      {recipe.star_rating == null && <p className="mm-recipe-unrated">Not rated</p>}
-    </header>
-  </div>
+  const identity = <RecipeIdentity publicDemo={publicDemo} titleRef={titleRef} title={recipe.title}
+    artwork={artwork ?? <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} size="detail" />}
+    metadata={<><RecipeMetadata recipe={recipe} />{recipe.star_rating == null && <p className="mm-recipe-unrated">Not rated</p>}</>} />
+
   return <article data-reading-ready={ready} data-reading-capacity={layout?.capacity} data-reading-width={layout?.width} className={`journal-recipe mm-recipe-detail__article mm-page-column mm-continuation ${layout ? 'is-measured' : 'is-pending'}`}>
     <JournalFacingPage className="mm-facing-content--recipe mm-page-column mm-continuation-facing">
       <nav className="recipe-back mm-recipe-detail__back" aria-label="Recipe navigation">

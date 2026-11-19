@@ -184,6 +184,7 @@ try {
     const { context, page, errors, apiRequests } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)
     await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
+    await settleJournalLayout(page)
     await expect(page.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
     await expect(page.locator('.mori-pet-character .mm-mori')).toHaveCount(1)
     const trigger = page.getByRole('button', { name: 'Talk to Mori', exact: true })
@@ -369,6 +370,37 @@ try {
     await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
     await page.screenshot({ path: path.join(outputDir, `${width}x${height}-adapted-chat.png`) })
     await context.close()
+  }
+
+  for (const width of [1440, 375]) {
+    for (const demo of [false, true]) {
+      const app = await createJournal(width, { reducedMotion: true })
+      let releaseRecipe
+      const recipeReady = new Promise(resolve => { releaseRecipe = resolve })
+      await app.context.route(demo ? '**/functions/v1/demo-recipe' : `**/functions/v1/recipes/${recipe.id}`, async route => {
+        await recipeReady
+        await route.fulfill({ json: { recipe } })
+      })
+      await app.page.goto(`${origin}${demo ? 'demo-recipe' : 'app/recipes/' + recipe.id}`)
+      const loading = app.page.locator('.mm-reading-skeleton')
+      await loading.waitFor()
+      await app.page.evaluate(() => globalThis.document.fonts.ready)
+      const identity = () => app.page.locator(width < 1100 ? '.mm-journal-page .mm-reading-identity' : '.mm-journal-flyleaf .mm-reading-identity').first()
+      const loadingArt = await identity().locator('.mm-recipe-artwork').boundingBox()
+      const loadingHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      const back = app.page.getByRole('link', { name: demo ? 'Back home' : 'Back to recipes', exact: false }).filter({ visible: true })
+      await expect(back).toBeVisible()
+      await app.page.screenshot({ path: path.join(outputDir, `${width}-${demo ? 'demo' : 'detail'}-loading.png`) })
+      releaseRecipe()
+      await expect(loading).toHaveCount(0)
+      await settleReadingPages(app.page)
+      const loadedArt = await identity().locator('.mm-recipe-artwork').boundingBox()
+      const loadedHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
+      for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loadingArt[key] - loadedArt[key]) <= 2, `Reading artwork ${key} shifts: ${loadingArt[key]} → ${loadedArt[key]}`)
+      for (const key of ['x', 'y', 'width']) assert.ok(Math.abs(loadingHeading[key] - loadedHeading[key]) <= 2, `Reading summary ${key} shifts`)
+      assert.deepEqual(app.errors, [])
+      await app.context.close()
+    }
   }
   if (process.env.MORI_CHAT_ONLY) {
     process.stdout.write(`Mori chat and companion acceptance passed. Screenshots: ${outputDir}\n`)

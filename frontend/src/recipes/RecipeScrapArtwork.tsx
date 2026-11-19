@@ -4,7 +4,8 @@ import { formatCookedDate } from './recipePresentation'
 import { Sketch } from './RecipeSketch'
 import { sketchFor } from './sketch'
 
-export function RecipeScrapArtwork({ title, cookedAt, size = 'card', image }: {
+export function RecipeScrapArtwork({ title, cookedAt, size = 'card', image, loading = false }: {
+  loading?: boolean
   image?: ReactNode
   title: string
   cookedAt?: string | null
@@ -13,12 +14,12 @@ export function RecipeScrapArtwork({ title, cookedAt, size = 'card', image }: {
   return <figure className={`mm-recipe-artwork mm-recipe-artwork--${size}`}>
     <Tape variant={size === 'detail' ? 'sage' : 'mustard'} className="mm-recipe-artwork__tape" />
     {size === 'detail' && <Tape variant="mustard" className="mm-recipe-artwork__second-tape" />}
-    {image ? <div className="mm-recipe-artwork__illustration mm-recipe-artwork__photo">{image}</div> :
+    {loading ? <div className="mm-recipe-artwork__illustration mm-skeleton-block"><svg viewBox="0 0 120 120" aria-hidden="true" /></div> : image ? <div className="mm-recipe-artwork__illustration mm-recipe-artwork__photo">{image}</div> :
       <div className="mm-recipe-artwork__illustration" role="img" aria-label={`Illustrated placeholder for ${title || 'this recipe'}; no recipe photo is available.`}>
         <Sketch kind={sketchFor(title)} />
       </div>}
     <figcaption className="mm-recipe-artwork__caption">
-      <time dateTime={cookedAt ?? undefined}>{cookedAt ? formatCookedDate(cookedAt, true) : 'No date recorded'}</time>
+      {loading ? <span className="mm-skeleton-line" /> : <time dateTime={cookedAt ?? undefined}>{cookedAt ? formatCookedDate(cookedAt, true) : 'No date recorded'}</time>}
     </figcaption>
   </figure>
 }
