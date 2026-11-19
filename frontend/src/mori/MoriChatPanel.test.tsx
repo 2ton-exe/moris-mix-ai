@@ -374,3 +374,16 @@ it('preserves the reading position when a new turn arrives', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Cooking idea' }))
   expect(log.scrollTop).toBe(1000)
 })
+
+it('identifies speakers and announces pending work outside the busy transcript', async () => {
+  vi.spyOn(extractRecipeApi, 'extract').mockImplementation(() => new Promise(() => {}))
+  renderChat('mori-chat-accessible-speakers')
+  expect(screen.getByRole('article', { name: 'Mori' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Create recipe' }))
+  send('I simmered rice with tomatoes until soft.')
+  expect(screen.getByRole('article', { name: 'You' }).textContent).toContain('I simmered')
+  const status = await screen.findByText('Mori is working on your request.')
+  expect(status.closest('[aria-busy="true"]')).toBeNull()
+  expect(screen.getByRole('log').getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+})

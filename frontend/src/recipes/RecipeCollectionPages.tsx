@@ -61,7 +61,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     {header}
   </header>
   const entries = (page: number) => {
-    const offset = collection?.starts[page - 1] ?? (page - 1) * perPage
+    const offset = collection ? collection.starts[page - 1] ?? recipes?.length ?? 0 : (page - 1) * perPage
     const end = collection ? collection.starts[page] ?? recipes?.length ?? offset : offset + perPage
     return <ul className="recipe-grid mm-collection-entries" aria-label={`Recipes on page ${page}`}>
       {recipes?.slice(offset, end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={offset + i + 1} />)}

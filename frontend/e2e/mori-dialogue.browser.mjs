@@ -343,6 +343,25 @@ try {
   assert.deepEqual(quickApp.errors, [])
   await quickApp.context.close()
 
+
+  for (const [width, height] of [[1440, 300], [320, 568]]) {
+    const { context, page } = await createJournal(width, { reducedMotion: true })
+    await page.setViewportSize({ width, height })
+    await page.goto(`${origin}app/recipes?view=index`)
+    await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
+    await page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+    const panel = page.getByRole('region', { name: 'Mori', exact: true })
+    assert.ok((await panel.getByRole('log').boundingBox()).height >= 70, 'Short windows must preserve readable messages')
+    for (const button of await panel.locator('.mori-chat-shortcuts button').all()) {
+      await button.scrollIntoViewIfNeeded()
+      const box = await button.boundingBox()
+      assert.ok(box.x >= 0 && box.x + box.width <= width, 'Shortcuts must fit without sideways scrolling')
+    }
+    await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
+    await page.screenshot({ path: path.join(outputDir, `${width}x${height}-adapted-chat.png`) })
+    await context.close()
+  }
   if (process.env.MORI_CHAT_ONLY) {
     process.stdout.write(`Mori chat and companion acceptance passed. Screenshots: ${outputDir}\n`)
   } else {

@@ -77,7 +77,7 @@ try {
     await page.goto(`${origin}app?entry=0`)
     await page.getByRole('heading', { name: 'Saved recipes (5)' }).waitFor()
     await page.waitForTimeout(500)
-    assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= 2, 'Desktop paper must fit multiple ordinary recipes')
+    assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= (height >= 900 ? 3 : 2), 'Desktop paper must use available height for compact recipes')
     await page.screenshot({ path: path.join(output, `${width}-collection.png`) })
     const seen = new Set()
     for (let turn = 0; turn < recipes.length; turn++) {

@@ -370,7 +370,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       const element = event.currentTarget
       followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
     }}>
-      {messages.map((message) => <article key={message.id} className="mori-chat-message" data-role={message.role}>
+      {messages.map((message) => <article key={message.id} className="mori-chat-message" data-role={message.role} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
         <p>{message.text}</p>
         {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
           const retry = retryRequest
@@ -380,12 +380,12 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         }}>Retry same request</button></div>}
         {message.draft && <DraftCard draft={message.draft} disabled={pending} onReview={openReview} />}
       </article>)}
-    {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
     {(['create', 'suggest'] as const).map((kind) => {
       const seconds = retryWaitFor(kind)
       return seconds > 0 && <p key={kind} role="timer" aria-live="off">Wait at least {seconds} {seconds === 1 ? 'second' : 'seconds'} before Mori can retry {kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>
     })}
     </div>
+    {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
     <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
       <label className="mori-pet-sr" htmlFor={composerId}>Message Mori</label>
       <textarea id={composerId} rows={2} value={composer} disabled={pending} placeholder="Tell Mori what you need…" onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
