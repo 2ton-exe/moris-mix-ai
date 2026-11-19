@@ -52,7 +52,7 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const canEdit = available && !accessDenied
   if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
-    supplement={<RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
+    supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && <RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
     renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
   return <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>
     {activeLoading && <LoadingState message="Loading recipe for editing…" />}

@@ -64,7 +64,9 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
 })
 function advance(now = 0) {
-  act(() => { const current = [...frames.values()]; frames.clear(); current.forEach((callback) => callback(now)) })
+  for (let frame = 0; frame < 2; frame++) {
+    act(() => { const current = [...frames.values()]; frames.clear(); current.forEach((callback) => callback(now)) })
+  }
 }
 function sample(progress: number) {
   act(() => document.querySelector('[data-journal-page-turn]')?.dispatchEvent(new CustomEvent('mm-journal-turn-sample', { detail: progress })))

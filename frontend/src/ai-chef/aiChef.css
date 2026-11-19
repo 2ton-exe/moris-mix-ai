@@ -145,3 +145,10 @@
   .mm-facing-content--editor .mm-ai-chef__journey ol { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
   .mm-facing-content--editor .mm-ai-chef__journey li { gap: 5px; font-size: 13px; }
 }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-ai-chef__form legend { margin-bottom: 12px; }
+  .mm-ai-chef__help { margin-top: 0; }
+  .mm-ai-chef__footer-actions { padding-block: 16px 8px; margin: 0; gap: 12px; }
+  .mm-ai-chef__save-note { padding-top: 0; border: 0; }
+}

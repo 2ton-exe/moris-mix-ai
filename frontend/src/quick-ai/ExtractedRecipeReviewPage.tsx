@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { moriReviewKeyFromState } from '../mori/routeState'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
@@ -29,9 +30,9 @@ function sourceNotesReturn(state: unknown) {
 
 export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
+  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an extracted recipe.</p>
-  const handoff = readQuickAiEntryDraftResult(user.id).draft.handoff
-  const reviewIdentity = handoff ? JSON.stringify([handoff.sourceNotes, handoff.recipe]) : 'missing'
+  const reviewIdentity = moriReviewKeyFromState(location.state)
   return <ExtractedRecipeReviewSession key={`${user.id}:${reviewIdentity}`} userId={user.id} save={save} />
 }
 

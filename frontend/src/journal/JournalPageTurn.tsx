@@ -343,10 +343,17 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const request = pending.current
     const book = bookRef.current
     if (!request || !book) return
+    let settled = false
     const prepare = () => {
       if (pending.current !== request) return
       if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="error"]')) { cancel(request.id); return }
       if (book.querySelector('.mm-journal-spread')?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]') || (document.fonts?.status === 'loading' && performance.now() - started < 1000)) {
+        settled = false
+        frame.current = requestAnimationFrame(prepare)
+        return
+      }
+      if (!settled) {
+        settled = true
         frame.current = requestAnimationFrame(prepare)
         return
       }

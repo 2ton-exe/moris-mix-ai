@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { moriReviewKeyFromState } from '../mori/routeState'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
@@ -124,9 +125,9 @@ async function persistOrReconcileLineage(
 
 export function ChefRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) {
   const { user } = useAuth()
+  const location = useLocation()
   if (!user) return <p role="alert">Sign in to review an AI Chef recipe.</p>
-  const handoff = readChefDraftResult(user.id).draft.handoff
-  const reviewIdentity = handoff ? JSON.stringify([handoff.request, handoff.response]) : 'missing'
+  const reviewIdentity = moriReviewKeyFromState(location.state)
   return <ChefReviewSession key={`${user.id}:${reviewIdentity}`} userId={user.id} save={save} />
 }
 

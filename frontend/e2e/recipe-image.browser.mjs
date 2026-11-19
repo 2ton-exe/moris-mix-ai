@@ -147,6 +147,12 @@ try {
         await page.goto(`${appOrigin}/app/recipes/${recipeId}/edit`)
         await expect(page.getByLabel('Recipe title')).toHaveValue('Ginger rice')
         const imagePanel = page.getByRole('region', { name: 'Recipe image' })
+        if (width >= 1100) {
+          while (!await imagePanel.isVisible()) {
+            await page.getByRole('button', { name: 'Next Pages' }).click()
+            await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+          }
+        }
         await imagePanel.scrollIntoViewIfNeeded()
         await expect(imagePanel.getByRole('img', { name: 'Ginger rice photo' })).toBeVisible()
         await expect(imagePanel.getByLabel('Choose recipe image')).toBeVisible()

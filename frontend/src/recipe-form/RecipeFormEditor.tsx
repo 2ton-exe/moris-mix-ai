@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
@@ -43,6 +44,8 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const lifetime = useRef(0)
   const controller = useRef<AbortController | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const supplementParking = useRef<HTMLDivElement>(null)
+  const [supplementHost] = useState(() => typeof document === 'undefined' ? null : document.createElement('div'))
   const focusRequest = useRef<string | null>(null)
   const lastFocusedControl = useRef<{ key: string; start: number | null; end: number | null; direction: 'forward' | 'backward' | 'none' | null } | null>(null)
   const previousLayout = useRef('')
@@ -58,11 +61,19 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const movingIngredient = useRef<string | null>(null)
   const ingredientDrag = useIngredientDrag(`${single}:${compact}:${isTurning}:${pageAnchor}:${pending}`)
   const desktopReview = !single && !!reviewPages?.length
-  const leaves = useMemo(() => recipeFormLeaves(state, single, desktopReview ? reviewPages.map(({ title }) => title) : [], compact, desktop, textPageLength, textPageRows, textPageColumns), [state, single, desktopReview, reviewPages, compact, desktop, textPageLength, textPageRows, textPageColumns])
+  const leaves = useMemo(() => {
+    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPages.map(({ title }) => title) : [], compact, desktop, textPageLength, textPageRows, textPageColumns)
+    if (supplement && desktop && !single) pages.push({ key: 'supplement', kind: 'supplement' })
+    return pages
+  }, [supplement, state, single, desktopReview, reviewPages, compact, desktop, textPageLength, textPageRows, textPageColumns])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
   const visibleIndicesKey = visibleIndices.join(',')
+  const supplementSlot = useCallback((node: HTMLDivElement | null) => {
+    const destination = node ?? supplementParking.current
+    if (destination && supplementHost && supplementHost.parentNode !== destination) destination.appendChild(supplementHost)
+  }, [supplementHost])
   const finalPage = position.page === position.total - 1
   const reviewValidation = useMemo(() => reviewWorkflow ? validateEditor(state) : null, [reviewWorkflow, state])
   const invalidReviewFields = reviewValidation?.success === false ? reviewValidation.error.issues.map(({ path }) => path[0]) : []
@@ -455,7 +466,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const leafNumber = index + 1
     const headingId = prefix + '-leaf-' + index
     const noteParts = splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns)
-    const sectionTitle = reviewWorkflow || leaf.kind === 'review'
+    const sectionTitle = reviewWorkflow || leaf.kind === 'review' || leaf.kind === 'supplement'
       ? recipeFormSection(leaf)
       : leaf.kind === 'identity' ? 'Recipe identity' : leaf.kind === 'notes' ? 'Personal notes' : leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Cooking method'
     let pageContent: ReactNode
@@ -485,8 +496,10 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
             <textarea {...field('notes', !notesSupported, 'notes:0')} data-form-page-anchor="notes:0" data-form-autosize maxLength={Math.max(noteParts[0].length, 20_000 - state.notes.length + noteParts[0].length)} rows={4} value={noteParts[0]} onChange={(event) => change({ ...state, notes: replaceFormTextPart(noteParts, 0, event.target.value) })} />
           </RecipeFormField>
         </section>
-        {supplement}
+        {(!desktop || single) && supplement && <div ref={supplementSlot} data-supplement-slot /> }
       </>
+    } else if (leaf.kind === 'supplement') {
+      pageContent = <div ref={supplementSlot} data-supplement-slot />
     } else if (leaf.kind === 'notes') {
       const partText = noteParts[leaf.part] ?? ''
       const fieldId = `${prefix}-notes-${leaf.part}`
@@ -699,6 +712,8 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   }
 
   const content = <>
+    <div hidden ref={supplementParking} />
+    {supplementHost && createPortal(supplement, supplementHost)}
     <JournalFacingPage className="mm-facing-content--form mm-page-column mm-journal-editor">
       {!single && faceIndex >= 0 && leaves[faceIndex] && renderLeaf(leaves[faceIndex], faceIndex)}
     </JournalFacingPage>

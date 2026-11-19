@@ -54,7 +54,7 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: 'Back to journal' }).click()
-    await page.getByRole('link', { name: updatedTitle }).click()
+    await page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true }).click()
     await page.reload()
     await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByText('4 / 5', { exact: true })).toBeVisible()
@@ -69,10 +69,10 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
     await dialog.getByRole('button', { name: 'Delete recipe' }).click()
     await expect(page).toHaveURL(/\/app(?:\/recipes)?$/)
     await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible()
-    await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true })).toHaveCount(0)
 
     await page.reload()
-    await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true })).toHaveCount(0)
 
     await page.goto(deletedRecipeUrl, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: 'Recipe unavailable' })).toBeVisible({ timeout: 30_000 })
@@ -103,7 +103,7 @@ test('a cook can complete recipe CRUD at a mobile viewport', async ({ page }) =>
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: 'Back to journal' }).click()
-  await page.getByRole('link', { name: updatedTitle }).click()
+  await page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true }).click()
   await expect(page.getByRole('heading', { name: updatedTitle })).toBeVisible({ timeout: 30_000 })
   await expectNoHorizontalOverflow(page)
 
@@ -111,7 +111,7 @@ test('a cook can complete recipe CRUD at a mobile viewport', async ({ page }) =>
   const dialog = page.getByRole('alertdialog')
   await dialog.getByRole('button', { name: 'Delete recipe' }).click()
   await expect(page.getByText('Recipe deleted.', { exact: true })).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole('link', { name: updatedTitle })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: `Open recipe ${updatedTitle}`, exact: true })).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 })
 

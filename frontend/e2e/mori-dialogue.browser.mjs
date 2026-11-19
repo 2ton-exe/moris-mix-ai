@@ -342,6 +342,7 @@ try {
     const { page } = app
     await page.goto(`${origin}app/recipes`)
     await expect(page.getByRole('link', { name: 'Open recipe Saved recipe 1' })).toBeVisible()
+    await settleJournalLayout(page)
     await page.getByRole('link', { name: 'Next page →' }).click()
     await expect(page.locator('[data-journal-page-turn]')).toHaveAttribute('data-phase', 'preparing')
     assert.ok(!new URL(page.url()).searchParams.has('leaf'), 'Preparation must not commit the route')
@@ -350,7 +351,7 @@ try {
     app.releaseCursor()
     const character = page.getByRole('group', { name: 'Mori companion' })
     await verifyMoriPageTurn(page, character, 'forward')
-    await expect(page).toHaveURL(/leaf=2/)
+    await expect(page).toHaveURL(/entry=[1-9]/)
     await page.getByRole('link', { name: '← Previous page' }).click()
     await verifyMoriPageTurn(page, character, 'backward')
     await page.goto(`${origin}app/recipes/${recipe.id}`)

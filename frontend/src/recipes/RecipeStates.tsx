@@ -44,8 +44,8 @@ export function RecipeSkeleton({ detail = false }: { detail?: boolean }) {
     <div className={`recipe-loading ${detail ? 'recipe-loading-detail' : ''}`} role="status">
       <span className="visually-hidden">{detail ? 'Loading recipe…' : 'Loading your recipes…'}</span>
       <div className={detail ? 'recipe-detail-skeleton' : 'recipe-grid'} aria-hidden="true">
-        {Array.from({ length: detail ? 2 : 3 }, (_, index) => (
-          <div className="recipe-skeleton" key={index}><span /><span /><span /></div>
+        {Array.from({ length: 2 }, (_, index) => (
+          <div className="recipe-skeleton" key={index}><span className="recipe-skeleton__image" /><div className="recipe-skeleton__copy"><span /><span /><span /></div></div>
         ))}
       </div>
     </div>
