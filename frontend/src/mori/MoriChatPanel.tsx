@@ -15,7 +15,7 @@ import { useMoriActivity } from './MoriCompanionContext'
 
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
-type MoriCooldown = { kind: MoriRetry['kind']; until: number }
+type MoriCooldowns = Partial<Record<MoriRetry['kind'], number>>
 type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft }
 
 function DraftCard({ draft, onReview, disabled }: { draft: MoriDraft; onReview: (draft: MoriDraft) => void; disabled: boolean }) {
@@ -54,7 +54,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const [pending, setPending] = useState(false)
   const [followUp, setFollowUp] = useState<{ notes: string } | null>(null)
   const [retryRequest, setRetryRequest] = useState<MoriRetry | null>(null)
-  const [cooldown, setCooldown] = useState<MoriCooldown | null>(null)
+  const [cooldowns, setCooldowns] = useState<MoriCooldowns>({})
   const [now, setNow] = useState(() => Date.now())
   const id = useRef(1)
   const reviewSequence = useRef(0)
@@ -63,15 +63,20 @@ export function MoriChatPanel({ userId }: { userId: string }) {
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
   const composerId = useId()
-  const retryWait = cooldown ? Math.max(0, Math.ceil((cooldown.until - now) / 1000)) : 0
   useMoriActivity(pending ? { kind: 'working', message: 'I’m putting your recipe together…' } : null)
 
   useEffect(() => {
-    if (!cooldown) return
-    if (cooldown.until <= now) { setCooldown(null); return }
-    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(1000, cooldown.until - now))
+    const deadlines = Object.values(cooldowns).filter((until): until is number => until !== undefined && until > now)
+    if (!deadlines.length) return
+    const nextDeadline = Math.min(...deadlines)
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(1000, nextDeadline - now))
     return () => window.clearTimeout(timer)
-  }, [cooldown, now])
+  }, [cooldowns, now])
+
+  function retryWaitFor(kind: MoriRetry['kind']) {
+    const until = cooldowns[kind]
+    return until === undefined ? 0 : Math.max(0, Math.ceil((until - now) / 1000))
+  }
 
   function say(role: Message['role'], text: string, draft?: MoriDraft) {
     const message = { id: id.current++, role, text, ...(draft ? { draft } : {}) }
@@ -105,14 +110,16 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     if (!(error instanceof HttpError) || error.status !== 429) return
     const seconds = retryAfterSeconds(error.retryAfter)
     if (seconds === undefined || seconds <= 0) return
-    setCooldown({ kind, until: Date.now() + seconds * 1000 })
+    const until = Date.now() + seconds * 1000
+    setCooldowns((current) => ({ ...current, [kind]: Math.max(current[kind] ?? 0, until) }))
     setNow(Date.now())
   }
 
   function waitForCooldown(kind: MoriRetry['kind']) {
-    if (!cooldown || cooldown.kind !== kind) return false
-    const seconds = Math.max(0, Math.ceil((cooldown.until - Date.now()) / 1000))
-    if (seconds === 0) { setCooldown(null); return false }
+    const until = cooldowns[kind]
+    if (until === undefined) return false
+    const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000))
+    if (seconds === 0) return false
     say('assistant', `Mori is temporarily rate-limited for ${kind === 'create' ? 'cooking notes' : 'pantry ideas'}. Wait at least ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before trying again.`)
     return true
   }
@@ -269,15 +276,23 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     if (pending) return
     const text = composer.trim()
     if (!text) return
-    setComposer('')
-    setRetryRequest(null)
-    say('user', text)
 
     const navigation = requestedNavigation(text)
-    if (navigation) { openRoute(navigation.path, navigation.message, navigation.focus); return }
+    if (navigation) {
+      setComposer('')
+      setRetryRequest(null)
+      say('user', text)
+      openRoute(navigation.path, navigation.message, navigation.focus)
+      return
+    }
 
     const explicitWorkflow = requestedWorkflow(text, mode === 'create' && followUp !== null)
     const selected = explicitWorkflow ?? mode
+    if (selected && waitForCooldown(selected)) return
+
+    setComposer('')
+    setRetryRequest(null)
+    say('user', text)
     if (!selected) {
       say('assistant', 'I can help make a recipe from cooking notes, suggest something from your pantry, or open your recipes. Pick one below or tell me what you need.')
       return
@@ -349,8 +364,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       </article>)}
     </div>
     {pending && <div className="mori-chat-pending"><span role="status" aria-live="polite">Mori is working on your request.</span><button type="button" onClick={cancel}>Cancel</button></div>}
-    {cooldown && retryWait > 0 && <p role="timer" aria-live="off">Wait at least {retryWait} {retryWait === 1 ? 'second' : 'seconds'} before Mori can retry {cooldown.kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>}
-    {retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWait > 0 && retryRequest.kind === cooldown?.kind} onClick={() => {
+    {(['create', 'suggest'] as const).map((kind) => {
+      const seconds = retryWaitFor(kind)
+      return seconds > 0 && <p key={kind} role="timer" aria-live="off">Wait at least {seconds} {seconds === 1 ? 'second' : 'seconds'} before Mori can retry {kind === 'create' ? 'cooking notes' : 'pantry ideas'}.</p>
+    })}
+    {retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
       const retry = retryRequest
       setRetryRequest(null)
       if (retry.kind === 'create') void createRecipe(retry.notes)
