@@ -211,7 +211,7 @@ try {
       await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
       await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
     }
-    if (width === 1440) assert.equal(chatGeometry.height, 640, 'Desktop chat must use its full available height')
+    if (width === 1440) assert.equal(chatGeometry.height, 560, 'Desktop chat must use its full available height')
     assert.equal(chatGeometry.overflow, width <= 600 ? 'auto' : 'hidden', 'Narrow panels scroll as a whole; desktop transcripts scroll independently')
     if (width === 1440) {
       const shortcutsFit = await panel.locator('.mori-chat-shortcuts').evaluate((element) => {
@@ -224,6 +224,11 @@ try {
       assert.equal(shortcutsFit, true, 'Every desktop shortcut must fit without horizontal scrolling')
     }
     await page.screenshot({ path: path.join(outputDir, `${width}-companion.png`) })
+    await panel.getByRole('button', { name: 'See more', exact: true }).click()
+    await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
+    await panel.getByRole('button', { name: 'See less', exact: true }).click()
+
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
     await expect(trigger).toBeFocused()
@@ -337,6 +342,15 @@ try {
   await quickPanel.getByRole('button', { name: 'Send' }).click()
   await quickPanel.getByRole('status').filter({ hasText: 'Mori is working on your request.' }).waitFor()
   assert.equal(await quickPanel.getByRole('status').count(), 1, 'A pending chat request must have only one live status announcement')
+  const pendingFits = await quickPanel.evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    return [...element.querySelectorAll('.mori-chat-composer, .mori-chat-shortcuts, .mori-chat-pending, .mori-chat-hint')].every(child => {
+      const rect = child.getBoundingClientRect()
+      return rect.top >= bounds.top && rect.bottom <= bounds.bottom
+    })
+  })
+  assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
+  assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
   quickApp.releaseExtraction()
   await quickPanel.getByRole('button', { name: 'Review draft' }).waitFor()
   await quickPanel.getByRole('button', { name: 'Review draft' }).click()

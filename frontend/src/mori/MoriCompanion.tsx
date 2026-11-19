@@ -170,7 +170,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const placement = sideSpace >= Math.min(340, viewport.width - 16) ? side : belowSpace >= aboveSpace ? 'bottom' : 'top'
   const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : bottom - top
   const preferredWidth = userId && viewport.width >= 1100 ? 520 : 380
-  const preferredHeight = userId && viewport.width >= 1100 ? 640 : 460
+  const preferredHeight = userId && viewport.width >= 1100 ? 560 : 460
   const panelWidth = placement === 'left'
     ? Math.min(preferredWidth, viewport.width - 16, leftSpace)
     : placement === 'right'
