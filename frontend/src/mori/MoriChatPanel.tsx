@@ -16,11 +16,10 @@ import { extractRecipeApi, InvalidExtractionResponse, MAX_EXTRACTION_INPUT_CHARS
 import { mapExtractedRecipeToDraft } from '../quick-ai/recipeDraft'
 import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requestedRecipeTitle, requestedReview, requestedWorkflow } from './chatFlow'
 import { useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
-import { initialDiscoveryCriteria, type RecipeContinuation } from '../recipes/discoveryTypes'
+import { findSavedRecipesByTitle } from '../recipes/findSavedRecipesByTitle'
 import { formatCookedDate } from '../recipes/recipePresentation'
 import { RecipeSourceContext } from '../recipes/source'
 import type { RecipeSummary } from '../recipes/types'
-import { InvalidRecipeData } from '../recipes/validation'
 
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
@@ -252,6 +251,10 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
         allowNavigation(() => { void navigate(path, options) })
       }
       if (playNavigationTap && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        const active = document.activeElement
+        if (active === document.body || log.current?.parentElement?.contains(active)) {
+          log.current?.focus({ preventScroll: true })
+        }
         setNavigating(true)
         void playNavigationTap(() => anchor ?? log.current?.querySelector<HTMLElement>(`[data-message-id="${acknowledgment}"]`) ?? null, controller.signal)
           .then(finish, finish)
@@ -372,24 +375,7 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
 
   async function findRecipe(title: string) {
     await ask(
-      async (signal) => {
-        if (!discovery) throw new InvalidRecipeData()
-        const criteria = { ...initialDiscoveryCriteria, search: title }
-        const recipes = new Map<string, RecipeSummary>()
-        const visited = new Set<RecipeContinuation>()
-        let continuation: RecipeContinuation | null = null
-        do {
-          const page = await discovery.page({ criteria, continuation, userId, signal })
-          signal.throwIfAborted()
-          for (const recipe of page.recipes) recipes.set(recipe.id, recipe)
-          continuation = page.nextPage
-          if (continuation !== null) {
-            if (visited.has(continuation)) throw new InvalidRecipeData()
-            visited.add(continuation)
-          }
-        } while (continuation !== null)
-        return [...recipes.values()]
-      },
+      (signal) => findSavedRecipesByTitle(discovery, { title, userId, signal }),
       (recipes) => {
         const exactMatches = recipes.filter((recipe) => recipe.title.trim().toLowerCase() === title.toLowerCase())
         const [exactMatch, duplicate] = exactMatches
@@ -440,14 +426,21 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
       setRetryRequest(null)
       say('user', text)
       const available = new Map<number, MoriDraft>()
+      const aliases = new Map<number, MoriDraft>()
       for (const { draft, reviewKey } of messages) {
-        if (draft && reviewKey !== undefined && !completedReviewKeys.has(reviewKey) && (review === 'any' || review === draft.kind)) {
+        if (!draft || reviewKey === undefined || completedReviewKeys.has(reviewKey)) continue
+        const recipe = draft.kind === 'create' ? draft.handoff.recipe : draft.handoff.response.recipe
+        const title = recipe.title.trim().toLowerCase()
+        if (review === 'any' || review === draft.kind || (typeof review === 'object' && title === review.title)) {
           available.set(reviewKey, draft)
+        } else if (typeof review === 'object' && title === review.alias) {
+          aliases.set(reviewKey, draft)
         }
       }
-      const choice = available.entries().next().value
+      const matching = available.size ? available : aliases
+      const choice = matching.entries().next().value
       if (!choice) say('assistant', 'There’s no matching draft in this chat to review yet.')
-      else if (available.size > 1) say('assistant', 'Which draft would you like to review? Choose its review button below the recipe preview.')
+      else if (matching.size > 1) say('assistant', 'Which draft would you like to review? Choose its review button below the recipe preview.')
       else openReview(choice[1], choice[0])
       return
     }
@@ -548,7 +541,7 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
 
   return <div className="mori-chat">
     <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
-    <div ref={log} className="mori-chat-log" role="log" aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
+    <div ref={log} className="mori-chat-log" tabIndex={-1} role="log" aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
       const element = event.currentTarget
       followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
     }}>

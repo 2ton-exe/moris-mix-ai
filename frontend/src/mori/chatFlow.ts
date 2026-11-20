@@ -27,11 +27,19 @@ export function requestedRecipeTitle(text: string) {
   return title?.trim() || null
 }
 
-export function requestedReview(text: string): MoriWorkflow | 'any' | null {
-  if (!/^(?:please\s+)?(?:review|(?:open|show)\b.*\breview)\b/i.test(text)) return null
-  if (/\b(?:AI Chef|pantry (?:idea|recipe|draft))\b/i.test(text)) return 'suggest'
-  if (/\b(?:Quick AI Entry|Cooking Notes)\b/i.test(text)) return 'create'
-  return /\b(?:draft|recipe|it|idea)\b/i.test(text) ? 'any' : null
+export function requestedReview(text: string): MoriWorkflow | 'any' | { title: string; alias?: string } | null {
+  const value = text.trim().replace(/[?!.]+$/, '')
+  const request = value.match(/^(?:please\s+)?review\s+(.+)$/i)?.[1] ??
+    value.match(/^(?:please\s+)?(?:open|show)\s+(?:me\s+)?(.+)\s+review$/i)?.[1]
+  const target = request?.replace(/^(?:the|my|this|that)\s+/i, '').trim()
+  if (!target) return null
+  if (/^(?:AI Chef(?: (?:idea|recipe|draft))?|pantry (?:idea|recipe|draft))$/i.test(target)) return 'suggest'
+  if (/^(?:Quick AI Entry|Cooking Notes)(?: (?:recipe|draft))?$/i.test(target)) return 'create'
+  if (/^(?:draft|recipe|it|idea|recipe draft)$/i.test(target)) return 'any'
+  const quoted = target.match(/^["“](.+)["”](?: (?:draft|recipe|idea))?$/i)?.[1]
+  if (quoted) return { title: quoted.trim().toLowerCase() }
+  const title = target.toLowerCase()
+  return { title, alias: title.replace(/ (?:draft|recipe|idea)$/, '') }
 }
 
 export function requestedWorkflow(text: string, pendingCreateFollowUp = false): MoriWorkflow | null {

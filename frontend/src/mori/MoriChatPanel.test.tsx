@@ -507,3 +507,23 @@ it('offers a choice when more than one unsaved chat draft could be reviewed', as
   send('Review the AI Chef draft')
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/chef/review'))
 })
+
+it.each([
+  { title: 'Tomato soup', command: 'Review the Tomato Soup draft' },
+  { title: 'Grandma’s Recipe', command: 'Review Grandma’s Recipe' },
+])('reviews the named draft $title and leaves unrelated drafts alone', async ({ title, command }) => {
+  vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe(title))
+  vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderChat('mori-chat-named-review')
+  send('I cooked tomato soup')
+  await screen.findByRole('button', { name: 'Review draft' })
+
+  send('Review the carbonara recipe')
+  expect(await screen.findByText(/There’s no matching draft/)).toBeTruthy()
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
+
+  send('What can I cook with rice?')
+  await screen.findByRole('button', { name: 'Review recipe' })
+  send(command)
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry/review'))
+})

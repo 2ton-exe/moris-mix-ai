@@ -10,6 +10,7 @@ import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
 import { RecipeSourceContext } from '../recipes/source'
 import { PaperCard, Tape } from '../journal/Scrapbook'
 import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
+import { useMoriHeadingFocusKey } from '../mori/routeState'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPageContext } from '../journal/JournalLayoutContext'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -22,6 +23,7 @@ function recipeLink(id: unknown) {
 
 export default function RecipeDashboardPage() {
   const location = useLocation()
+  const moriFocusKey = useMoriHeadingFocusKey()
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [catalogStarts, setCatalogStarts] = useState([0])
@@ -114,7 +116,7 @@ export default function RecipeDashboardPage() {
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
   const restoreKey = `${location.key}:${indexView}:${single}:${perPage}:${pagedCollection ? collectionStarts.join(',') : ''}:${returnFocusId ?? ''}`
-  useEffect(() => { if (!recipeLink(returnFocusId)) collectionTitle.current?.focus() }, [facingPage, returnFocusId])
+  useEffect(() => { if (!recipeLink(returnFocusId)) collectionTitle.current?.focus() }, [facingPage, returnFocusId, moriFocusKey])
   const pageSearch = (page: number) => {
     const next = new URLSearchParams(params)
     if (pagedIndex || pagedCollection) next.delete('leaf')

@@ -9,10 +9,12 @@ import { RecipeSourceContext } from '../recipes/source'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { RecipeReading } from '../recipes/RecipeReading'
+import { useMoriHeadingFocusKey } from '../mori/routeState'
 
 export default function RecipeDetailPage() {
   const { recipeId = '' } = useParams()
   const location = useLocation()
+  const moriFocusKey = useMoriHeadingFocusKey()
   const source = useContext(RecipeSourceContext)
   const query = useRecipe(recipeId)
   const recipe = isRecipeAccessError(query.error) ? undefined : query.data
@@ -24,12 +26,12 @@ export default function RecipeDetailPage() {
     typeof routeState.recipeFolio === 'number' && Number.isSafeInteger(routeState.recipeFolio) && routeState.recipeFolio > 0
     ? routeState.recipeFolio : undefined
 
-  useEffect(() => { focusAfterRequest.current = true }, [recipeId])
+  useEffect(() => { focusAfterRequest.current = true }, [recipeId, moriFocusKey])
   useEffect(() => {
     if (!focusAfterRequest.current || query.isPending || (!hasRecipe && !query.isError)) return
     titleRef.current?.focus()
     focusAfterRequest.current = false
-  }, [query.isPending, query.isError, hasRecipe, recipe?.id])
+  }, [query.isPending, query.isError, hasRecipe, recipe?.id, moriFocusKey])
 
   const journalReturn = journalReturnTo(routeState)
 

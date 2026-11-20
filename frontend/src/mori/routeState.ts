@@ -3,6 +3,13 @@ import { useLocation } from 'react-router'
 
 export type MoriFocusTarget = 'notes' | 'pantry'
 
+export function useMoriHeadingFocusKey() {
+  const { key, state } = useLocation()
+  return typeof state === 'object' && state !== null &&
+    'moriKeepOpen' in state && state.moriKeepOpen === true &&
+    !('moriFocus' in state) ? key : undefined
+}
+
 export function moriReviewKeyFromState(state: unknown) {
   return typeof state === 'object' && state !== null &&
     'moriReviewKey' in state && typeof state.moriReviewKey === 'number'

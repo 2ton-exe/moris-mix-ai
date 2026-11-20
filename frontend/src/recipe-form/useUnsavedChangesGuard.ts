@@ -6,15 +6,17 @@ const AUTH_ROUTES = new Set(['/login', '/signup', '/verify-email', '/auth/callba
 
 export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false }: { warnOnUnload?: boolean } = {}) {
   const confirmation = useNavigationConfirmation()
-  const { pathname } = useLocation()
+  const { pathname, key } = useLocation()
   const currentDirty = useRef(dirty)
   const approvedPath = useRef<string | null>(null)
-  const [pending, setPending] = useState<{
+  const [request, setRequest] = useState<{
+    originKey: string
     path: string
     proceed: Parameters<RequestNavigationConfirmation>[1]
     cancel: Parameters<RequestNavigationConfirmation>[2]
   } | null>(null)
-  const approvedRequest = useRef<typeof pending>(null)
+  const pending = request?.originKey === key ? request : null
+  const approvedRequest = useRef<typeof request>(null)
   useLayoutEffect(() => { currentDirty.current = dirty }, [dirty])
 
   function willBlock(from: string, to: string) {
@@ -28,21 +30,23 @@ export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false }:
     if (!confirmation) return
     const requestConfirmation: RequestNavigationConfirmation = (path, proceed, cancel) => {
       if (!willBlock(pathname, path)) return false
-      setPending({ path, proceed, cancel })
+      setRequest({ originKey: key, path, proceed, cancel })
       return true
     }
     confirmation.current = requestConfirmation
     return () => { if (confirmation.current === requestConfirmation) confirmation.current = null }
-  }, [confirmation, pathname])
+  }, [confirmation, pathname, key])
   useLayoutEffect(() => {
-    if (blocker.state !== 'blocked') return
-    approvedRequest.current?.cancel()
-    approvedRequest.current = null
-    if (pending) {
-      pending.cancel()
-      setPending(null)
+    const approved = approvedRequest.current
+    if (approved && (blocker.state === 'blocked' || approved.originKey !== key)) {
+      approved.cancel()
+      approvedRequest.current = null
     }
-  }, [blocker.state, pending])
+    if (request && (blocker.state === 'blocked' || request.originKey !== key)) {
+      request.cancel()
+      setRequest(null)
+    }
+  }, [blocker.state, key, request])
   useLayoutEffect(() => {
     if (!warnOnUnload || !dirty || typeof window === 'undefined') return
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -58,14 +62,14 @@ export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false }:
     keepEditing: () => {
       if (blocker.state === 'blocked') blocker.reset()
       if (pending) {
-        setPending(null)
+        setRequest(null)
         pending.cancel()
       }
     },
     discardChanges: () => {
       if (blocker.state === 'blocked') blocker.proceed()
       if (!pending) return
-      setPending(null)
+      setRequest(null)
       approvedRequest.current = pending
       pending.proceed((navigate) => {
         if (approvedRequest.current !== pending) return

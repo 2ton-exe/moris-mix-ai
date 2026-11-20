@@ -208,6 +208,7 @@ try {
     await expect(editor).toHaveAttribute('data-mori-tap-target', '')
     await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
     await expect(chat.getByRole('log')).toContainText('Opening a new recipe.')
+    await expect(chat.getByRole('log')).toBeFocused()
     const [tapBounds, editorBounds] = await Promise.all([tap.boundingBox(), editor.boundingBox()])
     assert.ok(tapBounds && editorBounds)
     const gap = Math.min(Math.abs(tapBounds.x + tapBounds.width - editorBounds.x), Math.abs(editorBounds.x + editorBounds.width - tapBounds.x))
@@ -216,6 +217,10 @@ try {
     await tap.evaluate((element) => element.getAnimations()[0].play())
     await expect(page).toHaveURL(`${origin}app/recipes/new`)
     await expect(chat).toBeVisible()
+    const editorHeading = page.getByRole('heading', { name: 'New recipe', exact: true })
+    await expect(editorHeading).toBeFocused()
+    await editor.press('Enter')
+    await expect(editorHeading).toBeFocused()
     const title = page.getByRole('textbox', { name: 'Recipe title' })
     await title.fill('Unsaved soup')
 
@@ -231,24 +236,32 @@ try {
     await expect(title).toHaveValue('Unsaved soup')
 
     await collection.click()
+    await expect(dialog).toBeVisible()
+    await page.evaluate(() => globalThis.history.back())
+    await expect(dialog).toBeHidden()
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(title).toHaveValue('Unsaved soup')
+
+    await collection.click()
     await dialog.getByRole('button', { name: 'Discard Changes' }).click()
     await expect(tap).toBeVisible()
     await expect(page).toHaveURL(`${origin}app/recipes`)
     await expect(chat).toBeVisible()
+    const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })
+    await expect(collectionHeading).toBeFocused()
+    await collection.press('Enter')
+    await expect(collectionHeading).toBeFocused()
 
     const composer = chat.getByRole('textbox', { name: 'Message Mori' })
     const send = chat.getByRole('button', { name: 'Send' })
-    await pinTap()
     await composer.fill('Open Cooking Notes')
-    await send.click()
-    await expect(tap).toHaveCSS('opacity', '1')
-    await expect(chat.getByText('Opening the cooking notes field.').locator('..')).toHaveAttribute('data-mori-tap-target', '')
-    await expect(page).toHaveURL(`${origin}app/recipes`)
-    await tap.evaluate((element) => element.getAnimations()[0].play())
+    await Promise.all([
+      expect(chat.getByText('Opening the cooking notes field.').locator('..')).toHaveAttribute('data-mori-tap-target', ''),
+      send.click(),
+    ])
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
 
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await pinTap()
     await composer.fill('Open Pantry')
     await send.click()
     await expect(page.getByRole('textbox', { name: 'Pantry ingredient' })).toBeFocused()
@@ -430,14 +443,41 @@ try {
   assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
   assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
   quickApp.releaseExtraction()
-  await quickPanel.getByRole('button', { name: 'Review draft' }).waitFor()
-  await quickPanel.getByRole('button', { name: 'Review draft' }).click()
+  const draftReview = quickPanel.getByRole('button', { name: 'Review draft' })
+  await Promise.all([
+    expect(draftReview).toHaveAttribute('data-mori-tap-target', ''),
+    draftReview.click(),
+  ])
   await expect(quickApp.page).toHaveURL(`${origin}app/quick-entry/review`)
-  await expect(quickApp.page.getByRole('heading', { name: 'Review your recipe' })).toBeVisible()
+  const reviewHeading = quickApp.page.getByRole('heading', { name: 'Review your recipe' })
+  await expect(reviewHeading).toBeFocused()
+  const reviewComposer = quickPanel.getByRole('textbox', { name: 'Message Mori' })
+  await reviewComposer.fill('Review the Tomato Rice draft')
+  await Promise.all([
+    expect(quickPanel.getByText('I’ll open the draft for review.').last().locator('..')).toHaveAttribute('data-mori-tap-target', ''),
+    reviewComposer.press('Control+Enter'),
+  ])
+  await expect(reviewHeading).toBeFocused()
   const quickDraft = await quickApp.page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:quick-ai-entry:v1:${userId}`)
   assert.equal(quickDraft.handoff.saved, false, 'Reviewing the extraction must leave it unsaved')
   assert.deepEqual(quickApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
     { method: 'POST', path: '/functions/v1/extract-recipe' },
+  ])
+  await reviewComposer.fill('What can I cook with rice; quick dinner')
+  await quickPanel.getByRole('button', { name: 'Send', exact: true }).click()
+  const pantryReview = quickPanel.getByRole('button', { name: 'Review recipe' })
+  await pantryReview.click()
+  const reviewGuard = quickApp.page.getByRole('alertdialog', { name: 'Leave without saving?' })
+  await expect(reviewGuard).toBeVisible()
+  await Promise.all([
+    expect(pantryReview).toHaveAttribute('data-mori-tap-target', ''),
+    reviewGuard.getByRole('button', { name: 'Discard Changes' }).click(),
+  ])
+  await expect(quickApp.page).toHaveURL(`${origin}app/chef/review`)
+  await expect(quickApp.page.getByRole('heading', { name: "Review Mori's recipe." })).toBeFocused()
+  assert.deepEqual(quickApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
+    { method: 'POST', path: '/functions/v1/extract-recipe' },
+    { method: 'POST', path: '/functions/v1/generate-recipe' },
   ])
   assert.deepEqual(quickApp.errors, [])
   await quickApp.context.close()
@@ -502,8 +542,12 @@ try {
   const otherAdobo = { ...ownedAdobo, id: '55555555-5555-4555-8555-555555555555', title: 'Pork adobo' }
   const firstSoup = { ...ownedAdobo, id: '33333333-3333-4333-8333-333333333333', title: 'Soup' }
   const secondSoup = { ...ownedAdobo, id: '44444444-4444-4444-8444-444444444444', title: 'Soup', cooked_at: '2026-11-03' }
-  await searchApp.context.route(`**/functions/v1/recipes/${recipe.id}`, route =>
-    route.fulfill({ json: { recipe: { ...recipe, title: ownedAdobo.title } } }))
+  let releaseAdoboDetail
+  const adoboDetailReady = new Promise(resolve => { releaseAdoboDetail = resolve })
+  await searchApp.context.route(`**/functions/v1/recipes/${recipe.id}`, async route => {
+    await adoboDetailReady
+    return route.fulfill({ json: { recipe: { ...recipe, title: ownedAdobo.title } } })
+  })
   await searchApp.context.route(`**/functions/v1/recipes/${secondSoup.id}`, route =>
     route.fulfill({ json: { recipe: { ...recipe, ...secondSoup } } }))
   await searchApp.context.route('**/functions/v1/recipes?*', async route => {
@@ -537,7 +581,12 @@ try {
   await searchChat('find my adobo')
   await expect(searchApp.page).toHaveURL(new RegExp(`/app/recipes/${recipe.id}$`), { timeout: 3000 })
   await expect(searchPanel.getByText('I’ll open “Adobo”.')).toBeVisible()
-  await expect(searchApp.page.getByRole('heading', { name: 'Adobo', exact: true })).toBeVisible()
+  await expect(searchApp.page.locator('.mm-reading-skeleton')).toBeVisible()
+  releaseAdoboDetail()
+  const adoboHeading = searchApp.page.getByRole('heading', { name: 'Adobo', exact: true })
+  await expect(adoboHeading).toBeFocused()
+  await searchChat('find my adobo')
+  await expect(adoboHeading).toBeFocused()
 
   const recipeUrl = searchApp.page.url()
   await searchChat('find my ado')
