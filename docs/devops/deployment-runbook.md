@@ -115,7 +115,7 @@ Complete-diff classifier selects full validation or the conservative prose-only 
 ↓\
 The three required Modular Frontend, Modular Database and Modular Edge/API contexts remain present; verified prose-only diffs use lightweight core paths and skip E2E/staging\
 ↓\
-Full-path PRs run reusable frontend/database/Edge validation and three-browser Playwright E2E; staging runs only after core success for non-draft same-repository PRs\
+Full-path PRs run reusable frontend/database/Edge validation and three-browser Playwright E2E. Staging also requires core success, a non-draft same-repository PR, a non-Dependabot author, and no cancellation.\
 ↓\
 The active `Protect main` ruleset requires one approving review and resolved review conversations. PRs cannot call production.
 
@@ -268,7 +268,22 @@ quota. See the [2026-11-15 restoration evidence](../ai-evaluation-report.md#prod
 
 PR #81 introduces frontend staging delivery through `.github/workflows/modular-pr-validation.yml` and `.github/workflows/reusable-staging.yml`. This describes the configured PR path, not evidence that the remaining #76 verification work is complete.
 
-PRs targeting `main` run the normal Frontend / Database / Edge API validations. After all three modular validation jobs succeed, non-draft PRs whose source branch is in this repository can deploy to staging; author-association labels do not affect eligibility. Draft and fork PRs do not deploy staging. Same-repository source branches can be updated only by repository writers, so keep repository write access restricted to trusted collaborators; this is the trust boundary for staging's Cloudflare deployment credentials. The GitHub `staging` environment does not require reviewer approval. The modular PR workflow handles `opened`, `synchronize`, `reopened`, and `ready_for_review` events.
+PRs targeting `main` retain the three required Frontend / Database / Edge API
+contexts. Staging requires all three to succeed, a non-draft PR from this
+repository, an author other than `dependabot[bot]`, no cancellation, and no
+verified docs-only staging skip. Author-association labels do not affect
+eligibility. Dependabot PRs retain applicable Playwright E2E; a human rerun
+does not change PR authorship. The modular PR workflow handles `opened`,
+`synchronize`, `reopened`, and `ready_for_review` events.
+
+PR Secretary reports an observed intentional caller skip as
+`SKIPPED — EXPECTED`. On a historical run such as
+[PR #241](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44680655236),
+deploy remains `FAIL` and the observed dependent smoke skip from the same
+attempt is `SKIPPED — DEPLOY FAILED`. The revised bot path needs a fresh
+Dependabot PR event using the updated workflow, followed by inspection of
+the core jobs, applicable E2E, skipped staging caller, and live Secretary
+output. Rerunning the historical workflow uses its original revision.
 
 The reusable workflow builds the frontend in the isolated GitHub `staging` environment and deploys to the Cloudflare Worker `moris-mix-ai-staging` with `wrangler deploy --config wrangler.jsonc --env staging`. The target is explicitly named in `wrangler.jsonc` under `env.staging.name`; the workflow also guards `STAGING_WORKER_NAME`. The workflow concurrency group `moris-mix-staging` serializes staging deployment and its dependent smoke job, with `cancel-in-progress: false`, so another run cannot replace the staging deployment while its smoke check is running.
 
@@ -288,6 +303,48 @@ These staging environment values provide the public Supabase build configuration
 **Before pushing the staging workflow changes**, configure `STAGING_CLOUDFLARE_API_TOKEN` and `STAGING_CLOUDFLARE_ACCOUNT_ID` as secrets under **Settings → Environments → staging**, using the intended staging deployment credentials. The caller explicitly passes these staging-specific names, and the reusable workflow declares both required and validates both are non-empty before building/deploying. Missing staging credentials fail closed: there is no fallback to the production-named `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID`. Keep the production secrets unchanged; do not populate repository-level staging-specific names with production credentials.
 
 Cloudflare credentials are scoped to the configuration-validation step's environment and the deployment action's inputs; checkout, setup, dependency installation, and frontend build do not inherit them. The deploy job has a 10-minute timeout and the smoke job has a 5-minute timeout. The shared smoke script has a maximum request/retry budget of about 114 seconds across three checks, leaving time for checkout, setup, and artifact upload.
+
+#### Staging authorization follow-up for DEVOPS-09
+
+GitHub reported no protection rules or deployment branch policy on `staging`
+on 2026-11-20. The effective boundary is repository write access and control
+of a same-repository PR branch. Its test merge revision supplies the workflow,
+build inputs, and Wrangler configuration before independent code review.
+Step-scoped credentials, the Worker-name guard, and merge-time CODEOWNERS
+review do not enforce deployment authorization against changes to that
+revision. A YAML condition in the reviewed branch cannot establish an
+independent approval boundary. GitHub listed the two Cloudflare staging
+credential names at environment scope and neither at repository scope.
+The current Cloudflare token's effective resource scope remains unverified.
+
+Proposed configuration for operator review under
+[#163](https://github.com/2ton-exe/moris-mix-ai/issues/163).
+
+1. Configure **Settings → Environments → staging → Required reviewers**
+   with an independent maintainer group, enable **Prevent self-review**, and
+   disable administrator bypass. Use **Selected branches and tags** with a
+   branch rule for `refs/pull/*/merge` if staging is to remain PR-triggered.
+   Verify that rule against the test merge ref before rolling it out. Keep the
+   Cloudflare credential entries exclusively in the protected environment.
+   [GitHub environment controls](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+2. In Cloudflare, verify the token policy and grant only **Editor** on the
+   existing `moris-mix-ai-staging` Worker for an approved replacement if
+   needed. Omit account-wide Workers access, production resources, and route
+   or custom-domain write grants for the unchanged `workers.dev` path. Verify
+   Wrangler compatibility with the scoped policy in non-production.
+   [Cloudflare Workers permissions](https://developers.cloudflare.com/workers/authorization/workers/)
+3. Test the GitHub rule, independent approval, self-review denial, and
+   allowed/denied refs in a disposable environment with dummy credentials.
+   Check Cloudflare policy metadata without reading token values. If a live
+   token test is approved, use pre-existing disposable Workers to verify
+   allowed deployment and denied out-of-scope access without touching
+   production. Confirm the eligible staging deployment and smoke sequence
+   separately before calling the control verified.
+
+This proposal would pause eligible team staging runs for review and add
+reviewer handoff time. The three required PR checks and Playwright E2E would
+continue independently. The Dependabot exclusion would still skip staging
+before any review request. The proposed controls are pending approval.
 
 After deployment, the workflow requires the official `cloudflare/wrangler-action@v4` `deployment-url` output to be non-empty and equal to `STAGING_FRONTEND_URL`, normalizing only one optional trailing slash on each. Missing or mismatched output fails the deployment job before smoke can run. The verified Wrangler URL is exposed as the deploy job's `deployment-url` output and passed directly to the smoke job; smoke does not independently read the configured URL. Both deployment and smoke evidence record this verified URL.
 

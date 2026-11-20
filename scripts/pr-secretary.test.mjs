@@ -11,11 +11,12 @@ const bot = { login: 'coderabbitai[bot]', type: 'Bot' };
 const sha = 'a'.repeat(40);
 const pr = () => ({ number: 87, title: 'Delivery metadata', state: 'open', draft: false,
   updated_at: '2026-10-27T01:00:00Z', changed_files: 1, author_association: 'MEMBER',
-  head: { sha, ref: 'feature', repo: { full_name: repository } },
+  user: user('developer'), head: { sha, ref: 'feature', repo: { full_name: repository } },
   base: { ref: 'main', sha: 'b'.repeat(40), repo: { full_name: repository } }, requested_reviewers: [user('DaeSaster')], requested_teams: [] });
 const data = () => ({ pr: pr(), repository, paths: ['docs/readme.md'], checks: [], comments: [], reviews: [],
   inlineComments: [], threads: [], required: [], requiredSource: 'test policy' });
 const check = (name, conclusion, extra = {}) => ({ name, status: 'completed', conclusion, ...extra });
+const stagingStates = result => result.rows.filter(([label]) => label.startsWith('Staging')).map(([, state]) => state);
 const review = (login, state, id = 1, extra = {}) => ({ id, user: user(login), state, commit_id: sha,
   submitted_at: `2026-10-27T01:00:0${id}Z`, ...extra });
 const thread = (path, isResolved = false, author = { login: 'coderabbitai', __typename: 'Bot' }) =>
@@ -100,7 +101,7 @@ test('explicit docs-only classifier evidence reports E2E/staging skips without c
     }
   }
   d.checks = [marker, check('Modular E2E', 'cancelled', { run_id: 321 }),
-    check('Modular Staging', 'failure', { run_id: 321 })];
+    check('Modular Staging / Staging Deploy', 'failure', { run_id: 321 })];
   assert.equal(summarize(d).rows.find(r => r[0] === 'E2E (non-gating)')[1], 'CANCELLED');
   assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'FAIL');
 });
@@ -110,7 +111,62 @@ for (const reason of ['draft', 'fork']) test(`ineligible ${reason} staging skip 
   if (reason === 'fork') d.pr.head.repo.full_name = 'fork/repo';
   assert.equal(stagingEligible(d.pr, repository), false);
   d.checks = [check('Modular Staging', 'skipped')];
-  assert.equal(summarize(d).rows.find(r => r[0] === 'Staging deploy')[1], 'SKIPPED — EXPECTED');
+  assert.deepEqual(stagingStates(summarize(d)), ['SKIPPED — EXPECTED', 'SKIPPED — EXPECTED']);
+});
+test('Dependabot-authored security PRs intentionally skip staging while normal PRs remain eligible', () => {
+  const d = data();
+  assert.equal(stagingEligible(d.pr, repository), true);
+  d.pr.user = { login: 'dependabot[bot]', type: 'Bot' };
+  assert.equal(stagingEligible(d.pr, repository), false);
+  d.checks = [check('Modular Staging', 'skipped')];
+  for (const gate of ['Staging deploy', 'Staging smoke']) {
+    assert.equal(summarize(d).rows.find(row => row[0] === gate)[1], 'SKIPPED — EXPECTED');
+    assert.ok(!summarize(d).attention.some(msg => msg.startsWith(`${gate}: unexpected skip`)));
+  }
+  d.pr.user.login = 'other[bot]';
+  assert.equal(stagingEligible(d.pr, repository), true,
+    'Other bots remain eligible for staging');
+});
+test('historical Dependabot deploy failure explains only a same-run, same-attempt smoke skip', () => {
+  const d = data();
+  d.pr.user = { login: 'dependabot[bot]', type: 'Bot' };
+  const attempt = { run_id: 44680655236, run_attempt: 1 };
+  const deploy = check('Modular Staging / Staging Deploy', 'failure', attempt);
+  const smoke = check('Modular Staging / Staging Smoke', 'skipped', attempt);
+  d.checks = [deploy, smoke];
+  assert.deepEqual(stagingStates(summarize(d)), ['FAIL', 'SKIPPED — DEPLOY FAILED']);
+  for (const other of [{ run_id: 44680655237 }, { run_id: undefined }, { run_attempt: 2 }]) {
+    d.checks[1] = { ...smoke, ...other };
+    assert.deepEqual(stagingStates(summarize(d)), ['FAIL', 'SKIPPED — INVESTIGATE']);
+  }
+  d.checks = [deploy, smoke].map(job => ({ ...job, run_attempt: undefined }));
+  assert.deepEqual(stagingStates(summarize(d)), ['FAIL', 'SKIPPED — INVESTIGATE']);
+  d.checks = [smoke];
+  assert.deepEqual(stagingStates(summarize(d)), ['NOT RUN', 'SKIPPED — INVESTIGATE']);
+});
+test('successful team staging requires an observed success for each concrete job', () => {
+  const d = data();
+  const run = { run_id: 44682576938, run_attempt: 1 };
+  const deploy = check('Modular Staging / Staging Deploy', 'success', run);
+  const smoke = check('Modular Staging / Staging Smoke', 'success', run);
+  d.checks = [deploy, smoke];
+  assert.deepEqual(stagingStates(summarize(d)), ['PASS', 'PASS']);
+  for (const incomplete of [undefined, { ...smoke, status: undefined }, { ...smoke, conclusion: null }]) {
+    d.checks = incomplete ? [deploy, incomplete] : [deploy];
+    assert.deepEqual(stagingStates(summarize(d)), ['PASS', 'NOT RUN']);
+  }
+});
+test('missing jobs and aggregate staging conclusions cannot establish deployment or smoke success', () => {
+  const d = data();
+  for (const checks of [[], [check('Modular Staging', 'success')],
+    [check('Modular Staging', 'skipped', { status: undefined })]]) {
+    d.checks = checks;
+    assert.deepEqual(stagingStates(summarize(d)), ['NOT RUN', 'NOT RUN']);
+  }
+  d.checks = [check('Modular Staging', 'failure')];
+  const result = summarize(d);
+  assert.deepEqual(stagingStates(result), ['NOT RUN', 'NOT RUN']);
+  assert.ok(result.attention.some(message => message.startsWith('Staging caller: FAIL')));
 });
 test('author association does not gate same-repository staging eligibility', () => {
   const d = data();
@@ -553,15 +609,36 @@ test('collection tolerates optional CodeRabbit API failures and prefers newest w
     if (path.endsWith('/files')) return [{ filename: 'frontend/src/App.tsx' }];
     if (path === '/graphql') throw new Error('unsupported');
     if (path.includes('/rules/')) return [];
-    if (path.includes('/check-runs')) return [check('Modular Frontend / Frontend Checks', 'success', { app: { slug: 'github-actions' } })];
+    if (path.includes('/check-runs')) return [
+      check('Modular Frontend / Frontend Checks', 'success', { app: { slug: 'github-actions' } }),
+      check('Modular Staging / Staging Deploy', 'success', { run_id: 1 }),
+      check('Modular Staging / Staging Smoke', 'success', { run_id: 1 }),
+    ];
     if (path.includes('/actions/runs?')) return [1, 2].map(id => ({ id, name: 'Modular PR Validation', path: '.github/workflows/modular-pr-validation.yml', head_sha: sha, pull_requests: [{ number: 87 }] }));
-    if (path.includes('/actions/runs/2/jobs')) return [{ name: 'Modular Frontend / Frontend Checks', status: 'in_progress' }];
+    if (path.includes('/actions/runs/2/jobs')) return [
+      { name: 'Modular Frontend / Frontend Checks', status: 'in_progress' },
+      { name: 'Modular Staging / Staging Deploy', status: 'in_progress', run_id: 2 },
+    ];
     if (path.includes('/actions/runs/1/jobs')) throw new Error('must not read stale run');
     return [];
   });
   const collected = await collect(api, 87, repository);
   assert.equal(collected.threadsAvailable, false);
-  assert.equal(summarize(collected).rows[0][1], 'RUNNING');
+  const summary = summarize(collected);
+  assert.equal(summary.rows[0][1], 'RUNNING');
+  assert.deepEqual(stagingStates(summary), ['RUNNING', 'NOT RUN']);
+});
+test('collection without a matched validation run does not use commit checks for staging', async () => {
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return pr();
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path.includes('/check-runs')) return [
+      check('Modular Staging / Staging Deploy', 'success'),
+      check('Modular Staging / Staging Smoke', 'success'),
+    ];
+    return [];
+  });
+  assert.deepEqual(stagingStates(summarize(await collect(api, 87, repository))), ['NOT RUN', 'NOT RUN']);
 });
 test('current Actions jobs satisfy active Actions-bound contexts using linked check identity', async () => {
   const api = mockApi(path => {

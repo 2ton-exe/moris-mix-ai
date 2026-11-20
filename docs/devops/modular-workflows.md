@@ -92,9 +92,11 @@ workflow and classifier code is still part of the PR revision, so required
 human review remains the trust control against deliberate validation-policy
 tampering. The CODEOWNERS policy inherited from PR #146 is now on main, and
 workflow/classifier policy changes rely on CODEOWNERS ownership, enforced
-code-owner review, one required approval, stale-review dismissal after pushes,
-required thread resolution, and no bypass actors. This is not a claim that the
-design is malicious-insider-proof. A stronger trusted-workflow architecture
+code-owner review, one required approval, and required thread resolution.
+The live `Protect main` ruleset checked on 2026-11-20 had
+`dismiss_stale_reviews_on_push: false`. Review the latest PR head after a
+push because GitHub can retain an earlier approval. A stronger
+trusted-workflow architecture
 remains a possible future hardening direction, outside this measured Stage A
 result. Workflow and classifier changes still require review.
 `main` runs the complete validation path; docs-only mode is never enabled
@@ -146,7 +148,18 @@ docs-only mode to PR events. Explicit log steps identify the lighter paths.
 | Database Tests | Keeps the job/check and PostgreSQL service; checkout and an explicit successful no-op step run. Skips tooling install, readiness command, migrations, lifecycle and RLS commands. Service startup can still fail the job. |
 | Edge/API Tests | Keeps the job/check, checkout and explicit successful no-op step. Skips Deno/tooling setup, type-checks, deterministic tests and optional hosted work. Main still requires its nested Hosted RLS job; a required-hosted-RLS input also disables docs-only mode. |
 | E2E | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `e2e=skip`. Failure, missing/malformed output or uncertainty runs normal E2E; cancellation prevents execution. E2E remains non-required. |
-| Staging | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `staging=skip`. Otherwise it still requires successful frontend, database and Edge/API validation, a non-draft same-repository PR, and no cancellation. Deployment and smoke implementation are unchanged. PR workflows still cannot call production. |
+| Staging | Intentionally skips for verified documentation-only PRs and Dependabot-authored PRs. Otherwise it requires successful frontend, database and Edge/API validation, a non-draft same-repository PR, and no cancellation. Deployment and smoke implementation are unchanged. PR workflows still cannot call production. |
+
+Dependabot-authored PRs retain the three required validation contexts and
+applicable Playwright E2E. The caller excludes them from staging before the
+credential-bearing workflow. PR Secretary reports an observed caller skip
+as expected. A concrete staging failure remains `FAIL`, and a skipped smoke
+job is linked to that failure only when both jobs belong to the same run and
+attempt. Each staging success requires its own completed job. Local fixtures
+exercise the configured paths. A fresh Dependabot PR event using the revised
+workflow is still required for hosted proof, and the live Secretary uses
+the default-branch version of its script. Main release validation and
+deployed verification remain separate requirements.
 
 Verified docs-only decisions emit `frontend=noop`, `database=noop`,
 `edge_api=noop`, `e2e=skip`, and `staging=skip`. Full-validation decisions emit
@@ -156,7 +169,8 @@ staging. All three required core contexts remain present and must succeed;
 they are never skipped at the caller level.
 
 Secretary uses the successful classifier job's explicit documentation-only
-marker step from the same workflow run to report observed E2E/staging skips as
+marker step from the same workflow run to report an observed E2E skip or a
+skipped staging caller as
 `SKIPPED — EXPECTED`, never as passed executions. Missing or unsuccessful marker
 evidence does not excuse an otherwise unexpected skip. The marker and job
 metadata are already available from the Jobs API; no extra permissions or

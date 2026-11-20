@@ -79,8 +79,10 @@ jobs:
       - test-db
       - test-edge-api
 
+    # Bot-authored Dependabot PRs cannot use ordinary staging deployment secrets.
     if: >
       !cancelled() &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
       needs.frontend.result == 'success' &&
       needs.test-db.result == 'success' &&
       needs.test-edge-api.result == 'success' &&
