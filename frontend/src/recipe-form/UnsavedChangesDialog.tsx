@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { Mori } from '../journal/Mori'
 import { PaperCard } from '../journal/Scrapbook'
+import './unsavedChangesDialog.css'
 
 export function UnsavedChangesDialog({
   onKeepEditing,
