@@ -129,6 +129,10 @@ async function handleApiRequest(request, response) {
     })
     return
   }
+  if (extractionMode === 'shared-capacity') {
+    sendJson(request, response, 429, { error: { code: 'AI_CAPACITY_EXCEEDED' } }, { retryAfter: '90000' })
+    return
+  }
   if (extractionMode === 'quota') {
     sendJson(request, response, 429, { error: { code: 'QUOTA_EXCEEDED', message: 'private quota detail' } }, { retryAfter: '60' })
     return
@@ -429,6 +433,20 @@ try {
   await expect(providerNotes).toHaveValue('keep these notes while the provider cools down')
   await expect(providerPage.getByText('private provider detail')).toHaveCount(0)
   await providerPage.close()
+
+  extractionMode = 'shared-capacity'
+  const sharedCapacityPage = await context.newPage()
+  sharedCapacityPage.on('pageerror', (error) => errors.push(error.message))
+  await sharedCapacityPage.goto(`${origin}app/quick-entry`)
+  const sharedCapacityNotes = sharedCapacityPage.getByRole('textbox', { name: 'Cooking notes' })
+  await sharedCapacityNotes.fill('keep these notes until shared AI capacity returns')
+  await sharedCapacityPage.getByRole('button', { name: 'Organize my notes' }).click()
+  await expect(sharedCapacityPage.getByRole('alert')).toContainText(/shared AI capacity.*25 hours/)
+  await expect(sharedCapacityPage.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
+  await expect(sharedCapacityNotes).toHaveValue('keep these notes until shared AI capacity returns')
+  await expect(sharedCapacityNotes).toBeEditable()
+  await sharedCapacityPage.close()
+
 
   extractionMode = 'invalid'
   await notes.fill('notes that receive a malformed result')

@@ -45,6 +45,15 @@ interface AuthenticatedRequestOptions {
   signal?: AbortSignal
 }
 
+export function httpErrorCode(error: HttpError): string | undefined {
+  const payload = error.payload
+  if (typeof payload !== 'object' || payload === null || !('error' in payload)) return undefined
+  const envelope = payload.error
+  return typeof envelope === 'object' && envelope !== null && 'code' in envelope && typeof envelope.code === 'string'
+    ? envelope.code
+    : undefined
+}
+
 export function createHttpClient({ baseUrl, apiKey, fetchImpl = fetch, getSession }: HttpClientOptions = {}) {
   async function requestJson(path: string, { signal, accessToken, method = 'GET', body: jsonBody, rawBody, rawContentType, expectedStatus }: JsonRequestOptions): Promise<unknown> {
     let url: URL
