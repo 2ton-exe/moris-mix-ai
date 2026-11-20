@@ -29,14 +29,14 @@ class RestoreRoleProbeTests(unittest.TestCase):
                  b'ALTER FUNCTION public.b() OWNER TO "supabase_admin";\n'
                  b'ALTER SEQUENCE public.c OWNER TO "supabase_admin";\n')
         self.assertEqual(counts(self.roles, self.schema),
-                         "doc_grant=1 owner_table=1 owner_function=1 owner_other=1")
+                         "doc_grant=1 grantor_candidates=1 owner_table=1 owner_function=1 owner_other=1")
 
     def test_ignores_comment_and_unrelated_owner(self):
         self.put(b"-- " + DOCUMENTED_GRANT + b"\n",
                  b'-- ALTER TABLE public.x OWNER TO "supabase_admin";\n'
                  b'ALTER TABLE public.x OWNER TO "another_owner";\n')
         self.assertEqual(counts(self.roles, self.schema),
-                         "doc_grant=0 owner_table=0 owner_function=0 owner_other=0")
+                         "doc_grant=0 grantor_candidates=0 owner_table=0 owner_function=0 owner_other=0")
 
     def test_exact_documented_grant_failure(self):
         self.put(DOCUMENTED_GRANT + b"\n")
@@ -103,7 +103,7 @@ class RestoreRoleProbeTests(unittest.TestCase):
                  b'ALTER TABLE secret.customer OWNER TO "supabase_admin";\n')
         output = counts(self.roles, self.schema)
         self.assertEqual(output,
-                         "doc_grant=0 owner_table=1 owner_function=0 owner_other=0")
+                         "doc_grant=0 grantor_candidates=0 owner_table=1 owner_function=0 owner_other=0")
         self.assertNotIn("secret", output)
         self.assertNotIn("customer", output)
 
@@ -114,7 +114,7 @@ class RestoreRoleProbeTests(unittest.TestCase):
         flags_path = self.root / "private-flags.out"
         result_path = self.root / "private-result.out"
         summary = self.root / "summary.txt"
-        count = b"doc_grant=1 owner_table=2 owner_function=3 owner_other=0\n"
+        count = b"doc_grant=1 grantor_candidates=2 owner_table=2 owner_function=3 owner_other=0\n"
         flags = b"0|1|0|0|1\n"
         failed = (b"replay=failed category=insufficient-privilege verb=grant "
                   b"doc_grant=true prefix_pass=true\n")
@@ -123,13 +123,13 @@ class RestoreRoleProbeTests(unittest.TestCase):
             path.write_bytes(record)
         publish(counts_path, flags_path, result_path, 3, summary)
         safe = summary.read_text()
-        self.assertIn("doc_grant=1 owner_table=2", safe)
+        self.assertIn("doc_grant=1 grantor_candidates=2 owner_table=2", safe)
         self.assertIn("Untrusted role replay labels", safe)
 
         bad_cases = [
             (counts_path, count + b"\n"),
             (counts_path, count + b"\x00"),
-            (counts_path, b"doc_grant=1000000 owner_table=2 owner_function=3 owner_other=0\n"),
+            (counts_path, b"doc_grant=1000000 grantor_candidates=2 owner_table=2 owner_function=3 owner_other=0\n"),
             (flags_path, flags + b"\x00"),
             (flags_path, flags + b"\n"),
             (result_path, failed + b"\n"),
@@ -158,7 +158,7 @@ class RestoreRoleProbeTests(unittest.TestCase):
         result_path = self.root / "result.out"
         summary = self.root / "summary.out"
         counts_path.write_bytes(
-            b"doc_grant=0 owner_table=0 owner_function=0 owner_other=0\n")
+            b"doc_grant=0 grantor_candidates=0 owner_table=0 owner_function=0 owner_other=0\n")
         flags_path.write_bytes(b"0|1|0|0|1\n")
         result_path.write_bytes(
             b"replay=passed category=unknown verb=unknown "
