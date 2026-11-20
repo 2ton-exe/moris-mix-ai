@@ -11,6 +11,8 @@ import sys
 from classify_restore_component import (
     _accepted_error,
     _safe_prefix_line,
+    IDENTIFIER,
+    ROLE_MEMBERSHIP_GRANT,
     ERROR_CATEGORIES,
     MAX_ROLE_LINE_BYTES,
     MAX_ROLE_SQL_BYTES,
@@ -35,6 +37,32 @@ CATEGORY = {b"42501": "insufficient-privilege",
             b"42710": "duplicate-object"}
 VERBS = {b"GRANT ": "grant", b"ALTER ROLE ": "alter-role",
          b"CREATE ROLE ": "create-role"}
+
+# Only complete single-line role membership GRANTs with an actual GRANTED BY
+# clause count. Reject keyword lookalikes inside quoted role names or comments.
+GRANTOR_SUFFIX = re.compile(rb" GRANTED BY " + IDENTIFIER + rb";$")
+
+
+def role_grantor_candidate(raw: bytes) -> bool:
+    candidate = raw.strip(b" \t")
+    if not candidate.startswith(b"GRANT ") or not _safe_prefix_line(candidate):
+        return False
+    # Remove a trailing line comment only when outside a quoted identifier.
+    # Double quotes inside an identifier are escaped by a doubled double quote.
+    quoted = False
+    idx = 0
+    while idx < len(candidate) - 1:
+        if candidate[idx] == ord('"'):
+            if quoted and candidate[idx + 1] == ord('"'):
+                idx += 2
+                continue
+            quoted = not quoted
+        elif not quoted and candidate[idx:idx + 2] == b"--":
+            candidate = candidate[:idx].rstrip(b" \t")
+            break
+        idx += 1
+    return bool(ROLE_MEMBERSHIP_GRANT.fullmatch(candidate)
+                and GRANTOR_SUFFIX.search(candidate))
 
 
 def bounded_lines(path: Path) -> list[bytes]:
@@ -64,13 +92,9 @@ def counts(roles: Path, schema: Path) -> str:
     schema_lines = bounded_lines(schema)
     documented = sum(line.strip(b" \t") == DOCUMENTED_GRANT
                      for line in role_lines)
-    # Candidate only: one-line GRANT containing GRANTED BY; zero does not
-    # prove multi-line or differently formatted grantor clauses are absent.
-    grantor_candidates = sum(
-        line.strip(b" \t").startswith(b"GRANT ")
-        and b" GRANTED BY " in line
-        and _safe_prefix_line(line.strip(b" \t"))
-        for line in role_lines)
+    # Candidate total includes the exact documented grant; zero never rules
+    # out multiline or unsupported role-grant syntax.
+    grantor_candidates = sum(role_grantor_candidate(line) for line in role_lines)
     kinds = {"table": 0, "function": 0, "other": 0}
     for line in schema_lines:
         candidate = line.strip(b" \t")

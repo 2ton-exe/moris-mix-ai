@@ -229,10 +229,11 @@ replay does **not** verify schema/data recovery.
 
 Single-line static patterns are indicative, not exhaustive. The public
 `doc_grant` count matches only the canonical documented Supabase grant,
-while `grantor_candidates` counts additional one-line GRANT statements
-containing a `GRANTED BY` token. Both may miss multi-line statements.
+while `grantor_candidates` includes the canonical match and other recognized
+single-line role-membership GRANTs with a real `GRANTED BY` clause. It excludes
+lookalike text in quoted identifiers and trailing comments. Both counts may
+miss multi-line or unsupported grant forms.
 Ownership candidates include quoted and unquoted `supabase_admin` spellings.
 If static parsing encounters unsupported input, it reports the fixed
 `counts=unavailable` value without blocking the more informative role-only
 replay. That sentinel is not a successful static pattern check.
-

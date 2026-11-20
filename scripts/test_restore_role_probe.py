@@ -169,6 +169,28 @@ class RestoreRoleProbeTests(unittest.TestCase):
 
 
 
+    def test_grantor_token_inside_identifier_or_comment_is_not_clause(self):
+        fixtures = [
+            b'GRANT "x GRANTED BY y" TO z;\n',
+            b'GRANT x TO "y GRANTED BY z";\n',
+            b'GRANT x TO y; -- seen GRANTED BY z\n',
+            b'GRANT "x"" GRANTED BY z" TO y;\n',
+        ]
+        for sql in fixtures:
+            with self.subTest(sql=sql):
+                self.put(sql)
+                self.assertEqual(
+                    counts(self.roles, self.schema),
+                    "doc_grant=0 grantor_candidates=0 "
+                    "owner_table=0 owner_function=0 owner_other=0")
+
+    def test_real_role_grantor_with_comment_still_counts(self):
+        self.put(b'GRANT a TO b GRANTED BY c; -- note\n')
+        self.assertEqual(
+            counts(self.roles, self.schema),
+            "doc_grant=0 grantor_candidates=1 "
+            "owner_table=0 owner_function=0 owner_other=0")
+
     def test_variant_grantor_and_unquoted_owner_are_candidates(self):
         self.put(
             b'GRANT "postgres" TO "cli_login_postgres" WITH INHERIT FALSE, '
@@ -211,6 +233,80 @@ class RestoreRoleProbeTests(unittest.TestCase):
         self.assertIn('Role-only SQL replay failed (diagnostic recorded; not recovery)', workflow)
         self.assertIn("printf 'counts=unavailable\\n'", workflow)
 
+
+
+    def test_checked_in_workflow_replay_exit_and_summary_with_stubs(self):
+        """Execute the checked-in Bash replay step, not a source-text grep."""
+        import os
+        import subprocess
+        import textwrap
+
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/database-restore-role-diagnostic.yml").read_text()
+        start = "      - name: Record bounded role patterns and replay diagnostics\n"
+        end = "      - name: Stop isolated database and delete private files\n"
+        self.assertEqual(workflow.count(start), 1)
+        self.assertEqual(workflow.count(end), 1)
+        step = workflow.split(start, 1)[1].split(end, 1)[0]
+        self.assertIn("        run: |\n", step)
+        bash = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        self.assertTrue(bash.startswith("set -euo pipefail\n"))
+
+        stub = r'''
+        docker() {
+          case " $* " in
+            *" -c SELECT rolsuper"*)
+              printf 'flags\n' >> "$RUNNER_TEMP/calls"
+              printf '0|1|0|0|1\n'
+              ;;
+            *" -f /backup/roles.sql "*)
+              printf 'replay\n' >> "$RUNNER_TEMP/calls"
+              printf 'PRIVATE_SYNTHETIC_MARKER\n'
+              if [[ "$REVIEW_REPLAY_EXIT" == 3 ]]; then
+                printf 'psql:/backup/roles.sql:1: ERROR:  42501\n' >&2
+              fi
+              return "$REVIEW_REPLAY_EXIT"
+              ;;
+            *) return 99 ;;
+          esac
+        }
+        '''
+        for replay_exit, unavailable in ((0, False), (3, False),
+                                         (0, True), (3, True)):
+            with self.subTest(replay_exit=replay_exit, unavailable=unavailable):
+                root = self.root / f"replay-{replay_exit}-{int(unavailable)}"
+                root.mkdir()
+                verified = root / "restore-verified-sql"
+                verified.mkdir()
+                (verified / "roles.sql").write_bytes(DOCUMENTED_GRANT + b"\n")
+                (verified / "schema.sql").write_bytes(
+                    (b"x" * 5000 + b"\n") if unavailable
+                    else b"-- synthetic schema\n")
+                summary = root / "summary.md"
+                env = os.environ.copy()
+                env.update({"RUNNER_TEMP": str(root),
+                            "GITHUB_STEP_SUMMARY": str(summary),
+                            "PSQL_IMAGE": "synthetic-image",
+                            "REVIEW_REPLAY_EXIT": str(replay_exit)})
+                run = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
+                    input=(stub + bash).encode(),
+                    cwd=Path(__file__).resolve().parents[1], env=env,
+                    capture_output=True, check=False)
+                self.assertEqual(run.returncode, 0 if replay_exit == 0 else 1,
+                                 (run.stdout, run.stderr))
+                self.assertEqual((root / "calls").read_text().splitlines(),
+                                 ["flags", "replay"])
+                self.assertTrue(summary.is_file())
+                public = run.stdout.decode() + summary.read_text()
+                self.assertNotIn("PRIVATE_SYNTHETIC_MARKER", public)
+                self.assertNotIn("psql:/backup/roles.sql", public)
+                self.assertIn("counts=unavailable" if unavailable else
+                              "doc_grant=1", public)
+                self.assertIn("replay=failed" if replay_exit == 3 else
+                              "replay=passed", public)
+                self.assertEqual("Role-only SQL replay failed" in public,
+                                 replay_exit == 3)
 
 
 if __name__ == "__main__":
