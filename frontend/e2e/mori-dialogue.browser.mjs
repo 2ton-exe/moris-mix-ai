@@ -764,7 +764,7 @@ try {
   await expect(emptyApp.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
   await emptyApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const emptyPanel = emptyApp.page.getByRole('region', { name: 'Mori', exact: true })
-  await emptyPanel.getByRole('button', { name: 'Write your first recipe' }).click()
+  await emptyPanel.getByRole('button', { name: 'Open recipe editor' }).click()
   await expect(emptyApp.page).toHaveURL(`${origin}app/recipes/new`)
   assert.deepEqual(emptyApp.errors, [])
   await emptyApp.context.close()
