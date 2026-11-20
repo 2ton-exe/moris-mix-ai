@@ -2,7 +2,7 @@ import reachEast from '../assets/journal/mori/E/reach.svg?raw'
 import reachWest from '../assets/journal/mori/W/reach.svg?raw'
 import { directionFor, type Direction8, type Point } from '../journal/moriMovement'
 import { loadedMoriSprite, MORI_FOOT, MORI_SPRITE_WIDTH, moriSpriteFrame, preloadMoriSprites } from '../journal/moriSpriteAtlas'
-import { smooth } from '../journal/pageTurnMotion'
+import { JOURNAL_SINGLE_LAYOUT_QUERY, smooth } from '../journal/pageTurnMotion'
 
 const arrivalMs = 120
 const spriteWaitMs = 150
@@ -172,12 +172,12 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
         const dx = goal.x - base.x
         const dy = goal.y - base.y
         const length = Math.hypot(dx, dy)
-        if (!bend) {
+        if (!bend && !window.matchMedia?.(JOURNAL_SINGLE_LAYOUT_QUERY).matches) {
           const side = Math.random() < .5 ? -1 : 1
           const offset = side * Math.min(length * .15, 14 + Math.random() * 22)
           bend = { x: -dy * offset / (length || 1), y: dx * offset / (length || 1) }
         }
-        const facing = directionFor(base, { x: goal.x + 4 * bend.x, y: goal.y + 4 * bend.y })
+        const facing = directionFor(base, { x: goal.x + 4 * (bend?.x ?? 0), y: goal.y + 4 * (bend?.y ?? 0) })
         if (!readySprite(facing, 0) && !readySprite(facing)) {
           if (now - loadStarted >= spriteWaitMs) return stop(true)
           frame = requestAnimationFrame(tick)
