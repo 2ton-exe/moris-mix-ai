@@ -47,7 +47,7 @@ const server = await createServer({
 })
 let browser
 let appOrigin
-const measurements = { contactSamples: 0, maxContactPx: 0, maxSpineDriftPx: 0, maxBindingPx: 0 }
+const measurements = { contactSamples: 0, maxContactPx: 0, desktopContactSamples: 0, maxDesktopContactPx: 0, maxSpineDriftPx: 0, maxBindingPx: 0 }
 
 async function createJournal(width, { reducedMotion = false, empty = false, chef = false, collection = false, recordVideo = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, ...(recordVideo ? { recordVideo: { dir: path.join(outputDir, 'videos'), size: { width, height: 900 } } } : {}), reducedMotion: reducedMotion ? 'reduce' : 'no-preference' })
@@ -170,7 +170,8 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
   const recovery = samples.findLast((sample) => sample.motion === 'recover')
   assert.equal(alignment.paper, direction === 'forward' ? 'right' : 'left', `${label}: approaches the outgoing leaf`)
   assert.ok(Math.hypot(alignment.x - initial.x, alignment.y - initial.y) > 12, `${label}: feet move to reach the paper`)
-  assert.ok(recovery.paper, `${label}: returns to a paper surface`)
+  assert.equal(alignment.facing, direction === 'forward' ? 'E' : 'W', `${label}: faces the outgoing edge`)
+  assert.ok(recovery.paper && Math.hypot(recovery.x - initial.x, recovery.y - initial.y) <= 1, `${label}: returns to his resting point on paper`)
 
   const directions = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
   let movingGrip = 0
@@ -190,6 +191,8 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
       assert.ok(Math.hypot(sample.x - alignment.x, sample.y - alignment.y) <= 1, `${label}: mitt tracks the paper with feet planted`)
       measurements.contactSamples++
       measurements.maxContactPx = Math.max(measurements.maxContactPx, sample.separation)
+      measurements.desktopContactSamples++
+      measurements.maxDesktopContactPx = Math.max(measurements.maxDesktopContactPx, sample.separation)
       assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
       if (sample.travel > 0) movingGrip++
     }
