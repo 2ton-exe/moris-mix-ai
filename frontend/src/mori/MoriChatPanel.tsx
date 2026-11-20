@@ -3,8 +3,9 @@ import { useLocation, useNavigate } from 'react-router'
 import { BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
 import { SuggestedPrompts } from './SuggestedPrompts'
 import { promptCaret, suggestionContext } from './suggestions'
-import { HttpError } from '../api/http'
-import { retryAfterSeconds } from '../api/retryAfter'
+import { HttpError, httpErrorCode } from '../api/http'
+import { aiRateLimitReason } from '../api/aiRateLimit'
+import { retryAfterMessage, retryAfterSeconds } from '../api/retryAfter'
 import { MAX_PANTRY_ITEM_CHARS, MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS } from '../ai-chef/pantry'
 import { readChefDraftResult, writeChefDraft } from '../ai-chef/draft'
 import type { ChefReviewHandoff } from '../ai-chef/draft'
@@ -232,6 +233,13 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         setFollowUp({ notes })
         setRetryRequest({ kind: 'create', notes })
         if (timedOut) return 'Mori took too long to organize those notes. They’re still in this chat; please try again.'
+        if (error instanceof HttpError && error.status === 429) {
+          const code = httpErrorCode(error)
+          const reason = aiRateLimitReason(code) ?? (code === 'QUOTA_EXCEEDED'
+            ? 'You’ve reached today’s AI limit.'
+            : 'Mori is temporarily busy.')
+          return `${reason} ${retryAfterMessage(error.retryAfter)}`
+        }
         return error instanceof InvalidExtractionResponse
           ? 'I could not check that draft safely. Send any missing details or rephrase the cooking notes and I’ll try again.'
           : 'Mori could not organize those notes right now. Add any missing details or send a new version to try again.'

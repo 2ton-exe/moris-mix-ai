@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { apiClient } from '../api/config'
-import { HttpError } from '../api/http'
+import { aiRateLimitReason } from '../api/aiRateLimit'
+import { HttpError, httpErrorCode } from '../api/http'
 import { retryAfterMessage } from '../api/retryAfter'
 import { extractedRecipeSchema } from '../quick-ai/extractRecipe'
 import type { RecipeRequest } from '../recipes/types'
@@ -100,14 +101,6 @@ export function createGenerateRecipeApi(client: GenerateRecipeClient = apiClient
 
 export const generateRecipeApi = createGenerateRecipeApi()
 
-function apiErrorCode(error: HttpError): string | undefined {
-  if (typeof error.payload !== 'object' || error.payload === null || Array.isArray(error.payload)) return undefined
-  const envelope = (error.payload as Record<string, unknown>).error
-  if (typeof envelope !== 'object' || envelope === null || Array.isArray(envelope)) return undefined
-  const code = (envelope as Record<string, unknown>).code
-  return typeof code === 'string' ? code : undefined
-}
-
 /** User-safe messages for the documented AI-06 error envelope. */
 export function generateRecipeErrorMessage(error: unknown, timedOut = false) {
   if (timedOut) return 'Mori took too long to answer. Your ingredients and preferences are still here; try again.'
@@ -115,7 +108,9 @@ export function generateRecipeErrorMessage(error: unknown, timedOut = false) {
   if (error instanceof InvalidGeneratedRecipeResponse) return 'Mori returned a recipe that could not be checked safely. Your request is still here; try again.'
   if (!(error instanceof HttpError)) return 'AI Chef could not finish the request. Your ingredients and preferences are still here; try again.'
 
-  const code = apiErrorCode(error)
+  const code = httpErrorCode(error)
+  const rateLimitReason = aiRateLimitReason(code)
+  if (rateLimitReason) return `${rateLimitReason} ${retryAfterMessage(error.retryAfter)}`
   if (error.status === 401 || code === 'UNAUTHORIZED') return 'Your session could not be verified. Sign in again before asking Mori. Your request is still here.'
   if (error.status === 403) return 'You do not have permission to use AI Chef. Your ingredients and preferences are still here.'
   if (code === 'QUOTA_EXCEEDED') return `You have reached today’s AI Chef limit. ${retryAfterMessage(error.retryAfter)}`

@@ -328,6 +328,20 @@ it('keeps a fresh message in the composer while its workflow is cooling down', a
   expect(screen.getByText(/rate-limited for cooking notes/)).toBeTruthy()
 })
 
+it('shows shared capacity feedback for cooking notes and waits for a manual retry', async () => {
+  const extract = vi.spyOn(extractRecipeApi, 'extract').mockRejectedValue(new HttpError(
+    'http', 'private rate detail', 429, { error: { code: 'AI_CAPACITY_EXCEEDED' } }, '45',
+  ))
+  renderChat('mori-chat-capacity')
+  choosePrompt('Record a recipe')
+  send('I simmered tomatoes and beans until tender.')
+
+  expect(await screen.findByText(/shared AI capacity is full.*45 seconds/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Retry same request' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByText('I simmered tomatoes and beans until tender.')).toBeTruthy()
+  expect(extract).toHaveBeenCalledOnce()
+})
+
 it('keeps Retry-After deadlines independent for cooking notes and pantry ideas', async () => {
   const extract = vi.spyOn(extractRecipeApi, 'extract').mockRejectedValue(
     new HttpError('http', 'private rate detail', 429, undefined, '60'),
