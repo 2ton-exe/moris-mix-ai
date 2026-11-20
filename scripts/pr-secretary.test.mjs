@@ -361,7 +361,7 @@ for (const [label, state, line] of [
     '', '**Other PR delivery** · E2E (non-gating) ➖ NOT RUN · Staging deploy ➖ NOT RUN · Staging smoke ➖ NOT RUN',
     ...(terminal ? ['', '### Main delivery for this merge', '', '➖ No exact main workflow run established.', '',
       '| Evidence | Status |', '| --- | --- |', '| Main validation | ➖ UNKNOWN |', '| Main E2E | ➖ UNKNOWN |',
-      '| Production deployment | ➖ UNKNOWN |', '| Production smoke | ➖ UNKNOWN |'] : []),
+      '| Production job | ➖ UNKNOWN |', '| Production deployment | ➖ UNKNOWN |', '| Production smoke | ➖ UNKNOWN |'] : []),
     '', '### Automated review', '', '**CodeRabbit (optional)** · NOT DETECTED', '**Open threads:** 0',
     ...(state === 'CHANGES_REQUESTED' ? ['', '### Attention', '', '- Review the current-revision changes requested'] : []),
   ].join('\n');
@@ -777,10 +777,11 @@ const mainJobs = [
 test('exact attempt separates deployment success from smoke failure and does not infer success from aggregate jobs', () => {
   const run = mainRun();
   assert.deepEqual(releaseEvidence(run, mainJobs), { run, validation: 'VERIFIED', e2e: 'VERIFIED',
-    deploy: 'VERIFIED', smoke: 'VERIFIED' });
+    production: 'PASS', deploy: 'VERIFIED', smoke: 'VERIFIED' });
   const failed = structuredClone(mainJobs);
   failed.at(-1).conclusion = 'failure';
   failed.at(-1).steps.at(-1).conclusion = 'failure';
+  assert.equal(releaseEvidence(run, failed).production, 'FAIL');
   assert.equal(releaseEvidence(run, failed).deploy, 'VERIFIED');
   assert.equal(releaseEvidence(run, failed).smoke, 'FAIL');
   assert.equal(releaseEvidence(run, [check(productionJob, 'success')]).deploy, 'UNKNOWN');
@@ -789,6 +790,21 @@ test('exact attempt separates deployment success from smoke failure and does not
   assert.equal(releaseEvidence({ ...run, status: 'in_progress' }, []).smoke, 'PENDING');
   assert.equal(releaseEvidence(run, [{ ...failed.at(-1), steps: failed.at(-1).steps.slice(-3).map(s => check(s.name, 'success')) }]).smoke,
     'UNKNOWN');
+});
+
+test('production setup failure and early cancellation stay visible when delivery steps did not run', () => {
+  const run = mainRun();
+  const failed = check(productionJob, 'failure', { steps: [
+    check('Validate production deployment configuration', 'failure'),
+    ...[...deploySteps, ...smokeSteps].map(name => check(name, 'skipped')),
+  ] });
+  const cancelled = check(productionJob, 'cancelled', { steps: [] });
+  for (const [job, outcome, phase] of [[failed, 'FAIL', 'SKIPPED'], [cancelled, 'CANCELLED', 'UNKNOWN']]) {
+    const release = releaseEvidence(run, [job]);
+    assert.deepEqual([release.production, release.deploy, release.smoke], [outcome, phase, phase]);
+    const body = render({ ...data(), pr: merged(), release });
+    assert.ok(body.includes(`| Production job | ❌ ${outcome} |`));
+  }
 });
 test('merged collection uses actual merge SHA and latest exact run attempt only', async () => {
   const api = mockApi(path => {

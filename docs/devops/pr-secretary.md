@@ -119,7 +119,9 @@ Production smoke requires the deployment URL check, deployed AI-route
 verification, and the runtime smoke step in that same attempt, with deployment
 established. The workflow run’s overall conclusion is insufficient by itself.
 
-An active run can provide pending evidence. An explicit failed, skipped, or
+The production job has its own row. A setup failure or early cancellation is
+visible there even when deployment and smoke step evidence is skipped or
+unavailable. An active run can provide pending evidence. An explicit failed, skipped, or
 cancelled job or step retains that outcome. A missing or unrelated run, partial
 rerun without the necessary jobs, missing evidence, or API failure leaves the
 affected result unknown. Deployment can be verified while smoke fails.
@@ -203,7 +205,7 @@ reviewer-change, fork, closed-without-merge, and successful/failed exact-main
 cases. Compare the same event classes and report unobserved transitions
 separately from measured latency.
 
-The local Secretary suite passed 149 tests on Node 24, including associations,
+The local Secretary suite passed 150 tests on Node 24, including associations,
 Markdown, staging, retries, stale writes, and closure and release races.
 Actionlint 1.7.7 passed on both Secretary workflows. The existing Frontend
 Checks job runs the Secretary suite. A separate related suite on Windows

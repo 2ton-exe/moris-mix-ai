@@ -308,7 +308,7 @@ export function render(data) {
     out.push('', '### Main delivery for this merge', '',
       mainLink ? `**Main workflow** · ${displayed(normalize(release.run))} · ${mainLink}` : '➖ No exact main workflow run established.', '',
       ...table([['Main validation', release.validation], ['Main E2E', release.e2e],
-        ['Production deployment', release.deploy], ['Production smoke', release.smoke]]
+        ['Production job', release.production], ['Production deployment', release.deploy], ['Production smoke', release.smoke]]
         .map(([label, state]) => [label, state ?? 'UNKNOWN'])));
   }
   out.push('', '### Automated review', '', `**CodeRabbit (optional)** · ${s.rabbit.state}`,
@@ -558,7 +558,8 @@ export function releaseEvidence(run, jobs) {
   };
   const job = name => jobs.find(item => item.name === name);
   const production = job(MAIN_PRODUCTION_JOB);
-  const skipped = state(production ?? job('Modular Main Production')) === 'SKIPPED — EXPECTED';
+  const productionState = state(production ?? job('Modular Main Production'));
+  const skipped = productionState === 'SKIPPED — EXPECTED';
   const steps = production?.steps ?? [];
   const step = name => steps.find(item => item.name === name);
   // Feature-gated deploy steps may legitimately skip, but a failed deploy
@@ -570,6 +571,7 @@ export function releaseEvidence(run, jobs) {
   const smoke = skipped ? 'SKIPPED' : group(SMOKE_STEPS.map(name => state(step(name))));
   return { run, validation: group(MAIN_CORE_JOBS.map(name => state(job(name)))),
     e2e: group([state(job('Modular Main E2E / Playwright E2E Tests'))]),
+    production: skipped ? 'SKIPPED' : productionState,
     deploy, smoke: smoke === 'VERIFIED' && deploy !== 'VERIFIED' ? 'UNKNOWN' : smoke };
 }
 
