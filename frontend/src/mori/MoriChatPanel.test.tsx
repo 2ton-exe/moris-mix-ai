@@ -423,7 +423,7 @@ it('walks toward the actual bookmark with matching idle art while walk frames ar
   fireEvent.click(screen.getByRole('button', { name: 'Open recipe editor' }))
 
   const character = screen.getByRole('group', { name: 'Mori companion' })
-  await waitFor(() => expect(character.querySelector('.mori-navigation-sprite')?.getAttribute('src')).toEqual(expect.stringContaining('/NE/idle.svg')))
+  await waitFor(() => expect(character.querySelector('.mori-navigation-sprite')?.getAttribute('src')).toEqual(expect.stringMatching(/\/(NE|N|E)\/idle\.svg/)))
   await waitFor(() => expect(tab.hasAttribute('data-mori-tap-target')).toBe(true))
   expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
   expect(screen.getByRole('button', { name: 'Open recipes' })).toHaveProperty('disabled', true)

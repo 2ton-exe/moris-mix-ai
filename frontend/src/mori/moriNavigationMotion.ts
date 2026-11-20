@@ -64,6 +64,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
   let start: number | undefined
   let duration = 0
   let blend = 0
+  let bend: Point | undefined
   let arrivalStart: number | undefined
   let returnStart: number | undefined
   let waitsForResume = true
@@ -128,8 +129,13 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
     const progress = smooth(elapsed / duration)
     const step = blend < 1 ? (progress - blend) / (1 - blend) : 1
     const from = position ?? base
+    // The detour fades at both ends while the remaining steps still target the live tab.
+    const detour = stage === 'travel' ? 4 * (progress - blend) * (1 - progress) : 0
     blend = progress
-    paint(stage, base, { x: from.x + (goal.x - from.x) * step, y: from.y + (goal.y - from.y) * step }, scale)
+    paint(stage, base, {
+      x: from.x + (goal.x - from.x) * step + (bend?.x ?? 0) * detour,
+      y: from.y + (goal.y - from.y) * step + (bend?.y ?? 0) * detour,
+    }, scale)
   }
 
   function tick(now: number) {
@@ -163,7 +169,15 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
       if (!reach) return stop(true)
       const goal = { x: center.x + (MORI_FOOT.x - reach.hand.x) * scale, y: center.y + (MORI_FOOT.y - reach.hand.y) * scale }
       if (start === undefined) {
-        const facing = directionFor(base, goal)
+        const dx = goal.x - base.x
+        const dy = goal.y - base.y
+        const length = Math.hypot(dx, dy)
+        if (!bend) {
+          const side = Math.random() < .5 ? -1 : 1
+          const offset = side * Math.min(length * .15, 14 + Math.random() * 22)
+          bend = { x: -dy * offset / (length || 1), y: dx * offset / (length || 1) }
+        }
+        const facing = directionFor(base, { x: goal.x + 4 * bend.x, y: goal.y + 4 * bend.y })
         if (!readySprite(facing, 0) && !readySprite(facing)) {
           if (now - loadStarted >= spriteWaitMs) return stop(true)
           frame = requestAnimationFrame(tick)
@@ -171,7 +185,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
         }
         paintedFacing = facing
         start = now
-        duration = Math.min(920, Math.max(360, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.4))
+        duration = Math.min(920, Math.max(360, length * 1.4))
       }
       if (now - start < duration) walk(base, goal, now - start, scale, 'travel')
       else {

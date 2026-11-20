@@ -3,7 +3,7 @@
 import { Mori } from './Mori'
 import type { Point } from './moriMovement'
 import { createPaperGrip } from './moriPaperGrip'
-import { createMoriPaperPlan, isPaperRest, MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from './moriPaperMotion'
+import { createMoriPaperPlan, MORI_ART_SCALE, MORI_DESKTOP_SIZE, nearestPaperFoot } from './moriPaperMotion'
 import { loadedMoriSprite, MORI_FOOT, moriSpriteFrame } from './moriSpriteAtlas'
 import { chooseTurnGrab, projectGrabPoint, smooth, turnFrame, type GrabSpot, type TurnCompanion, type TurnDirection } from './pageTurnMotion'
 
@@ -36,7 +36,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   const scaleY = layerRect.height / parseFloat(layerStyle.height)
   if (![scaleX, scaleY].every((scale) => Number.isFinite(scale) && scale > 0)) return null
   const toLocal = ({ x, y }: Point) => ({ x: (x - layerRect.left) / scaleX, y: (y - layerRect.top) / scaleY })
-  const bounds = (page: HTMLElement) => {
+  const bounds = (page: Element) => {
     const rect = page.getBoundingClientRect()
     const start = toLocal({ x: rect.left, y: rect.top })
     const end = toLocal({ x: rect.right, y: rect.bottom })
@@ -44,18 +44,19 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   }
   const left = bounds(leftPage)
   const right = bounds(rightPage)
-  const rings = [...book.querySelectorAll('.mm-journal-ring')].map((ring) => ring.getBoundingClientRect()).sort((a, b) => a.top - b.top)
-  let gap = 0
-  let laneY = layerRect.top + layerRect.height / 2
-  for (const [index, ring] of rings.entries()) {
-    const next = rings[index + 1]
-    if (next && next.top - ring.bottom > gap) {
-      gap = next.top - ring.bottom
-      laneY = (next.top + ring.bottom) / 2
-    }
-  }
-  // The cap and tail need clearance above the feet while traversing the ring gap.
-  const lane = toLocal({ x: 0, y: laneY }).y + MORI_FOOT.y * MORI_ART_SCALE / 2
+  const rings = [...book.querySelectorAll('.mm-journal-ring')].map((ring) => bounds(ring)).sort((a, b) => a.top - b.top)
+  const top = Math.max(left.top, right.top)
+  const bottom = Math.min(left.bottom, right.bottom)
+  const capClearance = MORI_FOOT.y * MORI_ART_SCALE
+  const openings = [...rings, { top: bottom }].flatMap((ring, index) => {
+    const first = (rings[index - 1]?.bottom ?? top) + capClearance + 6
+    const last = ring.top - 8
+    return first <= last ? [{ top: first, bottom: last }] : []
+  })
+  const middle = (top + bottom) / 2
+  const pullOpening = openings.reduce((widest, opening) =>
+    opening.bottom - opening.top > widest.bottom - widest.top ? opening : widest, { top: middle, bottom: middle })
+  if (openings.length === 0) openings.push(pullOpening)
   const leafBox = leaf.getBoundingClientRect()
   const hinge = toLocal(leafBox).x + parseFloat(getComputedStyle(leaf).transformOrigin)
   const [perspectiveX, perspectiveY] = layerStyle.perspectiveOrigin.split(' ').map(parseFloat)
@@ -75,20 +76,23 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   const pageHeight = leafBox.height / scaleY
   const liftedTop = projectGrabPoint(geometry, liftedAngle, 0).y
   const liftedHeight = projectGrabPoint(geometry, liftedAngle, pageHeight).y - liftedTop
-  const preferredY = Math.max(0, Math.min(pageHeight, (lane - 30 - liftedTop) * pageHeight / liftedHeight))
+  const grabYAt = (footY: number) => (footY - 30 - liftedTop) * pageHeight / liftedHeight
   const viewport = window.visualViewport
   const grab = chooseTurnGrab({
-    geometry, direction, pageHeight, previous: previousGrab, preferredY,
+    geometry, direction, pageHeight, previous: previousGrab,
+    range: { min: grabYAt(pullOpening.top), max: grabYAt(pullOpening.bottom) },
     viewportTop: ((viewport?.offsetTop ?? 0) - layerRect.top) / scaleY,
     viewportHeight: (viewport?.height ?? innerHeight) / scaleY,
   })
   leaf.style.setProperty('--mm-grab-y', `${grab.y}px`)
   const foot = toLocal(control.screenFoot)
-  const safeFoot = isPaperRest(foot, left, right)
-  const start = safeFoot ? foot : moriRestFoot(right)
+  const start = nearestPaperFoot(foot, left, right)
+  const safeFoot = start.x === foot.x && start.y === foot.y
   const flip = (paper: number) => turnFrame(.26 + .56 * paper, direction)
   const contact = (progress: number) => projectGrabPoint(geometry, flip(progress).angle, grab.y)
-  const plan = createMoriPaperPlan({ left, right, start, contact, lane, direction })
+  const liftedFoot = projectGrabPoint(geometry, liftedAngle, grab.y).y + 30
+  const lane = Math.min(pullOpening.bottom, Math.max(pullOpening.top, liftedFoot))
+  const plan = createMoriPaperPlan({ left, right, start, contact, lane, openings, direction })
   art.querySelector('[data-mori-hand]')?.removeAttribute('data-mori-hand')
   const feet = Array.from(art.querySelectorAll<SVGEllipseElement>('.mori-foot-l, .mori-foot-r'))
   art.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-MORI_FOOT.y * MORI_ART_SCALE}px)`
@@ -140,7 +144,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
       }
       const attached = 'attached' in frame && frame.attached
       actor.toggleAttribute('data-mori-gripping', attached)
-      leaf.style.setProperty('--mm-crease-strength', String(attached ? 1 : frame.phase === 'release' ? frame.reach : 0))
+      leaf.style.setProperty('--mm-crease-strength', String(.65 * (attached ? 1 : frame.phase === 'release' ? frame.reach : 0)))
       if ('reach' in frame && reaching) {
         const localX = MORI_FOOT.x + (frame.target.x - frame.position.x) / MORI_ART_SCALE
         const localY = MORI_FOOT.y + (frame.target.y - frame.position.y) / MORI_ART_SCALE

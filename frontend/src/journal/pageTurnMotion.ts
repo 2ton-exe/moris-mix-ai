@@ -28,31 +28,40 @@ export interface TurnGeometry {
 export type GrabSpot = 'upper' | 'middle' | 'lower' | 'corner'
 type TurnGrab = { spot: GrabSpot; y: number }
 
-export function chooseTurnGrab({ geometry, direction, pageHeight, viewportTop, viewportHeight, previous, preferredY }: {
+export function chooseTurnGrab({ geometry, direction, pageHeight, viewportTop, viewportHeight, previous, range }: {
   geometry: TurnGeometry
   direction: TurnDirection
   pageHeight: number
   viewportTop: number
   viewportHeight: number
   previous: GrabSpot
-  preferredY?: number
+  range?: { min: number; max: number }
 }): TurnGrab {
   const liftedAngle = direction === 'forward' ? -90 : 90
   const pageTop = geometry.top + geometry.pageTop
   const viewportBottom = viewportTop + viewportHeight - 16
-  const expansion = projectGrabPoint(geometry, liftedAngle, pageHeight).y - projectGrabPoint(geometry, liftedAngle, 0).y
-  const lower = Math.min(pageHeight * .92, Math.floor((viewportBottom - projectGrabPoint(geometry, liftedAngle, 0).y) * pageHeight / expansion))
-  const spots: TurnGrab[] = preferredY === undefined
-    ? [{ spot: 'upper', y: pageHeight * .025 }, { spot: 'middle', y: pageHeight * .45 }]
-    : [{ spot: 'upper', y: preferredY - 25 }, { spot: 'middle', y: preferredY }, { spot: 'lower', y: preferredY + 25 }]
-  if (preferredY === undefined && lower >= pageHeight * .6) spots.push({ spot: 'lower', y: lower })
+  const liftedTop = projectGrabPoint(geometry, liftedAngle, 0).y
+  const expansion = (projectGrabPoint(geometry, liftedAngle, pageHeight).y - liftedTop) / pageHeight
+  const lower = Math.min(pageHeight * .92, Math.floor((viewportBottom - liftedTop) / expansion))
+  if (range) {
+    const low = Math.max(pageHeight * .08, range.min, viewportTop - pageTop, (viewportTop - liftedTop) / expansion)
+    const high = Math.min(pageHeight * .87, range.max, viewportBottom - pageTop, lower)
+    if (high <= low) return { spot: 'corner', y: Math.min(pageHeight * .87, Math.max(pageHeight * .08, (range.min + range.max) / 2)) }
+    const spots = ['upper', 'middle', 'lower'] as const
+    const choices = spots.filter((spot) => spot !== previous)
+    const spot = choices[Math.floor(Math.random() * choices.length)]
+    const fraction = (spots.indexOf(spot) + .1 + Math.random() * .8) / spots.length
+    return { spot, y: low + (high - low) * fraction }
+  }
+  const spots: TurnGrab[] = [{ spot: 'upper', y: pageHeight * .025 }, { spot: 'middle', y: pageHeight * .45 }]
+  if (lower >= pageHeight * .6) spots.push({ spot: 'lower', y: lower })
   const reachable = spots.filter(({ y }) => {
     const flat = pageTop + y
     const lifted = projectGrabPoint(geometry, liftedAngle, y).y
     return y >= 0 && y <= pageHeight && Math.min(flat, lifted) >= viewportTop && Math.max(flat, lifted) <= viewportBottom
   })
   const choices = reachable.length > 1 ? reachable.filter(({ spot }) => spot !== previous) : reachable
-  return choices[Math.floor(Math.random() * choices.length)] ?? { spot: 'corner', y: preferredY ?? 0 }
+  return choices[Math.floor(Math.random() * choices.length)] ?? { spot: 'corner', y: 0 }
 }
 
 /** CSS rotateY around the spine followed by the layer's perspective projection. */

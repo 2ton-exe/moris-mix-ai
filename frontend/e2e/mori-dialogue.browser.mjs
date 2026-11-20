@@ -154,6 +154,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
         sprite: sprite?.getAttribute('src'),
         spriteFootY: sprite ? sprite.getBoundingClientRect().top + sprite.getBoundingClientRect().height * 230.6 / 240 : null,
         travel: Number(node.dataset.travel),
+        crease: Number(globalThis.getComputedStyle(node.querySelector('.mm-turn-crease')).opacity),
         spineDrift: Math.max(Math.abs(ring.x - rings[0].x), Math.abs(ring.y - rings[0].y)),
         bindingAlignment: index === 0 || index === 199 ? bindingAlignment(index === 199) : null,
         separation: point && Math.hypot(point.x - cornerX, point.y - cornerY),
@@ -198,6 +199,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
       measurements.desktopContactSamples++
       measurements.maxDesktopContactPx = Math.max(measurements.maxDesktopContactPx, sample.separation)
       assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
+      assert.ok(sample.crease > .2 && sample.crease < .9, `${label}: subtle crease appears while gripping`)
       if (sample.travel > 0) pulledPaper.push(sample)
     }
     if (sample.sprite && ['approach', 'recover'].includes(sample.motion)) {
@@ -228,7 +230,10 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
   for (const stage of motion) {
     const frames = samples.filter((sample) => sample.motion === stage)
     const sample = stage === 'turn' ? frames.find((frame) => frame.travel >= .8) : frames[Math.floor(frames.length / 2)]
-    await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), sample.progress)
+    await layer.evaluate((node, progress) => {
+      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
+      return new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve)))
+    }, sample.progress)
     await screenshot(stage)
   }
   await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), samples.at(-1).progress)
@@ -345,7 +350,7 @@ async function recordShortcutTravel(page, name, { moveTab = false } = {}) {
   }, moveTab)
 }
 
-async function assertShortcutTravel(recording, tabName, { checkSteps = false, checkMovedTab = false } = {}) {
+async function assertShortcutTravel(recording, tabName, { checkSteps = false, checkMovedTab = false, checkCurvature = false } = {}) {
   try {
     const { samples, linksClicked, shifted } = await recording.evaluate(({ result }) => result)
     const walking = samples.filter(({ stage }) => stage === 'travel')
@@ -356,6 +361,14 @@ async function assertShortcutTravel(recording, tabName, { checkSteps = false, ch
     assert.ok(arrival.every((sample) => sample.stillOnSource), `Navigation waits for Mori to arrive at ${tabName}`)
     assert.deepEqual(linksClicked, [], 'The real notebook tab receives no synthetic click')
     if (checkMovedTab) assert.equal(shifted, true, 'The destination changes position while Mori travels')
+    if (checkCurvature) {
+      const first = walking[0]
+      const last = walking.at(-1)
+      const dx = last.x - first.x
+      const dy = last.y - first.y
+      const offset = Math.max(...walking.map(({ x, y }) => Math.abs(dx * (y - first.y) - dy * (x - first.x)) / Math.hypot(dx, dy)))
+      assert.ok(offset >= 6, `Mori’s route bends toward ${tabName} by ${offset}px`)
+    }
     if (checkSteps) {
       const frames = walking.filter(({ sprite, facing }) => sprite?.includes(`/${facing}/walk-`))
       assert.ok(new Set(frames.map(({ sprite }) => sprite)).size >= 2, 'Mori shows distinct directional walking frames')
@@ -444,7 +457,7 @@ try {
       const recipesTab = page.getByRole('navigation', { name: 'Journal sections' })
       const notesTravel = await recordShortcutTravel(page, 'Quick AI Entry')
       await chat.getByRole('button', { name: 'Open cooking notes' }).click()
-      await assertShortcutTravel(notesTravel, 'Quick AI Entry')
+      await assertShortcutTravel(notesTravel, 'Quick AI Entry', { checkCurvature: true })
       await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
 
       const pantryTravel = await recordShortcutTravel(page, 'AI Chef')
