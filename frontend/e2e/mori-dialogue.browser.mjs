@@ -126,6 +126,7 @@ async function verifyMoriPageTurn(page, character, direction) {
   const spine = await page.locator('.mm-journal-ring').first().boundingBox()
   const width = page.viewportSize().width
   const journey = new URL(page.url()).pathname.split('/').at(-1)
+  const grabOffset = await layer.locator('[data-page-corner]').evaluate((marker) => marker.offsetTop)
   const points = [...new Set([.1, .22, .32, .54, .68, .85, .95, ...Array.from({ length: 29 }, (_, i) => Number((.26 + i * .02).toFixed(2)))])].sort((a, b) => a - b)
   for (const progress of points) {
     const contact = await layer.evaluate((node, progress) => {
@@ -138,14 +139,21 @@ async function verifyMoriPageTurn(page, character, direction) {
       const hole = [...surface.querySelectorAll('.mm-journal-hole')].map((element) => element.getBoundingClientRect()).find((box) => box.width > 0)
       const rightEndpoint = node.dataset.layout === 'single' || (progress < .54 ? node.dataset.direction === 'forward' : node.dataset.direction === 'backward')
       const alignment = hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : null
-      return { alignment, connected: node.isConnected, phase: node.dataset.phase, progress: node.dataset.progress, leaf: node.querySelector('.mm-turn-leaf').getBoundingClientRect().toJSON(), distance: Math.hypot(point.x - corner.x, point.y - corner.y), hand: { x: point.x, y: point.y }, corner: { x: corner.x, y: corner.y }, ring: { x: ring.x, y: ring.y } }
+      const crease = surface.querySelector('.mm-turn-crease')
+      const creaseOpacity = crease ? Number(globalThis.getComputedStyle(crease).opacity) : 0
+      const creaseBounds = crease?.getBoundingClientRect()
+      const creaseFollowsPaw = creaseBounds && point.x >= creaseBounds.left - 2 && point.x <= creaseBounds.right + 2 && point.y >= creaseBounds.top - 2 && point.y <= creaseBounds.bottom + 2
+      return { alignment, creaseOpacity, creaseFollowsPaw, connected: node.isConnected, phase: node.dataset.phase, progress: node.dataset.progress, leaf: node.querySelector('.mm-turn-leaf').getBoundingClientRect().toJSON(), distance: Math.hypot(point.x - corner.x, point.y - corner.y), hand: { x: point.x, y: point.y }, corner: { x: corner.x, y: corner.y }, ring: { x: ring.x, y: ring.y } }
     }, progress)
     if (progress >= .26 && progress <= .82) { measurements.contactSamples++; measurements.maxContactPx = Math.max(measurements.maxContactPx, contact.distance) }
     measurements.maxSpineDriftPx = Math.max(measurements.maxSpineDriftPx, Math.abs(contact.ring.x - spine.x), Math.abs(contact.ring.y - spine.y))
     if ([.1, .95].includes(progress)) measurements.maxBindingPx = Math.max(measurements.maxBindingPx, contact.alignment ?? Infinity)
+    if (progress === .32 || progress === .68) assert.ok(contact.creaseOpacity > .25 && contact.creaseFollowsPaw, 'A tiny crease follows the mitt on the turning paper')
+    if (progress === .1 || progress === .95) assert.equal(contact.creaseOpacity, 0, 'The paper is flat before and after gripping')
     if (progress >= .26 && progress <= .82) assert.ok(contact.distance <= 2, `${width}px ${direction} p=${progress}: detached mitt ${JSON.stringify(contact)}`)
     if ([.1, .95].includes(progress)) assert.ok(contact.alignment !== null && contact.alignment <= 1, `Hole and loop endpoint must align: ${JSON.stringify(contact)}`)
     if (progress >= .26 && progress <= .82 && contact.corner.x >= 0 && contact.corner.x <= width && contact.corner.y >= 0) assert.ok(contact.hand.x >= -2 && contact.hand.x <= width + 2 && contact.hand.y >= -2, 'Attached mitt stays within the viewport when the page corner is visible')
+    if (grabOffset > 0 && progress >= .26 && progress <= .82) assert.ok(contact.hand.y >= -2 && contact.hand.y <= page.viewportSize().height + 2, 'A chosen grab remains reachable even when the page lifts')
     assert.ok(Math.abs(contact.ring.x - spine.x) <= 1 && Math.abs(contact.ring.y - spine.y) <= 1, 'Spine stays fixed')
     if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${progress}.png`) })
   }
@@ -171,6 +179,7 @@ async function verifyMoriPageTurn(page, character, direction) {
   const footer = await page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number').boundingBox()
   assert.ok(footer && footer.y >= 0 && footer.y + footer.height <= page.viewportSize().height, 'Settled footer stays inside the visible paper')
   assert.ok(handoff.every((position) => position.delta <= 2), `Destination moves at handoff: ${JSON.stringify(handoff)}`)
+  return grabOffset
 }
 
 try {
@@ -189,36 +198,43 @@ try {
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
     const editor = chat.getByRole('button', { name: 'Open recipe editor' })
     const tap = page.locator('.mori-navigation-tap')
+    const character = page.getByRole('group', { name: 'Mori companion' })
+    const journalTabs = page.getByRole('navigation', { name: 'Journal sections' })
 
-    // Freeze the brief gesture at contact while checking the route and its actual geometry.
-    const pinTap = () => tap.evaluate((element) => {
-      const observer = new globalThis.MutationObserver(() => {
-        const animation = element.getAnimations()[0]
-        if (!animation) return
-        observer.disconnect()
-        animation.pause()
-        animation.currentTime = Number(animation.effect.getTiming().duration) * .55
-      })
-      observer.observe(element, { attributes: true, attributeFilter: ['hidden'] })
-    })
-    await pinTap()
+    await page.clock.install()
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000))
+    const idle = await character.boundingBox()
     await editor.focus()
     await page.keyboard.press('Enter')
-    await expect(tap).toHaveCSS('opacity', '1')
-    await expect(editor).toHaveAttribute('data-mori-tap-target', '')
+    await page.clock.runFor(200)
+    await expect(character).toHaveAttribute('data-navigation-stage', 'travel')
     await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
     await expect(chat.getByRole('log')).toContainText('Opening a new recipe.')
     await expect(chat.getByRole('log')).toBeFocused()
-    const [tapBounds, editorBounds] = await Promise.all([tap.boundingBox(), editor.boundingBox()])
-    assert.ok(tapBounds && editorBounds)
-    const gap = Math.min(Math.abs(tapBounds.x + tapBounds.width - editorBounds.x), Math.abs(editorBounds.x + editorBounds.width - tapBounds.x))
-    assert.ok(gap <= 12, `Mori must tap beside the activated control (gap ${gap}px)`)
+    await expect(editor).not.toHaveAttribute('data-mori-tap-target')
+    await expect(editor).toBeDisabled()
+    await chat.getByRole('button', { name: 'Open recipes' }).evaluate((button) => button.click())
+    await expect(chat.getByRole('log')).not.toContainText('Opening your recipe collection.')
+    const moving = await character.boundingBox()
+    assert.ok(moving && idle && Math.hypot(moving.x - idle.x, moving.y - idle.y) > 25)
+    if (width === 1440) await page.setViewportSize({ width: 1380, height: 900 })
+    await page.clock.runFor(225)
+    await expect(character).toHaveAttribute('data-navigation-stage', 'arrival')
+    await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+    const tab = journalTabs.getByRole('link', { name: 'New recipe' })
+    const tabBox = await tab.boundingBox()
+    const handBox = await character.locator('[data-mori-hand]').boundingBox()
+    assert.ok(tabBox && handBox)
+    assert.ok(Math.hypot(handBox.x - (tabBox.x + tabBox.width / 2), handBox.y - (tabBox.y + tabBox.height / 2)) <= 3, 'Mori’s paw reaches the actual journal tab')
     await page.screenshot({ path: path.join(outputDir, `${width}-mori-navigation-tap.png`) })
-    await tap.evaluate((element) => element.getAnimations()[0].play())
+    await page.clock.runFor(500)
+    await page.clock.resume()
     await expect(page).toHaveURL(`${origin}app/recipes/new`)
     await expect(chat).toBeVisible()
+    await expect(character).not.toHaveAttribute('data-navigation-stage')
     const editorHeading = page.getByRole('heading', { name: 'New recipe', exact: true })
     await expect(editorHeading).toBeFocused()
+    if (width === 1440) await page.setViewportSize({ width, height: 900 })
     await editor.press('Enter')
     await expect(editorHeading).toBeFocused()
     const title = page.getByRole('textbox', { name: 'Recipe title' })
@@ -243,14 +259,39 @@ try {
     await expect(title).toHaveValue('Unsaved soup')
 
     await collection.click()
+    const idleBeforeDiscard = await page.locator('.mori-pet-character').evaluate((element) => ({
+      x: Number.parseFloat(element.style.left),
+      y: Number.parseFloat(element.style.top),
+    }))
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000))
     await dialog.getByRole('button', { name: 'Discard Changes' }).click()
-    await expect(tap).toBeVisible()
+    await page.clock.runFor(40)
+    await expect(character).toHaveAttribute('data-navigation-stage', /travel|arrival/)
+    const departure = await character.boundingBox()
+    assert.ok(departure && Math.hypot(departure.x - idleBeforeDiscard.x, departure.y - idleBeforeDiscard.y) < 24, 'After confirming, Mori departs from his visible idle position')
+    await expect(journalTabs.getByRole('link', { name: 'My recipes' })).toHaveAttribute('data-mori-tap-target', '')
+    await page.clock.resume()
     await expect(page).toHaveURL(`${origin}app/recipes`)
     await expect(chat).toBeVisible()
     const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })
     await expect(collectionHeading).toBeFocused()
     await collection.press('Enter')
     await expect(collectionHeading).toBeFocused()
+
+    const notes = chat.getByRole('button', { name: 'Open cooking notes' })
+    await notes.click()
+    await expect(journalTabs.getByRole('link', { name: 'Quick AI Entry' })).toHaveAttribute('data-mori-tap-target', '')
+    await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
+    const pantryShortcut = chat.getByRole('button', { name: 'Open pantry' })
+    await pantryShortcut.click()
+    await expect(journalTabs.getByRole('link', { name: 'AI Chef' })).toHaveAttribute('data-mori-tap-target', '')
+    await expect(page.getByRole('textbox', { name: 'Pantry ingredient' })).toBeFocused()
+
+    // A layout with no measurable bookmark still reaches the destination.
+    await journalTabs.getByRole('link', { name: 'New recipe' }).evaluate((link) => { link.style.visibility = 'hidden' })
+    await editor.click()
+    await expect(page.getByRole('heading', { name: 'New recipe', exact: true })).toBeFocused()
+    await expect(character).not.toHaveAttribute('data-navigation-stage')
 
     const composer = chat.getByRole('textbox', { name: 'Message Mori' })
     const send = chat.getByRole('button', { name: 'Send' })
@@ -314,11 +355,18 @@ try {
       })
       assert.equal(shortcutsFit, true, 'Every desktop shortcut must fit without horizontal scrolling')
     }
+    const prompts = panel.getByRole('group', { name: 'Suggested prompts' })
+    const promptSummary = panel.getByText('Suggested prompts', { exact: true })
+    await expect(prompts).toBeHidden()
     await page.screenshot({ path: path.join(outputDir, `${width}-companion.png`) })
+    await promptSummary.press('Space')
+    await expect(prompts).toBeVisible()
+    if (width === 1440) await page.screenshot({ path: path.join(outputDir, '1440-companion-prompts.png') })
     await panel.getByRole('button', { name: 'See more', exact: true }).click()
     await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
     await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
-    await panel.getByRole('button', { name: 'See less', exact: true }).click()
+    await promptSummary.click()
+    await expect(prompts).toBeHidden()
 
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
@@ -374,9 +422,10 @@ try {
     await expect(page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
     await expect(trigger).toBeVisible()
     await page.getByRole('button', { name: /^Next Pages?$/ }).click()
-    await verifyMoriPageTurn(page, character, 'forward')
+    const firstGrab = await verifyMoriPageTurn(page, character, 'forward')
     await page.getByRole('button', { name: /^Previous Pages?$/ }).click()
-    await verifyMoriPageTurn(page, character, 'backward')
+    const secondGrab = await verifyMoriPageTurn(page, character, 'backward')
+    if (width === 1440) assert.notEqual(firstGrab, secondGrab, 'Consecutive turns vary the grip when multiple spots fit')
 
     const chefApp = await createJournal(width, { chef: true })
     await chefApp.page.goto(`${origin}app/chef`)
@@ -398,8 +447,11 @@ try {
     await expect(chefApp.page).toHaveURL(`${origin}app/chef`)
     const pantryInput = chefApp.page.getByRole('textbox', { name: 'Pantry ingredient' })
     await expect(pantryInput).toBeFocused()
+    await chefPanel.getByText('Suggested prompts', { exact: true }).click()
     await chefPanel.getByRole('button', { name: 'See more', exact: true }).click()
     await chefPanel.getByRole('button', { name: 'Use my ingredients', exact: true }).click()
+    await expect(chefPanel.getByRole('group', { name: 'Suggested prompts' })).toBeHidden()
+    await expect(chefPanel.getByRole('textbox', { name: 'Message Mori' })).toBeFocused()
     await chefPanel.getByRole('textbox', { name: 'Message Mori' }).fill('rice; quick dinner')
     await chefPanel.getByRole('button', { name: 'Send' }).click()
     const reviewRecipe = chefPanel.getByRole('button', { name: 'Review recipe' })
@@ -435,6 +487,7 @@ try {
   await quickApp.page.goto(`${origin}app/quick-entry`)
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  await quickPanel.getByText('Suggested prompts', { exact: true }).click()
   await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
   await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
   await quickPanel.getByRole('textbox', { name: 'Message Mori' }).fill('I simmered rice with tomatoes until soft.')
