@@ -62,7 +62,7 @@ export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsP
   }
 
   return <ul className="mm-ai-chef__card-grid" ref={listRef} role="list">
-    {items.map(({ id, name }) => <li key={id} data-tone={id % 5} data-long-name={name.length > 30 || undefined} data-pantry-ingredient={onRemove ? id : undefined}>
+    {items.map(({ id, name }) => <li key={id} data-tone={id % 5} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined}>
       {onRemove ? <IngredientEmoji name={name} /> : <span className="recipe-ingredient-emoji" />}
       <span className="mm-ai-chef__ingredient-name">{name}</span>
       <button className="mm-ai-chef__remove" type="button" disabled={disabled} aria-label={`Remove ${name}`} onClick={(event) => remove(id, event)}>

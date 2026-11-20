@@ -346,6 +346,8 @@
     border-radius: 6px;
     text-decoration: none;
   }
+  .mm-ai-chef__card-grid > [data-long-name='extended'] { grid-column: 1 / -1; }
+
   @media (max-height: 760px), (max-width: 1199px) {
     .mm-ai-chef__card-grid > [data-long-name] { grid-column: 1 / -1; }
     .mm-ai-chef__card-grid > [data-long-name] .recipe-ingredient-emoji { grid-area: 1 / 1; }

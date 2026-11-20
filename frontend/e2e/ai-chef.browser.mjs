@@ -357,7 +357,7 @@ try {
     return card.scrollWidth <= card.clientWidth && card.getBoundingClientRect().bottom < footer.getBoundingClientRect().top
   })
   assert.ok(fits, 'The longest ingredient fits its card above the actions on a compact desktop continuation')
-  for (const [width, height] of [[1366, 550], [1024, 450]]) {
+  for (const [width, height] of [[1366, 768], [1366, 550], [1024, 450]]) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await expect(longCard).toBeVisible()
