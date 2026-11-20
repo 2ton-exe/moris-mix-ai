@@ -33,7 +33,8 @@ try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  for (const width of [1440, 1280, 1100, 768, 375, 320]) {
+  for (const width of [1440, 1280, 1100, 768, 600, 375, 320]) {
+    const accountEmail = width === 600 ? 'long-account-name-that-wraps-the-journal-toolbar-at-600px@example.test' : 'journal-test@example.test'
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' })
     const page = await context.newPage()
     const errors = []
@@ -47,18 +48,18 @@ try {
       if (url.origin === new URL(origin).origin) return route.continue()
       assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
       if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204 })
-      if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'journal-test@example.test' } })
+      if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: accountEmail } })
       assert.equal(route.request().method(), 'GET')
       if (url.pathname === '/functions/v1/recipes') return route.fulfill({ json: { recipes: [recipe], has_more: false, next_cursor: null } })
       if (url.pathname === `/functions/v1/recipes/${recipe.id}`) return route.fulfill({ json: { recipe } })
       return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message: 'Recipe not found.' } } })
     })
-    await page.addInitScript(({ userId }) => {
+    await page.addInitScript(({ userId, email }) => {
       const expires_at = Math.floor(Date.now() / 1000) + 3600
-      const user = { id: userId, aud: 'authenticated', email: 'journal-test@example.test', app_metadata: {}, user_metadata: {}, created_at: '2026-10-25T00:00:00Z' }
+      const user = { id: userId, aud: 'authenticated', email, app_metadata: {}, user_metadata: {}, created_at: '2026-10-25T00:00:00Z' }
       const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: userId, exp: expires_at }))}.test-signature`
       globalThis.localStorage.setItem('sb-journal-shell-auth-token', JSON.stringify({ access_token: token, refresh_token: 'test-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
-    }, { userId })
+    }, { userId, email: accountEmail })
 
     const bookmarks = page.getByRole('navigation', { name: 'Journal sections' })
     const moriBookmark = page.getByRole('button', { name: 'Talk to Mori' })
@@ -105,6 +106,15 @@ try {
     await assertJournalSemantics(page, `${width}px dashboard`)
     await expect(bookmarks.getByRole('link', { name: 'My recipes' })).toHaveAttribute('aria-current', 'page')
     await checkShell('dashboard')
+    if (width === 600) {
+      const spacing = await page.evaluate(() => ({
+        toolbarHeight: globalThis.document.querySelector('.mm-desk-toolbar').getBoundingClientRect().height,
+        toolbarBottom: globalThis.document.querySelector('.mm-desk-toolbar').getBoundingClientRect().bottom,
+        tabsTop: globalThis.document.querySelector('.mm-bookmarks--journal .mm-bookmark').getBoundingClientRect().top,
+      }))
+      assert.ok(spacing.toolbarHeight > 48, `600px test must wrap the toolbar: ${JSON.stringify(spacing)}`)
+      assert.ok(spacing.tabsTop >= spacing.toolbarBottom + 8, `600px journal tabs must clear the wrapped toolbar: ${JSON.stringify(spacing)}`)
+    }
     await page.goto(`${origin}app/chef`)
     await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
     await expect(bookmarks.getByRole('link', { name: 'AI Chef' })).toHaveAttribute('aria-current', 'page')

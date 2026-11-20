@@ -313,7 +313,7 @@
   .mm-journal-stage {
     --mm-journal-tabs-height: 44px;
     --mm-tab-reserve: 0px;
-    --mm-top-ui: 112px;
+    --mm-top-ui: max(112px, var(--mm-toolbar-reserve, 0px));
     --mm-ring-zone: 18px;
     --mm-overhang: 9px;
     --mm-gutter: 0px;
@@ -327,7 +327,7 @@
     --mm-ring-height: 9px;
     width: var(--mm-board-width);
   }
-  .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: 166px; }
+  .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: max(166px, var(--mm-toolbar-reserve, 0px)); }
   .mm-journal-board--left { display: none; }
   .mm-journal-board--right { left: 0; width: 100%; border-radius: 6px var(--mm-radius-out) var(--mm-radius-out) 6px; }
   .mm-journal-board--right::before { left: var(--mm-ring-zone); }
@@ -367,14 +367,14 @@
   .mm-desk-toolbar { gap: 4px 8px; }
   .mm-desk-toolbar .journal-account { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
   .mm-desk-toolbar .journal-account > span { flex: 1; font-size: 12px; min-width: 0; }
-  .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: 206px; }
+  .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: max(206px, var(--mm-toolbar-reserve, 0px)); }
   .mm-stationery--pencil, .mm-stationery--clips { display: none; }
 }
 @media (max-width: 460px) {
   .mm-journal-stage { --mm-journal-tabs-height: 52px; }
   .mm-journal-page > .mm-bookmarks--journal { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mm-journal-page > .mm-bookmarks--journal .mm-bookmark { min-inline-size: 0; flex-direction: column; gap: 2px; padding: 4px 2px; font-size: 11px; line-height: 1.1; white-space: normal; }
-  .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: 248px; }
+  .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: max(248px, var(--mm-toolbar-reserve, 0px)); }
 }
 @media (prefers-reduced-motion: reduce) {
   .mm-journal-page > .mm-bookmarks .mm-bookmark { transition: none; }
