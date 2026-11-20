@@ -3,9 +3,9 @@
 import { Mori } from './Mori'
 import type { Point } from './moriMovement'
 import { createPaperGrip } from './moriPaperGrip'
-import { createMoriPaperPlan, isPaperRest, MORI_ART_SCALE, MORI_DESKTOP_SIZE, MORI_RELEASE_PROGRESS, moriRestFoot } from './moriPaperMotion'
+import { createMoriPaperPlan, isPaperRest, MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from './moriPaperMotion'
 import { loadedMoriSprite, MORI_FOOT, moriSpriteFrame } from './moriSpriteAtlas'
-import { smooth, TURN_PERSPECTIVE, turnFrame, type TurnCompanion, type TurnDirection } from './pageTurnMotion'
+import { chooseTurnGrab, projectGrabPoint, smooth, turnFrame, type GrabSpot, type TurnCompanion, type TurnDirection } from './pageTurnMotion'
 
 export function MoriPaperActor() {
   return <div className="mm-mori-paper-actor" data-mori-paper-actor hidden>
@@ -14,12 +14,13 @@ export function MoriPaperActor() {
   </div>
 }
 
-export function createMoriPaperScene({ book, layer, leaf, direction, companion, settle }: {
+export function createMoriPaperScene({ book, layer, leaf, direction, companion, previousGrab, settle }: {
   book: HTMLElement
   layer: HTMLElement
   leaf: HTMLElement
   direction: TurnDirection
   companion: TurnCompanion
+  previousGrab: GrabSpot
   settle: () => void
 }) {
   const actor = layer.querySelector<HTMLElement>('[data-mori-paper-actor]')
@@ -60,31 +61,36 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   const [perspectiveX, perspectiveY] = layerStyle.perspectiveOrigin.split(' ').map(parseFloat)
   if (![hinge, perspectiveX, perspectiveY].every(Number.isFinite)) return null
 
-  const grip = createPaperGrip(actor, direction)
+  const grip = createPaperGrip(actor)
   if (!grip) return null
   const control = companion.startSpatial()
   if (!control) return null
-  marker.dataset.moriPaperGrip = ''
-  const markerRect = marker.getBoundingClientRect()
-  const corner = toLocal({ x: markerRect.left, y: markerRect.top })
+  const radius = toLocal({ x: direction === 'forward' ? leafBox.right : leafBox.left, y: leafBox.top }).x - hinge
+  const geometry = {
+    left: 0, top: 0, width: layerRect.width / scaleX, height: layerRect.height / scaleY,
+    hinge, pageTop: toLocal(leafBox).y, radius,
+    perspectiveOrigin: { x: perspectiveX, y: perspectiveY },
+  }
+  const liftedAngle = direction === 'forward' ? -90 : 90
+  const pageHeight = leafBox.height / scaleY
+  const liftedTop = projectGrabPoint(geometry, liftedAngle, 0).y
+  const liftedHeight = projectGrabPoint(geometry, liftedAngle, pageHeight).y - liftedTop
+  const preferredY = Math.max(0, Math.min(pageHeight, (lane - 30 - liftedTop) * pageHeight / liftedHeight))
+  const viewport = window.visualViewport
+  const grab = chooseTurnGrab({
+    geometry, direction, pageHeight, previous: previousGrab, preferredY,
+    viewportTop: ((viewport?.offsetTop ?? 0) - layerRect.top) / scaleY,
+    viewportHeight: (viewport?.height ?? innerHeight) / scaleY,
+  })
+  leaf.style.setProperty('--mm-grab-y', `${grab.y}px`)
   const foot = toLocal(control.screenFoot)
   const safeFoot = isPaperRest(foot, left, right)
   const start = safeFoot ? foot : moriRestFoot(right)
-  const plan = createMoriPaperPlan({ left, right, start, corner, lane, direction })
-  const radius = corner.x - hinge
-  // Project the measured grip point through the sheet’s rotateY and the parent perspective.
-  const cornerAt = (angle: number) => {
-    const radians = angle * Math.PI / 180
-    const lens = TURN_PERSPECTIVE / (TURN_PERSPECTIVE + radius * Math.sin(radians))
-    return {
-      x: perspectiveX + (hinge + radius * Math.cos(radians) - perspectiveX) * lens,
-      y: perspectiveY + (corner.y - perspectiveY) * lens,
-    }
-  }
+  const flip = (paper: number) => turnFrame(.26 + .56 * paper, direction)
+  const contact = (progress: number) => projectGrabPoint(geometry, flip(progress).angle, grab.y)
+  const plan = createMoriPaperPlan({ left, right, start, contact, lane, direction })
   art.querySelector('[data-mori-hand]')?.removeAttribute('data-mori-hand')
   const feet = Array.from(art.querySelectorAll<SVGEllipseElement>('.mori-foot-l, .mori-foot-r'))
-  const flip = (paper: number) => turnFrame(.26 + .56 * paper, direction)
-  const releaseGrip = cornerAt(flip(MORI_RELEASE_PROGRESS).angle)
   art.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-MORI_FOOT.y * MORI_ART_SCALE}px)`
   let sprite: HTMLImageElement | null = null
   let spriteFacing: string | undefined
@@ -101,6 +107,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
 
   return {
     duration: plan.duration,
+    grabSpot: grab.spot,
     apply(progress: number) {
       const frame = plan.sample(progress)
       actor.dataset.moriMotion = frame.phase
@@ -131,16 +138,18 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
         const stride = distance === undefined ? 0 : Math.sin(distance * Math.PI / 80) * 6
         feet.forEach((foot, index) => { foot.style.transform = `translateY(${Math.min(0, index ? -stride : stride)}px)` })
       }
-      actor.toggleAttribute('data-mori-gripping', 'attached' in frame && frame.attached)
+      const attached = 'attached' in frame && frame.attached
+      actor.toggleAttribute('data-mori-gripping', attached)
+      leaf.style.setProperty('--mm-crease-strength', String(attached ? 1 : frame.phase === 'release' ? frame.reach : 0))
       if ('reach' in frame && reaching) {
-        const target = frame.phase === 'release' ? releaseGrip : cornerAt(paper.angle)
-        const localX = MORI_FOOT.x + (target.x - frame.position.x) / MORI_ART_SCALE
-        const localY = MORI_FOOT.y + (target.y - frame.position.y) / MORI_ART_SCALE
-        const restX = direction === 'forward' ? 146 : 54
-        grip.show(frame.phase === 'release' ? 'release' : frame.attached ? 'grip' : 'reach', {
+        const localX = MORI_FOOT.x + (frame.target.x - frame.position.x) / MORI_ART_SCALE
+        const localY = MORI_FOOT.y + (frame.target.y - frame.position.y) / MORI_ART_SCALE
+        const facing = frame.facing === 'E' ? 'E' : 'W'
+        const restX = facing === 'E' ? 146 : 54
+        grip.show(facing, frame.phase === 'release' ? 'release' : frame.attached ? 'grip' : 'reach', {
           x: restX + (localX - restX) * frame.reach,
           y: 196 + (localY - 196) * frame.reach,
-        })
+        }, frame.phase === 'turn' ? frame.step : 0)
       } else grip.hide()
       return paper
     },
@@ -150,7 +159,6 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
       sprite?.remove()
       grip.hide()
       actor.hidden = true
-      delete marker.dataset.moriPaperGrip
       control.stop()
     },
   }

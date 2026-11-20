@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import type { RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { createMoriPaperScene, MoriPaperActor } from './MoriPaperActor'
-import { getTurnCompanion, projectCorner, TURN_DURATION, TURN_PERSPECTIVE, smooth, turnFrame } from './pageTurnMotion'
+import { chooseTurnGrab, getTurnCompanion, projectGrabPoint, TURN_DURATION, TURN_PERSPECTIVE, smooth, turnFrame, type GrabSpot } from './pageTurnMotion'
 
 export type JournalTurnDirection = 'forward' | 'backward'
 export type JournalTurnLayout = 'spread' | 'single'
@@ -272,8 +272,8 @@ export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
     {turn.layout === 'single' && <div ref={single} className="mm-turn-under mm-turn-under--single" />}
     {next && <div className="mm-turn-ground-shadow" />}
     {next && <div className={`mm-turn-leaf mm-turn-leaf--${turn.direction}`} data-direction={turn.direction} data-layout={turn.layout}>
-      <div className="mm-turn-face mm-turn-face--front"><div ref={front} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
-      <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
+      <div className="mm-turn-face mm-turn-face--front"><div ref={front} className="mm-turn-content" /><div className="mm-turn-shade" /><span className="mm-turn-crease" /></div>
+      <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /><span className="mm-turn-crease" /></div>
       <span data-page-corner="true" className="mm-turn-corner" />
     </div>}
     {next && !singleLeaf && <MoriPaperActor />}
@@ -294,6 +294,7 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
   const frame = useRef<number | null>(null)
   const settleFrame = useRef<(() => void) | null>(null)
   const stopCompanion = useRef<(() => void) | null>(null)
+  const lastGrab = useRef<GrabSpot>('corner')
   const clearMotion = useCallback(() => {
     if (frame.current !== null) cancelAnimationFrame(frame.current)
     frame.current = null
@@ -403,9 +404,20 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const geometry = { left: rect.left, top: rect.top, width: rect.width, height: rect.height, hinge: paper.left - rect.left + origin, pageTop: paper.top - rect.top, radius, single: motionLayout === 'single' }
     const companion = getTurnCompanion()
     const spatial = companion && motionLayout === 'spread' ? createMoriPaperScene({
-      book, layer, leaf, direction: motionDirection, companion, settle: () => finish(motionId),
+      book, layer, leaf, direction: motionDirection, companion, previousGrab: lastGrab.current, settle: () => finish(motionId),
     }) : null
     const move = motionLayout === 'single' ? companion?.start(motionDirection, true) : undefined
+    const viewport = window.visualViewport
+    const grab = move ? chooseTurnGrab({
+      geometry, direction: motionDirection, pageHeight: paper.height, previous: lastGrab.current,
+      viewportTop: viewport?.offsetTop ?? 0,
+      viewportHeight: viewport?.height ?? window.innerHeight,
+    }) : null
+    if (spatial) lastGrab.current = spatial.grabSpot
+    if (grab) {
+      lastGrab.current = grab.spot
+      leaf.style.setProperty('--mm-grab-y', `${grab.y}px`)
+    }
     stopCompanion.current = spatial?.stop ?? (move && companion ? () => companion.stop() : null)
     const duration = spatial?.duration ?? TURN_DURATION
     layer.dataset.duration = String(duration)
@@ -427,7 +439,13 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
       layer.dataset.progress = String(progress)
       layer.dataset.travel = String(value.travel)
       layer.dataset.stage = value.stage
-      move?.(value, projectCorner(geometry, value.angle))
+      if (move && grab) {
+        const { left, top } = book.getBoundingClientRect()
+        geometry.left = left
+        geometry.top = top
+        leaf.style.setProperty('--mm-crease-strength', String(value.grip * smooth((progress - .24) / .08)))
+        move(value, projectGrabPoint(geometry, value.angle, grab.y))
+      }
     }
     settleFrame.current = () => apply(1)
     let started: number | null = null

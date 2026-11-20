@@ -22,16 +22,53 @@ export function turnFrame(progress: number, direction: TurnDirection, single = f
 export interface TurnGeometry {
   left: number; top: number; width: number; height: number
   hinge: number; pageTop: number; radius: number; single?: boolean
+  perspectiveOrigin?: Point
+}
+
+export type GrabSpot = 'upper' | 'middle' | 'lower' | 'corner'
+type TurnGrab = { spot: GrabSpot; y: number }
+
+export function chooseTurnGrab({ geometry, direction, pageHeight, viewportTop, viewportHeight, previous, preferredY }: {
+  geometry: TurnGeometry
+  direction: TurnDirection
+  pageHeight: number
+  viewportTop: number
+  viewportHeight: number
+  previous: GrabSpot
+  preferredY?: number
+}): TurnGrab {
+  const liftedAngle = direction === 'forward' ? -90 : 90
+  const pageTop = geometry.top + geometry.pageTop
+  const viewportBottom = viewportTop + viewportHeight - 16
+  const expansion = projectGrabPoint(geometry, liftedAngle, pageHeight).y - projectGrabPoint(geometry, liftedAngle, 0).y
+  const lower = Math.min(pageHeight * .92, Math.floor((viewportBottom - projectGrabPoint(geometry, liftedAngle, 0).y) * pageHeight / expansion))
+  const spots: TurnGrab[] = preferredY === undefined
+    ? [{ spot: 'upper', y: pageHeight * .025 }, { spot: 'middle', y: pageHeight * .45 }]
+    : [{ spot: 'upper', y: preferredY - 25 }, { spot: 'middle', y: preferredY }, { spot: 'lower', y: preferredY + 25 }]
+  if (preferredY === undefined && lower >= pageHeight * .6) spots.push({ spot: 'lower', y: lower })
+  const reachable = spots.filter(({ y }) => {
+    const flat = pageTop + y
+    const lifted = projectGrabPoint(geometry, liftedAngle, y).y
+    return y >= 0 && y <= pageHeight && Math.min(flat, lifted) >= viewportTop && Math.max(flat, lifted) <= viewportBottom
+  })
+  const choices = reachable.length > 1 ? reachable.filter(({ spot }) => spot !== previous) : reachable
+  return choices[Math.floor(Math.random() * choices.length)] ?? { spot: 'corner', y: preferredY ?? 0 }
 }
 
 /** CSS rotateY around the spine followed by the layer's perspective projection. */
-export function projectCorner(geometry: TurnGeometry, angle: number) {
+export function projectGrabPoint(geometry: TurnGeometry, angle: number, grabY: number) {
   const radians = angle * Math.PI / 180
   const x = geometry.hinge + geometry.radius * Math.cos(radians)
   const z = -geometry.radius * Math.sin(radians)
   const scale = TURN_PERSPECTIVE / (TURN_PERSPECTIVE - z)
-  const perspectiveX = geometry.single ? geometry.hinge : geometry.width / 2
-  return { x: geometry.left + perspectiveX + (x - perspectiveX) * scale, y: geometry.top + geometry.pageTop }
+  const origin = geometry.perspectiveOrigin ?? {
+    x: geometry.single ? geometry.hinge : geometry.width / 2,
+    y: geometry.pageTop,
+  }
+  return {
+    x: geometry.left + origin.x + (x - origin.x) * scale,
+    y: geometry.top + origin.y + (geometry.pageTop + grabY - origin.y) * scale,
+  }
 }
 
 export function mittAnchor(angle: number) {
@@ -47,7 +84,7 @@ export interface SpatialCompanion {
 
 export interface TurnCompanion {
   startSpatial: () => SpatialCompanion | null
-  start: (direction: TurnDirection, single: boolean) => ((frame: ReturnType<typeof turnFrame>, corner: { x: number; y: number }) => void)
+  start: (direction: TurnDirection, single: boolean) => ((frame: ReturnType<typeof turnFrame>, contact: Point) => void) | undefined
   stop: () => void
 }
 // Explicit registration keeps the persistent companion outside the route/form tree.

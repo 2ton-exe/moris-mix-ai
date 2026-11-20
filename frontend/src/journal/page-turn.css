@@ -175,7 +175,6 @@
 .mm-turn-under--single .mm-journal-page-footer { visibility: hidden; }
 .mm-turn-under--retained :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-old-footer-opacity, 1); }
 
-.mm-turn-corner[data-mori-paper-grip] { top: 26%; }
 .mm-mori-paper-actor {
   position: absolute;
   inset: 0 auto auto 0;
@@ -183,7 +182,6 @@
   pointer-events: none;
 }
 .mm-mori-paper-actor[hidden] { display: none; }
-.mm-mori-paper-actor[data-mori-motion="release"] { z-index: 1; }
 .mm-mori-paper-actor > img { width: 96px; height: auto; }
 .mm-mori-paper-actor > :is(svg, img, [data-mori-foot]) {
   position: absolute;
