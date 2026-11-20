@@ -159,7 +159,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
       const goal = { x: center.x + (MORI_FOOT.x - reach.hand.x) * scale, y: center.y + (MORI_FOOT.y - reach.hand.y) * scale }
       if (start === undefined) {
         start = now
-        duration = Math.min(650, Math.max(360, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.55))
+        duration = Math.min(920, Math.max(360, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.4))
       }
       if (now - start < duration) walk(base, goal, now - start, scale, 'travel')
       else {
@@ -174,7 +174,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
           clearTab()
           character.dataset.navigationStage = 'return'
           returnStart = now
-          duration = Math.min(450, Math.max(250, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.1))
+          duration = Math.min(540, Math.max(250, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.1))
           blend = 0
           arrive(true)
         }
