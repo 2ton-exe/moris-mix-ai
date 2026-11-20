@@ -104,9 +104,11 @@ PostgreSQL hosted-integration checks; none is an AI failure test.
 
 ## Live extraction spot check
 
-The live suite is **manual and quota-limited**: the free tier allows roughly 20
-requests per project per model per day, and each of the three live cases costs
-one call. It is not run in CI and needs `GEMINI_API_KEY`.
+The live suite is **manual and quota-limited**, not part of ordinary PR or
+`main` CI, and requires an authorized `GEMINI_API_KEY`. Provider limits vary by
+project, model, and tier. Each test case invokes the adapter once, but the
+adapter may retry a provider failure once; case pass counts are **not** verified
+provider-request counts. See the [2026-11-20 Free-tier audit](devops/ai-aware-ci.md#provider-configuration-audit--2026-11-20).
 
 ```sh
 RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
@@ -117,7 +119,7 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
 The three cases cover vague amounts, a note with no taste description, and a
 note with a described taste. A fresh run on **2026-10-31** used the pinned
 `gemini-3.5-flash-lite` (`AI_MODEL` unset) and passed **3/3 in about 4 seconds**
-with no provider errors (3 of the roughly 20 daily calls):
+with no reported provider errors (the total provider-attempt count was not independently measured):
 
 | Case | Result |
 | ---- | ------ |
@@ -126,6 +128,26 @@ with no provider errors (3 of the roughly 20 daily calls):
 | Keeps described flavours and steps | Pass |
 
 This matches the historical 3/3 note in the adapter's model-selection comment.
+
+### Free-tier provider quota observation (2026-11-20)
+
+The original DevOps operator inspected **Mori's Mix AI Production** in the
+Google Cloud Billing console and Google AI Studio's Gemini API Rate Limit
+dashboard. The project displayed **no linked billing account** and the
+**Free tier**. For `gemini-3.5-flash-lite`, AI Studio showed **15 requests per
+minute (RPM)**, a **500 requests per day (RPD)** limit, and a **3 RPM peak**
+over the displayed 28-day period. The exact TPM limit is not quoted because
+the supplied dashboard image does not show its full numeric value. The operator
+reported that the key remains restricted to the Generative Language API and
+that no separate Gemini evaluation project exists. These are console
+observations, not an independent production-secret or Cloud IAM audit.
+
+The `AI_DAILY_LIMIT` default of 20 is an **application-level per-user
+logical-operation allowance**, not a Gemini Free-tier request limit or a
+provider-wide spending ceiling. The shared Gemini project means manual tests
+and production can compete for the same quota. No billed spend cap, isolated
+evaluation project, or exact provider-attempt count is claimed. This dated
+audit does not retroactively alter the October 31 and November 14 test results.
 
 ### Dedicated Gemini project re-verification (2026-11-14)
 

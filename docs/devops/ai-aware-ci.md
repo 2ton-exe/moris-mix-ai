@@ -26,8 +26,25 @@ The AI-owned [versioned dataset](../../supabase/functions/_shared/ai/eval_datase
 - Production provider requests originate in Supabase Edge Functions, not in the frontend or routine PR CI. The application uses server-side `GEMINI_API_KEY`, the Chef candidate-token secret `AI_CANDIDATE_TOKEN_SECRET`, and opt-in flags `AI_EXTRACT_ENABLED` / `AI_GENERATE_ENABLED`. Kill switches `AI_EXTRACT_DISABLED` and `AI_GENERATE_DISABLED` override those opt-ins. Record **names and roles only**, never values.
 - The AI owner's [November 14–15 evaluation record](../ai-evaluation-report.md#dedicated-gemini-project-re-verification-2026-11-14) documents a dedicated Gemini project, an API-restricted key, and a separately authorized, cost-guarded live verification. The [restoration record](../ai-evaluation-report.md#production-restoration-verification-2026-11-15) reports that the production opt-ins were restored and extraction/Chef previews worked; do **not** confuse this later state with the earlier temporary kill-switch test. Current secret values or enablement state have not been re-audited by this documentation change.
 - The backend has an application-level per-user daily `AI_DAILY_LIMIT` (default 20 logical operations), short-window controls, reservation/settlement behavior, bounded adapter retry, and stable failure responses; see [AI architecture](../ai-architecture.md) and [quota implementation](../../supabase/functions/_shared/ai/quota.ts). This is **not** an enforced project-wide Gemini monetary cap. A logical operation may contain more than one provider attempt due to retry.
-- **Still requires authorized provider-administrator evidence:** ownership of the Google project and key, its current service tier and project-level quotas, billing state and who can be charged, whether an enforceable spend ceiling exists, and whether an independently quota-scoped test project/key exists. API key restrictions or multiple keys in one project do not, by themselves, demonstrate isolated quota or a hard cost cap. No secret value or billing account data belongs in GitHub.
+- **2026-11-20 provider audit:** The original DevOps operator reviewed the existing Google Cloud project and AI Studio dashboards; dated, value-free findings and remaining gaps are recorded below. API-key restrictions or multiple keys within one project do not establish independent quota isolation, and an application-level quota is not a provider monetary cap. No secret values or private billing account data belong in GitHub.
 - The separate hosted Supabase RLS test database is **not** proof of a separate Gemini evaluation project. Staging currently does not constitute independently configured Gemini-provider staging merely because a staging frontend exists.
+
+### Provider configuration audit — 2026-11-20
+
+The original DevOps operator checked the existing **Mori's Mix AI Production** Google Cloud project and Gemini API Rate Limit dashboard using the project account. The following are **operator-observed, read-only console findings** as reported on 2026-11-20; they were not independently read from Google Cloud management APIs. No screenshots or credential values are committed.
+
+| Scope | Dated observation | Interpretation and limit |
+| --- | --- | --- |
+| Google Cloud Billing | Project displays **no billing account linked** | No paid billing is configured for this project as observed; **not** a configured monetary spend cap, billing alert, or proof about other Google projects |
+| Gemini API tier | AI Studio displays **Free tier** | Provider-enforced quota governs this project's Free-tier use; tier may change |
+| Gemini API key | Original operator reports API restriction to the **Generative Language API** | Application restrictions, currently installed Supabase secret value, and key-to-project linkage were not re-inspected; do not claim independently confirmed production secret provenance |
+| Gemini 3.5 Flash Lite | AI Studio displays **15 RPM** and the RPD graph's limit at **500 requests/day**; the 28-day RPM peak is **3/15** | These are project/model limits and peak historical usage, **not** counts of successful test cases or guaranteed future availability |
+| Input token limit | The dashboard graph shows a limit line, but the exact numeric TPM limit is not fully legible in the supplied capture | Exact TPM remains unrecorded rather than guessed |
+| Evaluation environment | Operator reports **no separate Gemini evaluation project** | Manual evaluation and production use a shared project-level provider quota; this is a documented limitation, not isolated evaluation credentials |
+
+The [AI evaluation report](../ai-evaluation-report.md) preserves the dated October/November test outcomes. An offline or manual test reporting three passing cases does **not** prove three provider request attempts: [`GeminiAdapter.ts`](../../supabase/functions/_shared/ai/GeminiAdapter.ts) permits one attempt plus at most one bounded retry per operation. The backend's `AI_DAILY_LIMIT` (default 20) counts **per-user logical operations** and does not limit project-wide provider requests or billable events.
+
+**Unverified/remaining:** who else can consume this project's provider quota, the exact current TPM figure, the current Supabase runtime key's correspondence to the restricted Cloud key (secret values intentionally not read), and any administrator-level IAM verification. A Free tier with no billing linked is the observed cost boundary; there is no claim of a configured provider spending ceiling. The Nov 15 controlled live verifications were manual and recorded, but their **exact total provider-attempt count was not independently established**. Do not schedule live-provider checks, change tiers, add keys, or link billing solely to satisfy issue #162.
 
 ### Live-provider smoke decision
 
@@ -49,9 +66,9 @@ The [November 15 production report](../ai-evaluation-report.md#production-enable
 | Prompt versions, fixtures, model acceptance criteria, provider behavior and quality evaluation | AI engineer (Sioson) |
 | API rate limiting, quota reservation/settlement, hosted concurrency and backend failure contracts | Backend (Ramos) |
 | Integration/review and full E2E release journeys | Belen with the relevant owners |
-| Google project/key ownership, billing/quota policy, approved provisioning | Authorized Google project administrator with DevOps coordination |
+| Google Cloud project setup, key restriction and billing/quota audit | DevOps (Haresco, original project operator); coordinate with an authorized administrator if permissions differ |
 
-Before marking issue #162 complete, reconcile its tasks individually against these references and verify the unresolved Google provider-cost/credential claims with the authorized owner. A documented decision **not** to schedule live provider calls for safety is not proof that the rubric's scheduled-smoke excellent tier was achieved. Avoid setting live secrets/flags or incurring provider cost solely to make a checkbox green.
+Before marking issue #162 complete, reconcile its tasks individually against this dated audit and the remaining production-key/usage-boundary unknowns; do not convert operator-reported console settings into independently inspected secret configuration. A documented decision **not** to schedule live provider calls for safety is not proof that the rubric's scheduled-smoke excellent tier was achieved. Avoid setting live secrets/flags or incurring provider cost solely to make a checkbox green.
 
 Related evidence: [issue #162](https://github.com/2ton-exe/moris-mix-ai/issues/162), [merged PR #207](https://github.com/2ton-exe/moris-mix-ai/pull/207), [AI evaluation guidance](../ai-evaluation.md), [deployment runbook](deployment-runbook.md).
 
