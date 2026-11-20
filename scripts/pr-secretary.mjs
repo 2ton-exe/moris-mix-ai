@@ -15,12 +15,36 @@ export const PROJECT_REQUIRED = Object.freeze(['Modular Frontend / Frontend Chec
   .map(context => Object.freeze({ context, integrationId: null, integrationUnverified: true })));
 const AREA_ORDER = ['Frontend', 'Backend/API', 'AI', 'Database', 'DevOps', 'Integration'];
 const WORKFLOWS = ['Modular PR Validation'];
+const MAIN_VALIDATION = 'Modular Main Validation';
+const REVIEW_SIGNAL = 'PR Secretary Review Signal';
+const WORKFLOW_PATHS = new Map([
+  [WORKFLOWS[0], '.github/workflows/modular-pr-validation.yml'],
+  [MAIN_VALIDATION, '.github/workflows/modular-main.yml'],
+  [REVIEW_SIGNAL, '.github/workflows/pr-secretary-review-signal.yml'],
+]);
+const REVIEW_EVENTS = ['pull_request_review', 'pull_request_review_comment'];
+const PR_ACTIONS = ['opened', 'reopened', 'synchronize', 'edited', 'converted_to_draft', 'ready_for_review',
+  'closed', 'review_requested', 'review_request_removed'];
+const validId = value => Number.isSafeInteger(value) && value > 0;
+const validSha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+const validRepo = value => typeof value === 'string' && /^[\w-]+\/[\w.-]+$/.test(value) && !/\/\.{1,2}$/.test(value);
+const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value));
+const eligiblePR = (pr, repository, number) => pr?.number === number && validId(number) &&
+  ['open', 'closed'].includes(pr.state) && validSha(pr.head?.sha) &&
+  pr.base?.ref === 'main' && pr.base.repo?.full_name === repository;
+const mainRun = (run, repository) => run?.name === MAIN_VALIDATION && validId(run.id) &&
+  workflowPathMatches(run.path, WORKFLOW_PATHS.get(MAIN_VALIDATION)) &&
+  run.repository?.full_name === repository && run.head_repository?.full_name === repository &&
+  run.head_branch === 'main' && ['push', 'workflow_dispatch'].includes(run.event) && validSha(run.head_sha);
+const headMatches = (run, pr) => validSha(run.head_sha) && pr.head.sha === run.head_sha &&
+  typeof run.head_branch === 'string' && run.head_branch === pr.head.ref &&
+  typeof run.head_repository?.full_name === 'string' && run.head_repository.full_name === pr.head.repo?.full_name;
 const sorted = values => [...new Set(values)].sort((a, b) => a.localeCompare(b, 'en'));
 const areas = values => AREA_ORDER.filter(a => values.includes(a));
-const human = user => user && user.type !== 'Bot' && !user.login?.endsWith('[bot]');
+const human = user => user?.type === 'User' && typeof user.login === 'string' && user.login.length > 0 && !user.login.endsWith('[bot]');
 export const isCodeRabbit = user => (user?.type === 'Bot' || user?.__typename === 'Bot') &&
   ['coderabbitai', 'coderabbitai[bot]'].includes(user.login?.toLowerCase());
-export const reviewer = login => TEAM[login.toLowerCase()] ?? { name: login, role: null };
+export const reviewer = login => Object.hasOwn(TEAM, login.toLowerCase()) ? TEAM[login.toLowerCase()] : { name: login, role: null };
 const migration = p => p.startsWith('supabase/migrations/');
 const delivery = p => p.startsWith('.github/workflows/') || p === 'wrangler.jsonc' || p === 'supabase/config.toml';
 
@@ -127,7 +151,8 @@ export function codeRabbit({ comments = [], reviews = [], inlineComments = [], t
 export function humanReviews(requested, reviews, sha) {
   const effective = new Map();
   for (const r of [...reviews].sort((a, b) => (a.submitted_at ?? '').localeCompare(b.submitted_at ?? '') || a.id - b.id)) {
-    if (!human(r.user) || r.state === 'PENDING') continue;
+    if (!human(r.user) || !['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED', 'COMMENTED'].includes(r.state) ||
+        !timestamp(r.submitted_at)) continue;
     const login = r.user.login.toLowerCase();
     // A comment-only review does not revoke a prior approval/change request.
     if (r.state !== 'COMMENTED' || !effective.has(login)) effective.set(login, r);
@@ -178,6 +203,7 @@ export function summarize(data) {
   const ownership = classify(paths);
   const rabbit = codeRabbit(data, pr.head.sha, paths);
   const attention = [];
+  const requiredRows = new Set();
   const stagingDeploy = gateChecks(checks, WORKFLOWS[0], STAGING_DEPLOY)[0];
   const stagingSmoke = gateChecks(checks, WORKFLOWS[0], STAGING_SMOKE)[0];
   const stagingCaller = gateChecks(checks, WORKFLOWS[0], STAGING_CALLER)[0];
@@ -217,50 +243,95 @@ export function summarize(data) {
       attention.push(`${context}: ${state} (required context${identity}; ${requiredSource})`);
     }
     const gateIndex = GATES.findIndex(g => g[2] === context);
-    if (gateIndex >= 0 && required.filter(r => r.context === context).length === 1) rows[gateIndex][1] = state;
-    else rows.push([`${context} (required${identity})`, state]);
+    if (gateIndex >= 0 && required.filter(r => r.context === context).length === 1) {
+      rows[gateIndex][1] = state;
+      requiredRows.add(rows[gateIndex]);
+    } else {
+      const row = [`${context} (required${identity})`, state];
+      requiredRows.add(row);
+      rows.push(row);
+    }
   }
   if (paths.some(delivery)) attention.push('workflow/deployment configuration changed; inspect delivery and secrets boundaries');
   if (paths.some(migration)) attention.push('migration files changed; inspect schema and environment delivery safety');
   if (rabbit.count) attention.push(`${rabbit.count} unresolved CodeRabbit review thread${rabbit.count === 1 ? '' : 's'}`);
   const requested = pr.requested_reviewers.filter(human);
-  if (!pr.draft && !requested.length && !pr.requested_teams?.length && !humanReviews([], data.reviews, pr.head.sha).some(r => r.state === 'APPROVED')) attention.push('Ready PR has no requested human reviewer and no recorded current-revision human approval');
+  const humans = humanReviews(pr.state === 'open' ? requested : [], data.reviews, pr.head.sha);
+  if (pr.state === 'open' && !pr.draft) {
+    if (humans.some(r => r.state === 'CHANGES REQUESTED')) attention.push('Review the current-revision changes requested');
+    else if (!requested.length && !pr.requested_teams?.length && !humans.some(r => r.state === 'APPROVED')) {
+      attention.push('Ready PR has no requested human reviewer and no recorded current-revision human approval');
+    }
+  }
   if (ownership.length >= 4) attention.push(`Changes span ${ownership.length} ownership areas; coordinate cross-layer verification`);
   if (data.collectionNotes?.length) attention.push(...data.collectionNotes);
-  return { ownership, rabbit, attention: sorted(attention), rows, requested };
+  return { ownership, rabbit, attention: sorted(attention), rows, requested, humans, requiredRows };
 }
+
+const indicator = state => state.startsWith('PASS') || ['VERIFIED', 'APPROVED', 'MERGED'].includes(state) ? '✅' :
+  ['RUNNING', 'WAITING', 'PENDING', 'OPEN', 'DRAFT'].includes(state) ? '⏳' :
+  ['FAIL', 'CHANGES REQUESTED', 'CANCELLED', 'STALE', 'INTEGRATION MISMATCH'].includes(state) ||
+  state.startsWith('CHANGES REQUESTED (') || state.includes('INVESTIGATE') ? '❌' : '➖';
+const displayed = state => `${indicator(state)} ${md(state)}`;
+const linkRun = (repository, run) => validId(run?.id) && validId(run?.run_attempt)
+  ? `[run ${run.id}, attempt ${run.run_attempt}](https://github.com/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt})` : null;
 
 export function render(data) {
   const { pr } = data;
   const s = summarize(data);
+  const open = pr.state === 'open';
+  const merged = !open && pr.merged === true;
+  const lifecycle = open ? (pr.draft ? 'DRAFT' : 'OPEN') : merged ? 'MERGED' : 'CLOSED WITHOUT MERGE';
   const requestedNames = [...s.requested.map(u => reviewer(u.login).name), ...(pr.requested_teams ?? []).map(t => `team: ${t.slug}`)];
-  const out = [MARKER, '', '## PR Ops Summary', '', `**PR:** #${pr.number} — ${md(pr.title)}`,
-    `**State:** ${pr.draft ? 'Draft' : 'Ready for review'}`, `**Revision:** ${md(pr.head.sha.slice(0, 7))}`,
-    `**Changed areas:** ${md(s.ownership.join(', ') || 'Unclassified')}`,
-    `**Requested reviewers:** ${requestedNames.map(md).join(', ') || 'None'}`,
-    `**Affected ownership:** ${md(s.ownership.join(', ') || 'Unclassified')}`,
-    '', '### Delivery state', '', '| Gate | State |', '| --- | --- |',
-    ...s.rows.map(([label, state]) => `| ${md(label)} | ${md(state)} |`), '',
-    `<sub>Required contexts: ${md(data.requiredSource)}. Validation does not establish deployment success.</sub>`,
-    '', '### Automated review', '', `**CodeRabbit:** ${s.rabbit.state}`];
-  if (s.rabbit.latest) out.push(`**Latest activity:** ${md(s.rabbit.latest)}`);
-  out.push(`**Open threads:** ${s.rabbit.count ?? 'Unavailable'}`);
-  if (s.rabbit.ownership.length) out.push(`**Affected areas:** ${s.rabbit.ownership.join(', ')}`);
-  if (s.rabbit.paths.length) out.push(`**Thread paths:** ${s.rabbit.paths.slice(0, 5).map(p => md(p)).join(', ')}${s.rabbit.paths.length > 5 ? ` (+${s.rabbit.paths.length - 5} more)` : ''}`);
-  const humans = humanReviews(s.requested, data.reviews, pr.head.sha);
-  if (humans.length) out.push('', '### Human review', '', ...humans.map(r => `${md(reviewer(r.login).name)} — ${r.state}  `));
-  for (const u of s.requested) {
-    const r = reviewer(u.login);
-    out.push('', `### ${md(r.name)} — ${md(r.role ?? 'General')} review`, '', ...checklist(u.login, s.ownership, s.rabbit.routedOwnership).map(b => `- [ ] ${b}`));
+  const required = s.rows.filter(row => s.requiredRows.has(row));
+  const delivery = s.rows.filter(row => !s.requiredRows.has(row));
+  const headRun = linkRun(data.repository, data.validationRun);
+  const out = [MARKER, '', '## PR Secretary', '', `**${displayed(lifecycle)}** · #${pr.number} — ${md(pr.title)}`, '',
+    `**${open ? 'PR head' : 'Final PR head'}** · \`${md(pr.head.sha)}\``];
+  if (merged) out.push(`**Merge on main** · ${validSha(pr.merge_commit_sha) ? `\`${pr.merge_commit_sha}\`` : 'SHA unknown'} · ${timestamp(pr.merged_at) ? pr.merged_at : 'time unknown'}`);
+  else if (!open && timestamp(pr.closed_at)) out.push(`**Closed** · ${pr.closed_at}`);
+  if (headRun) out.push(`**PR validation workflow** · ${displayed(normalize(data.validationRun))} · ${headRun}`);
+  out.push('', open ? '### Human reviews' : '### Historical human reviews', '');
+  if (open) out.push(`**Requested reviewers:** ${requestedNames.map(md).join(', ') || 'None'}`, '');
+  if (s.humans.length) out.push(...s.humans.map(r => `- ${md(reviewer(r.login).name)} — ${displayed(r.state)}`));
+  else out.push('➖ No submitted human reviews recorded.');
+  out.push('', '<sub>Review history is separate from GitHub’s merge decision.</sub>');
+  const table = rows => ['| Evidence | Status |', '| --- | --- |', ...rows.map(([label, state]) => `| ${md(label)} | ${displayed(state)} |`)];
+  out.push('', open ? '### Required checks' : '### Required checks on final PR head', '',
+    ...(required.length ? table(required) : ['➖ No required contexts established.']), '', `Policy source · ${md(data.requiredSource)}`);
+  const optionalDelivery = delivery.filter(([label]) => ['E2E (non-gating)', 'Staging deploy', 'Staging smoke'].includes(label));
+  if (optionalDelivery.length) out.push('', `**Other PR delivery** · ${optionalDelivery.map(([label, state]) =>
+    `${md(label)} ${displayed(state)}`).join(' · ')}`);
+  if (merged) {
+    const release = data.release ?? {};
+    const mainLink = linkRun(data.repository, release.run);
+    out.push('', '### Main delivery for this merge', '',
+      mainLink ? `**Main workflow** · ${displayed(normalize(release.run))} · ${mainLink}` : '➖ No exact main workflow run established.', '',
+      ...table([['Main validation', release.validation], ['Main E2E', release.e2e],
+        ['Production deployment', release.deploy], ['Production smoke', release.smoke]]
+        .map(([label, state]) => [label, state ?? 'UNKNOWN'])));
   }
-  if (s.attention.length) out.push('', '### Attention', '', ...s.attention.map(a => `- ${md(a)}`));
-  out.push('', '<sub>PR Secretary reports repository state only. It does not approve, merge, or deploy.</sub>');
+  out.push('', '### Automated review', '', `**CodeRabbit (optional)** · ${s.rabbit.state}`,
+    `**Open threads:** ${s.rabbit.count ?? 'Unavailable'}`);
+  if (open && s.attention.length) out.push('', '### Attention', '', ...s.attention.map(a => `- ${md(a)}`));
+  out.push('', '<details>', '<summary>Detailed evidence</summary>', '',
+    `**Affected ownership** · ${md(s.ownership.join(', ') || 'Unclassified')}`, '', '#### Other PR-head checks', '', ...table(delivery));
+  if (s.rabbit.latest) out.push('', `**Latest CodeRabbit activity** · ${md(s.rabbit.latest)}`);
+  if (s.rabbit.paths.length) out.push('', `**Thread paths** · ${s.rabbit.paths.slice(0, 5).map(md).join(', ')}${s.rabbit.paths.length > 5 ? ` (+${s.rabbit.paths.length - 5} more)` : ''}`);
+  for (const u of open ? s.requested : []) {
+    const r = reviewer(u.login);
+    out.push('', `#### ${md(r.name)} — ${md(r.role ?? 'General')} review`, '', ...checklist(u.login, s.ownership, s.rabbit.routedOwnership).map(b => `- ${b}`));
+  }
+  if (!open && data.collectionNotes?.length) out.push('', ...data.collectionNotes.map(note => `- ${md(note)}`));
+  out.push('', '</details>');
   return out.join('\n');
 }
 
 export function createApi(token, repository, fetcher = fetch) {
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository');
+  if (!validRepo(repository)) throw new Error('Invalid repository');
   const root = `/repos/${repository}`;
+  let requests = 0;
+  const exhausted = new Set();
   const diagnosticText = value => {
     if (typeof value !== 'string') return '';
     let text = token ? value.split(token).join('[REDACTED]') : value;
@@ -270,11 +341,15 @@ export function createApi(token, repository, fetcher = fetch) {
     return text.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ').slice(0, 400);
   };
   async function request(path, method = 'GET', body) {
+    if (++requests > 120) throw new Error('PR Secretary API request budget exceeded');
+    const resource = path === '/graphql' ? 'GraphQL' : 'REST';
+    if (exhausted.has(resource)) throw new Error(`GitHub ${resource} rate limit exhausted; wait for reconciliation`);
     // All endpoints are constructed locally. Never follow an API-provided URL with the token.
     const response = await fetcher(`https://api.github.com${path}`, { method, redirect: 'error',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
+    if (response.headers?.get('x-ratelimit-remaining') === '0') exhausted.add(resource);
     if (!response.ok) {
       // Allowlist diagnostic fields only. Never log the request body/headers,
       // arbitrary response fields, raw HTML, or JSON parse errors with excerpts.
@@ -297,6 +372,11 @@ export function createApi(token, repository, fetcher = fetch) {
       }
       const requestId = response.headers?.get('x-github-request-id');
       if (/^[A-Z0-9:]{1,100}$/.test(requestId ?? '')) fields.push(`request_id=${requestId}`);
+      const retryAfter = response.headers?.get('retry-after');
+      if (/^\d{1,8}$/.test(retryAfter ?? '')) {
+        exhausted.add(resource);
+        fields.push(`retry_after_seconds=${retryAfter}`);
+      }
       const error = new Error(`GitHub ${method} ${path.split('?')[0]}: ${response.status}${fields.length ? `; ${fields.join('; ')}` : ''}`);
       error.status = response.status;
       if (message) error.githubMessage = message;
@@ -307,42 +387,87 @@ export function createApi(token, repository, fetcher = fetch) {
   }
   async function list(path, key) {
     const all = [];
-    for (let page = 1; ; page++) {
+    for (let page = 1; page <= 32; page++) {
       const result = await request(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
       const items = key ? result[key] : result;
       if (!Array.isArray(items)) throw new Error('Invalid paginated API response');
       all.push(...items);
       if (items.length < 100) return all;
     }
+    throw new Error('PR Secretary API pagination limit exceeded');
   }
   return { root, request, list };
 }
 
-export async function resolvePRs(api, eventName, event, repository) {
+export async function resolvePRs(api, eventName, event, repository, { ref, now = Date.now() } = {}) {
+  if (!event || (event.repository && event.repository.full_name !== repository)) return [];
   let candidates = [];
-  if (eventName === 'issue_comment') {
+  let fallback = false;
+  const run = event.workflow_run;
+  if (eventName === 'pull_request_target') {
+    if (event.repository?.full_name !== repository || !PR_ACTIONS.includes(event.action) ||
+      event.pull_request?.number !== event.number || event.pull_request?.base?.repo?.full_name !== repository ||
+      event.pull_request?.base?.ref !== 'main') return [];
+    candidates = [event.number];
+  } else if (eventName === 'issue_comment') {
     if (!event.issue?.pull_request || !isCodeRabbit(event.comment?.user)) return [];
     candidates = [event.issue.number];
   } else if (eventName === 'workflow_run') {
-    const run = event.workflow_run;
-    if (!run || !WORKFLOWS.includes(run.name) || run.event !== 'pull_request' ||
-        run.repository?.full_name !== repository) return [];
-    candidates = (run.pull_requests ?? []).map(p => p.number);
-    if (!candidates.length && /^[a-f0-9]{40}$/i.test(run.head_sha ?? '')) candidates =
-      (await api.list(`${api.root}/commits/${run.head_sha}/pulls`)).map(p => p.number);
-  } else if (eventName === 'schedule') candidates =
-    (await api.list(`${api.root}/pulls?state=open&base=main`)).map(p => p.number);
-  else return [];
+    if (!run || !validId(run.id) || !validSha(run.head_sha) || run.repository?.full_name !== repository ||
+        !workflowPathMatches(run.path, WORKFLOW_PATHS.get(run.name)) ||
+        !['requested', 'in_progress', 'completed'].includes(event.action)) return [];
+    if (run.name === MAIN_VALIDATION) {
+      if (!mainRun(run, repository)) return [];
+    } else if (run.name === REVIEW_SIGNAL) {
+      if (!REVIEW_EVENTS.includes(run.event) || event.action !== 'completed' || run.conclusion !== 'success') return [];
+    } else if (run.name !== WORKFLOWS[0] || run.event !== 'pull_request') return [];
+    if (run.name !== MAIN_VALIDATION && (!validRepo(run.head_repository?.full_name) ||
+        typeof run.head_branch !== 'string' || !run.head_branch || run.head_branch.length > 1024)) return [];
+    const associations = run.pull_requests ?? [];
+    if (!Array.isArray(associations)) return [];
+    if (run.name === MAIN_VALIDATION || associations.length === 0) {
+      // Only GitHub's structured associations can supply a candidate. The
+      // commit association can include other PRs that happen to contain a SHA.
+      fallback = run.name !== MAIN_VALIDATION;
+      try {
+        candidates = (await api.list(`${api.root}/commits/${run.head_sha}/pulls`)).map(p => p.number);
+      } catch (error) { if (error.status !== 404) throw error; }
+      if (fallback && !candidates.length) {
+        const owner = run.head_repository.full_name.split('/')[0];
+        const head = encodeURIComponent(`${owner}:${run.head_branch}`);
+        candidates = (await api.list(`${api.root}/pulls?state=all&base=main&head=${head}`)).map(p => p.number);
+      }
+    } else candidates = associations.map(p => p?.number);
+    if (candidates.length > 20) throw new Error('Too many associated PRs for one workflow run');
+  } else if (eventName === 'workflow_dispatch') {
+    if (ref !== 'refs/heads/main' || event.repository?.full_name !== repository ||
+      typeof event.inputs?.pr !== 'string' || !/^[1-9]\d{0,9}$/.test(event.inputs.pr)) return [];
+    candidates = [Number(event.inputs.pr)];
+  } else if (eventName === 'schedule') {
+    const [open, closed] = await Promise.all([
+      api.list(`${api.root}/pulls?state=open&base=main`),
+      api.request(`${api.root}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=30`),
+    ]);
+    const recent = closed.filter(p => timestamp(p.closed_at) && Date.parse(p.closed_at) >= now - 7 * 86_400_000)
+      .sort((a, b) => Date.parse(b.closed_at) - Date.parse(a.closed_at)).slice(0, 10);
+    const numbers = [...new Set([...open, ...recent].map(p => p.number))].filter(validId);
+    if (numbers.length > 256) throw new Error('More than 256 eligible PRs; split reconciliation before running');
+    return numbers.sort((a, b) => a - b);
+  } else return [];
   const result = [];
-  for (const number of [...new Set(candidates)].filter(n => Number.isSafeInteger(n) && n > 0)) {
-    const pr = await api.request(`${api.root}/pulls/${number}`);
-    if (pr.state !== 'open' || pr.base.repo.full_name !== repository || pr.base.ref !== 'main') continue;
-    if (eventName === 'workflow_run' && (pr.head.sha !== event.workflow_run.head_sha ||
-        pr.head.repo?.full_name !== event.workflow_run.head_repository?.full_name)) continue;
+  for (const number of [...new Set(candidates)].filter(validId)) {
+    let pr;
+    try { pr = await api.request(`${api.root}/pulls/${number}`); }
+    catch (error) { if (error.status === 404) continue; throw error; }
+    if (!eligiblePR(pr, repository, number)) continue;
+    if (eventName === 'workflow_run') {
+      if (run.name === MAIN_VALIDATION) {
+        if (pr.state !== 'closed' || pr.merged !== true || pr.merge_commit_sha !== run.head_sha) continue;
+      } else if (!headMatches(run, pr)) continue;
+    }
     result.push(number);
   }
-  // GitHub matrix maximum is 256; fail visibly rather than silently omit PRs.
-  if (result.length > 256) throw new Error('More than 256 open PRs; split reconciliation before running');
+  if (fallback && result.length !== 1) return [];
   return result.sort((a, b) => a - b);
 }
 
@@ -373,7 +498,7 @@ export async function requiredPolicy(api, branch) {
 export async function collectThreads(api, number) {
   const threads = [];
   let after = null;
-  do {
+  for (let pageNumber = 1; pageNumber <= 10; pageNumber++) {
     const [owner, name] = api.root.slice('/repos/'.length).split('/');
     const result = await api.request('/graphql', 'POST', { query: `query($owner:String!,$name:String!,$number:Int!,$after:String) {
       repository(owner:$owner,name:$name) { pullRequest(number:$number) { reviewThreads(first:100,after:$after) {
@@ -383,11 +508,14 @@ export async function collectThreads(api, number) {
     }`, variables: { owner, name, number, after } });
     if (result.errors) throw new Error('Review thread data unavailable');
     const page = result.data?.repository?.pullRequest?.reviewThreads;
-    if (!page) throw new Error('Review thread data unavailable');
+    if (!page || (page.pageInfo.hasNextPage && (!page.pageInfo.endCursor || page.pageInfo.endCursor === after))) {
+      throw new Error('Review thread data unavailable or pagination stalled');
+    }
     threads.push(...page.nodes);
-    after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
-  } while (after);
-  return threads;
+    if (!page.pageInfo.hasNextPage) return threads;
+    after = page.pageInfo.endCursor;
+  }
+  throw new Error('Review thread pagination limit exceeded');
 }
 
 export async function jobApp(api, job, checkRuns) {
@@ -412,14 +540,58 @@ export function workflowPathMatches(actual, expected) {
     (actual === expected || actual.startsWith(`${expected}@`));
 }
 
+const MAIN_CORE_JOBS = ['Modular Main Frontend / Frontend Checks', 'Modular Main Database / Database Tests',
+  'Modular Main Edge/API / Edge/API Tests', 'Modular Main Edge/API / Hosted RLS Integration'];
+const MAIN_PRODUCTION_JOB = 'Modular Main Production / Deploy to Supabase and Cloudflare';
+const ESSENTIAL_DEPLOY_STEPS = ['Deploy recipes Edge Function', 'Deploy extract-recipe Edge Function',
+  'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function', 'Deploy to Cloudflare Workers'];
+const SMOKE_STEPS = ['Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke'];
+
+export function releaseEvidence(run, jobs) {
+  const pending = run.status !== 'completed';
+  const state = check => check ? normalize(check, { expectedSkip: true }) : pending ? 'PENDING' : 'UNKNOWN';
+  const group = states => {
+    for (const verdict of ['FAIL', 'CANCELLED', 'RUNNING', 'PENDING', 'SKIPPED — EXPECTED']) {
+      if (states.includes(verdict)) return verdict === 'SKIPPED — EXPECTED' ? 'SKIPPED' : verdict;
+    }
+    return states.every(item => item === 'PASS') ? 'VERIFIED' : 'UNKNOWN';
+  };
+  const job = name => jobs.find(item => item.name === name);
+  const production = job(MAIN_PRODUCTION_JOB);
+  const skipped = state(production ?? job('Modular Main Production')) === 'SKIPPED — EXPECTED';
+  const steps = production?.steps ?? [];
+  const step = name => steps.find(item => item.name === name);
+  // Feature-gated deploy steps may legitimately skip, but a failed deploy
+  // step still counts even when it is outside the essential set.
+  const deploySteps = [...ESSENTIAL_DEPLOY_STEPS.map(step),
+    ...steps.filter(item => item.name.startsWith('Deploy ') && !ESSENTIAL_DEPLOY_STEPS.includes(item.name) &&
+      state(item) !== 'SKIPPED — EXPECTED')];
+  const deploy = skipped ? 'SKIPPED' : group(deploySteps.map(state));
+  const smoke = skipped ? 'SKIPPED' : group(SMOKE_STEPS.map(name => state(step(name))));
+  return { run, validation: group(MAIN_CORE_JOBS.map(name => state(job(name)))),
+    e2e: group([state(job('Modular Main E2E / Playwright E2E Tests'))]),
+    deploy, smoke: smoke === 'VERIFIED' && deploy !== 'VERIFIED' ? 'UNKNOWN' : smoke };
+}
+
+async function collectRelease(api, pr, repository) {
+  if (pr.state !== 'closed' || pr.merged !== true || !validSha(pr.merge_commit_sha) || !timestamp(pr.merged_at)) return null;
+  const runs = await api.list(`${api.root}/actions/workflows/modular-main.yml/runs?branch=main&head_sha=${pr.merge_commit_sha}`, 'workflow_runs');
+  const run = runs.filter(item => mainRun(item, repository) && item.head_sha === pr.merge_commit_sha)
+    .sort((a, b) => b.id - a.id)[0];
+  if (!run || !validId(run.run_attempt)) return null;
+  const jobs = await api.list(`${api.root}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs');
+  return releaseEvidence(run, jobs.filter(job => job.run_id === run.id && job.run_attempt === run.run_attempt));
+}
+
 export async function collect(api, number, repository) {
+  if (!validId(number)) return null;
   const pr = await api.request(`${api.root}/pulls/${number}`);
-  if (pr.state !== 'open' || pr.base.repo.full_name !== repository || pr.base.ref !== 'main') return null;
+  if (!eligiblePR(pr, repository, number)) return null;
   const notes = [];
   async function optional(fn, fallback, note) {
     try { return await fn(); } catch { if (note) notes.push(note); return fallback; }
   }
-  const [files, comments, reviews, inlineComments, checkRuns, statuses, runs, policy, threadResult] = await Promise.all([
+  const [files, comments, reviews, inlineComments, checkRuns, statuses, runs, policy, threadResult, release] = await Promise.all([
     api.list(`${api.root}/pulls/${number}/files`), api.list(`${api.root}/issues/${number}/comments`),
     api.list(`${api.root}/pulls/${number}/reviews`),
     optional(() => api.list(`${api.root}/pulls/${number}/comments`), [], 'Inline automated-review activity unavailable'),
@@ -429,11 +601,12 @@ export async function collect(api, number, repository) {
     requiredPolicy(api, pr.base.ref),
     optional(async () => ({ threads: await collectThreads(api, number), threadsAvailable: true }),
       { threads: [], threadsAvailable: false }, 'CodeRabbit thread data unavailable; open-thread count is unknown'),
+    optional(() => collectRelease(api, pr, repository), null, 'Exact main delivery evidence unavailable from GitHub'),
   ]);
   if (files.length !== pr.changed_files) throw new Error('Changed-file listing is incomplete or PR changed during collection; retry');
   // Prefer jobs in the newest run, not old successful checks during a rerun.
-  const workflowPaths = { 'Modular PR Validation': '.github/workflows/modular-pr-validation.yml' };
-  const relevant = runs.filter(r => workflowPathMatches(r.path, workflowPaths[r.name]) && r.head_sha === pr.head.sha &&
+  const relevant = runs.filter(r => r.name === WORKFLOWS[0] && validId(r.id) &&
+    workflowPathMatches(r.path, WORKFLOW_PATHS.get(WORKFLOWS[0])) && r.head_sha === pr.head.sha &&
     (r.pull_requests?.some(p => p.number === number) ||
      (r.head_repository?.full_name === pr.head.repo?.full_name && r.head_branch === pr.head.ref)));
   const newest = [];
@@ -442,7 +615,9 @@ export async function collect(api, number, repository) {
   }
   const runChecks = (await Promise.all(newest.map(async run => {
     const jobs = await api.list(`${api.root}/actions/runs/${run.id}/jobs?filter=latest`, 'jobs');
-    return Promise.all(jobs.map(async job => ({ ...job, workflow: run.name, app: await jobApp(api, job, checkRuns) })));
+    const current = run.status && run.status !== 'completed' && validId(run.run_attempt)
+      ? jobs.filter(job => job.run_attempt === run.run_attempt) : jobs;
+    return Promise.all(current.map(async job => ({ ...job, workflow: run.name, app: await jobApp(api, job, checkRuns) })));
   }))).flat();
   // Staging rows must come from the selected run; head-SHA checks can mix runs.
   const namesForActiveRuns = new Set([STAGING_CALLER, STAGING_DEPLOY, STAGING_SMOKE,
@@ -451,33 +626,62 @@ export async function collect(api, number, repository) {
   const checks = [...runChecks, ...checkRuns.filter(c => !namesForActiveRuns.has(c.name)),
     ...statuses.filter((c, i, all) => all.findIndex(s => s.context === c.context) === i).map(c => ({ ...c, name: c.context }))];
   return { pr, repository, paths: sorted(files.flatMap(f => [f.filename, f.previous_filename].filter(Boolean))),
-    comments, reviews, inlineComments, checks, ...policy, ...threadResult, collectionNotes: notes };
+    comments, reviews, inlineComments, checks, ...policy, ...threadResult, validationRun: newest[0], release, collectionNotes: notes };
 }
 
 export function ownedComment(comments) {
   return comments.find(c => c.user?.login === 'github-actions[bot]' && c.user.type === 'Bot' && c.body?.startsWith(MARKER));
 }
 
-export async function publish(api, data, generation) {
-  const fresh = await api.request(`${api.root}/pulls/${data.pr.number}`);
+function lifecycleKey(pr) {
   // updated_at also changes for unrelated comment/review/metadata activity.
-  // Guard the collected revision and target, not all activity on an active PR.
-  if (fresh.state !== 'open' || fresh.head.sha !== data.pr.head.sha ||
-      fresh.base.ref !== data.pr.base.ref || fresh.base.sha !== data.pr.base.sha ||
-      fresh.base.repo.full_name !== data.pr.base.repo.full_name ||
-      fresh.base.repo.full_name !== data.repository) return 'stale';
-  const comments = await api.list(`${api.root}/issues/${data.pr.number}/comments`);
+  // Guard render inputs and terminal identity without tying a merge to today's main tip.
+  return JSON.stringify([pr.state, pr.head.sha, pr.head.repo?.full_name, pr.head.ref,
+    pr.state === 'open' ? pr.base.sha : null, pr.title, pr.draft, pr.merged,
+    pr.state === 'closed' ? pr.merge_commit_sha : null, pr.merged_at, pr.closed_at,
+    sorted((pr.requested_reviewers ?? []).filter(human).map(u => u.login)),
+    sorted((pr.requested_teams ?? []).map(t => t.slug))]);
+}
+
+const publicationFooter = /(?:\n\n<sub>Last dashboard update · ([\dTZ:.\-]+)<\/sub>)?\n<!-- secretary-run:(\d+) -->$/;
+
+export async function publish(api, data, generation, observedAt = Date.now()) {
+  const number = data.pr.number;
+  if (!validId(generation) || !validId(observedAt)) throw new Error('Invalid snapshot generation');
+  const freshEnough = async () => {
+    const current = await api.request(`${api.root}/pulls/${number}`);
+    return eligiblePR(current, data.repository, number) && current.base.ref === data.pr.base.ref &&
+      current.base.repo.full_name === data.pr.base.repo.full_name && lifecycleKey(current) === lifecycleKey(data.pr);
+  };
+  if (!await freshEnough()) return 'stale';
+  const comments = await api.list(`${api.root}/issues/${number}/comments`);
   const existing = ownedComment(comments);
-  const previousGeneration = Number(existing?.body.match(/<!-- secretary-run:(\d+) -->/)?.[1] ?? 0);
-  if (previousGeneration > generation) return 'superseded';
+  const footer = existing?.body.match(publicationFooter);
+  const previousGeneration = Number(footer?.[2] ?? 0);
+  const previousObservation = Date.parse(footer?.[1]);
+  if (previousObservation > observedAt ||
+      ((!Number.isFinite(previousObservation) || previousObservation === observedAt) && previousGeneration > generation)) return 'superseded';
   const content = render(data);
-  const oldContent = existing?.body.replace(/\n<!-- secretary-run:\d+ -->$/, '');
+  const oldContent = existing?.body.replace(publicationFooter, '');
   if (oldContent === content) return 'unchanged';
-  const body = `${content}\n<!-- secretary-run:${generation} -->`;
+  const body = `${content}\n\n<sub>Last dashboard update · ${new Date(observedAt).toISOString()}</sub>\n<!-- secretary-run:${generation} -->`;
   if (body.length > 65000) throw new Error('Summary exceeds comment limit; refusing truncated state');
+  if (!await freshEnough()) return 'stale';
+  if (existing && !validId(existing.id)) throw new Error('Invalid owned comment ID');
   if (existing) await api.request(`${api.root}/issues/comments/${existing.id}`, 'PATCH', { body });
-  else await api.request(`${api.root}/issues/${data.pr.number}/comments`, 'POST', { body });
+  else await api.request(`${api.root}/issues/${number}/comments`, 'POST', { body });
   return existing ? 'updated' : 'created';
+}
+
+export async function refresh(api, number, repository, generation, now = Date.now) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const observedAt = now();
+    const data = await collect(api, number, repository);
+    if (!data) return 'No eligible main-target PR';
+    const result = await publish(api, data, generation, observedAt);
+    if (result !== 'stale') return result;
+  }
+  return 'stale';
 }
 
 async function main() {
@@ -485,15 +689,14 @@ async function main() {
   const api = createApi(process.env.GH_TOKEN, repository);
   if (process.argv[2] === 'resolve') {
     const event = JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
-    const prs = await resolvePRs(api, process.env.GITHUB_EVENT_NAME, event, repository);
+    const prs = await resolvePRs(api, process.env.GITHUB_EVENT_NAME, event, repository, { ref: process.env.GITHUB_REF });
     await appendFile(process.env.GITHUB_OUTPUT, `prs=${JSON.stringify(prs)}\n`);
     console.log(`Resolved ${prs.length} PR(s)`);
   } else if (process.argv[2] === 'summarize') {
     const number = Number(process.env.SECRETARY_PR);
     const generation = Number(process.env.GITHUB_RUN_ID);
-    if (!Number.isSafeInteger(number) || number <= 0 || !Number.isSafeInteger(generation) || generation <= 0) throw new Error('Invalid PR/run number');
-    const data = await collect(api, number, repository);
-    console.log(data ? await publish(api, data, generation) : 'No eligible open PR');
+    if (!validId(number) || !validId(generation)) throw new Error('Invalid PR/run number');
+    console.log(await refresh(api, number, repository, generation));
   } else throw new Error('Usage: pr-secretary.mjs resolve|summarize');
 }
 

@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { MARKER, TEAM, PROJECT_REQUIRED, GATES, classify, reviewer, normalize, normalizeRequired, stagingEligible,
   codeRabbit, humanReviews, summarize, render, createApi, resolvePRs, requiredPolicy, collectThreads,
-  collect, workflowPathMatches, jobApp, ownedComment, publish } from './pr-secretary.mjs';
+  collect, workflowPathMatches, jobApp, ownedComment, publish, refresh, releaseEvidence } from './pr-secretary.mjs';
 
 const repository = '2ton-exe/moris-mix-ai';
 const user = login => ({ login, type: 'User' });
 const bot = { login: 'coderabbitai[bot]', type: 'Bot' };
 const sha = 'a'.repeat(40);
+const mergeSha = 'c'.repeat(40);
+const mergedAt = '2026-11-20T08:17:42Z';
 const pr = () => ({ number: 87, title: 'Delivery metadata', state: 'open', draft: false,
   updated_at: '2026-10-27T01:00:00Z', changed_files: 1, author_association: 'MEMBER',
   user: user('developer'), head: { sha, ref: 'feature', repo: { full_name: repository } },
@@ -21,6 +23,17 @@ const review = (login, state, id = 1, extra = {}) => ({ id, user: user(login), s
   submitted_at: `2026-10-27T01:00:0${id}Z`, ...extra });
 const thread = (path, isResolved = false, author = { login: 'coderabbitai', __typename: 'Bot' }) =>
   ({ path, isResolved, comments: { nodes: [{ author, updatedAt: '2026-10-27T02:00:00Z' }] } });
+const merged = () => ({ ...pr(), state: 'closed', merged: true, merge_commit_sha: mergeSha,
+  closed_at: mergedAt, merged_at: mergedAt });
+const prRun = (extra = {}) => ({
+  id: 10, run_attempt: 1, name: 'Modular PR Validation', status: 'completed', conclusion: 'success',
+  path: '.github/workflows/modular-pr-validation.yml', event: 'pull_request', repository: { full_name: repository },
+  head_repository: { full_name: repository }, head_sha: sha, head_branch: 'feature', pull_requests: [{ number: 87 }], ...extra,
+});
+const mainRun = (extra = {}) => prRun({ name: 'Modular Main Validation', path: '.github/workflows/modular-main.yml',
+  event: 'push', head_branch: 'main', head_sha: mergeSha, pull_requests: [], ...extra });
+const workflowEvent = (run, action = 'completed') => ({ action, repository: { full_name: repository }, workflow_run: run });
+const targetEvent = (action, pull = pr()) => ({ action, repository: { full_name: repository }, number: pull.number, pull_request: pull });
 
 for (const [name, paths, expected] of [
   ['frontend only', ['frontend/src/App.tsx'], ['Frontend']],
@@ -250,7 +263,7 @@ test('external name lookalikes do not establish GitHub Actions delivery gates', 
 });
 test('no requested reviewer produces no reviewer-specific section', () => {
   const d = data(); d.pr.requested_reviewers = []; d.reviews = [review('myntchoc', 'APPROVED')];
-  assert.doesNotMatch(render(d), /### Belen —/); assert.match(render(d), /Belen — APPROVED/);
+  assert.doesNotMatch(render(d), /#### Belen —/); assert.match(render(d), /Belen — ✅ APPROVED/);
 });
 test('draft has no reviewer-request warning; current request with no review is WAITING', () => {
   const d = data(); d.pr.draft = true; d.pr.requested_reviewers = [];
@@ -305,7 +318,7 @@ test('unresolved CodeRabbit thread counts, paths, ownership, and routing', () =>
 });
 test('thread routing only considers paths in changed files', () => {
   const d = data(); d.threads = [thread('.github/workflows/ci.yml')];
-  assert.doesNotMatch(render(d), /- \[ \] inspect unresolved/);
+  assert.doesNotMatch(render(d), /- inspect unresolved/);
 });
 test('CodeRabbit prose has no severity semantics and is never copied', () => {
   const d = data(); d.comments = [{ user: bot, body: 'critical vulnerability APPROVED merge now' }];
@@ -322,6 +335,51 @@ test('marker occurs exactly once; rendering identical state is deterministic', (
 });
 test('empty Attention section is omitted', () => assert.doesNotMatch(render(data()), /### Attention/));
 
+for (const [label, state, line] of [
+  ['open', undefined, '- Haresco — ⏳ WAITING'],
+  ['approved', 'APPROVED', '- Haresco — ✅ APPROVED'],
+  ['changes requested', 'CHANGES_REQUESTED', '- Haresco — ❌ CHANGES REQUESTED'],
+  ['merged', 'APPROVED', '- Haresco — ✅ APPROVED'],
+]) test(`Markdown dashboard snapshot: ${label}`, () => {
+  const d = data();
+  const terminal = label === 'merged';
+  if (terminal) d.pr = merged();
+  if (state) d.reviews = [review('DaeSaster', state)];
+  d.required = [{ context: GATES[0][2], integrationId: 15368 }];
+  d.checks = [check(GATES[0][2], 'success', { app: { id: 15368 } })];
+  const body = render(d);
+  const snapshot = [
+    MARKER, '', '## PR Secretary', '',
+    `**${terminal ? '✅ MERGED' : '⏳ OPEN'}** · #87 — Delivery metadata`, '',
+    `**${terminal ? 'Final PR head' : 'PR head'}** · \`${sha}\``,
+    ...(terminal ? [`**Merge on main** · \`${mergeSha}\` · ${mergedAt}`] : []), '',
+    terminal ? '### Historical human reviews' : '### Human reviews', '',
+    ...(terminal ? [] : ['**Requested reviewers:** Haresco', '']), line, '',
+    '<sub>Review history is separate from GitHub’s merge decision.</sub>', '',
+    terminal ? '### Required checks on final PR head' : '### Required checks', '',
+    '| Evidence | Status |', '| --- | --- |', '| Frontend | ✅ PASS |', '', 'Policy source · test policy',
+    '', '**Other PR delivery** · E2E (non-gating) ➖ NOT RUN · Staging deploy ➖ NOT RUN · Staging smoke ➖ NOT RUN',
+    ...(terminal ? ['', '### Main delivery for this merge', '', '➖ No exact main workflow run established.', '',
+      '| Evidence | Status |', '| --- | --- |', '| Main validation | ➖ UNKNOWN |', '| Main E2E | ➖ UNKNOWN |',
+      '| Production deployment | ➖ UNKNOWN |', '| Production smoke | ➖ UNKNOWN |'] : []),
+    '', '### Automated review', '', '**CodeRabbit (optional)** · NOT DETECTED', '**Open threads:** 0',
+    ...(state === 'CHANGES_REQUESTED' ? ['', '### Attention', '', '- Review the current-revision changes requested'] : []),
+  ].join('\n');
+  assert.equal(body.split('\n\n<details>')[0], snapshot);
+  assert.match(body, /<summary>Detailed evidence<\/summary>/);
+  assert.doesNotMatch(body, /- \[ \]/);
+  if (terminal) assert.doesNotMatch(body, /WAITING|Ready for review|Requested reviewers|### Attention|Haresco — DevOps review/);
+});
+test('closed without merge is terminal even if a temporary merge SHA and requests remain', () => {
+  const d = data();
+  d.pr = { ...merged(), merged: false, merged_at: null };
+  d.reviews = [review('myntchoc', 'DISMISSED')];
+  const body = render(d);
+  assert.match(body, /CLOSED WITHOUT MERGE/);
+  assert.match(body, /Belen — ➖ DISMISSED/);
+  assert.doesNotMatch(body, /WAITING|Ready for review|Main delivery|Merge on main|Requested reviewers|### Attention/);
+});
+
 function mockApi(handler) {
   const calls = [];
   const request = async (path, method = 'GET', body) => { calls.push({ path, method, body }); return handler(path, method, body); };
@@ -337,26 +395,32 @@ test('CodeRabbit PR comment resolves through fresh PR metadata', async () => {
   assert.deepEqual(await resolvePRs(api, 'issue_comment', { issue: { number: 87, pull_request: {} }, comment: { user: bot } }, repository), [87]);
 });
 test('workflow association rejects stale heads, wrong repositories, main pushes', async () => {
-  const event = { workflow_run: { name: 'Modular PR Validation', event: 'pull_request', repository: { full_name: repository },
-    head_repository: { full_name: repository }, head_sha: sha, pull_requests: [{ number: 87 }] } };
+  const event = workflowEvent(prRun());
   assert.deepEqual(await resolvePRs(mockApi(() => pr()), 'workflow_run', event, repository), [87]);
-  for (const patch of [{ head_sha: 'b'.repeat(40) }, { event: 'push' }, { repository: { full_name: 'other/repo' } }, { name: 'PR Secretary' }, { name: 'CI' }]) {
-    assert.deepEqual(await resolvePRs(mockApi(() => pr()), 'workflow_run', { workflow_run: { ...event.workflow_run, ...patch } }, repository), []);
+  for (const patch of [{ head_sha: 'b'.repeat(40) }, { event: 'push' }, { head_branch: 'other' },
+    { repository: { full_name: 'other/repo' } }, { name: 'PR Secretary' }, { name: 'CI' },
+    { path: '.github/workflows/other.yml' }]) {
+    assert.deepEqual(await resolvePRs(mockApi(() => pr()), 'workflow_run', workflowEvent(prRun(patch)), repository), []);
   }
 });
 test('workflow with empty PR list uses commit association and verifies head/repo', async () => {
   const api = mockApi(path => path.includes('/commits/') ? [{ number: 87 }] : pr());
-  const event = { workflow_run: { name: 'Modular PR Validation', event: 'pull_request', repository: { full_name: repository },
-    head_repository: { full_name: repository }, head_sha: sha, pull_requests: [] } };
+  const event = workflowEvent(prRun({ pull_requests: [] }));
   assert.deepEqual(await resolvePRs(api, 'workflow_run', event, repository), [87]);
 });
-test('closed/non-main events produce no writes or PR candidates', async () => {
-  for (const p of [{ ...pr(), state: 'closed' }, { ...pr(), base: { ref: 'other', repo: { full_name: repository } } }])
-    assert.deepEqual(await resolvePRs(mockApi(() => p), 'issue_comment', { issue: { number: 87, pull_request: {} }, comment: { user: bot } }, repository), []);
+test('CodeRabbit can refresh an eligible closed PR while non-main is excluded', async () => {
+  const event = { issue: { number: 87, pull_request: {} }, comment: { user: bot } };
+  assert.deepEqual(await resolvePRs(mockApi(() => merged()), 'issue_comment', event, repository), [87]);
+  const other = { ...pr(), base: { ref: 'other', repo: { full_name: repository } } };
+  assert.deepEqual(await resolvePRs(mockApi(() => other), 'issue_comment', event, repository), []);
 });
-test('schedule enumerates and validates open PRs', async () => {
-  const api = mockApi(path => path.includes('?state=open') ? [{ number: 87 }] : pr());
-  assert.deepEqual(await resolvePRs(api, 'schedule', {}, repository), [87]);
+test('schedule lists open PRs and caps reconciliation at ten recent closures', async () => {
+  const api = mockApi(path => path.includes('?state=open') ? [{ number: 87 }] :
+    [{ number: 1, closed_at: '2026-10-01T00:00:00Z' },
+      ...Array.from({ length: 12 }, (_, i) => ({ number: 100 + i, closed_at: mergedAt }))]);
+  assert.deepEqual(await resolvePRs(api, 'schedule', {}, repository, { now: Date.parse(mergedAt) }),
+    [87, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109]);
+  assert.equal(api.calls.length, 2);
 });
 test('dispatch and unsupported events never read or write', async () => {
   const api = mockApi(() => { throw new Error('must not read'); });
@@ -364,6 +428,74 @@ test('dispatch and unsupported events never read or write', async () => {
     assert.deepEqual(await resolvePRs(api, eventName, {}, repository), []);
   }
   assert.equal(api.calls.length, 0);
+});
+test('all direct lifecycle actions resolve against live PR state, including closed and reopened', async () => {
+  for (const action of ['opened', 'reopened', 'synchronize', 'edited', 'converted_to_draft', 'ready_for_review',
+    'closed', 'review_requested', 'review_request_removed']) {
+    const source = action === 'closed' ? merged() : pr();
+    const live = action === 'closed' ? { ...merged(), merged: false } : pr();
+    assert.deepEqual(await resolvePRs(mockApi(() => live), 'pull_request_target', targetEvent(action, source), repository), [87]);
+  }
+  assert.deepEqual(await resolvePRs(mockApi(() => pr()), 'pull_request_target', targetEvent('closed', merged()), repository), [87]);
+});
+test('direct lifecycle rejects forged repository, mismatched PR number, actions and endpoint syntax', async () => {
+  const api = mockApi(() => assert.fail('must not read'));
+  for (const event of [{ ...targetEvent('edited'), repository: { full_name: 'other/repo' } },
+    { ...targetEvent('edited'), number: 12 }, targetEvent('labeled'), targetEvent('edited', { ...pr(), number: '87/files' })]) {
+    assert.deepEqual(await resolvePRs(api, 'pull_request_target', event, repository), []);
+  }
+});
+test('manual refresh accepts one bounded decimal PR on the main ref only', async () => {
+  const event = { repository: { full_name: repository }, inputs: { pr: '87' } };
+  assert.deepEqual(await resolvePRs(mockApi(() => merged()), 'workflow_dispatch', event, repository, { ref: 'refs/heads/main' }), [87]);
+  const api = mockApi(() => assert.fail('must not read'));
+  assert.deepEqual(await resolvePRs(api, 'workflow_dispatch', event, repository, { ref: 'refs/tags/main' }), []);
+  for (const input of ['87?foo=bar', '087', ' 87', '0', '1e2', '99999999999', 87]) {
+    assert.deepEqual(await resolvePRs(api, 'workflow_dispatch', { ...event, inputs: { pr: input } },
+      repository, { ref: 'refs/heads/main' }), []);
+  }
+});
+test('review signals require native event, allowed file, success, exact fork head and a proven association', async () => {
+  const fork = { full_name: 'contributor/moris-mix-ai' };
+  const live = { ...pr(), head: { ...pr().head, repo: fork } };
+  const signal = prRun({ name: 'PR Secretary Review Signal', event: 'pull_request_review', head_repository: fork,
+    path: '.github/workflows/pr-secretary-review-signal.yml@refs/pull/87/merge', pull_requests: [] });
+  const api = mockApi(path => path.includes('/commits/') ? [{ number: 87 }] : live);
+  assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent(signal), repository), [87]);
+  assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent({ ...signal, event: 'pull_request_review_comment' }), repository), [87]);
+  assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent(signal, 'in_progress'), repository), []);
+  for (const patch of [{ conclusion: 'skipped' }, { event: 'workflow_dispatch' }, { head_sha: '../pulls/87' },
+    { head_repository: { full_name: repository } }, { head_branch: 'same-sha-other-branch' }, { path: '.github/workflows/forged.yml' },
+    { pull_requests: { number: 87 } }]) {
+    assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent({ ...signal, ...patch }), repository), []);
+  }
+  const ambiguous = mockApi(path => path.includes('/commits/') ? [{ number: 87 }, { number: 88 }] :
+    { ...live, number: Number(path.split('/').at(-1)) });
+  assert.deepEqual(await resolvePRs(ambiguous, 'workflow_run', workflowEvent(signal), repository), []);
+});
+test('workflow signal without a commit association can use an encoded, independently verified fork head', async () => {
+  const head = { sha, ref: 'topic/ready', repo: { full_name: 'contributor/moris-mix-ai' } };
+  const run = prRun({ head_branch: head.ref, head_repository: head.repo, pull_requests: [] });
+  const api = mockApi(path => {
+    if (path.includes('/commits/')) throw Object.assign(new Error('Unknown commit'), { status: 404 });
+    if (path.includes('/pulls?')) {
+      assert.ok(path.endsWith('head=contributor%3Atopic%2Fready'));
+      return [{ number: 87 }];
+    }
+    return { ...pr(), head };
+  });
+  assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent(run), repository), [87]);
+});
+test('main workflow signals resolve only to authoritative merged PRs with the exact merge SHA', async () => {
+  const api = mockApi(path => path.includes('/commits/') ? [{ number: 87 }, { number: 88 }, { number: 89 }] :
+    path.endsWith('/87') ? merged() : path.endsWith('/88') ? { ...merged(), number: 88, merge_commit_sha: sha } :
+      { ...merged(), number: 89, merged: false });
+  for (const action of ['requested', 'in_progress', 'completed']) {
+    assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent(mainRun(), action), repository), [87]);
+  }
+  const raced = mockApi(path => path.includes('/commits/') ? [{ number: 87 }] : pr());
+  assert.deepEqual(await resolvePRs(raced, 'workflow_run', workflowEvent(mainRun()), repository), []);
+  assert.deepEqual(await resolvePRs(api, 'workflow_run', workflowEvent(mainRun({ head_branch: 'feature' })), repository), []);
 });
 test('required policy preserves integration IDs and distinct app-bound requirements', async () => {
   const api = mockApi(() => [{ type: 'required_status_checks', parameters: { required_status_checks: [
@@ -426,6 +558,20 @@ test('REST pagination follows all pages and does not follow remote URLs', async 
   });
   assert.equal((await api.list(`${api.root}/issues`)).length, 101);
   assert.equal(urls.length, 2);
+});
+
+test('API stops a depleted resource and refuses to normalize unsafe repository paths', async () => {
+  for (const slug of ['../repo', 'owner/..', 'owner/.', 'owner/repo?next=other']) {
+    assert.throws(() => createApi('test-token', slug), /Invalid repository/);
+  }
+  let calls = 0;
+  const api = createApi('test-token', repository, async () => {
+    calls++;
+    return { ok: true, headers: new Headers({ 'x-ratelimit-remaining': '0' }), json: async () => [] };
+  });
+  assert.deepEqual(await api.request(`${api.root}/pulls`), []);
+  await assert.rejects(api.request(`${api.root}/pulls`), /rate limit exhausted/);
+  assert.equal(calls, 1);
 });
 
 test('PR comment 403 retains safe GitHub diagnostics and permission evidence', async () => {
@@ -558,6 +704,126 @@ test('timestamp-only changes cannot bypass newer-generation or unchanged-comment
     assert.equal(await publish(api, d, 30), expected);
     assert.ok(api.calls.every(c => c.method === 'GET'));
   }
+});
+test('newer observation wins over a queued older trigger ID without introducing repeat writes', async () => {
+  const d = data();
+  const time = Date.parse(mergedAt);
+  const botOwner = { login: 'github-actions[bot]', type: 'Bot' };
+  let comments = [{ id: 9, user: botOwner, body: MARKER }];
+  const api = mockApi((path, method, payload) => {
+    if (path.endsWith('/pulls/87')) return d.pr;
+    if (method === 'PATCH') { comments = [{ ...comments[0], body: payload.body }]; return {}; }
+    return comments;
+  });
+  assert.equal(await publish(api, d, 20, time), 'updated');
+  const older = { ...d, reviews: [review('DaeSaster', 'APPROVED')] };
+  assert.equal(await publish(api, older, 19, time - 1), 'superseded');
+  assert.equal(await publish(api, older, 19, time + 1), 'updated');
+  assert.equal(await publish(api, older, 21, time + 2), 'unchanged');
+  assert.equal(api.calls.filter(call => call.method === 'PATCH').length, 2);
+  assert.match(comments[0].body, /Last dashboard update · 2026-11-20T08:17:42.001Z/);
+});
+
+test('serialized simultaneous refreshes recover an open-to-merged race and keep one owned comment', async () => {
+  let live = pr();
+  let prReads = 0;
+  let comments = [];
+  const botOwner = { login: 'github-actions[bot]', type: 'Bot' };
+  const api = mockApi((path, method, payload) => {
+    if (path.endsWith('/pulls/87')) {
+      if (++prReads === 3) live = merged(); // Merge after the first comment lookup, before the write.
+      return live;
+    }
+    if (method === 'POST' && path === '/graphql') return { errors: [{}] };
+    if (method === 'POST' || method === 'PATCH') {
+      comments = [{ id: 9, user: botOwner, body: payload.body }];
+      return {};
+    }
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path.endsWith('/issues/87/comments')) return comments;
+    if (path.endsWith('/reviews')) return [review('DaeSaster', 'APPROVED')];
+    return [];
+  });
+  // The workflow's per-PR concurrency group queues the second invocation.
+  const time = Date.parse(mergedAt);
+  let observation = time;
+  const close = refresh(api, 87, repository, 20, () => ++observation);
+  const ci = close.then(() => refresh(api, 87, repository, 19, () => ++observation));
+  assert.deepEqual(await Promise.all([close, ci]), ['created', 'unchanged']);
+  assert.equal(api.calls.filter(call => call.method === 'POST' && call.path.endsWith('/issues/87/comments')).length, 1);
+  assert.equal(comments.length, 1);
+  assert.match(comments[0].body, /✅ MERGED/);
+  assert.doesNotMatch(comments[0].body, /WAITING|Ready for review/);
+});
+
+test('publisher rejects a changed merge identity but ignores a newer main tip on a merged PR', async () => {
+  const d = { ...data(), pr: merged() };
+  const different = { ...d.pr, merge_commit_sha: sha };
+  assert.equal(await publish(mockApi(() => different), d, 30), 'stale');
+  const advanced = { ...d.pr, base: { ...d.pr.base, sha: 'd'.repeat(40) } };
+  const api = mockApi(path => path.endsWith('/pulls/87') ? advanced : []);
+  assert.equal(await publish(api, d, 30), 'created');
+});
+
+const productionJob = 'Modular Main Production / Deploy to Supabase and Cloudflare';
+const deploySteps = ['Deploy recipes Edge Function', 'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function',
+  'Deploy recipe-image-attach Edge Function', 'Deploy to Cloudflare Workers'];
+const smokeSteps = ['Verify production deployment URL', 'Verify deployed AI routes', 'Production runtime smoke'];
+const mainJobs = [
+  ...['Modular Main Frontend / Frontend Checks', 'Modular Main Database / Database Tests', 'Modular Main Edge/API / Edge/API Tests',
+    'Modular Main Edge/API / Hosted RLS Integration', 'Modular Main E2E / Playwright E2E Tests'].map(name => check(name, 'success')),
+  check(productionJob, 'success', { steps: [...deploySteps, ...smokeSteps].map(name => check(name, 'success')) }),
+];
+test('exact attempt separates deployment success from smoke failure and does not infer success from aggregate jobs', () => {
+  const run = mainRun();
+  assert.deepEqual(releaseEvidence(run, mainJobs), { run, validation: 'VERIFIED', e2e: 'VERIFIED',
+    deploy: 'VERIFIED', smoke: 'VERIFIED' });
+  const failed = structuredClone(mainJobs);
+  failed.at(-1).conclusion = 'failure';
+  failed.at(-1).steps.at(-1).conclusion = 'failure';
+  assert.equal(releaseEvidence(run, failed).deploy, 'VERIFIED');
+  assert.equal(releaseEvidence(run, failed).smoke, 'FAIL');
+  assert.equal(releaseEvidence(run, [check(productionJob, 'success')]).deploy, 'UNKNOWN');
+  assert.equal(releaseEvidence(run, [check(productionJob, 'success')]).smoke, 'UNKNOWN');
+  assert.equal(releaseEvidence(run, [check('Modular Main Production', 'skipped')]).deploy, 'SKIPPED');
+  assert.equal(releaseEvidence({ ...run, status: 'in_progress' }, []).smoke, 'PENDING');
+  assert.equal(releaseEvidence(run, [{ ...failed.at(-1), steps: failed.at(-1).steps.slice(-3).map(s => check(s.name, 'success')) }]).smoke,
+    'UNKNOWN');
+});
+test('merged collection uses actual merge SHA and latest exact run attempt only', async () => {
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return merged();
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path === '/graphql') return { errors: [{}] };
+    if (path.includes('/actions/workflows/')) {
+      assert.ok(path.endsWith(`&head_sha=${mergeSha}`));
+      return [mainRun({ id: 33, head_sha: sha }), mainRun({ id: 32, head_branch: 'feature' }),
+        mainRun({ id: 30 }), mainRun({ id: 31, run_attempt: 2 })];
+    }
+    if (path.includes('/attempts/')) {
+      assert.ok(path.endsWith('/31/attempts/2/jobs'));
+      return mainJobs.map(job => ({ ...job, run_id: 31, run_attempt: job.name === productionJob ? 1 : 2 }));
+    }
+    return [];
+  });
+  const d = await collect(api, 87, repository);
+  assert.equal(d.release.validation, 'VERIFIED');
+  assert.equal(d.release.deploy, 'UNKNOWN');
+  assert.match(render(d), /\/actions\/runs\/31\/attempts\/2/);
+});
+test('active PR retries suppress stale jobs from the previous attempt', async () => {
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return pr();
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path === '/graphql') return { errors: [{}] };
+    if (path.includes('/actions/runs?')) return [prRun({ run_attempt: 2, status: 'in_progress' })];
+    if (path.includes('/jobs?')) return [check(GATES[0][2], 'success', { run_attempt: 1 }),
+      { name: GATES[1][2], status: 'in_progress', run_attempt: 2 }];
+    return [];
+  });
+  const d = await collect(api, 87, repository);
+  assert.deepEqual(summarize(d).rows.slice(0, 2).map(row => row[1]), ['NOT RUN', 'RUNNING']);
+  assert.match(render(d), /PR validation workflow\*\* · ⏳ RUNNING/);
 });
 for (const expected of ['.github/workflows/ci.yml', '.github/workflows/modular-pr-validation.yml']) {
   for (const [actual, matches] of [
@@ -694,19 +960,34 @@ test('incomplete changed files fail closed', async () => {
     path === '/graphql' ? { errors: [{}] } : []);
   await assert.rejects(collect(api, 87, repository), /incomplete/);
 });
-test('workflow uses only the three trusted metadata/reconciliation events and default-branch code', async () => {
+test('writer routes trusted events into a serialized per-PR default-branch job', async () => {
   const workflow = (await readFile(new URL('../.github/workflows/pr-secretary.yml', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const events = workflow.split('on:\n')[1].split('\npermissions:')[0];
-  assert.deepEqual([...events.matchAll(/^  (\w+):/gm)].map(m => m[1]), ['issue_comment', 'workflow_run', 'schedule']);
-  assert.match(events, /workflows: \[Modular PR Validation\]/);
-  assert.match(events, /types: \[in_progress, completed\]/);
-  assert.equal((workflow.match(/ref: \$\{\{ github.event.repository.default_branch \}\}/g) ?? []).length, 2);
+  assert.deepEqual([...events.matchAll(/^  (\w+):/gm)].map(m => m[1]),
+    ['pull_request_target', 'issue_comment', 'workflow_run', 'workflow_dispatch', 'schedule']);
+  assert.match(events, /branches: \[main\]\n    types: \[opened, reopened, synchronize, edited, converted_to_draft, ready_for_review, closed, review_requested, review_request_removed\]/);
+  assert.match(events, /workflows: \[Modular PR Validation, Modular Main Validation, PR Secretary Review Signal\]/);
+  assert.match(events, /types: \[requested, in_progress, completed\]/);
+  assert.match(workflow, /github\.event\.repository\.default_branch == 'main'/);
+  assert.match(workflow, /github\.event_name != 'workflow_dispatch' \|\| github\.ref == 'refs\/heads\/main'/);
+  assert.equal((workflow.match(/ref: refs\/heads\/\$\{\{ github.event.repository.default_branch \}\}/g) ?? []).length, 2);
+  assert.equal((workflow.match(/uses: actions\/(?:checkout|setup-node)@[a-f0-9]{40}/g) ?? []).length, 4);
   assert.equal((workflow.match(/repository: \$\{\{ github.repository \}\}/g) ?? []).length, 2);
   assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 2);
   assert.equal((workflow.match(/sparse-checkout: scripts/g) ?? []).length, 2);
   assert.doesNotMatch(workflow, /secrets\.|contents: write|head\.ref|download-artifact|npm install|pnpm/);
-  assert.match(workflow, /cancel-in-progress: true/);
+  assert.match(workflow, /group: pr-secretary-\$\{\{ github.repository \}\}-\$\{\{ matrix.pr \}\}\n      cancel-in-progress: false/);
   assert.equal(GATES.filter(g => g[0].startsWith('Staging')).length, 2);
+});
+
+test('review signals have no checkout, credential, payload transfer or dynamic shell code', async () => {
+  const signal = (await readFile(new URL('../.github/workflows/pr-secretary-review-signal.yml', import.meta.url), 'utf8'))
+    .replace(/\r\n/g, '\n');
+  assert.match(signal, /^  pull_request_review:\n    types: \[submitted, edited, dismissed\]$/m);
+  assert.match(signal, /^  pull_request_review_comment:\n    types: \[created, edited, deleted\]$/m);
+  assert.match(signal, /^permissions: \{\}$/m);
+  assert.deepEqual([...signal.matchAll(/^\s*- run: (.*)$/gm)].map(m => m[1]), ["':'"]);
+  assert.doesNotMatch(signal, /uses:|secrets\.|token|env:|outputs:|artifact|cache|pull_request_target/);
 });
 
 test('only the trusted writer has the targeted PR-comment permissions', async () => {
