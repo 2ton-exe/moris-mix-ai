@@ -468,9 +468,9 @@ try {
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
 
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await composer.fill('Open Pantry')
-    await send.click()
+    await chat.getByRole('button', { name: 'Open pantry' }).click()
     await expect(page.getByRole('textbox', { name: 'Pantry ingredient' })).toBeFocused()
+    await expect(character).not.toHaveAttribute('data-navigation-stage')
     await expect(tap).toBeHidden()
     assert.deepEqual(errors, [])
     await context.close()

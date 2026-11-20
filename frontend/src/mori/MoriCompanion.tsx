@@ -186,6 +186,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       },
       start(direction, single) {
         stopNavigationTravel.current?.()
+        if (!element.getClientRects().length) return
         element.dataset.turnDirection = direction
         svg.style.transform = 'none'
         const rect = element.getBoundingClientRect()
@@ -216,6 +217,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         }
       },
       stop() {
+        if (!element.dataset.turnDirection) return
         element.style.removeProperty('transform')
         svg.style.removeProperty('transform')
         if (neutralArm == null) arm?.removeAttribute('transform')
