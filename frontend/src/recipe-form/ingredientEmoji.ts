@@ -14,6 +14,7 @@ const ingredientAliases: Record<string, string> = {
   chilies: 'chili', chilli: 'chili', chillies: 'chili', 'chili peppers': 'chili',
   'chilli pepper': 'chili', 'chilli peppers': 'chili', cumin: 'spice', paprika: 'spice',
   'black pepper': 'spice', 'white pepper': 'spice', cilantro: 'herb', coriander: 'herb',
+  'bay leaf': 'herb', 'bay leaves': 'herb',
   'fresh coriander': 'herb', parsley: 'herb', mint: 'herb', rosemary: 'herb', thyme: 'herb',
   oregano: 'herb', dill: 'herb', 'cocoa powder': 'chocolate', chocolate: 'chocolate',
   'chocolate chips': 'chocolate', 'coconut milk': 'coconut', 'sweet corn': 'corn', 'corn kernels': 'corn',

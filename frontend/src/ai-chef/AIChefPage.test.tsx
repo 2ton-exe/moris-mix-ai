@@ -657,6 +657,22 @@ describe('AI Chef pantry and review workflow', () => {
     expect(progress.lineageStatus).toBe('expired')
   })
 
+  it('removes only the selected instance of a repeated ingredient recovered from a preview', () => {
+    const userId = 'chef-duplicate-recovery'
+    const pantryItems = ['rice', 'rice']
+    writeChefDraft(userId, {
+      input: { pantryItems, pantryInput: '', preferences: '' },
+      handoff: { request: { pantryItems }, response, selectedParentIds: [], saved: false },
+    })
+    renderChef({ userId })
+    fireEvent.click(screen.getByRole('button', { name: 'Discard preview' }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard preview' }))
+    const removeControls = screen.getAllByRole('button', { name: 'Remove rice' })
+    expect(removeControls).toHaveLength(2)
+    fireEvent.click(removeControls[0])
+    expect(screen.getAllByRole('button', { name: 'Remove rice' })).toHaveLength(1)
+  })
+
   it('shows draft actions on return to the pantry and restores pantry input after discard', async () => {
     const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     writeChefDraft('chef-cook', {

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
@@ -11,7 +11,6 @@ import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperCard } from '../journal/Scrapbook'
-import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { formTextPageColumns, formTextRows, replaceFormTextPart, splitFormText } from '../recipe-form/physicalFormPages'
 import { MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS, addPantryItems, pantryEntryErrorMessage, splitPastedPantryText } from './pantry'
@@ -19,7 +18,22 @@ import { generateRecipeApi, generateRecipeErrorMessage, generateRecipeRequestSch
 import type { ChefReviewHandoff } from './draft'
 import { readChefDraftResult, writeChefDraft } from './draft'
 import { ChefProgress } from './ChefProgress'
+import { PantryCards } from './PantryCards'
+import type { PantryCardItem } from './PantryCards'
+import { usePantryPageEnds } from './usePantryPageEnds'
 import './aiChef.css'
+
+type ChefLeaf =
+  | { kind: 'first' }
+  | { kind: 'pantry'; id: number }
+  | { kind: 'preferences'; part: number }
+
+function leafPage(leaf: ChefLeaf, entries: PantryCardItem[], ends: number[], preferenceCount: number) {
+  if (leaf.kind === 'first') return 0
+  if (leaf.kind === 'preferences') return ends.length + Math.min(leaf.part, preferenceCount - 1)
+  const index = entries.findIndex(({ id }) => id === leaf.id)
+  return Math.max(0, ends.findIndex((end) => index < end))
+}
 
 export function AIChefPage() {
   const { user } = useAuth()
@@ -29,10 +43,15 @@ export function AIChefPage() {
 
 function AIChefSession({ userId }: { userId: string }) {
   const navigate = useNavigate()
+  const { key: locationKey } = useLocation()
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
+  const cards = useJournalMedia('(min-width: 1024px) and (pointer: fine)')
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [initialRead] = useState(() => readChefDraftResult(userId))
-  const [pantryItems, setPantryItems] = useState(initialRead.draft.input.pantryItems)
+  const [pantryEntries, setPantryEntries] = useState(() =>
+    initialRead.draft.input.pantryItems.map((name, id) => ({ id, name })))
+  const nextIngredientId = useRef(pantryEntries.length)
+  const pantryItems = pantryEntries.map(({ name }) => name)
   const [pantryInput, setPantryInput] = useState(initialRead.draft.input.pantryInput)
   const [preferences, setPreferences] = useState(initialRead.draft.input.preferences)
   const [handoff, setHandoff] = useState<ChefReviewHandoff | null>(initialRead.draft.handoff)
@@ -47,8 +66,8 @@ function AIChefSession({ userId }: { userId: string }) {
   const [storageIssue, setStorageIssue] = useState<string | null>(initialRead.status === 'available' ? null : initialRead.status)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [guidedPantry, setGuidedPantry] = useState(false)
-  const [chefPage, setChefPage] = useState(0)
-  const [previewPage, setPreviewPage] = useState<number | null>(null)
+  const [chefLeaf, setChefLeaf] = useState<ChefLeaf>({ kind: 'first' })
+  const [previewLeaf, setPreviewLeaf] = useState<ChefLeaf | null>(null)
   const [preferenceColumns, setPreferenceColumns] = useState(56)
   const [preferenceRows, setPreferenceRows] = useState(12)
   const inFlight = useRef(false)
@@ -56,15 +75,14 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryInputRef = useRef<HTMLInputElement>(null)
   const moriFocusPantry = useMoriFieldFocus('pantry', pantryInputRef, setGuidedPantry)
   const pageRef = useRef<HTMLElement>(null)
-  const requestedPage = useRef(0)
   const pendingFocus = useRef<'heading' | 'pantry' | null>(null)
-  const previewItems = single ? 1 : 2
-  const pantryPageSize = single ? 2 : 4
+  const lastPageFocus = useRef<HTMLElement | null>(null)
+  const pantryEnds = usePantryPageEnds({ pageRef, entries: pantryEntries, cards, single, turning: isTurning, handoff: handoff !== null })
   const preferenceParts = splitFormText(preferences, Math.min(MAX_PREFERENCES_CHARS, preferenceColumns * preferenceRows), preferenceRows, preferenceColumns)
-  const pantryPageCount = Math.ceil(Math.max(0, pantryItems.length - previewItems) / pantryPageSize)
-  const preferencesStartPage = handoff ? 1 : 1 + pantryPageCount
+  const preferencesStartPage = pantryEnds.length
   const pageCount = handoff ? 1 : preferencesStartPage + preferenceParts.length
-  const page = Math.min(previewPage ?? chefPage, pageCount - 1)
+  const page = handoff ? 0 : leafPage(previewLeaf ?? chefLeaf, pantryEntries, pantryEnds, preferenceParts.length)
+  const continued = page > 0 && page < preferencesStartPage
   const preferencePartIndex = page - preferencesStartPage
   const preferencePart = preferenceParts[preferencePartIndex] ?? ''
   const preferencePartLimit = MAX_PREFERENCES_CHARS - preferenceParts.reduce((sum, part, index) => sum + (index === preferencePartIndex ? 0 : part.length), 0)
@@ -83,18 +101,52 @@ function AIChefSession({ userId }: { userId: string }) {
   useEffect(() => () => controller.current?.abort(), [])
 
   useLayoutEffect(() => {
-    if (isTurning || !pendingFocus.current) return
-    if (pageRef.current) pageRef.current.scrollTop = 0
-    const target = pendingFocus.current === 'pantry'
-      ? pantryInputRef.current
-      : pageRef.current?.querySelector<HTMLElement>('h2[tabindex="-1"]') ?? pageRef.current?.querySelector<HTMLElement>('h1[tabindex="-1"]')
-    pendingFocus.current = null
-    target?.focus({ preventScroll: true })
-  }, [page, isTurning, handoff])
+    if (moriFocusPantry) {
+      setChefLeaf({ kind: 'first' })
+      setPreviewLeaf(null)
+    }
+  }, [moriFocusPantry, locationKey])
+
+  useLayoutEffect(() => {
+    if (!isTurning && page === 0 && chefLeaf.kind === 'pantry') setChefLeaf({ kind: 'first' })
+  }, [isTurning, page, chefLeaf])
+
+  useEffect(() => {
+    const rememberPageFocus = ({ target }: FocusEvent) => {
+      lastPageFocus.current = target instanceof HTMLElement && pageRef.current?.contains(target) ? target : null
+    }
+    document.addEventListener('focusin', rememberPageFocus)
+    return () => document.removeEventListener('focusin', rememberPageFocus)
+  }, [])
+
+  useLayoutEffect(() => {
+    const content = pageRef.current
+    if (!content || isTurning) return
+    const previous = lastPageFocus.current
+    const lostOnReflow = previous && (!previous.isConnected || previous.closest('[inert]'))
+    if (!pendingFocus.current && !lostOnReflow) return
+
+    content.scrollTop = 0
+    if (pendingFocus.current === 'pantry' && page === 0) {
+      pendingFocus.current = null
+      pantryInputRef.current?.focus({ preventScroll: true })
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (!pendingFocus.current && active !== previous && active !== document.body) return
+      pendingFocus.current = null
+      const target = content.querySelector<HTMLElement>('h2[tabindex="-1"]:not([inert] *)')
+        ?? content.querySelector<HTMLElement>('h1')
+      target?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [page, isTurning, handoff, pantryEntries, pantryEnds])
 
   useLayoutEffect(() => {
     const pageElement = pageRef.current?.closest<HTMLElement>('.mm-journal-page')
-    if (!pageElement) return
+    if (!pageElement || isTurning) return
     const measure = () => {
       const width = pageRef.current?.clientWidth ?? 0
       const height = pageElement.clientHeight
@@ -104,17 +156,21 @@ function AIChefSession({ userId }: { userId: string }) {
       setPreferenceColumns((current) => current === columns ? current : columns)
       setPreferenceRows((current) => current === rows ? current : rows)
     }
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    let frame = 0
+    const schedule = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(measure)
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
     observer?.observe(pageElement)
-    window.addEventListener('resize', measure)
+    window.addEventListener('resize', schedule)
     measure()
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
-  }, [page, single])
-
-  useEffect(() => {
-    requestedPage.current = page
-    if (chefPage !== page) setChefPage(page)
-  }, [chefPage, page])
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', schedule)
+      window.cancelAnimationFrame(frame)
+    }
+  }, [page, single, isTurning])
 
   useEffect(() => {
     if (!retryBlocked) return
@@ -144,10 +200,9 @@ function AIChefSession({ userId }: { userId: string }) {
     setStorageIssue(result.persisted ? null : result.reason)
   }
 
-  function updatePantryItems(next: string[]) {
-    setPantryItems(next)
-    clearRequestError()
-    persistInput({ pantryItems: next, pantryInput, preferences })
+  function appendPantryItems(items: string[]) {
+    const added = items.slice(pantryEntries.length).map((name) => ({ id: nextIngredientId.current++, name }))
+    if (added.length > 0) setPantryEntries([...pantryEntries, ...added])
   }
 
   function addCurrentIngredient() {
@@ -162,15 +217,24 @@ function AIChefSession({ userId }: { userId: string }) {
     setEntryStatus(result.added === 0
       ? 'That ingredient is already in your pantry list.'
       : `Added ${result.added} ${result.added === 1 ? 'ingredient' : 'ingredients'}${result.duplicates ? `; skipped ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'}` : ''}.`)
-    setPantryItems(result.items)
+    appendPantryItems(result.items)
     setPantryInput('')
     persistInput({ pantryItems: result.items, pantryInput: '', preferences })
   }
 
-  function removeIngredient(index: number) {
-    updatePantryItems(pantryItems.filter((_, itemIndex) => itemIndex !== index))
+  function removeIngredient(id: number) {
+    const nextEntries = pantryEntries.filter((entry) => entry.id !== id)
+    const active = previewLeaf ?? chefLeaf
+    if (active.kind === 'pantry' && active.id === id) {
+      const index = pantryEntries.findIndex((entry) => entry.id === id)
+      const neighbor = nextEntries[Math.min(index, nextEntries.length - 1)]
+      setChefLeaf(neighbor ? { kind: 'pantry', id: neighbor.id } : { kind: 'first' })
+    }
+    pendingFocus.current = page === 0 ? 'pantry' : 'heading'
+    setPantryEntries(nextEntries)
+    clearRequestError()
+    persistInput({ pantryItems: nextEntries.map(({ name }) => name), pantryInput, preferences })
     setEntryStatus('Pantry ingredient removed.')
-    window.requestAnimationFrame(() => (page === 0 ? pantryInputRef.current : pageRef.current?.querySelector<HTMLElement>('h2[tabindex="-1"]'))?.focus({ preventScroll: true }))
   }
 
   function updatePantryInput(value: string) {
@@ -188,19 +252,17 @@ function AIChefSession({ userId }: { userId: string }) {
 
   function turnPage(next: number, focus: 'heading' | 'pantry' = 'heading') {
     if (next < 0 || next >= pageCount || next === page || isTurning) return false
-    const direction = next > requestedPage.current ? 'forward' : 'backward'
-    return requestPageTurn(direction, () => {
-      requestedPage.current = next
-      setPreviewPage(next)
+    const index = pantryEnds[next - 1] ?? 0
+    const destination: ChefLeaf = next === 0 ? { kind: 'first' }
+      : next < preferencesStartPage ? { kind: 'pantry', id: pantryEntries[index].id }
+        : { kind: 'preferences', part: next - preferencesStartPage }
+    return requestPageTurn(next > page ? 'forward' : 'backward', () => {
+      setPreviewLeaf(destination)
     }, () => {
-      requestedPage.current = next
-      setChefPage(next)
-      setPreviewPage(null)
+      setChefLeaf(destination)
+      setPreviewLeaf(null)
       pendingFocus.current = focus
-    }, undefined, () => {
-      requestedPage.current = page
-      setPreviewPage(null)
-    })
+    }, undefined, () => setPreviewLeaf(null))
   }
 
   function handlePageKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -288,19 +350,11 @@ function AIChefSession({ userId }: { userId: string }) {
     setDiscardOpen(false)
   }
 
-  const pantryStart = page === 0 ? 0 : previewItems + (page - 1) * pantryPageSize
-  const pantryPageItems = pantryItems.slice(pantryStart, page === 0 ? previewItems : pantryStart + pantryPageSize)
+  const pantryPageItems = pantryEntries.slice(pantryEnds[page - 1] ?? 0, pantryEnds[page])
   const pantryList = <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${pantryItems.length} ${pantryItems.length === 1 ? 'item' : 'items'}`}>
     {pantryItems.length === 0
       ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
-      : <>
-        {page === 0 && pantryPageCount > 0 && <p className="mm-ai-chef__list-count">{pantryItems.length} ingredients added. Turn the page to see the rest.</p>}
-        <ul role="list">{pantryPageItems.map((item, index) => <li key={`${item}-${pantryStart + index}`}>
-          <IngredientEmoji name={item} />
-          <span>{item}</span>
-          <button className="mm-ai-chef__remove" type="button" aria-label={`Remove ${item}`} onClick={() => removeIngredient(pantryStart + index)}>Remove</button>
-        </li>)}</ul>
-      </>}
+      : <PantryCards key={page} items={pantryPageItems} onRemove={removeIngredient} disabled={pending || isTurning} animate={cards} />}
   </section>
   const storageWarning = storageIssue && <div className="mm-ai-chef__storage-warning" role="alert">
     <p>{storageIssue === 'handoff-changed'
@@ -316,7 +370,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const progressStage = handoff?.savedRecipeId ? 'saved' : handoff ? 'review' : pending ? 'generating' : 'pantry'
 
   return <>
-    <JournalFacingPage className="mm-facing-content--ai-chef"><ChefProgress stage={progressStage} /></JournalFacingPage>
+    <JournalFacingPage className={`mm-facing-content--ai-chef${cards && single ? ' mm-facing-content--ai-chef-compact' : ''}`}><ChefProgress stage={progressStage} /></JournalFacingPage>
     <section className="mm-ai-chef mm-page-column" aria-labelledby="ai-chef-title">
     {discardOpen && <UnsavedChangesDialog
       title={handoff?.savedRecipeId ? 'Keep the saved recipe?' : 'Discard Mori’s recipe preview?'}
@@ -329,14 +383,11 @@ function AIChefSession({ userId }: { userId: string }) {
     />}
     <PaperCard className="mm-ai-chef__paper" surface="fresh" tape="sage">
     <form id="ai-chef-form" className="mm-ai-chef__form" onSubmit={(event) => { void requestSuggestion(event) }}>
-      <section ref={pageRef} className="mm-ai-chef__page" role="region" aria-label={`AI Chef page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
-        <header className={page === 0 || single ? 'mm-ai-chef__heading' : 'visually-hidden'}>
-          <div>
-            <h1 id="ai-chef-title" tabIndex={-1}>What’s in your pantry?</h1>
-            {!handoff && (page === 0 || single) && <p className="intro">Add what you have; Mori will suggest a recipe for you to review.</p>}
-          </div>
+      <section ref={pageRef} className="mm-ai-chef__page" data-chef-pantry={!handoff && page < preferencesStartPage || undefined} role="region" aria-label={`AI Chef page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
+        <header className="mm-ai-chef__heading" data-measure-only={page !== 0 && !single || undefined} inert={page !== 0 && !single} aria-hidden={page !== 0 && !single || undefined}>
+          <h1 id="ai-chef-title" tabIndex={-1}>What’s in your pantry?</h1>
         </header>
-        {page === 0 && storageWarning}
+        {handoff && storageWarning}
         {page === 0 && handoff && <aside className="mm-ai-chef__resume" aria-label={handoff.savedRecipeId ? 'Saved AI Chef recipe' : 'Unsaved AI Chef recipe'}>
           <div>
             <h2>{handoff.savedRecipeId
@@ -357,9 +408,11 @@ function AIChefSession({ userId }: { userId: string }) {
           </div>
         </aside>}
 
-      {!handoff && <fieldset disabled={pending} aria-label={page === 0 ? 'Pantry ingredients' : page < preferencesStartPage ? 'Pantry ingredients, continued' : 'Cooking preferences'}>
-        <legend className={page === 0 ? undefined : 'visually-hidden'}>{page < preferencesStartPage ? 'Pantry ingredients' : 'Cooking preferences'}</legend>
-        {page === 0 && <>
+      {!handoff && <>
+        <div className="mm-ai-chef__entry" data-measure-only={page !== 0 || undefined} inert={page !== 0} aria-hidden={page !== 0 || undefined}>
+        {storageWarning}
+        <fieldset disabled={pending || page !== 0}>
+        <legend>Pantry ingredients</legend>
         <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Separate pasted items with commas or new lines.</p>
         <div className="mm-ai-chef__ingredient-entry">
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
@@ -390,7 +443,7 @@ function AIChefSession({ userId }: { userId: string }) {
                 setEntryStatus('')
                 return
               }
-              setPantryItems(result.items)
+              appendPantryItems(result.items)
               setPantryInput('')
               setEntryError(null)
               setEntryStatus(`Added ${result.added} ${result.added === 1 ? 'ingredient' : 'ingredients'}${result.duplicates ? `; skipped ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'}` : ''}.`)
@@ -400,15 +453,15 @@ function AIChefSession({ userId }: { userId: string }) {
           <button className="button button-secondary" type="button" onClick={addCurrentIngredient}>Add ingredient</button>
         </div>
         {entryError && <p id="pantry-entry-error" className="field-error" role="alert">{entryError}</p>}
+        </fieldset>
+        </div>
         <p className="visually-hidden" role="status" aria-live="polite">{entryStatus}</p>
-        {pantryList}
-        </>}
-        {page > 0 && page < preferencesStartPage && <section className="mm-ai-chef__pantry-pages" aria-labelledby="ai-chef-pantry-page-title">
+        <header className="mm-ai-chef__pantry-pages" data-measure-only={!continued || undefined} inert={!continued} aria-hidden={!continued || undefined}>
           <h2 id="ai-chef-pantry-page-title" tabIndex={-1}>Pantry ingredients · continued</h2>
           <p className="mm-ai-chef__help">Return to the first page to add ingredients.</p>
-          {pantryList}
-        </section>}
-        {page >= preferencesStartPage && <>
+        </header>
+        {page < preferencesStartPage && pantryList}
+        {page >= preferencesStartPage && <fieldset disabled={pending} aria-label="Cooking preferences">
         <h2 className="mm-ai-chef__pane-title" tabIndex={-1}><label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label></h2>
         <textarea
           id="ai-chef-preferences"
@@ -423,12 +476,17 @@ function AIChefSession({ userId }: { userId: string }) {
           }}
         />
         <p id="ai-chef-preferences-help" className="mm-ai-chef__help">This request only · {preferences.length} / {MAX_PREFERENCES_CHARS} characters</p>
-        </>}
-      </fieldset>}
+        </fieldset>}
+        {cards && <div className="mm-ai-chef__measure mm-ai-chef__pantry-list" inert aria-hidden="true">
+          <PantryCards items={pantryEntries} />
+        </div>}
+      </>}
 
+      <div className="mm-ai-chef__notices" hidden={!requestError && !retryBlocked && !pending}>
       {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending || retryBlocked} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
       {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
       {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your ingredients; this can take a little while.</p>}
+      </div>
       </section>
     </form>
     </PaperCard>
