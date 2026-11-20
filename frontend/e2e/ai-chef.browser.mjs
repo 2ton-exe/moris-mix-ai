@@ -312,6 +312,13 @@ try {
       card.getBoundingClientRect().bottom < card.closest('.mm-journal-page').querySelector('.mm-journal-page-footer').getBoundingClientRect().top
     )), `Cards overlap the journal footer at ${width}×${height}`)
     await page.screenshot({ path: path.join(os.tmpdir(), `moris-pantry-cards-${width}.png`), fullPage: true })
+    if (count === 2) {
+      await page.getByRole('button', { name: 'Next page', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Pantry ingredients · continued' })).toBeFocused()
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await expect(firstCards).toHaveCount(4)
+      await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeFocused()
+    }
   }
   await page.setViewportSize({ width: 375, height: 800 })
   await settleJournalLayout(page)

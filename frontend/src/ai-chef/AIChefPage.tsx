@@ -76,6 +76,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const moriFocusPantry = useMoriFieldFocus('pantry', pantryInputRef, setGuidedPantry)
   const pageRef = useRef<HTMLElement>(null)
   const pendingFocus = useRef<'heading' | 'pantry' | null>(null)
+  const lastPageFocus = useRef<HTMLElement | null>(null)
   const pantryEnds = usePantryPageEnds({ pageRef, entries: pantryEntries, cards, single, turning: isTurning, handoff: handoff !== null })
   const preferenceParts = splitFormText(preferences, Math.min(MAX_PREFERENCES_CHARS, preferenceColumns * preferenceRows), preferenceRows, preferenceColumns)
   const preferencesStartPage = pantryEnds.length
@@ -107,8 +108,25 @@ function AIChefSession({ userId }: { userId: string }) {
   }, [moriFocusPantry, locationKey])
 
   useLayoutEffect(() => {
-    if (isTurning || !pendingFocus.current) return
-    if (pageRef.current) pageRef.current.scrollTop = 0
+    if (!isTurning && page === 0 && chefLeaf.kind === 'pantry') setChefLeaf({ kind: 'first' })
+  }, [isTurning, page, chefLeaf])
+
+  useEffect(() => {
+    const rememberPageFocus = ({ target }: FocusEvent) => {
+      lastPageFocus.current = target instanceof HTMLElement && pageRef.current?.contains(target) ? target : null
+    }
+    document.addEventListener('focusin', rememberPageFocus)
+    return () => document.removeEventListener('focusin', rememberPageFocus)
+  }, [])
+
+  useLayoutEffect(() => {
+    const content = pageRef.current
+    if (!content || isTurning) return
+    const previous = lastPageFocus.current
+    const lostOnReflow = previous && (!previous.isConnected || previous.closest('[inert]'))
+    if (!pendingFocus.current && !lostOnReflow) return
+
+    content.scrollTop = 0
     if (pendingFocus.current === 'pantry' && page === 0) {
       pendingFocus.current = null
       pantryInputRef.current?.focus({ preventScroll: true })
@@ -116,13 +134,15 @@ function AIChefSession({ userId }: { userId: string }) {
     }
 
     const frame = window.requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (!pendingFocus.current && active !== previous && active !== document.body) return
       pendingFocus.current = null
-      const target = pageRef.current?.querySelector<HTMLElement>('h2[tabindex="-1"]:not([inert] *)')
-        ?? pageRef.current?.querySelector<HTMLElement>('h1')
+      const target = content.querySelector<HTMLElement>('h2[tabindex="-1"]:not([inert] *)')
+        ?? content.querySelector<HTMLElement>('h1')
       target?.focus({ preventScroll: true })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [page, isTurning, handoff, pantryEntries])
+  }, [page, isTurning, handoff, pantryEntries, pantryEnds])
 
   useLayoutEffect(() => {
     const pageElement = pageRef.current?.closest<HTMLElement>('.mm-journal-page')
@@ -136,11 +156,20 @@ function AIChefSession({ userId }: { userId: string }) {
       setPreferenceColumns((current) => current === columns ? current : columns)
       setPreferenceRows((current) => current === rows ? current : rows)
     }
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    let frame = 0
+    const schedule = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(measure)
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
     observer?.observe(pageElement)
-    window.addEventListener('resize', measure)
+    window.addEventListener('resize', schedule)
     measure()
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', schedule)
+      window.cancelAnimationFrame(frame)
+    }
   }, [page, single, isTurning])
 
   useEffect(() => {
