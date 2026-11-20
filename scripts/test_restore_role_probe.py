@@ -169,5 +169,49 @@ class RestoreRoleProbeTests(unittest.TestCase):
 
 
 
+    def test_variant_grantor_and_unquoted_owner_are_candidates(self):
+        self.put(
+            b'GRANT "postgres" TO "cli_login_postgres" WITH INHERIT FALSE, '
+            b'SET FALSE GRANTED BY "supabase_admin";\n',
+            b'ALTER TABLE public.t OWNER TO supabase_admin;\n'
+            b'ALTER FUNCTION public.f() OWNER TO supabase_admin;\n')
+        # A zero exact match is not absence of other one-line grantor clauses.
+        self.assertEqual(
+            counts(self.roles, self.schema),
+            "doc_grant=0 grantor_candidates=1 "
+            "owner_table=1 owner_function=1 owner_other=0")
+
+    def test_optional_counts_unavailable_preserves_replay_diagnostic(self):
+        from restore_role_probe import publish
+        c = self.root / "counts.out"
+        f = self.root / "flags.out"
+        r = self.root / "result.out"
+        out = self.root / "summary.txt"
+        c.write_bytes(b"counts=unavailable\n")
+        f.write_bytes(b"0|1|0|0|1\n")
+        r.write_bytes(
+            b"replay=failed category=insufficient-privilege "
+            b"verb=unknown doc_grant=unknown prefix_pass=false\n")
+        publish(c, f, r, 3, out)
+        self.assertIn("counts=unavailable", out.read_text())
+        with self.assertRaises(ValueError):
+            c.write_bytes(b"counts=unavailable\n\n")
+            publish(c, f, r, 3, out)
+
+    def test_schema_long_line_does_not_make_counts_trustworthy(self):
+        self.put(DOCUMENTED_GRANT + b"\n",
+                 b"ALTER TABLE x OWNER TO supabase_admin; -- " + b"x"*5000 + b"\n")
+        with self.assertRaises(ValueError):
+            counts(self.roles, self.schema)
+
+    def test_workflow_marks_failed_roles_replay_red(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/database-restore-role-diagnostic.yml").read_text()
+        self.assertIn('if [[ "$rc" == 3 ]]; then', workflow)
+        self.assertIn('Role-only SQL replay failed (diagnostic recorded; not recovery)', workflow)
+        self.assertIn("printf 'counts=unavailable\\n'", workflow)
+
+
+
 if __name__ == "__main__":
     unittest.main()

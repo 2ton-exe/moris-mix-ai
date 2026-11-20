@@ -179,8 +179,8 @@ jobs:
           if ! python3 scripts/restore_role_probe.py counts "$roles" "$schema" \
               > "$RUNNER_TEMP/private-probe-counts.out" \
               2> "$RUNNER_TEMP/private-probe-counts.err"; then
-            echo "::error::Private SQL pattern probe unavailable"
-            exit 1
+            # Static counts are optional, never a prerequisite for SQL replay.
+            printf 'counts=unavailable\n' > "$RUNNER_TEMP/private-probe-counts.out"
           fi
 
           # The same pinned client image, flags, container hardening, verified
@@ -232,6 +232,10 @@ jobs:
               "$RUNNER_TEMP/private-probe-result.out" "$rc" \
               "$GITHUB_STEP_SUMMARY"; then
             echo "::error::Public diagnostic validation failed"
+            exit 1
+          fi
+          if [[ "$rc" == 3 ]]; then
+            echo "::error::Role-only SQL replay failed (diagnostic recorded; not recovery)"
             exit 1
           fi
 

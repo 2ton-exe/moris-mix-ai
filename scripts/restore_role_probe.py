@@ -25,10 +25,10 @@ DOCUMENTED_GRANT = (
 # Count single-line ALTER ... OWNER TO cases; names and SQL never leave the runner.
 OWNER = re.compile(
     rb'^ALTER (?P<kind>TABLE|FUNCTION|SEQUENCE|VIEW|MATERIALIZED VIEW|TYPE|SCHEMA|'
-    rb'PROCEDURE|AGGREGATE|OTHER)\b[^\r\n]* OWNER TO "supabase_admin";$'
+    rb'PROCEDURE|AGGREGATE|OTHER)\b[^\r\n]* OWNER TO (?:"supabase_admin"|supabase_admin);$'
 )
 OWNER_OTHER = re.compile(
-    rb'^ALTER [^\r\n]+ OWNER TO "supabase_admin";$'
+    rb'^ALTER [^\r\n]+ OWNER TO (?:"supabase_admin"|supabase_admin);$'
 )
 CATEGORY = {b"42501": "insufficient-privilege",
             b"42704": "undefined-object",
@@ -64,6 +64,13 @@ def counts(roles: Path, schema: Path) -> str:
     schema_lines = bounded_lines(schema)
     documented = sum(line.strip(b" \t") == DOCUMENTED_GRANT
                      for line in role_lines)
+    # Candidate only: one-line GRANT containing GRANTED BY; zero does not
+    # prove multi-line or differently formatted grantor clauses are absent.
+    grantor_candidates = sum(
+        line.strip(b" \t").startswith(b"GRANT ")
+        and b" GRANTED BY " in line
+        and _safe_prefix_line(line.strip(b" \t"))
+        for line in role_lines)
     kinds = {"table": 0, "function": 0, "other": 0}
     for line in schema_lines:
         candidate = line.strip(b" \t")
@@ -77,8 +84,9 @@ def counts(roles: Path, schema: Path) -> str:
             kinds["function"] += 1
         else:
             kinds["other"] += 1
-    return (f"doc_grant={documented} owner_table={kinds['table']} "
-            f"owner_function={kinds['function']} owner_other={kinds['other']}")
+    return (f"doc_grant={documented} grantor_candidates={grantor_candidates} "
+            f"owner_table={kinds['table']} owner_function={kinds['function']} "
+            f"owner_other={kinds['other']}")
 
 
 def result(stderr: bytes, roles: Path, exit_code: int) -> str:
@@ -126,8 +134,9 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
 # would discard trailing newlines and embedded NUL before a shell guard sees them.
 # Validate exact bytes and replay/label consistency inside this single process.
 COUNT_RECORD = re.compile(
-    rb"doc_grant=([0-9]{1,6}) owner_table=([0-9]{1,6}) "
-    rb"owner_function=([0-9]{1,6}) owner_other=([0-9]{1,6})\n"
+    rb"doc_grant=([0-9]{1,6}) grantor_candidates=([0-9]{1,6}) "
+    rb"owner_table=([0-9]{1,6}) owner_function=([0-9]{1,6}) "
+    rb"owner_other=([0-9]{1,6})\n"
 )
 FLAG_RECORD = re.compile(rb"([01])\|([01])\|([01])\|([01])\|([01])\n")
 RESULT_RECORD = re.compile(
@@ -154,7 +163,15 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
     """Publish only reconstructed fixed fields after all inputs are validated."""
     if exit_code not in (0, 3):
         raise ValueError("unsupported replay exit")
-    cm = checked_record(count_path, COUNT_RECORD)
+    with count_path.open("rb") as raw:
+        count_bytes = raw.read(257)
+    # An unavailable optional count must not block SQL replay.
+    if len(count_bytes) > 256:
+        raise ValueError("invalid count record size")
+    unavailable = count_bytes == b"counts=unavailable\n"
+    cm = None if unavailable else COUNT_RECORD.fullmatch(count_bytes)
+    if not unavailable and cm is None:
+        raise ValueError("invalid count record")
     fm = checked_record(flag_path, FLAG_RECORD)
     rm = checked_record(result_path, RESULT_RECORD)
     replay, category, verb, documented, prefix = (
@@ -173,10 +190,13 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
             raise ValueError("contradictory documented grant")
         if prefix == "true" and verb == "unknown":
             raise ValueError("missing attributed verb")
-    numbers = [str(int(field)) for field in cm.groups()]
+    if cm and int(cm.group(1)) > int(cm.group(2)):
+        raise ValueError("inconsistent diagnostic candidate counts")
+    numbers = [str(int(field)) for field in cm.groups()] if cm else []
     flags = [field.decode("ascii") for field in fm.groups()]
-    static = ("doc_grant=" + numbers[0] + " owner_table=" + numbers[1]
-              + " owner_function=" + numbers[2] + " owner_other=" + numbers[3])
+    static = ("doc_grant=" + numbers[0] + " grantor_candidates=" + numbers[1]
+              + " owner_table=" + numbers[2] + " owner_function=" + numbers[3]
+              + " owner_other=" + numbers[4]) if cm else "counts=unavailable"
     role = ("superuser=" + flags[0] + " createrole=" + flags[1]
             + " createdb=" + flags[2] + " bypassrls=" + flags[3]
             + " inherit=" + flags[4])
