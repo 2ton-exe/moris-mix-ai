@@ -98,9 +98,11 @@ list passed with **0 failures** and 5 ignored tests. Those totals are a
 historical snapshot, not a comparable suite size: the suite has grown
 considerably since (candidate tokens, quota reservations, recipe search and
 recipe-image schema tests all landed). The modular `reusable-edge-api.yml`
-target list is authoritative, and the latest `main` validation run reports
-**425 passed / 0 failed / 6 ignored**. The ignored tests are the opt-in live
-PostgreSQL hosted-integration checks; none is an AI failure test.
+target list is authoritative. A historical modular-`main` snapshot reported
+**425 passed / 0 failed / 6 ignored**; those totals are not a current suite
+measurement. The ignored cases in that snapshot were opt-in live PostgreSQL
+hosted-integration checks, not AI failure tests. For current execution evidence,
+check the exact main-branch workflow run rather than reusing these counts.
 
 ## Live extraction spot check
 
