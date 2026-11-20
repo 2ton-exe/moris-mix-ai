@@ -339,6 +339,36 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 for identifier in ("role_a", "role_b", "orders", "app", "dest"):
                     self.assertNotIn(identifier, observed)
 
+    def test_grant_keyword_case_and_whitespace_do_not_mean_non_grant(self):
+        cases = [
+            (b'grant role_a TO role_b;\n', "grant", "unclassified"),
+            (b'GrAnT role_a TO role_b;\n', "grant", "unclassified"),
+            (b'GRANT\trole_a TO role_b;\n', "grant", "unclassified"),
+            (b'GRANTED role_a TO role_b;\n', "other", "not-applicable"),
+            (b'GRANTOR role_a TO role_b;\n', "other", "not-applicable"),
+            (b'GRANT_role_a TO role_b;\n', "other", "not-applicable"),
+        ]
+        for sql, verb, membership in cases:
+            with self.subTest(sql=sql):
+                self.put(sql)
+                observed = result(ERROR1, self.roles, 3)
+                self.assertIn(
+                    f"verb={verb} doc_grant=false prefix_pass=true "
+                    f"membership={membership}", observed)
+
+    def test_publish_accepts_noncanonical_grant_as_unclassified(self):
+        from restore_role_probe import publish
+        c, f, r, out = (self.root / name for name in
+                        ("counts.out", "flags.out", "result.out", "summary.txt"))
+        c.write_bytes(
+            b"doc_grant=0 grantor_candidates=0 owner_table=0 owner_function=0 owner_other=0\n")
+        f.write_bytes(b"0|1|1|1|1\n")
+        r.write_bytes(
+            b"replay=failed category=insufficient-privilege verb=grant "
+            b"doc_grant=false prefix_pass=true membership=unclassified\n")
+        publish(c, f, r, 3, out)
+        self.assertIn("membership=unclassified", out.read_text())
+
     def test_publish_rejects_contradictory_membership_labels(self):
         from restore_role_probe import publish
         c, f, r, out = (self.root / name for name in
@@ -348,6 +378,10 @@ class RestoreRoleProbeTests(unittest.TestCase):
         f.write_bytes(b"0|1|1|1|1\n")
         invalid = [
             (3, b"replay=failed category=insufficient-privilege verb=grant "
+             b"doc_grant=true prefix_pass=true membership=unclassified\n"),
+            (3, b"replay=failed category=insufficient-privilege verb=grant "
+             b"doc_grant=unknown prefix_pass=true membership=match\n"),
+            (3, b"replay=failed category=insufficient-privilege verb=grant "
              b"doc_grant=false prefix_pass=true membership=not-applicable\n"),
             (3, b"replay=failed category=insufficient-privilege verb=alter-role "
              b"doc_grant=false prefix_pass=true membership=match\n"),
@@ -356,11 +390,15 @@ class RestoreRoleProbeTests(unittest.TestCase):
             (0, b"replay=passed category=unknown verb=unknown "
              b"doc_grant=unknown prefix_pass=unknown membership=match\n"),
         ]
+        from contextlib import redirect_stdout
+        from io import StringIO
         for rc, record in invalid:
-            with self.subTest(rc=rc):
+            with self.subTest(rc=rc, record=record):
                 r.write_bytes(record)
-                with self.assertRaises(ValueError):
+                stdout = StringIO()
+                with redirect_stdout(stdout), self.assertRaises(ValueError):
                     publish(c, f, r, rc, out)
+                self.assertEqual(stdout.getvalue(), "")
                 self.assertFalse(out.exists())
 
 

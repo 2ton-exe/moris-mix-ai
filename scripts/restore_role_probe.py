@@ -35,7 +35,7 @@ OWNER_OTHER = re.compile(
 CATEGORY = {b"42501": "insufficient-privilege",
             b"42704": "undefined-object",
             b"42710": "duplicate-object"}
-VERBS = {b"GRANT ": "grant", b"ALTER ROLE ": "alter-role",
+VERBS = {b"ALTER ROLE ": "alter-role",
          b"CREATE ROLE ": "create-role"}
 
 # Only complete single-line role membership GRANTs with an actual GRANTED BY
@@ -146,8 +146,11 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
             or not _safe_prefix_line(candidate)):
         return (f"replay=failed category={category} verb=unknown "
                 "doc_grant=unknown prefix_pass=false membership=unknown")
-    verb = next((label for prefix, label in VERBS.items()
-                 if candidate.startswith(prefix)), "other")
+    # PostgreSQL keywords ignore case, and tokens may end at a tab.
+    # Membership syntax recognition stays deliberately conservative.
+    verb = ("grant" if re.match(rb"(?i)^GRANT[ \t]", candidate)
+            else next((label for prefix, label in VERBS.items()
+                       if candidate.startswith(prefix)), "other"))
     documented = "true" if candidate == DOCUMENTED_GRANT else "false"
     # A structural match does not authenticate the stderr or prove root cause.
     membership = ("match" if ROLE_MEMBERSHIP_GRANT.fullmatch(candidate)
@@ -219,6 +222,10 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
             raise ValueError("contradictory documented grant")
         if prefix == "true" and verb == "unknown":
             raise ValueError("missing attributed verb")
+        if prefix == "true" and documented == "unknown":
+            raise ValueError("missing attributed grant classification")
+        if documented == "true" and membership != "match":
+            raise ValueError("contradictory documented membership")
         if prefix == "true" and (
                 (verb == "grant" and membership not in ("match", "unclassified"))
                 or (verb != "grant" and membership != "not-applicable")):
