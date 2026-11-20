@@ -511,3 +511,48 @@ it('refocuses the ingredient slot when the same prompt is selected again', () =>
     expect(input.selectionStart).toBe(input.value.indexOf(';'))
   }
 })
+
+it('opens the recipe editor when requested from chat', async () => {
+  renderChat('mori-chat-open-editor')
+  send('Open the recipe editor')
+
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new'))
+})
+
+it.each(['Review my draft', 'Open my draft for review'])('offers a choice for “%s” when multiple drafts match', async (command) => {
+  vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe())
+  vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderChat('mori-chat-review-choice')
+  send('I cooked tomato soup')
+  await screen.findByRole('button', { name: 'Review draft' })
+  send('What can I cook with rice?')
+  await screen.findByRole('button', { name: 'Review recipe' })
+
+  send(command)
+  expect(await screen.findByText(/Which draft/)).toBeTruthy()
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
+
+  send('Review the AI Chef draft')
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/chef/review'))
+})
+
+it.each([
+  { title: 'Tomato soup', command: 'Review the Tomato Soup draft' },
+  { title: 'Grandma’s Recipe', command: 'Review Grandma’s Recipe' },
+  { title: 'Tomato soup', command: 'Show me Tomato Soup for review' },
+])('handles “$command” and leaves unrelated drafts alone', async ({ title, command }) => {
+  vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe(title))
+  vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderChat('mori-chat-named-review')
+  send('I cooked tomato soup')
+  await screen.findByRole('button', { name: 'Review draft' })
+
+  send('Review the carbonara recipe')
+  expect(await screen.findByText(/There’s no matching draft/)).toBeTruthy()
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
+
+  send('What can I cook with rice?')
+  await screen.findByRole('button', { name: 'Review recipe' })
+  send(command)
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry/review'))
+})

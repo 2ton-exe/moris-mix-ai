@@ -6,7 +6,10 @@ type MoriNavigation = { path: string; message: string; focus?: 'notes' | 'pantry
 
 export function requestedNavigation(text: string): MoriNavigation | null {
   const value = text.toLowerCase()
-  if (/\b(?:show|open|go to|take me to)\b.*\b(?:my recipes|recipe collection|journal)\b/.test(value)) {
+  if (/\b(?:open|show|go to|take me to)\b.*\b(?:recipe editor|new recipe)\b/.test(value)) {
+    return { path: '/app/recipes/new', message: 'Opening a new recipe.' }
+  }
+  if (/^(?:please\s+)?open recipes[.!]?$/.test(value) || /\b(?:show|open|go to|take me to)\b.*\b(?:my recipes|recipe collection|journal)\b/.test(value)) {
     return { path: '/app/recipes', message: 'Opening your recipe collection.' }
   }
   if (/\b(?:where|how(?: do i)?|help|open|show|go to|take me to|point me to|point to)\b.*\b(?:pantry|ingredient field|ingredients field|(?:add|enter|type|put) ingredients?)\b/.test(value)) {
@@ -16,6 +19,27 @@ export function requestedNavigation(text: string): MoriNavigation | null {
     return { path: '/app/quick-entry', focus: 'notes', message: 'Opening the cooking notes field.' }
   }
   return null
+}
+
+export function requestedRecipeTitle(text: string) {
+  const query = text.match(/^(?:find|look up|search for) my[ \t]+([^\r\n]+)$/i)?.[1]?.trim()
+  const title = query?.match(/^"(.+)"[?]?$/)?.[1] ?? query?.replace(/\?$/, '')
+  return title?.trim() || null
+}
+
+export function requestedReview(text: string): MoriWorkflow | 'any' | { title: string; alias?: string } | null {
+  const value = text.trim().replace(/[?!.]+$/, '')
+  const request = value.match(/^(?:please\s+)?review\s+(.+)$/i)?.[1] ??
+    value.match(/^(?:please\s+)?(?:open|show)\s+(?:me\s+)?(.+?)\s+(?:for\s+)?review$/i)?.[1]
+  const target = request?.replace(/^(?:the|my|this|that)\s+/i, '').trim()
+  if (!target) return null
+  if (/^(?:AI Chef(?: (?:idea|recipe|draft))?|pantry (?:idea|recipe|draft))$/i.test(target)) return 'suggest'
+  if (/^(?:Quick AI Entry|Cooking Notes)(?: (?:recipe|draft))?$/i.test(target)) return 'create'
+  if (/^(?:draft|recipe|it|idea|recipe draft)$/i.test(target)) return 'any'
+  const quoted = target.match(/^["“](.+)["”](?: (?:draft|recipe|idea))?$/i)?.[1]
+  if (quoted) return { title: quoted.trim().toLowerCase() }
+  const title = target.toLowerCase()
+  return { title, alias: title.replace(/ (?:draft|recipe|idea)$/, '') }
 }
 
 export function requestedWorkflow(text: string, pendingCreateFollowUp = false): MoriWorkflow | null {

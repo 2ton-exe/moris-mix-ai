@@ -10,6 +10,9 @@ import { useMoriCompanionState } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
 import './mori-companion.css'
 
+const navigationTapSize = 48
+const navigationTapArm = -58
+const navigationTapStyle: CSSProperties & { '--mori-navigation-arm': string } = { '--mori-navigation-arm': `${navigationTapArm}deg` }
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({
   hidden: z.boolean().default(false),
@@ -52,6 +55,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const mobile = useJournalMedia('(max-width: 600px)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
+  const navigationTap = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const showButton = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -200,6 +204,52 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
   }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight])
 
+  async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
+    if (document.hidden) return
+    // Let the acknowledgment or the closing dialog paint before measuring the anchor.
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    const anchor = findAnchor()
+    const tap = navigationTap.current
+    if (signal.aborted || !tap?.animate || !anchor?.isConnected || !anchor.getClientRects().length ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+    anchor.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const rect = anchor.getBoundingClientRect()
+    const currentViewport = readViewport()
+    const distance = 14
+    const availableRight = currentViewport.left + currentViewport.width - rect.right
+    const fromRight = availableRight > rect.left - currentViewport.left
+    const hand = mittAnchor(navigationTapArm)
+    const scale = navigationTapSize / 200
+    const x = fromRight ? rect.right - (200 - hand.x) * scale : rect.left - hand.x * scale
+    const y = rect.top + rect.height / 2 - hand.y * scale
+    tap.style.left = `${Math.max(currentViewport.left, Math.min(x, currentViewport.left + currentViewport.width - navigationTapSize))}px`
+    tap.style.top = `${Math.max(currentViewport.top, Math.min(y, currentViewport.top + currentViewport.height - navigationTapSize * 1.2))}px`
+    tap.dataset.side = fromRight ? 'right' : 'left'
+    const approach = fromRight ? distance : -distance
+    const motion = tap.animate([
+      { transform: `translateX(${approach}px)`, opacity: 0, easing: 'cubic-bezier(.16, 1, .3, 1)' },
+      { transform: 'translateX(0)', opacity: 1, offset: .55 },
+      { transform: 'translateX(0)', opacity: 1, offset: .72 },
+      { transform: `translateX(${approach / 2}px)`, opacity: 0 },
+    ], { duration: 260 })
+    tap.hidden = false
+    anchor.setAttribute('data-mori-tap-target', '')
+    const stop = () => motion.cancel()
+    signal.addEventListener('abort', stop, { once: true })
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const reduce = (event: MediaQueryListEvent) => { if (event.matches) stop() }
+    preference.addEventListener('change', reduce)
+    try { await motion.finished }
+    catch { /* Cancellation releases the tap without requiring an animationend event. */ }
+    finally {
+      signal.removeEventListener('abort', stop)
+      preference.removeEventListener('change', reduce)
+      tap.hidden = true
+      anchor.removeAttribute('data-mori-tap-target')
+    }
+  }
+
   function close() { setOpen(false); trigger.current?.focus() }
   function show() {
     focusAfterVisibilityChange.current = true
@@ -223,7 +273,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     top: actual.y,
     width,
   } as CSSProperties
-  return <div className="mori-pet-root">
+  return <>
+  <div className="mori-pet-root">
     <button ref={showButton} className="mori-pet-show" type="button" hidden={!preferences.hidden || suspended} inert={suspended} onClick={show}>Show Mori</button>
     <div hidden={preferences.hidden || suspended} inert={preferences.hidden || suspended}>
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
@@ -273,7 +324,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
@@ -282,4 +333,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       </div>
     </div>
   </div>
+  <div ref={navigationTap} className="mori-navigation-tap" hidden aria-hidden="true" style={navigationTapStyle}>
+    <Mori mood="wave" size={navigationTapSize} />
+  </div>
+  </>
 }

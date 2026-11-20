@@ -180,6 +180,97 @@ try {
   const engine = process.env.MORI_BROWSER ?? 'chromium'
   browser = await ({ chromium, firefox, webkit })[engine].launch({ ...(engine === 'chromium' ? { channel: 'chrome' } : {}), headless: true })
 
+  for (const width of [1440, 375]) {
+    const { context, page, errors } = await createJournal(width)
+    await page.goto(`${origin}app/recipes?view=index`)
+    await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
+    await page.getByRole('button', { name: 'Talk to Mori' }).click()
+    const chat = page.getByRole('region', { name: 'Mori', exact: true })
+    await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
+    const editor = chat.getByRole('button', { name: 'Open recipe editor' })
+    const tap = page.locator('.mori-navigation-tap')
+
+    // Freeze the brief gesture at contact while checking the route and its actual geometry.
+    const pinTap = () => tap.evaluate((element) => {
+      const observer = new globalThis.MutationObserver(() => {
+        const animation = element.getAnimations()[0]
+        if (!animation) return
+        observer.disconnect()
+        animation.pause()
+        animation.currentTime = Number(animation.effect.getTiming().duration) * .55
+      })
+      observer.observe(element, { attributes: true, attributeFilter: ['hidden'] })
+    })
+    await pinTap()
+    await editor.focus()
+    await page.keyboard.press('Enter')
+    await expect(tap).toHaveCSS('opacity', '1')
+    await expect(editor).toHaveAttribute('data-mori-tap-target', '')
+    await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+    await expect(chat.getByRole('log')).toContainText('Opening a new recipe.')
+    await expect(chat.getByRole('log')).toBeFocused()
+    const [tapBounds, editorBounds] = await Promise.all([tap.boundingBox(), editor.boundingBox()])
+    assert.ok(tapBounds && editorBounds)
+    const gap = Math.min(Math.abs(tapBounds.x + tapBounds.width - editorBounds.x), Math.abs(editorBounds.x + editorBounds.width - tapBounds.x))
+    assert.ok(gap <= 12, `Mori must tap beside the activated control (gap ${gap}px)`)
+    await page.screenshot({ path: path.join(outputDir, `${width}-mori-navigation-tap.png`) })
+    await tap.evaluate((element) => element.getAnimations()[0].play())
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(chat).toBeVisible()
+    const editorHeading = page.getByRole('heading', { name: 'New recipe', exact: true })
+    await expect(editorHeading).toBeFocused()
+    await editor.press('Enter')
+    await expect(editorHeading).toBeFocused()
+    const title = page.getByRole('textbox', { name: 'Recipe title' })
+    await title.fill('Unsaved soup')
+
+    const collection = chat.getByRole('button', { name: 'Open recipes' })
+    await collection.click()
+    const dialog = page.getByRole('alertdialog', { name: 'Leave without saving?' })
+    await expect(dialog).toBeVisible()
+    await expect(tap).toBeHidden()
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await dialog.getByRole('button', { name: 'Keep Editing' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(collection).toBeFocused()
+    await expect(title).toHaveValue('Unsaved soup')
+
+    await collection.click()
+    await expect(dialog).toBeVisible()
+    await page.evaluate(() => globalThis.history.back())
+    await expect(dialog).toBeHidden()
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(title).toHaveValue('Unsaved soup')
+
+    await collection.click()
+    await dialog.getByRole('button', { name: 'Discard Changes' }).click()
+    await expect(tap).toBeVisible()
+    await expect(page).toHaveURL(`${origin}app/recipes`)
+    await expect(chat).toBeVisible()
+    const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })
+    await expect(collectionHeading).toBeFocused()
+    await collection.press('Enter')
+    await expect(collectionHeading).toBeFocused()
+
+    const composer = chat.getByRole('textbox', { name: 'Message Mori' })
+    const send = chat.getByRole('button', { name: 'Send' })
+    await composer.fill('Open Cooking Notes')
+    await Promise.all([
+      expect(chat.getByText('Opening the cooking notes field.').locator('..')).toHaveAttribute('data-mori-tap-target', ''),
+      send.click(),
+    ])
+    await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await composer.fill('Open Pantry')
+    await send.click()
+    await expect(page.getByRole('textbox', { name: 'Pantry ingredient' })).toBeFocused()
+    await expect(tap).toBeHidden()
+    assert.deepEqual(errors, [])
+    await context.close()
+    process.stdout.write(`${width}px: Mori navigation gesture and unsaved-changes journey passed. Captures in ${outputDir}\n`)
+  }
+
   for (const width of (process.env.MORI_EXTENDED_ONLY ? [] : [1440, 768, 375, 320])) {
     const { context, page, errors, apiRequests } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)
@@ -360,14 +451,41 @@ try {
   assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
   assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
   quickApp.releaseExtraction()
-  await quickPanel.getByRole('button', { name: 'Review draft' }).waitFor()
-  await quickPanel.getByRole('button', { name: 'Review draft' }).click()
+  const draftReview = quickPanel.getByRole('button', { name: 'Review draft' })
+  await Promise.all([
+    expect(draftReview).toHaveAttribute('data-mori-tap-target', ''),
+    draftReview.click(),
+  ])
   await expect(quickApp.page).toHaveURL(`${origin}app/quick-entry/review`)
-  await expect(quickApp.page.getByRole('heading', { name: 'Review your recipe' })).toBeVisible()
+  const reviewHeading = quickApp.page.getByRole('heading', { name: 'Review your recipe' })
+  await expect(reviewHeading).toBeFocused()
+  const reviewComposer = quickPanel.getByRole('textbox', { name: 'Message Mori' })
+  await reviewComposer.fill('Review the Tomato Rice draft')
+  await Promise.all([
+    expect(quickPanel.getByText('I’ll open the draft for review.').last().locator('..')).toHaveAttribute('data-mori-tap-target', ''),
+    reviewComposer.press('Control+Enter'),
+  ])
+  await expect(reviewHeading).toBeFocused()
   const quickDraft = await quickApp.page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:quick-ai-entry:v1:${userId}`)
   assert.equal(quickDraft.handoff.saved, false, 'Reviewing the extraction must leave it unsaved')
   assert.deepEqual(quickApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
     { method: 'POST', path: '/functions/v1/extract-recipe' },
+  ])
+  await reviewComposer.fill('What can I cook with rice; quick dinner')
+  await quickPanel.getByRole('button', { name: 'Send', exact: true }).click()
+  const pantryReview = quickPanel.getByRole('button', { name: 'Review recipe' })
+  await pantryReview.click()
+  const reviewGuard = quickApp.page.getByRole('alertdialog', { name: 'Leave without saving?' })
+  await expect(reviewGuard).toBeVisible()
+  await Promise.all([
+    expect(pantryReview).toHaveAttribute('data-mori-tap-target', ''),
+    reviewGuard.getByRole('button', { name: 'Discard Changes' }).click(),
+  ])
+  await expect(quickApp.page).toHaveURL(`${origin}app/chef/review`)
+  await expect(quickApp.page.getByRole('heading', { name: "Review Mori's recipe." })).toBeFocused()
+  assert.deepEqual(quickApp.apiRequests.filter(({ method }) => method !== 'GET').map(({ method, path }) => ({ method, path })), [
+    { method: 'POST', path: '/functions/v1/extract-recipe' },
+    { method: 'POST', path: '/functions/v1/generate-recipe' },
   ])
   assert.deepEqual(quickApp.errors, [])
   await quickApp.context.close()
@@ -424,6 +542,100 @@ try {
       await app.context.close()
     }
   }
+  const searchApp = await createJournal(1440, { reducedMotion: true })
+  const ownedAdobo = { id: recipe.id, title: 'Adobo', user_id: userId, cooked_at: '2026-11-02' }
+  let holdAdobo = false
+  let releaseAdobo
+  const adoboReady = new Promise(resolve => { releaseAdobo = resolve })
+  const otherAdobo = { ...ownedAdobo, id: '55555555-5555-4555-8555-555555555555', title: 'Pork adobo' }
+  const firstSoup = { ...ownedAdobo, id: '33333333-3333-4333-8333-333333333333', title: 'Soup' }
+  const secondSoup = { ...ownedAdobo, id: '44444444-4444-4444-8444-444444444444', title: 'Soup', cooked_at: '2026-11-03' }
+  let releaseAdoboDetail
+  const adoboDetailReady = new Promise(resolve => { releaseAdoboDetail = resolve })
+  await searchApp.context.route(`**/functions/v1/recipes/${recipe.id}`, async route => {
+    await adoboDetailReady
+    return route.fulfill({ json: { recipe: { ...recipe, title: ownedAdobo.title } } })
+  })
+  await searchApp.context.route(`**/functions/v1/recipes/${secondSoup.id}`, route =>
+    route.fulfill({ json: { recipe: { ...recipe, ...secondSoup } } }))
+  await searchApp.context.route('**/functions/v1/recipes?*', async route => {
+    const url = new URL(route.request().url())
+    const search = url.searchParams.get('search')
+    if (!search) return route.fallback()
+    assert.equal(route.request().method(), 'GET')
+    assert.match(route.request().headers().authorization, /^Bearer /)
+    assert.equal(url.searchParams.get('searchMode'), 'title')
+    if (search === 'broken') {
+      return route.fulfill({ status: 503, json: { error: { code: 'PROVIDER_UNAVAILABLE', message: 'Local test failure' } } })
+    }
+    if (search === 'soup' && !url.searchParams.has('cursor')) {
+      return route.fulfill({ json: { recipes: [firstSoup], has_more: true, next_cursor: 'second-soup' } })
+    }
+    if (holdAdobo && search === 'adobo') await adoboReady
+    const matches = search === 'adobo' ? [otherAdobo, ownedAdobo]
+      : search === 'ado' ? [ownedAdobo]
+      : search === 'soup' && url.searchParams.get('cursor') === 'second-soup' ? [secondSoup]
+      : search === 'private' ? [{ ...ownedAdobo, title: 'Private', user_id: '99999999-9999-4999-8999-999999999999' }]
+      : []
+    return route.fulfill({ json: { recipes: matches, has_more: false, next_cursor: null } })
+  })
+  await searchApp.page.goto(`${origin}app/recipes`)
+  await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  const searchPanel = searchApp.page.getByRole('region', { name: 'Mori', exact: true })
+  async function searchChat(prompt) {
+    await searchPanel.getByRole('textbox', { name: 'Message Mori' }).fill(prompt)
+    await searchPanel.getByRole('button', { name: 'Send', exact: true }).click()
+  }
+  await searchChat('find my adobo')
+  await expect(searchApp.page).toHaveURL(new RegExp(`/app/recipes/${recipe.id}$`), { timeout: 3000 })
+  await expect(searchPanel.getByText('I’ll open “Adobo”.')).toBeVisible()
+  await expect(searchApp.page.locator('.mm-reading-skeleton')).toBeVisible()
+  releaseAdoboDetail()
+  const adoboHeading = searchApp.page.getByRole('heading', { name: 'Adobo', exact: true })
+  await expect(adoboHeading).toBeFocused()
+  await searchChat('find my adobo')
+  await expect(adoboHeading).toBeFocused()
+
+  const recipeUrl = searchApp.page.url()
+  await searchChat('find my ado')
+  await expect(searchPanel.getByRole('group', { name: 'Matching saved recipes' }).getByRole('button', { name: /Adobo/ })).toBeVisible()
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my missing')
+  await expect(searchPanel.getByText('I couldn’t find a saved recipe matching “missing”.')).toBeVisible()
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my broken')
+  const searchError = searchPanel.getByText('I couldn’t search your saved recipes. Try again in a moment.')
+  await expect(searchError).toHaveCount(1)
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my private')
+  await expect(searchError).toHaveCount(2)
+  await expect(searchPanel.getByRole('button', { name: /Private/ })).toHaveCount(0)
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my soup')
+  await expect(searchPanel.getByRole('button', { name: /Soup · match 1/ })).toBeVisible()
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+  const secondSoupChoice = searchPanel.getByRole('button', { name: /Soup · match 2/ })
+  await secondSoupChoice.scrollIntoViewIfNeeded()
+  await searchApp.page.screenshot({ path: path.join(outputDir, 'mori-recipe-matches.png') })
+  await secondSoupChoice.click()
+  await expect(searchApp.page).toHaveURL(new RegExp(`/app/recipes/${secondSoup.id}$`))
+  await expect(searchApp.page.getByRole('heading', { name: 'Soup', exact: true })).toBeVisible()
+  holdAdobo = true
+  await searchChat('find my adobo')
+  await expect(searchPanel.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
+  await searchApp.page.getByRole('link', { name: 'Back to recipes', exact: true }).click()
+  await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
+  await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  releaseAdobo()
+  await expect(searchPanel.getByRole('group', { name: 'Matching saved recipes' }).getByRole('button', { name: /Adobo/ })).toHaveCount(2)
+  await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
+  assert.deepEqual(searchApp.errors, [])
+  await searchApp.context.close()
+
   if (process.env.MORI_CHAT_ONLY) {
     process.stdout.write(`Mori chat and companion acceptance passed. Screenshots: ${outputDir}\n`)
   } else {
@@ -560,7 +772,7 @@ try {
   await expect(emptyApp.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
   await emptyApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const emptyPanel = emptyApp.page.getByRole('region', { name: 'Mori', exact: true })
-  await emptyPanel.getByRole('button', { name: 'Write your first recipe' }).click()
+  await emptyPanel.getByRole('button', { name: 'Open recipe editor' }).click()
   await expect(emptyApp.page).toHaveURL(`${origin}app/recipes/new`)
   assert.deepEqual(emptyApp.errors, [])
   await emptyApp.context.close()

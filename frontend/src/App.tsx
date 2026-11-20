@@ -1,4 +1,4 @@
-import { isValidElement, lazy, Suspense, type ReactNode } from 'react'
+import { isValidElement, lazy, Suspense, useRef, type ReactNode } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router'
 import { useAuth } from './auth/context'
 import { MoriCompanionProvider } from './mori/MoriCompanionContext'
@@ -7,11 +7,15 @@ import { AuthProvider } from './auth/AuthProvider'
 import { AuthReady, GuestRoute, ProtectedRoute } from './auth/AuthRoutes'
 import { LoadingState } from './components/LoadingState'
 import { RouteLoadBoundary } from './components/RouteLoadBoundary'
+import { NavigationConfirmationContext, type RequestNavigationConfirmation } from './recipe-form/navigationConfirmation'
 import { RecipeQueryProvider } from './recipes/RecipeQueryProvider'
 
 function RecipeWorkspace() {
   const { user } = useAuth()
-  return <MoriCompanionProvider key={user?.id}><Outlet /><MoriCompanion userId={user?.id} /></MoriCompanionProvider>
+  const confirmation = useRef<RequestNavigationConfirmation>(null)
+  return <NavigationConfirmationContext.Provider key={user?.id} value={confirmation}>
+    <MoriCompanionProvider><Outlet /><MoriCompanion userId={user?.id} /></MoriCompanionProvider>
+  </NavigationConfirmationContext.Provider>
 }
 
 const AuthPage = lazy(() => import('./pages/AuthPage'))

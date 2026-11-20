@@ -3,6 +3,7 @@ import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requested
 
 describe('Mori chat intent and recipe details', () => {
   it('maps only supported recipe navigation requests', () => {
+    expect(requestedNavigation('Open recipes')).toMatchObject({ path: '/app/recipes' })
     expect(requestedNavigation('Please open my recipes')).toMatchObject({ path: '/app/recipes' })
     expect(requestedNavigation('Show me the pantry field')).toMatchObject({ path: '/app/chef', focus: 'pantry' })
     expect(requestedNavigation('Point me to where I can add ingredients')).toMatchObject({ path: '/app/chef', focus: 'pantry' })

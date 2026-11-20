@@ -10,6 +10,7 @@ import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
 import { RecipeSourceContext } from '../recipes/source'
 import { PaperCard, Tape } from '../journal/Scrapbook'
 import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
+import { useMoriHeadingFocusKey } from '../mori/routeState'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPageContext } from '../journal/JournalLayoutContext'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -22,6 +23,7 @@ function recipeLink(id: unknown) {
 
 export default function RecipeDashboardPage() {
   const location = useLocation()
+  const moriFocusKey = useMoriHeadingFocusKey()
   const navigate = useNavigate()
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [catalogStarts, setCatalogStarts] = useState([0])
@@ -123,11 +125,11 @@ export default function RecipeDashboardPage() {
       if (!recipeLink(returnFocusId)) collectionTitle.current?.focus()
       return
     }
-    if (restoreIndexFocus.current && collectionTitle.current) {
+    if ((restoreIndexFocus.current || moriFocusKey) && collectionTitle.current) {
       collectionTitle.current.focus()
       restoreIndexFocus.current = false
     }
-  }, [facingPage, explicitView, returnFocusId])
+  }, [facingPage, explicitView, returnFocusId, moriFocusKey])
   const pageSearch = (page: number) => {
     const next = new URLSearchParams(params)
     if (pagedIndex || pagedCollection) next.delete('leaf')

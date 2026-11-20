@@ -4,6 +4,7 @@ import { JournalShell } from '../journal/JournalShell'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { Link, useLocation } from 'react-router'
 import { journalReturnTo } from '../journal/indexNavigation'
+import { useMoriHeadingFocusKey } from '../mori/routeState'
 import { UnsavedChangesDialog } from './UnsavedChangesDialog'
 import './recipe-form.css'
 
@@ -23,11 +24,12 @@ export function RecipeEditorFrame({ mode, connected, children, navigationConfirm
 }) {
   const { user } = useAuth()
   const location = useLocation()
+  const moriFocusKey = useMoriHeadingFocusKey()
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     const visibleHeading = document.querySelector<HTMLElement>('.mm-writing-mobile-title') ?? heading.current
     visibleHeading?.focus()
-  }, [mode])
+  }, [mode, moriFocusKey])
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{user?.email}</span></div>} pageClassName="mm-journal-editor">
     <JournalFacingPage className="mm-facing-content--editor">
     {showBack && <nav className="mm-recipe-detail__back" aria-label="Sheet navigation">
