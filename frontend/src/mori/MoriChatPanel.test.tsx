@@ -132,6 +132,10 @@ it('retrieves a pantry suggestion and keeps its saved-recipe lineage in the revi
   choosePrompt('Use my ingredients')
   send('What can I cook with rice and eggs; quick and spicy')
   await screen.findByRole('button', { name: 'Review recipe' })
+  expect(screen.getByRole('heading', { name: 'Pantry rice bowl' })).toBeTruthy()
+  expect(screen.getByText('Unsaved draft')).toBeTruthy()
+  expect(screen.queryByText('Cook the rice.')).toBeNull()
+  expect(screen.queryByText('Saved egg rice', { exact: false })).toBeNull()
   expect(generate).toHaveBeenCalledWith(['rice', 'eggs'], 'quick and spicy', expect.objectContaining({ userId }))
   expect(readChefDraftResult(userId).draft.handoff).toBeNull()
 
@@ -183,8 +187,8 @@ it('keeps the active AI Chef review key for an equivalent suggestion', async () 
   await waitFor(() => expect(screen.getAllByRole('button', { name: 'Review recipe' })).toHaveLength(2))
   fireEvent.click(screen.getAllByRole('button', { name: 'Review recipe' })[1]!)
 
-  expect(await screen.findAllByText('Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')).toHaveLength(2)
-  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1'))
+  expect(screen.getAllByText('Unsaved draft')).toHaveLength(2)
 })
 
 it('consumes equivalent Quick AI chat cards together after a confirmed save', async () => {
@@ -284,13 +288,23 @@ it('navigates only to the requested recipe field and keeps Mori available', asyn
   expect(screen.getByTestId('location').textContent).toContain('"moriKeepOpen":true')
 })
 
-it('asks for pantry ingredients instead of sending an empty request as an ingredient', async () => {
+it.each([
+  'What can I cook?',
+  'What can I make with the leftover ingredients in my pantry?',
+  'Suggest a recipe using whatever’s in my fridge.',
+])('asks for pantry ingredients when the request names none (%s)', async (prompt) => {
   const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
   renderChat('mori-chat-empty-pantry')
-  send('What can I cook?')
+  send(prompt)
 
   await screen.findByText('Tell me at least one ingredient you have. Add optional preferences after a semicolon.')
+  expect(screen.getByRole('article', { name: 'You' }).textContent).toBe(prompt)
   expect(generate).not.toHaveBeenCalled()
+
+  send('leftover rice')
+  await screen.findByRole('button', { name: 'Review recipe' })
+  expect(generate).toHaveBeenCalledOnce()
+  expect(generate).toHaveBeenCalledWith(['leftover rice'], '', expect.anything())
 })
 
 it('retries a failed pantry request with the exact original prompt', async () => {
