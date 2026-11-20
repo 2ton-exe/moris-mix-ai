@@ -18,7 +18,7 @@ create table public.ai_gemini_daily_attempts (
 alter table public.ai_gemini_minute_attempts enable row level security;
 alter table public.ai_gemini_daily_attempts enable row level security;
 revoke all on public.ai_gemini_minute_attempts, public.ai_gemini_daily_attempts
-    from public, anon, authenticated;
+    from public;
 
 create function public.admit_ai_gemini_attempt(
     p_project text,
@@ -106,6 +106,19 @@ end;
 $$;
 
 revoke all on function public.admit_ai_gemini_attempt(text, text, integer, integer)
-    from public, anon, authenticated;
-grant execute on function public.admit_ai_gemini_attempt(text, text, integer, integer)
-    to service_role;
+    from public;
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+        revoke all on public.ai_gemini_minute_attempts, public.ai_gemini_daily_attempts from anon;
+        revoke execute on function public.admit_ai_gemini_attempt(text, text, integer, integer) from anon;
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+        revoke all on public.ai_gemini_minute_attempts, public.ai_gemini_daily_attempts from authenticated;
+        revoke execute on function public.admit_ai_gemini_attempt(text, text, integer, integer) from authenticated;
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+        grant execute on function public.admit_ai_gemini_attempt(text, text, integer, integer) to service_role;
+    end if;
+end;
+$$;

@@ -2593,7 +2593,12 @@ Deno.test({
         p_usage_date: usageDate,
       });
       assertEquals(exhaustedConsume.error, null);
-      assertEquals(exhaustedConsume.data, { status: "exceeded", is_new: false, limit: 2, used: 2 });
+      assertEquals(exhaustedConsume.data?.status, "exceeded");
+      assertEquals(exhaustedConsume.data?.is_new, false);
+      assertEquals(exhaustedConsume.data?.limit, 2);
+      assertEquals(exhaustedConsume.data?.used, 2);
+      const dailyWait = exhaustedConsume.data?.retry_after_seconds;
+      assertEquals(Number.isInteger(dailyWait) && dailyWait >= 1 && dailyWait <= 86_400, true);
       await assertUsage(2);
       const exhaustedReservation = await adminClient.from("ai_quota_reservations")
         .select("id").eq("id", exhaustedReservationId);

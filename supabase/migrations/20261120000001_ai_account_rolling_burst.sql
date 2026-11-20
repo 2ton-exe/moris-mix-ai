@@ -113,16 +113,13 @@ begin
             'status', 'exceeded',
             'is_new', false,
             'limit', v_limit,
-            'used', v_current_count
-        ) || case when v_releases_at is not null then
-            jsonb_build_object(
-                'retry_after_seconds',
-                greatest(1, ceil(extract(epoch from greatest(
-                    ((v_usage_date + 1)::timestamp at time zone 'utc'),
-                    v_releases_at
-                ) - v_admitted_at))::integer)
-            )
-        else '{}'::jsonb end;
+            'used', v_current_count,
+            'retry_after_seconds',
+            greatest(1, ceil(extract(epoch from greatest(
+                ((v_usage_date + 1)::timestamp at time zone 'utc'),
+                v_releases_at
+            ) - v_admitted_at))::integer)
+        );
     end if;
 
     if v_releases_at is not null then
@@ -162,9 +159,20 @@ end;
 $$;
 
 revoke execute on function public.consume_ai_quota(uuid, uuid, integer, date, integer)
-    from public, anon, authenticated;
-grant execute on function public.consume_ai_quota(uuid, uuid, integer, date, integer)
-    to service_role;
+    from public;
+do $$
+begin
+    if exists (select 1 from pg_roles where rolname = 'anon') then
+        revoke execute on function public.consume_ai_quota(uuid, uuid, integer, date, integer) from anon;
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'authenticated') then
+        revoke execute on function public.consume_ai_quota(uuid, uuid, integer, date, integer) from authenticated;
+    end if;
+    if exists (select 1 from pg_roles where rolname = 'service_role') then
+        grant execute on function public.consume_ai_quota(uuid, uuid, integer, date, integer) to service_role;
+    end if;
+end;
+$$;
 
 create or replace function public.consume_ai_quota(
     p_user_id uuid,
