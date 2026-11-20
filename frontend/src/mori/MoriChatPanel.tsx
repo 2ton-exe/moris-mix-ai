@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useContext, useEffect, useLayoutEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { BookOpen, ChefHat, CookingPot, NotebookPen } from 'lucide-react'
 import { SuggestedPrompts } from './SuggestedPrompts'
@@ -13,13 +13,18 @@ import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai
 import type { ExtractedRecipe, QuickAiEntryHandoff } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, InvalidExtractionResponse, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
 import { mapExtractedRecipeToDraft } from '../quick-ai/recipeDraft'
-import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requestedWorkflow } from './chatFlow'
+import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requestedRecipeTitle, requestedWorkflow } from './chatFlow'
 import { useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
+import { initialDiscoveryCriteria, type RecipeContinuation } from '../recipes/discoveryTypes'
+import { formatCookedDate } from '../recipes/recipePresentation'
+import { RecipeSourceContext } from '../recipes/source'
+import type { RecipeSummary } from '../recipes/types'
+import { InvalidRecipeData } from '../recipes/validation'
 
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
 type MoriCooldowns = Partial<Record<MoriRetry['kind'], number>>
-type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft; reviewKey?: number }
+type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft; reviewKey?: number; matches?: RecipeSummary[] }
 
 function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; onReview: (draft: MoriDraft) => void; disabled: boolean; consumed: boolean }) {
   const recipe: ExtractedRecipe = draft.kind === 'create' ? draft.handoff.recipe : draft.handoff.response.recipe
@@ -52,10 +57,14 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
 export function MoriChatPanel({ userId }: { userId: string }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const currentLocationKey = useRef(location.key)
+  useLayoutEffect(() => { currentLocationKey.current = location.key }, [location.key])
+  const { discovery } = useContext(RecipeSourceContext)
   const [messages, setMessages] = useState<Message[]>([])
   const [mode, setMode] = useState<'create' | 'suggest' | null>(null)
   const [composer, setComposer] = useState('')
-  const [pending, setPending] = useState(false)
+  const [pendingTask, setPendingTask] = useState<'recipe' | 'search' | null>(null)
+  const pending = pendingTask !== null
   const [followUp, setFollowUp] = useState<{ notes: string } | null>(null)
   const [retryRequest, setRetryRequest] = useState<MoriRetry | null>(null)
   const [cooldowns, setCooldowns] = useState<MoriCooldowns>({})
@@ -80,7 +89,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       selectedPromptCaret.current = null
     }
   }, [composer, composerId, promptSelection])
-  useMoriActivity(pending ? { kind: 'working', message: 'I’m putting your recipe together…' } : null)
+  useMoriActivity(pending ? { kind: 'working', message: pendingTask === 'search' ? 'I’m looking through your saved recipes…' : 'I’m putting your recipe together…' } : null)
 
   useEffect(() => {
     const deadlines = Object.values(cooldowns).filter((until): until is number => until !== undefined && until > now)
@@ -95,9 +104,12 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     return until === undefined ? 0 : Math.max(0, Math.ceil((until - now) / 1000))
   }
 
-  function say(role: Message['role'], text: string, draft?: MoriDraft) {
+  function say(role: Message['role'], text: string, content?: MoriDraft | { kind: 'matches'; recipes: RecipeSummary[] }) {
+    const draft = content?.kind === 'matches' ? undefined : content
     const reviewKey = draft ? reviewKeyFor(draft) : undefined
-    const message: Message = { id: id.current++, role, text, ...(draft ? { draft, reviewKey } : {}) }
+    const message: Message = { id: id.current++, role, text, ...(draft ? { draft, reviewKey } : {}),
+      ...(content?.kind === 'matches' ? { matches: content.recipes } : {}),
+    }
     setMessages((current) => [...current, message])
   }
 
@@ -142,6 +154,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     onSuccess: (value: T) => void,
     onError: (error: unknown, timedOut: boolean) => string,
     timeoutMs: number,
+    task: NonNullable<typeof pendingTask> = 'recipe',
   ) {
     if (request.current) return
     const controller = new AbortController()
@@ -153,11 +166,11 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       if (requestId.current !== currentId) return
       requestId.current++
       request.current = null
-      setPending(false)
+      setPendingTask(null)
       say('assistant', onError(new Error('timeout'), true))
     }, timeoutMs)
     request.current = { id: currentId, controller, timeout }
-    setPending(true)
+    setPendingTask(task)
     try {
       const result = await action(controller.signal)
       if (!controller.signal.aborted && requestId.current === currentId) onSuccess(result)
@@ -167,7 +180,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
       window.clearTimeout(timeout)
       if (request.current?.id === currentId) {
         request.current = null
-        setPending(false)
+        setPendingTask(null)
       }
     }
   }
@@ -179,7 +192,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     request.current = null
     window.clearTimeout(active.timeout)
     active.controller.abort()
-    setPending(false)
+    setPendingTask(null)
     setRetryRequest(null)
     say('assistant', 'I stopped that request. Nothing was saved; your chat is still here if you want to try again.')
   }
@@ -277,11 +290,63 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     )
   }
 
+  function openRecipe(recipe: RecipeSummary) {
+    openRoute(`/app/recipes/${encodeURIComponent(recipe.id)}`, `I’ll open “${recipe.title}”.`)
+  }
+
+  async function findRecipe(title: string) {
+    await ask(
+      async (signal) => {
+        if (!discovery) throw new InvalidRecipeData()
+        const criteria = { ...initialDiscoveryCriteria, search: title }
+        const recipes = new Map<string, RecipeSummary>()
+        const visited = new Set<RecipeContinuation>()
+        let continuation: RecipeContinuation | null = null
+        do {
+          const page = await discovery.page({ criteria, continuation, userId, signal })
+          signal.throwIfAborted()
+          for (const recipe of page.recipes) recipes.set(recipe.id, recipe)
+          continuation = page.nextPage
+          if (continuation !== null) {
+            if (visited.has(continuation)) throw new InvalidRecipeData()
+            visited.add(continuation)
+          }
+        } while (continuation !== null)
+        return [...recipes.values()]
+      },
+      (recipes) => {
+        const exactMatches = recipes.filter((recipe) => recipe.title.trim().toLowerCase() === title.toLowerCase())
+        const [exactMatch, duplicate] = exactMatches
+        if (exactMatch && !duplicate && currentLocationKey.current === location.key) {
+          openRecipe(exactMatch)
+        } else if (recipes.length) {
+          say('assistant', `Here’s what I found for “${title}”.`, {
+            kind: 'matches', recipes: exactMatches.length ? exactMatches : recipes,
+          })
+        } else {
+          say('assistant', `I couldn’t find a saved recipe matching “${title}”.`)
+        }
+      },
+      () => 'I couldn’t search your saved recipes. Try again in a moment.',
+      15_000,
+      'search',
+    )
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (pending) return
     const text = composer.trim()
     if (!text) return
+
+    const title = requestedRecipeTitle(text)
+    if (title) {
+      setComposer('')
+      setRetryRequest(null)
+      say('user', text)
+      await findRecipe(title)
+      return
+    }
 
     const navigation = requestedNavigation(text)
     if (navigation) {
@@ -300,7 +365,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     setRetryRequest(null)
     say('user', text)
     if (!selected) {
-      say('assistant', 'I can help make a recipe from cooking notes, suggest something from your pantry, or open your recipes. Pick one below or tell me what you need.')
+      say('assistant', 'I can help make a recipe from cooking notes, suggest something from your pantry, or find a saved recipe. Try “find my adobo” or pick an action below.')
       return
     }
     if (explicitWorkflow) {
@@ -383,6 +448,14 @@ export function MoriChatPanel({ userId }: { userId: string }) {
             if (retry.kind === 'create') void createRecipe(retry.notes)
             else void suggestRecipe(retry.prompt)
           }}>Retry same request</button></div>}
+          {message.matches && <div className="mori-chat-preview" role="group" aria-label="Matching saved recipes">
+            {message.matches.map((recipe, index, matches) => {
+              const duplicateTitle = matches.some((other) => other.id !== recipe.id && other.title.toLowerCase() === recipe.title.toLowerCase())
+              const date = recipe.cooked_at ? formatCookedDate(recipe.cooked_at) : null
+              const label = [recipe.title, duplicateTitle && `match ${index + 1}`, date].filter(Boolean).join(' · ')
+              return <button key={recipe.id} type="button" disabled={pending} onClick={() => openRecipe(recipe)}>{label}</button>
+            })}
+          </div>}
           {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending} consumed={completedReviewKeys.has(reviewKey)} onReview={(draft) => openReview(draft, reviewKey)} />}
         </article>
       })}

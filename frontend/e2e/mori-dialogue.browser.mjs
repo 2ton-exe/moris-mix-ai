@@ -416,6 +416,91 @@ try {
       await app.context.close()
     }
   }
+  const searchApp = await createJournal(1440, { reducedMotion: true })
+  const ownedAdobo = { id: recipe.id, title: 'Adobo', user_id: userId, cooked_at: '2026-11-02' }
+  let holdAdobo = false
+  let releaseAdobo
+  const adoboReady = new Promise(resolve => { releaseAdobo = resolve })
+  const otherAdobo = { ...ownedAdobo, id: '55555555-5555-4555-8555-555555555555', title: 'Pork adobo' }
+  const firstSoup = { ...ownedAdobo, id: '33333333-3333-4333-8333-333333333333', title: 'Soup' }
+  const secondSoup = { ...ownedAdobo, id: '44444444-4444-4444-8444-444444444444', title: 'Soup', cooked_at: '2026-11-03' }
+  await searchApp.context.route(`**/functions/v1/recipes/${recipe.id}`, route =>
+    route.fulfill({ json: { recipe: { ...recipe, title: ownedAdobo.title } } }))
+  await searchApp.context.route(`**/functions/v1/recipes/${secondSoup.id}`, route =>
+    route.fulfill({ json: { recipe: { ...recipe, ...secondSoup } } }))
+  await searchApp.context.route('**/functions/v1/recipes?*', async route => {
+    const url = new URL(route.request().url())
+    const search = url.searchParams.get('search')
+    if (!search) return route.fallback()
+    assert.equal(route.request().method(), 'GET')
+    assert.match(route.request().headers().authorization, /^Bearer /)
+    assert.equal(url.searchParams.get('searchMode'), 'title')
+    if (search === 'broken') {
+      return route.fulfill({ status: 503, json: { error: { code: 'PROVIDER_UNAVAILABLE', message: 'Local test failure' } } })
+    }
+    if (search === 'soup' && !url.searchParams.has('cursor')) {
+      return route.fulfill({ json: { recipes: [firstSoup], has_more: true, next_cursor: 'second-soup' } })
+    }
+    if (holdAdobo && search === 'adobo') await adoboReady
+    const matches = search === 'adobo' ? [otherAdobo, ownedAdobo]
+      : search === 'ado' ? [ownedAdobo]
+      : search === 'soup' && url.searchParams.get('cursor') === 'second-soup' ? [secondSoup]
+      : search === 'private' ? [{ ...ownedAdobo, title: 'Private', user_id: '99999999-9999-4999-8999-999999999999' }]
+      : []
+    return route.fulfill({ json: { recipes: matches, has_more: false, next_cursor: null } })
+  })
+  await searchApp.page.goto(`${origin}app/recipes`)
+  await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  const searchPanel = searchApp.page.getByRole('region', { name: 'Mori', exact: true })
+  async function searchChat(prompt) {
+    await searchPanel.getByRole('textbox', { name: 'Message Mori' }).fill(prompt)
+    await searchPanel.getByRole('button', { name: 'Send', exact: true }).click()
+  }
+  await searchChat('find my adobo')
+  await expect(searchApp.page).toHaveURL(new RegExp(`/app/recipes/${recipe.id}$`), { timeout: 3000 })
+  await expect(searchPanel.getByText('I’ll open “Adobo”.')).toBeVisible()
+  await expect(searchApp.page.getByRole('heading', { name: 'Adobo', exact: true })).toBeVisible()
+
+  const recipeUrl = searchApp.page.url()
+  await searchChat('find my ado')
+  await expect(searchPanel.getByRole('group', { name: 'Matching saved recipes' }).getByRole('button', { name: /Adobo/ })).toBeVisible()
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my missing')
+  await expect(searchPanel.getByText('I couldn’t find a saved recipe matching “missing”.')).toBeVisible()
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my broken')
+  const searchError = searchPanel.getByText('I couldn’t search your saved recipes. Try again in a moment.')
+  await expect(searchError).toHaveCount(1)
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my private')
+  await expect(searchError).toHaveCount(2)
+  await expect(searchPanel.getByRole('button', { name: /Private/ })).toHaveCount(0)
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+
+  await searchChat('find my soup')
+  await expect(searchPanel.getByRole('button', { name: /Soup · match 1/ })).toBeVisible()
+  await expect(searchApp.page).toHaveURL(recipeUrl)
+  const secondSoupChoice = searchPanel.getByRole('button', { name: /Soup · match 2/ })
+  await secondSoupChoice.scrollIntoViewIfNeeded()
+  await searchApp.page.screenshot({ path: path.join(outputDir, 'mori-recipe-matches.png') })
+  await secondSoupChoice.click()
+  await expect(searchApp.page).toHaveURL(new RegExp(`/app/recipes/${secondSoup.id}$`))
+  await expect(searchApp.page.getByRole('heading', { name: 'Soup', exact: true })).toBeVisible()
+  holdAdobo = true
+  await searchChat('find my adobo')
+  await expect(searchPanel.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible()
+  await searchApp.page.getByRole('link', { name: 'Back to recipes', exact: true }).click()
+  await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
+  await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  releaseAdobo()
+  await expect(searchPanel.getByRole('group', { name: 'Matching saved recipes' }).getByRole('button', { name: /Adobo/ })).toHaveCount(2)
+  await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
+  assert.deepEqual(searchApp.errors, [])
+  await searchApp.context.close()
+
   if (process.env.MORI_CHAT_ONLY) {
     process.stdout.write(`Mori chat and companion acceptance passed. Screenshots: ${outputDir}\n`)
   } else {

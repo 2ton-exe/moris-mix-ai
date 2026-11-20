@@ -18,6 +18,12 @@ export function requestedNavigation(text: string): MoriNavigation | null {
   return null
 }
 
+export function requestedRecipeTitle(text: string) {
+  const query = text.match(/^(?:find|look up|search for) my[ \t]+([^\r\n]+)$/i)?.[1]?.trim()
+  const title = query?.match(/^"(.+)"[?]?$/)?.[1] ?? query?.replace(/\?$/, '')
+  return title?.trim() || null
+}
+
 export function requestedWorkflow(text: string, pendingCreateFollowUp = false): MoriWorkflow | null {
   if (/\b(?:what can i (?:cook|make)|what should i (?:cook|make)|find something to cook|meal idea|suggest\b)\b/i.test(text) ||
     (!pendingCreateFollowUp && /\b(?:i have|we have)\b/i.test(text))) return 'suggest'
