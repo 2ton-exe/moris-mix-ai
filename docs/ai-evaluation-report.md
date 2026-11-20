@@ -145,7 +145,7 @@ The original DevOps operator inspected **Mori's Mix AI Production** in the
 Google Cloud Billing console and Google AI Studio's Gemini API Rate Limit
 dashboard. The project displayed **no linked billing account** and the
 **Free tier**. For `gemini-3.5-flash-lite`, AI Studio showed **15 requests per
-minute (RPM)**, a **500 requests per day (RPD)** limit, and a **3 RPM peak**
+minute (RPM)**, a **500 requests per day (RPD)** limit, and a **3 RPM peak out of the 15 RPM limit**
 over the displayed 28-day period. The exact TPM limit is not quoted because
 the supplied dashboard image does not show its full numeric value. The operator
 reported that the key remains restricted to the Generative Language API and
@@ -154,7 +154,9 @@ observations, not an independent production-secret or Cloud IAM audit.
 
 The `AI_DAILY_LIMIT` default of 20 is an **application-level per-user
 logical-operation allowance**, not a Gemini Free-tier request limit or a
-provider-wide spending ceiling. During the November 15 verification, production was configured with the key
+provider-wide spending ceiling.
+
+During the November 15 verification, production was configured with the key
 verified for the audited project. As of November 20, the **current** runtime
 key's project association has not been independently reverified. **If**
 production and manual evaluation still use keys from that same project, they
