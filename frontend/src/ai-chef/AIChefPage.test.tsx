@@ -236,7 +236,8 @@ describe('AI Chef pantry and review workflow', () => {
     ])
     expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Tomato egg rice')
     const details = within(screen.getByRole('region', { name: 'AI Chef generation details' }))
-    expect(details.getByText('bell pepper')).toBeTruthy()
+    const substitutions = details.getByText('Suggested substitutions').closest('details')
+    expect(substitutions?.textContent).toContain('bell pepper')
     expect(details.getByText('Garden rice')).toBeTruthy()
     expect(details.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
@@ -245,6 +246,29 @@ describe('AI Chef pantry and review workflow', () => {
     expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
     expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     expect(save).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes the generated ingredients from the request and describes flavor estimates accessibly', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue({
+      ...response,
+      recipe: { ...response.recipe, flavor_scores: { sweet: 0, salty: 3.5, sour: 0, bitter: 0, umami: 5, spicy: 0 } },
+    })
+    renderChef()
+    const pantryEntry = 'the leftover ingredients in my pantry'
+    addIngredient(pantryEntry)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+
+    const review = within(await screen.findByRole('region', { name: 'AI Chef generation details' }))
+    const ingredients = within(review.getByRole('region', { name: 'Ingredients in this suggestion' }))
+    expect(ingredients.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['rice', 'tomatoes'])
+    const request = review.getByText('Your request').closest('details')
+    expect(request?.open).toBe(false)
+    expect(request?.textContent).toContain(pantryEntry)
+
+    const flavorDetails = review.getByText('Mori’s optional flavor estimates').closest('details')
+    expect(flavorDetails?.open).toBe(false)
+    expect(review.getByText('3.5 out of 5').className).toBe('visually-hidden')
+    expect(review.getByText('5 out of 5').className).toBe('visually-hidden')
   })
 
   it('rejects an empty pantry locally and retains inputs after quota failure for retry', async () => {
@@ -756,14 +780,14 @@ describe('AI Chef pantry and review workflow', () => {
       await finishJournalTurn(() => JSON.stringify(screen.queryAllByRole('checkbox').map((checkbox) => checkbox.parentElement?.textContent)) !== currentOptions)
     }
     for (let index = 1; index <= 10; index += 1) {
-      const name = new RegExp(`^Parent ${index} `)
+      const name = new RegExp(`^Parent ${index}$`)
       if (!screen.queryByRole('checkbox', { name })) await turnReview('Next')
       fireEvent.click(screen.getByRole('checkbox', { name }))
     }
     expect(screen.getAllByText('10 of 10 parent recipes selected.').length).toBeGreaterThan(0)
-    expect(screen.getByRole('checkbox', { name: /^Parent 11 / })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('checkbox', { name: 'Parent 11' })).toHaveProperty('disabled', true)
     await turnReview('Previous')
-    expect(screen.getByRole('checkbox', { name: /^Parent 4 / })).toHaveProperty('checked', true)
+    expect(screen.getByRole('checkbox', { name: 'Parent 4' })).toHaveProperty('checked', true)
   })
 })
 
