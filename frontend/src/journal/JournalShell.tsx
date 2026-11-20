@@ -59,6 +59,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   const location = useLocation()
   const companionEnabled = !publicNavigation && (location.pathname === '/app' || location.pathname.startsWith('/app/'))
   const bookRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLElement>(null)
   const [facingPage, setFacingPage] = useState<HTMLDivElement | null>(null)
   const [leftPagination, setLeftPagination] = useState<HTMLDivElement | null>(null)
   const [singlePrevious, setSinglePrevious] = useState<HTMLDivElement | null>(null)
@@ -80,6 +81,22 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     return () => book.removeEventListener(JOURNAL_PAGE_TURN_EVENT, handleRequest)
   }, [requestPageTurn])
   useLayoutEffect(() => {
+    const toolbar = toolbarRef.current
+    const stage = bookRef.current?.parentElement
+    if (!toolbar || !stage) return
+    // The tabs extend above the journal stage, so reserve their height below the toolbar too.
+    const update = () => stage.style.setProperty('--mm-toolbar-reserve', `${toolbar.offsetTop + toolbar.offsetHeight + 48}px`)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(toolbar)
+    window.addEventListener('resize', update)
+    update()
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', update)
+      stage.style.removeProperty('--mm-toolbar-reserve')
+    }
+  }, [])
+  useLayoutEffect(() => {
     if (!footer || typeof ResizeObserver === 'undefined') return
     const update = () => footer.closest<HTMLElement>('.mm-journal-page')?.style.setProperty('--mm-footer-height', `${footer.offsetHeight}px`)
     const observer = new ResizeObserver(update)
@@ -91,7 +108,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   <JournalSurface material="wood" className={`mm-desk mm-desk--${mode}${companionEnabled ? ' mm-desk--with-companion' : ''}`}>
     <DeskStationery />
     <a className="mm-skip-link" href="#journal-content">Skip to journal content</a>
-    <header className="mm-desk-toolbar">
+    <header ref={toolbarRef} className="mm-desk-toolbar">
       <Link className="mm-desk-brand" to={publicNavigation ? '/home' : '/app/recipes'}><BrandMark /></Link>
       {!publicNavigation && <PublicLinks />}
       {account}
