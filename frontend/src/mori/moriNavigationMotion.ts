@@ -5,6 +5,7 @@ import { loadedMoriSprite, MORI_FOOT, MORI_SPRITE_WIDTH, moriSpriteFrame, preloa
 import { smooth } from '../journal/pageTurnMotion'
 
 const arrivalMs = 120
+const spriteWaitMs = 150
 const reduceMotion = '(prefers-reduced-motion: reduce)'
 
 function reachPose(facing: 'E' | 'W') {
@@ -32,6 +33,11 @@ function visibleCenter(element: HTMLElement | null) {
     target.y >= top && target.y <= top + (viewport?.height ?? innerHeight) ? target : null
 }
 
+function readySprite(facing: Direction8, distance?: number) {
+  const image = moriSpriteFrame(facing, distance)
+  return image && loadedMoriSprite(image.src) ? image : null
+}
+
 export function travelToJournalTab({ character, trigger, findTab, signal, onSettled }: {
   character: HTMLElement
   trigger: HTMLElement
@@ -54,6 +60,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
   let paintedFacing: Direction8 = 'S'
   let tab: HTMLElement | null = null
   let distance = 0
+  let loadStarted: number | undefined
   let start: number | undefined
   let duration = 0
   let blend = 0
@@ -108,16 +115,13 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
       return
     }
     reach?.svg.remove()
-    const image = moriSpriteFrame(stepFacing, distance / scale)
-    if (image && loadedMoriSprite(image.src)) {
+    const image = readySprite(stepFacing, distance / scale) ?? readySprite(stepFacing)
+    if (image) {
       if (sprite.getAttribute('src') !== image.src) sprite.src = image.src
       if (!sprite.isConnected) character.append(sprite)
       spriteFacing = stepFacing
       character.dataset.navigationArt = ''
-    } else if (!sprite.isConnected || spriteFacing !== stepFacing) {
-      sprite.remove()
-      delete character.dataset.navigationArt
-    }
+    } else if (!sprite.isConnected || spriteFacing !== stepFacing) stop(true)
   }
 
   function walk(base: Point, goal: Point, elapsed: number, scale: number, stage: 'travel' | 'return') {
@@ -149,7 +153,8 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
       const target = findTab()
       const center = visibleCenter(target)
       if (!target || !center) return stop(true)
-      if (start === undefined) {
+      if (loadStarted === undefined) {
+        loadStarted = now
         reachFacing = base.x < center.x ? 'E' : 'W'
         reach = reachPose(reachFacing)
         if (!reach) return stop(true)
@@ -158,6 +163,13 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
       if (!reach) return stop(true)
       const goal = { x: center.x + (MORI_FOOT.x - reach.hand.x) * scale, y: center.y + (MORI_FOOT.y - reach.hand.y) * scale }
       if (start === undefined) {
+        const facing = directionFor(base, goal)
+        if (!readySprite(facing, 0) && !readySprite(facing)) {
+          if (now - loadStarted >= spriteWaitMs) return stop(true)
+          frame = requestAnimationFrame(tick)
+          return
+        }
+        paintedFacing = facing
         start = now
         duration = Math.min(920, Math.max(360, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.4))
       }
@@ -180,7 +192,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
         }
       }
     }
-    frame = requestAnimationFrame(tick)
+    if (!stopped) frame = requestAnimationFrame(tick)
   }
 
   if (signal.aborted) cancel()

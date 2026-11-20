@@ -8,6 +8,7 @@ import { generateRecipeApi } from '../ai-chef/generateRecipe'
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai/draft'
 import type { ExtractedRecipe } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
+import * as moriSpriteAtlas from '../journal/moriSpriteAtlas'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider, useMoriReviewCompletion } from './MoriCompanionContext'
 import { MoriChatPanel } from './MoriChatPanel'
@@ -405,7 +406,9 @@ it('keeps Mori and the conversation open across its own route navigation', async
   expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
 })
 
-it('waits for Mori to arrive at the actual journal bookmark before navigating', async () => {
+it('walks toward the actual bookmark with matching idle art while walk frames are unavailable', async () => {
+  const loaded = new Image()
+  vi.spyOn(moriSpriteAtlas, 'loadedMoriSprite').mockImplementation((src) => src.includes('/idle.svg') ? loaded : null)
   render(<MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider>
     <div className="mm-journal-book"><div className="mm-journal-spread"><nav className="mm-bookmarks--journal">
       <a href="/app/recipes/new">New recipe</a>
@@ -419,6 +422,8 @@ it('waits for Mori to arrive at the actual journal bookmark before navigating', 
   fireEvent.click(trigger)
   fireEvent.click(screen.getByRole('button', { name: 'Open recipe editor' }))
 
+  const character = screen.getByRole('group', { name: 'Mori companion' })
+  await waitFor(() => expect(character.querySelector('.mori-navigation-sprite')?.getAttribute('src')).toEqual(expect.stringContaining('/NE/idle.svg')))
   await waitFor(() => expect(tab.hasAttribute('data-mori-tap-target')).toBe(true))
   expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
   expect(screen.getByRole('button', { name: 'Open recipes' })).toHaveProperty('disabled', true)
