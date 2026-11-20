@@ -34,7 +34,7 @@ export function missingRecipeDetails(recipe: ExtractedRecipe) {
 }
 
 // shortcut: recognize common pantry references here; use structured input for broader intent parsing.
-const unnamedPantryReference = /^(?:(?:the|my|our|some|any) )?(?:leftovers?|(?:leftover |pantry |fridge )?ingredients?|pantry|fridge|what(?:ever)?(?: i| we) have(?: left)?|what(?:ever)?['’]s)(?: (?:in|from) (?:the |my |our )?(?:pantry|fridge))?$/i
+const unnamedPantryReference = /^(?:(?:the|my|our|some|any) )?(?:(?:(?:pantry|fridge) )?leftovers?|(?:leftover |pantry |fridge )?ingredients?|pantry|fridge|what(?:ever)?(?:(?: i| we) have| is|['’]s)(?: left)?)(?: (?:in|from) (?:the |my |our )?(?:pantry|fridge)| on hand)?$/i
 
 export function parsePantryPrompt(value: string) {
   const separator = value.indexOf(';')

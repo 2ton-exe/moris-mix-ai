@@ -197,16 +197,24 @@
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-desk--writing .mm-journal-book:has(> .mm-journal-spread .mm-ai-chef__review-notice) {
-    block-size: auto;
+    height: auto;
     padding-block: var(--mm-overhang);
   }
   .mm-desk--writing .mm-journal-book > .mm-journal-spread:has(.mm-ai-chef__review-notice) {
     position: relative;
-    inset-block-start: auto;
-    block-size: auto;
+    top: auto;
+    height: auto;
   }
-  .mm-desk--writing .mm-journal-page:has(.mm-ai-chef__review-notice) { min-block-size: var(--mm-page-height); }
-  .mm-desk--writing .recipe-form-content:has(.mm-ai-chef__review-notice) { flex: 1 0 auto; block-size: auto; }
+  .mm-desk--writing .mm-journal-page:has(.mm-ai-chef__review-notice) {
+    flex: none;
+    height: auto;
+    min-height: var(--mm-page-height);
+  }
+  .mm-desk--writing .mm-journal-page:has(.mm-ai-chef__review-notice) .recipe-form-content {
+    flex: none;
+    height: auto;
+  }
+  .mm-desk--writing .mm-writing-leaf:has(.mm-ai-chef__review-notice) { flex: none; width: 100%; }
 }
 
 @media (min-width: 1100px) and (min-height: 640px) {

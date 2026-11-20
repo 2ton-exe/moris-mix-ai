@@ -34,7 +34,7 @@
 .mori-chat-log { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }
 .mori-chat-log:has(.mori-chat-message):where([aria-busy='false']) { min-block-size: 8rem; }
 .mori-chat-log:focus-visible { outline-offset: -3px; }
-.mori-chat-message { box-sizing: border-box; flex-shrink: 0; min-inline-size: 0; max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid var(--mm-border-paper); border-radius: 12px 12px 12px 4px; background: var(--mm-color-fresh); font-size: 13px; line-height: 1.4; }
+.mori-chat-message { overflow-wrap: anywhere; box-sizing: border-box; flex-shrink: 0; min-inline-size: 0; max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid var(--mm-border-paper); border-radius: 12px 12px 12px 4px; background: var(--mm-color-fresh); font-size: 13px; line-height: 1.4; }
 .mori-chat-message[data-role='user'] { align-self: flex-end; border-color: var(--mm-color-sage-500); border-radius: 12px 12px 4px 12px; background: var(--mm-color-sage-100); }
 .mori-pet-panel .mori-chat-message p { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 .mori-chat-preview { display: grid; gap: 6px; margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--mm-border-paper); }
