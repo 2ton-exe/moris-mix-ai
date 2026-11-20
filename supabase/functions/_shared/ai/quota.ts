@@ -2,9 +2,11 @@ import {
   createClient,
   type SupabaseClient,
 } from "npm:@supabase/supabase-js@2.39.8";
+import { resolveGeminiModel } from "./geminiModel.ts";
 
 export const DEFAULT_AI_DAILY_LIMIT = 20;
 export const AI_DAILY_LIMIT_ENV = "AI_DAILY_LIMIT";
+const AI_ACCOUNT_BURST_LIMIT_ENV = "AI_ACCOUNT_BURST_LIMIT";
 
 export type QuotaDecision =
   | {
@@ -29,6 +31,7 @@ export type QuotaCheckDeps = {
   fetch?: typeof fetch;
   reservationId?: string;
   usageDate?: string;
+  operation?: "extract" | "generate";
 };
 
 export type QuotaCheck = (
@@ -149,8 +152,18 @@ export const consumeDailyQuota: QuotaCheck = async (
   deps,
 ) => {
   const limit = resolveDailyLimit();
-  const usageDate = deps?.usageDate ?? utcDateString();
   const reservationId = deps?.reservationId ?? crypto.randomUUID();
+  const configuredBurstLimit = Deno.env.get(AI_ACCOUNT_BURST_LIMIT_ENV)?.trim();
+  const burstLimit = configuredBurstLimit ? Number(configuredBurstLimit) : null;
+  if (
+    burstLimit !== null &&
+    (!/^\d+$/.test(configuredBurstLimit ?? "") ||
+      !Number.isInteger(burstLimit) ||
+      burstLimit < 1 || burstLimit > 2_147_483_647)
+  ) {
+    logQuotaRpcFailure("invalid_account_burst_configuration");
+    return { status: "unavailable", limit };
+  }
 
   const supabaseUrl = deps?.supabaseUrl ?? Deno.env.get("SUPABASE_URL");
   const supabaseServiceRoleKey = deps?.supabaseServiceRoleKey ??
@@ -182,7 +195,8 @@ export const consumeDailyQuota: QuotaCheck = async (
       p_user_id: userId,
       p_reservation_id: reservationId,
       p_daily_limit: limit,
-      p_usage_date: usageDate,
+      p_usage_date: deps?.usageDate ?? null,
+      ...(burstLimit === null ? {} : { p_burst_limit: burstLimit }),
     });
   } catch (error) {
     logQuotaRpcFailure("request", error);
@@ -207,15 +221,30 @@ export const consumeDailyQuota: QuotaCheck = async (
   }
 
   if (res.status === "exceeded") {
+    console.log(JSON.stringify({
+      event: "ai_account_daily_limited",
+      model: resolveGeminiModel(),
+      op: deps?.operation,
+    }));
+    const retryAfter = typeof res.retry_after_seconds === "number" &&
+        Number.isSafeInteger(res.retry_after_seconds) &&
+        res.retry_after_seconds >= 1
+      ? res.retry_after_seconds
+      : secondsUntilNextUtcDay();
     return {
       status: "exceeded",
       limit: typeof res.limit === "number" ? res.limit : limit,
       used: typeof res.used === "number" ? res.used : limit,
-      retryAfterSeconds: secondsUntilNextUtcDay(),
+      retryAfterSeconds: retryAfter,
     };
   }
 
   if (res.status === "rate_limited") {
+    console.log(JSON.stringify({
+      event: "ai_account_burst_limited",
+      model: resolveGeminiModel(),
+      op: deps?.operation,
+    }));
     const retryAfter = typeof res.retry_after_seconds === "number" &&
         Number.isSafeInteger(res.retry_after_seconds) &&
         res.retry_after_seconds >= 1

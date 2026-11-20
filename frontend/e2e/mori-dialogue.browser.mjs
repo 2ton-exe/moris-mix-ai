@@ -295,7 +295,7 @@ try {
     const chatGeometry = await panel.evaluate((element) => {
       const panel = element.getBoundingClientRect()
       const composer = element.querySelector('.mori-chat-composer').getBoundingClientRect()
-      return { fits: composer.top >= panel.top && composer.bottom <= panel.bottom, height: panel.height, overflow: element.ownerDocument.defaultView.getComputedStyle(element).overflowY }
+      return { fits: composer.top >= panel.top && composer.bottom <= panel.bottom, height: panel.height, panelScrolls: element.scrollHeight - element.clientHeight > 1 }
     })
     if (width > 600) assert.equal(chatGeometry.fits, true, 'Composer must remain inside the panel')
     else {
@@ -303,7 +303,7 @@ try {
       await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
     }
     if (width === 1440) assert.equal(chatGeometry.height, 560, 'Desktop chat must use its full available height')
-    assert.equal(chatGeometry.overflow, width <= 600 ? 'auto' : 'hidden', 'Narrow panels scroll as a whole; desktop transcripts scroll independently')
+    if (width > 600) assert.equal(chatGeometry.panelScrolls, false, 'A roomy desktop panel keeps the composer in place')
     if (width === 1440) {
       const shortcutsFit = await panel.locator('.mori-chat-shortcuts').evaluate((element) => {
         const bounds = element.getBoundingClientRect()
@@ -402,8 +402,16 @@ try {
     await chefPanel.getByRole('button', { name: 'Use my ingredients', exact: true }).click()
     await chefPanel.getByRole('textbox', { name: 'Message Mori' }).fill('rice; quick dinner')
     await chefPanel.getByRole('button', { name: 'Send' }).click()
-    await chefPanel.getByRole('button', { name: 'Review recipe' }).waitFor()
-    await chefPanel.getByRole('button', { name: 'Review recipe' }).click()
+    const reviewRecipe = chefPanel.getByRole('button', { name: 'Review recipe' })
+    const draftTitle = chefPanel.getByRole('heading', { name: 'Rice and egg supper' })
+    await expect(draftTitle).toBeVisible()
+    if (width === 1440) {
+      await reviewRecipe.scrollIntoViewIfNeeded()
+      await expect(draftTitle).toBeInViewport({ ratio: 1 })
+      await expect(reviewRecipe).toBeInViewport({ ratio: 1 })
+      await chefApp.page.screenshot({ path: path.join(outputDir, '1440-mori-recipe-suggestion.png') })
+    }
+    await reviewRecipe.click()
     await expect(chefApp.page).toHaveURL(`${origin}app/chef/review`)
     await expect(chefApp.page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
     await expect.poll(async () => chefApp.page.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating')

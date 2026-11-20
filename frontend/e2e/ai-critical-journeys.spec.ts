@@ -133,7 +133,7 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
 
     await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
     await expectNoHorizontalOverflow(page)
-    await expect(page.getByRole('region', { name: 'AI Chef generation details' })).toContainText('unsaved preview')
+    await expect(page.getByRole('region', { name: 'AI Chef generation details' }).getByText('Unsaved preview', { exact: true })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText(parentTitle)
     await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText(secondParentTitle)
     await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).not.toContainText(otherOwnerTitle)

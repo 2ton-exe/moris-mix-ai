@@ -67,6 +67,16 @@ it('labels search, scope, filter and sort controls and advertises no production-
   expect(page.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
 })
 
+it('keeps focus in search when editing a restored index anchor', async () => {
+  render(tree('cook-a', '/app/recipes?view=index&entry=0&leaf=1'))
+  await ready()
+  const search = screen.getByRole('searchbox', { name: 'Search recipes' })
+  search.focus()
+  fireEvent.change(search, { target: { value: 'garlic' } })
+  await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: 'garlic' }) })))
+  expect(document.activeElement).toBe(search)
+})
+
 it('debounces search, hides stale cards immediately, aborts old requests and preserves pending input', async () => {
   vi.useFakeTimers()
   const old = deferred<RecipeDiscoveryPage>()

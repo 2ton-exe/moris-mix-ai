@@ -26,13 +26,15 @@
 .mori-pet-panel .mori-pet-close:hover { background: var(--mm-color-parchment-200); transform: rotate(8deg); }
 .mori-pet-show { position: fixed; right: 12px; bottom: 12px; z-index: 45; min-height: 44px; padding: 8px 12px; border: 1px solid var(--mm-color-espresso-300); border-radius: 999px; background: var(--mm-color-parchment-50); color: var(--mm-color-ink); font: 600 13px/1.2 var(--mm-font-sans); box-shadow: 0 4px 14px rgb(47 33 26 / .18); cursor: pointer; }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
-.mori-pet-panel[data-chat='true'] { display: flex; flex-direction: column; height: 460px; overflow: hidden; }
+.mori-pet-panel[data-chat='true'] { display: flex; flex-direction: column; height: 460px; }
 .mori-pet-panel[data-chat='true'] > header { flex: 0 0 auto; }
 .mori-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; gap: 8px; }
 .mori-chat > :not(.mori-chat-log) { flex-shrink: 0; }
 .mori-pet-panel .mori-chat-task { margin: 0 0 4px; color: var(--mm-color-burgundy-700); font-size: 12px; font-weight: 600; }
 .mori-chat-log { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }
-.mori-chat-message { flex-shrink: 0; max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid var(--mm-border-paper); border-radius: 12px 12px 12px 4px; background: var(--mm-color-fresh); font-size: 13px; line-height: 1.4; }
+.mori-chat-log:has(.mori-chat-message):where([aria-busy='false']) { min-block-size: 8rem; }
+.mori-chat-log:focus-visible { outline-offset: -3px; }
+.mori-chat-message { overflow-wrap: anywhere; box-sizing: border-box; flex-shrink: 0; min-inline-size: 0; max-width: 96%; align-self: flex-start; padding: 8px 10px; border: 1px solid var(--mm-border-paper); border-radius: 12px 12px 12px 4px; background: var(--mm-color-fresh); font-size: 13px; line-height: 1.4; }
 .mori-chat-message[data-role='user'] { align-self: flex-end; border-color: var(--mm-color-sage-500); border-radius: 12px 12px 4px 12px; background: var(--mm-color-sage-100); }
 .mori-pet-panel .mori-chat-message p { margin: 0; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 .mori-chat-preview { display: grid; gap: 6px; margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--mm-border-paper); }
@@ -40,7 +42,13 @@
 .mori-chat-preview :is(ul, ol) { margin: 0; padding-left: 18px; }
 .mori-chat-preview li { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--mm-color-espresso-700); font-size: 12px; }
 .mori-chat-preview span, .mori-pet-panel .mori-chat-preview p { margin: 0; color: var(--mm-color-espresso-700); font-size: 12px; }
-.mori-chat-preview button { justify-self: start; margin-top: 2px; border-color: var(--mm-color-burgundy-700); background: var(--mm-color-burgundy-700); color: var(--mm-color-fresh); }
+.mori-chat-recipe { display: grid; gap: 4px; min-inline-size: 0; padding: 4px 2px 2px; }
+.mori-chat-recipe h3 { margin: 0; color: var(--mm-color-burgundy-800); font: 600 20px/1.15 var(--mm-font-serif); }
+.mori-chat-recipe > span { color: var(--mm-color-espresso-700); font-size: 12px; }
+.mori-chat-recipe ul { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; padding: 0; list-style: none; }
+.mori-chat-recipe li { display: flex; align-items: center; gap: 4px; min-inline-size: 0; padding: 3px 7px; border-radius: 999px; background: var(--mm-color-sage-100); color: var(--mm-color-sage-900); font-size: 12px; }
+.mori-chat-recipe img { flex: none; inline-size: 16px; block-size: 16px; }
+:is(.mori-chat-preview, .mori-chat-recipe) button { justify-self: start; margin-top: 2px; border-color: var(--mm-color-burgundy-700); background: var(--mm-color-burgundy-700); color: var(--mm-color-fresh); }
 .mori-chat-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
 .mori-chat-shortcuts button { min-width: 0; min-height: 44px; padding-inline: 8px; border-color: transparent; background: transparent; font-size: 12px; }
 .mori-chat-pending { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--mm-color-sage-900); font-size: 12px; }
@@ -80,7 +88,7 @@
   .mori-pet-panel[data-chat='true'] h2 { font-size: 30px; }
   .mori-pet-panel .mori-chat-task { margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--mm-border-paper); font-size: 13px; }
   .mori-chat-log { gap: 10px; padding: 4px 4px 8px 0; }
-  .mori-chat-message { box-sizing: border-box; max-width: 94%; padding: 10px 12px; }
+  .mori-chat-message { max-width: 94%; padding: 10px 12px; }
   .mori-chat-message[data-role='user'] { max-width: 88%; }
   .mori-chat-preview { gap: 8px; margin-top: 12px; padding-top: 10px; }
   .mori-chat-preview > strong { font-size: 15px; line-height: 1.4; }
@@ -96,7 +104,7 @@
   .mori-chat-retry button { background: var(--mm-color-parchment-50); }
   .mori-chat :is(button, textarea) { transition: background-color 140ms ease, border-color 140ms ease; }
   .mori-chat button:enabled:hover { background: var(--mm-color-sage-100); border-color: var(--mm-color-sage-700); }
-  .mori-chat :is(.mori-chat-composer, .mori-chat-preview) button:enabled:hover { background: var(--mm-color-burgundy-800); border-color: var(--mm-color-burgundy-800); }
+  .mori-chat :is(.mori-chat-composer, .mori-chat-preview, .mori-chat-recipe) button:enabled:hover { background: var(--mm-color-burgundy-800); border-color: var(--mm-color-burgundy-800); }
   .mori-chat ::selection { background: var(--mm-color-sage-100); color: var(--mm-color-ink); }
 }
 
@@ -104,6 +112,7 @@
   .mori-pet-panel[data-chat='true'] { overflow-y: auto; }
   .mori-pet-panel[data-chat='true'] .mori-chat { flex: none; }
   .mori-chat-log { flex: none; overflow: visible; }
+  .mori-chat-log:has(.mori-chat-message) { min-block-size: 0; }
 }
 
 .mori-chat-prompts h3 { margin: 0 0 6px; color: var(--mm-color-burgundy-800); font: 600 16px/1.2 var(--mm-font-serif); }
@@ -143,6 +152,10 @@
 .mori-pet-panel:has(.mori-prompts-library) .mori-chat-log { flex: none; max-height: 160px; }
 
 @media (min-width: 1100px) {
+  .mori-chat-message:has(.mori-chat-recipe) { inline-size: min(24rem, 94%); }
+  .mori-chat-recipe { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  .mori-chat-recipe > :is(h3, span, ul) { grid-column: 1; }
+  .mori-chat-recipe button { grid-column: 2; grid-row: 1 / 4; align-self: end; }
   .mori-chat-shortcuts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mori-chat-shortcuts button { flex-direction: column; gap: 4px; padding: 6px 2px; font-size: 11px; }
 }

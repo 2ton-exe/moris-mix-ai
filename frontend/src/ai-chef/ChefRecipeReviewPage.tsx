@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { moriReviewKeyFromState } from '../mori/routeState'
@@ -7,6 +7,7 @@ import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
+import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import type { RecipeDraft, RecipeEditorState } from '../recipe-form/draft'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { confirmedSave } from '../recipe-form/submission'
@@ -22,6 +23,16 @@ import './aiChef.css'
 type ReviewStorageIssue = Exclude<ChefDraftReadStatus, 'available'> | 'write-failed' | 'verification-failed' | 'handoff-changed' | 'saved-clear-failed'
 type LineageStatus = 'idle' | 'pending' | 'expired' | 'blocked' | 'confirmed'
 type LineageAttempt = { status: Exclude<LineageStatus, 'idle'>; message: string }
+type FlavorScores = NonNullable<ChefReviewHandoff['response']['recipe']['flavor_scores']>
+
+const flavorIngredients: [keyof FlavorScores, string][] = [
+  ['sweet', 'strawberry'],
+  ['salty', 'salt'],
+  ['sour', 'lemon'],
+  ['bitter', 'chocolate'],
+  ['umami', 'mushroom'],
+  ['spicy', 'chili'],
+]
 
 function uniqueCandidateParents(handoff: ChefReviewHandoff) {
   const seen = new Set<string>()
@@ -460,51 +471,34 @@ function ChefGenerationNotice({
   onRetryLineage: () => void
   range?: { start: number; end: number }
 }) {
+  const ingredientsHeading = useId()
   const { request, response } = handoff
   const first = !range || range.start === 0
   const flavorScores = response.recipe.flavor_scores
+  const ingredients = [...new Set(response.recipe.ingredients.map(({ name }) => name))]
   const parents = uniqueCandidateParents(handoff).slice(range?.start ?? 0, range?.end)
-  const contextMessage = response.context.status === 'NO_SAVED_RECIPES'
-    ? 'This is a fresh start. Mori did not have saved recipes to use as inspiration, so the suggestion came from your pantry request.'
-    : response.context.status === 'NO_PANTRY_OVERLAP'
-      ? 'No saved recipes matched these pantry items. Mori made this suggestion from your request.'
-      : response.context.status === 'MATCHED'
-        ? 'Mori found ' + response.context.matchedCandidateCount + ' saved ' + (response.context.matchedCandidateCount === 1 ? 'recipe' : 'recipes') + ' to use as inspiration.'
-        : 'Mori could not use an empty pantry request.'
 
-  return <section className="recipe-form-notice mm-ai-chef__review-notice" aria-label={first ? 'AI Chef generation details' : 'More AI Chef parent recipes'}>
-    {first && <><strong>{saved ? 'AI Chef recipe saved to your journal' : 'AI Chef recipe · unsaved preview'}</strong>
-    <p>{saved
-      ? lineageStatus === 'confirmed' && selectedParentIds.length > 0
-        ? 'Your recipe and the parent links you selected were saved.'
-        : lineageStatus === 'confirmed'
-          ? 'Your recipe was saved. No parent recipes were selected.'
-          : 'Your recipe is saved. Parent links are separate and have not been confirmed.'
-      : range ? 'Review the draft before saving it.' : 'Generation has not saved a recipe or created any lineage. Choose Save recipe only after you finish reviewing.'}</p>
-    <p className="mm-ai-chef__context">{contextMessage}</p>
-    <details>
-      <summary>Pantry and preferences used for this request</summary>
-      <p>These request details are temporary and will not be saved as recipe notes.</p>
-      <ul>{request.pantryItems.map((item, index) => <li key={item + '-' + index}>{item}</li>)}</ul>
-      {request.preferences && <p><strong>Preferences:</strong> {request.preferences}</p>}
-    </details>
-    {response.substitutions.length > 0 && <section aria-label="Suggested substitutions" className="mm-ai-chef__suggestions">
-      <h2>Suggested substitutions</h2>
-      <ul>{response.substitutions.map((substitution, index) => <li key={substitution.original + '-' + substitution.replacement + '-' + index}>
-        <strong>{substitution.original}</strong><span aria-hidden="true"> → </span><strong>{substitution.replacement}</strong>
-        {substitution.reason && <p>{substitution.reason}</p>}
-      </li>)}</ul>
-    </section>}</>}
+  return <section className="mm-ai-chef__review-notice" aria-label={first ? 'AI Chef generation details' : 'More AI Chef parent recipes'}>
+    {first && <>
+      <p className="mm-ai-chef__review-state">{saved ? 'Saved to your journal' : 'Unsaved preview'}</p>
+      <section aria-labelledby={ingredientsHeading} className="mm-ai-chef__draft-ingredients">
+        <h3 id={ingredientsHeading}>Ingredients in this suggestion</h3>
+        <ul role="list">{ingredients.map((name) => <li key={name}>
+          <IngredientEmoji name={name} />
+          <span>{name}</span>
+        </li>)}</ul>
+      </section>
+    </>}
     <section aria-label="Suggested parent recipes" className="mm-ai-chef__suggestions">
-      {!range && <h2>Recipe inspiration from your journal</h2>}
-      {first && !saved && response.parents.length > 0 && <p>Only selected recipes will be linked when you save.</p>}
+      {first && <h3>From your journal</h3>}
+      {first && !saved && parents.length > 0 && <p>Only selected recipes will be linked when you save.</p>}
       {response.parents.length > 0
-        ? <ul className="mm-ai-chef__parent-choices">{parents.map((parent) => {
+        ? <ul className="mm-ai-chef__parent-choices" role="list">{parents.map((parent) => {
           const selected = selectedParentIds.some((id) => id.toLowerCase() === parent.id.toLowerCase())
           const limitReached = !selected && selectedParentIds.length >= 10
-          const parentStatus = selectionDisabled
-            ? lineageStatus === 'confirmed' && selected ? 'Link saved' : selected ? 'Selected; link not confirmed' : 'Not selected'
-            : selected ? 'Selected for linking' : 'Not selected'
+          const parentStatus = selectionDisabled && selected
+            ? lineageStatus === 'confirmed' ? 'Link saved' : 'Link not confirmed'
+            : null
           return <li key={parent.id} className={selected ? 'is-selected' : undefined}>
             <label className="mm-ai-chef__parent-choice">
               <input
@@ -516,15 +510,16 @@ function ChefGenerationNotice({
               />
               <span className="mm-ai-chef__parent-choice-copy">
                 <strong>{parent.title}</strong>{parent.star_rating !== null && <span> · {parent.star_rating} / 5 stars</span>}
-                <span className="mm-ai-chef__parent-choice-status">{parentStatus}</span>
+                {parentStatus && <span className="mm-ai-chef__parent-choice-status">{parentStatus}</span>}
               </span>
             </label>
           </li>
         })}</ul>
-        : <p>{response.context.status === 'NO_SAVED_RECIPES' ? 'There are no saved recipes to suggest yet.' : 'Mori did not suggest any parent recipes.'}</p>}
+        : <p>{response.context.status === 'NO_SAVED_RECIPES'
+          ? 'There are no saved recipes to suggest yet.'
+          : 'Mori did not suggest any journal recipes for this idea.'}</p>}
       {response.parents.length > 0 && <>
         <p className="mm-ai-chef__selection-count">{selectedParentIds.length} of 10 parent recipes selected.</p>
-        {!range && !saved && <p className="mm-ai-chef__selection-feedback">Selected recipes will only be linked after you choose Save recipe.</p>}
         {selectionAnnouncement && <p className="visually-hidden" role="status" aria-live="polite">{selectionAnnouncement}</p>}
       </>}
       {first && saved && lineageMessage && <div className="mm-ai-chef__lineage-recovery" role={lineageBusy ? 'status' : 'alert'}>
@@ -538,11 +533,42 @@ function ChefGenerationNotice({
         {handoff.savedRecipeId && <Link className="button button-secondary mm-button--small" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved recipe</Link>}
       </div>}
     </section>
-    {first && flavorScores && <details>
-      <summary>Mori’s optional flavor estimates</summary>
-      <p>These estimates are informational only. They are not recipe fields and will not be saved.</p>
-      <ul>{Object.entries(flavorScores).map(([flavor, score]) => <li key={flavor}>{flavor}: {score} / 5</li>)}</ul>
-    </details>}
+    {first && <>
+      <details>
+        <summary>Your request</summary>
+        <p><strong>What you entered</strong></p>
+        <ul>{request.pantryItems.map((item, index) => <li key={item + '-' + index}>{item}</li>)}</ul>
+        {request.preferences && <p><strong>Preferences:</strong> {request.preferences}</p>}
+      </details>
+      {response.substitutions.length > 0 && <details>
+        <summary>Suggested substitutions</summary>
+        <section aria-label="Suggested substitutions" className="mm-ai-chef__substitutions">
+          <ul>{response.substitutions.map((substitution, index) => <li key={substitution.original + '-' + substitution.replacement + '-' + index}>
+            <strong>{substitution.original}</strong><span aria-hidden="true"> → </span><span className="visually-hidden"> can be replaced with </span><strong>{substitution.replacement}</strong>
+            {substitution.reason && <p>{substitution.reason}</p>}
+          </li>)}</ul>
+        </section>
+      </details>}
+      {flavorScores && <details>
+        <summary>Mori’s optional flavor estimates</summary>
+        <p>Preview only. Flavor estimates stay out of your saved recipe.</p>
+        <dl className="mm-ai-chef__flavors">{flavorIngredients.map(([flavor, ingredient]) => {
+          const score = flavorScores[flavor]
+          return <div key={flavor} data-flavor={flavor}>
+            <dt><IngredientEmoji name={ingredient} />{flavor}</dt>
+            <dd>
+              <span className="visually-hidden">{score} out of 5</span>
+              <span className="mm-ai-chef__flavor-slots" aria-hidden="true">{Array.from({ length: 5 }, (_, index) => {
+                const fill = Math.min(1, Math.max(0, score - index))
+                return <span key={index} className="mm-ai-chef__flavor-slot" data-filled={fill === 1}>
+                  {fill > 0 && <span style={{ clipPath: `inset(0 ${(1 - fill) * 100}% 0 0)` }}><IngredientEmoji name={ingredient} /></span>}
+                </span>
+              })}</span>
+            </dd>
+          </div>
+        })}</dl>
+      </details>}
+    </>}
   </section>
 }
 

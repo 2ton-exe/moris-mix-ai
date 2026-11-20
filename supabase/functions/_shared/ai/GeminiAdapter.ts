@@ -25,23 +25,14 @@ import {
   MAX_AI_OUTPUT_JSON_BYTES,
 } from "./schemas.ts";
 
+import {
+  createGeminiAdmission,
+  type GeminiAdmission,
+} from "./geminiCapacity.ts";
+import { resolveGeminiModel } from "./geminiModel.ts";
+
 const MAX_AI_OUTPUT_TOKENS = 8192;
 
-/**
- * Pinned extraction model as of Sprint 3. AI_MODEL overrides it, so a model
- * retirement never needs a code change (AI-03).
- *
- * Why the lite model rather than gemini-3.6-flash: on the free tier the 3.6
- * model returned 503 "high demand" on roughly one call in three and hit a
- * per-minute 429 under back-to-back evaluation runs. The pinned 3.5 Flash-Lite
- * passed the six-case evaluation set 6/6 and the live extraction suite 3/3
- * with no provider errors. A stable model gives a reproducible benchmark;
- * a faster model that fails a third of the time does not.
- *
- * The version is pinned on purpose. `gemini-flash-lite-latest` resolves to
- * 3.5 Flash-Lite today, but an alias can move and silently change what the
- * evaluation measured.
- */
 /**
  * Finish reasons that mean the provider blocked the content rather than
  * returned malformed output. The pinned SDK's own list is a subset; the API
@@ -59,7 +50,6 @@ const BLOCKED_FINISH_REASONS: ReadonlySet<string> = new Set([
   "PUP_LIMITED_DISABLED",
 ]);
 
-const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_TIMEOUT_MS = 30_000;
 /** One attempt plus one bounded retry (AI-18). */
 const MAX_ATTEMPTS = 2;
@@ -125,6 +115,8 @@ export type AIErrorCode =
   | "provider_timeout"
   | "provider_unavailable"
   | "rate_limited"
+  | "capacity_exceeded"
+  | "capacity_unavailable"
   | "context_too_large"
   | "output_truncated";
 
@@ -177,7 +169,8 @@ export class AIError extends Error {
     this.detail = detail;
     this.retryAfterSeconds = retryAfterSeconds;
     this.nonConsuming = nonConsuming ??
-      (code === "rate_limited" || code === "provider_rejected");
+      (code === "rate_limited" || code === "provider_rejected" ||
+        code === "capacity_exceeded" || code === "capacity_unavailable");
     this.attempts = attempts ?? [{ code, nonConsuming: this.nonConsuming }];
   }
 }
@@ -206,6 +199,7 @@ export type GeminiAdapterConfig = {
   modelName?: string;
   timeoutMs?: number;
   generateText?: GenerateText;
+  admitAttempt?: GeminiAdmission;
   /**
    * Test seam: replaces the SDK client so tests can exercise the real
    * `callModel` (`generateContent` then `response.text()`) path without a key.
@@ -234,6 +228,7 @@ export class GeminiAdapter implements AIProvider {
   private readonly modelName: string;
   private readonly timeoutMs: number;
   private readonly generateText: GenerateText;
+  private readonly admitAttempt?: GeminiAdmission;
   private readonly log: (entry: AIOperationLog) => void;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly client?: GoogleGenerativeAI;
@@ -245,12 +240,14 @@ export class GeminiAdapter implements AIProvider {
    * path `models/`, which looks like a provider outage after the retry.
    */
   constructor(config: GeminiAdapterConfig = {}) {
-    this.modelName = config.modelName ??
-      (Deno.env.get("AI_MODEL")?.trim() || DEFAULT_MODEL);
+    this.modelName = config.modelName ?? resolveGeminiModel();
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.log = config.log ?? ((entry) => console.log(JSON.stringify(entry)));
     this.sleep = config.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+
+    this.admitAttempt = config.admitAttempt ??
+      createGeminiAdmission(this.modelName);
 
     if (config.generateText) {
       this.generateText = config.generateText;
@@ -324,6 +321,23 @@ export class GeminiAdapter implements AIProvider {
       const startedAt = Date.now();
 
       try {
+        const admission = await this.admitAttempt?.();
+        if (admission?.status === "exceeded") {
+          throw new AIError(
+            "capacity_exceeded",
+            operation,
+            "Shared AI capacity has been reached.",
+            undefined,
+            admission.retryAfterSeconds,
+          );
+        }
+        if (admission?.status === "unavailable") {
+          throw new AIError(
+            "capacity_unavailable",
+            operation,
+            "AI quota checking is temporarily unavailable.",
+          );
+        }
         const raw = await this.generateText(prompt, operation);
         const result = parse(raw);
 

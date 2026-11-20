@@ -30,6 +30,7 @@ export type AIEndpointErrorCode =
   | "AI_PROVIDER_REJECTED"
   | "AI_TIMEOUT"
   | "AI_UNAVAILABLE"
+  | "AI_CAPACITY_EXCEEDED"
   | "AI_RATE_LIMITED"
   | "INTERNAL_ERROR";
 
@@ -104,6 +105,18 @@ const AI_ERROR_RESPONSES: Record<
     code: "AI_RATE_LIMITED",
     message: "AI usage is temporarily limited. Please try again shortly.",
     retryAfter: true,
+  },
+  capacity_exceeded: {
+    status: 429,
+    code: "AI_CAPACITY_EXCEEDED",
+    message: "Shared AI capacity has been reached. Please try again later.",
+    retryAfter: true,
+  },
+  capacity_unavailable: {
+    status: 503,
+    code: "QUOTA_UNAVAILABLE",
+    message: "AI quota checking is temporarily unavailable.",
+    retryAfter: false,
   },
   internal_error: {
     status: 500,
@@ -259,7 +272,10 @@ export function mapAiError(error: AIError, allowedMethods: string): Response {
   const headers = mapped.retryAfter
     ? {
       "Retry-After": String(
-        normalizeProviderRetryAfterSeconds(error.retryAfterSeconds),
+        error.code === "capacity_exceeded" &&
+          error.retryAfterSeconds !== undefined
+          ? error.retryAfterSeconds
+          : normalizeProviderRetryAfterSeconds(error.retryAfterSeconds),
       ),
     }
     : undefined;

@@ -96,6 +96,7 @@ function createFetchMock(
     auth?: "ok" | "unauthorized" | "rate_limited";
     authRetryAfter?: string;
     usageCount?: number;
+    dailyRetryAfterSeconds?: number;
     usageError?: boolean;
     usageRow?: unknown;
     quotaConsumeStatus?: "allowed" | "exceeded" | "rate_limited" | "conflict";
@@ -266,6 +267,7 @@ function createFetchMock(
               is_new: false,
               limit,
               used: current,
+              retry_after_seconds: options.dailyRetryAfterSeconds,
             }),
             { status: 200, headers: jsonHeaders() },
           ),
@@ -1310,6 +1312,63 @@ Deno.test("Short-window AI rate exhaustion returns 429 with Retry-After before p
   assertEquals(providerCalled, false);
 });
 
+Deno.test("configured account burst reaches the RPC and defers UTC day selection to PostgreSQL", async () => {
+  const previous = Deno.env.get("AI_ACCOUNT_BURST_LIMIT");
+  Deno.env.set("AI_ACCOUNT_BURST_LIMIT", "3");
+  try {
+    const { fetchImpl } = createFetchMock({
+      onConsume: (body) => {
+        assertEquals(
+          body && typeof body === "object" && "p_burst_limit" in body
+            ? body.p_burst_limit
+            : undefined,
+          3,
+        );
+        assertEquals(
+          body && typeof body === "object" && "p_usage_date" in body
+            ? body.p_usage_date
+            : undefined,
+          null,
+        );
+      },
+    });
+    const response = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+      },
+    );
+    assertEquals(response.status, 200);
+  } finally {
+    if (previous === undefined) Deno.env.delete("AI_ACCOUNT_BURST_LIMIT");
+    else Deno.env.set("AI_ACCOUNT_BURST_LIMIT", previous);
+  }
+});
+
+Deno.test("daily account denial forwards the database reset time", async () => {
+  const { fetchImpl } = createFetchMock({
+    quotaConsumeStatus: "exceeded",
+    dailyRetryAfterSeconds: 43,
+  });
+  const response = await handler(
+    extractRequest(JSON.stringify({ notes: NOTES })),
+    {
+      supabaseUrl: TEST_SUPABASE_URL,
+      supabaseAnonKey: TEST_ANON_KEY,
+      supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+      fetch: fetchImpl,
+      provider: providerThrowing(new Error("must not run")),
+    },
+  );
+  assertEquals(response.status, 429);
+  assertEquals(response.headers.get("retry-after"), "43");
+  assertEquals((await response.json()).error?.code, "QUOTA_EXCEEDED");
+});
+
 Deno.test("consumeDailyQuota maps authoritative database rate exhaustion with a bounded retry wait", async () => {
   const { fetchImpl } = createFetchMock({ quotaConsumeStatus: "rate_limited" });
   const decision = await consumeDailyQuota(
@@ -2328,7 +2387,7 @@ for (const operation of ["confirm", "rollback"] as const) {
   }
 }
 
-for (const status of ["exceeded", "conflict"] as const) {
+for (const status of ["exceeded", "rate_limited", "conflict"] as const) {
   Deno.test(`Quota ${status} does not log successful consumption`, async () => {
     const logs: unknown[][] = [];
     const originalLog = console.log;
@@ -2342,10 +2401,20 @@ for (const status of ["exceeded", "conflict"] as const) {
           supabaseUrl: TEST_SUPABASE_URL,
           supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
           fetch: fetchImpl,
+          operation: "extract",
         },
       );
       assertEquals(decision.status === "allowed", false);
-      assertEquals(logs, []);
+      assertEquals(
+        logs,
+        status === "conflict" ? [] : [[JSON.stringify({
+          event: status === "exceeded"
+            ? "ai_account_daily_limited"
+            : "ai_account_burst_limited",
+          model: Deno.env.get("AI_MODEL")?.trim() || "gemini-3.5-flash-lite",
+          op: "extract",
+        })]],
+      );
     } finally {
       console.log = originalLog;
     }

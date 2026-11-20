@@ -35,6 +35,7 @@ export default function RecipeDashboardPage() {
     setCollectionStarts((current) => current.length === starts.length && current.every((start, index) => start === starts[index]) ? current : starts)
   }, [])
   const [turnSearch, setTurnSearch] = useState<string | null>(null)
+  const restoreIndexFocus = useRef(true)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
   const facingPage = useContext(JournalFacingPageContext)
@@ -43,6 +44,7 @@ export default function RecipeDashboardPage() {
   const controls = useDiscoveryControls(source.discovery, {
     draft: readJournalCriteria(otherAccount ? new URLSearchParams() : params, source.discovery),
     onChange: (criteria) => {
+      restoreIndexFocus.current = false
       const next = writeJournalCriteria(criteria)
       next.set('view', 'index')
       setParams(next, { replace: true, state: { journalAccount: user?.id } })
@@ -115,8 +117,19 @@ export default function RecipeDashboardPage() {
     : pagedCollection ? collectionNeeded : rightPage * perPage
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
+  const explicitView = params.get('view')
   const restoreKey = `${location.key}:${indexView}:${single}:${perPage}:${pagedCollection ? collectionStarts.join(',') : ''}:${returnFocusId ?? ''}`
-  useEffect(() => { if (!recipeLink(returnFocusId)) collectionTitle.current?.focus() }, [facingPage, returnFocusId, moriFocusKey])
+  useEffect(() => {
+    if (returnFocusId) {
+      restoreIndexFocus.current = false
+      if (!recipeLink(returnFocusId)) collectionTitle.current?.focus()
+      return
+    }
+    if ((restoreIndexFocus.current || moriFocusKey) && collectionTitle.current) {
+      collectionTitle.current.focus()
+      restoreIndexFocus.current = false
+    }
+  }, [facingPage, explicitView, returnFocusId, moriFocusKey])
   const pageSearch = (page: number) => {
     const next = new URLSearchParams(params)
     if (pagedIndex || pagedCollection) next.delete('leaf')
@@ -216,7 +229,7 @@ export default function RecipeDashboardPage() {
       collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
+        <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}

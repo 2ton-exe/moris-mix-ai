@@ -2593,7 +2593,12 @@ Deno.test({
         p_usage_date: usageDate,
       });
       assertEquals(exhaustedConsume.error, null);
-      assertEquals(exhaustedConsume.data, { status: "exceeded", is_new: false, limit: 2, used: 2 });
+      assertEquals(exhaustedConsume.data?.status, "exceeded");
+      assertEquals(exhaustedConsume.data?.is_new, false);
+      assertEquals(exhaustedConsume.data?.limit, 2);
+      assertEquals(exhaustedConsume.data?.used, 2);
+      const dailyWait = exhaustedConsume.data?.retry_after_seconds;
+      assertEquals(Number.isInteger(dailyWait) && dailyWait >= 1 && dailyWait <= 86_400, true);
       await assertUsage(2);
       const exhaustedReservation = await adminClient.from("ai_quota_reservations")
         .select("id").eq("id", exhaustedReservationId);
@@ -2770,6 +2775,51 @@ Deno.test({
       ));
       assertEquals(isolatedRateBatch.every((result) => result.error === null && result.data?.status === "allowed"), true);
       await assertUsage(3, userId, usageDate);
+
+      // A rolling limit includes recent operations across UTC day boundaries,
+      // even when a reservation is refunded to the daily allowance.
+      const consumeRolling = (id = crypto.randomUUID()) => adminClient.rpc("consume_ai_quota", {
+        p_user_id: newUserId,
+        p_reservation_id: id,
+        p_daily_limit: 20,
+        p_usage_date: replayDate,
+        p_burst_limit: 3,
+      });
+      const burstDenied = await consumeRolling();
+      assertEquals(burstDenied.error, null);
+      assertEquals(burstDenied.data?.status, "rate_limited");
+      assertEquals(burstDenied.data?.limit, 3);
+      const clearPreviousWindow = await adminClient.from("ai_quota_reservations")
+        .update({ created_at: new Date(Date.now() - 120_000).toISOString() })
+        .eq("user_id", newUserId);
+      assertEquals(clearPreviousWindow.error, null);
+      const rollingIds = Array.from({ length: 4 }, () => crypto.randomUUID());
+      const rollingCalls = await Promise.all(rollingIds.map(consumeRolling));
+      for (const result of rollingCalls) assertEquals(result.error, null);
+      const admitted = rollingCalls.flatMap((result, index) =>
+        result.data?.status === "allowed" ? [rollingIds[index]] : []
+      );
+      assertEquals(admitted.length, 3);
+      assertEquals(rollingCalls.filter((result) => result.data?.status === "rate_limited").length, 1);
+
+      const refund = await adminClient.rpc("reconcile_ai_quota", { p_reservation_id: admitted[0] });
+      assertEquals(refund.error, null);
+      assertEquals(refund.data?.used, 2);
+      const afterRefund = await consumeRolling();
+      assertEquals(afterRefund.error, null);
+      assertEquals(afterRefund.data?.status, "rate_limited");
+      const replayAfterRefund = await consumeRolling(admitted[0]);
+      assertEquals(replayAfterRefund.error, null);
+      assertEquals(replayAfterRefund.data?.status, "conflict");
+
+      const expireOne = await adminClient.from("ai_quota_reservations")
+        .update({ created_at: new Date(Date.now() - 120_000).toISOString() })
+        .eq("id", admitted[0]);
+      assertEquals(expireOne.error, null);
+      const afterExpiry = await consumeRolling();
+      assertEquals(afterExpiry.error, null);
+      assertEquals(afterExpiry.data?.status, "allowed");
+      assertEquals(afterExpiry.data?.used, 3);
     } finally {
       for (const uid of createdUserIds) {
         await adminClient.auth.admin.deleteUser(uid);

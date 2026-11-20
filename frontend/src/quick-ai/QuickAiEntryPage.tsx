@@ -1,8 +1,9 @@
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, Ref } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
-import { HttpError } from '../api/http'
-import { retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
+import { HttpError, httpErrorCode } from '../api/http'
+import { aiRateLimitReason } from '../api/aiRateLimit'
+import { retryAfterMessage, retryAfterSeconds as parseRetryAfter } from '../api/retryAfter'
 import { useAuth } from '../auth/context'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { useMoriFieldFocus } from '../mori/routeState'
@@ -33,14 +34,6 @@ type ExtractRecipe = typeof extractRecipeApi.extract
 // Leave 55s beyond Gemini's 65s maximum attempt and retry budget for auth/quota work.
 const EXTRACTION_TIMEOUT_MS = 120_000
 
-function errorCode(error: unknown) {
-  if (error instanceof InvalidExtractionResponse) return 'INVALID_EXTRACTION_RESPONSE'
-  if (!(error instanceof HttpError) || typeof error.payload !== 'object' || error.payload === null || Array.isArray(error.payload)) return null
-  const envelope = (error.payload as Record<string, unknown>).error
-  if (typeof envelope !== 'object' || envelope === null || Array.isArray(envelope)) return null
-  return typeof (envelope as Record<string, unknown>).code === 'string' ? (envelope as Record<string, string>).code : null
-}
-
 function parseRetryAfterSeconds(error: unknown): number | undefined {
   return parseRetryAfter(error instanceof HttpError ? error.retryAfter : undefined)
 }
@@ -55,7 +48,11 @@ function secondsUntilUtcReset() {
 }
 
 function describeExtractionError(error: unknown): EntryError {
-  const code = errorCode(error)
+  const code = error instanceof InvalidExtractionResponse ? 'INVALID_EXTRACTION_RESPONSE' : error instanceof HttpError ? httpErrorCode(error) : undefined
+  const rateLimitReason = aiRateLimitReason(code)
+  if (error instanceof HttpError && code && rateLimitReason) {
+    return { code, message: `${rateLimitReason} ${retryAfterMessage(error.retryAfter)} Your notes are still here.`, retryable: true, blockReason: 'provider-rate-limit', retryAfterSeconds: retryAfterSeconds(error) }
+  }
   if (error instanceof HttpError && error.kind === 'network') {
     return { code: 'NETWORK_ERROR', message: 'Mori could not reach the kitchen right now. Your notes are still here; you can retry when your connection is back.', retryable: true }
   }
@@ -279,12 +276,12 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       const nextDraft = { ...draft, blockedUntil: null, blockedReason: null }
       setDraft(nextDraft)
       persistDraft(nextDraft)
-      if (error?.code === 'QUOTA_EXCEEDED' || error?.code === 'AI_RATE_LIMITED') setError(null)
+      if (error?.blockReason === 'quota' || error?.blockReason === 'provider-rate-limit') setError(null)
       return
     }
     const timeout = window.setTimeout(() => setNow(Date.now()), Math.min(1000, draft.blockedUntil! - now))
     return () => window.clearTimeout(timeout)
-  }, [draft, error?.code, now, persistDraft, userId])
+  }, [draft, error?.blockReason, now, persistDraft, userId])
 
   function updateNotes(notes: string) {
     const nextDraft = { ...draft, notes, handoff: null, reviewDraft: null, completedReview: false }
@@ -360,10 +357,6 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     setLoading(true)
     setError(null)
     setValidationMessage(null)
-    const pendingDraft = { ...draft, handoff: null, reviewDraft: null, completedReview: false }
-    setDraft(pendingDraft)
-    persistDraft(pendingDraft)
-    setHandoff(null)
     const timeoutId = window.setTimeout(() => {
       if (!mounted.current || requestNumber.current !== currentRequest) return
       // Invalidate even a transport that ignores abort, so its late result cannot replace a retry.
@@ -378,7 +371,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       const recipe = await extract(sourceNotes, { userId, signal: controller.signal })
       if (controller.signal.aborted || !mounted.current || requestNumber.current !== currentRequest) return
       const nextHandoff: QuickAiEntryHandoff = { sourceNotes, recipe, saved: false }
-      const completedDraft = { ...pendingDraft, handoff: nextHandoff, completedReview: false }
+      const completedDraft = { ...draft, handoff: nextHandoff, reviewDraft: null, completedReview: false }
       setDraft(completedDraft)
       persistDraft(completedDraft)
       focusNewPreview.current = true
@@ -390,7 +383,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       setError(nextError)
       if (nextError.blockReason && nextError.retryAfterSeconds) {
         const blockedDraft: QuickAiEntryDraft = {
-          ...pendingDraft,
+          ...draft,
           blockedUntil: Date.now() + nextError.retryAfterSeconds * 1000,
           blockedReason: nextError.blockReason,
         }

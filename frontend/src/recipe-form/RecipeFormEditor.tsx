@@ -129,6 +129,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const form = formRef.current
     if (!form) return
     const measure = () => {
+      if (document.activeElement instanceof HTMLElement) rememberFocus(document.activeElement)
       const leaf = form.querySelector<HTMLElement>('.mm-writing-leaf')
       if (!leaf || leaf.clientWidth <= 0 || leaf.clientHeight <= 0) return
       const next = formTextPageLimit(leaf.clientWidth, leaf.clientHeight)
@@ -142,10 +143,10 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     if (book) observer?.observe(book)
     form.querySelectorAll('.mm-writing-leaf').forEach((leaf) => observer?.observe(leaf))
-    window.addEventListener('resize', measure)
+    window.addEventListener('resize', measure, true)
     measure()
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
-  }, [single, compact, leaves.length, visibleIndicesKey])
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
+  }, [single, compact, leaves.length, visibleIndicesKey, rememberFocus])
 
   useLayoutEffect(() => {
     formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
@@ -158,8 +159,9 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     previousLayout.current = layout
     const request = focusRequest.current
     if (pending || isTurning || !request) {
-      if (modeChanged && document.activeElement === document.body && lastFocusedControl.current) {
-        const remembered = lastFocusedControl.current
+      const remembered = lastFocusedControl.current
+      const active = document.activeElement
+      if (modeChanged && remembered && (active === document.body || active instanceof HTMLElement && active.dataset.formFocusKey === remembered.key)) {
         const control = Array.from(formRef.current?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
           .find((element) => element.dataset.formFocusKey === remembered.key)
         if (control) {
@@ -186,7 +188,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const named = formRef.current?.elements.namedItem(request.slice('name:'.length))
       target = named instanceof HTMLElement ? named : formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
-    target?.focus({ preventScroll: true })
+    target?.focus()
   }, [state, errors, pending, isTurning, pageAnchor, single, compact, desktop, editingIngredientKey, leaves])
 
   useLayoutEffect(() => {

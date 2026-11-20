@@ -294,6 +294,7 @@ async function handleRequest(
         supabaseUrl: deps.supabaseUrl,
         supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
         fetch: deps.fetch,
+        operation: "generate",
       },
     );
     if (quota.status === "unavailable") {

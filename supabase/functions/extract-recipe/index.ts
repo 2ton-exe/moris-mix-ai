@@ -223,6 +223,7 @@ async function handleRequest(
         supabaseUrl: deps.supabaseUrl,
         supabaseServiceRoleKey: deps.supabaseServiceRoleKey,
         fetch: deps.fetch,
+        operation: "extract",
       },
     );
     if (quota.status === "unavailable") {

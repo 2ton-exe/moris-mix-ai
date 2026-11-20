@@ -237,10 +237,29 @@ runtime settings in Supabase. A working route with an authenticated
    site and the project in `supabase/config.toml`. Confirm `extract-recipe` and
    `generate-recipe` are active on that project, and check that `ALLOWED_ORIGIN`
    permits the frontend origin.
-2. Verify the quota, bounded Chef retrieval, and short-window rate-limit migrations
-   (`20261031000007`, `20261114000018`, `20261114000019`) are applied. Confirm the
-   backend has its Gemini key, configured daily quota, and Chef candidate token
-   secret. Production database migrations are operated separately.
+2. Verify the quota, bounded Chef retrieval, account rate-limit, and shared
+   Gemini capacity migrations are applied. Confirm the
+   backend has its Gemini key and Chef candidate token secret. Set the shared
+   runtime environment for both AI endpoints to ten logical operations per account
+   per UTC day. Production database migrations are operated separately.
+
+   ```sh
+   supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" AI_DAILY_LIMIT=10
+   ```
+   Set `AI_ACCOUNT_BURST_LIMIT=3` when individual account bursts contribute to
+   upstream throttling. The original five-operation guard applies when this
+   rolling override is unset.
+
+   Enable shared Gemini quotas when project usage warrants enforcement. Confirm
+   the deployed model and its active limits in AI Studio using the Google Cloud
+   project that owns the provider key. Start with 80% of verified requests per
+   minute and per day, rounded down. For a positive quota that rounds to zero,
+   one request is the smallest usable ceiling. Deduct capacity needed by other
+   callers using the same project and model. Configure the resulting integers
+   through `AI_GEMINI_QUOTA_RPM` and `AI_GEMINI_QUOTA_RPD` and set
+   `AI_GEMINI_QUOTA_PROJECT` to the project ID. Verify there is available
+   capacity before enabling a ceiling. [Gemini active rate limits](https://aistudio.google.com/rate-limit)
+
 3. Restore both opt-ins if they are missing. An active `AI_EXTRACT_DISABLED` or
    `AI_GENERATE_DISABLED` takes precedence. Use the kill switches for an
    intentional pause and inspect their operational status before restoring service.

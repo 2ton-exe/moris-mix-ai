@@ -132,6 +132,10 @@ it('retrieves a pantry suggestion and keeps its saved-recipe lineage in the revi
   choosePrompt('Use my ingredients')
   send('What can I cook with rice and eggs; quick and spicy')
   await screen.findByRole('button', { name: 'Review recipe' })
+  expect(screen.getByRole('heading', { name: 'Pantry rice bowl' })).toBeTruthy()
+  expect(screen.getByText('Unsaved draft')).toBeTruthy()
+  expect(screen.queryByText('Cook the rice.')).toBeNull()
+  expect(screen.queryByText('Saved egg rice', { exact: false })).toBeNull()
   expect(generate).toHaveBeenCalledWith(['rice', 'eggs'], 'quick and spicy', expect.objectContaining({ userId }))
   expect(readChefDraftResult(userId).draft.handoff).toBeNull()
 
@@ -183,8 +187,8 @@ it('keeps the active AI Chef review key for an equivalent suggestion', async () 
   await waitFor(() => expect(screen.getAllByRole('button', { name: 'Review recipe' })).toHaveLength(2))
   fireEvent.click(screen.getAllByRole('button', { name: 'Review recipe' })[1]!)
 
-  expect(await screen.findAllByText('Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')).toHaveLength(2)
-  expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1')
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('"moriReviewKey":1'))
+  expect(screen.getAllByText('Unsaved draft')).toHaveLength(2)
 })
 
 it('consumes equivalent Quick AI chat cards together after a confirmed save', async () => {
@@ -284,13 +288,23 @@ it('navigates only to the requested recipe field and keeps Mori available', asyn
   expect(screen.getByTestId('location').textContent).toContain('"moriKeepOpen":true')
 })
 
-it('asks for pantry ingredients instead of sending an empty request as an ingredient', async () => {
+it.each([
+  'What can I cook?',
+  'What can I make with the leftover ingredients in my pantry?',
+  'Suggest a recipe using whatever’s in my fridge.',
+])('asks for pantry ingredients when the request names none (%s)', async (prompt) => {
   const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
   renderChat('mori-chat-empty-pantry')
-  send('What can I cook?')
+  send(prompt)
 
   await screen.findByText('Tell me at least one ingredient you have. Add optional preferences after a semicolon.')
+  expect(screen.getByRole('article', { name: 'You' }).textContent).toBe(prompt)
   expect(generate).not.toHaveBeenCalled()
+
+  send('leftover rice')
+  await screen.findByRole('button', { name: 'Review recipe' })
+  expect(generate).toHaveBeenCalledOnce()
+  expect(generate).toHaveBeenCalledWith(['leftover rice'], '', expect.anything())
 })
 
 it('retries a failed pantry request with the exact original prompt', async () => {
@@ -326,6 +340,20 @@ it('keeps a fresh message in the composer while its workflow is cooling down', a
     .toBe('I also cooked beans with onions until tender.')
   expect(extract).toHaveBeenCalledOnce()
   expect(screen.getByText(/rate-limited for cooking notes/)).toBeTruthy()
+})
+
+it('shows shared capacity feedback for cooking notes and waits for a manual retry', async () => {
+  const extract = vi.spyOn(extractRecipeApi, 'extract').mockRejectedValue(new HttpError(
+    'http', 'private rate detail', 429, { error: { code: 'AI_CAPACITY_EXCEEDED' } }, '45',
+  ))
+  renderChat('mori-chat-capacity')
+  choosePrompt('Record a recipe')
+  send('I simmered tomatoes and beans until tender.')
+
+  expect(await screen.findByText(/shared AI capacity is full.*45 seconds/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Retry same request' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByText('I simmered tomatoes and beans until tender.')).toBeTruthy()
+  expect(extract).toHaveBeenCalledOnce()
 })
 
 it('keeps Retry-After deadlines independent for cooking notes and pantry ideas', async () => {

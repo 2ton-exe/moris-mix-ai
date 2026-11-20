@@ -180,10 +180,13 @@ describe('AI Chef pantry and review workflow', () => {
     const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
     fireEvent.change(input, { target: { value: 'rice, beans, eggs, tomatoes, onion, garlic, salt' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelectorAll('li')).toHaveLength(2)
+    const firstPantryPage = screen.getByRole('region', { name: 'Pantry list, 7 items' })
+    expect(firstPantryPage.querySelectorAll('li')).toHaveLength(2)
+    expect(firstPantryPage.querySelector('img[src="/twemoji/svg/1f35a.svg"]')?.getAttribute('alt')).toBe('')
 
     await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('eggs')
+    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelector('img[src="/twemoji/svg/1f95a.svg"]')?.getAttribute('alt')).toBe('')
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('garlic')
     await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 3/ }).textContent).toContain('salt')
@@ -233,7 +236,8 @@ describe('AI Chef pantry and review workflow', () => {
     ])
     expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Tomato egg rice')
     const details = within(screen.getByRole('region', { name: 'AI Chef generation details' }))
-    expect(details.getByText('bell pepper')).toBeTruthy()
+    const substitutions = details.getByText('Suggested substitutions').closest('details')
+    expect(substitutions?.textContent).toContain('bell pepper')
     expect(details.getByText('Garden rice')).toBeTruthy()
     expect(details.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
@@ -242,6 +246,29 @@ describe('AI Chef pantry and review workflow', () => {
     expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
     expect(document.querySelector<HTMLTextAreaElement>('textarea[name="instructions.0.text"]:not([disabled])')?.value).toBe('Warm the rice and fold in the tomatoes.')
     expect(save).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes the generated ingredients from the request and describes flavor estimates accessibly', async () => {
+    vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue({
+      ...response,
+      recipe: { ...response.recipe, flavor_scores: { sweet: 0, salty: 3.5, sour: 0, bitter: 0, umami: 5, spicy: 0 } },
+    })
+    renderChef()
+    const pantryEntry = 'the leftover ingredients in my pantry'
+    addIngredient(pantryEntry)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+
+    const review = within(await screen.findByRole('region', { name: 'AI Chef generation details' }))
+    const ingredients = within(review.getByRole('region', { name: 'Ingredients in this suggestion' }))
+    expect(ingredients.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['rice', 'tomatoes'])
+    const request = review.getByText('Your request').closest('details')
+    expect(request?.open).toBe(false)
+    expect(request?.textContent).toContain(pantryEntry)
+
+    const flavorDetails = review.getByText('Mori’s optional flavor estimates').closest('details')
+    expect(flavorDetails?.open).toBe(false)
+    expect(review.getByText('3.5 out of 5').className).toBe('visually-hidden')
+    expect(review.getByText('5 out of 5').className).toBe('visually-hidden')
   })
 
   it('rejects an empty pantry locally and retains inputs after quota failure for retry', async () => {
@@ -281,6 +308,22 @@ describe('AI Chef pantry and review workflow', () => {
     expect(generate).toHaveBeenCalledTimes(2)
     expect(generate.mock.calls[1]?.[0]).toEqual(['rice'])
     expect(generate.mock.calls[1]?.[1]).toBe('spicy')
+  })
+
+  it('shows a shared-capacity cooldown and keeps the pantry available', async () => {
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockRejectedValue(
+      new HttpError('http', 'private rate detail', 429, { error: { code: 'AI_CAPACITY_EXCEEDED' } }, '90000'),
+    )
+    renderChef()
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('shared AI capacity')
+    expect(alert.textContent).toContain('25 hours')
+    expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('rice')
+    expect(generate).toHaveBeenCalledOnce()
   })
 
   it('prevents duplicate in-flight generation requests', async () => {
@@ -614,6 +657,31 @@ describe('AI Chef pantry and review workflow', () => {
     expect(progress.lineageStatus).toBe('expired')
   })
 
+  it('shows draft actions on return to the pantry and restores pantry input after discard', async () => {
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    writeChefDraft('chef-cook', {
+      input: { pantryItems: ['rice', 'eggs'], pantryInput: 'garlic', preferences: 'quick' },
+      handoff: { request: { pantryItems: ['rice', 'eggs'], preferences: 'quick' }, response, selectedParentIds: [], saved: false },
+    })
+    renderChef()
+
+    expect(screen.getByRole('link', { name: 'Return to recipe review' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Pantry ingredient' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ask Mori for a recipe' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard preview' }))
+    const confirmation = screen.getByRole('alertdialog', { name: 'Discard Mori’s recipe preview?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Discard preview' }))
+
+    const pantry = screen.getByRole<HTMLInputElement>('textbox', { name: 'Pantry ingredient' })
+    expect(pantry.value).toBe('garlic')
+    expect(document.activeElement).toBe(pantry)
+    expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('eggs')
+    await openPreferences()
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: /^Cooking preferences/ }).value).toBe('quick')
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('explains that forgetting saved recovery does not undo parent links already persisted', async () => {
     vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
     const save = vi.fn(async () => ({ id: savedRecipeId }))
@@ -728,14 +796,14 @@ describe('AI Chef pantry and review workflow', () => {
       await finishJournalTurn(() => JSON.stringify(screen.queryAllByRole('checkbox').map((checkbox) => checkbox.parentElement?.textContent)) !== currentOptions)
     }
     for (let index = 1; index <= 10; index += 1) {
-      const name = new RegExp(`^Parent ${index} `)
+      const name = new RegExp(`^Parent ${index}$`)
       if (!screen.queryByRole('checkbox', { name })) await turnReview('Next')
       fireEvent.click(screen.getByRole('checkbox', { name }))
     }
     expect(screen.getAllByText('10 of 10 parent recipes selected.').length).toBeGreaterThan(0)
-    expect(screen.getByRole('checkbox', { name: /^Parent 11 / })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('checkbox', { name: 'Parent 11' })).toHaveProperty('disabled', true)
     await turnReview('Previous')
-    expect(screen.getByRole('checkbox', { name: /^Parent 4 / })).toHaveProperty('checked', true)
+    expect(screen.getByRole('checkbox', { name: 'Parent 4' })).toHaveProperty('checked', true)
   })
 })
 
