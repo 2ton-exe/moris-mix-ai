@@ -124,7 +124,7 @@ class RestoreRoleProbeTests(unittest.TestCase):
         publish(counts_path, flags_path, result_path, 3, summary)
         safe = summary.read_text()
         self.assertIn("doc_grant=1 owner_table=2", safe)
-        self.assertIn("untrusted role replay labels", safe)
+        self.assertIn("Untrusted role replay labels", safe)
 
         bad_cases = [
             (counts_path, count + b"\n"),
