@@ -11,7 +11,8 @@ jobs:
   e2e-browser:
     name: Playwright E2E (${{ inputs.browser }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # WebKit installs additional system packages before the browser journeys run.
+    timeout-minutes: ${{ inputs.browser == 'webkit' && 35 || 20 }}
     permissions:
       contents: read
 
