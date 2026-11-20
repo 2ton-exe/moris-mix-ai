@@ -187,3 +187,53 @@ Offline regression tests run in the existing Frontend Checks CI context.
 The change is **not** backup or restore proof: after review, merge, and a
 successful production workflow run, verify the R2 round trip and then perform
 the isolated restore drill before closing #159 or unblocking #154.
+
+## Role-only protected diagnostic (proposed; not restore proof)
+
+Stage B #6 ([run 44661836114](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44661836114))
+failed transactional replay with bounded untrusted labels:
+component roles.sql, SQLSTATE category insufficient-privilege, statement class unknown.
+This does not identify the failing statement.
+
+The separate manual Database Restore Role Diagnostic workflow is a
+**proposed investigation only**. It preserves the selected immutable Backup #4,
+its R2 and component checksum verification, disposable PostgreSQL 17 target,
+pinned PostgreSQL client, main-only and protected-environment gates, and
+always-run cleanup. It reproduces only the original roles.sql replay with
+the same fail-fast transaction flags. It does not restore application schema
+or data, and its run must never be counted as recovery evidence.
+
+The runner emits only fixed attribute booleans for the local connection role,
+the count of exact single-line public Supabase grant patterns, counts of
+single-line ALTER ... OWNER TO supabase_admin candidates by broad object type,
+and coarse untrusted error labels. The public labels never include private
+SQL text, role identifiers or SQL line numbers. All private stderr remains
+on the disposable runner until cleanup; generated labels are investigative
+hints, not authenticated proof of root cause. Unsupported multi-line forms
+are not ruled out by a zero static count. The pre-existing production
+restore workflow remains unchanged until a correction is justified.
+
+Any later compatibility transformation must be limited to independently
+confirmed failing statements, maintain the original archive and checksum
+identity, and document resulting role/ownership semantics. In particular,
+verify the owner and permission behavior of SECURITY DEFINER functions and
+the implications of excluded managed schemas. This diagnostic does not
+authorize silently excluding roles, SQL statements or ownership grants.
+
+### Role-only diagnostic interpretation (pending independent review)
+
+A role-only diagnostic that reaches a SQL error reports its sanitized findings
+and finishes with a **failed** workflow conclusion; a green Actions result
+cannot indicate a failed `roles.sql` replay. Even a successful role-only
+replay does **not** verify schema/data recovery.
+
+Single-line static patterns are indicative, not exhaustive. The public
+`doc_grant` count matches only the canonical documented Supabase grant,
+while `grantor_candidates` includes the canonical match and other recognized
+single-line role-membership GRANTs with a real `GRANTED BY` clause. It excludes
+lookalike text in quoted identifiers and trailing comments. Both counts may
+miss multi-line or unsupported grant forms.
+Ownership candidates include quoted and unquoted `supabase_admin` spellings.
+If static parsing encounters unsupported input, it reports the fixed
+`counts=unavailable` value without blocking the more informative role-only
+replay. That sentinel is not a successful static pattern check.

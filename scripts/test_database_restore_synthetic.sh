@@ -288,6 +288,66 @@ if ! grep -Fxq 'psql:/backup/roles.sql:1: ERROR:  22012' "$root/negative.log"; t
 fi
 cp "$root/data-base.sql" "$fixture/data.sql"
 
+
+# Pinned-image synthetic role/ownership probe: no hosted connection or real SQL.
+synthetic_flags="$( "${client[@]}" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 \
+  -c "SELECT rolsuper::int,rolcreaterole::int,rolcreatedb::int,rolbypassrls::int,rolinherit::int FROM pg_roles WHERE rolname=current_user" \
+  -d "$local_db" 2> "$root/role-flags.err")" || {
+  echo '::error::Synthetic role attribute query failed'
+  exit 1
+}
+[[ "$synthetic_flags" =~ ^[01]\|[01]\|[01]\|[01]\|[01]$ ]] || {
+  echo '::error::Unexpected synthetic role attribute result'
+  exit 1
+}
+echo 'Synthetic role attribute booleans verified.'
+# Separate creation from transfer: the captured permission failure must be
+# caused by ALTER OWNER, not an unrelated CREATE TABLE failure.
+if ! "${client[@]}" psql -X -q -v ON_ERROR_STOP=1 \
+  -c 'CREATE TABLE public.devops_owner_probe (id integer);' \
+  -d "$local_db" > "$root/owner-create.out" 2> "$root/owner-create.err"; then
+  echo '::error::Synthetic owner probe table setup failed'
+  exit 1
+fi
+owner_before="$("${client[@]}" psql -X -Atq -v ON_ERROR_STOP=1 \
+  -c "SELECT (pg_get_userbyid(relowner) = current_user)::int FROM pg_class WHERE oid = 'public.devops_owner_probe'::regclass;" \
+  -d "$local_db" 2> "$root/owner-before.err")" || {
+  echo '::error::Synthetic owner probe baseline query failed'
+  exit 1
+}
+[[ "$owner_before" == 1 ]] || {
+  echo '::error::Synthetic ownership baseline unexpectedly differs'
+  exit 1
+}
+# The pinned local Supabase image is expected to reject this exact transfer.
+# Its outcome is explicitly asserted; do not treat either result as a pass.
+if "${client[@]}" psql -X -q -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate \
+  -c 'BEGIN; ALTER TABLE public.devops_owner_probe OWNER TO supabase_admin; ROLLBACK;' \
+  -d "$local_db" > "$root/owner-probe.out" 2> "$root/owner-probe.err"; then
+  echo '::error::Unexpected successful synthetic ALTER OWNER transfer'
+  exit 1
+elif ! grep -Fxq 'ERROR:  42501' "$root/owner-probe.err"; then
+  echo '::error::Synthetic ALTER OWNER failed outside the expected SQLSTATE category'
+  exit 1
+fi
+owner_after="$("${client[@]}" psql -X -Atq -v ON_ERROR_STOP=1 \
+  -c "SELECT (pg_get_userbyid(relowner) = current_user)::int FROM pg_class WHERE oid = 'public.devops_owner_probe'::regclass;" \
+  -d "$local_db" 2> "$root/owner-after.err")" || {
+  echo '::error::Synthetic ownership rollback query failed'
+  exit 1
+}
+[[ "$owner_after" == 1 ]] || {
+  echo '::error::Synthetic ALTER OWNER did not preserve initial object ownership'
+  exit 1
+}
+"${client[@]}" psql -X -q -v ON_ERROR_STOP=1 \
+  -c 'DROP TABLE public.devops_owner_probe;' -d "$local_db" \
+  > "$root/owner-cleanup.out" 2> "$root/owner-cleanup.err" || {
+  echo '::error::Synthetic owner probe table cleanup failed'
+  exit 1
+}
+echo 'Synthetic ALTER OWNER 42501 isolated; baseline ownership and cleanup verified.'
+
 # Positive control: restore all original fixtures, then check the persisted data.
 restore > "$root/positive.log" 2> "$root/positive.stderr" || {
   echo '::error::Synthetic restore failed; synthetic-only SQL log kept off Actions output'

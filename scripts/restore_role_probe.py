@@ -1,0 +1,271 @@
+"""Bounded, untrusted diagnostic labels for a private Stage B role replay.
+
+Never emit SQL, stderr, identifiers, filenames from SQL, or server messages.
+These labels cannot authenticate an error: matching spoofed stderr is possible.
+No replay transformation or role/ownership modification is performed.
+"""
+from pathlib import Path
+import re
+import sys
+
+from classify_restore_component import (
+    _accepted_error,
+    _safe_prefix_line,
+    IDENTIFIER,
+    ROLE_MEMBERSHIP_GRANT,
+    ERROR_CATEGORIES,
+    MAX_ROLE_LINE_BYTES,
+    MAX_ROLE_SQL_BYTES,
+    MAX_ROLE_SCAN_LINES,
+)
+
+# Exact public example from Supabase's CLI backup/restore documentation.
+DOCUMENTED_GRANT = (
+    b'GRANT "postgres" TO "cli_login_postgres" WITH INHERIT FALSE '
+    b'GRANTED BY "supabase_admin";'
+)
+# Count single-line ALTER ... OWNER TO cases; names and SQL never leave the runner.
+OWNER = re.compile(
+    rb'^ALTER (?P<kind>TABLE|FUNCTION|SEQUENCE|VIEW|MATERIALIZED VIEW|TYPE|SCHEMA|'
+    rb'PROCEDURE|AGGREGATE|OTHER)\b[^\r\n]* OWNER TO (?:"supabase_admin"|supabase_admin);$'
+)
+OWNER_OTHER = re.compile(
+    rb'^ALTER [^\r\n]+ OWNER TO (?:"supabase_admin"|supabase_admin);$'
+)
+CATEGORY = {b"42501": "insufficient-privilege",
+            b"42704": "undefined-object",
+            b"42710": "duplicate-object"}
+VERBS = {b"GRANT ": "grant", b"ALTER ROLE ": "alter-role",
+         b"CREATE ROLE ": "create-role"}
+
+# Only complete single-line role membership GRANTs with an actual GRANTED BY
+# clause count. Reject keyword lookalikes inside quoted role names or comments.
+GRANTOR_SUFFIX = re.compile(rb" GRANTED BY " + IDENTIFIER + rb";$")
+
+
+def role_grantor_candidate(raw: bytes) -> bool:
+    candidate = raw.strip(b" \t")
+    if not candidate.startswith(b"GRANT ") or not _safe_prefix_line(candidate):
+        return False
+    # Remove a trailing line comment only when outside a quoted identifier.
+    # Double quotes inside an identifier are escaped by a doubled double quote.
+    quoted = False
+    idx = 0
+    while idx < len(candidate) - 1:
+        if candidate[idx] == ord('"'):
+            if quoted and candidate[idx + 1] == ord('"'):
+                idx += 2
+                continue
+            quoted = not quoted
+        elif not quoted and candidate[idx:idx + 2] == b"--":
+            candidate = candidate[:idx].rstrip(b" \t")
+            break
+        idx += 1
+    return bool(ROLE_MEMBERSHIP_GRANT.fullmatch(candidate)
+                and GRANTOR_SUFFIX.search(candidate))
+
+
+def bounded_lines(path: Path) -> list[bytes]:
+    """Read only a bounded file and refuse overlong/malformed lines."""
+    if path.stat().st_size > MAX_ROLE_SQL_BYTES:
+        raise ValueError("oversize")
+    source = path.read_bytes()
+    if not source or len(source) > MAX_ROLE_SQL_BYTES:
+        raise ValueError("invalid size")
+    lines = source.split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    if len(lines) > MAX_ROLE_SCAN_LINES:
+        raise ValueError("too many lines")
+    result = []
+    for raw in lines:
+        if raw.endswith(b"\r"):
+            raw = raw[:-1]
+        if len(raw) > MAX_ROLE_LINE_BYTES or b"\r" in raw or b"\x00" in raw:
+            raise ValueError("malformed line")
+        result.append(raw)
+    return result
+
+
+def counts(roles: Path, schema: Path) -> str:
+    role_lines = bounded_lines(roles)
+    schema_lines = bounded_lines(schema)
+    documented = sum(line.strip(b" \t") == DOCUMENTED_GRANT
+                     for line in role_lines)
+    # Candidate total includes the exact documented grant; zero never rules
+    # out multiline or unsupported role-grant syntax.
+    grantor_candidates = sum(role_grantor_candidate(line) for line in role_lines)
+    kinds = {"table": 0, "function": 0, "other": 0}
+    for line in schema_lines:
+        candidate = line.strip(b" \t")
+        if not OWNER_OTHER.fullmatch(candidate):
+            continue
+        matched = OWNER.fullmatch(candidate)
+        kind = matched.group("kind") if matched else b""
+        if kind == b"TABLE":
+            kinds["table"] += 1
+        elif kind == b"FUNCTION":
+            kinds["function"] += 1
+        else:
+            kinds["other"] += 1
+    return (f"doc_grant={documented} grantor_candidates={grantor_candidates} "
+            f"owner_table={kinds['table']} owner_function={kinds['function']} "
+            f"owner_other={kinds['other']}")
+
+
+def result(stderr: bytes, roles: Path, exit_code: int) -> str:
+    if exit_code == 0:
+        return ("replay=passed category=unknown verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    fields = ("replay=failed category=unknown verb=unknown "
+              "doc_grant=unknown prefix_pass=unknown")
+    error = _accepted_error(stderr, exit_code)
+    if not error or error[0] != "roles.sql":
+        return fields
+    _, lineno, sqlstate = error
+    category = CATEGORY.get(sqlstate, "unknown")
+    if not (1 <= lineno <= MAX_ROLE_SCAN_LINES):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    try:
+        lines = bounded_lines(roles)
+    except (OSError, ValueError):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    if lineno > len(lines):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    prefix_ok = all(_safe_prefix_line(line) for line in lines[:lineno - 1])
+    if not prefix_ok:
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=false")
+    candidate = lines[lineno - 1].strip(b" \t")
+    # The line must itself be a complete, standalone executable SQL statement.
+    # A line reported at the end of multi-line SQL cannot be attributed safely.
+    if (not candidate or candidate.startswith((b"--", b"\\"))
+            or not _safe_prefix_line(candidate)):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=false")
+    verb = next((label for prefix, label in VERBS.items()
+                 if candidate.startswith(prefix)), "other")
+    documented = "true" if candidate == DOCUMENTED_GRANT else "false"
+    return (f"replay=failed category={category} verb={verb} "
+            f"doc_grant={documented} prefix_pass=true")
+
+
+
+# The workflow saves all producer stdout as raw bytes. Bash command substitution
+# would discard trailing newlines and embedded NUL before a shell guard sees them.
+# Validate exact bytes and replay/label consistency inside this single process.
+COUNT_RECORD = re.compile(
+    rb"doc_grant=([0-9]{1,6}) grantor_candidates=([0-9]{1,6}) "
+    rb"owner_table=([0-9]{1,6}) owner_function=([0-9]{1,6}) "
+    rb"owner_other=([0-9]{1,6})\n"
+)
+FLAG_RECORD = re.compile(rb"([01])\|([01])\|([01])\|([01])\|([01])\n")
+RESULT_RECORD = re.compile(
+    rb"replay=(passed|failed) "
+    rb"category=(insufficient-privilege|undefined-object|duplicate-object|unknown) "
+    rb"verb=(grant|alter-role|create-role|other|unknown) "
+    rb"doc_grant=(true|false|unknown) prefix_pass=(true|false|unknown)\n"
+)
+
+
+def checked_record(path: Path, pattern: re.Pattern[bytes]) -> re.Match[bytes]:
+    """Match all bytes, including the one required terminator; reject extra bytes."""
+    size = path.stat().st_size
+    if size < 2 or size > 256:
+        raise ValueError("invalid diagnostic record size")
+    match = pattern.fullmatch(path.read_bytes())
+    if match is None:
+        raise ValueError("invalid diagnostic record")
+    return match
+
+
+def publish(count_path: Path, flag_path: Path, result_path: Path,
+            exit_code: int, summary_path: Path) -> None:
+    """Publish only reconstructed fixed fields after all inputs are validated."""
+    if exit_code not in (0, 3):
+        raise ValueError("unsupported replay exit")
+    with count_path.open("rb") as raw:
+        count_bytes = raw.read(257)
+    # An unavailable optional count must not block SQL replay.
+    if len(count_bytes) > 256:
+        raise ValueError("invalid count record size")
+    unavailable = count_bytes == b"counts=unavailable\n"
+    cm = None if unavailable else COUNT_RECORD.fullmatch(count_bytes)
+    if not unavailable and cm is None:
+        raise ValueError("invalid count record")
+    fm = checked_record(flag_path, FLAG_RECORD)
+    rm = checked_record(result_path, RESULT_RECORD)
+    replay, category, verb, documented, prefix = (
+        field.decode("ascii") for field in rm.groups()
+    )
+    if exit_code == 0:
+        if (replay, category, verb, documented, prefix) != (
+                "passed", "unknown", "unknown", "unknown", "unknown"):
+            raise ValueError("contradictory success diagnostic")
+    else:
+        if replay != "failed":
+            raise ValueError("contradictory failure diagnostic")
+        if prefix != "true" and (verb != "unknown" or documented != "unknown"):
+            raise ValueError("statement attribution missing validated prefix")
+        if documented == "true" and verb != "grant":
+            raise ValueError("contradictory documented grant")
+        if prefix == "true" and verb == "unknown":
+            raise ValueError("missing attributed verb")
+    if cm and int(cm.group(1)) > int(cm.group(2)):
+        raise ValueError("inconsistent diagnostic candidate counts")
+    numbers = [str(int(field)) for field in cm.groups()] if cm else []
+    flags = [field.decode("ascii") for field in fm.groups()]
+    static = ("doc_grant=" + numbers[0] + " grantor_candidates=" + numbers[1]
+              + " owner_table=" + numbers[2] + " owner_function=" + numbers[3]
+              + " owner_other=" + numbers[4]) if cm else "counts=unavailable"
+    role = ("superuser=" + flags[0] + " createrole=" + flags[1]
+            + " createdb=" + flags[2] + " bypassrls=" + flags[3]
+            + " inherit=" + flags[4])
+    observed = (f"replay={replay} category={category} verb={verb} "
+                f"doc_grant={documented} prefix_pass={prefix}")
+    # Fully build the safe output before any publication. No raw bytes are copied.
+    summary = (
+        "### Role-only diagnostic (NOT recovery evidence)\n"
+        f"- Static patterns: {static}\n"
+        f"- Local connection-role attributes: {role}\n"
+        f"- Untrusted role replay labels: {observed}\n"
+        "- Schema/data recovery was not attempted.\n"
+    )
+    with summary_path.open("a", encoding="ascii") as out:
+        out.write(summary)
+    print("Role diagnostic patterns: " + static)
+    print("Local role attributes: " + role)
+    print("Role-only diagnostic (untrusted): " + observed)
+
+
+def main() -> int:
+    try:
+        if len(sys.argv) == 4 and sys.argv[1] == "counts":
+            print(counts(Path(sys.argv[2]), Path(sys.argv[3])))
+            return 0
+        if len(sys.argv) == 7 and sys.argv[1] == "publish":
+            publish(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]),
+                    int(sys.argv[5]), Path(sys.argv[6]))
+            return 0
+        if len(sys.argv) == 5 and sys.argv[1] == "result":
+            code = int(sys.argv[4])
+            if code not in (0, 3):
+                raise ValueError("unexpected psql status")
+            stderr_path = Path(sys.argv[2])
+            if stderr_path.stat().st_size > 64 * 1024:
+                raise ValueError("stderr too large")
+            print(result(stderr_path.read_bytes(),
+                         Path(sys.argv[3]), code))
+            return 0
+    except (OSError, ValueError, OverflowError):
+        pass
+    # A generic fixed failure message never includes paths or private bytes.
+    print("diagnostic-unavailable")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

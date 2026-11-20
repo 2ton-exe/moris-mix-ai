@@ -6,6 +6,9 @@ on:
     paths:
       - .github/workflows/database-restore-synthetic.yml
       - .github/workflows/database-restore-stage-b.yml
+      - .github/workflows/database-restore-role-diagnostic.yml
+      - scripts/restore_role_probe.py
+      - scripts/test_restore_role_probe.py
       - scripts/test_database_restore_synthetic.sh
       - scripts/classify_restore_component.py
 
@@ -30,6 +33,14 @@ jobs:
         uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
         with:
           version: 2.122.0
+
+      - name: Test role-only diagnostic output safety (offline)
+        shell: bash
+        run: python3 -m unittest discover -s scripts -p 'test_restore_role_probe.py'
+
+      - name: Check synthetic shell syntax (offline)
+        shell: bash
+        run: bash -n scripts/test_database_restore_synthetic.sh
 
       - name: Exercise synthetic transactional restore and rollback
         shell: bash
