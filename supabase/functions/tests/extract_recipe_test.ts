@@ -1310,6 +1310,37 @@ Deno.test("Short-window AI rate exhaustion returns 429 with Retry-After before p
   assertEquals(providerCalled, false);
 });
 
+Deno.test("configured account burst limit reaches the quota RPC", async () => {
+  const previous = Deno.env.get("AI_ACCOUNT_BURST_LIMIT");
+  Deno.env.set("AI_ACCOUNT_BURST_LIMIT", "3");
+  try {
+    const { fetchImpl } = createFetchMock({
+      onConsume: (body) => {
+        assertEquals(
+          body && typeof body === "object" && "p_burst_limit" in body
+            ? body.p_burst_limit
+            : undefined,
+          3,
+        );
+      },
+    });
+    const response = await handler(
+      extractRequest(JSON.stringify({ notes: NOTES })),
+      {
+        supabaseUrl: TEST_SUPABASE_URL,
+        supabaseAnonKey: TEST_ANON_KEY,
+        supabaseServiceRoleKey: TEST_SERVICE_ROLE_KEY,
+        fetch: fetchImpl,
+        provider: providerReturning(MOCK_EXTRACTED_RECIPE),
+      },
+    );
+    assertEquals(response.status, 200);
+  } finally {
+    if (previous === undefined) Deno.env.delete("AI_ACCOUNT_BURST_LIMIT");
+    else Deno.env.set("AI_ACCOUNT_BURST_LIMIT", previous);
+  }
+});
+
 Deno.test("consumeDailyQuota maps authoritative database rate exhaustion with a bounded retry wait", async () => {
   const { fetchImpl } = createFetchMock({ quotaConsumeStatus: "rate_limited" });
   const decision = await consumeDailyQuota(
@@ -2328,7 +2359,7 @@ for (const operation of ["confirm", "rollback"] as const) {
   }
 }
 
-for (const status of ["exceeded", "conflict"] as const) {
+for (const status of ["exceeded", "rate_limited", "conflict"] as const) {
   Deno.test(`Quota ${status} does not log successful consumption`, async () => {
     const logs: unknown[][] = [];
     const originalLog = console.log;
@@ -2345,7 +2376,14 @@ for (const status of ["exceeded", "conflict"] as const) {
         },
       );
       assertEquals(decision.status === "allowed", false);
-      assertEquals(logs, []);
+      assertEquals(
+        logs,
+        status === "conflict" ? [] : [[JSON.stringify({
+          event: status === "exceeded"
+            ? "ai_account_daily_limited"
+            : "ai_account_burst_limited",
+        })]],
+      );
     } finally {
       console.log = originalLog;
     }
