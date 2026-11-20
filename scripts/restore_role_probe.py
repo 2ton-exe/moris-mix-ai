@@ -35,7 +35,7 @@ OWNER_OTHER = re.compile(
 CATEGORY = {b"42501": "insufficient-privilege",
             b"42704": "undefined-object",
             b"42710": "duplicate-object"}
-VERBS = {b"GRANT ": "grant", b"ALTER ROLE ": "alter-role",
+VERBS = {b"ALTER ROLE ": "alter-role",
          b"CREATE ROLE ": "create-role"}
 
 # Only complete single-line role membership GRANTs with an actual GRANTED BY
@@ -116,9 +116,9 @@ def counts(roles: Path, schema: Path) -> str:
 def result(stderr: bytes, roles: Path, exit_code: int) -> str:
     if exit_code == 0:
         return ("replay=passed category=unknown verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown")
+                "doc_grant=unknown prefix_pass=unknown membership=unknown")
     fields = ("replay=failed category=unknown verb=unknown "
-              "doc_grant=unknown prefix_pass=unknown")
+              "doc_grant=unknown prefix_pass=unknown membership=unknown")
     error = _accepted_error(stderr, exit_code)
     if not error or error[0] != "roles.sql":
         return fields
@@ -126,31 +126,38 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
     category = CATEGORY.get(sqlstate, "unknown")
     if not (1 <= lineno <= MAX_ROLE_SCAN_LINES):
         return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown")
+                "doc_grant=unknown prefix_pass=unknown membership=unknown")
     try:
         lines = bounded_lines(roles)
     except (OSError, ValueError):
         return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown")
+                "doc_grant=unknown prefix_pass=unknown membership=unknown")
     if lineno > len(lines):
         return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown")
+                "doc_grant=unknown prefix_pass=unknown membership=unknown")
     prefix_ok = all(_safe_prefix_line(line) for line in lines[:lineno - 1])
     if not prefix_ok:
         return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=false")
+                "doc_grant=unknown prefix_pass=false membership=unknown")
     candidate = lines[lineno - 1].strip(b" \t")
     # The line must itself be a complete, standalone executable SQL statement.
     # A line reported at the end of multi-line SQL cannot be attributed safely.
     if (not candidate or candidate.startswith((b"--", b"\\"))
             or not _safe_prefix_line(candidate)):
         return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=false")
-    verb = next((label for prefix, label in VERBS.items()
-                 if candidate.startswith(prefix)), "other")
+                "doc_grant=unknown prefix_pass=false membership=unknown")
+    # Match the SQL keyword independently of the strict membership grammar.
+    # PostgreSQL accepts non-newline whitespace and adjacent quoted identifiers.
+    # Reject longer unquoted tokens (GRANTED, GRANT_role, GRANT$foo).
+    verb = ("grant" if re.match(rb'(?i)^GRANT(?=[ \t\v\f"])', candidate)
+            else next((label for prefix, label in VERBS.items()
+                       if candidate.startswith(prefix)), "other"))
     documented = "true" if candidate == DOCUMENTED_GRANT else "false"
+    # A structural match does not authenticate the stderr or prove root cause.
+    membership = ("match" if ROLE_MEMBERSHIP_GRANT.fullmatch(candidate)
+                  else "unclassified") if verb == "grant" else "not-applicable"
     return (f"replay=failed category={category} verb={verb} "
-            f"doc_grant={documented} prefix_pass=true")
+            f"doc_grant={documented} prefix_pass=true membership={membership}")
 
 
 
@@ -167,7 +174,8 @@ RESULT_RECORD = re.compile(
     rb"replay=(passed|failed) "
     rb"category=(insufficient-privilege|undefined-object|duplicate-object|unknown) "
     rb"verb=(grant|alter-role|create-role|other|unknown) "
-    rb"doc_grant=(true|false|unknown) prefix_pass=(true|false|unknown)\n"
+    rb"doc_grant=(true|false|unknown) prefix_pass=(true|false|unknown) "
+    rb"membership=(match|unclassified|not-applicable|unknown)\n"
 )
 
 
@@ -198,22 +206,31 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
         raise ValueError("invalid count record")
     fm = checked_record(flag_path, FLAG_RECORD)
     rm = checked_record(result_path, RESULT_RECORD)
-    replay, category, verb, documented, prefix = (
+    replay, category, verb, documented, prefix, membership = (
         field.decode("ascii") for field in rm.groups()
     )
     if exit_code == 0:
-        if (replay, category, verb, documented, prefix) != (
-                "passed", "unknown", "unknown", "unknown", "unknown"):
+        if (replay, category, verb, documented, prefix, membership) != (
+                "passed", "unknown", "unknown", "unknown", "unknown", "unknown"):
             raise ValueError("contradictory success diagnostic")
     else:
         if replay != "failed":
             raise ValueError("contradictory failure diagnostic")
-        if prefix != "true" and (verb != "unknown" or documented != "unknown"):
+        if prefix != "true" and (verb != "unknown" or documented != "unknown"
+                                 or membership != "unknown"):
             raise ValueError("statement attribution missing validated prefix")
         if documented == "true" and verb != "grant":
             raise ValueError("contradictory documented grant")
         if prefix == "true" and verb == "unknown":
             raise ValueError("missing attributed verb")
+        if prefix == "true" and documented == "unknown":
+            raise ValueError("missing attributed grant classification")
+        if documented == "true" and membership != "match":
+            raise ValueError("contradictory documented membership")
+        if prefix == "true" and (
+                (verb == "grant" and membership not in ("match", "unclassified"))
+                or (verb != "grant" and membership != "not-applicable")):
+            raise ValueError("contradictory membership classification")
     if cm and int(cm.group(1)) > int(cm.group(2)):
         raise ValueError("inconsistent diagnostic candidate counts")
     numbers = [str(int(field)) for field in cm.groups()] if cm else []
@@ -225,7 +242,7 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
             + " createdb=" + flags[2] + " bypassrls=" + flags[3]
             + " inherit=" + flags[4])
     observed = (f"replay={replay} category={category} verb={verb} "
-                f"doc_grant={documented} prefix_pass={prefix}")
+                f"doc_grant={documented} prefix_pass={prefix} membership={membership}")
     # Fully build the safe output before any publication. No raw bytes are copied.
     summary = (
         "### Role-only diagnostic (NOT recovery evidence)\n"
