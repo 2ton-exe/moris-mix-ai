@@ -30,3 +30,13 @@ it('takes a shorter direct path from the same resting spot to the right sheet', 
   expect(next.duration).toBeLessThan(previous.duration)
   expect(Array.from({ length: 100 }, (_, index) => next.sample(index / 99).position.x).every((x) => x >= right.left)).toBe(true)
 })
+
+it('fits the return across a wide spread inside the interaction budget', () => {
+  const left = { left: 20, right: 620, top: 15, bottom: 815 }
+  const right = { left: 650, right: 1250, top: 15, bottom: 815 }
+  const start = moriRestFoot(right)
+  const plan = createMoriPaperPlan({ left, right, start, corner: { x: left.left, y: 223 }, lane: 467, direction: 'backward' })
+
+  expect(plan.duration).toBeLessThan(3500)
+  expect(plan.sample(1)).toMatchObject({ position: start, phase: 'idle', paper: 1 })
+})

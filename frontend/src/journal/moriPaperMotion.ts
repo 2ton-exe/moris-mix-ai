@@ -9,6 +9,7 @@ export const MORI_ART_SCALE = MORI_DESKTOP_SIZE / MORI_SPRITE_WIDTH
 const OUTER_INSET = 28
 const SPINE_CLEARANCE = 48
 const WALK_SPEED = 580 // Notebook pixels per second.
+const WALK_TIME_BUDGET = 2350
 const ALIGN_TIME = 65
 const GRAB_TIME = 120
 const FLIP_TIME = 460
@@ -67,10 +68,11 @@ export function createMoriPaperPlan({ left, right, start, corner, lane, directio
   const stand = { x: corner.x + (forward ? -27 : 27), y: corner.y + 30 }
   const approach = pathOnPaper(start, stand, left, right, lane)
   const recovery = pathOnPaper(stand, start, left, right, lane + 16)
-  const approachTime = approach.length / WALK_SPEED * 1000
+  const walkingSpeed = Math.max(WALK_SPEED, (approach.length + recovery.length) * 1000 / WALK_TIME_BUDGET)
+  const approachTime = approach.length / walkingSpeed * 1000
   const flipStart = approachTime + ALIGN_TIME + GRAB_TIME
   const recoveryStart = flipStart + FLIP_TIME
-  const recoveryTime = recovery.length / WALK_SPEED * 1000
+  const recoveryTime = recovery.length / walkingSpeed * 1000
   const duration = recoveryStart + recoveryTime
 
   return {
