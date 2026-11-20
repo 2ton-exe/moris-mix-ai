@@ -27,6 +27,7 @@ const session = {
 const generated = {
   recipe: {
     title: 'Egg and rice skillet',
+    flavor_scores: { sweet: 1, salty: 3, sour: 2.5, bitter: 0, umami: 5, spicy: 0 },
     ingredients: [
       { name: 'rice', quantity: null, unit: null, quantityText: 'leftover', inferred: false },
       { name: 'eggs', quantity: 2, unit: null, quantityText: '2', inferred: false },
@@ -270,19 +271,15 @@ try {
   await expect(page).toHaveURL(`${origin}app/chef`)
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 
-  // The input must retain a usable width even when the leaf is narrower than
-  // the viewport breakpoint; preferences should wrap in the same available space.
+  // The pantry input must retain a usable width even on a narrow journal leaf.
   for (const width of [1440, 1100, 768, 400, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     const dimensions = await page.locator('.mm-ai-chef__ingredient-entry').evaluate((entry) => {
       const input = entry.querySelector('input').getBoundingClientRect()
-      const button = entry.querySelector('button').getBoundingClientRect()
-      const textarea = entry.closest('fieldset').querySelector('textarea').getBoundingClientRect()
-      return { row: entry.clientWidth, input: input.width, buttonTop: button.top, inputTop: input.top, textarea: textarea.width }
+      return { row: entry.clientWidth, input: input.width }
     })
     assert.ok(dimensions.input >= Math.min(140, dimensions.row - 2), `Pantry input collapsed at ${width}px: ${JSON.stringify(dimensions)}`)
-    assert.ok(dimensions.textarea >= dimensions.row - 2, `Preferences collapsed at ${width}px`)
   }
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
@@ -295,9 +292,34 @@ try {
   await pantryInput.press('Enter')
   await expect(page.getByRole('status')).toContainText('already in your pantry list')
   await expect(page.getByRole('region', { name: 'Pantry list, 2 items' })).toContainText('rice')
-  await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill('quick, no frying')
+  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  const preferences = page.getByRole('textbox', { name: /^Cooking preferences/ })
+  await expect(preferences).toBeVisible()
+  assert.ok(await preferences.evaluate((field) => field.clientWidth >= field.closest('fieldset').clientWidth - 2), 'Preferences collapsed on their own leaf')
+  await preferences.fill('quick, no frying')
   await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
 
+  await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  await page.goto(`${origin}app/chef`)
+  const resume = page.getByRole('complementary', { name: 'Unsaved AI Chef recipe' })
+  const resumeLink = resume.getByRole('link', { name: 'Return to recipe review' })
+  for (const [width, height] of [[1440, 900], [1100, 640], [375, 800]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    const notice = await resume.evaluate((element) => {
+      const copy = element.firstElementChild.getBoundingClientRect()
+      const footer = element.closest('.mm-journal-page').querySelector('.mm-journal-page-footer').getBoundingClientRect()
+      return { copyWidth: copy.width, noticeBottom: element.getBoundingClientRect().bottom, footerTop: footer.top }
+    })
+    assert.ok(notice.copyWidth >= 120, `Resume copy collapsed at ${width}×${height}: ${JSON.stringify(notice)}`)
+    assert.ok(notice.noticeBottom <= notice.footerTop + 1, `Resume notice crossed the footer at ${width}×${height}: ${JSON.stringify(notice)}`)
+    await resumeLink.click({ trial: true })
+    await resume.getByRole('button', { name: 'Discard preview' }).click({ trial: true })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
+  await resumeLink.focus()
+  await page.keyboard.press('Enter')
   await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
   const generation = requests.find((request) => request.path === '/functions/v1/generate-recipe')
   assert.ok(generation, 'AI Chef did not call the authenticated generation endpoint')
@@ -318,7 +340,33 @@ try {
   assert.ok(bounds.scrollHeight <= bounds.height + 2, `Review material should fit its own page: ${JSON.stringify(bounds)}`)
   await assertJournalSemantics(page, 'AI Chef recipe review')
   await expect(page.getByLabel('Recipe title')).toHaveValue('Egg and rice skillet')
+  await expect(page.getByRole('region', { name: 'Ingredients in this suggestion' })).toContainText('rice')
+  await reviewLeaf.getByText('Suggested substitutions', { exact: true }).click()
   await expect(page.getByRole('region', { name: 'Suggested substitutions' })).toContainText('firm tofu')
+  await reviewLeaf.getByText('Your request', { exact: true }).click()
+  await reviewLeaf.getByText('Mori’s optional flavor estimates', { exact: true }).click()
+  await page.setViewportSize({ width: 1100, height: 640 })
+  await settleJournalLayout(page)
+  const save = page.getByRole('button', { name: 'Save recipe', exact: true })
+  const geometry = await reviewLeaf.evaluate((leaf) => ({
+    visible: leaf.clientHeight,
+    content: leaf.scrollHeight,
+    bottom: leaf.getBoundingClientRect().bottom,
+  }))
+  assert.ok(geometry.content > geometry.visible, 'Expanded details must exercise the review scroll region')
+  const saveBox = await save.boundingBox()
+  assert.ok(saveBox && geometry.bottom <= saveBox.y + 1, 'Expanded recipe inspiration crossed the Save action')
+  await reviewLeaf.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => reviewLeaf.evaluate((leaf) => leaf.scrollTop)).toBeGreaterThan(0)
+  await page.keyboard.press('Home')
+  await expect.poll(() => reviewLeaf.evaluate((leaf) => leaf.scrollTop)).toBe(0)
+  await save.click({ trial: true })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
+  await expect(reviewLeaf.getByText('2.5 out of 5', { exact: true })).toHaveCount(1)
+  await reviewLeaf.getByText('spicy', { exact: true }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-review-details-1440.png'), fullPage: true })
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('Sunday fried rice')
   const firstParent = page.getByRole('checkbox', { name: /Sunday fried rice/ })
   const secondParent = page.getByRole('checkbox', { name: /Mori’s tomato rice/ })
@@ -495,12 +543,14 @@ try {
   await page.goto(`${origin}app/chef`)
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).fill('rice')
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).press('Enter')
+  await page.getByRole('button', { name: 'Next page', exact: true }).click()
   await page.getByRole('textbox', { name: /^Cooking preferences/ }).fill('keep this preference')
   await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
   await expect(page.getByRole('alert')).toContainText('rate-limited')
   await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeDisabled()
-  await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
   await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toHaveValue('keep this preference')
+  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Pantry list, 1 item' })).toContainText('rice')
   await expect(page.getByText('private provider detail')).toHaveCount(0)
   assert.equal(recipeWrites.length, 0)
   activeScenario = 'success'
