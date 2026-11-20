@@ -30,7 +30,7 @@ export function requestedRecipeTitle(text: string) {
 export function requestedReview(text: string): MoriWorkflow | 'any' | { title: string; alias?: string } | null {
   const value = text.trim().replace(/[?!.]+$/, '')
   const request = value.match(/^(?:please\s+)?review\s+(.+)$/i)?.[1] ??
-    value.match(/^(?:please\s+)?(?:open|show)\s+(?:me\s+)?(.+)\s+review$/i)?.[1]
+    value.match(/^(?:please\s+)?(?:open|show)\s+(?:me\s+)?(.+?)\s+(?:for\s+)?review$/i)?.[1]
   const target = request?.replace(/^(?:the|my|this|that)\s+/i, '').trim()
   if (!target) return null
   if (/^(?:AI Chef(?: (?:idea|recipe|draft))?|pantry (?:idea|recipe|draft))$/i.test(target)) return 'suggest'

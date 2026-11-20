@@ -491,7 +491,7 @@ it('opens the recipe editor when requested from chat', async () => {
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new'))
 })
 
-it('offers a choice when more than one unsaved chat draft could be reviewed', async () => {
+it.each(['Review my draft', 'Open my draft for review'])('offers a choice for “%s” when multiple drafts match', async (command) => {
   vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe())
   vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
   renderChat('mori-chat-review-choice')
@@ -500,7 +500,7 @@ it('offers a choice when more than one unsaved chat draft could be reviewed', as
   send('What can I cook with rice?')
   await screen.findByRole('button', { name: 'Review recipe' })
 
-  send('Review my draft')
+  send(command)
   expect(await screen.findByText(/Which draft/)).toBeTruthy()
   expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
 
@@ -511,7 +511,8 @@ it('offers a choice when more than one unsaved chat draft could be reviewed', as
 it.each([
   { title: 'Tomato soup', command: 'Review the Tomato Soup draft' },
   { title: 'Grandma’s Recipe', command: 'Review Grandma’s Recipe' },
-])('reviews the named draft $title and leaves unrelated drafts alone', async ({ title, command }) => {
+  { title: 'Tomato soup', command: 'Show me Tomato Soup for review' },
+])('handles “$command” and leaves unrelated drafts alone', async ({ title, command }) => {
   vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe(title))
   vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
   renderChat('mori-chat-named-review')
