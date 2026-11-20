@@ -312,10 +312,12 @@ try {
     await chefPanel.getByRole('textbox', { name: 'Message Mori' }).fill('rice; quick dinner')
     await chefPanel.getByRole('button', { name: 'Send' }).click()
     const reviewRecipe = chefPanel.getByRole('button', { name: 'Review recipe' })
-    await expect(chefPanel.getByRole('heading', { name: 'Rice and egg supper' })).toBeVisible()
+    const draftTitle = chefPanel.getByRole('heading', { name: 'Rice and egg supper' })
+    await expect(draftTitle).toBeVisible()
     if (width === 1440) {
       await reviewRecipe.scrollIntoViewIfNeeded()
-      await expect(reviewRecipe).toBeInViewport()
+      await expect(draftTitle).toBeInViewport({ ratio: 1 })
+      await expect(reviewRecipe).toBeInViewport({ ratio: 1 })
       await chefApp.page.screenshot({ path: path.join(outputDir, '1440-mori-recipe-suggestion.png') })
     }
     await reviewRecipe.click()
