@@ -64,11 +64,23 @@ export function usePantryPageEnds({
       setMeasuredEnds((current) => current?.length === ends.length && current.every((end, index) => end === ends[index]) ? current : ends)
     }
 
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    let frame: number | null = null
+    const schedule = () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        measure()
+      })
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
     for (const target of [paper, spread, footer, heading, entry, continuation, notices, grid]) observer?.observe(target)
-    window.addEventListener('resize', measure)
+    window.addEventListener('resize', schedule)
     measure()
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', schedule)
+      if (frame !== null) window.cancelAnimationFrame(frame)
+    }
   }, [pageRef, entries, cards, single, turning, handoff])
 
   if (cards && measuredEnds?.at(-1) === entries.length) return measuredEnds
