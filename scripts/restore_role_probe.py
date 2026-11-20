@@ -1,0 +1,138 @@
+"""Bounded, untrusted diagnostic labels for a private Stage B role replay.
+
+Never emit SQL, stderr, identifiers, filenames from SQL, or server messages.
+These labels cannot authenticate an error: matching spoofed stderr is possible.
+No replay transformation or role/ownership modification is performed.
+"""
+from pathlib import Path
+import re
+import sys
+
+from classify_restore_component import (
+    _accepted_error,
+    _safe_prefix_line,
+    ERROR_CATEGORIES,
+    MAX_ROLE_LINE_BYTES,
+    MAX_ROLE_SQL_BYTES,
+    MAX_ROLE_SCAN_LINES,
+)
+
+# Exact public example from Supabase's CLI backup/restore documentation.
+DOCUMENTED_GRANT = (
+    b'GRANT "postgres" TO "cli_login_postgres" WITH INHERIT FALSE '
+    b'GRANTED BY "supabase_admin";'
+)
+# Count single-line ALTER ... OWNER TO cases; names and SQL never leave the runner.
+OWNER = re.compile(
+    rb'^ALTER (?P<kind>TABLE|FUNCTION|SEQUENCE|VIEW|MATERIALIZED VIEW|TYPE|SCHEMA|'
+    rb'PROCEDURE|AGGREGATE|OTHER)\b[^\r\n]* OWNER TO "supabase_admin";$'
+)
+OWNER_OTHER = re.compile(
+    rb'^ALTER [^\r\n]+ OWNER TO "supabase_admin";$'
+)
+CATEGORY = {b"42501": "insufficient-privilege",
+            b"42704": "undefined-object",
+            b"42710": "duplicate-object"}
+VERBS = {b"GRANT ": "grant", b"ALTER ROLE ": "alter-role",
+         b"CREATE ROLE ": "create-role"}
+
+
+def bounded_lines(path: Path) -> list[bytes]:
+    """Read only a bounded file and refuse overlong/malformed lines."""
+    if path.stat().st_size > MAX_ROLE_SQL_BYTES:
+        raise ValueError("oversize")
+    source = path.read_bytes()
+    if not source or len(source) > MAX_ROLE_SQL_BYTES:
+        raise ValueError("invalid size")
+    lines = source.split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    if len(lines) > MAX_ROLE_SCAN_LINES:
+        raise ValueError("too many lines")
+    result = []
+    for raw in lines:
+        if raw.endswith(b"\r"):
+            raw = raw[:-1]
+        if len(raw) > MAX_ROLE_LINE_BYTES or b"\r" in raw or b"\x00" in raw:
+            raise ValueError("malformed line")
+        result.append(raw)
+    return result
+
+
+def counts(roles: Path, schema: Path) -> str:
+    role_lines = bounded_lines(roles)
+    schema_lines = bounded_lines(schema)
+    documented = sum(line.strip(b" \t") == DOCUMENTED_GRANT
+                     for line in role_lines)
+    kinds = {"table": 0, "function": 0, "other": 0}
+    for line in schema_lines:
+        candidate = line.strip(b" \t")
+        if not OWNER_OTHER.fullmatch(candidate):
+            continue
+        matched = OWNER.fullmatch(candidate)
+        kind = matched.group("kind") if matched else b""
+        if kind == b"TABLE":
+            kinds["table"] += 1
+        elif kind == b"FUNCTION":
+            kinds["function"] += 1
+        else:
+            kinds["other"] += 1
+    return (f"doc_grant={documented} owner_table={kinds['table']} "
+            f"owner_function={kinds['function']} owner_other={kinds['other']}")
+
+
+def result(stderr: bytes, roles: Path, exit_code: int) -> str:
+    if exit_code == 0:
+        return ("replay=passed category=unknown verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    fields = ("replay=failed category=unknown verb=unknown "
+              "doc_grant=unknown prefix_pass=unknown")
+    error = _accepted_error(stderr, exit_code)
+    if not error or error[0] != "roles.sql":
+        return fields
+    _, lineno, sqlstate = error
+    category = CATEGORY.get(sqlstate, "unknown")
+    if not (1 <= lineno <= MAX_ROLE_SCAN_LINES):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    try:
+        lines = bounded_lines(roles)
+    except (OSError, ValueError):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    if lineno > len(lines):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=unknown")
+    candidate = lines[lineno - 1].strip(b" \t")
+    verb = next((label for prefix, label in VERBS.items()
+                 if candidate.startswith(prefix)), "other")
+    documented = "true" if candidate == DOCUMENTED_GRANT else "false"
+    prefix_ok = all(_safe_prefix_line(line) for line in lines[:lineno - 1])
+    return (f"replay=failed category={category} verb={verb} "
+            f"doc_grant={documented} prefix_pass={'true' if prefix_ok else 'false'}")
+
+
+def main() -> int:
+    try:
+        if len(sys.argv) == 4 and sys.argv[1] == "counts":
+            print(counts(Path(sys.argv[2]), Path(sys.argv[3])))
+            return 0
+        if len(sys.argv) == 5 and sys.argv[1] == "result":
+            code = int(sys.argv[4])
+            if code not in (0, 3):
+                raise ValueError("unexpected psql status")
+            stderr_path = Path(sys.argv[2])
+            if stderr_path.stat().st_size > 64 * 1024:
+                raise ValueError("stderr too large")
+            print(result(stderr_path.read_bytes(),
+                         Path(sys.argv[3]), code))
+            return 0
+    except (OSError, ValueError, OverflowError):
+        pass
+    # A generic fixed failure message never includes paths or private bytes.
+    print("diagnostic-unavailable")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
