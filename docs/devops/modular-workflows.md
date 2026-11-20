@@ -146,7 +146,9 @@ docs-only mode to PR events. Explicit log steps identify the lighter paths.
 | Database Tests | Keeps the job/check and PostgreSQL service; checkout and an explicit successful no-op step run. Skips tooling install, readiness command, migrations, lifecycle and RLS commands. Service startup can still fail the job. |
 | Edge/API Tests | Keeps the job/check, checkout and explicit successful no-op step. Skips Deno/tooling setup, type-checks, deterministic tests and optional hosted work. Main still requires its nested Hosted RLS job; a required-hosted-RLS input also disables docs-only mode. |
 | E2E | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `e2e=skip`. Failure, missing/malformed output or uncertainty runs normal E2E; cancellation prevents execution. E2E remains non-required. |
-| Staging | Intentionally skips only when classification succeeds with `docs_only=true` and explicit `staging=skip`. Otherwise it still requires successful frontend, database and Edge/API validation, a non-draft same-repository PR, and no cancellation. Deployment and smoke implementation are unchanged. PR workflows still cannot call production. |
+| Staging | Intentionally skips for verified documentation-only PRs and Dependabot-authored PRs. Otherwise it requires successful frontend, database and Edge/API validation, a non-draft same-repository PR, and no cancellation. Deployment and smoke implementation are unchanged. PR workflows still cannot call production. |
+
+Dependabot security-update PRs still execute the three required validation contexts and, except for verified docs-only changes, E2E. They do not enter the staging deployment workflow because Dependabot `pull_request` runs cannot access the ordinary Cloudflare staging secrets. PR Secretary reports the resulting staging skip as expected, **not** as a passed deployment. Once such a dependency change is reviewed and merged, normal `main` release validation and deployed verification remain separate requirements.
 
 Verified docs-only decisions emit `frontend=noop`, `database=noop`,
 `edge_api=noop`, `e2e=skip`, and `staging=skip`. Full-validation decisions emit

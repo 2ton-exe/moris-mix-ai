@@ -47,7 +47,8 @@ export function classify(paths) {
 }
 
 export function stagingEligible(pr, repository) {
-  return !pr.draft && pr.head.repo?.full_name === repository;
+  return !pr.draft && pr.head.repo?.full_name === repository &&
+    pr.user?.login?.toLowerCase() !== 'dependabot[bot]';
 }
 
 export function normalize(check, { expectedSkip = false, applicable = true } = {}) {

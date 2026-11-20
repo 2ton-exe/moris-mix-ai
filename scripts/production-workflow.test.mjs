@@ -561,7 +561,7 @@ test('docs-only paths execute successful core jobs; main and hosted RLS cannot n
   assert.doesNotMatch(edge.jobs['test-hosted-rls'].if, /docs-only|DOCS_ONLY/);
 });
 
-test('E2E and staging skip only on successful explicit docs-only decisions', () => {
+test('E2E follows docs-only classification; staging also excludes Dependabot authors', () => {
   const pr = workflow('modular-pr-validation');
   assert.equal(pr.jobs['test-e2e'].needs, 'classify');
   assert.deepEqual(pr.jobs.staging.needs, ['classify', 'frontend', 'test-db', 'test-edge-api']);
@@ -582,7 +582,7 @@ test('E2E and staging skip only on successful explicit docs-only decisions', () 
           'test-db': { result: 'success' }, 'test-edge-api': { result: 'success' } };
         const overrides = { needs, cancelled: () => false, success: () => false,
           github: { repository: '2ton-exe/moris-mix-ai', event: { pull_request: {
-            draft: false, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } },
+            draft: false, user: { login: 'developer' }, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } },
           } } } };
         const skip = result === 'success' && docs_only === 'true' && decision === 'skip';
         for (const id of ['test-e2e', 'staging']) {
@@ -596,14 +596,28 @@ test('E2E and staging skip only on successful explicit docs-only decisions', () 
               needs: { ...needs, [dependency]: { result: coreResult } } }), false);
           }
         }
-        for (const pull_request of [{ draft: true, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } } },
-          { draft: false, head: { repo: { full_name: 'fork/repo' } } }]) {
+        for (const pull_request of [{ draft: true, user: { login: 'developer' }, head: { repo: { full_name: '2ton-exe/moris-mix-ai' } } },
+          { draft: false, user: { login: 'developer' }, head: { repo: { full_name: 'fork/repo' } } }]) {
           assert.equal(condition(pr.jobs.staging.if, { ...overrides,
             github: { repository: '2ton-exe/moris-mix-ai', event: { pull_request } } }), false);
         }
       }
     }
   }
+  const eligible = { draft: false, user: { login: 'developer' },
+    head: { repo: { full_name: '2ton-exe/moris-mix-ai' } } };
+  const bot = { ...eligible, user: { login: 'dependabot[bot]' } };
+  const needs = { classify: { result: 'success', outputs: { docs_only: 'false', staging: 'run' } },
+    frontend: { result: 'success' }, 'test-db': { result: 'success' },
+    'test-edge-api': { result: 'success' } };
+  const context = pull_request => ({ needs, cancelled: () => false,
+    github: { repository: '2ton-exe/moris-mix-ai', actor: 'human-reviewer',
+      event: { pull_request } } });
+  assert.equal(condition(pr.jobs.staging.if, context(eligible)), true);
+  assert.equal(condition(pr.jobs.staging.if, context(bot)), false,
+    'A human re-running a Dependabot PR must not unlock staging credentials');
+  assert.equal(condition(pr.jobs['test-e2e'].if, context(bot)), true,
+    'Dependabot PRs should still receive ordinary E2E validation');
   assert.equal(main.jobs['test-e2e'].needs, undefined);
   assert.equal(main.jobs['test-e2e'].if, undefined);
 });
