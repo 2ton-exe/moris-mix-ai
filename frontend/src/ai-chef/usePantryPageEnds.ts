@@ -22,16 +22,19 @@ function packRows(grid: Element, first: number, continuation: number, gap: numbe
 }
 
 export function usePantryPageEnds({
-  pageRef, entries, cards, single, turning, handoff,
+  pageRef, entries, cards, single, board, view, firstLeaf, turning, handoff,
 }: {
   pageRef: RefObject<HTMLElement | null>
   entries: PantryCardItem[]
   cards: boolean
   single: boolean
+  board: boolean
+  view: 'grid' | 'list'
+  firstLeaf: boolean
   turning: boolean
   handoff: boolean
 }) {
-  const [measuredEnds, setMeasuredEnds] = useState<number[] | null>(null)
+  const [measuredEnds, setMeasuredEnds] = useState<{ board: boolean; ends: number[] } | null>(null)
 
   useLayoutEffect(() => {
     const page = pageRef.current
@@ -42,6 +45,9 @@ export function usePantryPageEnds({
     const entry = page?.querySelector('.mm-ai-chef__entry')
     const continuation = page?.querySelector('.mm-ai-chef__pantry-pages')
     const notices = page?.querySelector('.mm-ai-chef__notices')
+    const boardList = board ? page?.querySelector('.mm-ai-chef__pantry-list:not(.mm-ai-chef__measure)') : null
+    const boardHeader = boardList?.querySelector('.mm-ai-chef__board-header')
+    const boardPager = boardList?.querySelector('.mm-ai-chef__board-pages')
     const grid = page?.querySelector('.mm-ai-chef__measure .mm-ai-chef__card-grid')
     if (!cards || turning || handoff || !page || !paper || !spread || !footer || !heading || !entry || !continuation || !notices || !grid) return
 
@@ -49,7 +55,8 @@ export function usePantryPageEnds({
       const paperBounds = paper.getBoundingClientRect()
       const gridStyle = getComputedStyle(grid)
       if (paperBounds.width <= 0 || gridStyle.display !== 'grid') return
-      const pageGap = parseFloat(getComputedStyle(page).rowGap)
+      const pageStyle = getComputedStyle(page)
+      const pageGap = parseFloat(pageStyle.rowGap)
       const paperPadding = parseFloat(getComputedStyle(paper).paddingBottom)
       const bottom = single
         ? spread.getBoundingClientRect().top + (parseFloat(getComputedStyle(spread).minHeight) || spread.getBoundingClientRect().height) - footer.getBoundingClientRect().height - 12
@@ -60,8 +67,25 @@ export function usePantryPageEnds({
       const headingHeight = heading.getBoundingClientRect().height
       const first = contentHeight - headingHeight - entry.getBoundingClientRect().height - 2 * pageGap
       const rest = contentHeight - continuation.getBoundingClientRect().height - pageGap - (single ? headingHeight + pageGap : 0)
-      const ends = packRows(grid, first, rest, parseFloat(gridStyle.rowGap))
-      setMeasuredEnds((current) => current?.length === ends.length && current.every((end, index) => end === ends[index]) ? current : ends)
+      const gap = parseFloat(gridStyle.rowGap)
+      let ends: number[]
+      if (board) {
+        // On preferences or an empty pantry there's no board to paginate.
+        if (!boardList || !boardHeader || !boardPager || entries.length === 0) return
+        const box = getComputedStyle(boardList)
+        const space = first - boardHeader.getBoundingClientRect().height - parseFloat(pageStyle.paddingTop) - parseFloat(pageStyle.paddingBottom)
+          - parseFloat(box.paddingTop) - parseFloat(box.paddingBottom)
+          - parseFloat(box.borderTopWidth) - parseFloat(box.borderBottomWidth)
+          - parseFloat(getComputedStyle(boardHeader).marginBottom)
+        ends = packRows(grid, space, space, gap)
+        if (ends.length > 1) {
+          const withPager = space - boardPager.getBoundingClientRect().height - parseFloat(getComputedStyle(boardPager).marginTop)
+          ends = packRows(grid, withPager, withPager, gap).filter((end) => end > 0)
+        }
+      } else {
+        ends = packRows(grid, first, rest, gap)
+      }
+      setMeasuredEnds((current) => current?.board === board && current.ends.length === ends.length && current.ends.every((end, index) => end === ends[index]) ? current : { board, ends })
     }
 
     let frame: number | null = null
@@ -73,7 +97,9 @@ export function usePantryPageEnds({
       })
     }
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
-    for (const target of [paper, spread, footer, heading, entry, continuation, notices, grid]) observer?.observe(target)
+    for (const target of [paper, spread, footer, heading, entry, continuation, notices, grid, boardHeader, boardPager]) {
+      if (target) observer?.observe(target)
+    }
     window.addEventListener('resize', schedule)
     measure()
     return () => {
@@ -81,9 +107,11 @@ export function usePantryPageEnds({
       window.removeEventListener('resize', schedule)
       if (frame !== null) window.cancelAnimationFrame(frame)
     }
-  }, [pageRef, entries, cards, single, turning, handoff])
+  }, [pageRef, entries, cards, single, board, view, firstLeaf, turning, handoff])
 
-  if (cards && measuredEnds?.at(-1) === entries.length) return measuredEnds
+  if (cards && measuredEnds?.board === board
+    && (board ? entries.length > 0 : measuredEnds.ends.at(-1) === entries.length)) return measuredEnds.ends
+  if (board) return [entries.length]
   const first = single ? 1 : 2
   const continuation = single ? 2 : 4
   const ends = [Math.min(first, entries.length)]

@@ -430,3 +430,250 @@
     bottom: auto;
   }
 }
+
+/* The desktop board fills the journal leaf and paginates independently of it. */
+[data-pantry-front].mm-ai-chef { padding-block-end: 4px; }
+[data-pantry-front] > .mm-ai-chef__paper {
+  width: calc(100% + 16px);
+  margin-inline: -8px;
+  padding: 7px 0 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+[data-pantry-front] > .mm-ai-chef__paper > .mm-tape {
+  top: -2px;
+  left: 3px;
+  transform: translateY(-65%) rotate(-9deg);
+}
+[data-pantry-front] .mm-ai-chef__heading h1 {
+  width: fit-content;
+  font-size: clamp(26px, calc(var(--mm-page-width) * .074), 40px);
+}
+[data-pantry-front] .mm-ai-chef__form legend {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+[data-pantry-front] .mm-ai-chef__form legend::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid #cc9ca0;
+}
+[data-pantry-front] .mm-ai-chef__ingredient-entry { flex-wrap: nowrap; }
+[data-pantry-front]:has(.field-error, .mm-ai-chef__storage-warning, .mm-ai-chef__notices:not([hidden])) .mm-ai-chef__form {
+  flex: 1;
+}
+[data-pantry-front]:has(.field-error, .mm-ai-chef__storage-warning, .mm-ai-chef__notices:not([hidden])) .mm-ai-chef__page {
+  overflow: auto;
+  padding: 5px;
+}
+[data-pantry-front] .mm-ai-chef__ingredient-entry input { border-radius: 7px; }
+[data-pantry-front] .mm-ai-chef__ingredient-entry .button,
+.mm-journal-page:has([data-pantry-board]) .mm-ai-chef__footer-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.mm-journal-page:has([data-pantry-board]) .mm-ai-chef__footer-actions {
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+}
+.mm-journal-page:has([data-pantry-board]) .mm-ai-chef__save-note {
+  font-size: 12px;
+}
+.mm-ai-chef__try {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  color: var(--mm-color-burgundy-900);
+  font: 650 13px/1.2 var(--mm-font-sans);
+}
+.mm-ai-chef__try button,
+.mm-ai-chef__board-controls :is(select, button),
+.mm-ai-chef__board-pages button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding-inline: 8px;
+  border: 1px solid var(--mm-color-parchment-400);
+  border-radius: 8px;
+  background: var(--mm-color-fresh);
+  color: var(--mm-color-burgundy-900);
+  font: 650 13px/1 var(--mm-font-sans);
+  cursor: pointer;
+}
+.mm-ai-chef__try button { border-radius: 999px; }
+.mm-ai-chef__try button img { inline-size: 16px; block-size: 16px; }
+.mm-ai-chef__try button:disabled, .mm-ai-chef__board-pages button[aria-disabled='true'] {
+  opacity: .62;
+  cursor: default;
+}
+.mm-ai-chef__try button:not(:disabled):hover, .mm-ai-chef__board-pages button[aria-disabled='false']:hover {
+  background: var(--mm-color-burgundy-100);
+}
+.mm-ai-chef__try button:not(:disabled):active { background: var(--mm-color-lilac-100); }
+[data-pantry-board] .mm-ai-chef__pantry-list:not(.mm-ai-chef__measure) {
+  position: relative;
+  padding: 9px;
+  border: 1px solid var(--mm-color-parchment-400);
+  border-radius: 15px;
+  background: rgb(255 252 243 / .42);
+}
+[data-pantry-board] .mm-ai-chef__measure { padding-inline: 10px; }
+.mm-ai-chef__board-header,
+.mm-ai-chef__board-controls,
+.mm-ai-chef__views,
+.mm-ai-chef__board-pages { display: flex; align-items: center; gap: 5px; }
+.mm-ai-chef__board-header { flex-wrap: wrap; justify-content: space-between; margin-bottom: 8px; }
+.mm-ai-chef__board-header h2 {
+  margin: 0;
+  color: var(--mm-color-burgundy-900);
+  font: 600 21px/1.2 var(--mm-font-serif);
+}
+.mm-ai-chef__board-header h2 span { color: var(--mm-color-ink-soft); font: 500 14px/1 var(--mm-font-sans); }
+.mm-ai-chef__board-controls select:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
+.mm-ai-chef__views { gap: 0; }
+.mm-ai-chef__views button:first-child { border-radius: 8px 0 0 8px; }
+.mm-ai-chef__views button:last-child { border-radius: 0 8px 8px 0; }
+.mm-ai-chef__views button[aria-pressed='true'] {
+  border-color: var(--mm-color-burgundy-800);
+  color: var(--mm-color-fresh);
+  background: var(--mm-color-burgundy-800);
+}
+.mm-ai-chef__board-pages {
+  justify-content: center;
+  margin-top: 5px;
+  color: var(--mm-color-ink-soft);
+  font: 600 13px/1 var(--mm-font-sans);
+}
+.mm-ai-chef__board-pages[data-measure-only] { position: absolute; visibility: hidden; }
+
+[data-pantry-board] .mm-ai-chef__pantry-list .mm-ai-chef__card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(126px, 30%)), 1fr));
+  gap: 8px;
+  padding: 0 1px 3px;
+}
+[data-pantry-board] .mm-ai-chef__card-grid > li {
+  grid-template-columns: clamp(23px, 2.6vw, 38px) minmax(0, 1fr);
+  gap: 2px 6px;
+  min-block-size: 59px;
+  padding: 4px 6px;
+  border-color: #b5937d55;
+  box-shadow: 1px 2px 3px rgb(66 35 28 / .2);
+  font: 700 15px/1.12 var(--mm-font-sans);
+}
+[data-pantry-board] .mm-ai-chef__card-grid > li::before { content: none; }
+[data-pantry-board] .mm-ai-chef__card-grid > li[data-tone="5"] { --card-paper: #e8e8f0; }
+[data-pantry-board] .mm-ai-chef__card-grid > [data-long-name] { grid-column: 1 / -1; }
+[data-pantry-board] .mm-ai-chef__card-grid > [data-long-name] .recipe-ingredient-emoji { grid-area: 1 / 1 / span 2; }
+[data-pantry-board] .mm-ai-chef__card-grid > [data-long-name] .mm-ai-chef__ingredient-name { grid-area: 1 / 2; }
+[data-pantry-board] .mm-ai-chef__card-grid > [data-long-name] .mm-ai-chef__remove { grid-area: 2 / 2; justify-self: start; }
+[data-pantry-board] .mm-ai-chef__card-grid .mm-ai-chef__remove { min-block-size: 24px; }
+[data-pantry-board] .mm-ai-chef__remove > span { padding: 3px 5px; }
+
+[data-pantry-board='list'] .mm-ai-chef__pantry-list .mm-ai-chef__card-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+[data-pantry-board='list'] .mm-ai-chef__card-grid > li {
+  min-block-size: 33px;
+  grid-template-columns: 23px minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 3px 8px;
+}
+[data-pantry-board='list'] .mm-ai-chef__card-grid > li .recipe-ingredient-emoji { grid-area: 1 / 1; }
+[data-pantry-board='list'] .mm-ai-chef__card-grid > li .mm-ai-chef__ingredient-name { grid-area: 1 / 2; align-self: center; }
+[data-pantry-board='list'] .mm-ai-chef__card-grid > li .mm-ai-chef__remove { grid-area: 1 / 3; }
+
+.mm-facing-content--ai-chef:has(.mm-ai-chef__journey--scrapbook) { width: 100%; }
+.mm-paper-card.mm-ai-chef__journey--scrapbook {
+  position: static;
+  width: min(100%, 470px);
+  padding: 0 10px 36px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.mm-ai-chef__journey--scrapbook .mm-tape { display: none; }
+.mm-ai-chef__journey--scrapbook h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 18px;
+  font-size: clamp(25px, 2.4vw, 36px);
+  line-height: 1.08;
+}
+.mm-ai-chef__journey--scrapbook h2 img { width: 43px; flex: none; }
+.mm-ai-chef__mixing-sticker { display: block; width: clamp(85px, 11vw, 145px); margin-bottom: 3px; }
+.mm-ai-chef__basket-sticker {
+  position: absolute;
+  inset: auto 9% 10% auto;
+  width: clamp(80px, min(10vw, 14vh), 144px);
+  pointer-events: none;
+}
+.mm-ai-chef__journey--scrapbook ol {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(3px, .65vw, 9px);
+  padding: 12px 10px;
+  background: var(--mm-color-fresh) var(--mm-tex-grain);
+  clip-path: polygon(0 9%, 4% 2%, 12% 5%, 20% 0, 28% 4%, 36% 1%, 46% 4%, 55% 0, 63% 3%, 72% 1%, 81% 5%, 90% 0, 98% 5%, 100% 20%, 99% 43%, 100% 62%, 98% 83%, 99% 94%, 89% 98%, 81% 95%, 71% 100%, 62% 96%, 52% 99%, 39% 96%, 30% 100%, 22% 97%, 13% 100%, 3% 96%, 1% 84%, 2% 57%, 0 39%, 1% 21%);
+}
+.mm-ai-chef__journey--scrapbook li {
+  display: flex;
+  min-height: 0;
+  padding: 0 4px;
+  gap: 4px;
+  border-radius: 999px;
+  font-size: clamp(12px, 1vw, 15px);
+}
+.mm-ai-chef__journey--scrapbook li + li::before {
+  content: '';
+  width: clamp(7px, 1.25vw, 23px);
+  flex: none;
+  border-top: 1px solid #ad7180;
+}
+.mm-ai-chef__journey--scrapbook li[aria-current='step'] {
+  background: var(--mm-color-burgundy-100);
+  box-shadow: none;
+}
+.mm-ai-chef__journey--scrapbook .mm-ai-chef__journey-mark { flex: 0 0 25px; width: 25px; height: 25px; }
+.mm-ai-chef__journey--scrapbook li[aria-current='step'] .mm-ai-chef__journey-mark {
+  color: var(--mm-color-fresh);
+  background: var(--mm-color-burgundy-800);
+  border-color: var(--mm-color-burgundy-800);
+}
+.mm-ai-chef__journey--scrapbook .is-complete .mm-ai-chef__journey-mark { background: var(--mm-color-sage-100); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .mm-ai-chef__try button,
+  .mm-ai-chef__journey--scrapbook .mm-ai-chef__journey-mark { transition: background-color .18s ease, color .18s ease; }
+}
+
+@media (max-width: 1279px), (max-height: 790px) {
+  [data-pantry-front] > .mm-ai-chef__paper { padding-top: 2px; }
+  [data-pantry-front] .mm-ai-chef__page,
+  [data-pantry-front] .mm-ai-chef__form fieldset { gap: 6px; }
+  [data-pantry-front] .mm-ai-chef__help { font-size: 12px; line-height: 1.35; }
+  .mm-ai-chef__try { gap: 4px; font-size: 12px; }
+  .mm-ai-chef__try button { gap: 3px; padding-inline: 5px; min-height: 25px; font-size: 12px; }
+  .mm-ai-chef__try button img { inline-size: 13px; block-size: 13px; }
+  [data-pantry-board] .mm-ai-chef__pantry-list:not(.mm-ai-chef__measure) { padding: 5px; }
+  [data-pantry-board] .mm-ai-chef__measure { padding-inline: 6px; }
+  .mm-ai-chef__board-header { margin-bottom: 5px; }
+  .mm-ai-chef__board-pages { margin-top: 3px; }
+  .mm-ai-chef__board-controls :is(select, button),
+  .mm-ai-chef__board-pages button { min-height: 27px; }
+  [data-pantry-board='grid'] .mm-ai-chef__card-grid > li { min-block-size: 50px; }
+  .mm-journal-page:has([data-pantry-board]) .mm-ai-chef__footer-actions {
+    column-gap: 8px;
+  }
+  .mm-journal-page:has([data-pantry-board]) .mm-ai-chef__footer-actions .button { gap: 4px; padding-inline: 10px; }
+  .mm-ai-chef__journey--scrapbook li { font-size: 12px; overflow-wrap: normal; }
+  .mm-ai-chef__journey--scrapbook li + li::before { width: 8px; }
+  .mm-ai-chef__journey--scrapbook .mm-ai-chef__journey-mark { flex-basis: 20px; width: 20px; height: 20px; }
+}
