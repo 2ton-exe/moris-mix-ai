@@ -296,12 +296,26 @@ does not furnish a directly comparable numeric baseline.
 [PR #250](https://github.com/2ton-exe/moris-mix-ai/pull/250) already provided a
 separate hosted example of a merged PR transitioning its existing Secretary
 comment to `MERGED`, showing its actual merge identity and exact-associated
-main delivery evidence. A **closed-without-merge** hosted example remains
-unverified. Also pending are additional edited-review and fork-specific
-review-event tests, broader comparable latency/no-op-write sampling, and
-the remaining checks in [issue #246](https://github.com/2ton-exe/moris-mix-ai/issues/246).
-Do not merge the disposable test PR or close the parent issue merely
-because the exercised signal paths succeeded.
+main delivery evidence.
+
+The same closure-safe renderer was then verified on the disposable
+[PR #254](https://github.com/2ton-exe/moris-mix-ai/pull/254), which the maintainer
+**closed without merge** at `2026-11-20T17:56:26Z`. Its head stayed at
+`742392f4c009a719dcd7b4fdb8ad461ee0a853f7`. The
+[`pull_request_target` Secretary run #44788047179](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44788047179)
+passed (`resolve` and `summarize (254)`). The **same comment ID 7044735848**
+became `CLOSED WITHOUT MERGE` at `17:56:59Z` (**33 s observed**),
+retained historical reviews, and omitted open-PR `WAITING`, `Ready
+for review`, and `Attention` prompts. GitHub confirmed
+`merged=false`, `merged_at=null`, unchanged `main` at `91148de`,
+and that the test branch still exists. No production deploy was
+triggered by the closure.
+
+Still pending are additional edited-review and fork-specific review-event
+tests, broader comparable latency/no-op-write sampling, and the other
+unchecked work in [issue #246](https://github.com/2ton-exe/moris-mix-ai/issues/246).
+Do not merge the closed test PR, delete its branch without authorization,
+or close the parent issue solely because these exercised paths succeeded.
 
 ## Runtime repair evidence for issue #86 (2026-10-28)
 
