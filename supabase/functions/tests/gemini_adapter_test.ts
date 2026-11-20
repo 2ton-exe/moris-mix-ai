@@ -1406,3 +1406,56 @@ Deno.test("Shared Gemini admission store failure stops before calling Gemini", a
   assertEquals(response.status, 503);
   assertEquals((await response.json()).error.code, "QUOTA_UNAVAILABLE");
 });
+
+Deno.test("A stalled shared Gemini admission aborts before calling Gemini", async () => {
+  const settings = {
+    AI_GEMINI_QUOTA_RPM: "5",
+    AI_GEMINI_QUOTA_RPD: "",
+    AI_GEMINI_QUOTA_PROJECT: "test",
+    SUPABASE_URL: "https://quota.example",
+    SUPABASE_SERVICE_ROLE_KEY: "test",
+  };
+  const originalSettings = Object.keys(settings).map((key) =>
+    [key, Deno.env.get(key)] as const
+  );
+  const originalFetch = globalThis.fetch;
+  let admissionSignal: AbortSignal | null | undefined;
+  globalThis.fetch = (_input, init) => {
+    const signal = init?.signal;
+    admissionSignal = signal;
+    assert(signal, "Admission fetch must have a deadline");
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), {
+        once: true,
+      });
+    });
+  };
+  try {
+    for (const [key, value] of Object.entries(settings)) {
+      Deno.env.set(key, value);
+    }
+    const adapter = new GeminiAdapter({
+      apiKey: "test",
+      generateText: () => {
+        throw new Error("Unexpected provider call");
+      },
+      log: () => {},
+    });
+
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
+    assertEquals(admissionSignal?.reason?.name, "TimeoutError");
+    assertEquals(error.nonConsuming, true);
+    const response = mapAiError(error, "POST, OPTIONS");
+    assertEquals(response.status, 503);
+    assertEquals((await response.json()).error.code, "QUOTA_UNAVAILABLE");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of originalSettings) {
+      if (value === undefined) Deno.env.delete(key);
+      else Deno.env.set(key, value);
+    }
+  }
+});

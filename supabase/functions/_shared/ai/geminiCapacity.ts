@@ -1,6 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2.39.8";
 import { logQuotaRpcFailure } from "./quota.ts";
 
+const ADMISSION_TIMEOUT_MS = 2_000;
+
 type Admission =
   | { status: "allowed" }
   | { status: "exceeded"; retryAfterSeconds: number }
@@ -47,10 +49,12 @@ export function createGeminiAdmission(
 
     return async () => {
       try {
+        const signal = AbortSignal.timeout(ADMISSION_TIMEOUT_MS);
         const { data, error } = await client.rpc(
           "admit_ai_gemini_attempt",
           args,
-        );
+        ).abortSignal(signal);
+        signal.throwIfAborted();
         if (error) throw error;
         if (data?.status === "allowed") return { status: "allowed" };
         const retryAfterSeconds = data?.retry_after_seconds;
