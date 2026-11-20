@@ -121,12 +121,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       }
       setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
     }
-    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
     const findPaper = () => {
       if (paper?.isConnected) return
       paper = document.querySelector('.mm-desk--with-companion .mm-journal-spread > .mm-journal-page')
-      resize?.disconnect()
-      if (paper) resize?.observe(paper)
       place()
     }
     const mutation = new MutationObserver((records) => {
@@ -140,7 +137,6 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     window.addEventListener('resize', place)
     return () => {
       mutation.disconnect()
-      resize?.disconnect()
       window.removeEventListener('scroll', place)
       window.removeEventListener('resize', place)
     }

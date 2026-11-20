@@ -91,8 +91,10 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
 
   const width = book.clientWidth
   const height = book.clientHeight
+  let resizeFrame: number | null = null
   const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
-    if (book.clientWidth !== width || book.clientHeight !== height) settle()
+    if (resizeFrame !== null || (book.clientWidth === width && book.clientHeight === height)) return
+    resizeFrame = requestAnimationFrame(settle)
   })
   observer?.observe(book)
 
@@ -142,6 +144,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
     },
     stop() {
       observer?.disconnect()
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame)
       sprite?.remove()
       actor.hidden = true
       delete marker.dataset.moriPaperGrip
