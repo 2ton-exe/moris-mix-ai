@@ -206,6 +206,19 @@ try {
   await expect(page.getByRole('link', { name: 'Back to journal' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Talk to Mori' })).toBeVisible()
 
+  extractionMode = 'shared-capacity'
+  const sharedCapacityPage = await context.newPage()
+  sharedCapacityPage.on('pageerror', (error) => errors.push(error.message))
+  await sharedCapacityPage.goto(`${origin}app/quick-entry`)
+  const sharedCapacityNotes = sharedCapacityPage.getByRole('textbox', { name: 'Cooking notes' })
+  await sharedCapacityNotes.fill('keep these notes until shared AI capacity returns')
+  await sharedCapacityPage.getByRole('button', { name: 'Organize my notes' }).click()
+  await expect(sharedCapacityPage.getByRole('alert')).toContainText(/shared AI capacity.*25 hours/)
+  await expect(sharedCapacityPage.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
+  await expect(sharedCapacityNotes).toHaveValue('keep these notes until shared AI capacity returns')
+  await expect(sharedCapacityNotes).toBeEditable()
+  await sharedCapacityPage.close()
+
   extractionMode = 'provider'
   const storageFailurePage = await context.newPage()
   storageFailurePage.on('pageerror', (error) => errors.push(error.message))
@@ -433,20 +446,6 @@ try {
   await expect(providerNotes).toHaveValue('keep these notes while the provider cools down')
   await expect(providerPage.getByText('private provider detail')).toHaveCount(0)
   await providerPage.close()
-
-  extractionMode = 'shared-capacity'
-  const sharedCapacityPage = await context.newPage()
-  sharedCapacityPage.on('pageerror', (error) => errors.push(error.message))
-  await sharedCapacityPage.goto(`${origin}app/quick-entry`)
-  const sharedCapacityNotes = sharedCapacityPage.getByRole('textbox', { name: 'Cooking notes' })
-  await sharedCapacityNotes.fill('keep these notes until shared AI capacity returns')
-  await sharedCapacityPage.getByRole('button', { name: 'Organize my notes' }).click()
-  await expect(sharedCapacityPage.getByRole('alert')).toContainText(/shared AI capacity.*25 hours/)
-  await expect(sharedCapacityPage.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
-  await expect(sharedCapacityNotes).toHaveValue('keep these notes until shared AI capacity returns')
-  await expect(sharedCapacityNotes).toBeEditable()
-  await sharedCapacityPage.close()
-
 
   extractionMode = 'invalid'
   await notes.fill('notes that receive a malformed result')
