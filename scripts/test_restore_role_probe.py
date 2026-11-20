@@ -184,6 +184,13 @@ class RestoreRoleProbeTests(unittest.TestCase):
                     "doc_grant=0 grantor_candidates=0 "
                     "owner_table=0 owner_function=0 owner_other=0")
 
+    def test_real_grantor_with_comment_marker_inside_quoted_identifier(self):
+        self.put(b'GRANT "role--part" TO "member" GRANTED BY "admin"; -- note\n')
+        self.assertEqual(
+            counts(self.roles, self.schema),
+            "doc_grant=0 grantor_candidates=1 "
+            "owner_table=0 owner_function=0 owner_other=0")
+
     def test_real_role_grantor_with_comment_still_counts(self):
         self.put(b'GRANT a TO b GRANTED BY c; -- note\n')
         self.assertEqual(
