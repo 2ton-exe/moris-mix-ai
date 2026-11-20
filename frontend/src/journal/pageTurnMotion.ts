@@ -1,3 +1,7 @@
+import type { Point } from './moriMovement'
+
+export const JOURNAL_SINGLE_LAYOUT_QUERY = '(max-width: 1099.98px), (max-height: 639.98px)'
+
 export type TurnDirection = 'forward' | 'backward'
 export type TurnStage = 'approach' | 'grab' | 'pull' | 'turn' | 'release' | 'settle'
 export const TURN_DURATION = 780
@@ -35,7 +39,14 @@ export function mittAnchor(angle: number) {
   return { x: 128 + 20 * Math.cos(radians) - 22 * Math.sin(radians), y: 168 + 20 * Math.sin(radians) + 22 * Math.cos(radians) }
 }
 
+export interface SpatialCompanion {
+  screenFoot: Point
+  setActorOpacity: (opacity: number) => void
+  stop: () => void
+}
+
 export interface TurnCompanion {
+  startSpatial: () => SpatialCompanion | null
   start: (direction: TurnDirection, single: boolean) => ((frame: ReturnType<typeof turnFrame>, corner: { x: number; y: number }) => void)
   stop: () => void
 }

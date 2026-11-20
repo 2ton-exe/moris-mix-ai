@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefObject } from 'react'
 import { flushSync } from 'react-dom'
+import { createMoriPaperScene, MoriPaperActor } from './MoriPaperActor'
 import { getTurnCompanion, projectCorner, TURN_DURATION, TURN_PERSPECTIVE, smooth, turnFrame } from './pageTurnMotion'
 
 export type JournalTurnDirection = 'forward' | 'backward'
@@ -275,6 +276,7 @@ export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
       <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
       <span data-page-corner="true" className="mm-turn-corner" />
     </div>}
+    {next && !singleLeaf && <MoriPaperActor direction={turn.direction} />}
   </div>
 }
 
@@ -400,14 +402,19 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const radius = motionLayout === 'single' || motionDirection === 'forward' ? paper.width - origin : -origin
     const geometry = { left: rect.left, top: rect.top, width: rect.width, height: rect.height, hinge: paper.left - rect.left + origin, pageTop: paper.top - rect.top, radius, single: motionLayout === 'single' }
     const companion = getTurnCompanion()
-    const move = companion?.start(motionDirection, motionLayout === 'single')
-    stopCompanion.current = companion ? () => companion.stop() : null
+    const spatial = companion && motionLayout === 'spread' ? createMoriPaperScene({
+      book, layer, leaf, direction: motionDirection, companion, settle: () => finish(motionId),
+    }) : null
+    const move = motionLayout === 'single' ? companion?.start(motionDirection, true) : undefined
+    stopCompanion.current = spatial?.stop ?? (move && companion ? () => companion.stop() : null)
+    const duration = spatial?.duration ?? TURN_DURATION
+    layer.dataset.duration = String(duration)
     const shades = [...leaf.querySelectorAll<HTMLElement>('.mm-turn-shade')]
     const front = leaf.querySelector<HTMLElement>('.mm-turn-face--front')!
     const back = leaf.querySelector<HTMLElement>('.mm-turn-face--back')!
     setTurn((current) => current?.id === motionId && current.phase === 'ready' ? { ...current, phase: 'animating' } : current)
     const apply = (progress: number) => {
-      const value = turnFrame(progress, motionDirection, motionLayout === 'single')
+      const value = spatial?.apply(progress) ?? turnFrame(progress, motionDirection, motionLayout === 'single')
       leaf.style.transform = `rotateY(${value.angle}deg)`
       shades.forEach((shade) => { shade.style.opacity = String(value.shade) })
       layer.style.setProperty('--mm-turn-shadow', String(value.shade))
@@ -418,6 +425,7 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
         back.style.visibility = value.travel < .5 ? 'hidden' : 'visible'
       }
       layer.dataset.progress = String(progress)
+      layer.dataset.travel = String(value.travel)
       layer.dataset.stage = value.stage
       move?.(value, projectCorner(geometry, value.angle))
     }
@@ -426,7 +434,7 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const tick = (now: number) => {
       if (pending.current?.id !== motionId || pending.current.committed) return
       started ??= now
-      const progress = Math.min(1, (now - started) / TURN_DURATION)
+      const progress = Math.min(1, (now - started) / duration)
       apply(progress)
       if (progress === 1) finish(motionId)
       else frame.current = requestAnimationFrame(tick)

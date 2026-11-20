@@ -7,6 +7,7 @@ import { DeskStationery } from './DeskStationery'
 import { JournalFacingPageContext, JournalPageFooterContext, JournalPaginationContext } from './JournalLayoutContext'
 import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, useJournalPageTurnManager } from './JournalPageTurn'
 import type { JournalTurnDirection } from './JournalPageTurn'
+import { JOURNAL_SINGLE_LAYOUT_QUERY } from './pageTurnMotion'
 import { useJournalMedia } from './useJournalMedia'
 
 const ringPositions = [0.12, 0.18, 0.24, 0.76, 0.82, 0.88]
@@ -65,7 +66,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
   const [singlePrevious, setSinglePrevious] = useState<HTMLDivElement | null>(null)
   const [rightPagination, setRightPagination] = useState<HTMLDivElement | null>(null)
   const [footer, setFooter] = useState<HTMLDivElement | null>(null)
-  const singleLayout = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
+  const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const pageTurn = useJournalPageTurnManager({ bookRef, pathname: location.pathname, search: location.search, singleLayout, reducedMotion })
   const requestPageTurn = pageTurn.contextValue.requestPageTurn

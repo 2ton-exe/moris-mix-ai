@@ -3,7 +3,9 @@ import { X } from 'lucide-react'
 import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
-import { mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
+import { MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from '../journal/moriPaperMotion'
+import { MORI_FOOT } from '../journal/moriSpriteAtlas'
+import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
 import { useMoriCompanionState } from './MoriCompanionContext'
@@ -50,9 +52,11 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
+  const [dock, setDock] = useState<Position | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
+  const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
@@ -66,7 +70,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const headingId = useId()
   const panelId = useId()
   const moveHintId = useId()
-  const size = mobile ? 72 : 96
+  const size = mobile ? 72 : MORI_DESKTOP_SIZE
   const width = size + 20
   const height = size * 1.2 + 64
   const left = viewport.left + 8
@@ -77,7 +81,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     x: Math.max(left, Math.min(position.x, right - width)),
     y: Math.max(top, Math.min(position.y, bottom - height)),
   }), [left, right, width, top, bottom, height])
-  const position = clamp(preferences.position ?? { x: mobile ? left + 12 : right - width - 12, y: bottom - height - 12 })
+  const position = clamp(preferences.position ?? dock ?? { x: mobile ? left + 12 : right - width - 12, y: bottom - height - 12 })
   const actual = mobile ? { ...position, x: position.x < viewport.left + viewport.width / 2 ? left : Math.max(left, right - width) } : position
   const page = companionPage(location.pathname)
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
@@ -94,6 +98,36 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     visual?.addEventListener('scroll', resize)
     return () => { window.removeEventListener('resize', resize); visual?.removeEventListener('resize', resize); visual?.removeEventListener('scroll', resize) }
   }, [])
+  useLayoutEffect(() => {
+    if (singleLayout) { setDock(null); return }
+    let paper: HTMLElement | null = null
+    const place = () => {
+      const rect = paper?.getBoundingClientRect()
+      const next = rect?.width ? moriRestFoot(rect) : null
+      const dockPosition = next ? { x: next.x - width / 2, y: next.y - MORI_FOOT.y * MORI_ART_SCALE } : null
+      setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
+    }
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
+    const findPaper = () => {
+      if (paper?.isConnected) return
+      paper = document.querySelector('.mm-desk--with-companion .mm-journal-spread > .mm-journal-page')
+      resize?.disconnect()
+      if (paper) resize?.observe(paper)
+      place()
+    }
+    const mutation = new MutationObserver(findPaper)
+    const root = character.current?.closest('.mori-pet-root')?.parentElement
+    if (root) mutation.observe(root, { childList: true, subtree: true })
+    findPaper()
+    window.addEventListener('scroll', place, { passive: true })
+    window.addEventListener('resize', place)
+    return () => {
+      mutation.disconnect()
+      resize?.disconnect()
+      window.removeEventListener('scroll', place)
+      window.removeEventListener('resize', place)
+    }
+  }, [location.pathname, singleLayout, width])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
   useEffect(() => { if (keepOpen) setOpen(true); else setOpen(false) }, [location.pathname, keepOpen])
   useEffect(() => {
@@ -114,6 +148,24 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     const openMitt = svg.querySelector<SVGElement>('[data-mori-open-mitt]')
     const neutralArm = arm?.getAttribute('transform')
     return registerTurnCompanion({
+      startSpatial() {
+        const button = trigger.current
+        if (!button || element.closest('[hidden]')) return null
+        const rect = button.getBoundingClientRect()
+        if (rect.width === 0) return null
+        element.dataset.moriSpatialTurn = ''
+        setPageTurn(true)
+        setOpen(false)
+        return {
+          screenFoot: { x: rect.left + rect.width / 2, y: rect.top + MORI_FOOT.y * MORI_ART_SCALE },
+          setActorOpacity(opacity) { element.style.opacity = String(1 - opacity) },
+          stop() {
+            delete element.dataset.moriSpatialTurn
+            element.style.removeProperty('opacity')
+            setPageTurn(false)
+          },
+        }
+      },
       start(direction, single) {
         element.dataset.turnDirection = direction
         svg.style.transform = 'none'

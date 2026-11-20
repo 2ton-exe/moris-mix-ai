@@ -14,6 +14,7 @@ const HAT = '#fbf8f1'
 interface MoriProps {
   /** Motion is opt-in and respects the system reduced-motion preference. */
   animated?: boolean
+  gripSide?: 'left' | 'right'
   mood?: MoriMood
   size?: number
   className?: string
@@ -58,7 +59,7 @@ const ARMS: Record<MoriMood, [number, number]> = {
  * Mori — the rat chef. A flat, bold-outlined cartoon (no gradients or ids)
  * so he can sit on photoreal paper and survive DOM snapshots during page turns.
  */
-export function Mori({ mood = 'happy', size = 120, className = '', style, label, animated = false }: MoriProps) {
+export function Mori({ mood = 'happy', size = 120, className = '', style, label, animated = false, gripSide = 'right' }: MoriProps) {
   const [leftArm, rightArm] = ARMS[mood]
   const closedHappy = mood === 'cheer'
   const sleeping = mood === 'sleep'
@@ -83,8 +84,8 @@ export function Mori({ mood = 'happy', size = 120, className = '', style, label,
           <path d="M126 200 C160 204 180 188 175 165 C171 148 155 147 152 160" stroke={PINK} strokeWidth="4.5" fill="none" strokeLinecap="round" />
         </g>
         {/* feet */}
-        <ellipse cx="84" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
-        <ellipse cx="116" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
+        <ellipse className="mori-foot-l" cx="84" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
+        <ellipse className="mori-foot-r" cx="116" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
         {/* body */}
         <path d="M68 168 C64 200 74 222 100 222 C126 222 136 200 132 168 C128 150 72 150 68 168Z" fill={FUR} stroke={O} strokeWidth="3.5" />
         {/* apron */}
@@ -113,19 +114,23 @@ export function Mori({ mood = 'happy', size = 120, className = '', style, label,
 
         <Arm side="l" angle={leftArm} />
         <Arm side="r" angle={rightArm} />
-        <g className="mori-grip-arm" data-mori-grip-arm="true">
-          <path d="M128 168 Q142 176 148 190" stroke={O} strokeWidth="11" strokeLinecap="round" fill="none" />
-          <path d="M128 168 Q142 176 148 190" stroke={FUR} strokeWidth="5.5" strokeLinecap="round" fill="none" />
-          <g data-mori-open-mitt="true">
-            <path d="M137 200 Q132 188 140 180 Q147 176 150 186 Q160 176 163 184 Q166 196 155 205 Q144 211 137 200Z" fill={MITT} stroke={O} strokeWidth="3.2" />
-            <path d="M149 187 L148 194" stroke={O} strokeWidth="2" strokeLinecap="round" />
+        <g transform={gripSide === 'left' ? 'translate(200 0) scale(-1 1)' : undefined}>
+          <g className="mori-grip-arm" data-mori-grip-arm="true">
+            <path data-mori-forearm d="M128 168 Q142 176 148 190" stroke={O} strokeWidth="11" strokeLinecap="round" fill="none" />
+            <path data-mori-forearm d="M128 168 Q142 176 148 190" stroke={FUR} strokeWidth="5.5" strokeLinecap="round" fill="none" />
+            <g data-mori-mitt>
+              <g data-mori-open-mitt="true">
+                <path d="M137 200 Q132 188 140 180 Q147 176 150 186 Q160 176 163 184 Q166 196 155 205 Q144 211 137 200Z" fill={MITT} stroke={O} strokeWidth="3.2" />
+                <path d="M149 187 L148 194" stroke={O} strokeWidth="2" strokeLinecap="round" />
+              </g>
+              <g data-mori-closed-mitt="true" opacity="0">
+                <path d="M137 199 Q134 187 143 183 Q153 180 159 187 L157 199 Q148 209 137 199Z" fill={MITT} stroke={O} strokeWidth="3.2" />
+                <path d="M157 187 Q143 184 143 191 Q144 197 154 194" fill="#edbe5c" stroke={O} strokeWidth="2.5" strokeLinecap="round" />
+              </g>
+              <path d="M139 200 Q147 204 154 199" stroke="#b07f25" strokeWidth="2.5" fill="none" />
+              <circle data-mori-hand="true" cx="148" cy="190" r=".1" fill="transparent" />
+            </g>
           </g>
-          <g data-mori-closed-mitt="true" opacity="0">
-            <path d="M137 199 Q134 187 143 183 Q153 180 159 187 L157 199 Q148 209 137 199Z" fill={MITT} stroke={O} strokeWidth="3.2" />
-            <path d="M157 187 Q143 184 143 191 Q144 197 154 194" fill="#edbe5c" stroke={O} strokeWidth="2.5" strokeLinecap="round" />
-          </g>
-          <path d="M139 200 Q147 204 154 199" stroke="#b07f25" strokeWidth="2.5" fill="none" />
-          <circle data-mori-hand="true" cx="148" cy="190" r=".1" fill="transparent" />
         </g>
 
         {/* ears */}
