@@ -119,13 +119,105 @@ async function reachable(page, locator) {
     `Companion control must remain reachable: ${JSON.stringify(box)}`)
 }
 
-async function verifyMoriPageTurn(page, character, direction) {
-  await expect(page.locator('[data-journal-page-turn]')).toBeVisible()
-  await expect(character).toHaveAttribute('data-turn-direction', direction)
-  const layer = page.locator('[data-journal-page-turn]')
+async function verifySpatialMoriTurn(layer, direction, screenshot) {
+  await expect(layer.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
+  const { width, samples } = await layer.evaluate((node) => {
+    const book = node.closest('.mm-journal-book')
+    const actor = node.querySelector('[data-mori-paper-actor]')
+    const foot = actor.querySelector('[data-mori-foot]')
+    const grip = actor.querySelector('[data-mori-hand]')
+    const corner = node.querySelector('[data-page-corner]')
+    const live = book.querySelector(':scope > .mm-journal-spread')
+    const left = live.querySelector(':scope > .mm-journal-flyleaf').getBoundingClientRect()
+    const right = live.querySelector(':scope > .mm-journal-page').getBoundingClientRect()
+    const ringElements = [...book.querySelectorAll('.mm-journal-ring')]
+    const rings = ringElements.map((ring) => ring.getBoundingClientRect())
+    const bindingAlignment = (flipped) => {
+      const ring = rings[0]
+      const surface = node.querySelector(flipped ? '.mm-turn-face--back' : '.mm-turn-face--front')
+      const hole = [...surface.querySelectorAll('.mm-journal-hole')].map((element) => element.getBoundingClientRect()).find((box) => box.width > 0)
+      const rightEndpoint = flipped ? node.dataset.direction === 'backward' : node.dataset.direction === 'forward'
+      return hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : Infinity
+    }
+    const contains = (rect, x, y) => x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1
+    const samples = Array.from({ length: 200 }, (_, index) => {
+      const progress = index / 200
+      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
+      const { x, y } = foot.getBoundingClientRect()
+      const { x: cornerX, y: cornerY } = corner.getBoundingClientRect()
+      const gripping = actor.hasAttribute('data-mori-gripping')
+      const ring = ringElements[0].getBoundingClientRect()
+      const point = gripping ? new globalThis.DOMPoint(grip.cx.baseVal.value, grip.cy.baseVal.value).matrixTransform(grip.getScreenCTM()) : null
+      return {
+        progress, motion: actor.dataset.moriMotion, facing: actor.dataset.moriFacing, x, y, cornerX, cornerY, gripping,
+        travel: Number(node.dataset.travel),
+        spineDrift: Math.max(Math.abs(ring.x - rings[0].x), Math.abs(ring.y - rings[0].y)),
+        bindingAlignment: index === 0 || index === 199 ? bindingAlignment(index === 199) : null,
+        separation: point && Math.hypot(point.x - cornerX, point.y - cornerY),
+        paper: contains(left, x, y) ? 'left' : contains(right, x, y) ? 'right' : null,
+        inGutter: x >= left.right && x <= right.left && y >= left.top && y <= left.bottom,
+        onRing: rings.some((ring) => contains(ring, x, y)),
+      }
+    })
+    return { width: globalThis.innerWidth, samples }
+  })
+
+  const label = `${width}px ${direction}`
+  const motion = [...new Set(samples.map((sample) => sample.motion))]
+  assert.deepEqual(motion.slice(0, 6), ['approach', 'align', 'grab', 'turn', 'release', 'recover'], `${label}: takes one approach-to-recovery sequence`)
+  const initial = samples[0]
+  const alignment = samples.find((sample) => sample.motion === 'align')
+  const recovery = samples.findLast((sample) => sample.motion === 'recover')
+  assert.equal(alignment.paper, direction === 'forward' ? 'right' : 'left', `${label}: approaches the outgoing leaf`)
+  assert.ok(Math.hypot(alignment.x - initial.x, alignment.y - initial.y) > 12, `${label}: feet move to reach the paper`)
+  assert.ok(recovery.paper, `${label}: returns to a paper surface`)
+
+  const directions = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
+  let movingGrip = 0
+  for (const [index, sample] of samples.entries()) {
+    assert.ok((sample.paper || sample.inGutter) && !sample.onRing, `${label}: foot leaves the book or crosses a ring ${JSON.stringify(sample)}`)
+    if (['approach', 'align', 'grab'].includes(sample.motion)) {
+      assert.equal(sample.travel, 0, `${label}: paper waits for contact`)
+      assert.ok(Math.hypot(sample.cornerX - initial.cornerX, sample.cornerY - initial.cornerY) <= .5, `${label}: outgoing paper remains stationary`)
+    }
+    measurements.maxSpineDriftPx = Math.max(measurements.maxSpineDriftPx, sample.spineDrift)
+    assert.ok(sample.spineDrift <= 1, `${label}: spine stays fixed`)
+    if (sample.bindingAlignment !== null) {
+      measurements.maxBindingPx = Math.max(measurements.maxBindingPx, sample.bindingAlignment)
+      assert.ok(sample.bindingAlignment <= 1, `${label}: page holes align with the loop endpoints`)
+    }
+    if (sample.gripping) {
+      assert.ok(Math.hypot(sample.x - alignment.x, sample.y - alignment.y) <= 1, `${label}: mitt tracks the paper with feet planted`)
+      measurements.contactSamples++
+      measurements.maxContactPx = Math.max(measurements.maxContactPx, sample.separation)
+      assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
+      if (sample.travel > 0) movingGrip++
+    }
+    if (sample.motion === 'recover') assert.equal(sample.gripping, false, `${label}: releases the paper before walking`)
+
+    const previous = samples[index - 1]
+    if (!previous || !['approach', 'recover'].includes(sample.motion) || previous.motion !== sample.motion || previous.facing !== sample.facing) continue
+    const dx = sample.x - previous.x
+    const dy = sample.y - previous.y
+    if (Math.hypot(dx, dy) < 1) continue
+    const sector = Math.atan2(dy, dx) / (Math.PI / 4)
+    if (Math.abs(sector - Math.round(sector)) > .48) continue
+    assert.equal(sample.facing, directions[(Math.round(sector) + 8) % 8], `${label}: faces in the direction of travel`)
+  }
+  assert.ok(movingGrip > 1, `${label}: Mori keeps contact as the paper begins to move`)
+
+  for (const stage of motion.slice(0, 6)) {
+    const frames = samples.filter((sample) => sample.motion === stage)
+    const sample = frames[Math.floor(frames.length / 2)]
+    await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), sample.progress)
+    await screenshot(stage)
+  }
+  await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), samples.at(-1).progress)
+}
+
+async function verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot }) {
   const spine = await page.locator('.mm-journal-ring').first().boundingBox()
-  const width = page.viewportSize().width
-  const journey = new URL(page.url()).pathname.split('/').at(-1)
+  await expect(character).toHaveAttribute('data-turn-direction', direction)
   const points = [...new Set([.1, .22, .32, .54, .68, .85, .95, ...Array.from({ length: 29 }, (_, i) => Number((.26 + i * .02).toFixed(2)))])].sort((a, b) => a - b)
   for (const progress of points) {
     const contact = await layer.evaluate((node, progress) => {
@@ -147,8 +239,22 @@ async function verifyMoriPageTurn(page, character, direction) {
     if ([.1, .95].includes(progress)) assert.ok(contact.alignment !== null && contact.alignment <= 1, `Hole and loop endpoint must align: ${JSON.stringify(contact)}`)
     if (progress >= .26 && progress <= .82 && contact.corner.x >= 0 && contact.corner.x <= width && contact.corner.y >= 0) assert.ok(contact.hand.x >= -2 && contact.hand.x <= width + 2 && contact.hand.y >= -2, 'Attached mitt stays within the viewport when the page corner is visible')
     assert.ok(Math.abs(contact.ring.x - spine.x) <= 1 && Math.abs(contact.ring.y - spine.y) <= 1, 'Spine stays fixed')
-    if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${progress}.png`) })
+    if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await screenshot(progress)
   }
+}
+
+async function verifyMoriPageTurn(page, character, direction) {
+  const layer = page.locator('[data-journal-page-turn]')
+  await expect(layer).toHaveAttribute('data-phase', 'animating')
+  await expect(layer).toHaveAttribute('data-direction', direction)
+  const before = page.url()
+  const spatial = await layer.getAttribute('data-layout') === 'spread'
+  const width = page.viewportSize().width
+  const journey = new URL(page.url()).pathname.split('/').at(-1)
+  const screenshot = (stage) => page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${stage}.png`) })
+  if (spatial) await verifySpatialMoriTurn(layer, direction, screenshot)
+  else await verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot })
+  await expect(page).toHaveURL(before)
   const destinationPositions = await layer.evaluate((node) => {
     const selectors = node.dataset.layout === 'single' ? ['.mm-turn-face--back'] : node.dataset.direction === 'forward' ? ['.mm-turn-face--back', '.mm-turn-under--right'] : ['.mm-turn-face--back', '.mm-turn-under--left']
     return selectors.flatMap((selector) => [...node.querySelector(selector).querySelectorAll('[data-recipe-id], [data-unit], .mm-pagination-number, .mm-pagination-left-number')]).flatMap((element) => {
@@ -665,7 +771,7 @@ try {
     await page.getByRole('button', { name: 'Previous Page', exact: true }).click()
     await verifyMoriPageTurn(page, character, 'backward')
     await expect(page.getByRole('region', { name: width >= 1100 ? 'Left recipe page' : 'Recipe ingredients, instructions and notes', exact: true })).toBeFocused()
-    // Exercise uninterrupted 900 ms playback, including a slower browser rendering cycle.
+    // Exercise uninterrupted playback, including a slower browser rendering cycle.
     await page.evaluate(() => { globalThis.__moriSampleTurns = false })
     let cdp
     if ((process.env.MORI_BROWSER ?? 'chromium') === 'chromium') {
@@ -679,7 +785,7 @@ try {
     await cdp?.send('Emulation.setCPUThrottlingRate', { rate: 1 })
     // Interrupt an accepted turn by resizing, then by changing motion preference.
     await page.getByRole('button', { name: 'Next Page', exact: true }).click()
-    await expect(character).toHaveAttribute('data-turn-direction', 'forward')
+    await expect(page.locator('[data-journal-page-turn]')).toHaveAttribute('data-phase', 'animating')
     await page.setViewportSize({ width: 720, height: 450 })
     await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
     await settleReadingPages(page)
@@ -689,6 +795,26 @@ try {
     await page.getByRole('button', { name: 'Previous Page', exact: true }).click()
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
+    if (width === 1440) {
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await page.setViewportSize({ width: 1180, height: 780 })
+      await settleReadingPages(page)
+      await page.evaluate(() => { globalThis.__moriSampleTurns = true })
+      const layer = page.locator('[data-journal-page-turn]')
+      const actor = layer.locator('[data-mori-paper-actor] > :is(svg, img):visible')
+      await page.getByRole('button', { name: 'Next Page', exact: true }).click()
+      await expect(actor).toBeVisible()
+      const turnId = await layer.getAttribute('data-turn-id')
+      await page.locator('.mm-journal-spread .mm-button--page-turn').evaluateAll((buttons) => buttons.forEach((button) => button.click()))
+      await expect(layer).toHaveAttribute('data-turn-id', turnId)
+      await verifyMoriPageTurn(page, character, 'forward')
+      await page.getByRole('button', { name: 'Previous Page', exact: true }).click()
+      await expect(actor).toBeVisible()
+      await page.locator('.mm-desk-brand').click()
+      await expect(page).toHaveURL(`${origin}app/recipes`)
+      await expect(layer).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Talk to Mori', exact: true })).toBeEnabled()
+    }
     assert.deepEqual(app.errors, [])
     await app.context.close()
     process.stdout.write(`${width}px: delayed collection, both reading directions, ${cdp ? '4× CPU throttling, ' : ''}resize and motion interruption passed.\n`)

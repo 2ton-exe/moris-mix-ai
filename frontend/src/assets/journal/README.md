@@ -21,3 +21,25 @@ and are copied into production output by Vite.
 Mori's vector art remains React SVG in `src/journal/Mori.tsx`. Procedural grain,
 mottle, specks, fibers, and endpaper textures are in `src/journal/textures.css`.
 No preview PNG is used as an application asset.
+
+## Mori’s directional atlas
+
+The official 200 × 240 SVG includes front-facing idle, expressions, and an
+open and closed page-grab mitt. The local keyframe reference board shows
+front-facing blink, ear, tail, wave, hop, stir, sleep, and sweat poses. The
+asymmetric tail and apron details require separately drawn left and right views.
+
+N, NE, E, SE, S, SW, W, and NW still need approved idle artwork and 4–8 walking
+frames each. The controller already calculates all eight directions. Until
+those frames are available, the desktop turn uses the official front-facing
+SVG, so its travel can still look like sliding. The turn uses the existing
+articulated mitt. An authored side-facing reach, grip, and release would
+improve the pose once approved art is available.
+
+To add artwork, keep each transparent frame on the shared 200 × 240 canvas and
+record its planted foot `{ x, y }` in source-art units. The official SVG rests
+at `(100, 230.6)`. Import the files as asset URLs in
+`src/journal/moriSpriteAtlas.ts` and add the matching compass key to the atlas
+passed to `createMoriSpriteLookup`. Supply an `idle` frame, an ordered `walk`
+array, and a positive `stride` for distance covered per cycle in source-art
+units. Sample all frames at their foot anchors before shipping a direction.

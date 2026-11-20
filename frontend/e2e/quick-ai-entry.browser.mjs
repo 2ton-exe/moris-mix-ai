@@ -361,11 +361,9 @@ try {
 
   await page.getByRole('button', { name: 'Next: Instructions' }).click()
   const turningSheet = page.locator('[data-journal-page-turn]')
-  const companion = page.getByRole('group', { name: 'Mori companion' })
   await expect(turningSheet).toHaveAttribute('data-direction', 'forward')
-  await expect(companion).toHaveAttribute('data-turn-direction', 'forward')
+  await expect(turningSheet.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
   await expect(turningSheet).toHaveCount(0)
-  await expect(companion).not.toHaveAttribute('data-turn-direction', 'forward')
   await expect(page.locator('textarea[name="instructions.0.text"]:not([disabled])')).toHaveValue('Boil the chicken with garlic.')
   await page.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }).click()
   await expect(page.locator('[data-journal-turn-snapshot]')).toHaveCount(0)
