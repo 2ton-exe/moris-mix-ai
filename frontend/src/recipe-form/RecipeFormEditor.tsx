@@ -186,7 +186,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       const named = formRef.current?.elements.namedItem(request.slice('name:'.length))
       target = named instanceof HTMLElement ? named : formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
-    target?.focus({ preventScroll: true })
+    target?.focus()
   }, [state, errors, pending, isTurning, pageAnchor, single, compact, desktop, editingIngredientKey, leaves])
 
   useLayoutEffect(() => {
