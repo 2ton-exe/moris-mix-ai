@@ -273,7 +273,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     top: actual.y,
     width,
   } as CSSProperties
-  return <div className="mori-pet-root">
+  return <>
+  <div className="mori-pet-root">
     <button ref={showButton} className="mori-pet-show" type="button" hidden={!preferences.hidden || suspended} inert={suspended} onClick={show}>Show Mori</button>
     <div hidden={preferences.hidden || suspended} inert={preferences.hidden || suspended}>
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
@@ -331,8 +332,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         </section>
       </div>
     </div>
-    <div ref={navigationTap} className="mori-navigation-tap" hidden aria-hidden="true" style={navigationTapStyle}>
-      <Mori mood="wave" size={navigationTapSize} />
-    </div>
   </div>
+  <div ref={navigationTap} className="mori-navigation-tap" hidden aria-hidden="true" style={navigationTapStyle}>
+    <Mori mood="wave" size={navigationTapSize} />
+  </div>
+  </>
 }

@@ -414,6 +414,15 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
     const text = composer.trim()
     if (!text) return
 
+    const title = requestedRecipeTitle(text)
+    if (title) {
+      setComposer('')
+      setRetryRequest(null)
+      say('user', text)
+      await findRecipe(title)
+      return
+    }
+
     const review = requestedReview(text)
     if (review) {
       setComposer('')
