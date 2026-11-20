@@ -25,6 +25,11 @@ import {
   MAX_AI_OUTPUT_JSON_BYTES,
 } from "./schemas.ts";
 
+import {
+  createGeminiAdmission,
+  type GeminiAdmission,
+} from "./geminiCapacity.ts";
+
 const MAX_AI_OUTPUT_TOKENS = 8192;
 
 /**
@@ -125,6 +130,8 @@ export type AIErrorCode =
   | "provider_timeout"
   | "provider_unavailable"
   | "rate_limited"
+  | "capacity_exceeded"
+  | "capacity_unavailable"
   | "context_too_large"
   | "output_truncated";
 
@@ -177,7 +184,8 @@ export class AIError extends Error {
     this.detail = detail;
     this.retryAfterSeconds = retryAfterSeconds;
     this.nonConsuming = nonConsuming ??
-      (code === "rate_limited" || code === "provider_rejected");
+      (code === "rate_limited" || code === "provider_rejected" ||
+        code === "capacity_exceeded" || code === "capacity_unavailable");
     this.attempts = attempts ?? [{ code, nonConsuming: this.nonConsuming }];
   }
 }
@@ -206,6 +214,7 @@ export type GeminiAdapterConfig = {
   modelName?: string;
   timeoutMs?: number;
   generateText?: GenerateText;
+  admitAttempt?: GeminiAdmission;
   /**
    * Test seam: replaces the SDK client so tests can exercise the real
    * `callModel` (`generateContent` then `response.text()`) path without a key.
@@ -234,6 +243,7 @@ export class GeminiAdapter implements AIProvider {
   private readonly modelName: string;
   private readonly timeoutMs: number;
   private readonly generateText: GenerateText;
+  private readonly admitAttempt?: GeminiAdmission;
   private readonly log: (entry: AIOperationLog) => void;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly client?: GoogleGenerativeAI;
@@ -251,6 +261,9 @@ export class GeminiAdapter implements AIProvider {
     this.log = config.log ?? ((entry) => console.log(JSON.stringify(entry)));
     this.sleep = config.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+
+    this.admitAttempt = config.admitAttempt ??
+      createGeminiAdmission(this.modelName);
 
     if (config.generateText) {
       this.generateText = config.generateText;
@@ -324,6 +337,23 @@ export class GeminiAdapter implements AIProvider {
       const startedAt = Date.now();
 
       try {
+        const admission = await this.admitAttempt?.();
+        if (admission?.status === "exceeded") {
+          throw new AIError(
+            "capacity_exceeded",
+            operation,
+            "Shared AI capacity has been reached.",
+            undefined,
+            admission.retryAfterSeconds,
+          );
+        }
+        if (admission?.status === "unavailable") {
+          throw new AIError(
+            "capacity_unavailable",
+            operation,
+            "AI quota checking is temporarily unavailable.",
+          );
+        }
         const raw = await this.generateText(prompt, operation);
         const result = parse(raw);
 
