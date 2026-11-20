@@ -80,7 +80,7 @@
 .mori-pet-character[data-turn-direction] { transform-origin: 0 0; }
 .mori-pet-character { pointer-events: none; }
 .mori-pet-trigger { pointer-events: auto; }
-.mori-pet-character[data-turn-direction] .mori-pet-trigger { pointer-events: none; }
+.mori-pet-character:is([data-turn-direction], [data-mori-spatial-turn]) .mori-pet-trigger { pointer-events: none; }
 
 
 @media (min-width: 769px) {
