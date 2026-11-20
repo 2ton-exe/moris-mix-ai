@@ -146,3 +146,15 @@
   .mori-chat-shortcuts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mori-chat-shortcuts button { flex-direction: column; gap: 4px; padding: 6px 2px; font-size: 11px; }
 }
+
+.mori-navigation-tap { position: fixed; z-index: 47; pointer-events: none; }
+.mori-navigation-tap[data-side='right'] svg { transform: scaleX(-1); }
+.mori-navigation-tap .mori-arm-r { visibility: hidden; }
+.mori-navigation-tap .mori-grip-arm { display: inline; transform-origin: 128px 168px; transform: rotate(var(--mori-navigation-arm)); }
+.mori-pet-root:has(.mori-navigation-tap:not([hidden])) .mori-pet-character { opacity: 0; }
+.mori-pet-panel [data-mori-tap-target] {
+  background: var(--mm-color-sage-100);
+  box-shadow: inset 0 0 0 1px var(--mm-color-sage-700);
+  color: var(--mm-color-ink);
+  opacity: 1;
+}

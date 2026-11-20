@@ -180,6 +180,84 @@ try {
   const engine = process.env.MORI_BROWSER ?? 'chromium'
   browser = await ({ chromium, firefox, webkit })[engine].launch({ ...(engine === 'chromium' ? { channel: 'chrome' } : {}), headless: true })
 
+  for (const width of [1440, 375]) {
+    const { context, page, errors } = await createJournal(width)
+    await page.goto(`${origin}app/recipes?view=index`)
+    await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
+    await page.getByRole('button', { name: 'Talk to Mori' }).click()
+    const chat = page.getByRole('region', { name: 'Mori', exact: true })
+    await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
+    const editor = chat.getByRole('button', { name: 'Open recipe editor' })
+    const tap = page.locator('.mori-navigation-tap')
+
+    // Freeze the brief gesture at contact while checking the route and its actual geometry.
+    const pinTap = () => tap.evaluate((element) => {
+      const observer = new globalThis.MutationObserver(() => {
+        const animation = element.getAnimations()[0]
+        if (!animation) return
+        observer.disconnect()
+        animation.pause()
+        animation.currentTime = Number(animation.effect.getTiming().duration) * .55
+      })
+      observer.observe(element, { attributes: true, attributeFilter: ['hidden'] })
+    })
+    await pinTap()
+    await editor.focus()
+    await page.keyboard.press('Enter')
+    await expect(tap).toHaveCSS('opacity', '1')
+    await expect(editor).toHaveAttribute('data-mori-tap-target', '')
+    await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+    await expect(chat.getByRole('log')).toContainText('Opening a new recipe.')
+    const [tapBounds, editorBounds] = await Promise.all([tap.boundingBox(), editor.boundingBox()])
+    assert.ok(tapBounds && editorBounds)
+    const gap = Math.min(Math.abs(tapBounds.x + tapBounds.width - editorBounds.x), Math.abs(editorBounds.x + editorBounds.width - tapBounds.x))
+    assert.ok(gap <= 12, `Mori must tap beside the activated control (gap ${gap}px)`)
+    await page.screenshot({ path: path.join(outputDir, `${width}-mori-navigation-tap.png`) })
+    await tap.evaluate((element) => element.getAnimations()[0].play())
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(chat).toBeVisible()
+    const title = page.getByRole('textbox', { name: 'Recipe title' })
+    await title.fill('Unsaved soup')
+
+    const collection = chat.getByRole('button', { name: 'Open recipes' })
+    await collection.click()
+    const dialog = page.getByRole('alertdialog', { name: 'Leave without saving?' })
+    await expect(dialog).toBeVisible()
+    await expect(tap).toBeHidden()
+    await expect(page).toHaveURL(`${origin}app/recipes/new`)
+    await dialog.getByRole('button', { name: 'Keep Editing' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(collection).toBeFocused()
+    await expect(title).toHaveValue('Unsaved soup')
+
+    await collection.click()
+    await dialog.getByRole('button', { name: 'Discard Changes' }).click()
+    await expect(tap).toBeVisible()
+    await expect(page).toHaveURL(`${origin}app/recipes`)
+    await expect(chat).toBeVisible()
+
+    const composer = chat.getByRole('textbox', { name: 'Message Mori' })
+    const send = chat.getByRole('button', { name: 'Send' })
+    await pinTap()
+    await composer.fill('Open Cooking Notes')
+    await send.click()
+    await expect(tap).toHaveCSS('opacity', '1')
+    await expect(chat.getByText('Opening the cooking notes field.').locator('..')).toHaveAttribute('data-mori-tap-target', '')
+    await expect(page).toHaveURL(`${origin}app/recipes`)
+    await tap.evaluate((element) => element.getAnimations()[0].play())
+    await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await pinTap()
+    await composer.fill('Open Pantry')
+    await send.click()
+    await expect(page.getByRole('textbox', { name: 'Pantry ingredient' })).toBeFocused()
+    await expect(tap).toBeHidden()
+    assert.deepEqual(errors, [])
+    await context.close()
+    process.stdout.write(`${width}px: Mori navigation gesture and unsaved-changes journey passed. Captures in ${outputDir}\n`)
+  }
+
   for (const width of (process.env.MORI_EXTENDED_ONLY ? [] : [1440, 768, 375, 320])) {
     const { context, page, errors, apiRequests } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)

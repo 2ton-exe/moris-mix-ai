@@ -6,7 +6,10 @@ type MoriNavigation = { path: string; message: string; focus?: 'notes' | 'pantry
 
 export function requestedNavigation(text: string): MoriNavigation | null {
   const value = text.toLowerCase()
-  if (/\b(?:show|open|go to|take me to)\b.*\b(?:my recipes|recipe collection|journal)\b/.test(value)) {
+  if (/\b(?:open|show|go to|take me to)\b.*\b(?:recipe editor|new recipe)\b/.test(value)) {
+    return { path: '/app/recipes/new', message: 'Opening a new recipe.' }
+  }
+  if (/^(?:please\s+)?open recipes[.!]?$/.test(value) || /\b(?:show|open|go to|take me to)\b.*\b(?:my recipes|recipe collection|journal)\b/.test(value)) {
     return { path: '/app/recipes', message: 'Opening your recipe collection.' }
   }
   if (/\b(?:where|how(?: do i)?|help|open|show|go to|take me to|point me to|point to)\b.*\b(?:pantry|ingredient field|ingredients field|(?:add|enter|type|put) ingredients?)\b/.test(value)) {
@@ -22,6 +25,13 @@ export function requestedRecipeTitle(text: string) {
   const query = text.match(/^(?:find|look up|search for) my[ \t]+([^\r\n]+)$/i)?.[1]?.trim()
   const title = query?.match(/^"(.+)"[?]?$/)?.[1] ?? query?.replace(/\?$/, '')
   return title?.trim() || null
+}
+
+export function requestedReview(text: string): MoriWorkflow | 'any' | null {
+  if (!/^(?:please\s+)?(?:review|(?:open|show)\b.*\breview)\b/i.test(text)) return null
+  if (/\b(?:AI Chef|pantry (?:idea|recipe|draft))\b/i.test(text)) return 'suggest'
+  if (/\b(?:Quick AI Entry|Cooking Notes)\b/i.test(text)) return 'create'
+  return /\b(?:draft|recipe|it|idea)\b/i.test(text) ? 'any' : null
 }
 
 export function requestedWorkflow(text: string, pendingCreateFollowUp = false): MoriWorkflow | null {
