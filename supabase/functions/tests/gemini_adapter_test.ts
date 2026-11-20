@@ -20,6 +20,7 @@ import {
   parseGenerationResponse,
 } from "../_shared/ai/GeminiAdapter.ts";
 import type { GenerateRecipeContext } from "../_shared/ai/AIProvider.ts";
+import { mapAiError } from "../_shared/ai/http.ts";
 import { MOCK_EXTRACTED_RECIPE } from "../_shared/ai/mocks.ts";
 import { buildExtractionPrompt } from "../_shared/ai/prompts.ts";
 import {
@@ -1347,4 +1348,114 @@ Deno.test("HTTP 429 rate limit exhaustion classifies as rate_limited with nonCon
   assertEquals(error.nonConsuming, true);
   assertEquals(error.attempts.length, 2);
   assertEquals(error.attempts.every((a) => a.nonConsuming), true);
+});
+
+Deno.test("Shared Gemini admission preserves the refund decision on a denied retry", async () => {
+  for (const firstAttemptStatus of [undefined, 429, 503]) {
+    let admissions = 0;
+    let calls = 0;
+    const adapter = new GeminiAdapter({
+      admitAttempt: () =>
+        Promise.resolve(
+          ++admissions === 1 && firstAttemptStatus !== undefined
+            ? { status: "allowed" }
+            : { status: "exceeded", retryAfterSeconds: 90_000 },
+        ),
+      generateText: () => {
+        calls++;
+        throw Object.assign(new Error("Provider failure"), {
+          status: firstAttemptStatus,
+        });
+      },
+      sleep: () => Promise.resolve(),
+      log: () => {},
+    });
+
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
+
+    assertEquals(calls, firstAttemptStatus === undefined ? 0 : 1);
+    assertEquals(admissions, calls + 1);
+    assertEquals(error.code, "capacity_exceeded");
+    assertEquals(error.nonConsuming, firstAttemptStatus !== 503);
+    const response = mapAiError(error, "POST, OPTIONS");
+    assertEquals(response.status, 429);
+    assertEquals(response.headers.get("Retry-After"), "90000");
+    assertEquals((await response.json()).error.code, "AI_CAPACITY_EXCEEDED");
+  }
+});
+
+Deno.test("Shared Gemini admission store failure stops before calling Gemini", async () => {
+  const adapter = new GeminiAdapter({
+    admitAttempt: () => Promise.resolve({ status: "unavailable" }),
+    generateText: () => {
+      throw new Error("Unexpected provider call");
+    },
+    log: () => {},
+  });
+
+  const error = await assertRejects(
+    () => adapter.extractRecipe({ rawText: NOTES }),
+    AIError,
+  );
+  assertEquals(error.attempts.length, 1);
+  assertEquals(error.nonConsuming, true);
+  const response = mapAiError(error, "POST, OPTIONS");
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).error.code, "QUOTA_UNAVAILABLE");
+});
+
+Deno.test("A stalled shared Gemini admission aborts before calling Gemini", async () => {
+  const settings = {
+    AI_GEMINI_QUOTA_RPM: "5",
+    AI_GEMINI_QUOTA_RPD: "",
+    AI_GEMINI_QUOTA_PROJECT: "test",
+    SUPABASE_URL: "https://quota.example",
+    SUPABASE_SERVICE_ROLE_KEY: "test",
+  };
+  const originalSettings = Object.keys(settings).map((key) =>
+    [key, Deno.env.get(key)] as const
+  );
+  const originalFetch = globalThis.fetch;
+  let admissionSignal: AbortSignal | null | undefined;
+  globalThis.fetch = (_input, init) => {
+    const signal = init?.signal;
+    admissionSignal = signal;
+    assert(signal, "Admission fetch must have a deadline");
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), {
+        once: true,
+      });
+    });
+  };
+  try {
+    for (const [key, value] of Object.entries(settings)) {
+      Deno.env.set(key, value);
+    }
+    const adapter = new GeminiAdapter({
+      apiKey: "test",
+      generateText: () => {
+        throw new Error("Unexpected provider call");
+      },
+      log: () => {},
+    });
+
+    const error = await assertRejects(
+      () => adapter.extractRecipe({ rawText: NOTES }),
+      AIError,
+    );
+    assertEquals(admissionSignal?.reason?.name, "TimeoutError");
+    assertEquals(error.nonConsuming, true);
+    const response = mapAiError(error, "POST, OPTIONS");
+    assertEquals(response.status, 503);
+    assertEquals((await response.json()).error.code, "QUOTA_UNAVAILABLE");
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of originalSettings) {
+      if (value === undefined) Deno.env.delete(key);
+      else Deno.env.set(key, value);
+    }
+  }
 });

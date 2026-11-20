@@ -279,6 +279,52 @@ function runDiscoveryAndIntegrityUnitTests() {
   }
 }
 
+async function runGeminiAdmissionDatabaseTests(client, connectionString, ssl) {
+  const workers = new pg.Pool({ connectionString, ssl, max: 6, options: "-c request.jwt.claim.role=service_role" });
+  const project = 'test-gemini-admission';
+  const sql = 'SELECT public.admit_ai_gemini_attempt($1, $2, $3, $4) AS result';
+  const admit = async (model, rpm, rpd) => {
+    const { rows } = await workers.query(sql, [project, model, rpm, rpd]);
+    return rows[0].result;
+  };
+
+  try {
+    const minute = await Promise.all(Array.from({ length: 6 }, () => admit('minute', 2, 5)));
+    assert.equal(minute.filter(({ status }) => status === 'allowed').length, 2);
+    for (const result of minute.filter(({ status }) => status !== 'allowed')) {
+      assert.equal(result.status, 'exceeded');
+      assert.ok(result.retry_after_seconds >= 1 && result.retry_after_seconds <= 60);
+    }
+
+    await client.query(
+      "UPDATE public.ai_gemini_minute_attempts SET attempted_at = clock_timestamp() - interval '61 seconds' WHERE project = $1 AND model = 'minute'",
+      [project]
+    );
+    assert.equal((await admit('minute', 2, 5)).status, 'allowed');
+
+    const day = await Promise.all(Array.from({ length: 6 }, () => admit('day', 6, 2)));
+    assert.equal(day.filter(({ status }) => status === 'allowed').length, 2);
+    for (const result of day.filter(({ status }) => status !== 'allowed')) {
+      assert.equal(result.status, 'exceeded');
+      assert.ok(result.retry_after_seconds >= 1 && result.retry_after_seconds <= 90000);
+    }
+
+    await client.query('BEGIN');
+    try {
+      await client.query('SET LOCAL ROLE authenticated');
+      await assert.rejects(
+        () => client.query(sql, [project, 'unauthorized', 2, 2]),
+        (error) => error.code === '42501'
+      );
+    } finally {
+      await client.query('ROLLBACK');
+    }
+  } finally {
+    await workers.end();
+  }
+  console.log('PASS: Concurrent Gemini dispatch limits, rolling expiry, and RPC permissions verified.');
+}
+
 async function runQuotaAuthorizationDatabaseTests(client) {
   const reservationId = crypto.randomUUID();
   const operations = [
@@ -1603,6 +1649,7 @@ async function runDatabaseLifecycleIntegrationTests() {
       return;
     }
     await runQuotaAuthorizationDatabaseTests(testClient);
+    await runGeminiAdmissionDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeImageLifecycleDatabaseTests(testClient, testDbUrl, sslConfig);
     await runRecipeSearchMigrationDatabaseTests(testClient);
     assert.deepEqual(freshResult.appliedVersions.sort(), [...expectedMigrationVersions].sort());

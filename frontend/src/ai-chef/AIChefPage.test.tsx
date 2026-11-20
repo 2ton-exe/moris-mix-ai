@@ -283,6 +283,22 @@ describe('AI Chef pantry and review workflow', () => {
     expect(generate.mock.calls[1]?.[1]).toBe('spicy')
   })
 
+  it('shows a shared-capacity cooldown and keeps the pantry available', async () => {
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockRejectedValue(
+      new HttpError('http', 'private rate detail', 429, { error: { code: 'AI_CAPACITY_EXCEEDED' } }, '90000'),
+    )
+    renderChef()
+    addIngredient('rice')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('shared AI capacity')
+    expect(alert.textContent).toContain('25 hours')
+    expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('rice')
+    expect(generate).toHaveBeenCalledOnce()
+  })
+
   it('prevents duplicate in-flight generation requests', async () => {
     let resolveGeneration!: (value: GenerateRecipeResponse) => void
     const generate = vi.spyOn(generateRecipeApi, 'generate').mockReturnValue(new Promise((resolve) => { resolveGeneration = resolve }))

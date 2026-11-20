@@ -319,6 +319,27 @@ describe('Quick AI Entry', () => {
     expect(onExtracted).toHaveBeenCalledWith({ sourceNotes, recipe, saved: false })
   })
 
+  it('keeps an existing preview available when a replacement extraction is rate-limited', async () => {
+    const extract = vi.fn<Extract>()
+      .mockResolvedValueOnce(recipe)
+      .mockRejectedValueOnce(new HttpError('http', 'private rate detail', 429, {
+        error: { code: 'AI_CAPACITY_EXCEEDED' },
+      }, '45'))
+    renderEntry({ extract })
+    enterNotes('chicken and garlic')
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+    expect(await screen.findByRole('link', { name: 'Review recipe draft' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Cooking notes' })))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('shared AI capacity')
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await finishPageTurn(() => Boolean(screen.queryByRole('link', { name: 'Review recipe draft' })))
+    expect(screen.getByRole('link', { name: 'Review recipe draft' }).getAttribute('href')).toBe('/app/quick-entry/review')
+    expect(extract).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps a failed-write extraction available for review from the in-memory fallback', async () => {
     const setItem = Storage.prototype.setItem
     let failWrites = true
@@ -564,6 +585,24 @@ describe('Quick AI Entry', () => {
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
     expect(readQuickAiEntryDraft('cook-a').blockedReason).toBe('provider-rate-limit')
     expect(readQuickAiEntryDraft('cook-a').blockedUntil).toBeGreaterThan(Date.now())
+    expect(extract).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['AI_REQUEST_RATE_LIMITED', 'too many AI requests', '45'],
+    ['AI_CAPACITY_EXCEEDED', 'shared AI capacity', '90000'],
+  ])('honors %s and keeps notes editable', async (code, feedback, retryAfter) => {
+    const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('http', 'private rate detail', 429, {
+      error: { code },
+    }, retryAfter))
+    renderEntry({ extract })
+    enterNotes('family soup notes')
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain(feedback)
+    expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
+    expect(notesField().value).toBe('family soup notes')
+    expect(notesField().disabled).toBe(false)
     expect(extract).toHaveBeenCalledOnce()
   })
 
