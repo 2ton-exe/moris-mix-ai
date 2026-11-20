@@ -9,11 +9,11 @@ export const MORI_ART_SCALE = MORI_DESKTOP_SIZE / MORI_SPRITE_WIDTH
 const OUTER_INSET = 28
 const SPINE_CLEARANCE = 48
 const WALK_SPEED = 580 // Notebook pixels per second.
-const WALK_TIME_BUDGET = 2350
+const WALK_TIME_BUDGET = 2050
 const ALIGN_TIME = 65
 const GRAB_TIME = 120
-const FLIP_TIME = 460
-export const MORI_RELEASE_PROGRESS = .27
+const FLIP_TIME = 1120
+const RELEASE_PROGRESS = .84
 
 export function moriRestFoot(right: PaperBounds): Point {
   return { x: right.right - OUTER_INSET - 2, y: right.bottom - 112 }
@@ -30,7 +30,7 @@ interface PaperPlanInput {
   left: PaperBounds
   right: PaperBounds
   start: Point
-  corner: Point
+  contact: (progress: number) => Point
   lane: number
   direction: TurnDirection
 }
@@ -53,21 +53,34 @@ function walkDistance(progress: number, length: number) {
 }
 
 type WalkPhase = 'approach' | 'recover'
-type ReachPhase = 'grab' | 'turn' | 'release'
 type StoppedPhase = 'align' | 'idle'
 
 type PaperFrame = { position: Point; facing: Direction8; paper: number } & (
   | { phase: WalkPhase; distance: number }
-  | { phase: ReachPhase; reach: number; attached: boolean }
+  | { phase: 'grab' | 'release'; reach: number; attached: boolean; target: Point }
+  | { phase: 'turn'; reach: 1; attached: true; target: Point; step: number }
   | { phase: StoppedPhase }
 )
 
-export function createMoriPaperPlan({ left, right, start, corner, lane, direction }: PaperPlanInput) {
+export function createMoriPaperPlan({ left, right, start, contact, lane, direction }: PaperPlanInput) {
   const forward = direction === 'forward'
   const facing = forward ? 'E' : 'W'
-  const stand = { x: corner.x + (forward ? -27 : 27), y: corner.y + 30 }
+  const stance = (target: Point) => {
+    const x = Math.max(left.left + 13, Math.min(right.right - 13, target.x + (forward ? -27 : 27)))
+    // Only steer through the clear gap while passing the rings.
+    const fromGutter = Math.max(left.right - x, x - right.left, 0)
+    const throughGap = 1 - smooth(fromGutter / SPINE_CLEARANCE)
+    const y = target.y + 30
+    return { x, y: y + (lane - y) * throughGap }
+  }
+  const uncovered = contact(0)
+  const stand = stance(uncovered)
+  const releaseTarget = contact(RELEASE_PROGRESS)
+  const releaseStand = stance(releaseTarget)
+  // Mori backs up first, then turns toward the edge when it reaches the outer margin.
+  const faceGrip = (position: Point, target: Point) => target.x >= position.x ? 'E' : 'W'
   const approach = pathOnPaper(start, stand, left, right, lane)
-  const recovery = pathOnPaper(stand, start, left, right, lane + 16)
+  const recovery = pathOnPaper(releaseStand, start, left, right, lane + 16)
   const walkingSpeed = Math.max(WALK_SPEED, (approach.length + recovery.length) * 1000 / WALK_TIME_BUDGET)
   const approachTime = approach.length / walkingSpeed * 1000
   const flipStart = approachTime + ALIGN_TIME + GRAB_TIME
@@ -86,13 +99,17 @@ export function createMoriPaperPlan({ left, right, start, corner, lane, directio
       if (elapsed < approachTime + ALIGN_TIME) return { ...standing, phase: 'align', paper: 0 }
       if (elapsed < flipStart) {
         const grab = (elapsed - approachTime - ALIGN_TIME) / GRAB_TIME
-        return { ...standing, phase: 'grab', paper: 0, reach: smooth(grab * 1.4), attached: grab >= .72 }
+        return { ...standing, phase: 'grab', paper: 0, reach: smooth(grab * 1.4), attached: grab >= .72, target: uncovered }
       }
       if (elapsed < recoveryStart) {
         const paper = (elapsed - flipStart) / FLIP_TIME
-        if (paper < MORI_RELEASE_PROGRESS) return { ...standing, phase: 'turn', paper, reach: 1, attached: true }
-        const release = (paper - MORI_RELEASE_PROGRESS) / .3
-        return { ...standing, phase: 'release', paper, reach: 1 - smooth(release), attached: false }
+        if (paper < RELEASE_PROGRESS) {
+          const target = contact(paper)
+          const position = stance(target)
+          return { position, facing: faceGrip(position, target), phase: 'turn', paper, reach: 1, attached: true, target, step: paper / RELEASE_PROGRESS }
+        }
+        const release = (paper - RELEASE_PROGRESS) / (1 - RELEASE_PROGRESS)
+        return { position: releaseStand, facing: faceGrip(releaseStand, releaseTarget), phase: 'release', paper, reach: 1 - smooth(release), attached: false, target: releaseTarget }
       }
       if (progress < 1) {
         return { ...recovery.sample(walkDistance((elapsed - recoveryStart) / recoveryTime, recovery.length)), phase: 'recover', paper: 1 }
