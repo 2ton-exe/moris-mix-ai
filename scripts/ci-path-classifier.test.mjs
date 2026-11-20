@@ -19,6 +19,7 @@ for (const [name, input, expected, count = 1] of [
   ['workflow', 'M\0.github/workflows/modular-main.yml\0', false],
   ['PR workflow self-change', 'M\0.github/workflows/modular-pr-validation.yml\0', false],
   ['GitHub markdown', 'M\0.github/production-cutover.md\0', false],
+  ['CODEOWNERS policy change requires full CI', 'M\0.github/CODEOWNERS\0', false],
   ['script', 'M\0scripts/pr-secretary.mjs\0', false],
   ['classifier self-change requires full validation', 'M\0scripts/ci-path-classifier.mjs\0', false],
   ['lockfile', 'M\0pnpm-lock.yaml\0', false],
