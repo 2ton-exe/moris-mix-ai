@@ -419,6 +419,11 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const back = leaf.querySelector<HTMLElement>('.mm-turn-face--back')!
     setTurn((current) => current?.id === motionId && current.phase === 'ready' ? { ...current, phase: 'animating' } : current)
     const apply = (progress: number) => {
+      if (move) {
+        const { left, top } = book.getBoundingClientRect()
+        geometry.left = left
+        geometry.top = top
+      }
       const value = turnFrame(progress, motionDirection, motionLayout === 'single')
       leaf.style.transform = `rotateY(${value.angle}deg)`
       shades.forEach((shade) => { shade.style.opacity = String(value.shade) })

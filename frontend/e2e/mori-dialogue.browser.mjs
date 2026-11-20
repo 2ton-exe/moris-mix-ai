@@ -140,7 +140,7 @@ async function verifyMoriPageTurn(page, character, direction) {
       const rightEndpoint = node.dataset.layout === 'single' || (progress < .54 ? node.dataset.direction === 'forward' : node.dataset.direction === 'backward')
       const alignment = hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : null
       const crease = surface.querySelector('.mm-turn-crease')
-      const creaseOpacity = crease ? Number(getComputedStyle(crease).opacity) : 0
+      const creaseOpacity = crease ? Number(globalThis.getComputedStyle(crease).opacity) : 0
       const creaseBounds = crease?.getBoundingClientRect()
       const creaseFollowsPaw = creaseBounds && point.x >= creaseBounds.left - 2 && point.x <= creaseBounds.right + 2 && point.y >= creaseBounds.top - 2 && point.y <= creaseBounds.bottom + 2
       return { alignment, creaseOpacity, creaseFollowsPaw, connected: node.isConnected, phase: node.dataset.phase, progress: node.dataset.progress, leaf: node.querySelector('.mm-turn-leaf').getBoundingClientRect().toJSON(), distance: Math.hypot(point.x - corner.x, point.y - corner.y), hand: { x: point.x, y: point.y }, corner: { x: corner.x, y: corner.y }, ring: { x: ring.x, y: ring.y } }
