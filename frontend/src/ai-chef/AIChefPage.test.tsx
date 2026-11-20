@@ -180,10 +180,13 @@ describe('AI Chef pantry and review workflow', () => {
     const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
     fireEvent.change(input, { target: { value: 'rice, beans, eggs, tomatoes, onion, garlic, salt' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelectorAll('li')).toHaveLength(2)
+    const firstPantryPage = screen.getByRole('region', { name: 'Pantry list, 7 items' })
+    expect(firstPantryPage.querySelectorAll('li')).toHaveLength(2)
+    expect(firstPantryPage.querySelector('img[src="/twemoji/svg/1f35a.svg"]')?.getAttribute('alt')).toBe('')
 
     await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('eggs')
+    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelector('img[src="/twemoji/svg/1f95a.svg"]')?.getAttribute('alt')).toBe('')
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('garlic')
     await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 3/ }).textContent).toContain('salt')
@@ -612,6 +615,31 @@ describe('AI Chef pantry and review workflow', () => {
     expect(progress.savedRecipeId).toBe(savedRecipeId)
     expect(progress.selectedParentIds).toEqual([response.parents[0].id])
     expect(progress.lineageStatus).toBe('expired')
+  })
+
+  it('shows draft actions on return to the pantry and restores pantry input after discard', async () => {
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    writeChefDraft('chef-cook', {
+      input: { pantryItems: ['rice', 'eggs'], pantryInput: 'garlic', preferences: 'quick' },
+      handoff: { request: { pantryItems: ['rice', 'eggs'], preferences: 'quick' }, response, selectedParentIds: [], saved: false },
+    })
+    renderChef()
+
+    expect(screen.getByRole('link', { name: 'Return to recipe review' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Pantry ingredient' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ask Mori for a recipe' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard preview' }))
+    const confirmation = screen.getByRole('alertdialog', { name: 'Discard Mori’s recipe preview?' })
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Discard preview' }))
+
+    const pantry = screen.getByRole<HTMLInputElement>('textbox', { name: 'Pantry ingredient' })
+    expect(pantry.value).toBe('garlic')
+    expect(document.activeElement).toBe(pantry)
+    expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('eggs')
+    await openPreferences()
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: /^Cooking preferences/ }).value).toBe('quick')
+    expect(generate).not.toHaveBeenCalled()
   })
 
   it('explains that forgetting saved recovery does not undo parent links already persisted', async () => {
