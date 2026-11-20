@@ -103,19 +103,108 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
     if lineno > len(lines):
         return (f"replay=failed category={category} verb=unknown "
                 "doc_grant=unknown prefix_pass=unknown")
+    prefix_ok = all(_safe_prefix_line(line) for line in lines[:lineno - 1])
+    if not prefix_ok:
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=false")
     candidate = lines[lineno - 1].strip(b" \t")
+    # The line must itself be a complete, standalone executable SQL statement.
+    # A line reported at the end of multi-line SQL cannot be attributed safely.
+    if (not candidate or candidate.startswith((b"--", b"\\"))
+            or not _safe_prefix_line(candidate)):
+        return (f"replay=failed category={category} verb=unknown "
+                "doc_grant=unknown prefix_pass=false")
     verb = next((label for prefix, label in VERBS.items()
                  if candidate.startswith(prefix)), "other")
     documented = "true" if candidate == DOCUMENTED_GRANT else "false"
-    prefix_ok = all(_safe_prefix_line(line) for line in lines[:lineno - 1])
     return (f"replay=failed category={category} verb={verb} "
-            f"doc_grant={documented} prefix_pass={'true' if prefix_ok else 'false'}")
+            f"doc_grant={documented} prefix_pass=true")
+
+
+
+# The workflow saves all producer stdout as raw bytes. Bash command substitution
+# would discard trailing newlines and embedded NUL before a shell guard sees them.
+# Validate exact bytes and replay/label consistency inside this single process.
+COUNT_RECORD = re.compile(
+    rb"doc_grant=([0-9]{1,6}) owner_table=([0-9]{1,6}) "
+    rb"owner_function=([0-9]{1,6}) owner_other=([0-9]{1,6})\n"
+)
+FLAG_RECORD = re.compile(rb"([01])\|([01])\|([01])\|([01])\|([01])\n")
+RESULT_RECORD = re.compile(
+    rb"replay=(passed|failed) "
+    rb"category=(insufficient-privilege|undefined-object|duplicate-object|unknown) "
+    rb"verb=(grant|alter-role|create-role|other|unknown) "
+    rb"doc_grant=(true|false|unknown) prefix_pass=(true|false|unknown)\n"
+)
+
+
+def checked_record(path: Path, pattern: re.Pattern[bytes]) -> re.Match[bytes]:
+    """Match all bytes, including the one required terminator; reject extra bytes."""
+    size = path.stat().st_size
+    if size < 2 or size > 256:
+        raise ValueError("invalid diagnostic record size")
+    match = pattern.fullmatch(path.read_bytes())
+    if match is None:
+        raise ValueError("invalid diagnostic record")
+    return match
+
+
+def publish(count_path: Path, flag_path: Path, result_path: Path,
+            exit_code: int, summary_path: Path) -> None:
+    """Publish only reconstructed fixed fields after all inputs are validated."""
+    if exit_code not in (0, 3):
+        raise ValueError("unsupported replay exit")
+    cm = checked_record(count_path, COUNT_RECORD)
+    fm = checked_record(flag_path, FLAG_RECORD)
+    rm = checked_record(result_path, RESULT_RECORD)
+    replay, category, verb, documented, prefix = (
+        field.decode("ascii") for field in rm.groups()
+    )
+    if exit_code == 0:
+        if (replay, category, verb, documented, prefix) != (
+                "passed", "unknown", "unknown", "unknown", "unknown"):
+            raise ValueError("contradictory success diagnostic")
+    else:
+        if replay != "failed":
+            raise ValueError("contradictory failure diagnostic")
+        if prefix != "true" and (verb != "unknown" or documented != "unknown"):
+            raise ValueError("statement attribution missing validated prefix")
+        if documented == "true" and verb != "grant":
+            raise ValueError("contradictory documented grant")
+        if prefix == "true" and verb == "unknown":
+            raise ValueError("missing attributed verb")
+    numbers = [str(int(field)) for field in cm.groups()]
+    flags = [field.decode("ascii") for field in fm.groups()]
+    static = ("doc_grant=" + numbers[0] + " owner_table=" + numbers[1]
+              + " owner_function=" + numbers[2] + " owner_other=" + numbers[3])
+    role = ("superuser=" + flags[0] + " createrole=" + flags[1]
+            + " createdb=" + flags[2] + " bypassrls=" + flags[3]
+            + " inherit=" + flags[4])
+    observed = (f"replay={replay} category={category} verb={verb} "
+                f"doc_grant={documented} prefix_pass={prefix}")
+    # Fully build the safe output before any publication. No raw bytes are copied.
+    summary = (
+        "### Role-only diagnostic (NOT recovery evidence)\n"
+        f"- Static patterns: {static}\n"
+        f"- Local connection-role attributes: {role}\n"
+        f"- Untrusted role replay labels: {observed}\n"
+        "- Schema/data recovery was not attempted.\n"
+    )
+    with summary_path.open("a", encoding="ascii") as out:
+        out.write(summary)
+    print("Role diagnostic patterns: " + static)
+    print("Local role attributes: " + role)
+    print("Role-only diagnostic (untrusted): " + observed)
 
 
 def main() -> int:
     try:
         if len(sys.argv) == 4 and sys.argv[1] == "counts":
             print(counts(Path(sys.argv[2]), Path(sys.argv[3])))
+            return 0
+        if len(sys.argv) == 7 and sys.argv[1] == "publish":
+            publish(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]),
+                    int(sys.argv[5]), Path(sys.argv[6]))
             return 0
         if len(sys.argv) == 5 and sys.argv[1] == "result":
             code = int(sys.argv[4])

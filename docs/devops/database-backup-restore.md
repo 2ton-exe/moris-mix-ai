@@ -219,4 +219,3 @@ identity, and document resulting role/ownership semantics. In particular,
 verify the owner and permission behavior of SECURITY DEFINER functions and
 the implications of excluded managed schemas. This diagnostic does not
 authorize silently excluding roles, SQL statements or ownership grants.
-

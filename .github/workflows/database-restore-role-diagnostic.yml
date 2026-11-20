@@ -171,37 +171,42 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Archive identity and SQL checksums were verified above; never print SQL.
+          # The verified SQL, raw diagnostics and PostgreSQL output stay in
+          # private 0600 files. Never capture untrusted stdout in shell variables:
+          # Bash strips NUL bytes and trailing newlines before regex validation.
           roles="$RUNNER_TEMP/restore-verified-sql/roles.sql"
           schema="$RUNNER_TEMP/restore-verified-sql/schema.sql"
-          counts="$(python3 scripts/restore_role_probe.py counts "$roles" "$schema" 2> /dev/null)" || {
+          if ! python3 scripts/restore_role_probe.py counts "$roles" "$schema" \
+              > "$RUNNER_TEMP/private-probe-counts.out" \
+              2> "$RUNNER_TEMP/private-probe-counts.err"; then
             echo "::error::Private SQL pattern probe unavailable"
             exit 1
-          }
-          if [[ ! "$counts" =~ ^doc_grant=[0-9]{1,6}\ owner_table=[0-9]{1,6}\ owner_function=[0-9]{1,6}\ owner_other=[0-9]{1,6}$ ]]; then
-            echo "::error::Diagnostic count output rejected"
-            exit 1
           fi
-          printf 'Role diagnostic patterns: %s\n' "$counts"
 
-          # Exact client image, hardening, mount, local target and flags as Stage B.
+          # The same pinned client image, flags, container hardening, verified
+          # readonly mount and local target used for Stage B's roles.sql.
           psql_client() {
-            docker run --rm --network host --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges --read-only --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" "$PSQL_IMAGE" psql "$@"
+            docker run --rm --network host --user "$(id -u):$(id -g)" \
+              --cap-drop ALL --security-opt no-new-privileges --read-only \
+              --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
+              "$PSQL_IMAGE" psql "$@"
           }
-          flags="$(psql_client -X -A -t -F '|' -v ON_ERROR_STOP=1 -c "SELECT rolsuper::int,rolcreaterole::int,rolcreatedb::int,rolbypassrls::int,rolinherit::int FROM pg_roles WHERE rolname=current_user" -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' 2> "$RUNNER_TEMP/private-role-flags-stderr.log")" || {
+          if ! psql_client -X -A -t -F '|' -v ON_ERROR_STOP=1 \
+              -c "SELECT rolsuper::int,rolcreaterole::int,rolcreatedb::int,rolbypassrls::int,rolinherit::int FROM pg_roles WHERE rolname=current_user" \
+              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+              > "$RUNNER_TEMP/private-probe-flags.out" \
+              2> "$RUNNER_TEMP/private-role-flags-stderr.log"; then
             echo "::error::Local role attribute probe failed"
             exit 1
-          }
-          if [[ ! "$flags" =~ ^[01]\|[01]\|[01]\|[01]\|[01]$ ]]; then
-            echo "::error::Role attribute probe output rejected"
-            exit 1
           fi
-          IFS='|' read -r superuser createrole createdb bypassrls inherit <<< "$flags"
-          printf 'Local role attributes: superuser=%s createrole=%s createdb=%s bypassrls=%s inherit=%s\n' "$superuser" "$createrole" "$createdb" "$bypassrls" "$inherit"
 
-          # Same fail-fast transaction as Stage B, limited to original roles.sql.
-          # stdout/stderr are private runner files; never echo them.
-          if psql_client -X -q --single-transaction -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate -f /backup/roles.sql -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' > "$RUNNER_TEMP/private-restore-result.log" 2> "$RUNNER_TEMP/private-restore-stderr.log"; then
+          # Identical Stage B psql version, replay flags, exact verified source
+          # and target. Only the roles component runs; this is not a full restore.
+          if psql_client -X -q --single-transaction -v ON_ERROR_STOP=1 \
+              -v VERBOSITY=sqlstate -f /backup/roles.sql \
+              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+              > "$RUNNER_TEMP/private-restore-result.log" \
+              2> "$RUNNER_TEMP/private-restore-stderr.log"; then
             rc=0
           else
             rc=$?
@@ -210,22 +215,25 @@ jobs:
             echo "::error::Unexpected role-only replay execution failure"
             exit 1
           fi
-          observed="$(python3 scripts/restore_role_probe.py result "$RUNNER_TEMP/private-restore-stderr.log" "$roles" "$rc" 2> /dev/null)" || {
+          if ! python3 scripts/restore_role_probe.py result \
+              "$RUNNER_TEMP/private-restore-stderr.log" "$roles" "$rc" \
+              > "$RUNNER_TEMP/private-probe-result.out" \
+              2> "$RUNNER_TEMP/private-probe-result.err"; then
             echo "::error::Private role error probe unavailable"
             exit 1
-          }
-          if [[ ! "$observed" =~ ^replay=(passed|failed)\ category=(insufficient-privilege|undefined-object|duplicate-object|unknown)\ verb=(grant|alter-role|create-role|other|unknown)\ doc_grant=(true|false|unknown)\ prefix_pass=(true|false|unknown)$ ]]; then
-            echo "::error::Role replay diagnostic output rejected"
+          fi
+
+          # One Python process checks exact raw bytes including NUL and terminal
+          # newlines; also binds result labels to psql's actual exit code.
+          # It reconstructs only allowlisted values for stdout and summary.
+          if ! python3 scripts/restore_role_probe.py publish \
+              "$RUNNER_TEMP/private-probe-counts.out" \
+              "$RUNNER_TEMP/private-probe-flags.out" \
+              "$RUNNER_TEMP/private-probe-result.out" "$rc" \
+              "$GITHUB_STEP_SUMMARY"; then
+            echo "::error::Public diagnostic validation failed"
             exit 1
           fi
-          printf 'Role-only diagnostic (untrusted): %s\n' "$observed"
-          {
-            echo '### Role-only restore diagnostic (NOT recovery evidence)'
-            echo "- Selected immutable backup run: $BACKUP_RUN_ID (integrity verified)"
-            echo "- Static counts: $counts"
-            echo "- Untrusted role replay labels: $observed"
-            echo '- No schema/data replay or application recovery verification occurred.'
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stop isolated database and delete private files
         if: always()
@@ -238,13 +246,23 @@ jobs:
             supabase stop --workdir "$workdir" --no-backup \
               > /dev/null 2>&1 || failure=1
           fi
-          rm -f "$RUNNER_TEMP/private-role-flags-stderr.log"
-          rm -rf "$RUNNER_TEMP/restore-verified-sql" "$RUNNER_TEMP/restore-selected.tar.gz" \
-            "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/private-restore-result.log" \
+          # Attempt every removal even if an earlier deletion fails.
+          rm -f "$RUNNER_TEMP/private-role-flags-stderr.log" \
+            "$RUNNER_TEMP/private-probe-counts.out" \
+            "$RUNNER_TEMP/private-probe-counts.err" \
+            "$RUNNER_TEMP/private-probe-flags.out" \
+            "$RUNNER_TEMP/private-probe-result.out" \
+            "$RUNNER_TEMP/private-probe-result.err" \
+            > /dev/null 2>&1 || failure=1
+          rm -rf "$RUNNER_TEMP/restore-verified-sql" \
+            "$RUNNER_TEMP/restore-selected.tar.gz" \
+            "$RUNNER_TEMP/restore-selected.json" \
+            "$RUNNER_TEMP/private-restore-result.log" \
             "$RUNNER_TEMP/private-restore-stderr.log" \
-            "$RUNNER_TEMP/private-verify-result.log" "$workdir"
+            "$RUNNER_TEMP/private-verify-result.log" "$workdir" \
+            > /dev/null 2>&1 || failure=1
           if [[ "$failure" -ne 0 ]]; then
-            echo '::error::Local database shutdown failed; runner teardown will recycle the VM'
+            echo '::error::Local cleanup incomplete; runner teardown will recycle the VM'
             exit 1
           fi
           echo 'Isolated database stopped; private runner files deleted.'
