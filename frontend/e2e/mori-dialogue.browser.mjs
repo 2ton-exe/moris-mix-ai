@@ -163,8 +163,8 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
   })
 
   const label = `${width}px ${direction}`
-  const motion = [...new Set(samples.map((sample) => sample.motion))]
-  assert.deepEqual(motion.slice(0, 6), ['approach', 'align', 'grab', 'turn', 'release', 'recover'], `${label}: takes one approach-to-recovery sequence`)
+  const motion = samples.filter((sample, index) => sample.motion !== samples[index - 1]?.motion).map((sample) => sample.motion)
+  assert.deepEqual(motion, ['approach', 'align', 'grab', 'turn', 'release', 'recover'], `${label}: takes one approach-to-recovery sequence`)
   const initial = samples[0]
   const alignment = samples.find((sample) => sample.motion === 'align')
   const recovery = samples.findLast((sample) => sample.motion === 'recover')
@@ -206,7 +206,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
   }
   assert.ok(movingGrip > 1, `${label}: Mori keeps contact as the paper begins to move`)
 
-  for (const stage of motion.slice(0, 6)) {
+  for (const stage of motion) {
     const frames = samples.filter((sample) => sample.motion === stage)
     const sample = frames[Math.floor(frames.length / 2)]
     await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), sample.progress)

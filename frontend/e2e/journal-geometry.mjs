@@ -26,6 +26,7 @@ export async function settleJournalLayout(page, reference = false) {
 export async function holdSpatialPaperGrip(layer) {
   return layer.evaluate((node) => {
     const actor = node.querySelector('[data-mori-paper-actor]')
+    if (!actor || actor.hidden) throw new Error('The desktop turn has no visible paper actor')
     const sample = (progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
     const attached = []
     for (let index = 0; index < 200; index++) {

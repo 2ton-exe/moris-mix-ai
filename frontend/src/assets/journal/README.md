@@ -29,7 +29,8 @@ open and closed page-grab mitt. The local keyframe reference board shows
 front-facing blink, ear, tail, wave, hop, stir, sleep, and sweat poses. The
 asymmetric tail and apron details require separately drawn left and right views.
 
-N, NE, E, SE, S, SW, W, and NW still need approved idle artwork and 4–8 walking
+The front-facing art supplies the S idle pose. N, NE, E, SE, SW, W, and NW
+still need approved idle artwork. All eight directions need 4–8 walking
 frames each. The controller already calculates all eight directions. Until
 those frames are available, the desktop turn uses the official front-facing
 SVG, so its travel can still look like sliding. The turn uses the existing
