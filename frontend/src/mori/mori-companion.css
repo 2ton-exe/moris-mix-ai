@@ -81,6 +81,18 @@
 .mori-pet-character { pointer-events: none; }
 .mori-pet-trigger { pointer-events: auto; }
 .mori-pet-character[data-turn-direction] .mori-pet-trigger { pointer-events: none; }
+.mori-pet-character[data-navigation-stage] { z-index: 60; will-change: transform; }
+.mori-pet-character[data-navigation-stage] .mori-pet-trigger { pointer-events: none; }
+.mori-pet-character[data-navigation-stage] :is(svg, g, path) { animation: none !important; transition: none; }
+.mori-pet-character[data-navigation-stage] svg { transform: none; }
+.mori-pet-character[data-navigation-direction='left'] svg { transform: scaleX(-1); }
+.mori-pet-character[data-navigation-stage] .mori-body-all { transform: none; }
+.mori-pet-character[data-navigation-stage] .mori-arm-r { visibility: hidden; }
+.mori-pet-character[data-navigation-stage] .mori-grip-arm {
+  display: inline;
+  transform-origin: 128px 168px;
+  transform: rotate(var(--mori-travel-arm));
+}
 
 
 @media (min-width: 769px) {

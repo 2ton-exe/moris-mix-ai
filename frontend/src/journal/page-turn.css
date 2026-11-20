@@ -140,8 +140,25 @@
 }
 .mm-turn-under--single > .mm-journal-spread,
 .mm-turn-content > .mm-journal-spread { overflow-y: hidden !important; }
-.mm-turn-corner { position: absolute; top: 0; right: 0; width: 0; height: 0; }
+.mm-turn-corner { position: absolute; top: var(--mm-grab-y, 0px); right: 0; width: 0; height: 0; }
 .mm-turn-leaf--backward .mm-turn-corner { right: auto; left: 0; }
+.mm-turn-crease {
+  position: absolute;
+  z-index: 5;
+  top: calc(var(--mm-grab-y, 0px) - 8px);
+  right: 0;
+  width: 26px;
+  height: 16px;
+  opacity: var(--mm-crease-strength, 0);
+  background: linear-gradient(173deg, transparent 34%, rgb(255 250 233 / .92) 49%, rgb(74 44 25 / .3) 53%, transparent 76%);
+  clip-path: polygon(100% 0, 100% 100%, 0 55%);
+}
+.mm-turn-leaf--forward[data-layout='spread'] .mm-turn-face--back .mm-turn-crease,
+.mm-turn-leaf--backward[data-layout='spread'] .mm-turn-face--front .mm-turn-crease {
+  left: 0;
+  right: auto;
+  transform: scaleX(-1);
+}
 .mm-turn-face--front { transform: translateZ(.1px); }
 .mm-turn-face--back { transform: rotateY(180deg) translateZ(.1px); }
 @media (max-width: 1099.98px), (max-height: 639.98px) {

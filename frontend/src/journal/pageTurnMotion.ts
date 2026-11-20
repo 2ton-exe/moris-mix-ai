@@ -20,14 +20,29 @@ export interface TurnGeometry {
   hinge: number; pageTop: number; radius: number; single?: boolean
 }
 
+export function chooseTurnGrab({ pageTop, pageHeight, viewportTop, viewportHeight, previous }: {
+  pageTop: number
+  pageHeight: number
+  viewportTop: number
+  viewportHeight: number
+  previous: number
+}) {
+  const reachable = [.025, .48, .92].filter((fraction) => {
+    const y = pageTop + pageHeight * fraction
+    return y >= viewportTop && y <= viewportTop + viewportHeight
+  })
+  const choices = reachable.length > 1 ? reachable.filter((fraction) => fraction !== previous) : reachable
+  return choices[Math.floor(Math.random() * choices.length)] ?? 0
+}
+
 /** CSS rotateY around the spine followed by the layer's perspective projection. */
-export function projectCorner(geometry: TurnGeometry, angle: number) {
+export function projectGrabPoint(geometry: TurnGeometry, angle: number, grabY: number) {
   const radians = angle * Math.PI / 180
   const x = geometry.hinge + geometry.radius * Math.cos(radians)
   const z = -geometry.radius * Math.sin(radians)
   const scale = TURN_PERSPECTIVE / (TURN_PERSPECTIVE - z)
   const perspectiveX = geometry.single ? geometry.hinge : geometry.width / 2
-  return { x: geometry.left + perspectiveX + (x - perspectiveX) * scale, y: geometry.top + geometry.pageTop }
+  return { x: geometry.left + perspectiveX + (x - perspectiveX) * scale, y: geometry.top + geometry.pageTop + grabY * scale }
 }
 
 export function mittAnchor(angle: number) {
@@ -36,7 +51,7 @@ export function mittAnchor(angle: number) {
 }
 
 export interface TurnCompanion {
-  start: (direction: TurnDirection, single: boolean) => ((frame: ReturnType<typeof turnFrame>, corner: { x: number; y: number }) => void)
+  start: (direction: TurnDirection, single: boolean) => ((frame: ReturnType<typeof turnFrame>, contact: { x: number; y: number }) => void) | undefined
   stop: () => void
 }
 // Explicit registration keeps the persistent companion outside the route/form tree.
