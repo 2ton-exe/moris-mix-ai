@@ -47,29 +47,92 @@
 .mm-ai-chef__save-note { margin: 0; padding: 12px 0 0; border-top: 1px solid rgb(128 92 59 / .2); color: var(--mm-color-ink-soft); font: 13px/1.55 var(--mm-font-serif); }
 .mm-ai-chef__footer-actions { display: grid; gap: 8px; margin-bottom: 8px; }
 .mm-ai-chef__footer-actions > .button { justify-self: start; }
-.mm-ai-chef__review-notice { display: grid; gap: 10px; min-width: 0; }
-.mm-ai-chef__review-notice > strong { color: var(--mm-color-burgundy-900); font: 650 15px/1.4 var(--mm-font-sans); }
-.mm-ai-chef__review-notice > p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
-.mm-ai-chef__review-notice .mm-ai-chef__context { padding: 9px 11px; border-left: 3px solid var(--mm-color-sage-600); background: rgb(255 252 243 / .65); }
-.mm-ai-chef__review-notice details { min-width: 0; padding-top: 8px; border-top: 1px solid rgb(128 92 59 / .2); }
-.mm-ai-chef__review-notice summary { color: var(--mm-color-burgundy-800); font-weight: 650; cursor: pointer; overflow-wrap: anywhere; }
-.mm-ai-chef__suggestions { min-width: 0; padding-top: 8px; border-top: 1px solid rgb(128 92 59 / .2); }
-.mm-ai-chef__suggestions h2 { margin: 0 0 6px; color: var(--mm-color-burgundy-900); font: 600 17px/1.35 var(--mm-font-serif); }
-.mm-ai-chef__suggestions p { margin: 0 0 7px; color: var(--mm-color-ink-soft); line-height: 1.5; overflow-wrap: anywhere; }
-.mm-ai-chef__suggestions ul { display: grid; gap: 7px; margin: 7px 0 0; padding-left: 20px; }
-.mm-ai-chef__suggestions li { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
-.mm-ai-chef__suggestions li p { margin: 3px 0 0; }
-.mm-ai-chef__parent-choices { padding: 0 !important; list-style: none; }
-.mm-ai-chef__parent-choices li { border: 1px solid rgb(128 92 59 / .24); background: rgb(255 252 243 / .48); }
-.mm-ai-chef__parent-choices li.is-selected { border-color: var(--mm-color-sage-600); background: rgb(224 235 216 / .56); }
-.mm-ai-chef__parent-choice { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 10px 12px; cursor: pointer; }
-.mm-ai-chef__parent-choice input { flex: 0 0 20px; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--mm-color-sage-700); }
+.mm-ai-chef__review-notice {
+  min-inline-size: 0;
+  margin-block: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--mm-border-paper);
+  background: var(--mm-color-fresh) var(--mm-tex-grain);
+  color: var(--mm-color-ink);
+  font: .875rem/1.5 var(--mm-font-sans);
+  overflow-wrap: anywhere;
+}
+.mm-ai-chef__review-notice p { margin: 0; }
+.mm-ai-chef__review-notice h3 { margin: 0 0 6px; color: var(--mm-color-burgundy-900); font: 600 18px/1.25 var(--mm-font-serif); }
+.mm-ai-chef__review-notice .mm-ai-chef__review-state {
+  margin-bottom: 12px;
+  color: var(--mm-color-sage-900);
+  font-weight: 650;
+}
+.mm-ai-chef__draft-ingredients ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mm-ai-chef__draft-ingredients li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-inline-size: 100%;
+  padding: 4px 8px;
+  border-radius: var(--mm-radius-paper);
+  background: var(--mm-color-sage-100);
+}
+.mm-ai-chef__draft-ingredients li > span { min-inline-size: 0; }
+.mm-ai-chef__draft-ingredients img { inline-size: 18px; block-size: 18px; flex: none; }
+.mm-ai-chef__review-notice details { min-inline-size: 0; border-top: 1px solid var(--mm-border-paper); }
+.mm-ai-chef__review-notice summary { padding-block: 8px; color: var(--mm-color-burgundy-800); font-weight: 650; cursor: pointer; }
+.mm-ai-chef__review-notice summary:hover { text-decoration: underline; text-underline-offset: .2em; }
+.mm-ai-chef__review-notice summary:focus-visible { outline: 2px solid var(--mm-color-burgundy-700); outline-offset: 2px; }
+.mm-ai-chef__review-notice details > p { margin-block: 0 8px; color: var(--mm-color-ink-soft); }
+.mm-ai-chef__review-notice details ul { margin-block: 0 8px; padding-inline-start: 20px; }
+.mm-ai-chef__substitutions li + li { margin-block-start: 6px; }
+.mm-ai-chef__suggestions { min-inline-size: 0; margin-block: 12px; }
+.mm-ai-chef__suggestions:first-child { margin-block: 0; }
+.mm-ai-chef__suggestions p { color: var(--mm-color-ink-soft); }
+.mm-ai-chef__parent-choices { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+.mm-ai-chef__parent-choices li { min-inline-size: 0; border: 1px solid var(--mm-border-paper); border-radius: 3px; background: var(--mm-color-parchment-50); }
+.mm-ai-chef__parent-choices li.is-selected { border-color: var(--mm-color-sage-600); background: var(--mm-color-sage-100); }
+.mm-ai-chef__parent-choice { display: flex; align-items: center; gap: 8px; min-width: 0; min-block-size: 44px; padding: 5px 8px; cursor: pointer; }
+.mm-ai-chef__parent-choice input { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; accent-color: var(--mm-color-sage-700); }
 .mm-ai-chef__parent-choice input:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
 .mm-ai-chef__parent-choice input:disabled { cursor: not-allowed; }
-.mm-ai-chef__parent-choice-copy { display: grid; min-width: 0; overflow-wrap: anywhere; }
-.mm-ai-chef__parent-choice-status { color: var(--mm-color-ink-soft); font-size: 13px; }
-.mm-ai-chef__selection-count { margin-top: 9px !important; color: var(--mm-color-burgundy-900) !important; font-weight: 650; }
-.mm-ai-chef__selection-feedback { margin-bottom: 0 !important; }
+.mm-ai-chef__parent-choice-copy { min-width: 0; }
+.mm-ai-chef__parent-choice-status { display: block; color: var(--mm-color-ink-soft); font-size: 13px; }
+.mm-ai-chef__suggestions .mm-ai-chef__selection-count { margin-top: 6px; }
+.mm-ai-chef__flavors { margin: 0 0 8px; }
+.mm-ai-chef__flavors > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--mm-border-paper);
+}
+.mm-ai-chef__flavors dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--mm-flavor-tint, var(--mm-color-parchment-200));
+  font-weight: 650;
+  text-transform: capitalize;
+}
+.mm-ai-chef__flavors [data-flavor='sweet'] { --mm-flavor-tint: var(--mm-color-burgundy-100); }
+.mm-ai-chef__flavors [data-flavor='sour'] { --mm-flavor-tint: var(--mm-color-mustard-100); }
+.mm-ai-chef__flavors [data-flavor='bitter'] { --mm-flavor-tint: var(--mm-color-sage-100); }
+.mm-ai-chef__flavors [data-flavor='umami'] { --mm-flavor-tint: var(--mm-color-lilac-100); }
+.mm-ai-chef__flavors [data-flavor='spicy'] { --mm-flavor-tint: var(--mm-color-brick-100); }
+.mm-ai-chef__flavors dd { margin: 0; }
+.mm-ai-chef__flavors img { display: block; inline-size: 20px; block-size: 20px; }
+.mm-ai-chef__flavor-slots { display: flex; gap: 4px; }
+.mm-ai-chef__flavor-slot { display: grid; inline-size: 24px; block-size: 24px; place-items: center; border: 1px dashed var(--mm-color-parchment-600); border-radius: 50%; }
+.mm-ai-chef__flavor-slot[data-filled='true'] { border-color: transparent; }
 .mm-desk .mm-journal-flyleaf:has(.mm-facing-content--ai-chef) {
   display: flex;
   flex-direction: column;
@@ -92,8 +155,6 @@
 .mm-ai-chef__lineage-recovery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; border-left: 3px solid var(--mm-color-burgundy-700); background: var(--mm-color-rose-100, #f5e2dc); }
 .mm-ai-chef__lineage-recovery p { flex: 1 1 100%; margin: 0; color: var(--mm-color-ink); line-height: 1.5; overflow-wrap: anywhere; }
 .mm-ai-chef__lineage-recovery .button { max-width: 100%; white-space: normal; }
-.mm-ai-chef__review-notice details > p { margin: 7px 0; line-height: 1.5; overflow-wrap: anywhere; }
-.mm-ai-chef__review-notice details > ul { margin: 7px 0; padding-left: 20px; }
 .mm-ai-chef :where(input, textarea, button, a):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 3px; }
 
 @media (max-width: 560px) {
@@ -113,19 +174,15 @@
   border-bottom: 1px solid var(--mm-border-paper);
   font: 600 22px/1.2 var(--mm-font-serif);
 }
-.mm-desk .mm-review-leaf .mm-ai-chef__review-notice {
-  margin: 0;
-  padding: 10px 12px;
-  gap: 7px;
-  border: 1px solid var(--mm-border-paper);
-  background: var(--mm-color-fresh) var(--mm-tex-grain);
-  font-size: .875rem;
-}
-.mm-review-leaf .mm-ai-chef__context { padding-block: 6px; }
-.mm-review-leaf .mm-ai-chef__suggestions h2 { margin-bottom: 4px; }
-.mm-review-leaf .mm-ai-chef__parent-choice { padding-block: 6px; }
+.mm-review-leaf .mm-ai-chef__review-notice { margin-block: 0; }
 
 @media (min-width: 1100px) and (min-height: 640px) {
+  .mm-desk--writing .mm-writing-leaf:has(.mm-ai-chef__review-notice) {
+    overflow: auto;
+    scrollbar-gutter: stable;
+    scrollbar-color: var(--mm-color-ink-soft) transparent;
+    scroll-padding-block: 12px;
+  }
   .mm-facing-content--editor .mm-ai-chef__journey {
     width: 100%;
     margin-block: 12px 16px;
