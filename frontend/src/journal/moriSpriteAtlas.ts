@@ -30,4 +30,24 @@ export function createMoriSpriteLookup(atlas: SpriteAtlas) {
 }
 
 // shortcut: use the official front-facing SVG until each direction has approved frames.
-export const moriSpriteFrame = createMoriSpriteLookup({})
+const atlas: SpriteAtlas = {}
+export const moriSpriteFrame = createMoriSpriteLookup(atlas)
+
+const images = new Map<string, HTMLImageElement>()
+
+export function preloadMoriSprites() {
+  for (const direction of Object.values(atlas)) {
+    for (const { src } of [direction.idle, ...direction.walk]) {
+      if (images.has(src)) continue
+      const image = new Image(MORI_SPRITE_WIDTH, MORI_SPRITE_HEIGHT)
+      image.alt = ''
+      image.src = src
+      images.set(src, image)
+    }
+  }
+}
+
+export function loadedMoriSprite(src: string) {
+  const image = images.get(src)
+  return image?.complete && image.naturalWidth > 0 ? image : null
+}

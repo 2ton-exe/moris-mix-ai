@@ -165,8 +165,9 @@
   z-index: 3;
   pointer-events: none;
 }
-.mm-mori-paper-actor[hidden],
-.mm-mori-paper-actor img[hidden] { display: none; }
+.mm-mori-paper-actor[hidden] { display: none; }
+.mm-mori-paper-actor[data-mori-motion="release"] { z-index: 1; }
+.mm-mori-paper-actor > img { width: 96px; height: auto; }
 .mm-mori-paper-actor > :is(svg, img, [data-mori-foot]) {
   position: absolute;
   inset: 0 auto auto 0;

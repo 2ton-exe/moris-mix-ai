@@ -3,14 +3,13 @@
 import { Mori } from './Mori'
 import type { Point } from './moriMovement'
 import { createMoriPaperPlan, isPaperRest, MORI_ART_SCALE, MORI_DESKTOP_SIZE, MORI_RELEASE_PROGRESS, moriRestFoot } from './moriPaperMotion'
-import { MORI_FOOT, MORI_SPRITE_HEIGHT, moriSpriteFrame } from './moriSpriteAtlas'
+import { loadedMoriSprite, MORI_FOOT, moriSpriteFrame } from './moriSpriteAtlas'
 import { smooth, TURN_PERSPECTIVE, turnFrame, type TurnCompanion, type TurnDirection } from './pageTurnMotion'
 
 export function MoriPaperActor({ direction }: { direction: TurnDirection }) {
   return <div className="mm-mori-paper-actor" data-mori-paper-actor hidden>
     <span data-mori-foot />
     <Mori size={MORI_DESKTOP_SIZE} gripSide={direction === 'forward' ? 'right' : 'left'} />
-    <img width={MORI_DESKTOP_SIZE} height={MORI_SPRITE_HEIGHT * MORI_ART_SCALE} alt="" hidden />
   </div>
 }
 
@@ -24,14 +23,13 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
 }) {
   const actor = layer.querySelector<HTMLElement>('[data-mori-paper-actor]')
   const art = actor?.querySelector('svg')
-  const sprite = actor?.querySelector('img')
   const mitt = art?.querySelector<SVGGElement>('[data-mori-mitt]')
   const closed = mitt?.querySelector<SVGGElement>('[data-mori-closed-mitt]')
   const open = mitt?.querySelector<SVGGElement>('[data-mori-open-mitt]')
   const marker = leaf.querySelector<HTMLElement>('[data-page-corner]')
   const leftPage = book.querySelector<HTMLElement>(':scope > .mm-journal-spread > .mm-journal-flyleaf')
   const rightPage = book.querySelector<HTMLElement>(':scope > .mm-journal-spread > .mm-journal-page')
-  if (!actor || !art || !sprite || !mitt || !closed || !open || !marker || !leftPage || !rightPage) return null
+  if (!actor || !art || !mitt || !closed || !open || !marker || !leftPage || !rightPage) return null
 
   const layerRect = layer.getBoundingClientRect()
   const layerStyle = getComputedStyle(layer)
@@ -88,6 +86,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   const flip = (paper: number) => turnFrame(.26 + .56 * paper, direction)
   const releaseGrip = cornerAt(flip(MORI_RELEASE_PROGRESS).angle)
   art.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-MORI_FOOT.y * MORI_ART_SCALE}px)`
+  let sprite: HTMLImageElement | null = null
   actor.hidden = false
 
   const width = book.clientWidth
@@ -113,10 +112,16 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
       const walking = 'distance' in frame
       const distance = walking ? frame.distance / MORI_ART_SCALE : undefined
       const image = reaching ? null : moriSpriteFrame(frame.facing, distance)
-      if (image && sprite.getAttribute('src') !== image.src) sprite.src = image.src
-      sprite.hidden = !image || !sprite.complete || !sprite.naturalWidth
-      art.style.visibility = sprite.hidden ? '' : 'hidden'
-      if (image) sprite.style.transform = `translate(${-image.foot.x * MORI_ART_SCALE}px, ${-image.foot.y * MORI_ART_SCALE}px)`
+      const loaded = image && loadedMoriSprite(image.src)
+      if (!image || (loaded && loaded !== sprite)) {
+        sprite?.remove()
+        sprite = loaded
+        if (sprite) actor.appendChild(sprite)
+      }
+      art.style.visibility = sprite ? 'hidden' : ''
+      if (sprite && image && loaded === sprite) {
+        sprite.style.transform = `translate(${-image.foot.x * MORI_ART_SCALE}px, ${-image.foot.y * MORI_ART_SCALE}px)`
+      }
       // shortcut: alternate the existing feet in place until approved directional cycles land.
       const stride = distance === undefined ? 0 : Math.sin(distance * Math.PI / 80) * 6
       feet.forEach((foot, index) => { foot.style.transform = `translateY(${Math.min(0, index ? -stride : stride)}px)` })
@@ -137,6 +142,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
     },
     stop() {
       observer?.disconnect()
+      sprite?.remove()
       actor.hidden = true
       delete marker.dataset.moriPaperGrip
       control.stop()

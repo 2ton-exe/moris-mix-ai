@@ -255,8 +255,10 @@ async function verifyMoriPageTurn(page, character, direction) {
   const width = page.viewportSize().width
   const journey = new URL(page.url()).pathname.split('/').at(-1)
   const screenshot = (stage) => page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${stage}.png`) })
-  if (spatial) await verifySpatialMoriTurn(layer, direction, screenshot)
-  else await verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot })
+  if (spatial) {
+    await expect(character.getByRole('button', { name: 'Talk to Mori' })).toHaveAttribute('tabindex', '-1')
+    await verifySpatialMoriTurn(layer, direction, screenshot)
+  } else await verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot })
   await expect(page).toHaveURL(before)
   const destinationPositions = await layer.evaluate((node) => {
     const selectors = node.dataset.layout === 'single' ? ['.mm-turn-face--back'] : node.dataset.direction === 'forward' ? ['.mm-turn-face--back', '.mm-turn-under--right'] : ['.mm-turn-face--back', '.mm-turn-under--left']

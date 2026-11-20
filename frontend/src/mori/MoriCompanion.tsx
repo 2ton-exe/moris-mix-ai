@@ -4,7 +4,7 @@ import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
 import { MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from '../journal/moriPaperMotion'
-import { MORI_FOOT } from '../journal/moriSpriteAtlas'
+import { MORI_FOOT, preloadMoriSprites } from '../journal/moriSpriteAtlas'
 import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
@@ -87,6 +87,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
 
+  useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)) } catch { /* Storage may be unavailable in private browsing. */ }
   }, [preferences])
@@ -104,7 +105,20 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     const place = () => {
       const rect = paper?.getBoundingClientRect()
       const next = rect?.width ? moriRestFoot(rect) : null
-      const dockPosition = next ? { x: next.x - width / 2, y: next.y - MORI_FOOT.y * MORI_ART_SCALE } : null
+      let dockPosition: Position | null = null
+      if (next && rect && paper) {
+        const x = next.x - size / 2
+        const artHeight = size * 1.2
+        const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable]'), (control) => control.getBoundingClientRect())
+          .filter((control) => control.width && control.height && control.left < x + size && control.right > x)
+        let y = next.y - MORI_FOOT.y * MORI_ART_SCALE
+        const minimum = Math.max(rect.top + 8, 8)
+        controls.sort((a, b) => b.bottom - a.bottom)
+        for (const control of controls) {
+          if (control.top < y + artHeight && control.bottom > y) y = control.top - artHeight - 4
+        }
+        if (y >= minimum) dockPosition = { x: next.x - width / 2, y }
+      }
       setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
     }
     const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
@@ -115,7 +129,10 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       if (paper) resize?.observe(paper)
       place()
     }
-    const mutation = new MutationObserver(findPaper)
+    const mutation = new MutationObserver((records) => {
+      if (!paper?.isConnected) findPaper()
+      else if (records.some(({ target }) => paper?.contains(target))) place()
+    })
     const root = character.current?.closest('.mori-pet-root')?.parentElement
     if (root) mutation.observe(root, { childList: true, subtree: true })
     findPaper()
@@ -127,7 +144,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       window.removeEventListener('scroll', place)
       window.removeEventListener('resize', place)
     }
-  }, [location.pathname, singleLayout, width])
+  }, [location.pathname, singleLayout, size, width])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
   useEffect(() => { if (keepOpen) setOpen(true); else setOpen(false) }, [location.pathname, keepOpen])
   useEffect(() => {
@@ -209,7 +226,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       },
     })
   }, [size])
-  useLayoutEffect(() => { if (open) heading.current?.focus() }, [open])
+  useLayoutEffect(() => { if (open) heading.current?.focus({ preventScroll: true }) }, [open])
   useLayoutEffect(() => {
     if (!focusAfterVisibilityChange.current) return
     focusAfterVisibilityChange.current = false
@@ -332,7 +349,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
       <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
-        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined}
+        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined} tabIndex={pageTurn ? -1 : undefined}
           onClick={(event) => {
             if (pageTurn) { event.preventDefault(); return }
             if (suppressClick.current) {
