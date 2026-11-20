@@ -85,7 +85,8 @@ includes prompt text, notes, tokens, or stack traces. Validation errors may add 
 | 413  | `INPUT_TOO_LARGE`      | `notes` > 10,000 chars, or body > 128 KiB | no |
 | 415  | `UNSUPPORTED_MEDIA_TYPE` | An explicit request content type is not `application/json` | no |
 | 429  | `QUOTA_EXCEEDED`       | Daily per-user AI limit reached (AI-17) | seconds until the UTC reset, up to `86400` |
-| 429  | `AI_REQUEST_RATE_LIMITED` | Five combined AI operations were already admitted in the current per-user 60-second window | seconds until that window resets, `1`–`60` |
+| 429  | `AI_REQUEST_RATE_LIMITED` | Per-account short-window limit reached | seconds until that window resets, `1`–`60` |
+| 429  | `AI_CAPACITY_EXCEEDED` | Shared Gemini project/model ceiling reached | seconds until all blocking windows allow another attempt |
 | 422  | `AI_CONTEXT_TOO_LARGE` | Assembled saved-recipe prompt context exceeds 64 KiB | no |
 | 429  | `AI_RATE_LIMITED`      | Gemini returned `429` | provider cooldown (rounded up and clamped to 1–3,600 seconds), else `30` |
 | 502  | `AI_OUTPUT_INVALID`    | Model output failed schema validation (AI-10) | no |
@@ -110,18 +111,35 @@ cooldown was longer than the adapter's 5-second budget. The client should honor
 `Retry-After`: the provider's cooldown rounded up to whole seconds and clamped to
 1–3,600 seconds, or `30` seconds when no usable cooldown is available.
 
-The two `429`s have different horizons. `AI_RATE_LIMITED` is a provider cooldown and is
+`AI_RATE_LIMITED` is a provider cooldown and is
 capped at **3,600 seconds**. `QUOTA_EXCEEDED` is a daily reset and is **not** capped at an
 hour: it reports the real seconds until 00:00 UTC (up to `86400`). A client that retries a
 daily-quota `429` after an hour will simply be rejected again.
 
-The same locked per-user daily row also carries a five-request fixed window measured
-from the first admitted call, then reset after 60 seconds. The service-role RPC
-serializes reservations by user and preserves the active window when UTC usage rows roll over. A blocked request returns
-`429 AI_REQUEST_RATE_LIMITED` with a bounded `Retry-After`; unavailable quota state
-continues to fail closed. Short-window slots are not refunded on provider failures
-or the pre-provider 422 context-size rejection; that rejection rolls back only the
-daily reservation. The active window carries across UTC usage-row rollovers.
+Set `AI_ACCOUNT_BURST_LIMIT=3` to admit three combined operations across Quick AI
+Entry and AI Chef in a rolling 60-second window. An unset override retains the
+original five-operation fixed window. Both guard paths serialize admission by
+account and carry the active window across midnight UTC. The response is
+`429 AI_REQUEST_RATE_LIMITED` with `Retry-After` of 1–60 seconds. A daily refund
+leaves the short-window admission charged.
+
+### Shared Gemini capacity
+
+Set `AI_GEMINI_QUOTA_PROJECT` to the Google Cloud project that owns the deployed
+Gemini API key and set either or both of `AI_GEMINI_QUOTA_RPM` and
+`AI_GEMINI_QUOTA_RPD` to positive integer ceilings. Keep the same project value
+across deployments that share a Gemini quota and this quota database. Leave both
+ceilings unset to keep shared admission disabled.
+
+The database checks capacity atomically per project and model before dispatch,
+including every retry. The minute limit uses a rolling 60-second window. The
+daily limit resets at midnight Pacific, including daylight saving transitions.
+A capacity denial returns `AI_CAPACITY_EXCEEDED` with the cooldown for all
+blocking limits. A quota store or configuration failure returns `QUOTA_UNAVAILABLE`.
+If an operation has had no potentially consuming Gemini attempt, the endpoint
+refunds its daily reservation. An earlier potentially consuming attempt keeps the
+daily charge even when a retry is denied.
+
 AI prompt input is capped at 64 KiB after server-side context assembly. Gemini
 output is limited to 8,192 tokens, and accepted extraction/generation JSON is at
 most 8 KiB. Oversized saved-recipe context is rejected before provider dispatch and
@@ -132,11 +150,8 @@ candidate RPC measures their aggregate JSON size and returns no bodies above
 64 KiB. This bounds candidate loading before prompt assembly; an oversized set
 uses the same `422 AI_CONTEXT_TOO_LARGE` response.
 
-Apply migrations `20261114000018_bounded_chef_candidate_retrieval.sql` and
-`20261114000019_ai_short_window_rate_limit.sql` through the normal non-production
-validation and deployment workflow before deploying these handlers.
-The short-window guard requires no new environment setting; `AI_DAILY_LIMIT` retains
-its existing behavior.
+Apply the bounded Chef retrieval and AI rate-limit migrations through the normal
+non-production validation and deployment workflow before deploying these handlers.
 
 ### Quota (AI-17)
 
@@ -146,7 +161,7 @@ user's ID to `consume_ai_quota` through a separate backend service-role client.
 The procedure creates the current UTC day's usage row if needed, locks it, and
 atomically checks and increments its counter while creating a reservation.
 The limit is `AI_DAILY_LIMIT` (default **20**; blank, non-numeric, unsafe integer,
-or `< 1` values fall back to 20). Extraction and generation share this daily allowance.
+or `< 1` values fall back to 20). Extraction and generation share this daily allowance. Set `AI_DAILY_LIMIT=10` for the beta deployment.
 An exhausted allowance returns `429 QUOTA_EXCEEDED`; unavailable quota configuration,
 failed consumption, or a replayed reservation fails closed as `503 QUOTA_UNAVAILABLE`.
 The caller-scoped client retains RLS restrictions and cannot mutate quota records.
