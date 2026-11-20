@@ -79,20 +79,23 @@ export function normalizeRequired(requirement, checks) {
   return state === 'PASS' && requirement.integrationUnverified ? 'PASS (fallback; integration unverified)' : state;
 }
 
+const STAGING_CALLER = 'Modular Staging';
+const STAGING_DEPLOY = 'Modular Staging / Staging Deploy';
+const STAGING_SMOKE = 'Modular Staging / Staging Smoke';
+
 export const GATES = [
   ['Frontend', 'Modular PR Validation', 'Modular Frontend / Frontend Checks'],
   ['Database', 'Modular PR Validation', 'Modular Database / Database Tests'],
   ['Edge/API', 'Modular PR Validation', 'Modular Edge/API / Edge/API Tests'],
   ['Hosted RLS', 'Modular PR Validation', 'Modular Edge/API / Hosted RLS Integration'],
   ['E2E (non-gating)', 'Modular PR Validation', 'Modular E2E / Playwright E2E Tests'],
-  ['Staging deploy', 'Modular PR Validation', 'Modular Staging / Staging Deploy'],
-  ['Staging smoke', 'Modular PR Validation', 'Modular Staging / Staging Smoke'],
+  ['Staging deploy', 'Modular PR Validation', STAGING_DEPLOY],
+  ['Staging smoke', 'Modular PR Validation', STAGING_SMOKE],
   ['Production deploy', 'Modular Main Validation', 'Modular Main Production / Deploy to Supabase and Cloudflare'],
 ];
 
 function gateChecks(checks, workflow, name) {
   const aliases = [name];
-  if (name.startsWith('Modular Staging / ')) aliases.push('Modular Staging');
   if (name.startsWith('Modular E2E / ')) aliases.push('Modular E2E');
   return checks.filter(c => aliases.includes(c.name) && (!c.workflow || c.workflow === workflow) &&
     (!c.app || c.app.slug === 'github-actions') && !c.context);
@@ -175,17 +178,31 @@ export function summarize(data) {
   const ownership = classify(paths);
   const rabbit = codeRabbit(data, pr.head.sha, paths);
   const attention = [];
+  const stagingDeploy = gateChecks(checks, WORKFLOWS[0], STAGING_DEPLOY)[0];
+  const stagingSmoke = gateChecks(checks, WORKFLOWS[0], STAGING_SMOKE)[0];
+  const stagingCaller = gateChecks(checks, WORKFLOWS[0], STAGING_CALLER)[0];
+  const skippedStagingCaller = !stagingDeploy && !stagingSmoke &&
+    stagingCaller?.status === 'completed' && stagingCaller.conclusion === 'skipped' ? stagingCaller : undefined;
+  if (stagingCaller?.status === 'completed' && normalize(stagingCaller) === 'FAIL') {
+    attention.push('Staging caller: FAIL (inspect workflow execution)');
+  }
   const rows = GATES.map(([label, workflow, name]) => {
+    const staging = name === STAGING_DEPLOY || name === STAGING_SMOKE;
     const evidence = gateChecks(checks, workflow, name);
     const unexpectedProduction = label === 'Production deploy' ? evidence.find(c =>
       !(c.status === 'completed' && c.conclusion === 'skipped')) : undefined;
-    const check = unexpectedProduction ?? evidence[0];
-    const staging = label.startsWith('Staging');
-    const expectedSkip = label === 'Production deploy' || (staging && !stagingEligible(pr, repository)) ||
-      ((staging || label === 'E2E (non-gating)') && docsOnlySkip(checks, check)) ||
+    const check = staging ? (evidence[0]?.status ? evidence[0] : skippedStagingCaller) : unexpectedProduction ?? evidence[0];
+    const expectedSkip = label === 'Production deploy' ||
+      (staging && skippedStagingCaller && (!stagingEligible(pr, repository) || docsOnlySkip(checks, skippedStagingCaller))) ||
+      (label === 'E2E (non-gating)' && docsOnlySkip(checks, check)) ||
       label === 'Hosted RLS';
     const applicable = pr.base.ref === 'main';
-    const state = normalize(check, { expectedSkip, applicable });
+    let state = normalize(check, { expectedSkip, applicable });
+    if (name === STAGING_SMOKE && state === 'SKIPPED — INVESTIGATE' &&
+      Number.isSafeInteger(check.run_id) && stagingDeploy?.run_id === check.run_id &&
+      Number.isSafeInteger(check.run_attempt) &&
+      stagingDeploy.run_attempt === check.run_attempt && stagingDeploy.status === 'completed' &&
+      normalize(stagingDeploy) === 'FAIL') state = 'SKIPPED — DEPLOY FAILED';
     if (state === 'SKIPPED — INVESTIGATE') attention.push(`${label}: unexpected skip${staging ? ' (check upstream validation and staging eligibility)' : ''}`);
     if (unexpectedProduction) {
       attention.push('Production deploy: observed PR job is not completed/skipped; inspect immediately');
@@ -427,8 +444,9 @@ export async function collect(api, number, repository) {
     const jobs = await api.list(`${api.root}/actions/runs/${run.id}/jobs?filter=latest`, 'jobs');
     return Promise.all(jobs.map(async job => ({ ...job, workflow: run.name, app: await jobApp(api, job, checkRuns) })));
   }))).flat();
-  const namesForActiveRuns = new Set(GATES.filter(g => newest.some(r => r.name === g[1])).map(g => g[2]));
-  if (newest.some(r => r.name === 'Modular PR Validation')) namesForActiveRuns.add('Modular Staging');
+  // Staging rows must come from the selected run; head-SHA checks can mix runs.
+  const namesForActiveRuns = new Set([STAGING_CALLER, STAGING_DEPLOY, STAGING_SMOKE,
+    ...GATES.filter(g => newest.some(r => r.name === g[1])).map(g => g[2])]);
   if (newest.some(r => r.name === 'Modular PR Validation')) namesForActiveRuns.add('Modular E2E');
   const checks = [...runChecks, ...checkRuns.filter(c => !namesForActiveRuns.has(c.name)),
     ...statuses.filter((c, i, all) => all.findIndex(s => s.context === c.context) === i).map(c => ({ ...c, name: c.context }))];

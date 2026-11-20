@@ -191,6 +191,7 @@ No Actions integration ID is hard-coded into the runtime policy.
 | FAIL | Failure/error, timeout, startup failure, or action required. |
 | RUNNING | Queued, pending, waiting, requested, or in progress. |
 | SKIPPED — EXPECTED | Observed skip explained by a known PR condition below. |
+| SKIPPED — DEPLOY FAILED | Staging smoke skipped after a concrete deployment job failed in the same run and attempt. |
 | SKIPPED — INVESTIGATE | Observed skip without a known eligibility explanation; inspect upstream dependencies too. |
 | NOT RUN | No matching evidence for an applicable gate. It is not a failure or a pass. |
 | NOT REQUIRED | No evidence and gate not applicable to the base branch. It does not claim GitHub enforcement state. |
@@ -211,13 +212,17 @@ Expected skips follow the inspected existing workflows:
   including queued, requested, waiting, in progress, success, failure, cancelled,
   or incomplete conclusion data. Absence is NOT RUN. Validation never establishes
   production execution or success.
-- **Staging:** `modular-pr-validation.yml` requires a non-draft PR whose head
-  repository matches this repository, plus successful frontend/database/Edge
-  dependencies. Draft/fork skips are expected; author-association labels do
-  not affect eligibility. Restricted repository write access is the trust
-  boundary for same-repository staging branches. An otherwise eligible PR's
-  skip is investigated, with an upstream-check reminder; the Secretary does
-  not invent credential or deployment evidence.
+- **Staging.** The caller requires a non-draft, same-repository PR, a
+  non-Dependabot author, successful frontend/database/Edge checks, and no
+  cancellation or verified docs-only skip. The reported author is the PR's
+  author, even after a human rerun. A completed skip of the staging caller is
+  expected for Dependabot, drafts, forks, or a verified docs-only decision
+  from the same run. Other caller skips warrant investigation.
+  Concrete deploy and smoke results take precedence. A failed deploy stays
+  `FAIL`, and a skipped smoke job is `SKIPPED — DEPLOY FAILED` only when the
+  deployment failure is from the same run and attempt. Missing job evidence
+  displays `NOT RUN`. Each staging `PASS` requires its own completed job.
+  Staging evidence comes from the latest matched PR validation run.
 - **Hosted RLS:** `Modular Edge/API / Hosted RLS Integration` is a separate
   main-only job, enabled by the main caller's mandatory input. An observed skip
   is expected on both internal and fork PRs. Missing main hosted credentials fail
