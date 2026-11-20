@@ -10,6 +10,7 @@ import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
 import { useMoriCompanionState } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
+import { travelToJournalTab } from './moriNavigationMotion'
 import './mori-companion.css'
 
 const navigationTapSize = 48
@@ -52,6 +53,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
+  const [traveling, setTraveling] = useState(false)
   const [dock, setDock] = useState<Position | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
@@ -60,6 +62,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
+  const stopNavigationTravel = useRef<(() => void) | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const showButton = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -87,6 +90,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
 
+  useEffect(() => () => stopNavigationTravel.current?.(), [])
   useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)) } catch { /* Storage may be unavailable in private browsing. */ }
@@ -163,8 +167,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     return registerTurnCompanion({
       startSpatial() {
         const button = trigger.current
-        if (!button || element.closest('[hidden]')) return null
-        const rect = button.getBoundingClientRect()
+        const rect = button?.getBoundingClientRect()
+        stopNavigationTravel.current?.()
+        if (!rect || element.closest('[hidden]')) return null
         if (rect.width === 0) return null
         element.dataset.moriSpatialTurn = ''
         setPageTurn(true)
@@ -180,6 +185,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         }
       },
       start(direction, single) {
+        stopNavigationTravel.current?.()
         element.dataset.turnDirection = direction
         svg.style.transform = 'none'
         const rect = element.getBoundingClientRect()
@@ -271,6 +277,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
 
   async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
     if (document.hidden) return
+    stopNavigationTravel.current?.()
     // Let the acknowledgment or the closing dialog paint before measuring the anchor.
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
     const anchor = findAnchor()
@@ -315,6 +322,21 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     }
   }
 
+  async function playNavigationTravel(findTab: () => HTMLElement | null, signal: AbortSignal) {
+    const element = character.current
+    const button = trigger.current
+    if (signal.aborted || element?.dataset.turnDirection || element?.hasAttribute('data-mori-spatial-turn')) return false
+    if (!element || !button) return true
+    if (stopNavigationTravel.current) return false
+    setTraveling(true)
+    const travel = travelToJournalTab({ character: element, trigger: button, findTab, signal, onSettled() {
+      stopNavigationTravel.current = null
+      setTraveling(false)
+    } })
+    stopNavigationTravel.current = travel.cancel
+    return travel.arrived
+  }
+
   function close() { setOpen(false); trigger.current?.focus() }
   function show() {
     focusAfterVisibilityChange.current = true
@@ -326,7 +348,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (description) setMoved(description)
   }
   function moveKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (pageTurn) return
+    if (pageTurn || traveling) return
     const directions: Record<string, [number, number, string]> = { ArrowLeft: [-16, 0, 'left'], ArrowRight: [16, 0, 'right'], ArrowUp: [0, -16, 'up'], ArrowDown: [0, 16, 'down'] }
     const direction = directions[event.key]
     if (!direction) return
@@ -337,6 +359,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     left: actual.x,
     top: actual.y,
     width,
+    '--mori-navigation-width': `${size}px`,
   } as CSSProperties
   return <>
   <div className="mori-pet-root">
@@ -345,9 +368,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
       <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
-        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined} tabIndex={pageTurn ? -1 : undefined}
+        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn || traveling ? 'true' : undefined} tabIndex={pageTurn || traveling ? -1 : undefined}
           onClick={(event) => {
-            if (pageTurn) { event.preventDefault(); return }
+            if (pageTurn || traveling) { event.preventDefault(); return }
             if (suppressClick.current) {
               suppressClick.current = false
               if (event.detail !== 0) { event.preventDefault(); return }
@@ -357,7 +380,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           }}
           onKeyDown={moveKey}
           onPointerDown={(event) => {
-            if (pageTurn || event.button !== 0 || !event.isPrimary) return
+            if (pageTurn || traveling || event.button !== 0 || !event.isPrimary) return
             drag.current = { pointerId: event.pointerId, x: event.clientX - actual.x, y: event.clientY - actual.y, startX: event.clientX, startY: event.clientY, moved: false }
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
@@ -389,7 +412,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)

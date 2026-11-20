@@ -405,6 +405,27 @@ it('keeps Mori and the conversation open across its own route navigation', async
   expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
 })
 
+it('waits for Mori to arrive at the actual journal bookmark before navigating', async () => {
+  render(<MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider>
+    <div className="mm-journal-book"><div className="mm-journal-spread"><nav className="mm-bookmarks--journal">
+      <a href="/app/recipes/new">New recipe</a>
+    </nav></div></div>
+    <MoriCompanion userId="mori-chat-travel" /><Location />
+  </MoriCompanionProvider></MemoryRouter>)
+  const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
+  const tab = screen.getByRole('link', { name: 'New recipe' })
+  vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(600, 450, 96, 115.2))
+  vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(886, 200, 70, 40))
+  fireEvent.click(trigger)
+  fireEvent.click(screen.getByRole('button', { name: 'Open recipe editor' }))
+
+  await waitFor(() => expect(tab.hasAttribute('data-mori-tap-target')).toBe(true))
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
+  expect(screen.getByRole('button', { name: 'Open recipes' })).toHaveProperty('disabled', true)
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new|'))
+  expect(tab.hasAttribute('data-mori-tap-target')).toBe(false)
+})
+
 it('opens an existing AI Chef review instead of targeting its disabled pantry field', async () => {
   const userId = 'mori-chat-existing-chef'
   writeChefDraft(userId, {
