@@ -96,5 +96,35 @@ class RestoreRoleProbeTests(unittest.TestCase):
         self.assertNotIn("customer", output)
 
 
+    def test_workflow_stdout_guards_use_actual_bash_regex(self):
+        """Fail closed on extra text or injected newlines for all public fields."""
+        import re
+        import subprocess
+        workflow = (Path(__file__).resolve().parents[1]
+                    / ".github/workflows/database-restore-role-diagnostic.yml").read_text()
+        fixtures = (
+            ("counts",
+             "doc_grant=1 owner_table=2 owner_function=3 owner_other=0",
+             "doc_grant=1 owner_table=2 owner_function=3 owner_other=0\nsecret"),
+            ("flags", "0|1|0|0|1", "0|1|0|0|1 extra"),
+            ("observed",
+             "replay=failed category=insufficient-privilege verb=grant doc_grant=true prefix_pass=false",
+             "replay=failed category=insufficient-privilege verb=grant doc_grant=true prefix_pass=false\nprivate"),
+        )
+        for variable, accepted, rejected in fixtures:
+            with self.subTest(variable=variable):
+                pattern = re.search(
+                    r'(?m)^\s*if \[\[ ! "\$' + variable
+                    + r'" =~ (.+) \]\]; then$', workflow)
+                self.assertIsNotNone(pattern)
+                for value, want in ((accepted, True), (rejected, False)):
+                    command = '[[ "$1" =~ ' + pattern.group(1) + ' ]]'
+                    proc = subprocess.run(
+                        ["bash", "-c", command, "test", value],
+                        capture_output=True, check=False)
+                    self.assertEqual(proc.returncode == 0, want)
+
+
+
 if __name__ == "__main__":
     unittest.main()

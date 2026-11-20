@@ -38,6 +38,10 @@ jobs:
         shell: bash
         run: python3 -m unittest discover -s scripts -p 'test_restore_role_probe.py'
 
+      - name: Check synthetic shell syntax (offline)
+        shell: bash
+        run: bash -n scripts/test_database_restore_synthetic.sh
+
       - name: Exercise synthetic transactional restore and rollback
         shell: bash
         run: bash scripts/test_database_restore_synthetic.sh

@@ -305,31 +305,7 @@ if "${client[@]}" psql -X -q -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate \
   -c 'BEGIN; CREATE TABLE public.devops_owner_probe (id integer); ALTER TABLE public.devops_owner_probe OWNER TO supabase_admin; ROLLBACK;' \
   -d "$local_db" > "$root/owner-probe.out" 2> "$root/owner-probe.err"; then
   echo 'Synthetic ALTER TABLE OWNER TO supabase_admin: permitted.'
-elif grep -Eq '^ERROR:  42501
-restore > "$root/positive.log" 2> "$root/positive.stderr" || {
-  echo '::error::Synthetic restore failed; synthetic-only SQL log kept off Actions output'
-  exit 1
-}
-
-counts="$("${client[@]}" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 \
-  -c "SELECT
-         (SELECT count(*) FROM public.profiles),
-         (SELECT count(*) FROM public.recipes),
-         (SELECT count(*) FROM public.recipe_lineage),
-         (SELECT count(*) FROM public.ai_usage_daily),
-         (SELECT count(*) FROM public.ai_quota_reservations),
-         (SELECT count(*) FROM devops_restore_synthetic.schema_migrations),
-         (SELECT string_agg(version, ',' ORDER BY version)
-          FROM devops_restore_synthetic.schema_migrations)" \
-  -d "$local_db")"
-[[ "$counts" == '1|1|1|1|1|2|20261114000000,20261114000001' ]] || {
-  echo '::error::Synthetic application counts or migration versions differ from fixtures'
-  exit 1
-}
-echo 'Five synthetic application counts and two migration versions verified.'
-echo 'Component hints are untrusted evidence; identical forged records cannot be authenticated.'
-echo 'Synthetic compatibility probe passed. No private archive or managed-schema compatibility is claimed.'
- "$root/owner-probe.err"; then
+elif grep -Eq '^ERROR:  42501$' "$root/owner-probe.err"; then
   echo 'Synthetic ALTER TABLE OWNER TO supabase_admin: insufficient privilege.'
 else
   echo '::error::Unexpected synthetic ownership probe category; output suppressed'
