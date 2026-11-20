@@ -239,8 +239,13 @@ runtime settings in Supabase. A working route with an authenticated
    permits the frontend origin.
 2. Verify the quota, bounded Chef retrieval, and short-window rate-limit migrations
    (`20261031000007`, `20261114000018`, `20261114000019`) are applied. Confirm the
-   backend has its Gemini key, configured daily quota, and Chef candidate token
-   secret. Production database migrations are operated separately.
+   backend has its Gemini key and Chef candidate token secret. Set the shared
+   runtime environment for both AI endpoints to ten logical operations per account
+   per UTC day. Production database migrations are operated separately.
+
+   ```sh
+   supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" AI_DAILY_LIMIT=10
+   ```
 3. Restore both opt-ins if they are missing. An active `AI_EXTRACT_DISABLED` or
    `AI_GENERATE_DISABLED` takes precedence. Use the kill switches for an
    intentional pause and inspect their operational status before restoring service.
