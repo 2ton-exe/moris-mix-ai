@@ -38,6 +38,79 @@ CATEGORY = {b"42501": "insufficient-privilege",
 VERBS = {b"ALTER ROLE ": "alter-role",
          b"CREATE ROLE ": "create-role"}
 
+PARAMETER_GRANT_TYPE = "parameter-grant"
+MEMBERSHIP_GRANT_TYPE = "role-membership-grant"
+UNKNOWN_GRANT_TYPE = "other-or-unknown"
+
+# PostgreSQL 17 kwlist.h. Parameter components are ColId, which excludes
+# reserved and type/function keywords. Role names allow the latter.
+RESERVED_WORDS = b"""
+all analyse analyze and any array as asc asymmetric both case cast check
+collate column constraint create current_catalog current_date current_role
+current_time current_timestamp current_user default deferrable desc distinct
+do else end except false fetch for foreign from grant group having in initially
+intersect into lateral leading limit localtime localtimestamp not null offset
+on only or order placing primary references returning select session_user some
+symmetric system_user table then to trailing true union unique user using
+variadic when where window with
+""".split()
+TYPE_FUNCTION_WORDS = b"""
+authorization binary collation concurrently cross current_schema freeze full
+ilike inner is isnull join left like natural notnull outer overlaps right
+similar tablesample verbose
+""".split()
+
+
+def identifier_excluding(words: list[bytes]) -> bytes:
+    """Match a quoted identifier or an unquoted word outside the exclusions."""
+    return rb"(?!(?:" + b"|".join(words) + rb")(?![a-z0-9_$]))" + IDENTIFIER
+
+
+SQL_SPACE = rb"[ \t\f\v]"
+SQL_SEPARATOR = SQL_SPACE + rb"+"
+SQL_COMMA = SQL_SPACE + rb"*," + SQL_SPACE + rb"*"
+BEFORE_IDENTIFIER = rb"(?:" + SQL_SEPARATOR + rb'|(?="))'
+AFTER_IDENTIFIER = rb"(?:" + SQL_SEPARATOR + rb'|(?<="))'
+PARAMETER_COMPONENT = identifier_excluding(RESERVED_WORDS + TYPE_FUNCTION_WORDS)
+PARAMETER_NAME = (
+    PARAMETER_COMPONENT + rb"(?:" + SQL_SPACE + rb"*\." + SQL_SPACE
+    + rb"*" + PARAMETER_COMPONENT + rb")*"
+)
+ROLE_NAME = rb'(?!(?-i:"none"))' + identifier_excluding(
+    RESERVED_WORDS + [b"none", b"public"]
+)
+ROLE_SPEC = rb"(?:CURRENT_ROLE|CURRENT_USER|SESSION_USER|" + ROLE_NAME + rb")"
+GRANTEE = rb"(?:GROUP" + BEFORE_IDENTIFIER + ROLE_NAME + rb"|PUBLIC|" + ROLE_SPEC + rb")"
+PARAMETER_PRIVILEGE = rb"(?:SET|ALTER" + SQL_SEPARATOR + rb"SYSTEM)"
+PARAMETER_GRANT = re.compile(
+    rb"GRANT" + SQL_SEPARATOR
+    + rb"(?:ALL(?:" + SQL_SEPARATOR + rb"PRIVILEGES)?|" + PARAMETER_PRIVILEGE
+    + rb"(?:" + SQL_COMMA + PARAMETER_PRIVILEGE + rb")*)"
+    + SQL_SEPARATOR + rb"ON" + SQL_SEPARATOR + rb"PARAMETER" + BEFORE_IDENTIFIER
+    + PARAMETER_NAME + rb"(?:" + SQL_COMMA + PARAMETER_NAME + rb")*"
+    + AFTER_IDENTIFIER + rb"TO" + BEFORE_IDENTIFIER
+    + rb"(?P<grantees>" + GRANTEE + rb"(?:" + SQL_COMMA + GRANTEE + rb")*)"
+    + rb"(?P<grant_option>" + AFTER_IDENTIFIER + rb"WITH" + SQL_SEPARATOR
+    + rb"GRANT" + SQL_SEPARATOR + rb"OPTION)?"
+    + rb"(?:" + AFTER_IDENTIFIER + rb"GRANTED" + SQL_SEPARATOR + rb"BY"
+    + BEFORE_IDENTIFIER + ROLE_SPEC + rb")?"
+    + SQL_SPACE + rb"*;",
+    re.IGNORECASE,
+)
+PUBLIC_KEYWORD = re.compile(rb"public", re.IGNORECASE)
+
+
+def is_parameter_grant(candidate: bytes) -> bool:
+    match = PARAMETER_GRANT.fullmatch(candidate)
+    if match is None:
+        return False
+    # Apply the PUBLIC keyword check to unquoted tokens only.
+    return not (match["grant_option"] and any(
+        PUBLIC_KEYWORD.fullmatch(name.group())
+        for name in re.finditer(IDENTIFIER, match["grantees"])
+    ))
+
+
 # Only complete single-line role membership GRANTs with an actual GRANTED BY
 # clause count. Reject keyword lookalikes inside quoted role names or comments.
 GRANTOR_SUFFIX = re.compile(rb" GRANTED BY " + IDENTIFIER + rb";$")
@@ -114,50 +187,55 @@ def counts(roles: Path, schema: Path) -> str:
 
 
 def result(stderr: bytes, roles: Path, exit_code: int) -> str:
+    unknown = f"membership=unknown grant_type={UNKNOWN_GRANT_TYPE}"
     if exit_code == 0:
         return ("replay=passed category=unknown verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown membership=unknown")
+                f"doc_grant=unknown prefix_pass=unknown {unknown}")
     fields = ("replay=failed category=unknown verb=unknown "
-              "doc_grant=unknown prefix_pass=unknown membership=unknown")
+              f"doc_grant=unknown prefix_pass=unknown {unknown}")
     error = _accepted_error(stderr, exit_code)
     if not error or error[0] != "roles.sql":
         return fields
     _, lineno, sqlstate = error
     category = CATEGORY.get(sqlstate, "unknown")
+    unattributed = f"replay=failed category={category} verb=unknown doc_grant=unknown"
     if not (1 <= lineno <= MAX_ROLE_SCAN_LINES):
-        return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown membership=unknown")
+        return f"{unattributed} prefix_pass=unknown {unknown}"
     try:
         lines = bounded_lines(roles)
     except (OSError, ValueError):
-        return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown membership=unknown")
+        return f"{unattributed} prefix_pass=unknown {unknown}"
     if lineno > len(lines):
-        return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=unknown membership=unknown")
+        return f"{unattributed} prefix_pass=unknown {unknown}"
     prefix_ok = all(_safe_prefix_line(line) for line in lines[:lineno - 1])
     if not prefix_ok:
-        return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=false membership=unknown")
+        return f"{unattributed} prefix_pass=false {unknown}"
     candidate = lines[lineno - 1].strip(b" \t")
+    sql = candidate.strip(b"\f\v \t")
     # The line must itself be a complete, standalone executable SQL statement.
     # A line reported at the end of multi-line SQL cannot be attributed safely.
-    if (not candidate or candidate.startswith((b"--", b"\\"))
-            or not _safe_prefix_line(candidate)):
-        return (f"replay=failed category={category} verb=unknown "
-                "doc_grant=unknown prefix_pass=false membership=unknown")
+    if not sql or sql.startswith((b"--", b"\\")) or not _safe_prefix_line(sql):
+        return f"{unattributed} prefix_pass=false {unknown}"
     # Match the SQL keyword independently of the strict membership grammar.
     # PostgreSQL accepts non-newline whitespace and adjacent quoted identifiers.
     # Reject longer unquoted tokens (GRANTED, GRANT_role, GRANT$foo).
-    verb = ("grant" if re.match(rb'(?i)^GRANT(?=[ \t\v\f"])', candidate)
+    verb = ("grant" if re.match(rb'(?i)^GRANT(?=[ \t\v\f"])', sql)
             else next((label for prefix, label in VERBS.items()
                        if candidate.startswith(prefix)), "other"))
     documented = "true" if candidate == DOCUMENTED_GRANT else "false"
     # A structural match does not authenticate the stderr or prove root cause.
-    membership = ("match" if ROLE_MEMBERSHIP_GRANT.fullmatch(candidate)
-                  else "unclassified") if verb == "grant" else "not-applicable"
+    grant_type = UNKNOWN_GRANT_TYPE
+    membership = "not-applicable"
+    if verb == "grant":
+        membership = "unclassified"
+        if ROLE_MEMBERSHIP_GRANT.fullmatch(candidate):
+            membership = "match"
+            grant_type = MEMBERSHIP_GRANT_TYPE
+        elif is_parameter_grant(sql):
+            grant_type = PARAMETER_GRANT_TYPE
     return (f"replay=failed category={category} verb={verb} "
-            f"doc_grant={documented} prefix_pass=true membership={membership}")
+            f"doc_grant={documented} prefix_pass=true membership={membership} "
+            f"grant_type={grant_type}")
 
 
 
@@ -175,7 +253,8 @@ RESULT_RECORD = re.compile(
     rb"category=(insufficient-privilege|undefined-object|duplicate-object|unknown) "
     rb"verb=(grant|alter-role|create-role|other|unknown) "
     rb"doc_grant=(true|false|unknown) prefix_pass=(true|false|unknown) "
-    rb"membership=(match|unclassified|not-applicable|unknown)\n"
+    rb"membership=(match|unclassified|not-applicable|unknown) "
+    rb"grant_type=(parameter-grant|role-membership-grant|other-or-unknown)\n"
 )
 
 
@@ -206,12 +285,13 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
         raise ValueError("invalid count record")
     fm = checked_record(flag_path, FLAG_RECORD)
     rm = checked_record(result_path, RESULT_RECORD)
-    replay, category, verb, documented, prefix, membership = (
+    replay, category, verb, documented, prefix, membership, grant_type = (
         field.decode("ascii") for field in rm.groups()
     )
     if exit_code == 0:
-        if (replay, category, verb, documented, prefix, membership) != (
-                "passed", "unknown", "unknown", "unknown", "unknown", "unknown"):
+        if (replay, category, verb, documented, prefix, membership, grant_type) != (
+                "passed", "unknown", "unknown", "unknown", "unknown", "unknown",
+                UNKNOWN_GRANT_TYPE):
             raise ValueError("contradictory success diagnostic")
     else:
         if replay != "failed":
@@ -231,6 +311,12 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
                 (verb == "grant" and membership not in ("match", "unclassified"))
                 or (verb != "grant" and membership != "not-applicable")):
             raise ValueError("contradictory membership classification")
+        if (membership == "match") != (grant_type == MEMBERSHIP_GRANT_TYPE):
+            raise ValueError("contradictory membership grant type")
+        if grant_type == PARAMETER_GRANT_TYPE and (
+                prefix, verb, documented, membership) != (
+                "true", "grant", "false", "unclassified"):
+            raise ValueError("contradictory parameter grant type")
     if cm and int(cm.group(1)) > int(cm.group(2)):
         raise ValueError("inconsistent diagnostic candidate counts")
     numbers = [str(int(field)) for field in cm.groups()] if cm else []
@@ -242,7 +328,8 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
             + " createdb=" + flags[2] + " bypassrls=" + flags[3]
             + " inherit=" + flags[4])
     observed = (f"replay={replay} category={category} verb={verb} "
-                f"doc_grant={documented} prefix_pass={prefix} membership={membership}")
+                f"doc_grant={documented} prefix_pass={prefix} membership={membership} "
+                f"grant_type={grant_type}")
     # Fully build the safe output before any publication. No raw bytes are copied.
     summary = (
         "### Role-only diagnostic (NOT recovery evidence)\n"

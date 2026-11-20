@@ -9,6 +9,7 @@ from restore_role_probe import (
 
 ERROR1 = b"psql:/backup/roles.sql:1: ERROR:  42501\n"
 ERROR2 = b"psql:/backup/roles.sql:2: ERROR:  42501\n"
+PARAMETER_SQL = b'GRANT SET ON PARAMETER "synthetic.setting" TO "synthetic_role";'
 
 
 class RestoreRoleProbeTests(unittest.TestCase):
@@ -42,40 +43,47 @@ class RestoreRoleProbeTests(unittest.TestCase):
         self.put(DOCUMENTED_GRANT + b"\n")
         self.assertEqual(result(ERROR1, self.roles, 3),
                          "replay=failed category=insufficient-privilege "
-                         "verb=grant doc_grant=true prefix_pass=true membership=match")
+                         "verb=grant doc_grant=true prefix_pass=true membership=match "
+                         "grant_type=role-membership-grant")
 
     def test_prefix_failure_is_distinct(self):
         self.put(b"/* unsupported multiline block */\n" + DOCUMENTED_GRANT + b"\n")
         self.assertEqual(result(ERROR2, self.roles, 3),
                          "replay=failed category=insufficient-privilege "
-                         "verb=unknown doc_grant=unknown prefix_pass=false membership=unknown")
+                         "verb=unknown doc_grant=unknown prefix_pass=false membership=unknown "
+                         "grant_type=other-or-unknown")
 
     def test_multiline_failure_is_not_attributed(self):
         self.put(b"GRANT role_one\nTO role_two;\n")
         self.assertEqual(result(ERROR2, self.roles, 3),
                          "replay=failed category=insufficient-privilege "
-                         "verb=unknown doc_grant=unknown prefix_pass=false membership=unknown")
+                         "verb=unknown doc_grant=unknown prefix_pass=false membership=unknown "
+                         "grant_type=other-or-unknown")
 
     def test_comment_or_meta_line_is_not_attributed(self):
         self.put(b"-- GRANT x TO y;\n")
         self.assertEqual(result(ERROR1, self.roles, 3),
                          "replay=failed category=insufficient-privilege "
-                         "verb=unknown doc_grant=unknown prefix_pass=false membership=unknown")
+                         "verb=unknown doc_grant=unknown prefix_pass=false membership=unknown "
+                         "grant_type=other-or-unknown")
 
     def test_other_role_statement(self):
         self.put(b"ALTER ROLE example SET search_path TO public, auth;\n")
         self.assertEqual(result(ERROR1, self.roles, 3),
                          "replay=failed category=insufficient-privilege "
-                         "verb=alter-role doc_grant=false prefix_pass=true membership=not-applicable")
+                         "verb=alter-role doc_grant=false prefix_pass=true membership=not-applicable "
+                         "grant_type=other-or-unknown")
 
     def test_non_sql_error_and_success(self):
         self.put(DOCUMENTED_GRANT + b"\n")
         unknown = ("replay=failed category=unknown verb=unknown "
-                   "doc_grant=unknown prefix_pass=unknown membership=unknown")
+                   "doc_grant=unknown prefix_pass=unknown membership=unknown "
+                   "grant_type=other-or-unknown")
         self.assertEqual(result(b"secret PRIVATE SQL\n", self.roles, 3), unknown)
         self.assertEqual(result(b"", self.roles, 0),
                          "replay=passed category=unknown verb=unknown "
-                         "doc_grant=unknown prefix_pass=unknown membership=unknown")
+                         "doc_grant=unknown prefix_pass=unknown membership=unknown "
+                         "grant_type=other-or-unknown")
 
     def test_spoofed_multiple_error_is_rejected(self):
         self.put(DOCUMENTED_GRANT + b"\n")
@@ -117,7 +125,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
         count = b"doc_grant=1 grantor_candidates=2 owner_table=2 owner_function=3 owner_other=0\n"
         flags = b"0|1|0|0|1\n"
         failed = (b"replay=failed category=insufficient-privilege verb=grant "
-                  b"doc_grant=true prefix_pass=true membership=match\n")
+                  b"doc_grant=true prefix_pass=true membership=match "
+                  b"grant_type=role-membership-grant\n")
         for path, record in ((counts_path, count), (flags_path, flags),
                              (result_path, failed)):
             path.write_bytes(record)
@@ -135,11 +144,14 @@ class RestoreRoleProbeTests(unittest.TestCase):
             (result_path, failed + b"\n"),
             (result_path, failed + b"\x00"),
             (result_path, b"replay=passed category=unknown verb=unknown "
-                          b"doc_grant=unknown prefix_pass=unknown membership=unknown\n"),
+                          b"doc_grant=unknown prefix_pass=unknown membership=unknown "
+                          b"grant_type=other-or-unknown\n"),
             (result_path, b"replay=failed category=insufficient-privilege verb=grant "
-                          b"doc_grant=true prefix_pass=false membership=unknown\n"),
+                          b"doc_grant=true prefix_pass=false membership=unknown "
+                          b"grant_type=other-or-unknown\n"),
             (result_path, b"replay=failed category=insufficient-privilege verb=alter-role "
-                          b"doc_grant=true prefix_pass=true membership=not-applicable\n"),
+                          b"doc_grant=true prefix_pass=true membership=not-applicable "
+                          b"grant_type=other-or-unknown\n"),
         ]
         for path, record in bad_cases:
             with self.subTest(path=path.name, data=record[:24]):
@@ -162,7 +174,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
         flags_path.write_bytes(b"0|1|0|0|1\n")
         result_path.write_bytes(
             b"replay=passed category=unknown verb=unknown "
-            b"doc_grant=unknown prefix_pass=unknown membership=unknown\n")
+            b"doc_grant=unknown prefix_pass=unknown membership=unknown "
+            b"grant_type=other-or-unknown\n")
         publish(counts_path, flags_path, result_path, 0, summary)
         with self.assertRaises(ValueError):
             publish(counts_path, flags_path, result_path, 3, summary)
@@ -220,7 +233,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
         f.write_bytes(b"0|1|0|0|1\n")
         r.write_bytes(
             b"replay=failed category=insufficient-privilege "
-            b"verb=unknown doc_grant=unknown prefix_pass=false membership=unknown\n")
+            b"verb=unknown doc_grant=unknown prefix_pass=false membership=unknown "
+            b"grant_type=other-or-unknown\n")
         publish(c, f, r, 3, out)
         self.assertIn("counts=unavailable", out.read_text())
         with self.assertRaises(ValueError):
@@ -278,14 +292,21 @@ class RestoreRoleProbeTests(unittest.TestCase):
           esac
         }
         '''
-        for replay_exit, unavailable in ((0, False), (3, False),
-                                         (0, True), (3, True)):
-            with self.subTest(replay_exit=replay_exit, unavailable=unavailable):
-                root = self.root / f"replay-{replay_exit}-{int(unavailable)}"
+        cases = (
+            (0, False, DOCUMENTED_GRANT, "unknown", "other-or-unknown"),
+            (0, True, DOCUMENTED_GRANT, "unknown", "other-or-unknown"),
+            (3, False, DOCUMENTED_GRANT, "match", "role-membership-grant"),
+            (3, True, DOCUMENTED_GRANT, "match", "role-membership-grant"),
+            (3, False, PARAMETER_SQL, "unclassified", "parameter-grant"),
+        )
+        for index, (replay_exit, unavailable, sql, membership, grant_type) in enumerate(cases):
+            with self.subTest(replay_exit=replay_exit, unavailable=unavailable,
+                              grant_type=grant_type):
+                root = self.root / f"replay-{index}"
                 root.mkdir()
                 verified = root / "restore-verified-sql"
                 verified.mkdir()
-                (verified / "roles.sql").write_bytes(DOCUMENTED_GRANT + b"\n")
+                (verified / "roles.sql").write_bytes(sql + b"\n")
                 (verified / "schema.sql").write_bytes(
                     (b"x" * 5000 + b"\n") if unavailable
                     else b"-- synthetic schema\n")
@@ -308,14 +329,17 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 public = run.stdout.decode() + summary.read_text()
                 self.assertNotIn("PRIVATE_SYNTHETIC_MARKER", public)
                 self.assertNotIn("psql:/backup/roles.sql", public)
+                self.assertNotIn("synthetic.setting", public)
+                self.assertNotIn("synthetic_role", public)
                 self.assertIn("counts=unavailable" if unavailable else
-                              "doc_grant=1", public)
+                              f"doc_grant={int(sql == DOCUMENTED_GRANT)}", public)
                 self.assertIn("replay=failed" if replay_exit == 3 else
                               "replay=passed", public)
                 self.assertEqual("Role-only SQL replay failed" in public,
                                  replay_exit == 3)
-                self.assertIn("membership=match" if replay_exit == 3
-                              else "membership=unknown", public)
+                expected = f"membership={membership} grant_type={grant_type}"
+                self.assertIn(expected, run.stdout.decode())
+                self.assertIn(expected, summary.read_text())
 
 
     def test_failing_grant_membership_form_is_bounded(self):
@@ -332,10 +356,12 @@ class RestoreRoleProbeTests(unittest.TestCase):
             with self.subTest(form=shape):
                 self.put(sql)
                 observed = result(ERROR1, self.roles, 3)
+                grant_type = "role-membership-grant" if shape == "match" else "other-or-unknown"
                 self.assertEqual(
                     observed,
                     "replay=failed category=insufficient-privilege verb=grant "
-                    f"doc_grant=false prefix_pass=true membership={shape}")
+                    f"doc_grant=false prefix_pass=true membership={shape} "
+                    f"grant_type={grant_type}")
                 for identifier in ("role_a", "role_b", "orders", "app", "dest"):
                     self.assertNotIn(identifier, observed)
 
@@ -361,6 +387,116 @@ class RestoreRoleProbeTests(unittest.TestCase):
                     f"verb={verb} doc_grant=false prefix_pass=true "
                     f"membership={membership}", observed)
 
+    def test_parameter_grant_forms_are_classified_without_identifiers(self):
+        cases = (
+            PARAMETER_SQL,
+            b'GRANT ALTER SYSTEM ON PARAMETER synthetic.setting TO CURRENT_ROLE;',
+            b'GRANT ALL ON PARAMETER "synthetic.setting" TO PUBLIC;',
+            b'GRANT ALL PRIVILEGES ON PARAMETER "synthetic" . "setting" '
+            b'TO GROUP "synthetic_role" WITH GRANT OPTION;',
+            b'grant set, alter system on parameter synthetic.setting, "synthetic.setting" '
+            b'to session_user, "synthetic""role" with grant option granted by current_user;',
+            b'\fGrAnT\vSeT ON PaRaMeTeR"synthetic.setting"TO"synthetic_role"'
+            b'GRANTED BY"synthetic_grantor" ;\t',
+        )
+        for sql in cases:
+            with self.subTest(sql=sql):
+                self.put(sql + b"\n")
+                self.assertEqual(
+                    result(ERROR1, self.roles, 3),
+                    "replay=failed category=insufficient-privilege verb=grant "
+                    "doc_grant=false prefix_pass=true membership=unclassified "
+                    "grant_type=parameter-grant")
+
+    def test_parameter_grant_rejects_unsupported_and_malformed_syntax(self):
+        cases = (
+            b'GRANT SELECT ON PARAMETER x TO y;',
+            b'GRANT ALL, SET ON PARAMETER x TO y;',
+            b'GRANT SET ON TABLE x TO y;',
+            b'GRANT SET ON PARAMETER x.,z TO y;',
+            b'GRANT SET ON PARAMETER x, TO y;',
+            b'GRANT SET ON PARAMETER SELECT TO y;',
+            b'GRANT SET ON PARAMETER x.join TO y;',
+            b'GRANT SET ON PARAMETER x TO WHERE;',
+            b'GRANT SET ON PARAMETER x TO "";',
+            b'GRANT SET ON PARAMETER "unclosed TO y;',
+            b'GRANT SET ON PARAMETER x TO y,;',
+            b'GRANT SET ON PARAMETER x TO y WITH ADMIN OPTION;',
+            b'GRANT SET ON PARAMETER x TO PUBLIC WITH GRANT OPTION;',
+            b'GRANT SET ON PARAMETER x TO y GRANTED BY PUBLIC;',
+            b'GRANT SET ON PARAMETER x TO y GRANTED BY z WITH GRANT OPTION;',
+            b'GRANT SET ON PARAMETER x TO y WITH GRANT OPTION GRANTED BY;',
+            PARAMETER_SQL + b' -- trailing comment',
+            PARAMETER_SQL + b' SELECT 1;',
+            b'SELECT 1; ' + PARAMETER_SQL,
+            b'\\echo ' + PARAMETER_SQL,
+            b'GRANT SET ON /* unsupported comment */ PARAMETER x TO y;',
+        )
+        for sql in cases:
+            with self.subTest(sql=sql):
+                self.put(sql + b"\n")
+                self.assertTrue(result(ERROR1, self.roles, 3).endswith(
+                    "grant_type=other-or-unknown"))
+
+    def test_group_requires_an_ordinary_role_name(self):
+        for role in (b"PUBLIC", b"Current_Role", b"CURRENT_USER", b"SESSION_USER"):
+            with self.subTest(role=role):
+                self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role + b";\n")
+                self.assertTrue(result(ERROR1, self.roles, 3).endswith(
+                    "grant_type=other-or-unknown"))
+        for role in (b"public_reader", b'"current_role"', b'"CURRENT_USER"', b'"session_user"'):
+            with self.subTest(role=role):
+                self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role + b";\n")
+                self.assertTrue(result(ERROR1, self.roles, 3).endswith(
+                    "grant_type=parameter-grant"))
+
+    def test_public_keyword_is_distinct_from_quoted_identifier(self):
+        cases = (
+            (b'TO PuBLiC', "parameter-grant"),
+            (b'TO GROUP "public"', "parameter-grant"),
+            (b'TO y, "public" WITH GRANT OPTION', "parameter-grant"),
+            (b'TO "public" WITH GRANT OPTION GRANTED BY "public"', "parameter-grant"),
+            (b'TO y GRANTED BY "public"', "parameter-grant"),
+            (b'TO "public", PuBLiC WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO "public" GRANTED BY PuBLiC', "other-or-unknown"),
+        )
+        for clause, grant_type in cases:
+            with self.subTest(clause=clause):
+                self.put(b"GRANT SET ON PARAMETER x " + clause + b";\n")
+                self.assertEqual(
+                    result(ERROR1, self.roles, 3),
+                    "replay=failed category=insufficient-privilege verb=grant "
+                    "doc_grant=false prefix_pass=true membership=unclassified "
+                    f"grant_type={grant_type}")
+
+    def test_grant_type_only_uses_the_attributed_line(self):
+        cases = (
+            (b"ALTER ROLE x SET statement_timeout TO '1s';\n" + PARAMETER_SQL, ERROR1),
+            (b"GRANT SET ON\nPARAMETER x TO y;", ERROR2),
+            (b"/* preceding ambiguous line */\n" + PARAMETER_SQL, ERROR2),
+            (PARAMETER_SQL, ERROR1 + ERROR1),
+            (PARAMETER_SQL, ERROR2),
+            (PARAMETER_SQL, ERROR1.replace(b"roles.sql", b"schema.sql")),
+            (PARAMETER_SQL + b"\x00", ERROR1),
+        )
+        for sql, stderr in cases:
+            with self.subTest(sql=sql, stderr=stderr):
+                self.put(sql + b"\n")
+                self.assertTrue(result(stderr, self.roles, 3).endswith(
+                    "grant_type=other-or-unknown"))
+        self.put(b"-- complete line\n" + PARAMETER_SQL + b"\n")
+        self.assertTrue(result(ERROR2, self.roles, 3).endswith("grant_type=parameter-grant"))
+
+    def test_parameter_grant_obeys_the_existing_line_bound(self):
+        prefix = b'GRANT SET ON PARAMETER x TO "'
+        suffix = b'";'
+        line = prefix + b"x" * (4096 - len(prefix) - len(suffix)) + suffix
+        self.assertEqual(len(line), 4096)
+        self.put(line + b"\n")
+        self.assertTrue(result(ERROR1, self.roles, 3).endswith("grant_type=parameter-grant"))
+        self.put(b" " + line + b"\n")
+        self.assertTrue(result(ERROR1, self.roles, 3).endswith("grant_type=other-or-unknown"))
+
     def test_publish_accepts_noncanonical_grant_as_unclassified(self):
         from restore_role_probe import publish
         c, f, r, out = (self.root / name for name in
@@ -370,7 +506,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
         f.write_bytes(b"0|1|1|1|1\n")
         r.write_bytes(
             b"replay=failed category=insufficient-privilege verb=grant "
-            b"doc_grant=false prefix_pass=true membership=unclassified\n")
+            b"doc_grant=false prefix_pass=true membership=unclassified "
+            b"grant_type=other-or-unknown\n")
         publish(c, f, r, 3, out)
         self.assertIn("membership=unclassified", out.read_text())
 
@@ -383,17 +520,23 @@ class RestoreRoleProbeTests(unittest.TestCase):
         f.write_bytes(b"0|1|1|1|1\n")
         invalid = [
             (3, b"replay=failed category=insufficient-privilege verb=grant "
-             b"doc_grant=true prefix_pass=true membership=unclassified\n"),
+             b"doc_grant=true prefix_pass=true membership=unclassified "
+             b"grant_type=other-or-unknown\n"),
             (3, b"replay=failed category=insufficient-privilege verb=grant "
-             b"doc_grant=unknown prefix_pass=true membership=match\n"),
+             b"doc_grant=unknown prefix_pass=true membership=match "
+             b"grant_type=role-membership-grant\n"),
             (3, b"replay=failed category=insufficient-privilege verb=grant "
-             b"doc_grant=false prefix_pass=true membership=not-applicable\n"),
+             b"doc_grant=false prefix_pass=true membership=not-applicable "
+             b"grant_type=other-or-unknown\n"),
             (3, b"replay=failed category=insufficient-privilege verb=alter-role "
-             b"doc_grant=false prefix_pass=true membership=match\n"),
+             b"doc_grant=false prefix_pass=true membership=match "
+             b"grant_type=role-membership-grant\n"),
             (3, b"replay=failed category=unknown verb=unknown "
-             b"doc_grant=unknown prefix_pass=false membership=match\n"),
+             b"doc_grant=unknown prefix_pass=false membership=match "
+             b"grant_type=role-membership-grant\n"),
             (0, b"replay=passed category=unknown verb=unknown "
-             b"doc_grant=unknown prefix_pass=unknown membership=match\n"),
+             b"doc_grant=unknown prefix_pass=unknown membership=match "
+             b"grant_type=role-membership-grant\n"),
         ]
         from contextlib import redirect_stdout
         from io import StringIO
@@ -405,6 +548,55 @@ class RestoreRoleProbeTests(unittest.TestCase):
                     publish(c, f, r, rc, out)
                 self.assertEqual(stdout.getvalue(), "")
                 self.assertFalse(out.exists())
+
+    def test_publish_binds_grant_type_to_the_replay_and_attribution(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from restore_role_probe import publish
+
+        c, f, r, out = (self.root / name for name in
+                        ("counts.out", "flags.out", "result.out", "summary.txt"))
+        c.write_bytes(b"counts=unavailable\n")
+        f.write_bytes(b"0|1|1|1|1\n")
+        self.put(PARAMETER_SQL + b"\n")
+        parameter = result(ERROR1, self.roles, 3).encode("ascii") + b"\n"
+        r.write_bytes(parameter)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            publish(c, f, r, 3, out)
+        self.assertIn("grant_type=parameter-grant", stdout.getvalue())
+        self.assertIn("grant_type=parameter-grant", out.read_text())
+        for private_value in ("synthetic.setting", "synthetic_role"):
+            self.assertNotIn(private_value, stdout.getvalue() + out.read_text())
+        summary = out.read_bytes()
+
+        self.put(DOCUMENTED_GRANT + b"\n")
+        membership = result(ERROR1, self.roles, 3).encode("ascii") + b"\n"
+        success = result(b"", self.roles, 0).encode("ascii") + b"\n"
+        no_attribution = result(ERROR2, self.roles, 3).encode("ascii") + b"\n"
+        self.put(b"CREATE ROLE example;\n")
+        non_grant = result(ERROR1, self.roles, 3).encode("ascii") + b"\n"
+        rejected = (
+            (3, parameter.replace(b"parameter-grant", b"role-membership-grant")),
+            (3, membership.replace(b"role-membership-grant", b"parameter-grant")),
+            (3, membership.replace(b"role-membership-grant", b"other-or-unknown")),
+            (3, no_attribution.replace(b"other-or-unknown", b"parameter-grant")),
+            (3, non_grant.replace(b"other-or-unknown", b"parameter-grant")),
+            (0, success.replace(b"other-or-unknown", b"parameter-grant")),
+            (0, parameter),
+            (3, parameter.replace(b"parameter-grant", b"synthetic.setting")),
+            (3, parameter.replace(b" grant_type=parameter-grant", b"")),
+            (3, parameter + b"\x00"),
+            (3, parameter + b"\n"),
+        )
+        for rc, record in rejected:
+            with self.subTest(rc=rc, record=record):
+                r.write_bytes(record)
+                stdout = StringIO()
+                with redirect_stdout(stdout), self.assertRaises(ValueError):
+                    publish(c, f, r, rc, out)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertEqual(out.read_bytes(), summary)
 
 
 
