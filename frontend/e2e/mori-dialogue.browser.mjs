@@ -140,7 +140,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
     }
     const contains = (rect, x, y) => x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1
     const samples = Array.from({ length: 200 }, (_, index) => {
-      const progress = index / 200
+      const progress = index === 199 ? .999 : index / 200
       node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
       const { x, y } = foot.getBoundingClientRect()
       const { x: cornerX, y: cornerY } = corner.getBoundingClientRect()
@@ -157,6 +157,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
         spineDrift: Math.max(Math.abs(ring.x - rings[0].x), Math.abs(ring.y - rings[0].y)),
         bindingAlignment: index === 0 || index === 199 ? bindingAlignment(index === 199) : null,
         separation: point && Math.hypot(point.x - cornerX, point.y - cornerY),
+        step: actor.querySelector('[data-mori-pull-foot]')?.getAttribute('transform'),
         paper: contains(left, x, y) ? 'left' : contains(right, x, y) ? 'right' : null,
         inGutter: x >= left.right && x <= right.left && y >= left.top && y <= left.bottom,
         onRing: rings.some((ring) => contains(ring, x, y)),
@@ -177,7 +178,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
   assert.ok(recovery.paper && Math.hypot(recovery.x - initial.x, recovery.y - initial.y) <= 1, `${label}: returns to his resting point on paper`)
 
   const directions = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
-  let movingGrip = 0
+  const pulledPaper = []
   const displayedWalkFrames = new Set()
   for (const [index, sample] of samples.entries()) {
     assert.ok((sample.paper || sample.inGutter) && !sample.onRing, `${label}: foot leaves the book or crosses a ring ${JSON.stringify(sample)}`)
@@ -192,13 +193,12 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
       assert.ok(sample.bindingAlignment <= 1, `${label}: page holes align with the loop endpoints`)
     }
     if (sample.gripping) {
-      assert.ok(Math.hypot(sample.x - alignment.x, sample.y - alignment.y) <= 1, `${label}: mitt tracks the paper with feet planted`)
       measurements.contactSamples++
       measurements.maxContactPx = Math.max(measurements.maxContactPx, sample.separation)
       measurements.desktopContactSamples++
       measurements.maxDesktopContactPx = Math.max(measurements.maxDesktopContactPx, sample.separation)
       assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
-      if (sample.travel > 0) movingGrip++
+      if (sample.travel > 0) pulledPaper.push(sample)
     }
     if (sample.sprite && ['approach', 'recover'].includes(sample.motion)) {
       assert.ok(Math.abs(sample.spriteFootY - sample.y) <= 1, `${label}: sprite sole is registered to the paper`)
@@ -216,11 +216,18 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
     assert.equal(sample.facing, directions[(Math.round(sector) + 8) % 8], `${label}: faces in the direction of travel`)
   }
   assert.ok(displayedWalkFrames.size >= 4, `${label}: renders the approved walk frames`)
-  assert.ok(movingGrip > 1, `${label}: Mori keeps contact as the paper begins to move`)
+  assert.ok(pulledPaper.length > 5, `${label}: Mori keeps contact as the paper starts to move`)
+  const oppositeSide = direction === 'forward' ? 'left' : 'right'
+  assert.ok(pulledPaper.some((sample) => sample.travel > .8 && sample.paper === oppositeSide),
+    `${label}: Mori follows the paper to the other side before releasing it`)
+  assert.ok(samples.filter((sample) => sample.travel >= .25 && sample.travel <= .85).every((sample) => sample.gripping),
+    `${label}: Mori holds the same edge throughout the turn across the spine`)
+  assert.ok(new Set(pulledPaper.map(({ step }) => step).filter(Boolean)).size > 1,
+    `${label}: Mori takes steps while pulling the paper`)
 
   for (const stage of motion) {
     const frames = samples.filter((sample) => sample.motion === stage)
-    const sample = frames[Math.floor(frames.length / 2)]
+    const sample = stage === 'turn' ? frames.find((frame) => frame.travel >= .8) : frames[Math.floor(frames.length / 2)]
     await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), sample.progress)
     await screenshot(stage)
   }
@@ -293,6 +300,73 @@ async function verifyMoriPageTurn(page, character, direction) {
   assert.ok(handoff.every((position) => position.delta <= 2), `Destination moves at handoff: ${JSON.stringify(handoff)}`)
 }
 
+async function recordShortcutTravel(page, name, { moveTab = false } = {}) {
+  const tab = page.getByRole('navigation', { name: 'Journal sections' }).getByRole('link', { name, exact: true })
+  return tab.evaluateHandle((link, moveTab) => {
+    const character = globalThis.document.querySelector('.mori-pet-character')
+    const samples = []
+    const linksClicked = []
+    const initialLocation = globalThis.location.href
+    const controller = new globalThis.AbortController()
+    link.addEventListener('click', (event) => linksClicked.push(event.isTrusted), { signal: controller.signal })
+    const begin = globalThis.performance.now()
+    let frame
+    let shifted = false
+    const result = new Promise((resolve) => {
+      const sample = () => {
+        const stage = character.dataset.navigationStage
+        if (stage === 'travel' && moveTab && !shifted) {
+          link.style.translate = '-40px 0'
+          shifted = true
+        }
+        if (stage) {
+          const activeTab = globalThis.document.querySelector('[data-mori-tap-target]')
+          const bounds = character.getBoundingClientRect()
+          const art = character.querySelector('.mori-navigation-sprite')
+          const hand = character.querySelector('.mori-navigation-reach [data-mori-hand]')
+          const box = activeTab?.getBoundingClientRect()
+          const point = hand?.getBoundingClientRect()
+          samples.push({
+            stage, target: activeTab?.textContent.trim(), x: bounds.x, y: bounds.y,
+            facing: character.dataset.moriFacing, sprite: art?.getAttribute('src'),
+            stillOnSource: globalThis.location.href === initialLocation,
+            handGap: box && point ? Math.hypot(point.x - (box.x + box.width / 2), point.y - (box.y + box.height / 2)) : null,
+          })
+        }
+        if ((samples.length && !stage) || globalThis.performance.now() - begin > 2500) {
+          controller.abort()
+          if (shifted) link.style.removeProperty('translate')
+          resolve({ samples, linksClicked, shifted })
+        } else frame = globalThis.requestAnimationFrame(sample)
+      }
+      frame = globalThis.requestAnimationFrame(sample)
+    })
+    return { result, stop: () => { globalThis.cancelAnimationFrame(frame); controller.abort() } }
+  }, moveTab)
+}
+
+async function assertShortcutTravel(recording, tabName, { checkSteps = false, checkMovedTab = false } = {}) {
+  try {
+    const { samples, linksClicked, shifted } = await recording.evaluate(({ result }) => result)
+    const walking = samples.filter(({ stage }) => stage === 'travel')
+    const arrival = samples.filter(({ stage }) => stage === 'arrival')
+    assert.ok(walking.length > 1, `Mori walks to ${tabName}`)
+    assert.ok(arrival.some((sample) => sample.target === tabName && sample.handGap !== null && sample.handGap <= 3),
+      `Mori reaches the real ${tabName} tab: ${JSON.stringify(arrival)}`)
+    assert.ok(arrival.every((sample) => sample.stillOnSource), `Navigation waits for Mori to arrive at ${tabName}`)
+    assert.deepEqual(linksClicked, [], 'The real notebook tab receives no synthetic click')
+    if (checkMovedTab) assert.equal(shifted, true, 'The destination changes position while Mori travels')
+    if (checkSteps) {
+      const frames = walking.filter(({ sprite, facing }) => sprite?.includes(`/${facing}/walk-`))
+      assert.ok(new Set(frames.map(({ sprite }) => sprite)).size >= 2, 'Mori shows distinct directional walking frames')
+      assert.ok(Math.hypot(walking.at(-1).x - walking[0].x, walking.at(-1).y - walking[0].y) > 25, 'Mori physically moves across the interface')
+    }
+  } finally {
+    await recording.evaluate(({ stop }) => stop())
+    await recording.dispose()
+  }
+}
+
 try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
@@ -310,33 +384,24 @@ try {
     const editor = chat.getByRole('button', { name: 'Open recipe editor' })
     const tap = page.locator('.mori-navigation-tap')
 
-    // Freeze the brief gesture at contact while checking the route and its actual geometry.
-    const pinTap = () => tap.evaluate((element) => {
-      const observer = new globalThis.MutationObserver(() => {
-        const animation = element.getAnimations()[0]
-        if (!animation) return
-        observer.disconnect()
-        animation.pause()
-        animation.currentTime = Number(animation.effect.getTiming().duration) * .55
-      })
-      observer.observe(element, { attributes: true, attributeFilter: ['hidden'] })
-    })
-    await pinTap()
+    const character = page.getByRole('group', { name: 'Mori companion' })
+    const desktop = width === 1440
+    const editorTravel = desktop ? await recordShortcutTravel(page, 'New recipe', { moveTab: true }) : null
     await editor.focus()
     await page.keyboard.press('Enter')
-    await expect(tap).toHaveCSS('opacity', '1')
-    await expect(editor).toHaveAttribute('data-mori-tap-target', '')
-    await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+    if (editorTravel) {
+      await expect(character).toHaveAttribute('data-navigation-stage', /travel|arrival/)
+      await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+      await expect(editor).toBeDisabled()
+      await chat.getByRole('button', { name: 'Open recipes' }).evaluate((button) => button.click())
+      await expect(chat.getByRole('log')).not.toContainText('Opening your recipe collection.')
+    }
+    await expect(editor).not.toHaveAttribute('data-mori-tap-target')
     await expect(chat.getByRole('log')).toContainText('Opening a new recipe.')
-    await expect(chat.getByRole('log')).toBeFocused()
-    const [tapBounds, editorBounds] = await Promise.all([tap.boundingBox(), editor.boundingBox()])
-    assert.ok(tapBounds && editorBounds)
-    const gap = Math.min(Math.abs(tapBounds.x + tapBounds.width - editorBounds.x), Math.abs(editorBounds.x + editorBounds.width - tapBounds.x))
-    assert.ok(gap <= 12, `Mori must tap beside the activated control (gap ${gap}px)`)
-    await page.screenshot({ path: path.join(outputDir, `${width}-mori-navigation-tap.png`) })
-    await tap.evaluate((element) => element.getAnimations()[0].play())
+    if (editorTravel) await assertShortcutTravel(editorTravel, 'New recipe', { checkSteps: true, checkMovedTab: true })
     await expect(page).toHaveURL(`${origin}app/recipes/new`)
     await expect(chat).toBeVisible()
+    await expect(character).not.toHaveAttribute('data-navigation-stage')
     const editorHeading = page.getByRole('heading', { name: 'New recipe', exact: true })
     await expect(editorHeading).toBeFocused()
     await editor.press('Enter')
@@ -363,14 +428,34 @@ try {
     await expect(title).toHaveValue('Unsaved soup')
 
     await collection.click()
+    const collectionTravel = desktop ? await recordShortcutTravel(page, 'My recipes') : null
     await dialog.getByRole('button', { name: 'Discard Changes' }).click()
-    await expect(tap).toBeVisible()
+    if (collectionTravel) await assertShortcutTravel(collectionTravel, 'My recipes')
     await expect(page).toHaveURL(`${origin}app/recipes`)
+    await expect(character).not.toHaveAttribute('data-navigation-stage')
     await expect(chat).toBeVisible()
     const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })
     await expect(collectionHeading).toBeFocused()
     await collection.press('Enter')
     await expect(collectionHeading).toBeFocused()
+
+    if (desktop) {
+      const recipesTab = page.getByRole('navigation', { name: 'Journal sections' })
+      const notesTravel = await recordShortcutTravel(page, 'Quick AI Entry')
+      await chat.getByRole('button', { name: 'Open cooking notes' }).click()
+      await assertShortcutTravel(notesTravel, 'Quick AI Entry')
+      await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeFocused()
+
+      const pantryTravel = await recordShortcutTravel(page, 'AI Chef')
+      await chat.getByRole('button', { name: 'Open pantry' }).click()
+      await assertShortcutTravel(pantryTravel, 'AI Chef')
+      await expect(page.getByRole('textbox', { name: 'Pantry ingredient' })).toBeFocused()
+
+      await recipesTab.getByRole('link', { name: 'New recipe' }).evaluate((link) => { link.style.visibility = 'hidden' })
+      await editor.click()
+      await expect(editorHeading).toBeFocused()
+      await expect(character).not.toHaveAttribute('data-navigation-stage')
+    }
 
     const composer = chat.getByRole('textbox', { name: 'Message Mori' })
     const send = chat.getByRole('button', { name: 'Send' })
@@ -434,11 +519,17 @@ try {
       })
       assert.equal(shortcutsFit, true, 'Every desktop shortcut must fit without horizontal scrolling')
     }
+    const prompts = panel.getByRole('group', { name: 'Suggested prompts' })
+    const promptSummary = panel.getByText('Suggested prompts', { exact: true })
+    await expect(prompts).toBeHidden()
     await page.screenshot({ path: path.join(outputDir, `${width}-companion.png`) })
+    await promptSummary.press('Space')
+    await expect(prompts).toBeVisible()
     await panel.getByRole('button', { name: 'See more', exact: true }).click()
     await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
     await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
-    await panel.getByRole('button', { name: 'See less', exact: true }).click()
+    await promptSummary.click()
+    await expect(prompts).toBeHidden()
 
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
@@ -518,8 +609,10 @@ try {
     await expect(chefApp.page).toHaveURL(`${origin}app/chef`)
     const pantryInput = chefApp.page.getByRole('textbox', { name: 'Pantry ingredient' })
     await expect(pantryInput).toBeFocused()
+    await chefPanel.getByText('Suggested prompts', { exact: true }).click()
     await chefPanel.getByRole('button', { name: 'See more', exact: true }).click()
     await chefPanel.getByRole('button', { name: 'Use my ingredients', exact: true }).click()
+    await expect(chefPanel.getByRole('group', { name: 'Suggested prompts' })).toBeHidden()
     await chefPanel.getByRole('textbox', { name: 'Message Mori' }).fill('rice; quick dinner')
     await chefPanel.getByRole('button', { name: 'Send' }).click()
     const reviewRecipe = chefPanel.getByRole('button', { name: 'Review recipe' })
@@ -555,6 +648,7 @@ try {
   await quickApp.page.goto(`${origin}app/quick-entry`)
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  await quickPanel.getByText('Suggested prompts', { exact: true }).click()
   await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
   await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
   await quickPanel.getByRole('textbox', { name: 'Message Mori' }).fill('I simmered rice with tomatoes until soft.')
