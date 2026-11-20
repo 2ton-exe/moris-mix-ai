@@ -146,9 +146,10 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
             or not _safe_prefix_line(candidate)):
         return (f"replay=failed category={category} verb=unknown "
                 "doc_grant=unknown prefix_pass=false membership=unknown")
-    # PostgreSQL keywords ignore case, and tokens may end at a tab.
-    # Membership syntax recognition stays deliberately conservative.
-    verb = ("grant" if re.match(rb"(?i)^GRANT[ \t]", candidate)
+    # Match the SQL keyword independently of the strict membership grammar.
+    # PostgreSQL accepts non-newline whitespace and adjacent quoted identifiers.
+    # Reject longer unquoted tokens (GRANTED, GRANT_role, GRANT$foo).
+    verb = ("grant" if re.match(rb'(?i)^GRANT(?=[ \t\v\f"])', candidate)
             else next((label for prefix, label in VERBS.items()
                        if candidate.startswith(prefix)), "other"))
     documented = "true" if candidate == DOCUMENTED_GRANT else "false"

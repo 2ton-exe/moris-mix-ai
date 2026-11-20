@@ -344,9 +344,14 @@ class RestoreRoleProbeTests(unittest.TestCase):
             (b'grant role_a TO role_b;\n', "grant", "unclassified"),
             (b'GrAnT role_a TO role_b;\n', "grant", "unclassified"),
             (b'GRANT\trole_a TO role_b;\n', "grant", "unclassified"),
+            (b'GRANT\frole_a TO role_b;\n', "grant", "unclassified"),
+            (b'GRANT\vrole_a TO role_b;\n', "grant", "unclassified"),
+            (b'GRANT"role_a" TO role_b;\n', "grant", "unclassified"),
+            (b'GrAnT"role_a" TO role_b;\n', "grant", "unclassified"),
             (b'GRANTED role_a TO role_b;\n', "other", "not-applicable"),
             (b'GRANTOR role_a TO role_b;\n', "other", "not-applicable"),
             (b'GRANT_role_a TO role_b;\n', "other", "not-applicable"),
+            (b'GRANT$role_a TO role_b;\n', "other", "not-applicable"),
         ]
         for sql, verb, membership in cases:
             with self.subTest(sql=sql):
