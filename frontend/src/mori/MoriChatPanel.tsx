@@ -25,7 +25,8 @@ import { InvalidRecipeData } from '../recipes/validation'
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
 type MoriCooldowns = Partial<Record<MoriRetry['kind'], number>>
-type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft; reviewKey?: number; matches?: RecipeSummary[] }
+type RecipeMatch = { recipe: RecipeSummary; label: string }
+type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft; reviewKey?: number; matches?: RecipeMatch[] }
 
 function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; onReview: (draft: MoriDraft, anchor: HTMLButtonElement) => void; disabled: boolean; consumed: boolean }) {
   const recipe: ExtractedRecipe = draft.kind === 'create' ? draft.handoff.recipe : draft.handoff.response.recipe
@@ -111,11 +112,11 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
     return until === undefined ? 0 : Math.max(0, Math.ceil((until - now) / 1000))
   }
 
-  function say(role: Message['role'], text: string, content?: MoriDraft | { kind: 'matches'; recipes: RecipeSummary[] }) {
+  function say(role: Message['role'], text: string, content?: MoriDraft | { kind: 'matches'; matches: RecipeMatch[] }) {
     const draft = content?.kind === 'matches' ? undefined : content
     const reviewKey = draft ? reviewKeyFor(draft) : undefined
     const message: Message = { id: id.current++, role, text, ...(draft ? { draft, reviewKey } : {}),
-      ...(content?.kind === 'matches' ? { matches: content.recipes } : {}),
+      ...(content?.kind === 'matches' ? { matches: content.matches } : {}),
     }
     setMessages((current) => [...current, message])
     return message.id
@@ -395,9 +396,19 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
         if (exactMatch && !duplicate && currentLocationKey.current === location.key) {
           openRecipe(exactMatch)
         } else if (recipes.length) {
-          say('assistant', `Here’s what I found for “${title}”.`, {
-            kind: 'matches', recipes: exactMatches.length ? exactMatches : recipes,
+          const choices = exactMatches.length ? exactMatches : recipes
+          const titleCounts = new Map<string, number>()
+          for (const recipe of choices) {
+            const key = recipe.title.trim().toLowerCase()
+            titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1)
+          }
+          const matches = choices.map((recipe, index) => {
+            const duplicateTitle = (titleCounts.get(recipe.title.trim().toLowerCase()) ?? 0) > 1
+            const date = recipe.cooked_at ? formatCookedDate(recipe.cooked_at) : null
+            const label = [recipe.title, duplicateTitle && `match ${index + 1}`, date].filter(Boolean).join(' · ')
+            return { recipe, label }
           })
+          say('assistant', `Here’s what I found for “${title}”.`, { kind: 'matches', matches })
         } else {
           say('assistant', `I couldn’t find a saved recipe matching “${title}”.`)
         }
@@ -552,12 +563,9 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
             else void suggestRecipe(retry.prompt)
           }}>Retry same request</button></div>}
           {message.matches && <div className="mori-chat-preview" role="group" aria-label="Matching saved recipes">
-            {message.matches.map((recipe, index, matches) => {
-              const duplicateTitle = matches.some((other) => other.id !== recipe.id && other.title.toLowerCase() === recipe.title.toLowerCase())
-              const date = recipe.cooked_at ? formatCookedDate(recipe.cooked_at) : null
-              const label = [recipe.title, duplicateTitle && `match ${index + 1}`, date].filter(Boolean).join(' · ')
-              return <button key={recipe.id} type="button" disabled={pending || navigating} onClick={(event) => openRecipe(recipe, event.currentTarget)}>{label}</button>
-            })}
+            {message.matches.map(({ recipe, label }) =>
+              <button key={recipe.id} type="button" disabled={pending || navigating} onClick={(event) => openRecipe(recipe, event.currentTarget)}>{label}</button>
+            )}
           </div>}
           {message.draft && reviewKey !== undefined && <DraftCard draft={message.draft} disabled={pending || navigating} consumed={completedReviewKeys.has(reviewKey)} onReview={(draft, anchor) => openReview(draft, reviewKey, anchor)} />}
         </article>
