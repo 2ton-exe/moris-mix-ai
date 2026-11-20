@@ -3,14 +3,14 @@
 > Section 1 records the workflow baseline inspected on main; the current image-readiness integration is described below.
 > Sections 2–12 preserve Sprint 1/2 measurements and their historical scope;
 > references to a "current" sample within those records mean that checkpoint.
-> Sections 13–14 record Sprint 3 optimization and preliminary Sprint 4 evidence.
+> Section 13 records Sprint 3 optimization; sections 14–15 preserve the preliminary and final Sprint 4 populations.
 
 **Project:** Mori's Mix\
 **Team:** 2ton.exe  
 **Maintainer:** Haresco  
 **Scope:** Continuing weekly and multi-sprint DevOps metrics log\
-**Reconciled:** 2026-11-14, preliminary Sprint 3/4 evidence; the 2026-10-30 reconciliation and merged-main optimization verification at `7278f92e0fc67348efa60a14293dcdfde9329709` remain historical records\
-**Status:** Sprint 1/2 measurements and both controlled optimization experiments are preserved. Sprint 4 uses a frozen preliminary sample; comparable full-validation PR timing, merge-to-live and formal recovery time remain pending.
+**Reconciled:** 2026-11-20, final Sprint 4 measurements; the 2026-10-30 reconciliation and merged-main optimization verification at `7278f92e0fc67348efa60a14293dcdfde9329709` remain historical records\
+**Status:** Historical Sprint 1–3 measurements and both controlled optimization experiments are preserved. Section 14 remains the preliminary Sprint 4 population; section 15 adds a frozen November 7–17 final population and separate November 18–19 push observations. Cohort timing and merge-to-smoke results are bounded; eight same-SHA smoke endpoints and formal outage/recovery time remain unavailable.
 
 ## Sprint metrics summary
 
@@ -22,6 +22,9 @@ Update this log before every consultation. Different pipeline generations and wo
 | Sprint 2 | Pre-refactor: 35.5s (2). Expanded-workload whole-PR workflow average not yet measured; E2E job samples below are not pipeline averages. | Pre-refactor: 74.5s (2); current expanded-workload main sample not yet measured | Pre-refactor PR 2/2 and main 2/2; experiment E2E 5/5. Sprint-wide observation period/denominator not yet defined. | Not fully enumerated; two successful pre-refactor deployments recorded, not a sprint total | Not yet measured | Not fully enumerated for a defined period | Production recovery not measured; Secretary tooling recovery has no measured interval | Modular shadow validation, hosted/E2E validation, staging frontend delivery, Secretary repair; headless-shell experiment human-approved, merged and verified on main (CI #284; one E2E sample, approximately 83s) |
 | Sprint 3 | Controlled docs-only experiment: 91 s before, 37 s after; not an all-PR mean | Separate merged-main verification; no sprint mean | No sprint-wide denominator | Not enumerated | Pending | Not enumerated | Pending | Conservative docs-only path selection; see section 13 |
 | Sprint 4 preliminary | Docs-only proxy: 39.0 s (8); full-validation mean pending | Single-attempt job span: 156.9 s (10) | Eventual PR runs: 61/67; main runs: 11/11; attempt outcomes separate | 11 successful release runs / distinct SHAs | Pending | 2 failed attempts in 1 release run | Formal interval pending | Frozen observation sample; no new optimization claimed; see section 14 |
+| Sprint 4 final window | Docs-only job-span mean: 37.13 s (23); modern three-browser PR job-span mean: 360.46 s (39) | Pre-readiness validation spans: push 327.33 s (6 single-attempt), manual dispatch 339.67 s (6); successful production jobs 49.90 s (48); Cloudflare steps 8.88 s (49) | PR 196/231 runs (196/232 attempts); main push 42/51 (42/56 attempts); manual 6/6 separate | 62 production attempts: 48 successful jobs; 49 successful Cloudflare commands | 43/51 same-SHA successful smokes; mean 791.84 s, median 172 s; eight unavailable | 2 Cloudflare command failures; 1 smoke failure; 6 readiness blocks; 5 stale-revision rejections | 86m17s release-step-to-smoke interval; formal outage/recovery unavailable | Frozen cohorts, not a sprint-wide trend; see section 15 |
+
+Sprint 4 final validation values are single-attempt job spans, while production-job and Cloudflare-step timings use successful executions only; none is an end-to-end pipeline duration. Section 15 defines each scope.
 
 Sample success fractions describe only their named samples. Rerun attempts are not independent changes or production deployments. Missing values are not zero. Application/API retry recovery is separate from delivery-tooling recovery and production deployment recovery.
 
@@ -92,11 +95,11 @@ The current validation paths are:
 
 The active `Protect main` ruleset was checked on 2026-11-15. It requires the three Modular Frontend, Modular Database and Modular Edge/API contexts above, one approving review, and resolved review conversations. The PR classifier examines the complete diff; a failed or incomplete classification falls back to full validation. A documentation-only no-op or an intentional E2E/staging skip is not a passed application test, deployment or smoke check. PR workflows do not call production.
 
-`modular-main.yml` runs on pushes to `main` and manual dispatches from `main`; main always uses full validation, and the workflow has no push path filter. Its production job requires successful frontend, database and aggregate Edge/API jobs plus `frontend/package.json`; the aggregate Edge/API workflow requires its nested Hosted RLS job on main. Main E2E is a separate job and is not in the production dependency list.
+`modular-main.yml` runs on pushes to `main` and accepts `workflow_dispatch` on a selected ref; manual dispatch is not limited to `main`. The production gate requires `github.ref == 'refs/heads/main'` and a reusable caller from `.github/workflows/modular-main.yml@refs/heads/main`, in addition to successful frontend, database and aggregate Edge/API jobs plus `frontend/package.json`. The aggregate Edge/API workflow requires its nested Hosted RLS job on main. Main runs full validation and has no push path filter. Main E2E is separate from the production dependency list.
 
 **Deploy to Supabase and Cloudflare** runs through [Reusable Production Release](../../.github/workflows/reusable-production.yml). Its unconditional function targets are `recipes`, `extract-recipe`, `generate-recipe`, and `recipe-image-attach`. The `account-export` step is explicitly disabled with `if: false`. `recipe-image-upload-url` and `recipe-image-download-url` run only when `VITE_RECIPE_IMAGES == 'true'`; `recipe-image-upload-cleanup` runs only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`. With both image and cleanup flags enabled, Modular Main automatically runs the read-only readiness verifier for the same main commit; the `recipe-image-upload-production` environment remains main-restricted without reviewer approval. Production also requires the image migrations in the ledger. The separate cleanup workflow is scheduled every 15 minutes and manually dispatchable, but its job runs only on main when the cleanup opt-in is true and the protected cleanup environment is configured. The release validates its caller and target, rejects stale revisions, deploys Cloudflare assets, checks deployment URL consistency, probes AI routes, runs production runtime smoke, and preserves evidence artifacts. These are configured conditions; this description does not claim the conditional image paths executed.
 
-Production database migrations remain separate and are not applied by the inspected main release workflow. [Open PR #154](https://github.com/2ton-exe/moris-mix-ai/pull/154) proposes migration automation and overlaps this document; its proposal is not current-main behavior. Section 14 records frozen workflow observations, not exhaustive application acceptance, rollback or database restore proof. See the [runbook](deployment-runbook.md) for separately scoped procedures and evidence.
+At current main SHA `1add77018d46d26def068748d4df513bfe654248`, production database migrations remain separate and are not applied by the main release workflow. [Open PR #154](https://github.com/2ton-exe/moris-mix-ai/pull/154) proposes migration automation; it remains unmerged and is not deployed current-main behavior. Section 14 records frozen workflow observations, not exhaustive application acceptance, rollback or database restore proof. See the [runbook](deployment-runbook.md) for separately scoped procedures and evidence.
 
 ## 2. Preliminary Sprint 1 Comparable Baseline
 
@@ -392,7 +395,7 @@ This checklist preserves the earlier collection gaps and does not assert that #6
 
 Implementation [PR #144](https://github.com/2ton-exe/moris-mix-ai/pull/144) and evidence [PR #150](https://github.com/2ton-exe/moris-mix-ai/pull/150) merged. Required core contexts succeeded through lightweight paths; E2E and staging intentionally skipped. [Main run 41323141459](https://github.com/2ton-exe/moris-mix-ai/actions/runs/41323141459) separately verified evidence merge `b2f77b8802675429091a0b4f98f27be60617f900` with full main validation. It is not a docs-only after-run.
 
-One baseline and three after-runs do not prove a general pipeline speedup or reliability gain. Application, workflow, configuration, migration, mixed and unknown changes retain full validation. Experiment 1's approximately **92 s → 86.8 s E2E job** result remains separate from this workflow-level docs-only experiment; neither is a merge-to-live measurement.
+One baseline and three after-runs do not prove a general pipeline speedup or reliability gain. Application, workflow, configuration, migration, mixed and unknown changes retain full validation. Sprint 2 Experiment 1's approximately **92 s → 86.8 s E2E job** result remains separate from this Sprint 3 workflow-level docs-only experiment; neither is a merge-to-live measurement.
 
 ## 14. Preliminary Sprint 4 Observations (DEVOPS-11 / #164)
 
@@ -482,3 +485,166 @@ The calendar span across retries is not ordinary pipeline execution time or an a
 - **Change-failure rate:** pending an explicit qualifying-change and failure definition; two failed attempts are not two independently failed changes.
 - **Third optimization:** no new experiment is claimed. This mixed observation sample does not establish a new bottleneck with a controlled comparable baseline; retain the two existing experiments and their scope limits.
 - **Completeness:** this frozen preliminary sample is not a whole-sprint reliability guarantee, a complete final-week census, or completion evidence for every acceptance criterion in [#164](https://github.com/2ton-exe/moris-mix-ai/issues/164).
+
+## 15. Final Sprint 4 Measurement Window and Supplemental Main Push Evidence
+
+### Reporting window, population and source
+
+- **Frozen final reporting window:** `2026-11-07T00:00:00Z` inclusive through `2026-11-18T00:00:00Z` exclusive. Membership uses workflow-run `created_at`; outcomes and attempts reflect the evidence extraction on 2026-11-18. This bounded sample is not a whole-sprint reliability guarantee.
+- The extraction enumerated **2,427 unique repository runs** across eleven daily partitions and selected the modular PR and main workflows by workflow ID: `394115230` and `395099303`. It contains **288 unique workflow runs and 294 unique run-attempt pairs**: 231 PR `pull_request`, 51 main `push`, and 6 main `workflow_dispatch` runs. There were no cancelled runs. These counts are workflow runs, not distinct PRs or code changes.
+- The extraction inspected main at `359c9facb993f4adf3b5a673e84f28c2b20c0b99`; current main workflow source was rechecked at `1add77018d46d26def068748d4df513bfe654248`. The earlier preliminary population in section 14 remains intact and separate. Later November 18–19 pushes are reported in a supplemental subsection below and are excluded from every frozen count and mean here.
+- The [evidence extraction record](https://github.com/2ton-exe/moris-mix-ai/issues/164#issuecomment-6981417219) records the selected population and exact-SHA merge-to-smoke join. [PR #224](https://github.com/2ton-exe/moris-mix-ai/pull/224), merged as `a0a929d81535dc796bb28384414518843dcf698f`, introduced the reusable parallel Chromium, Firefox and WebKit job graph: [caller at that SHA](https://github.com/2ton-exe/moris-mix-ai/blob/a0a929d81535dc796bb28384414518843dcf698f/.github/workflows/reusable-e2e.yml) (`1d836abb…`) and [browser workflow at that SHA](https://github.com/2ton-exe/moris-mix-ai/blob/a0a929d81535dc796bb28384414518843dcf698f/.github/workflows/reusable-e2e-browser.yml) (`333a83b7…`). [PR #232](https://github.com/2ton-exe/moris-mix-ai/pull/232), merged as `3068d12696eae3c0ff89c8bfb8f5c76a3e505e83`, integrated conditional recipe-image readiness into Modular Main; only one push with that readiness job is in this frozen window.
+- **Workflow-run outcome** is the latest recorded conclusion at extraction, after any reruns. **Attempt outcome** is each execution separately. Reruns are not new changes or independent releases. A failed or skipped production step is not a deployment success or a smoke pass.
+
+| Population | Workflow-run outcome | Attempt outcome | Denominator interpretation |
+| --- | --- | --- | --- |
+| Modular PR Validation, `pull_request` | **196/231 success (84.8%); 35/231 failure (15.2%)** | **196/232 success (84.5%); 36/232 failure (15.5%)** | The 232nd attempt is a failed attempt followed by a successful rerun of one PR run. |
+| Modular Main Validation, `push` to `main` | **42/51 success (82.4%); 9/51 failure (17.6%)** | **42/56 success (75.0%); 14/56 failure (25.0%)** | Push runs and their retries stay distinct from manual dispatches. |
+| Modular Main Validation, `workflow_dispatch` on `main` | **6/6 success (100%)** | **6/6 success (100%)** | Manual validation is not added to the push denominator. |
+
+PR path selection classified **23 runs as documentation-only** (23/23 eventual success) and **208 as full-path selections** (173 success, 35 failure). Full-path attempts were 173 successful and 36 failed because one failed PR attempt was retried successfully. Documentation-only runs retained lightweight core checks; E2E and staging were intentionally skipped, not passed.
+
+### Comparable PR timing cohorts
+
+A **job span** is `max(completed_at) - min(started_at)` across non-skipped jobs in one workflow attempt. It includes parallel work and dependency waits, excludes queue time before the first job starts, and may include inter-job scheduling or runner waits. It is not a workflow elapsed proxy or merge-to-live measurement. Timing means below use single-attempt runs only. Failures remain in their named run/outcome denominator. The separate `updated_at - created_at` PR metadata proxy includes queue time and, for a rerun, the interval between attempts.
+
+| PR cohort | Workflow runs / outcomes; attempts | Single-attempt job-span calculation | Mean / median; range | Evidence anchors |
+| --- | --- | --- | --- | --- |
+| Confirmed documentation-only | 23 runs; 23 success; 23 attempts | `854 s / 23` | **37.13 s / 38 s; 31–46 s** | Per-run ledger below |
+| Modern parallel three-browser orchestration | 39 runs; 26 success / 13 failure; 39 attempts | `14,058 s / 39` | **360.46 s / 355 s; 193–557 s** | Per-run ledger below |
+
+The source-version review separated the 39-run parallel reusable-call generation from four workflow-transition records in the broader 43-run three-browser-by-job-name set. In the recorded source snapshots, [run 43705622067](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43705622067) has the earlier matrix wrapper (`reusable-e2e.yml` blob `e24cfb017f`), while [43711961309](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43711961309), [43713113634](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43713113634), and [43713795108](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43713795108) have the earlier combined all-browser wrapper (blob `9818c5f761`). All four excluded transition runs succeeded. The selected 39 use the parallel source: 26 local revisions match caller/callee blobs `1d836abb82` / `333a83b7c6`, and GitHub source views for the remaining 13 revisions show the same separate Chromium, Firefox and WebKit reusable calls. The wrapper requires all three browser jobs to pass. This is a workflow-generation boundary, **not** proof of identical E2E inventories: frontend features and browser journeys changed during this period, so the 39-run timing is descriptive within a common orchestration shape and not a controlled before/after result. The remaining 165 full-path runs without three-browser job names also span different E2E generations and early failures; they are not pooled into one full-validation mean.
+
+### Per-run PR cohort ledger
+
+This in-document ledger provides run IDs, workflow-run `head_sha` prefixes, eventual outcomes and single-attempt job spans for both comparable cohorts above. The `head_sha` prefixes are run metadata and do not necessarily identify the exact PR checkout or tested merge revision. Run links open the source GitHub Actions records. Durations are calculated from per-job timestamps in the frozen November 18 evidence extraction using the job-span definition above, not the run-metadata elapsed proxy.
+
+#### Confirmed documentation-only cohort (23 runs)
+
+| Run | Workflow-run `head_sha` prefix | Outcome | Job span |
+| --- | --- | --- | ---: |
+| [42348730770](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42348730770) | `7705fe2f` | success | 31 s |
+| [42372445106](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42372445106) | `f98e3fcc` | success | 38 s |
+| [42374572673](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42374572673) | `f98e3fcc` | success | 31 s |
+| [42375971430](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42375971430) | `20f7806a` | success | 40 s |
+| [42380527017](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42380527017) | `95917831` | success | 38 s |
+| [43458229537](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43458229537) | `82bb2d40` | success | 38 s |
+| [43467964518](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43467964518) | `9c3285c5` | success | 35 s |
+| [43472237837](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43472237837) | `18c7bd95` | success | 38 s |
+| [43553098798](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43553098798) | `d9c38fd5` | success | 31 s |
+| [43554653652](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43554653652) | `89c977f1` | success | 39 s |
+| [43554828220](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43554828220) | `89c977f1` | success | 33 s |
+| [43557026270](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43557026270) | `3aef9624` | success | 46 s |
+| [43582464761](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43582464761) | `29623c28` | success | 42 s |
+| [43594958907](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43594958907) | `f6249bb4` | success | 34 s |
+| [43596603961](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43596603961) | `cda69e2f` | success | 43 s |
+| [43601098355](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43601098355) | `34107404` | success | 33 s |
+| [43603522035](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43603522035) | `de9a96cb` | success | 42 s |
+| [43605428450](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43605428450) | `de9a96cb` | success | 35 s |
+| [43614676098](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43614676098) | `3fef4148` | success | 36 s |
+| [43657252339](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43657252339) | `4f973ef0` | success | 37 s |
+| [43674466928](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43674466928) | `4f40e315` | success | 40 s |
+| [43682162273](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43682162273) | `52b72b70` | success | 32 s |
+| [43701831840](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43701831840) | `fd2531b0` | success | 42 s |
+
+#### Modern parallel three-browser cohort (39 runs)
+
+| Run | Workflow-run `head_sha` prefix | Outcome | Job span |
+| --- | --- | --- | ---: |
+| [43707607563](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43707607563) | `45583d53` | failure | 336 s |
+| [43707783525](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43707783525) | `35f56487` | success | 311 s |
+| [43714967878](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43714967878) | `9cb43e0c` | success | 323 s |
+| [43715540055](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43715540055) | `4ee07a5e` | success | 346 s |
+| [43717915128](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43717915128) | `981e2258` | success | 350 s |
+| [43719299197](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43719299197) | `02c06db6` | success | 270 s |
+| [43719589857](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43719589857) | `59280c5d` | success | 330 s |
+| [43720280591](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43720280591) | `19edba4e` | success | 360 s |
+| [43724635080](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43724635080) | `d7ce5d17` | success | 356 s |
+| [43725367923](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43725367923) | `f9fd0bd4` | success | 310 s |
+| [43730361058](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43730361058) | `222128be` | success | 313 s |
+| [43733486444](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43733486444) | `27a95b9c` | success | 369 s |
+| [43737378352](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43737378352) | `84557127` | failure | 308 s |
+| [43738433002](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43738433002) | `fc140aef` | failure | 320 s |
+| [43738739663](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43738739663) | `cc2a8ae3` | success | 363 s |
+| [43742776316](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43742776316) | `79e78044` | failure | 303 s |
+| [43754689252](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43754689252) | `c91f24ac` | success | 316 s |
+| [43835099233](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43835099233) | `67941a75` | success | 326 s |
+| [43931821111](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43931821111) | `07683830` | failure | 404 s |
+| [43942311632](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43942311632) | `e4ed4525` | success | 355 s |
+| [44072167683](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44072167683) | `09b0d2b6` | success | 316 s |
+| [44075363410](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44075363410) | `7d2307fd` | failure | 347 s |
+| [44076191966](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44076191966) | `497b8c10` | failure | 381 s |
+| [44076591171](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44076591171) | `1b7f0a1c` | failure | 193 s |
+| [44076712248](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44076712248) | `cafd9b39` | success | 314 s |
+| [44078480074](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44078480074) | `4d80159b` | success | 378 s |
+| [44078891000](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44078891000) | `a7ef0215` | success | 356 s |
+| [44081440768](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44081440768) | `5f248b69` | failure | 413 s |
+| [44081483071](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44081483071) | `5f248b69` | failure | 395 s |
+| [44086582120](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44086582120) | `3575667e` | success | 369 s |
+| [44125678613](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44125678613) | `b06d78b0` | failure | 547 s |
+| [44132257799](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44132257799) | `482da864` | success | 557 s |
+| [44143607481](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44143607481) | `d1090f4b` | success | 377 s |
+| [44149942315](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44149942315) | `57cc6c52` | success | 358 s |
+| [44152052639](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44152052639) | `695d9425` | success | 391 s |
+| [44159009575](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44159009575) | `d875f35f` | failure | 419 s |
+| [44160611719](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44160611719) | `28f5eb96` | success | 462 s |
+| [44168992154](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44168992154) | `c46a3f1b` | failure | 353 s |
+| [44170266348](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44170266348) | `7f08bde8` | success | 463 s |
+
+### Pre-readiness Modular Main timing
+
+Main comparisons are **grouped by observed job shape and readiness presence**; push events and manual dispatches remain separate. Main E2E executes separately from production and may finish after production smoke; main job spans are not deployment duration. The source-generation boundary is explicit: the successful [push run 43711905456](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43711905456) on `a0a929d81535dc796bb28384414518843dcf698f` is the initial workflow-transition push for PR #224 and is excluded from the steady pre-readiness timing cohort. The next readiness generation is visible in [run 44104029368](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44104029368) at the #232 integration; that one run is not used as a trend.
+
+| Trigger / cohort | Workflow runs / outcomes; attempts | Single-attempt spans | Calculation | Mean / median; range |
+| --- | --- | --- | --- | --- |
+| Main push, three-browser orchestration before integrated readiness | 8; 4 success / 4 failure; 10 attempts (4 success / 6 failure) | [43720961699](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43720961699) 320 s; [43719078328](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43719078328) 284 s; [43716111783](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43716111783) 349 s; [43715518195](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43715518195) 300 s; [43803260383](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43803260383) 346 s; [43802925719](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43802925719) 365 s | `1,964 s / 6` | **327.33 s / 333 s; 284–365 s** |
+| Main manual dispatch, three-browser orchestration before integrated readiness | 6; 6 success; 6 attempts | [43735285840](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43735285840) 325 s; [43726522748](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43726522748) 337 s; [43722288753](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43722288753) 337 s; [43717449398](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43717449398) 339 s; [43717107066](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43717107066) 289 s; [43883011168](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43883011168) 411 s | `2,038 s / 6` | **339.67 s / 337 s; 289–411 s** |
+
+The eight push runs include two multi-attempt runs with eventual success: [43726091203](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43726091203) and [43835920734](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43835920734), each with two attempts. All 10 attempts remain in outcome counts; only the other six one-attempt runs enter the job-span mean. Push-trigger counts and manual-dispatch counts remain separate. The larger 41-push group without three-browser job names is excluded from this comparison because it spans earlier orchestration, failed runs before browser jobs, and different job inventories.
+
+### Production-job, deployment-command and runtime-smoke outcomes
+
+There were **62 main production-job attempts** in the frozen window: 56 from pushes and 6 from manual dispatches. This job-level denominator differs from the run-level push/manual table above.
+
+| Measure across 62 production attempts | Outcome | What the count means |
+| --- | --- | --- |
+| Production job | **48 success; 14 failure** | Failures comprise 2 Cloudflare deployment-command failures, 1 runtime-smoke failure, 6 recipe-image readiness blocks and 5 stale-revision rejections. The 14 failed jobs are not 14 failed deployments. |
+| Cloudflare deployment command | **49 success; 2 failure; 11 skipped** | Commands that completed successfully; skips are not successes. |
+| Runtime smoke | **48 pass; 1 failure; 13 skipped** | The 48 passed smoke attempts cover **43 distinct source SHAs**. A skipped smoke is not a pass. |
+
+Successful production-job duration was `2,395 s / 48 = 49.90 s` (n=48 successful jobs; job `started_at` to `completed_at`). Successful Cloudflare deployment-step duration was `435 s / 49 = 8.88 s` (n=49 successful step executions; step timestamps). The Cloudflare step is nested within the production job and is not the job duration. Failures and skips remain in the outcome table above; these two means include successful executions only. They are descriptive across the changing release configurations in this window, not a controlled comparable-workload benchmark.
+
+On [run 43530661641 attempt 1](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43530661641/attempts/1), the configured deployment commands and URL verification succeeded, but production runtime smoke failed because the JavaScript asset returned an unexpected content type after **three attempts**; frontend HTML and the demo database checks passed. Attempt 2 on the same SHA passed runtime smoke. Preserve this as one failed production-job attempt and one failed smoke attempt; the available evidence does not establish user impact or an outage.
+
+For the 2026-11-13 release attempt sequence, the observed interval from the first failed Cloudflare step completion (`2026-11-13T15:23:17Z`) to successful runtime-smoke completion (`2026-11-13T16:49:34Z`) is **5,177 s (86m17s)**. It includes retries and waiting and is a release-step-to-smoke interval only; it does not establish detection time, user impact, first public restoration, or formal outage/recovery time. See the [incident recovery record](incident-log.md), which retains formal outage/recovery time as unavailable.
+
+### Exact-SHA merge-to-smoke and missing endpoints
+
+The extraction joins each PR merge SHA to the first successful production runtime-smoke completion for that exact SHA, considering push and manual main runs and every attempt. This is merge-to-confirmed-smoke elapsed time, including queue and retry waits; it does not identify the exact first instant the version became publicly available.
+
+- **43/51** merge SHAs have an observed successful same-SHA smoke endpoint. Among those endpoints, mean is **791.84 s**, median **172 s**, range **133–20,181 s**.
+- The following **eight endpoints remain unavailable** in this selected population; they are not zero-duration joins: PRs **#227, #216, #192, #214, #219, #209, #215 and #201**.
+- The 20,181 s long endpoint includes a delayed retry on [run 43835920734 attempt 2](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43835920734/attempts/2). Do not replace the median with a per-attempt workflow duration or discard delayed joins without a stated rule.
+
+### Supplemental main-push observations: November 18–19 UTC
+
+These seven `push` events were independently checked in the live [Modular Main Validation run list](https://github.com/2ton-exe/moris-mix-ai/actions/workflows/modular-main.yml?query=branch%3Amain+created%3A2026-11-18..2026-11-19). They are outside the frozen November 7–17 population and do not change any denominator above. No manual dispatch is included in this supplement.
+
+| Run | Main SHA | Overall workflow | Production job | Cloudflare deployment command | Runtime smoke | Evidence / distinction |
+| --- | --- | --- | --- | --- | --- | --- |
+| [#105 / 44255817102](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44255817102) | `359c9fa` | Success | Success | Success | Passed | Push on the frozen extraction SHA; later than the Nov 7–17 population by run creation time. |
+| [#107 / 44284529577](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44284529577) | `790bd75` | Success | Success | Success | Passed | Main push. |
+| [#108 / 44529297150](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44529297150) | `e9b7309` | Failure | Failure | Skipped | Skipped | Stale-revision guard rejected this SHA because current main was `b6d9e58`; no production deployment command ran. |
+| [#109 / 44529624203](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44529624203) | `b6d9e58` | Success | Success | Success | Passed | Main push. |
+| [#110 / 44538439561](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44538439561) | `b245452` | Success | Success | Success | Passed | Main push. |
+| [#111 / 44596125585](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44596125585) | `0f6ac02` | Failure | Success | Success | Passed | Overall E2E failed (Chromium and WebKit); production deployment and runtime smoke still succeeded. |
+| [#112 / 44631829103](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44631829103) | `1add770` | Success | Success | Success | Passed | Main push; latest listed run in the bounded supplement. |
+
+Across this supplement: **5/7 overall workflow runs succeeded and 2/7 failed**. Production jobs were **6 success / 1 failure**; Cloudflare deployment commands were **6 success / 1 skipped / 0 failed**; runtime smoke was **6 passed / 1 skipped / 0 failed**. In [run 44529297150](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44529297150), the production job failed at stale-revision rejection before deployment; this is not a failed deployment or outage. [Run 44596125585](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44596125585) is a different case: the overall workflow failed in E2E despite successful production deployment and smoke. Configured `account-export` steps are skipped in these releases; that skip is not a passed deployment.
+
+### Optimization conclusion and remaining limits
+
+- **Sprint 2, Experiment 1 — Chromium headless-shell install:** the approximate E2E-job baseline averaged **92 s** across three observations; five after-attempts on one workflow run averaged **86.8 s**. The approximately **5.2 s** reduction is limited to that Playwright E2E job. It is not a whole-workflow or merge-to-live gain; see [Optimization Experiment 1](optimization-log.md#experiment-1--playwright-chromium-headless-shell-installation).
+- **Sprint 3, Experiment 2 — conservative documentation-only path selection:** one **91 s** baseline and three **37 s** after-runs measured a **54 s (about 59.3%)** reduction for that documentation-only workload. Lightweight core contexts remained; E2E and staging were intentionally skipped. It is not an all-PR speed or reliability claim; see [Optimization Experiment 2](optimization-log.md#experiment-2--conservative-documentation-only-ci-path-selection).
+- **No third optimization is justified by this evidence.** The full-path PR test inventory changed; only one integrated-readiness push is in the frozen window; and the seven later pushes do not establish a repeatable bottleneck with a matched baseline. Preserve both existing experiments and their narrow scopes. Do not claim a single full-validation PR mean, a pipeline-wide speedup, a production change-failure rate, or a reliability trend from these cohorts.
+- **Remaining limits:** the eight merge-to-smoke endpoints, first public-availability timestamps, formal outage/recovery time, production rollback evidence, and isolated database-restore evidence remain unavailable or unproven. The supplemental November 18–19 pushes are a small separate observation, not an extension of the frozen denominator or trend.
