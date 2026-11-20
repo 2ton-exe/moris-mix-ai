@@ -118,6 +118,14 @@ RUN_LIVE_AI_TESTS=1 GEMINI_API_KEY=... \
   supabase/functions/tests/ai_extraction_live.ts
 ```
 
+For any **separately authorized** repeat, record the effective model
+(`AI_MODEL` override, or the pinned default when unset), project and run date;
+record provider attempts only if independently observable. Inspect the Deno
+summary and require **3 passed / 0 failed / 0 ignored** before claiming the
+live tests executed successfully. Exit code zero alone is insufficient: all
+three cases use `ignore` when `RUN_LIVE_AI_TESTS` is not `1` or the key is
+absent. Do not include this test in routine CI or use real user content.
+
 The three cases cover vague amounts, a note with no taste description, and a
 note with a described taste. A fresh run on **2026-10-31** used the pinned
 `gemini-3.5-flash-lite` (`AI_MODEL` unset) and passed **3/3 in about 4 seconds**
@@ -146,9 +154,13 @@ observations, not an independent production-secret or Cloud IAM audit.
 
 The `AI_DAILY_LIMIT` default of 20 is an **application-level per-user
 logical-operation allowance**, not a Gemini Free-tier request limit or a
-provider-wide spending ceiling. The shared Gemini project means manual tests
-and production can compete for the same quota. No billed spend cap, isolated
-evaluation project, or exact provider-attempt count is claimed. This dated
+provider-wide spending ceiling. During the November 15 verification, production was configured with the key
+verified for the audited project. As of November 20, the **current** runtime
+key's project association has not been independently reverified. **If**
+production and manual evaluation still use keys from that same project, they
+compete for its quota; otherwise these figures do not establish production's
+provider tier or quota boundary. No billed spend cap, isolated evaluation
+project, or exact provider-attempt count is claimed. This dated
 audit does not retroactively alter the October 31 and November 14 test results.
 
 ### Dedicated Gemini project re-verification (2026-11-14)
