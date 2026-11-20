@@ -174,6 +174,3 @@
 }
 .mm-mori-paper-actor > svg { overflow: visible; }
 .mm-mori-paper-actor > :is(svg, img) { filter: drop-shadow(0 5px 3px rgb(47 33 26 / .2)); }
-.mm-mori-paper-actor[data-mori-reaching] .mori-grip-arm { display: inline; }
-[data-direction='forward'] > .mm-mori-paper-actor[data-mori-reaching] .mori-arm-r,
-[data-direction='backward'] > .mm-mori-paper-actor[data-mori-reaching] .mori-arm-l { visibility: hidden; }

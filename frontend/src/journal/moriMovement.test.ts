@@ -45,9 +45,12 @@ it('keeps the previous facing if there is no movement', () => {
   })
 })
 
-it.each(directions)('falls back to official art for %s while frames are missing', (facing) => {
-  expect(moriSpriteFrame(facing)).toBeNull()
-  expect(moriSpriteFrame(facing, 20)).toBeNull()
+it.each(directions)('uses approved idle and six distinct grounded walk frames for %s', (facing) => {
+  const idle = moriSpriteFrame(facing)
+  const walk = Array.from({ length: 129 }, (_, distance) => moriSpriteFrame(facing, distance))
+  expect(idle?.src).toContain('/idle.svg')
+  expect(new Set(walk.map((frame) => frame?.src)).size).toBe(6)
+  expect(walk.every((frame) => frame?.foot.y === MORI_FOOT.y)).toBe(true)
 })
 
 it('loops the matching walk frames by travelled distance and retains their foot anchors', () => {

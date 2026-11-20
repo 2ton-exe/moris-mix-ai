@@ -29,18 +29,16 @@ open and closed page-grab mitt. The local keyframe reference board shows
 front-facing blink, ear, tail, wave, hop, stir, sleep, and sweat poses. The
 asymmetric tail and apron details require separately drawn left and right views.
 
-The front-facing art supplies the S idle pose. N, NE, E, SE, SW, W, and NW
-still need approved idle artwork. All eight directions need 4–8 walking
-frames each. The controller already calculates all eight directions. Until
-those frames are available, the desktop turn uses the official front-facing
-SVG, so its travel can still look like sliding. The turn uses the existing
-articulated mitt. An authored side-facing reach, grip, and release would
-improve the pose once approved art is available.
+The `mori/` directory contains an idle and six walking frames in each of the
+eight directions. The south idle uses the official front pose directly. The
+east and west directories also contain reach, grip, and release poses. During
+desktop turns the scene tracks the moving paper edge with the articulated mitt.
+The compact layout uses the original companion illustration.
 
-To add artwork, keep each transparent frame on the shared 200 × 240 canvas and
-record its planted foot `{ x, y }` in source-art units. The official SVG rests
-at `(100, 230.6)`. Import the files as asset URLs in
-`src/journal/moriSpriteAtlas.ts` and add the matching compass key to the atlas
-passed to `createMoriSpriteLookup`. Supply an `idle` frame, an ordered `walk`
-array, and a positive `stride` for distance covered per cycle in source-art
-units. Sample all frames at their foot anchors before shipping a direction.
+Keep each frame on the 200 × 240 SVG artboard. The common ground datum is
+`(100, 230.6)` and each walking frame’s planted sole sits on that line. Store
+its horizontal coordinate and the complete stride length in `mori/strides.json`.
+The atlas resolves the numbered `walk-01.svg` to `walk-06.svg` files and
+`idle.svg` automatically. The SVG descriptions also record the anchor coordinates.
+In page-turn art, preserve the shoulder, wrist, forearm, mitt, and contact
+annotations so the scene can position just the gripping arm.

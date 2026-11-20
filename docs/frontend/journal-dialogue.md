@@ -42,7 +42,8 @@ Desktop pagination has one transaction for the paper and Mori’s motion.
 Next and Previous walk to opposite outer paper edges. Mori approaches, aligns,
 grips, pulls, releases as the sheet settles, and walks back to rest. The rendered
 paper bounds and the gap between ring groups determine the path. The sheet’s
-projected edge anchor drives the mitt while Mori’s feet stay planted.
+projected edge anchor drives the mitt while Mori’s feet stay planted. Six approved
+walking frames per direction advance by distance on a shared ground baseline.
 Page snapshots keep their existing handoff to live content. Reduced motion
 commits without the character or paper animation. Compact layouts retain their
 existing turn motion.

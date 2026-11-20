@@ -276,7 +276,7 @@ export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
       <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
       <span data-page-corner="true" className="mm-turn-corner" />
     </div>}
-    {next && !singleLeaf && <MoriPaperActor direction={turn.direction} />}
+    {next && !singleLeaf && <MoriPaperActor />}
   </div>
 }
 

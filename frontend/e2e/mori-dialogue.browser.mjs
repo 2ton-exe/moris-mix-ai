@@ -125,7 +125,6 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
     const book = node.closest('.mm-journal-book')
     const actor = node.querySelector('[data-mori-paper-actor]')
     const foot = actor.querySelector('[data-mori-foot]')
-    const grip = actor.querySelector('[data-mori-hand]')
     const corner = node.querySelector('[data-page-corner]')
     const live = book.querySelector(':scope > .mm-journal-spread')
     const left = live.querySelector(':scope > .mm-journal-flyleaf').getBoundingClientRect()
@@ -147,9 +146,13 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
       const { x: cornerX, y: cornerY } = corner.getBoundingClientRect()
       const gripping = actor.hasAttribute('data-mori-gripping')
       const ring = ringElements[0].getBoundingClientRect()
+      const grip = actor.querySelector('[data-mori-hand]')
       const point = gripping ? new globalThis.DOMPoint(grip.cx.baseVal.value, grip.cy.baseVal.value).matrixTransform(grip.getScreenCTM()) : null
+      const sprite = actor.querySelector('img')
       return {
         progress, motion: actor.dataset.moriMotion, facing: actor.dataset.moriFacing, x, y, cornerX, cornerY, gripping,
+        sprite: sprite?.getAttribute('src'),
+        spriteFootY: sprite ? sprite.getBoundingClientRect().top + sprite.getBoundingClientRect().height * 230.6 / 240 : null,
         travel: Number(node.dataset.travel),
         spineDrift: Math.max(Math.abs(ring.x - rings[0].x), Math.abs(ring.y - rings[0].y)),
         bindingAlignment: index === 0 || index === 199 ? bindingAlignment(index === 199) : null,
@@ -175,6 +178,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
 
   const directions = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
   let movingGrip = 0
+  const displayedWalkFrames = new Set()
   for (const [index, sample] of samples.entries()) {
     assert.ok((sample.paper || sample.inGutter) && !sample.onRing, `${label}: foot leaves the book or crosses a ring ${JSON.stringify(sample)}`)
     if (['approach', 'align', 'grab'].includes(sample.motion)) {
@@ -196,6 +200,10 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
       assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
       if (sample.travel > 0) movingGrip++
     }
+    if (sample.sprite && ['approach', 'recover'].includes(sample.motion)) {
+      assert.ok(Math.abs(sample.spriteFootY - sample.y) <= 1, `${label}: sprite sole is registered to the paper`)
+      if (sample.sprite.includes(`/${sample.facing}/walk-`)) displayedWalkFrames.add(sample.sprite)
+    }
     if (sample.motion === 'recover') assert.equal(sample.gripping, false, `${label}: releases the paper before walking`)
 
     const previous = samples[index - 1]
@@ -207,6 +215,7 @@ async function verifySpatialMoriTurn(layer, direction, screenshot) {
     if (Math.abs(sector - Math.round(sector)) > .48) continue
     assert.equal(sample.facing, directions[(Math.round(sector) + 8) % 8], `${label}: faces in the direction of travel`)
   }
+  assert.ok(displayedWalkFrames.size >= 4, `${label}: renders the approved walk frames`)
   assert.ok(movingGrip > 1, `${label}: Mori keeps contact as the paper begins to move`)
 
   for (const stage of motion) {

@@ -58,7 +58,7 @@ type StoppedPhase = 'align' | 'idle'
 
 type PaperFrame = { position: Point; facing: Direction8; paper: number } & (
   | { phase: WalkPhase; distance: number }
-  | { phase: ReachPhase; reach: number; grip: number; attached: boolean }
+  | { phase: ReachPhase; reach: number; attached: boolean }
   | { phase: StoppedPhase }
 )
 
@@ -86,13 +86,13 @@ export function createMoriPaperPlan({ left, right, start, corner, lane, directio
       if (elapsed < approachTime + ALIGN_TIME) return { ...standing, phase: 'align', paper: 0 }
       if (elapsed < flipStart) {
         const grab = (elapsed - approachTime - ALIGN_TIME) / GRAB_TIME
-        return { ...standing, phase: 'grab', paper: 0, reach: smooth(grab * 1.4), grip: smooth((grab - .72) / .28), attached: grab >= .72 }
+        return { ...standing, phase: 'grab', paper: 0, reach: smooth(grab * 1.4), attached: grab >= .72 }
       }
       if (elapsed < recoveryStart) {
         const paper = (elapsed - flipStart) / FLIP_TIME
-        if (paper < MORI_RELEASE_PROGRESS) return { ...standing, phase: 'turn', paper, reach: 1, grip: 1, attached: true }
+        if (paper < MORI_RELEASE_PROGRESS) return { ...standing, phase: 'turn', paper, reach: 1, attached: true }
         const release = (paper - MORI_RELEASE_PROGRESS) / .3
-        return { ...standing, phase: 'release', paper, reach: 1 - smooth(release), grip: 1 - smooth(release * 2), attached: false }
+        return { ...standing, phase: 'release', paper, reach: 1 - smooth(release), attached: false }
       }
       if (progress < 1) {
         return { ...recovery.sample(walkDistance((elapsed - recoveryStart) / recoveryTime, recovery.length)), phase: 'recover', paper: 1 }

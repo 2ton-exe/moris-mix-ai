@@ -2,14 +2,15 @@
 /* eslint react-refresh/only-export-components: off */
 import { Mori } from './Mori'
 import type { Point } from './moriMovement'
+import { createPaperGrip } from './moriPaperGrip'
 import { createMoriPaperPlan, isPaperRest, MORI_ART_SCALE, MORI_DESKTOP_SIZE, MORI_RELEASE_PROGRESS, moriRestFoot } from './moriPaperMotion'
 import { loadedMoriSprite, MORI_FOOT, moriSpriteFrame } from './moriSpriteAtlas'
 import { smooth, TURN_PERSPECTIVE, turnFrame, type TurnCompanion, type TurnDirection } from './pageTurnMotion'
 
-export function MoriPaperActor({ direction }: { direction: TurnDirection }) {
+export function MoriPaperActor() {
   return <div className="mm-mori-paper-actor" data-mori-paper-actor hidden>
     <span data-mori-foot />
-    <Mori size={MORI_DESKTOP_SIZE} gripSide={direction === 'forward' ? 'right' : 'left'} />
+    <Mori size={MORI_DESKTOP_SIZE} />
   </div>
 }
 
@@ -23,13 +24,10 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
 }) {
   const actor = layer.querySelector<HTMLElement>('[data-mori-paper-actor]')
   const art = actor?.querySelector('svg')
-  const mitt = art?.querySelector<SVGGElement>('[data-mori-mitt]')
-  const closed = mitt?.querySelector<SVGGElement>('[data-mori-closed-mitt]')
-  const open = mitt?.querySelector<SVGGElement>('[data-mori-open-mitt]')
   const marker = leaf.querySelector<HTMLElement>('[data-page-corner]')
   const leftPage = book.querySelector<HTMLElement>(':scope > .mm-journal-spread > .mm-journal-flyleaf')
   const rightPage = book.querySelector<HTMLElement>(':scope > .mm-journal-spread > .mm-journal-page')
-  if (!actor || !art || !mitt || !closed || !open || !marker || !leftPage || !rightPage) return null
+  if (!actor || !art || !marker || !leftPage || !rightPage) return null
 
   const layerRect = layer.getBoundingClientRect()
   const layerStyle = getComputedStyle(layer)
@@ -62,6 +60,8 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   const [perspectiveX, perspectiveY] = layerStyle.perspectiveOrigin.split(' ').map(parseFloat)
   if (![hinge, perspectiveX, perspectiveY].every(Number.isFinite)) return null
 
+  const grip = createPaperGrip(actor, direction)
+  if (!grip) return null
   const control = companion.startSpatial()
   if (!control) return null
   marker.dataset.moriPaperGrip = ''
@@ -81,12 +81,13 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
       y: perspectiveY + (corner.y - perspectiveY) * lens,
     }
   }
-  const forearm = [...art.querySelectorAll('[data-mori-forearm]')]
+  art.querySelector('[data-mori-hand]')?.removeAttribute('data-mori-hand')
   const feet = Array.from(art.querySelectorAll<SVGEllipseElement>('.mori-foot-l, .mori-foot-r'))
   const flip = (paper: number) => turnFrame(.26 + .56 * paper, direction)
   const releaseGrip = cornerAt(flip(MORI_RELEASE_PROGRESS).angle)
   art.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-MORI_FOOT.y * MORI_ART_SCALE}px)`
   let sprite: HTMLImageElement | null = null
+  let spriteFacing: string | undefined
   actor.hidden = false
 
   const width = book.clientWidth
@@ -115,37 +116,39 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
       const distance = walking ? frame.distance / MORI_ART_SCALE : undefined
       const image = reaching ? null : moriSpriteFrame(frame.facing, distance)
       const loaded = image && loadedMoriSprite(image.src)
-      if (!image || (loaded && loaded !== sprite)) {
+      if (loaded !== sprite && (loaded || spriteFacing !== frame.facing || reaching)) {
         sprite?.remove()
         sprite = loaded
-        if (sprite) actor.appendChild(sprite)
+        spriteFacing = frame.facing
+        if (sprite && image) {
+          // Center on the common ground datum as the planted leg changes sides.
+          sprite.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-image.foot.y * MORI_ART_SCALE}px)`
+          actor.appendChild(sprite)
+        }
       }
-      art.style.visibility = sprite ? 'hidden' : ''
-      if (sprite && image && loaded === sprite) {
-        sprite.style.transform = `translate(${-image.foot.x * MORI_ART_SCALE}px, ${-image.foot.y * MORI_ART_SCALE}px)`
+      art.style.visibility = sprite || reaching ? 'hidden' : ''
+      if (!sprite && !reaching) {
+        const stride = distance === undefined ? 0 : Math.sin(distance * Math.PI / 80) * 6
+        feet.forEach((foot, index) => { foot.style.transform = `translateY(${Math.min(0, index ? -stride : stride)}px)` })
       }
-      // shortcut: alternate the existing feet in place until approved directional cycles land.
-      const stride = distance === undefined ? 0 : Math.sin(distance * Math.PI / 80) * 6
-      feet.forEach((foot, index) => { foot.style.transform = `translateY(${Math.min(0, index ? -stride : stride)}px)` })
-      actor.toggleAttribute('data-mori-reaching', reaching)
       actor.toggleAttribute('data-mori-gripping', 'attached' in frame && frame.attached)
       if ('reach' in frame && reaching) {
         const target = frame.phase === 'release' ? releaseGrip : cornerAt(paper.angle)
         const localX = MORI_FOOT.x + (target.x - frame.position.x) / MORI_ART_SCALE
         const localY = MORI_FOOT.y + (target.y - frame.position.y) / MORI_ART_SCALE
-        const x = 148 + ((direction === 'forward' ? localX : 200 - localX) - 148) * frame.reach
-        const y = 190 + (localY - 190) * frame.reach
-        forearm.forEach((line) => line.setAttribute('d', `M128 168 Q${(128 + x) / 2 + 4} ${(168 + y) / 2 - 3} ${x} ${y}`))
-        mitt.setAttribute('transform', `translate(${x - 148} ${y - 190})`)
-        closed.style.opacity = String(frame.grip)
-        open.style.opacity = String(1 - frame.grip)
-      }
+        const restX = direction === 'forward' ? 146 : 54
+        grip.show(frame.phase === 'release' ? 'release' : frame.attached ? 'grip' : 'reach', {
+          x: restX + (localX - restX) * frame.reach,
+          y: 196 + (localY - 196) * frame.reach,
+        })
+      } else grip.hide()
       return paper
     },
     stop() {
       observer?.disconnect()
       if (resizeFrame !== null) cancelAnimationFrame(resizeFrame)
       sprite?.remove()
+      grip.hide()
       actor.hidden = true
       delete marker.dataset.moriPaperGrip
       control.stop()
