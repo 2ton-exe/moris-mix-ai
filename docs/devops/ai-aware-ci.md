@@ -31,7 +31,7 @@ The AI-owned [versioned dataset](../../supabase/functions/_shared/ai/eval_datase
 
 ### Provider configuration audit — 2026-11-20
 
-The original DevOps operator checked the existing **Mori's Mix AI Production** Google Cloud project and Gemini API Rate Limit dashboard using the project account. The following are **operator-observed, read-only console findings** as reported on 2026-11-20; they were not independently read from Google Cloud management APIs. No screenshots or credential values are committed.
+The original DevOps operator checked the existing **Mori's Mix AI Production** Google Cloud project and Gemini API Rate Limit dashboard using the project account. The following are **operator-observed, read-only console findings** as reported on 2026-11-20; they were not independently read from Google Cloud management APIs. No screenshots or credential values are committed. [Google's rate-limit documentation](https://ai.google.dev/gemini-api/docs/rate-limits) specifies that limits apply per project, **not per API key**, and that RPD resets at midnight Pacific time; the figures below are this project's observed limits, not universal Gemini defaults.
 
 | Scope | Dated observation | Interpretation and limit |
 | --- | --- | --- |
