@@ -153,6 +153,7 @@ async function verifyMoriPageTurn(page, character, direction) {
     if (progress >= .26 && progress <= .82) assert.ok(contact.distance <= 2, `${width}px ${direction} p=${progress}: detached mitt ${JSON.stringify(contact)}`)
     if ([.1, .95].includes(progress)) assert.ok(contact.alignment !== null && contact.alignment <= 1, `Hole and loop endpoint must align: ${JSON.stringify(contact)}`)
     if (progress >= .26 && progress <= .82 && contact.corner.x >= 0 && contact.corner.x <= width && contact.corner.y >= 0) assert.ok(contact.hand.x >= -2 && contact.hand.x <= width + 2 && contact.hand.y >= -2, 'Attached mitt stays within the viewport when the page corner is visible')
+    if (grabOffset > 0 && progress >= .26 && progress <= .82) assert.ok(contact.hand.y >= -2 && contact.hand.y <= page.viewportSize().height + 2, 'A chosen grab remains reachable even when the page lifts')
     assert.ok(Math.abs(contact.ring.x - spine.x) <= 1 && Math.abs(contact.ring.y - spine.y) <= 1, 'Spine stays fixed')
     if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${progress}.png`) })
   }
@@ -201,7 +202,7 @@ try {
     const journalTabs = page.getByRole('navigation', { name: 'Journal sections' })
 
     await page.clock.install()
-    await page.clock.pauseAt(new Date(Date.now() + 1000))
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000))
     const idle = await character.boundingBox()
     await editor.focus()
     await page.keyboard.press('Enter')
@@ -258,9 +259,18 @@ try {
     await expect(title).toHaveValue('Unsaved soup')
 
     await collection.click()
+    const idleBeforeDiscard = await page.locator('.mori-pet-character').evaluate((element) => ({
+      x: Number.parseFloat(element.style.left),
+      y: Number.parseFloat(element.style.top),
+    }))
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000))
     await dialog.getByRole('button', { name: 'Discard Changes' }).click()
+    await page.clock.runFor(40)
     await expect(character).toHaveAttribute('data-navigation-stage', /travel|arrival/)
+    const departure = await character.boundingBox()
+    assert.ok(departure && Math.hypot(departure.x - idleBeforeDiscard.x, departure.y - idleBeforeDiscard.y) < 24, 'After confirming, Mori departs from his visible idle position')
     await expect(journalTabs.getByRole('link', { name: 'My recipes' })).toHaveAttribute('data-mori-tap-target', '')
+    await page.clock.resume()
     await expect(page).toHaveURL(`${origin}app/recipes`)
     await expect(chat).toBeVisible()
     const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })

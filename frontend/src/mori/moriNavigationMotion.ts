@@ -13,6 +13,7 @@ export function travelToJournalTab(character: HTMLElement, art: SVGSVGElement, f
   const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
   let frame = 0
   let started: number | undefined
+  let waitingForCharacter = true
   let landing: Position | undefined
   let tab: HTMLElement | null = null
   let stopped = false
@@ -58,7 +59,16 @@ export function travelToJournalTab(character: HTMLElement, art: SVGSVGElement, f
       const bounds = target?.getBoundingClientRect()
       const characterBounds = character.getBoundingClientRect()
       const artBounds = art.getBoundingClientRect()
-      if (!target || !bounds?.width || !bounds.height || !artBounds.width || getComputedStyle(target).visibility !== 'visible') return stop(true)
+      if (!target || !bounds?.width || !bounds.height || getComputedStyle(target).visibility !== 'visible') return stop(true)
+      if (!artBounds.width && waitingForCharacter) {
+        // The discard dialog can close a frame before the companion is visible again.
+        waitingForCharacter = false
+        started = undefined
+        frame = requestAnimationFrame(tick)
+        return
+      }
+      if (!artBounds.width) return stop(true)
+      waitingForCharacter = false
       origin ??= characterBounds
       const viewport = window.visualViewport
       const center = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }

@@ -20,19 +20,31 @@ export interface TurnGeometry {
   hinge: number; pageTop: number; radius: number; single?: boolean
 }
 
-export function chooseTurnGrab({ pageTop, pageHeight, viewportTop, viewportHeight, previous }: {
-  pageTop: number
+type GrabSpot = 'upper' | 'middle' | 'lower' | 'corner'
+type TurnGrab = { spot: GrabSpot; y: number }
+
+export function chooseTurnGrab({ geometry, direction, pageHeight, viewportTop, viewportHeight, previous }: {
+  geometry: TurnGeometry
+  direction: TurnDirection
   pageHeight: number
   viewportTop: number
   viewportHeight: number
-  previous: number
-}) {
-  const reachable = [.025, .48, .92].filter((fraction) => {
-    const y = pageTop + pageHeight * fraction
-    return y >= viewportTop && y <= viewportTop + viewportHeight
+  previous: GrabSpot
+}): TurnGrab {
+  const liftedAngle = direction === 'forward' ? -90 : 90
+  const pageTop = geometry.top + geometry.pageTop
+  const viewportBottom = viewportTop + viewportHeight - 16
+  const expansion = Math.max(1, (projectGrabPoint(geometry, liftedAngle, pageHeight).y - pageTop) / pageHeight)
+  const lower = Math.min(pageHeight * .92, Math.floor((viewportBottom - pageTop) / expansion))
+  const spots: TurnGrab[] = [{ spot: 'upper', y: pageHeight * .025 }, { spot: 'middle', y: pageHeight * .45 }]
+  if (lower >= pageHeight * .6) spots.push({ spot: 'lower', y: lower })
+  const reachable = spots.filter(({ y }) => {
+    const flat = pageTop + y
+    const lifted = projectGrabPoint(geometry, liftedAngle, y).y
+    return Math.min(flat, lifted) >= viewportTop && Math.max(flat, lifted) <= viewportBottom
   })
-  const choices = reachable.length > 1 ? reachable.filter((fraction) => fraction !== previous) : reachable
-  return choices[Math.floor(Math.random() * choices.length)] ?? 0
+  const choices = reachable.length > 1 ? reachable.filter(({ spot }) => spot !== previous) : reachable
+  return choices[Math.floor(Math.random() * choices.length)] ?? { spot: 'corner', y: 0 }
 }
 
 /** CSS rotateY around the spine followed by the layer's perspective projection. */

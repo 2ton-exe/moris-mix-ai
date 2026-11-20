@@ -292,7 +292,7 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
   const frame = useRef<number | null>(null)
   const settleFrame = useRef<(() => void) | null>(null)
   const stopCompanion = useRef<(() => void) | null>(null)
-  const lastGrab = useRef(0)
+  const lastGrab = useRef<ReturnType<typeof chooseTurnGrab>['spot']>('corner')
   const clearMotion = useCallback(() => {
     if (frame.current !== null) cancelAnimationFrame(frame.current)
     frame.current = null
@@ -404,15 +404,16 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const move = companion?.start(motionDirection, motionLayout === 'single')
     stopCompanion.current = move && companion ? () => companion.stop() : null
     const viewport = window.visualViewport
-    const grabFraction = move ? chooseTurnGrab({
-      pageTop: paper.top,
+    const grab = move ? chooseTurnGrab({
+      geometry,
+      direction: motionDirection,
       pageHeight: paper.height,
       viewportTop: viewport?.offsetTop ?? 0,
       viewportHeight: viewport?.height ?? window.innerHeight,
       previous: lastGrab.current,
-    }) : 0
-    if (move) lastGrab.current = grabFraction
-    const grabY = paper.height * grabFraction
+    }) : null
+    if (grab) lastGrab.current = grab.spot
+    const grabY = grab?.y ?? 0
     leaf.style.setProperty('--mm-grab-y', `${grabY}px`)
     const shades = [...leaf.querySelectorAll<HTMLElement>('.mm-turn-shade')]
     const front = leaf.querySelector<HTMLElement>('.mm-turn-face--front')!

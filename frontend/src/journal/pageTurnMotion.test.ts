@@ -31,12 +31,22 @@ describe.each(['forward', 'backward'] as const)('%s projection', (direction) => 
 it('varies the reachable grab point before repeating and falls back to the corner offscreen', () => {
   const random = vi.spyOn(Math, 'random').mockReturnValue(0)
   try {
-    const geometry = { pageTop: 100, pageHeight: 600, viewportTop: 0, viewportHeight: 900 }
-    const first = chooseTurnGrab({ ...geometry, previous: 0 })
-    const second = chooseTurnGrab({ ...geometry, previous: first })
-    expect(first).toBeLessThan(second)
-    expect(chooseTurnGrab({ ...geometry, previous: second, viewportTop: 500 })).toBeGreaterThan(second)
-    expect(chooseTurnGrab({ ...geometry, previous: first, viewportTop: 800 })).toBe(0)
+    const setup = {
+      geometry: { left: 0, top: 100, width: 1200, height: 700, hinge: 600, pageTop: 0, radius: 600 },
+      direction: 'forward',
+      pageHeight: 700,
+      viewportTop: 0,
+      viewportHeight: 900,
+    } as const
+    const first = chooseTurnGrab({ ...setup, previous: 'corner' })
+    const second = chooseTurnGrab({ ...setup, previous: first.spot })
+    expect(first.spot).toBe('upper')
+    expect(second.spot).toBe('middle')
+    const lower = chooseTurnGrab({ ...setup, previous: second.spot, viewportTop: 500, viewportHeight: 400 })
+    expect(lower.spot).toBe('lower')
+    expect(lower.y - second.y).toBeGreaterThan(150)
+    expect(projectGrabPoint(setup.geometry, -90, lower.y).y).toBeLessThan(900)
+    expect(chooseTurnGrab({ ...setup, previous: first.spot, viewportTop: 800 })).toEqual({ spot: 'corner', y: 0 })
   } finally {
     random.mockRestore()
   }
