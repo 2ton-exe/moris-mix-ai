@@ -440,6 +440,7 @@ try {
     await expect(collectionHeading).toBeFocused()
 
     if (desktop) {
+      await expect(collection).toBeEnabled()
       const recipesTab = page.getByRole('navigation', { name: 'Journal sections' })
       const notesTravel = await recordShortcutTravel(page, 'Quick AI Entry')
       await chat.getByRole('button', { name: 'Open cooking notes' }).click()

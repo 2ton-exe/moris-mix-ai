@@ -172,6 +172,7 @@ export function travelToJournalTab({ character, trigger, findTab, signal, onSett
         paint('arrival', base, goal, scale)
         if (now - arrivalStart >= arrivalMs) {
           clearTab()
+          character.dataset.navigationStage = 'return'
           returnStart = now
           duration = Math.min(450, Math.max(250, Math.hypot(goal.x - base.x, goal.y - base.y) * 1.1))
           blend = 0
