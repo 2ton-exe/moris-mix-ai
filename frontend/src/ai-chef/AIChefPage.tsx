@@ -11,6 +11,7 @@ import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperCard } from '../journal/Scrapbook'
+import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { formTextPageColumns, formTextRows, replaceFormTextPart, splitFormText } from '../recipe-form/physicalFormPages'
 import { MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS, addPantryItems, pantryEntryErrorMessage, splitPastedPantryText } from './pantry'
@@ -56,7 +57,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const moriFocusPantry = useMoriFieldFocus('pantry', pantryInputRef, setGuidedPantry)
   const pageRef = useRef<HTMLElement>(null)
   const requestedPage = useRef(0)
-  const focusAfterTurn = useRef<'heading' | 'pantry' | null>(null)
+  const pendingFocus = useRef<'heading' | 'pantry' | null>(null)
   const previewItems = single ? 1 : 2
   const pantryPageSize = single ? 2 : 4
   const preferenceParts = splitFormText(preferences, Math.min(MAX_PREFERENCES_CHARS, preferenceColumns * preferenceRows), preferenceRows, preferenceColumns)
@@ -82,13 +83,14 @@ function AIChefSession({ userId }: { userId: string }) {
   useEffect(() => () => controller.current?.abort(), [])
 
   useLayoutEffect(() => {
-    if (isTurning || !focusAfterTurn.current) return
-    const target = focusAfterTurn.current === 'pantry'
+    if (isTurning || !pendingFocus.current) return
+    if (pageRef.current) pageRef.current.scrollTop = 0
+    const target = pendingFocus.current === 'pantry'
       ? pantryInputRef.current
       : pageRef.current?.querySelector<HTMLElement>('h2[tabindex="-1"]') ?? pageRef.current?.querySelector<HTMLElement>('h1[tabindex="-1"]')
-    focusAfterTurn.current = null
+    pendingFocus.current = null
     target?.focus({ preventScroll: true })
-  }, [page, isTurning])
+  }, [page, isTurning, handoff])
 
   useLayoutEffect(() => {
     const pageElement = pageRef.current?.closest<HTMLElement>('.mm-journal-page')
@@ -194,7 +196,7 @@ function AIChefSession({ userId }: { userId: string }) {
       requestedPage.current = next
       setChefPage(next)
       setPreviewPage(null)
-      focusAfterTurn.current = focus
+      pendingFocus.current = focus
     }, undefined, () => {
       requestedPage.current = page
       setPreviewPage(null)
@@ -281,11 +283,25 @@ function AIChefSession({ userId }: { userId: string }) {
     const nextDraft = { input: { pantryItems, pantryInput, preferences }, handoff: null }
     const result = writeChefDraft(userId, nextDraft)
     setStorageIssue(result.persisted ? null : result.reason)
+    pendingFocus.current = 'pantry'
     setHandoff(null)
     setDiscardOpen(false)
   }
 
-  const savedInputCount = pantryItems.length
+  const pantryStart = page === 0 ? 0 : previewItems + (page - 1) * pantryPageSize
+  const pantryPageItems = pantryItems.slice(pantryStart, page === 0 ? previewItems : pantryStart + pantryPageSize)
+  const pantryList = <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${pantryItems.length} ${pantryItems.length === 1 ? 'item' : 'items'}`}>
+    {pantryItems.length === 0
+      ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
+      : <>
+        {page === 0 && pantryPageCount > 0 && <p className="mm-ai-chef__list-count">{pantryItems.length} ingredients added. Turn the page to see the rest.</p>}
+        <ul role="list">{pantryPageItems.map((item, index) => <li key={`${item}-${pantryStart + index}`}>
+          <IngredientEmoji name={item} />
+          <span>{item}</span>
+          <button className="mm-ai-chef__remove" type="button" aria-label={`Remove ${item}`} onClick={() => removeIngredient(pantryStart + index)}>Remove</button>
+        </li>)}</ul>
+      </>}
+  </section>
   const storageWarning = storageIssue && <div className="mm-ai-chef__storage-warning" role="alert">
     <p>{storageIssue === 'handoff-changed'
       ? 'The saved preview changed elsewhere. Return to recipe review to use its latest recovery details.'
@@ -314,25 +330,25 @@ function AIChefSession({ userId }: { userId: string }) {
     <PaperCard className="mm-ai-chef__paper" surface="fresh" tape="sage">
     <form id="ai-chef-form" className="mm-ai-chef__form" onSubmit={(event) => { void requestSuggestion(event) }}>
       <section ref={pageRef} className="mm-ai-chef__page" role="region" aria-label={`AI Chef page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
-        <header className="mm-ai-chef__heading">
+        <header className={page === 0 || single ? 'mm-ai-chef__heading' : 'visually-hidden'}>
           <div>
             <h1 id="ai-chef-title" tabIndex={-1}>What’s in your pantry?</h1>
-            <p className="intro">Add what you have; Mori will suggest a recipe for you to review.</p>
+            {!handoff && (page === 0 || single) && <p className="intro">Add what you have; Mori will suggest a recipe for you to review.</p>}
           </div>
         </header>
         {page === 0 && storageWarning}
-        {page === 0 && handoff && <aside className="mm-ai-chef__resume" aria-label="Unsaved AI Chef recipe">
+        {page === 0 && handoff && <aside className="mm-ai-chef__resume" aria-label={handoff.savedRecipeId ? 'Saved AI Chef recipe' : 'Unsaved AI Chef recipe'}>
           <div>
-            <strong>{handoff.savedRecipeId
+            <h2>{handoff.savedRecipeId
               ? handoff.lineageStatus === 'confirmed'
                 ? handoff.selectedParentIds.length > 0 ? 'Your recipe and selected parent links are saved.' : 'Your recipe is saved; no parent links were selected.'
                 : 'Your recipe is saved; parent links need attention.'
-              : 'An AI Chef recipe is waiting for you.'}</strong>
+              : 'Your recipe draft is ready.'}</h2>
             <p>{handoff.savedRecipeId
               ? handoff.lineageStatus === 'confirmed'
                 ? 'Open the saved recipe or clear these recovery details.'
                 : 'Return to review the parent-link recovery. Retrying will not create another recipe.'
-              : 'Review or save that suggestion before starting another one.'}</p>
+              : 'Review the draft or discard it to edit your pantry.'}</p>
           </div>
           <div className="mm-ai-chef__resume-actions">
             <Link className="button button-primary" to="/app/chef/review">Return to recipe review</Link>
@@ -341,10 +357,10 @@ function AIChefSession({ userId }: { userId: string }) {
           </div>
         </aside>}
 
-      <fieldset disabled={pending || handoff !== null} aria-label={page === 0 ? 'Pantry ingredients' : page < preferencesStartPage ? 'Pantry ingredients, continued' : 'Cooking preferences'}>
+      {!handoff && <fieldset disabled={pending} aria-label={page === 0 ? 'Pantry ingredients' : page < preferencesStartPage ? 'Pantry ingredients, continued' : 'Cooking preferences'}>
         <legend className={page === 0 ? undefined : 'visually-hidden'}>{page < preferencesStartPage ? 'Pantry ingredients' : 'Cooking preferences'}</legend>
         {page === 0 && <>
-        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Paste a comma- or line-separated list; duplicates are skipped.</p>
+        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Separate pasted items with commas or new lines.</p>
         <div className="mm-ai-chef__ingredient-entry">
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
           <input
@@ -385,29 +401,14 @@ function AIChefSession({ userId }: { userId: string }) {
         </div>
         {entryError && <p id="pantry-entry-error" className="field-error" role="alert">{entryError}</p>}
         <p className="visually-hidden" role="status" aria-live="polite">{entryStatus}</p>
-        <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${savedInputCount} ${savedInputCount === 1 ? 'item' : 'items'}`}>
-          {pantryItems.length === 0
-            ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
-            : <>
-              <p className="mm-ai-chef__list-count">{savedInputCount} {savedInputCount === 1 ? 'ingredient' : 'ingredients'} saved. Turn the page to review all of them.</p>
-              <ul>{pantryItems.slice(0, previewItems).map((item, index) => <li key={`${item.toLowerCase()}-${index}`}>
-              <span>{item}</span>
-              <button className="mm-ai-chef__remove" type="button" aria-label={`Remove ${item}`} onClick={() => removeIngredient(index)}>Remove</button>
-            </li>)}</ul>
-            </>}
-        </section>
+        {pantryList}
         </>}
         {page > 0 && page < preferencesStartPage && <section className="mm-ai-chef__pantry-pages" aria-labelledby="ai-chef-pantry-page-title">
           <h2 id="ai-chef-pantry-page-title" tabIndex={-1}>Pantry ingredients · continued</h2>
-          <p className="mm-ai-chef__help">Page {page} of {pantryPageCount}. Return to the first page to add ingredients.</p>
-          <section className="mm-ai-chef__pantry-list" aria-label={`Pantry list, ${savedInputCount} ${savedInputCount === 1 ? 'item' : 'items'}`}>
-            <ul>{pantryItems.slice(previewItems + (page - 1) * pantryPageSize, previewItems + page * pantryPageSize).map((item, index) => <li key={`${item.toLowerCase()}-${index + previewItems}`}>
-              <span>{item}</span>
-              <button className="mm-ai-chef__remove" type="button" aria-label={`Remove ${item}`} onClick={() => removeIngredient(index + previewItems + (page - 1) * pantryPageSize)}>Remove</button>
-            </li>)}</ul>
-          </section>
+          <p className="mm-ai-chef__help">Return to the first page to add ingredients.</p>
+          {pantryList}
         </section>}
-        {page >= preferencesStartPage && !handoff && <>
+        {page >= preferencesStartPage && <>
         <h2 className="mm-ai-chef__pane-title" tabIndex={-1}><label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label></h2>
         <textarea
           id="ai-chef-preferences"
@@ -423,7 +424,7 @@ function AIChefSession({ userId }: { userId: string }) {
         />
         <p id="ai-chef-preferences-help" className="mm-ai-chef__help">This request only · {preferences.length} / {MAX_PREFERENCES_CHARS} characters</p>
         </>}
-      </fieldset>
+      </fieldset>}
 
       {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending || retryBlocked} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
       {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
@@ -432,10 +433,10 @@ function AIChefSession({ userId }: { userId: string }) {
     </form>
     </PaperCard>
     <JournalPageFooter>
-      <div className="mm-ai-chef__footer-actions">
-        <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked || handoff !== null}>{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
+      {!handoff && <div className="mm-ai-chef__footer-actions">
+        <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked}>{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
         <p className="mm-ai-chef__save-note">Nothing is saved until you choose Save recipe.</p>
-      </div>
+      </div>}
       <JournalPagination label="AI Chef pages" rightNumber={`Page ${page + 1} of ${pageCount}`}
         previous={page > 0 && <button type="button" className="button mm-button--page-turn" aria-label="Previous page" disabled={isTurning} onClick={() => turnPage(page - 1)}>← Previous</button>}
         next={page < pageCount - 1 && <button type="button" className="button mm-button--page-turn" aria-label="Next page" disabled={isTurning} onClick={() => turnPage(page + 1)}>Next →</button>} />

@@ -30,6 +30,17 @@ describe('Mori chat intent and recipe details', () => {
     expect(parsePantryPrompt('rice; quick; no dairy')).toEqual({ pantryItems: ['rice'], preferences: 'quick; no dairy' })
   })
 
+  it.each([
+    'the leftover ingredients in my pantry',
+    'pantry leftovers',
+    'what’s left in my pantry',
+    'whatever is left in my fridge',
+    'whatever I have on hand',
+  ])('asks for names when the request just refers to %s', (reference) => {
+    expect(parsePantryPrompt(`What can I cook with ${reference}?`).pantryItems).toEqual([])
+    expect(parsePantryPrompt(`What can I cook with ${reference}, leftover rice?`).pantryItems).toEqual(['leftover rice'])
+  })
+
   it('reports only required recipe fields that are missing', () => {
     expect(missingRecipeDetails({
       title: 'Tomato soup',

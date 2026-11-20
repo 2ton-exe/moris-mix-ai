@@ -14,16 +14,33 @@ import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai
 import type { ExtractedRecipe, QuickAiEntryHandoff } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, InvalidExtractionResponse, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
 import { mapExtractedRecipeToDraft } from '../quick-ai/recipeDraft'
+import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import { missingRecipeDetails, parsePantryPrompt, requestedNavigation, requestedWorkflow } from './chatFlow'
 import { useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
 
 type MoriDraft = { kind: 'create'; handoff: QuickAiEntryHandoff } | { kind: 'suggest'; handoff: ChefReviewHandoff }
 type MoriRetry = { kind: 'create'; notes: string } | { kind: 'suggest'; prompt: string }
 type MoriCooldowns = Partial<Record<MoriRetry['kind'], number>>
-type Message = { id: number; role: 'user' | 'assistant'; text: string; draft?: MoriDraft; reviewKey?: number }
+type Message = { id: number; role: 'user' | 'assistant'; text: string | null; draft?: MoriDraft; reviewKey?: number }
 
 function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; onReview: (draft: MoriDraft) => void; disabled: boolean; consumed: boolean }) {
-  const recipe: ExtractedRecipe = draft.kind === 'create' ? draft.handoff.recipe : draft.handoff.response.recipe
+  if (draft.kind === 'suggest') {
+    const { recipe } = draft.handoff.response
+    const remaining = recipe.ingredients.length - 3
+    return <div className="mori-chat-recipe">
+      <h3>{recipe.title}</h3>
+      <span>{consumed ? 'Saved to your journal' : 'Unsaved draft'}</span>
+      <ul role="list" aria-label="Draft ingredients">
+        {recipe.ingredients.slice(0, 3).map((ingredient, index) => <li key={index}>
+          <IngredientEmoji name={ingredient.name} />
+          {ingredient.name}
+        </li>)}
+        {remaining > 0 && <li>{remaining} more</li>}
+      </ul>
+      <button type="button" disabled={disabled || consumed} onClick={() => onReview(draft)}>{consumed ? 'Saved' : 'Review recipe'}</button>
+    </div>
+  }
+  const recipe: ExtractedRecipe = draft.handoff.recipe
   const ingredients = recipe.ingredients.slice(0, 3)
   const instructions = recipe.instructions.slice(0, 2)
   return <div className="mori-chat-preview">
@@ -39,14 +56,7 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
       {instructions.length ? <ol>{instructions.map((instruction) => <li key={instruction.step}>{instruction.text}</li>)}</ol> : <p>No cooking steps listed yet.</p>}
       {recipe.instructions.length > instructions.length && <span>+ {recipe.instructions.length - instructions.length} more</span>}
     </div>
-    {draft.kind === 'suggest' && <p className="mori-chat-context">
-      {draft.handoff.response.parents.length
-        ? `Based on ${draft.handoff.response.parents.map((parent) => parent.title).join(', ')}`
-        : draft.handoff.response.context.status === 'NO_SAVED_RECIPES'
-          ? 'No saved recipes were available for this idea.'
-          : 'No saved recipe matched; this idea is based on your pantry request.'}
-    </p>}
-    <button type="button" disabled={disabled || consumed} onClick={() => onReview(draft)}>{consumed ? 'Saved' : draft.kind === 'create' ? 'Review draft' : 'Review recipe'}</button>
+    <button type="button" disabled={disabled || consumed} onClick={() => onReview(draft)}>{consumed ? 'Saved' : 'Review draft'}</button>
   </div>
 }
 
@@ -96,7 +106,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
     return until === undefined ? 0 : Math.max(0, Math.ceil((until - now) / 1000))
   }
 
-  function say(role: Message['role'], text: string, draft?: MoriDraft) {
+  function say(role: Message['role'], text: Message['text'], draft?: MoriDraft) {
     const reviewKey = draft ? reviewKeyFor(draft) : undefined
     const message: Message = { id: id.current++, role, text, ...(draft ? { draft, reviewKey } : {}) }
     setMessages((current) => [...current, message])
@@ -267,7 +277,7 @@ export function MoriChatPanel({ userId }: { userId: string }) {
           say('assistant', 'This idea does not fit the recipe editor yet. Your pantry request is back in the message box so you can adjust it and try again.')
           return
         }
-        say('assistant', `I found an idea using your pantry. Review “${response.recipe.title}” before saving.`, {
+        say('assistant', null, {
           kind: 'suggest', handoff: {
             request: parsed.data,
             response,
@@ -357,7 +367,6 @@ export function MoriChatPanel({ userId }: { userId: string }) {
         handoff: draft.handoff,
         completedReview: false,
       })
-    say('assistant', 'Your unsaved idea is ready in review. Nothing will be saved to your journal until you confirm there.')
     navigate('/app/chef/review', { replace: location.pathname === '/app/chef/review', state: {
       moriKeepOpen: true,
       chefGenerationSucceeded: true,
@@ -377,14 +386,14 @@ export function MoriChatPanel({ userId }: { userId: string }) {
 
   return <div className="mori-chat">
     <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
-    <div ref={log} className="mori-chat-log" role="log" aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
+    <div ref={log} className="mori-chat-log" role="log" tabIndex={messages.length ? 0 : undefined} aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
       const element = event.currentTarget
       followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32
     }}>
       {messages.map((message) => {
         const reviewKey = message.reviewKey
         return <article key={message.id} className="mori-chat-message" data-role={message.role} aria-label={message.role === 'user' ? 'You' : 'Mori'}>
-          <p>{message.text}</p>
+          {message.text && <p>{message.text}</p>}
           {message.id === messages.at(-1)?.id && retryRequest && !pending && <div className="mori-chat-retry"><button type="button" disabled={retryWaitFor(retryRequest.kind) > 0} onClick={() => {
             const retry = retryRequest
             setRetryRequest(null)

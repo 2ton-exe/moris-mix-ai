@@ -160,36 +160,6 @@
   line-height: 1.6;
 }
 
-.mm-recipe-navigation-backdrop {
-  position: fixed;
-  z-index: 2000;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  overflow-y: auto;
-  padding: clamp(12px, 4vw, 28px);
-  background: radial-gradient(ellipse at center, rgb(30 14 6 / .38), rgb(30 14 6 / .7));
-  backdrop-filter: blur(2px);
-}
-.mm-recipe-navigation-dialog {
-  width: min(100%, 480px);
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
-  padding: clamp(24px, 5vw, 36px);
-  border: 1px solid var(--mm-color-burgundy-300);
-  border-radius: 3px;
-  background-color: var(--mm-color-parchment-50);
-  box-shadow: 0 18px 60px rgb(15 7 4 / .45), inset 0 0 0 4px rgb(255 255 255 / .38);
-  transform: rotate(-.35deg);
-}
-.mm-recipe-navigation-dialog > .mm-paper-card__tape { top: -12px; left: calc(50% - 43px); width: 86px; height: 18px; }
-.mm-recipe-navigation-dialog__heading { display: flex; align-items: center; gap: 14px; }
-.mm-recipe-navigation-dialog__heading .mm-mori { flex: 0 0 auto; width: 58px; height: auto; }
-.mm-recipe-navigation-dialog__heading .mm-recipe-index__eyebrow { margin: 0 0 5px; }
-.mm-recipe-navigation-dialog__heading h2 { margin: 0; color: var(--mm-color-ink); font-size: clamp(22px, 5vw, 28px); overflow-wrap: anywhere; }
-.mm-recipe-navigation-dialog__message { margin: 14px 0 0; color: var(--mm-color-ink-soft); font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
-.mm-recipe-navigation-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; }
-
 /* The existing delete state machine remains authoritative; this changes only
    its materials and composition inside the journal. */
 .mm-desk .delete-dialog-backdrop {
@@ -220,22 +190,17 @@
   .mm-journal-editor .recipe-editor-row { padding-inline: 10px; }
   .mm-journal-editor .recipe-form-actions { flex-direction: column-reverse; align-items: stretch; }
   .mm-journal-editor .recipe-form-actions .button { width: 100%; justify-content: center; }
-  .mm-recipe-navigation-dialog__actions { flex-direction: column; align-items: stretch; }
-  .mm-recipe-navigation-dialog__actions .button { width: 100%; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mm-journal-editor .recipe-row-actions button,
-  .mm-journal-editor .recipe-form-actions .button,
-  .mm-recipe-navigation-dialog { transition: none; transform: none; }
+  .mm-journal-editor .recipe-form-actions .button { transition: none; transform: none; }
 }
 @media (forced-colors: active) {
   .mm-recipe-form-sheet,
   .mm-journal-editor .recipe-form-section,
   .mm-journal-editor .recipe-editor-row,
-  .mm-recipe-navigation-dialog,
   .mm-desk .delete-dialog { border: 1px solid CanvasText; }
   .mm-recipe-form-sheet > .mm-paper-card__tape,
-  .mm-recipe-navigation-dialog > .mm-paper-card__tape,
   .mm-desk .mm-delete-dialog__tape { display: none; }
 }
 

@@ -33,6 +33,9 @@ export function missingRecipeDetails(recipe: ExtractedRecipe) {
   ]
 }
 
+// shortcut: recognize common pantry references here; use structured input for broader intent parsing.
+const unnamedPantryReference = /^(?:(?:the|my|our|some|any) )?(?:(?:(?:pantry|fridge) )?leftovers?|(?:leftover |pantry |fridge )?ingredients?|pantry|fridge|what(?:ever)?(?:(?: i| we) have| is|['’]s)(?: left)?)(?: (?:in|from) (?:the |my |our )?(?:pantry|fridge)| on hand)?$/i
+
 export function parsePantryPrompt(value: string) {
   const separator = value.indexOf(';')
   const ingredientText = (separator < 0 ? value : value.slice(0, separator)).trim()
@@ -42,7 +45,9 @@ export function parsePantryPrompt(value: string) {
   // shortcut: split "and" as a list separator; use a structured pantry picker if compound ingredient names need exact handling.
   const list = withIngredients.replace(/\s+and\s+/gi, ',').replace(/[?!.]+\s*$/, '')
   return {
-    pantryItems: splitPastedPantryText(list).map((item) => item.trim().replace(/[?!.]+\s*$/, '')).filter(Boolean),
+    pantryItems: splitPastedPantryText(list)
+      .map((item) => item.trim().replace(/[?!.]+\s*$/, ''))
+      .filter((item) => item && !unnamedPantryReference.test(item.replace(/\s+/g, ' '))),
     preferences: preferenceText.trim(),
   }
 }
