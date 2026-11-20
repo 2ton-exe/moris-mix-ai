@@ -483,3 +483,27 @@ it('refocuses the ingredient slot when the same prompt is selected again', () =>
     expect(input.selectionStart).toBe(input.value.indexOf(';'))
   }
 })
+
+it('opens the recipe editor when requested from chat', async () => {
+  renderChat('mori-chat-open-editor')
+  send('Open the recipe editor')
+
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new'))
+})
+
+it('offers a choice when more than one unsaved chat draft could be reviewed', async () => {
+  vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue(recipe())
+  vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
+  renderChat('mori-chat-review-choice')
+  send('I cooked tomato soup')
+  await screen.findByRole('button', { name: 'Review draft' })
+  send('What can I cook with rice?')
+  await screen.findByRole('button', { name: 'Review recipe' })
+
+  send('Review my draft')
+  expect(await screen.findByText(/Which draft/)).toBeTruthy()
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
+
+  send('Review the AI Chef draft')
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/chef/review'))
+})
