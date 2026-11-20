@@ -51,6 +51,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
+  const [traveling, setTraveling] = useState(false)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
@@ -261,8 +262,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     const element = character.current
     const art = trigger.current?.querySelector('svg')
     if (!element || !art || element.dataset.turnDirection) return
-    const travel = travelToJournalTab(element, art, findTab, signal)
     stopNavigationTravel.current?.()
+    setTraveling(true)
+    const travel = travelToJournalTab(element, art, findTab, signal, () => setTraveling(false))
     stopNavigationTravel.current = travel.cancel
     return travel.arrived
   }
@@ -341,7 +343,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)

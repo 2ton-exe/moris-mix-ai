@@ -7,7 +7,7 @@ const arrivalArm = -58
 
 type Position = { x: number; y: number }
 
-export function travelToJournalTab(character: HTMLElement, art: SVGSVGElement, findTab: () => HTMLElement | null, signal: AbortSignal) {
+export function travelToJournalTab(character: HTMLElement, art: SVGSVGElement, findTab: () => HTMLElement | null, signal: AbortSignal, onSettled: () => void) {
   const initialBounds = character.getBoundingClientRect()
   let origin = initialBounds.width ? initialBounds : undefined
   const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -32,6 +32,7 @@ export function travelToJournalTab(character: HTMLElement, art: SVGSVGElement, f
     character.style.removeProperty('transform')
     character.style.removeProperty('--mori-travel-arm')
     tab?.removeAttribute('data-mori-tap-target')
+    onSettled()
     arrive(continueNavigation)
   }
 

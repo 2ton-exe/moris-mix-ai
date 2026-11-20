@@ -52,7 +52,7 @@ export function usePantryPageEnds({
       const pageGap = parseFloat(getComputedStyle(page).rowGap)
       const paperPadding = parseFloat(getComputedStyle(paper).paddingBottom)
       const bottom = single
-        ? spread.getBoundingClientRect().bottom - footer.getBoundingClientRect().height - 12
+        ? spread.getBoundingClientRect().top + (parseFloat(getComputedStyle(spread).minHeight) || spread.getBoundingClientRect().height) - footer.getBoundingClientRect().height - 12
         : paperBounds.bottom
       const noticeHeight = notices.getBoundingClientRect().height
       const contentHeight = bottom - page.getBoundingClientRect().top - paperPadding

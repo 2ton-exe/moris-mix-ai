@@ -68,10 +68,11 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
 
 type PlayNavigationMotion = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void | boolean>
 
-export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel }: {
+export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false }: {
   userId: string
   playNavigationTap?: PlayNavigationMotion
   playNavigationTravel?: PlayNavigationMotion
+  traveling?: boolean
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -297,6 +298,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel 
     anchor?: HTMLButtonElement
     shortcut?: boolean
   } = {}) {
+    if (shortcut && traveling) return
     const journalTab = shortcut ? path : undefined
     const prepare = () => {
       setMode(null)
@@ -620,10 +622,10 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel 
       <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
     </form>
     <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
     </nav>
     <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
   </div>

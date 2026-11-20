@@ -314,7 +314,6 @@
     font: 700 clamp(14px, 1.25vw, 18px)/1.15 var(--mm-font-sans);
   }
 
-  .mm-ai-chef__card-grid > li[data-long-name] { grid-column: 1 / -1; }
   .mm-ai-chef__card-grid > li[data-tone="1"] { --card-paper: #f1e6f2; --card-tape: #c9b8d3; }
   .mm-ai-chef__card-grid > li[data-tone="2"] { --card-paper: #eaf0db; --card-tape: #b9c9a5; }
   .mm-ai-chef__card-grid > li[data-tone="3"] { --card-paper: #f6e6df; --card-tape: #dab3ad; }
@@ -347,9 +346,12 @@
     border-radius: 6px;
     text-decoration: none;
   }
-  .mm-ai-chef__card-grid > [data-long-name] .recipe-ingredient-emoji { grid-area: 1 / 1; }
-  .mm-ai-chef__card-grid > [data-long-name] .mm-ai-chef__ingredient-name { grid-area: 2 / 1 / 3 / -1; }
-  .mm-ai-chef__card-grid > [data-long-name] .mm-ai-chef__remove { grid-area: 1 / 2; justify-self: end; }
+  @media (max-height: 760px), (max-width: 1199px) {
+    .mm-ai-chef__card-grid > [data-long-name] { grid-column: 1 / -1; }
+    .mm-ai-chef__card-grid > [data-long-name] .recipe-ingredient-emoji { grid-area: 1 / 1; }
+    .mm-ai-chef__card-grid > [data-long-name] .mm-ai-chef__ingredient-name { grid-area: 2 / 1 / 3 / -1; }
+    .mm-ai-chef__card-grid > [data-long-name] .mm-ai-chef__remove { grid-area: 1 / 2; justify-self: end; }
+  }
 
   .mm-ai-chef__remove > span {
     display: inline-block;
@@ -405,3 +407,24 @@
 .mm-facing-content--ai-chef-compact h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .mm-facing-content--ai-chef-compact ol { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .mm-facing-content--ai-chef-compact li { gap: 4px; font-size: 13px; }
+
+
+@media (min-width: 1024px) and (max-height: 639.98px) and (pointer: fine) {
+  .mm-journal-book:has(> .mm-journal-spread [data-chef-pantry]) {
+    block-size: auto;
+    min-block-size: var(--mm-book-height);
+    padding-block: var(--mm-overhang);
+  }
+
+  .mm-journal-book > .mm-journal-spread:has([data-chef-pantry]) {
+    position: relative;
+    inset-block-start: auto;
+    block-size: auto;
+    min-block-size: var(--mm-page-height);
+  }
+
+  .mm-desk .mm-journal-page:has([data-chef-pantry]) > .mm-journal-page-footer {
+    position: relative;
+    bottom: auto;
+  }
+}

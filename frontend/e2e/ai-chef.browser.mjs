@@ -357,6 +357,16 @@ try {
     return card.scrollWidth <= card.clientWidth && card.getBoundingClientRect().bottom < footer.getBoundingClientRect().top
   })
   assert.ok(fits, 'The longest ingredient fits its card above the actions on a compact desktop continuation')
+  for (const [width, height] of [[1366, 550], [1024, 450]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await expect(longCard).toBeVisible()
+    await expect.poll(() => longCard.evaluate((card) =>
+      card.getBoundingClientRect().bottom < card.closest('.mm-journal-page')
+        .querySelector('.mm-journal-page-footer').getBoundingClientRect().top,
+    )).toBe(true)
+  }
+
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
