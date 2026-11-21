@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import './detail-dialog.css'
 
 export function ReviewDetailDialog({ title, action, children }: { title: string; action: string; children: ReactNode }) {
   const headingId = useId()

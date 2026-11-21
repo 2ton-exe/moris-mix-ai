@@ -20,6 +20,7 @@ export type RecipeFormProps = {
   onEditorStateChange?: (state: RecipeEditorState) => void
   showExtractionHints?: boolean
   reviewWorkflow?: boolean
+  newRecipeScrapbook?: boolean
   editorIntro?: string
   draftKeptInSession?: boolean
   editorTitle?: string

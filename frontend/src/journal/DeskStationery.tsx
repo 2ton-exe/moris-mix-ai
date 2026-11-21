@@ -1,3 +1,4 @@
+import { ScrapbookSticker } from './ScrapbookSticker'
 // Original decorative SVG stationery from the verified Figma Make desk scene.
 export function DeskStationery() {
   return (
@@ -35,20 +36,7 @@ export function DeskStationery() {
         <circle cx="64" cy="64" r="28" fill="#a07850" />
         <circle cx="64" cy="64" r="28" fill="none" stroke="#6b4a2c" strokeWidth="2" opacity=".5" />
       </svg>
-      <svg className="mm-stationery mm-stationery--sprig" viewBox="0 0 170 220">
-        <path d="M30 210 C60 150 90 90 150 12" stroke="#5d6b45" strokeWidth="4" fill="none" strokeLinecap="round" />
-        {Array.from({ length: 13 }).map((_, i) => {
-          const t = i / 13
-          const x = 30 + t * 118
-          const y = 210 - t * 196
-          return (
-            <g key={i}>
-              <ellipse cx={x - 12} cy={y - 2} rx="15" ry="3.6" fill="#6f8360" transform={`rotate(${-35} ${x} ${y})`} />
-              <ellipse cx={x + 10} cy={y + 4} rx="15" ry="3.6" fill="#58694b" transform={`rotate(${40} ${x} ${y})`} />
-            </g>
-          )
-        })}
-      </svg>
+      <ScrapbookSticker decorative name="herb-sprig" className="mm-stationery mm-stationery--sprig" />
       <svg className="mm-stationery mm-stationery--ring-stain" viewBox="0 0 150 150">
         <circle cx="75" cy="75" r="56" fill="none" stroke="#5a3519" strokeWidth="5" opacity=".18" />
         <circle cx="75" cy="75" r="52" fill="none" stroke="#5a3519" strokeWidth="1.5" opacity=".14" strokeDasharray="60 12 30 8" />

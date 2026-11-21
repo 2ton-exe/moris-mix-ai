@@ -5,6 +5,7 @@ import { JournalReadingTurns } from '../journal/JournalReadingTurns'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperClip, Tape } from '../journal/Scrapbook'
+import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import { RecipeIdentity } from './RecipeIdentity'
 import { RecipeMetadata } from './RecipeCard'
 import { RecipeScrapArtwork } from './RecipeScrapArtwork'
@@ -19,7 +20,7 @@ function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: n
     const amount = ingredient.quantityText ?? [ingredient.quantity, ingredient.unit].filter((part) => part !== null).join(' ')
     const text = amount ? `${amount} ${ingredient.name}` : ingredient.name
     return splitReadingText(text, textChunkSize).map((partText, part) => ({ id: part ? `ingredient-${index}-part-${part}` : `ingredient-${index}`, section: 'ingredients', heading: 'Ingredients',
-      content: <ul><li>{partText}</li></ul> }))
+      content: <ul><li>{part === 0 && <IngredientEmoji name={ingredient.name} />}{partText}</li></ul> }))
   }).flat()
   if (!units.length) units.push({ id: 'ingredients-empty', section: 'ingredients', heading: 'Ingredients', content: <p>No ingredients listed.</p> })
   const methodHeading = publicDemo ? 'Instructions' : 'In the kitchen'

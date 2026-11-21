@@ -1,65 +1,3 @@
-.mm-chef-review .mm-review-detail-link {
-  min-block-size: 28px;
-  padding: 2px 3px;
-  border: 0;
-  border-radius: 3px;
-  color: var(--mm-color-burgundy-800);
-  background: transparent;
-  font: 650 .75rem/1.25 var(--mm-font-sans);
-  text-align: start;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.mm-chef-review .mm-review-detail-link:hover { background-color: var(--mm-color-parchment-200); }
-
-.mm-chef-review .mm-review-detail-dialog {
-  box-sizing: border-box;
-  inline-size: min(34rem, calc(100% - 2rem));
-  max-block-size: calc(100dvh - 2rem);
-  padding: clamp(16px, 4vw, 28px);
-  border: 1px solid var(--mm-color-parchment-500);
-  border-radius: var(--mm-radius-card);
-  color: var(--mm-color-ink);
-  background: var(--mm-color-fresh) var(--mm-tex-grain);
-  box-shadow: var(--mm-shadow-paper);
-  overflow: auto;
-  overscroll-behavior: contain;
-  overflow-wrap: anywhere;
-  font: .9375rem/1.5 var(--mm-font-sans);
-}
-
-.mm-chef-review .mm-review-detail-dialog[open] { display: grid; gap: 12px; }
-.mm-chef-review .mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
-
-.mm-chef-review .mm-desk--writing .mm-review-detail-dialog h2 {
-  position: static;
-  inline-size: auto;
-  block-size: auto;
-  margin: 0;
-  padding: 0;
-  clip-path: none;
-  border: 0;
-  color: var(--mm-color-burgundy-900);
-  font: 600 1.5rem/1.2 var(--mm-font-serif);
-}
-
-.mm-chef-review .mm-review-detail-dialog textarea {
-  width: 100%;
-  min-height: 7rem;
-  padding: 8px 10px;
-  border: 1px solid var(--mm-color-parchment-500);
-  border-radius: var(--mm-radius-control);
-  background: repeating-linear-gradient(180deg, transparent 0 27px, rgb(110 150 190 / .28) 27px 28px) var(--mm-color-fresh);
-  color: var(--mm-color-ink);
-  font: 1rem/28px var(--mm-font-sans);
-  resize: vertical;
-}
-
-.mm-chef-review .mm-review-detail-dialog > .button { justify-self: end; width: auto; }
-.mm-chef-review .mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }
-
 .mm-chef-review__title-sparkle { display: none; }
 
 .mm-chef-review .mm-desk--writing {
@@ -70,7 +8,7 @@
 
 .mm-chef-review .mm-journal-spread:has(.mm-review-leaf) :is(.mm-journal-page, .mm-journal-flyleaf) {
   --mm-journal-paper-color: #faf3e3;
-  --mm-journal-paper-image: var(--mm-page-curve), url('../assets/stickers/review-paper-edges.svg'), var(--mm-tex-grain), var(--mm-tex-mottle);
+  --mm-journal-paper-image: var(--mm-page-curve), var(--mm-scrapbook-paper-edges), var(--mm-tex-grain), var(--mm-tex-mottle);
   background-size: auto, auto, 100% 100%, auto, auto;
 }
 
@@ -106,7 +44,7 @@
   position: absolute;
   z-index: -1;
   inset: -.25em -.4em -.25em;
-  mask: url('../assets/stickers/review-brush.svg') center / 100% 100% no-repeat;
+  mask: var(--mm-scrapbook-brush) center / 100% 100% no-repeat;
   background-color: #f1d5cd;
   transform: rotate(-1deg);
   pointer-events: none;
@@ -123,7 +61,7 @@
   border: 0;
 }
 
-.mm-chef-review .mm-review-leaf > h2 > svg { flex: none; inline-size: clamp(29px, 4vh, 36px); transform: rotate(10deg); }
+.mm-chef-review .mm-review-leaf > h2 > .mm-scrapbook-sticker { flex: none; inline-size: clamp(29px, 4vh, 36px); transform: rotate(10deg); }
 .mm-chef-review .mm-chef-review__title-sparkle {
   display: inline-block;
   inline-size: clamp(16px, 2.7vh, 25px);
@@ -163,7 +101,7 @@
 }
 
 .mm-chef-review__identity .recipe-section-heading { margin: 0; }
-.mm-chef-review__identity .mm-chef-review__tape {
+.mm-chef-review__identity .mm-scrapbook-form__tape {
   position: absolute;
   inset: -9px auto auto 44%;
   width: 72px;
@@ -172,17 +110,17 @@
 }
 
 .mm-chef-review__title,
-.mm-chef-review__notes {
+.mm-scrapbook-form__notes {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 4px;
   align-items: center;
 }
 
-.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .recipe-form-field { display: contents; }
-.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .recipe-form-field label { grid-area: 1 / 1; margin: 0; }
-.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) .recipe-form-field > p { grid-column: 1 / -1; }
-.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .mm-review-detail-link { grid-area: 1 / 2; justify-self: end; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-scrapbook-form__notes) > .recipe-form-field { display: contents; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-scrapbook-form__notes) > .recipe-form-field label { grid-area: 1 / 1; margin: 0; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-scrapbook-form__notes) .recipe-form-field > p { grid-column: 1 / -1; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-scrapbook-form__notes) > .mm-review-detail-link { grid-area: 1 / 2; justify-self: end; }
 .mm-chef-review .mm-chef-review__title textarea[name='title'] {
   grid-column: 1 / -1;
   max-block-size: calc(3lh + 16px);
@@ -210,7 +148,7 @@
 }
 
 .mm-chef-review__identity h3::before { inset: 30% -12px -1px 12px; background: #f3d8d0; }
-.mm-chef-review__identity :is(h3, label) svg { inline-size: 23px; block-size: 23px; flex: none; }
+.mm-chef-review__identity :is(h3, label) .mm-scrapbook-sticker { inline-size: 23px; block-size: 23px; flex: none; }
 .mm-chef-review .mm-chef-review__identity .recipe-amount-row { gap: 8px; }
 .mm-chef-review .mm-chef-review__identity .recipe-amount-row > div { margin: 0 0 6px; }
 .mm-chef-review .mm-chef-review__identity .recipe-form-field :is(input, select) {
@@ -222,8 +160,8 @@
 .mm-chef-review .mm-chef-review__identity .recipe-form-field [aria-invalid='true'] { border-color: var(--mm-color-brick-700); }
 .mm-chef-review .mm-chef-review__identity .recipe-form-field :is(input, select) { padding: 4px 8px; font-size: .875rem; }
 .mm-chef-review .mm-chef-review__identity .recipe-form-field label { color: var(--mm-color-burgundy-900); }
-.mm-chef-review .mm-chef-review__notes label { display: flex; align-items: center; gap: 5px; }
-.mm-chef-review .mm-chef-review__notes textarea[name='notes'] {
+.mm-chef-review .mm-scrapbook-form__notes label { display: flex; align-items: center; gap: 5px; }
+.mm-chef-review .mm-scrapbook-form__notes textarea[name='notes'] {
   grid-column: 1 / -1;
   block-size: clamp(75px, calc(17vh - 50px), 134px);
   padding: 1px 4px 0;
@@ -232,10 +170,10 @@
   resize: none;
 }
 
-.mm-chef-review__garnish { display: flex; justify-content: space-between; padding-inline: 2px; }
-.mm-chef-review__garnish svg { inline-size: clamp(29px, 5vh, 51px); filter: drop-shadow(0 2px 1px rgb(66 36 16 / .2)); }
-.mm-chef-review__garnish svg:first-child { transform: rotate(-10deg); }
-.mm-chef-review__garnish svg:last-child { transform: rotate(8deg); }
+.mm-scrapbook-form__garnish { display: flex; justify-content: space-between; padding-inline: 2px; }
+.mm-scrapbook-form__garnish .mm-scrapbook-sticker { inline-size: clamp(29px, 5vh, 51px); filter: drop-shadow(0 2px 1px rgb(66 36 16 / .2)); }
+.mm-scrapbook-form__garnish .mm-scrapbook-sticker:first-child { transform: rotate(-10deg); }
+.mm-scrapbook-form__garnish .mm-scrapbook-sticker:last-child { transform: rotate(8deg); }
 
 .mm-chef-review .mm-chef-review__inspiration {
   display: grid;
@@ -289,9 +227,9 @@
 
 .mm-chef-review__inspiration .mm-ai-chef__flavors > div { flex-wrap: nowrap; gap: 3px; padding-block: 3px; }
 .mm-chef-review__inspiration .mm-ai-chef__flavors dt { gap: 3px; padding: 1px 5px; }
-.mm-chef-review__inspiration .mm-ai-chef__flavors svg { display: block; inline-size: 15px; block-size: 15px; }
+.mm-chef-review__inspiration .mm-ai-chef__flavors img { display: block; inline-size: 15px; block-size: 15px; }
 .mm-chef-review__inspiration .mm-ai-chef__flavor-slots { gap: clamp(1px, .55cqi, 3px); }
-.mm-chef-review__inspiration .mm-ai-chef__flavor-slot svg { inline-size: min(15px, calc(var(--mm-slot-size) - 2px)); block-size: auto; }
+.mm-chef-review__inspiration .mm-ai-chef__flavor-slot img { inline-size: min(15px, calc(var(--mm-slot-size) - 2px)); block-size: auto; }
 .mm-chef-review__inspiration .mm-ai-chef__flavor-slot {
   --mm-slot-size: clamp(.8125rem, 4.2cqi, 1.375rem);
   inline-size: var(--mm-slot-size);
@@ -302,12 +240,12 @@
 .mm-chef-review__margin { display: flex; align-items: center; gap: 4px 10px; min-height: 28px; }
 .mm-chef-review__inspiration .mm-chef-review__margin .mm-ai-chef__review-state { margin: 0; }
 .mm-chef-review__margin-sticker { display: flex; gap: 0; margin-inline-start: auto; }
-.mm-chef-review__margin-sticker svg { inline-size: clamp(18px, 3.35vh, 33px); }
-.mm-chef-review__margin-sticker svg:first-child { transform: rotate(-11deg); }
-.mm-chef-review__margin-sticker svg:last-child { margin-inline-start: -3px; transform: rotate(8deg); }
+.mm-chef-review__margin-sticker .mm-scrapbook-sticker { inline-size: clamp(18px, 3.35vh, 33px); }
+.mm-chef-review__margin-sticker .mm-scrapbook-sticker:first-child { transform: rotate(-11deg); }
+.mm-chef-review__margin-sticker .mm-scrapbook-sticker:last-child { margin-inline-start: -3px; transform: rotate(8deg); }
 
 .mm-chef-review .mm-desk--writing .mm-form-footer .recipe-form-actions { flex-direction: row; justify-content: flex-start; gap: 10px; padding-top: 0; }
-.mm-chef-review .mm-form-footer .recipe-form-actions .button svg { inline-size: 18px; block-size: 18px; flex: none; }
+.mm-chef-review .mm-form-footer .recipe-form-actions .button :is(svg, img) { inline-size: 18px; block-size: 18px; flex: none; }
 
 @media (max-height: 839.98px) {
   .mm-chef-review .mm-desk--writing .mm-writing-leaf:has(.mm-review-leaf) { padding-block-end: 3px; }

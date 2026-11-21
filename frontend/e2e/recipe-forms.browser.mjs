@@ -201,6 +201,17 @@ try {
 
   await page.getByLabel('Recipe title').fill('Mori’s tomato supper')
   await page.getByRole('button', { name: 'Add ingredient' }).click()
+  for (const [width, height] of [[1366, 768], [1536, 864], [1920, 1080]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await expect(page.getByRole('button', { name: 'Done' })).toBeInViewport({ ratio: 1 })
+    await page.getByRole('button', { name: 'Done' }).click({ trial: true })
+    const leaves = await page.locator('.mm-writing-leaf').evaluateAll((pages) =>
+      pages.map((leaf) => ({ client: leaf.clientHeight, scroll: leaf.scrollHeight })))
+    assert.equal(leaves.length, 2)
+    assert.ok(leaves.every(({ client, scroll }) => scroll <= client + 1), `New Recipe must fit at ${width}×${height}: ${JSON.stringify(leaves)}`)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByLabel('Ingredient 1 name').fill('Tomatoes')
   await page.getByLabel('Ingredient 1 quantity').fill('some')
   await page.getByLabel('Ingredient 1 unit').fill('pieces')
@@ -300,8 +311,23 @@ try {
 
   await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   await page.getByLabel('Cooked date').fill('2026-10-30')
-  await page.getByLabel('Rating').selectOption('5')
-  await page.getByRole('textbox', { name: 'Notes' }).fill('A little olive oil made the edges sweet.')
+  const rating = page.getByRole('group', { name: 'Rating', exact: true })
+  await expect(rating.getByRole('radio', { checked: true })).toHaveCount(0)
+  await rating.getByRole('radio', { name: '3 stars' }).press('Space')
+  await page.keyboard.press('ArrowRight')
+  await expect(rating.getByRole('radio', { name: '4 stars' })).toBeChecked()
+  await rating.getByRole('button', { name: 'Clear rating' }).click()
+  await expect(rating.getByRole('radio', { checked: true })).toHaveCount(0)
+  await rating.getByRole('radio', { name: '5 stars' }).press('Space')
+  const notes = page.getByRole('textbox', { name: 'Notes', exact: true })
+  const expandedNotes = page.getByRole('dialog', { name: 'Notes' })
+  await page.getByRole('button', { name: 'Expand notes' }).click()
+  const longNotes = 'A little olive oil made the edges sweet. '.repeat(30)
+  await expandedNotes.getByRole('textbox', { name: 'Full notes' }).fill(longNotes)
+  await expandedNotes.getByRole('button', { name: 'Done' }).click()
+  await expect(notes).toHaveValue(longNotes)
+  await expect(page.getByRole('heading', { name: 'Ingredients', exact: true })).toBeInViewport()
+  await notes.fill('A little olive oil made the edges sweet.')
   await page.screenshot({ path: path.join(outputDir, 'create-draft-first-spread-1440.png'), fullPage: true })
   await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
   saveFailures = 1

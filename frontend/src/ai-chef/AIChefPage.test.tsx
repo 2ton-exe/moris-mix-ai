@@ -1,3 +1,4 @@
+import { scrapbookRegistry } from '../journal/scrapbookRegistry'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { User } from '@supabase/supabase-js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -195,11 +196,11 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     const firstPantryPage = screen.getByRole('region', { name: 'Pantry list, 7 items' })
     expect(firstPantryPage.querySelectorAll('li')).toHaveLength(2)
-    expect(firstPantryPage.querySelector('img[src="/twemoji/svg/1f35a.svg"]')?.getAttribute('alt')).toBe('')
+    expect(firstPantryPage.querySelector('img[src="' + scrapbookRegistry['rice-bowl'].src + '"]')?.getAttribute('alt')).toBe('')
 
     await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('eggs')
-    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelector('img[src="/twemoji/svg/1f95a.svg"]')?.getAttribute('alt')).toBe('')
+    expect(screen.getByRole('region', { name: 'Pantry list, 7 items' }).querySelector('img[src="' + scrapbookRegistry.egg.src + '"]')?.getAttribute('alt')).toBe('')
     expect(screen.getByRole('region', { name: /AI Chef page 2/ }).textContent).toContain('garlic')
     await nextChefPage()
     expect(screen.getByRole('region', { name: /AI Chef page 3/ }).textContent).toContain('salt')

@@ -91,11 +91,11 @@ function ingredientLeaves(rows: { key: string }[], groupSize: number): RecipeFor
 }
 
 /** Keep identity fixed and group rows only when the paper can fit them. */
-export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY): RecipeFormLeaf[] {
+export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, expandedNotes = false): RecipeFormLeaf[] {
   const groupSize = single || compact ? 1 : desktop ? FORM_ROWS_PER_LEAF * 2 : FORM_ROWS_PER_LEAF
   const instructionGroupSize = single || compact ? 1 : FORM_ROWS_PER_LEAF
   const instructionTextRows = Math.max(1, textPageRows - instructionGroupSize * 4)
-  const noteParts = reviewTitle === null ? splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns) : []
+  const noteParts = reviewTitle === null && !expandedNotes ? splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns) : []
   const instructionLeaves: RecipeFormLeaf[] = []
   for (const row of state.instructions) {
     const parts = splitInstructionText(row.text, textPageLength, textPageRows, textPageColumns)

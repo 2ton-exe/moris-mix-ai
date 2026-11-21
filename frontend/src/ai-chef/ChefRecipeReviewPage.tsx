@@ -5,9 +5,8 @@ import { moriReviewKeyFromState } from '../mori/routeState'
 import { useMoriActivity, useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalShell } from '../journal/JournalShell'
-import { ReviewSticker } from '../journal/ReviewSticker'
+import { ScrapbookSticker } from '../journal/ScrapbookSticker'
 import { useJournalMedia } from '../journal/useJournalMedia'
-import ingredientBasket from '../assets/stickers/ingredient-basket.svg'
 import { ReviewDetailDialog } from '../recipe-form/ReviewDetailDialog'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
@@ -441,19 +440,6 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 
-function SuggestedIngredientIcon({ name }: { name: string }) {
-  switch (name.trim().toLowerCase()) {
-    case 'rice': return <ReviewSticker kind="rice" />
-    case 'tomato':
-    case 'tomatoes': return <ReviewSticker kind="tomato" />
-    case 'garlic': return <ReviewSticker kind="garlic" />
-    case 'egg':
-    case 'eggs': return <ReviewSticker kind="egg" />
-    case 'pork': return <ReviewSticker kind="pork" />
-    default: return <IngredientEmoji name={name} />
-  }
-}
-
 function ChefGenerationNotice({
   handoff,
   saved,
@@ -495,7 +481,7 @@ function ChefGenerationNotice({
     && request.pantryItems.every((item) => item.length <= (smallSpread ? 12 : 18)))
 
   const ingredientList = <ul role="list">{ingredients.map((name) => <li key={name}>
-    {compact ? <SuggestedIngredientIcon name={name} /> : <IngredientEmoji name={name} />}
+    <IngredientEmoji name={name} />
     <span>{name}</span>
   </li>)}</ul>
   const parentChoices = <>
@@ -538,7 +524,7 @@ function ChefGenerationNotice({
     <p>Preview only. Flavor estimates stay out of your saved recipe.</p>
     <dl className="mm-ai-chef__flavors">{flavorIngredients.map(([flavor, ingredient]) => {
       const score = flavorScores[flavor]
-      const icon = compact ? <ReviewSticker kind={ingredient} /> : <IngredientEmoji name={ingredient} />
+      const icon = compact ? <ScrapbookSticker decorative name={ingredient} /> : <IngredientEmoji name={ingredient} />
       return <div key={flavor} data-flavor={flavor}>
         <dt>{icon}{flavor}</dt>
         <dd>
@@ -558,13 +544,13 @@ function ChefGenerationNotice({
   return <section className={'mm-ai-chef__review-notice' + (compact ? ' mm-chef-review__inspiration' : '')} aria-label="AI Chef generation details">
     {!compact && stateMessage}
     <section aria-labelledby={ingredientsHeading} className="mm-ai-chef__draft-ingredients">
-      <h3 id={ingredientsHeading}>{compact && <img src={ingredientBasket} alt="" />}Ingredients in this suggestion</h3>
+      <h3 id={ingredientsHeading}>{compact && <ScrapbookSticker decorative name="ingredient-basket" />}Ingredients in this suggestion</h3>
       {showAllIngredients ? ingredientList : <ReviewDetailDialog title="Ingredients in this suggestion" action={`All suggested ingredients (${ingredients.length})`}>
         {ingredientList}
       </ReviewDetailDialog>}
     </section>
     <section aria-label="Suggested parent recipes" className="mm-ai-chef__suggestions">
-      <h3>{compact && <ReviewSticker kind="book" />}From your journal</h3>
+      <h3>{compact && <ScrapbookSticker decorative name="recipe-book" />}From your journal</h3>
       {!saved && parents.length > 0 && <p>Only selected recipes will be linked when you save.</p>}
       {parents.length > 0 ? <>
         {showAllParents ? parentChoices : <ReviewDetailDialog title="From your journal" action={`Choose journal recipes (${parents.length})`}>
@@ -588,14 +574,14 @@ function ChefGenerationNotice({
     </section>
     {compact ? <>
       <section className="mm-chef-review__request">
-        <h3><ReviewSticker kind="chat" />Your request</h3>
+        <h3><ScrapbookSticker decorative name="chat-bubble" />Your request</h3>
         {showFullRequest ? requestContent : <>
           <p>{request.pantryItems.length} {request.pantryItems.length === 1 ? 'ingredient' : 'ingredients'}{request.preferences ? ' and preferences' : ''}</p>
           <ReviewDetailDialog title="Your request" action="Full request">{requestContent}</ReviewDetailDialog>
         </>}
       </section>
       {flavorContent && <section className="mm-chef-review__flavor-card">
-        <h3><ReviewSticker kind="flask" />Mori’s optional flavor estimates</h3>
+        <h3><ScrapbookSticker decorative name="flask" />Mori’s optional flavor estimates</h3>
         {flavorContent}
       </section>}
       <div className="mm-chef-review__margin">
@@ -604,7 +590,7 @@ function ChefGenerationNotice({
           {substitutions}
         </ReviewDetailDialog>}
         <span className="mm-chef-review__margin-sticker" aria-hidden="true">
-          <ReviewSticker kind="garlic" /><ReviewSticker kind="tomato" />
+          <ScrapbookSticker decorative name="garlic" /><ScrapbookSticker decorative name="tomato" />
         </span>
       </div>
     </> : <>

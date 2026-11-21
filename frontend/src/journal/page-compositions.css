@@ -110,6 +110,17 @@
 .mm-reading-ingredients ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .mm-reading-ingredients li { position: relative; padding-left: 22px; color: var(--mm-color-ink); font: 400 1rem/1.5 var(--mm-font-sans); }
 .mm-reading-ingredients li::before { content: ''; position: absolute; left: 2px; top: .5em; width: 10px; height: 10px; border: 1.8px solid var(--mm-color-burgundy-600); border-radius: 50% 45% 55% 50%; }
+.mm-reading-ingredients .recipe-ingredient-emoji { display: none; }
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-reading-ingredients li:has(> .recipe-ingredient-emoji)::before { content: none; }
+  .mm-reading-ingredients .recipe-ingredient-emoji {
+    position: absolute;
+    inset: .2em auto auto 0;
+    display: block;
+    inline-size: 17px;
+    block-size: 17px;
+  }
+}
 .mm-reading-method ol { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .mm-reading-method li { display: flex; align-items: flex-start; gap: 12px; }
 .mm-reading-method li > p { margin: 0; color: var(--mm-color-ink); font: 400 1rem/1.55 var(--mm-font-sans); white-space: pre-wrap; }
