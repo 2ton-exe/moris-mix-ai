@@ -1,0 +1,48 @@
+name: Staging Authorization Probe
+
+# Temporary DEVOPS-09 test PR. Do not merge.
+on:
+  push:
+    branches: [ci/163-staging-authorization-probe]
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+    paths: [.github/workflows/staging-authorization-probe.yml]
+
+permissions: {}
+
+jobs:
+  unprotected-context:
+    name: Verify unprotected context has no staging credentials
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify credential is absent
+        env:
+          STAGING_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+        run: test -z "$STAGING_TOKEN"
+
+  first-gate:
+    name: Verify first staging approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    steps:
+      - name: Verify credential is present after approval without displaying it
+        env:
+          STAGING_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+        run: test -n "$STAGING_TOKEN"
+
+  downstream-gate:
+    name: Verify downstream staging approval behavior
+    if: github.event_name == 'pull_request'
+    needs: first-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    steps:
+      - name: Verify staging configuration is present
+        env:
+          WORKER_NAME: ${{ vars.STAGING_WORKER_NAME }}
+        run: test "$WORKER_NAME" = moris-mix-ai-staging
