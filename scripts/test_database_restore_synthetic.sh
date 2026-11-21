@@ -648,7 +648,17 @@ if ! run_restore_step aggregates ||
 fi
 echo 'synthetic-postgres-aggregates=pass'
 
-principal_query "$admin_db" 'REVOKE SELECT ON public.recipes FROM PUBLIC, postgres' > "$root/revoke.out"
+# Supabase can give postgres read access through predefined roles and default
+# grants. Remove those paths in this throwaway fixture and verify the effective ACL.
+if ! principal_query "$admin_db" \
+    'REVOKE pg_read_all_data FROM postgres;
+     REVOKE SELECT ON public.recipes FROM PUBLIC, postgres, anon, authenticated, service_role;' \
+    > "$root/revoke.out" ||
+    [[ "$(principal_query "$admin_db" \
+      "SELECT has_table_privilege('postgres', 'public.recipes', 'SELECT')::int")" != 0 ]]; then
+  echo '::error::Synthetic postgres negative ACL fixture still allows reads or could not be prepared'
+  exit 1
+fi
 status=0
 run_restore_step aggregates || status=$?
 if [[ "$status" != 1 ]] || ! grep -Fxq '::error::Database aggregate verification query failed' "$root/step.out"; then
