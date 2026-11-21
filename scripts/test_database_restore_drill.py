@@ -552,7 +552,7 @@ docker() {
       'SELECT 1') phase=connection ;;
     esac
   done
-  printf '%s\n' "$phase" "$@" END >> "$RUNNER_TEMP/trace"
+  printf '%s\0' "$phase" "$@" END >> "$RUNNER_TEMP/trace"
   printf 'SYNTHETIC_PRIVATE_SQL credential=synthetic row=synthetic\n'
   printf 'psql:/backup/roles.sql:1: ERROR:  22012\n'
   printf '%s' "$DIAG_STDERR" >&2
@@ -601,8 +601,8 @@ python3() {
             if os.name != "nt":
                 self.assertEqual(private_log.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(private_stderr.stat().st_mode & 0o777, 0o600)
-            trace = (root / "trace").read_text().split("END\n")[:-1]
-            calls = [record.strip().splitlines() for record in trace]
+            trace = (root / "trace").read_text().split("\0END\0")[:-1]
+            calls = [record.split("\0") for record in trace]
             self.assertEqual({path.name for path in backup.iterdir()},
                              set(SQL) - ({"data.sql"} if missing_file else set()))
             for path in backup.iterdir():
@@ -631,14 +631,23 @@ python3() {
             self.assertIn("synthetic-pinned-image", call)
             self.assertTrue(any(arg.endswith("target=/backup,readonly") for arg in call))
         restore = calls[-1]
-        self.assertEqual(restore[restore.index("psql"):], [
-            "psql", "-X", "-q", "--single-transaction", "-v", "ON_ERROR_STOP=1",
-            "-v", "VERBOSITY=sqlstate",
+        admin_db = "postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres"
+        self.assertEqual(calls[-2][-2:], ["-d", admin_db])
+        command = restore[restore.index("psql"):]
+        guard = command[command.index("-c") + 1]
+        self.assertIn("current_user <> 'supabase_admin'", guard)
+        self.assertIn("session_user <> 'supabase_admin'", guard)
+        self.assertIn("WHERE rolname = current_user AND rolsuper", guard)
+        self.assertIn("RAISE insufficient_privilege", guard)
+        self.assertEqual(command, [
+            "psql", "-X", "-q", "--no-password", "--single-transaction",
+            "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=sqlstate",
+            "-c", guard,
             "-f", "/backup/roles.sql", "-f", "/backup/schema.sql",
             "-f", "/backup/history-schema.sql",
             "-c", "SET session_replication_role = replica",
             "-f", "/backup/data.sql", "-f", "/backup/history-data.sql",
-            "-d", "postgresql://postgres:postgres@127.0.0.1:54322/postgres"])
+            "-d", admin_db])
 
     def test_bash_syntax(self):
         result = subprocess.run([self.bash, "--noprofile", "--norc", "-n"],

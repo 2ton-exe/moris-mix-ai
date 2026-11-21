@@ -191,9 +191,23 @@ jobs:
               --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
               "$PSQL_IMAGE" psql "$@"
           }
-          if ! psql_client -X -A -t -F '|' -v ON_ERROR_STOP=1 \
-              -c "SELECT rolsuper::int,rolcreaterole::int,rolcreatedb::int,rolbypassrls::int,rolinherit::int FROM pg_roles WHERE rolname=current_user" \
-              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+          restore_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+          require_admin="$(cat <<'SQL'
+          DO $restore_identity$
+          BEGIN
+            IF current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+                OR NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = current_user AND rolsuper)
+            THEN
+              RAISE insufficient_privilege USING MESSAGE = 'Unexpected local restore identity';
+            END IF;
+          END;
+          $restore_identity$;
+          SQL
+          )"
+          if ! psql_client -X -q -A -t -F '|' --no-password -v ON_ERROR_STOP=1 \
+              -c "$require_admin" \
+              -c "SELECT rolsuper::int,rolcreaterole::int,rolcreatedb::int,rolbypassrls::int,rolinherit::int FROM pg_catalog.pg_roles WHERE rolname=current_user" \
+              -d "$restore_db" \
               > "$RUNNER_TEMP/private-probe-flags.out" \
               2> "$RUNNER_TEMP/private-role-flags-stderr.log"; then
             echo "::error::Local role attribute probe failed"
@@ -202,9 +216,8 @@ jobs:
 
           # Identical Stage B psql version, replay flags, exact verified source
           # and target. Only the roles component runs; this is not a full restore.
-          if psql_client -X -q --single-transaction -v ON_ERROR_STOP=1 \
-              -v VERBOSITY=sqlstate -f /backup/roles.sql \
-              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+          if psql_client -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
+              -v VERBOSITY=sqlstate -c "$require_admin" -f /backup/roles.sql -d "$restore_db" \
               > "$RUNNER_TEMP/private-restore-result.log" \
               2> "$RUNNER_TEMP/private-restore-stderr.log"; then
             rc=0

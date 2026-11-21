@@ -144,6 +144,31 @@ The drill must, at minimum:
 
 A backup upload is not restore proof. DEVOPS-10 remains open until this drill succeeds and another teammate can follow the tested procedure.
 
+### Disposable restore principal
+
+The [credential-free PostgreSQL 17 experiment](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44866128120)
+reproduced SQLSTATE `42501` for synthetic membership and parameter grants as
+local `postgres`, which had `CREATEROLE` and `CREATEDB` but lacked superuser
+privileges. Both grants succeeded as local `supabase_admin`, and the failed
+transactions rolled back. This explains a possible cause of the archived
+restore failure. The exact statement in Backup #4 remains unverified.
+
+Stage B and the role-only diagnostic use `supabase_admin` only on the freshly
+started disposable PostgreSQL 17 target at `127.0.0.1`. Before opening the
+first SQL file, the pinned client checks the login, effective role and superuser
+flag in the same replay session. An unavailable login or failed identity check
+stops replay. The supplied SQL is still replayed in its original order and in one
+fail-fast transaction. The archive remains immutable, and access still requires
+the protected `database-restore-drill` Environment.
+
+Stage B still checks the five application counts and migration version set as
+local `postgres`. Synthetic fixtures exercise both restored ownership and
+explicit read grants. If that role cannot read the restored tables, or its row
+visibility produces different counts, verification fails. Objects with implicit
+ownership can take the replay role as owner. Backup #4 must still succeed in a
+protected isolated drill, including aggregate and cleanup checks, and the drill
+does not establish recovery of excluded managed services or Storage objects.
+
 ## Failure handling
 
 If configuration is missing or the workflow is dispatched from a non-main ref, production backup execution is blocked. If role/schema/migration-history drift is detected during capture, bundle creation fails before packaging/upload. If backup creation fails, no backup should be reported for that run. If upload fails, the job fails visibly and the runner cleanup step removes the local dump files. If remote size or re-downloaded SHA-256 verification fails, treat the uploaded object as unverified and investigate before using it for recovery.
@@ -199,8 +224,8 @@ The separate manual Database Restore Role Diagnostic workflow is a
 **proposed investigation only**. It preserves the selected immutable Backup #4,
 its R2 and component checksum verification, disposable PostgreSQL 17 target,
 pinned PostgreSQL client, main-only and protected-environment gates, and
-always-run cleanup. It reproduces only the original roles.sql replay with
-the same fail-fast transaction flags. It does not restore application schema
+always-run cleanup. It replays only the verified roles.sql using Stage B's
+local administrative principal and fail-fast transaction flags. It does not restore application schema
 or data, and its run must never be counted as recovery evidence.
 
 The runner emits only fixed attribute booleans for the local connection role,
@@ -210,8 +235,8 @@ and coarse untrusted error labels. The public labels never include private
 SQL text, role identifiers or SQL line numbers. All private stderr remains
 on the disposable runner until cleanup; generated labels are investigative
 hints, not authenticated proof of root cause. Unsupported multi-line forms
-are not ruled out by a zero static count. The pre-existing production
-restore workflow remains unchanged until a correction is justified.
+are not ruled out by a zero static count. The attribute flags are for the
+guarded local administrative login used for replay.
 
 Any later compatibility transformation must be limited to independently
 confirmed failing statements, maintain the original archive and checksum
