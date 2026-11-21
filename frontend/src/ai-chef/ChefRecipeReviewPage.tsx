@@ -432,8 +432,11 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     notice={<>{generationNotice()}{storageNotice}</>}
     reviewPage={{ title: 'Recipe inspiration', content: <>{generationNotice(true)}{storageNotice}</> }}
     reviewStatus={storageNotice}
-    renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
-      headingTitle={saved ? 'Your recipe is saved.' : <>Review Mori's recipe.<ReviewSticker kind="sparkle" className="mm-chef-review__title-sparkle" /></>}
+    renderFrame={(content, titleEditor) => <RecipeEditorFrame mode="create" connected showBack={false}
+      headingTitle={saved ? 'Your recipe is saved.' : titleEditor
+        ? <span className="visually-hidden">Review Mori's recipe.</span>
+        : "Review Mori's recipe."}
+      titleEditor={titleEditor}
       facingPageContent={<ChefProgress stage={saved ? 'saved' : 'review'} />}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }

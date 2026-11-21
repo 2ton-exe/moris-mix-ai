@@ -33,7 +33,7 @@
 .mm-chef-review .mm-review-detail-dialog[open] { display: grid; gap: 12px; }
 .mm-chef-review .mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
 
-.mm-chef-review .mm-desk--writing .mm-writing-leaf .mm-review-detail-dialog h2 {
+.mm-chef-review .mm-desk--writing .mm-review-detail-dialog h2 {
   position: static;
   inline-size: auto;
   block-size: auto;
@@ -91,7 +91,15 @@
   letter-spacing: -.025em;
 }
 
-.mm-chef-review .mm-recipe-editor-heading h1::before,
+.mm-chef-review .mm-recipe-editor-heading h1:has(.visually-hidden) {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.mm-chef-review .mm-recipe-editor-heading h1:not(:has(.visually-hidden))::before,
 .mm-chef-review .mm-review-leaf > h2 > span::before,
 .mm-chef-review__identity h3::before {
   content: '';
@@ -163,27 +171,32 @@
   transform: rotate(-6deg);
 }
 
-.mm-chef-review__title {
+.mm-chef-review__title,
+.mm-chef-review__notes {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 4px;
   align-items: center;
 }
 
-.mm-chef-review__title > svg { grid-area: 2 / 2; inline-size: clamp(36px, 7vh, 62px); justify-self: center; transform: rotate(-11deg); }
-.mm-chef-review__identity :is(.mm-chef-review__title, .mm-chef-review__notes) > .recipe-form-field { display: contents; }
-.mm-chef-review__identity :is(.mm-chef-review__title, .mm-chef-review__notes) > .recipe-form-field label { grid-area: 1 / 1; margin: 0; }
-.mm-chef-review__identity :is(.mm-chef-review__title, .mm-chef-review__notes) .recipe-form-field > p { grid-column: 1 / -1; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .recipe-form-field { display: contents; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .recipe-form-field label { grid-area: 1 / 1; margin: 0; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) .recipe-form-field > p { grid-column: 1 / -1; }
+.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .mm-review-detail-link { grid-area: 1 / 2; justify-self: end; }
 .mm-chef-review .mm-chef-review__title textarea[name='title'] {
-  grid-area: 2 / 1;
-  field-sizing: fixed;
-  min-block-size: 0;
+  grid-column: 1 / -1;
+  max-block-size: calc(3lh + 16px);
   padding: 7px 9px;
-  font: 600 clamp(1.15rem, 2.8vh, 1.5rem)/1.17 var(--mm-font-serif);
+  border: 1px solid var(--mm-color-parchment-500);
+  border-radius: var(--mm-radius-control);
+  color: var(--mm-color-burgundy-900);
+  background: var(--mm-color-fresh);
+  font: 600 clamp(1.55rem, 3.7vh, 2.25rem)/1.15 var(--mm-font-serif);
   resize: none;
 }
 
-.mm-chef-review :is(.mm-chef-review__title, .mm-chef-review__notes) > .mm-review-detail-link { grid-area: 1 / 2; justify-self: end; }
+.mm-chef-review .mm-chef-review__title textarea[aria-invalid='true'] { border-color: var(--mm-color-brick-700); }
+
 .mm-chef-review .mm-chef-review__identity h3 {
   display: flex;
   position: relative;
@@ -200,7 +213,7 @@
 .mm-chef-review__identity :is(h3, label) svg { inline-size: 23px; block-size: 23px; flex: none; }
 .mm-chef-review .mm-chef-review__identity .recipe-amount-row { gap: 8px; }
 .mm-chef-review .mm-chef-review__identity .recipe-amount-row > div { margin: 0 0 6px; }
-.mm-chef-review .mm-chef-review__identity .recipe-form-field :is(input, select, textarea[name='title']) {
+.mm-chef-review .mm-chef-review__identity .recipe-form-field :is(input, select) {
   border: 1px solid var(--mm-color-parchment-500);
   border-radius: var(--mm-radius-control);
   background: var(--mm-color-fresh);
@@ -209,7 +222,6 @@
 .mm-chef-review .mm-chef-review__identity .recipe-form-field [aria-invalid='true'] { border-color: var(--mm-color-brick-700); }
 .mm-chef-review .mm-chef-review__identity .recipe-form-field :is(input, select) { padding: 4px 8px; font-size: .875rem; }
 .mm-chef-review .mm-chef-review__identity .recipe-form-field label { color: var(--mm-color-burgundy-900); }
-.mm-chef-review__notes { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .mm-chef-review .mm-chef-review__notes label { display: flex; align-items: center; gap: 5px; }
 .mm-chef-review .mm-chef-review__notes textarea[name='notes'] {
   grid-column: 1 / -1;

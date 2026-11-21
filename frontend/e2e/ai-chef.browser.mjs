@@ -472,6 +472,9 @@ try {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await expect(recipeTitle).toBeInViewport({ ratio: 1 })
+    const titleBounds = await recipeTitle.boundingBox()
+    const progressTop = (await page.getByText('Review idea', { exact: true }).boundingBox()).y
+    assert.ok(titleBounds.y + titleBounds.height <= progressTop, 'The editable recipe title should sit above the review progress')
     await expect(save).toBeInViewport({ ratio: 1 })
     await expect(back).toBeInViewport({ ratio: 1 })
     await expect(reviewLeaf.getByRole('heading', { name: 'Mori’s optional flavor estimates' })).toBeInViewport({ ratio: 1 })

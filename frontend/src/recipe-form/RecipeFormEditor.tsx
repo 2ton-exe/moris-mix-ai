@@ -467,6 +467,22 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     openErrorPage()
   }
 
+  const changeTitle = (title: string) => change({ ...state, title })
+  const titleField = <RecipeFormField id={field('title').id} label="Recipe title" error={errors.title}>
+    <textarea {...field('title')} required maxLength={200}
+      rows={desktopReview ? 2 : Math.min(3, Math.max(1, Math.ceil(state.title.length / (single ? 16 : 32))))}
+      value={state.title} onChange={(event) => changeTitle(event.target.value)} />
+  </RecipeFormField>
+
+  const titleEditor = desktopReview && faceIndex === 0
+    ? <fieldset className="recipe-form-controls mm-chef-review__title" disabled={pending}>
+      {titleField}
+      <ReviewDetailDialog title="Recipe title" action="Expand recipe title">
+        <textarea aria-label="Full recipe title" rows={4} maxLength={200} value={state.title} onChange={(event) => changeTitle(event.target.value)} />
+      </ReviewDetailDialog>
+    </fieldset>
+    : undefined
+
   function renderLeaf(leaf: RecipeFormLeaf, index: number) {
     const leafNumber = index + 1
     const headingId = prefix + '-leaf-' + index
@@ -477,7 +493,6 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     let pageContent: ReactNode
 
     if (leaf.kind === 'identity') {
-      const changeTitle = (title: string) => change({ ...state, title })
       const changeNotes = (notes: string) => change({ ...state, notes })
       pageContent = <>
         <section className={'recipe-form-section' + (desktopReview ? ' mm-chef-review__identity' : '')} aria-labelledby={headingId}>
@@ -486,17 +501,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
             {reviewWorkflow && <span className="recipe-review-count">{invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? 'Check fields' : 'Ready'}</span>}
           </div>
           {desktopReview && <Tape variant="sage" className="mm-chef-review__tape" />}
-          <div className={desktopReview ? 'mm-chef-review__title' : undefined}>
-            <RecipeFormField id={field('title').id} label="Recipe title" error={errors.title}>
-              <textarea {...field('title')} required maxLength={200} rows={desktopReview ? 2 : Math.min(3, Math.max(1, Math.ceil(state.title.length / (single ? 16 : 32))))} value={state.title} onChange={(event) => changeTitle(event.target.value)} />
-            </RecipeFormField>
-            {desktopReview && <>
-              <ReviewSticker kind="bowl" />
-              <ReviewDetailDialog title="Recipe title" action="Expand recipe title">
-                <textarea aria-label="Full recipe title" rows={4} maxLength={200} value={state.title} onChange={(event) => changeTitle(event.target.value)} />
-              </ReviewDetailDialog>
-            </>}
-          </div>
+          {!desktopReview && <div>{titleField}</div>}
           <h3>{desktopReview && <ReviewSticker kind="pot" />}Cooking information</h3>
           <div className="recipe-amount-row">
             <RecipeFormField id={field('cooked_at').id} label="Cooked date" error={errors.cooked_at}>
@@ -783,7 +788,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     }}
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
-    {renderFrame ? renderFrame(content) : content}
+    {renderFrame ? renderFrame(content, titleEditor) : content}
     <dialog className="recipe-ingredient-move" ref={moveDialog} aria-labelledby={prefix + '-move-title'}>
       <h2 id={prefix + '-move-title'}>Move ingredient</h2>
       <label htmlFor={prefix + '-move-position'}>Move to position</label>

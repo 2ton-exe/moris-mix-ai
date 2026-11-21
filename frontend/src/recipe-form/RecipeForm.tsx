@@ -24,7 +24,7 @@ export type RecipeFormProps = {
   draftKeptInSession?: boolean
   editorTitle?: string
   notesSupported?: boolean
-  renderFrame?: (content: ReactNode) => ReactNode
+  renderFrame?: (content: ReactNode, titleEditor?: ReactNode) => ReactNode
   notice?: ReactNode
   reviewPage?: { title: string; content: ReactNode }
   reviewStatus?: ReactNode
