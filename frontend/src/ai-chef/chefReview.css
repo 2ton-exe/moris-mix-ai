@@ -64,7 +64,7 @@
 
 .mm-chef-review .mm-desk--writing {
   --mm-review-card-padding: clamp(6px, calc(4vh - 25px), 12px);
-  --mm-review-gap: clamp(5px, calc(3vh - 18px), 11px);
+  --mm-review-gap: clamp(4px, calc(3vh - 19px), 11px);
   --mm-review-copy-size: clamp(.75rem, 1.55vh, .875rem);
 }
 
@@ -298,6 +298,7 @@
 .mm-chef-review .mm-form-footer .recipe-form-actions .button svg { inline-size: 18px; block-size: 18px; flex: none; }
 
 @media (max-height: 839.98px) {
+  .mm-chef-review .mm-desk--writing .mm-writing-leaf:has(.mm-review-leaf) { padding-block-end: 3px; }
   .mm-chef-review__inspiration h3 :is(svg, img) { inline-size: 20px; block-size: 20px; }
   .mm-chef-review__inspiration .mm-ai-chef__flavors > div { padding-block: 2px; }
 }
