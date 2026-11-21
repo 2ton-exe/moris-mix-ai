@@ -6,6 +6,8 @@ import { Mori, type MoriMood } from '../journal/Mori'
 import { MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from '../journal/moriPaperMotion'
 import { MORI_FOOT, preloadMoriSprites } from '../journal/moriSpriteAtlas'
 import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
+import { journalRecordKey, readJournalRecord, writeJournalRecord } from '../journal/journalRecord'
+import { useJournalDesktopTools } from '../journal/useJournalDesktopTools'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
 import { useMoriCompanionState } from './MoriCompanionContext'
@@ -21,6 +23,8 @@ const preferencesSchema = z.object({
   hidden: z.boolean().default(false),
   position: z.object({ x: z.number().finite(), y: z.number().finite() }).nullable(),
 })
+const moriModeSchema = z.enum(['animated', 'still', 'hidden'])
+type MoriMode = z.infer<typeof moriModeSchema>
 type Position = { x: number; y: number }
 function readPreferences() {
   try { return preferencesSchema.parse(JSON.parse(localStorage.getItem(storageKey) ?? 'null')) }
@@ -46,9 +50,18 @@ function companionPage(pathname: string) {
 }
 
 export function MoriCompanion({ userId }: { userId?: string } = {}) {
+  return <Companion key={userId} userId={userId} />
+}
+
+function Companion({ userId }: { userId?: string }) {
   const { activity, guidance } = useMoriCompanionState()
   const location = useLocation()
   const [preferences, setPreferences] = useState(readPreferences)
+  const modeKey = userId ? journalRecordKey(userId, 'mori-mode') : null
+  const [accountMode, setAccountMode] = useState(() => modeKey && readJournalRecord(modeKey, moriModeSchema))
+  const [modeStorageUnavailable, setModeStorageUnavailable] = useState(false)
+  const mode = accountMode || (preferences.hidden ? 'hidden' : 'animated')
+  const hidden = mode === 'hidden'
   const [open, setOpen] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
@@ -57,9 +70,11 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [dock, setDock] = useState<Position | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
+  const desktopTools = useJournalDesktopTools()
   const mobile = useJournalMedia('(max-width: 600px)')
   const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
+  const animate = mode === 'animated' && !reducedMotion
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
   const stopNavigationTravel = useRef<(() => void) | null>(null)
@@ -91,7 +106,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
 
   useEffect(() => () => stopNavigationTravel.current?.(), [])
-  useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
+  useEffect(() => { if (!singleLayout && animate) preloadMoriSprites() }, [singleLayout, animate])
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)) } catch { /* Storage may be unavailable in private browsing. */ }
   }, [preferences])
@@ -157,6 +172,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     return () => observer.disconnect()
   }, [])
   useLayoutEffect(() => {
+    if (!animate) return
     const element = character.current
     const svg = trigger.current?.querySelector('svg')
     if (!element || !svg) return
@@ -229,14 +245,14 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         setPageTurn(false)
       },
     })
-  }, [size])
+  }, [animate, size])
   useLayoutEffect(() => { if (open) heading.current?.focus({ preventScroll: true }) }, [open])
   useLayoutEffect(() => {
     if (!focusAfterVisibilityChange.current) return
     focusAfterVisibilityChange.current = false
-    if (preferences.hidden) showButton.current?.focus()
-    else trigger.current?.focus()
-  }, [preferences.hidden])
+    if (hidden) showButton.current?.focus({ preventScroll: true })
+    else trigger.current?.focus({ preventScroll: true })
+  }, [hidden])
   const gap = 12
   const leftSpace = actual.x - left - gap
   const rightSpace = right - (actual.x + width) - gap
@@ -340,9 +356,16 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   }
 
   function close() { setOpen(false); trigger.current?.focus() }
-  function show() {
-    focusAfterVisibilityChange.current = true
-    setPreferences((previous) => ({ ...previous, hidden: false }))
+  function chooseMode(next: MoriMode) {
+    if (next === mode) return
+    if (next === 'hidden' || hidden) {
+      focusAfterVisibilityChange.current = true
+      setOpen(false)
+    }
+    if (modeKey) {
+      setAccountMode(next)
+      setModeStorageUnavailable(!writeJournalRecord(modeKey, next))
+    } else setPreferences((previous) => ({ ...previous, hidden: next === 'hidden' }))
   }
   function move(x: number, y: number, description?: string) {
     if (mobile && description && x !== actual.x) x = x < actual.x ? left : right - width
@@ -364,9 +387,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     '--mori-navigation-width': `${size}px`,
   } as CSSProperties
   return <>
-  <div className="mori-pet-root">
-    <button ref={showButton} className="mori-pet-show" type="button" hidden={!preferences.hidden || suspended} inert={suspended} onClick={show}>Show Mori</button>
-    <div hidden={preferences.hidden || suspended} inert={preferences.hidden || suspended}>
+  <div className="mori-pet-root" data-mori-still={!animate || undefined}>
+    <button ref={showButton} className="mori-pet-show" type="button" hidden={!hidden || suspended} inert={suspended} onClick={() => chooseMode('animated')}>Show Mori</button>
+    <div hidden={hidden || suspended} inert={hidden || suspended}>
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
       <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
@@ -405,16 +428,27 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           }}
           onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
           onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>
-          <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
+          <Mori size={size} mood={mode === 'still' ? 'happy' : open ? 'talk' : moods[activity.kind]} animated={animate} />
         </button>
       </div>
       <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
         <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
         <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
-          <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
+          <header>
+            <h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2>
+            {userId && desktopTools && <select className="mori-pet-mode" aria-label="Mori’s movement" value={mode} disabled={traveling} onChange={(event) => {
+              const next = moriModeSchema.safeParse(event.currentTarget.value)
+              if (next.success) chooseMode(next.data)
+            }}>
+              <option value="animated">Animated Mori</option>
+              <option value="still">Still Mori</option>
+              <option value="hidden">Hide Mori</option>
+            </select>}
+            <button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button>
+          </header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={animate ? playNavigationTap : undefined} playNavigationTravel={animate ? playNavigationTravel : undefined} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
@@ -422,6 +456,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         </section>
       </div>
     </div>
+    <span className="mori-pet-sr" role="status">{modeStorageUnavailable ? 'Mori’s setting applies until you close this journal.' : ''}</span>
   </div>
   <div ref={navigationTap} className="mori-navigation-tap" hidden aria-hidden="true" style={navigationTapStyle}>
     <Mori mood="wave" size={navigationTapSize} />

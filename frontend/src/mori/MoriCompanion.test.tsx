@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider, useMoriActivity, useMoriGuidance } from './MoriCompanionContext'
@@ -71,6 +71,64 @@ it('supports keyboard repositioning without reset or hide controls', () => {
   expect(panel.querySelector('.mori-pet-message')?.getAttribute('role')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Reset position' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Hide Mori' })).toBeNull()
+})
+
+it('keeps Mori’s visibility account-local and returns focus when hiding or showing', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(pointer: fine) and (hover: hover)',
+    addEventListener() {},
+    removeEventListener() {},
+  }))
+  const app = (userId: string) => <MemoryRouter><MoriCompanionProvider>
+    <MoriCompanion userId={userId} />
+  </MoriCompanionProvider></MemoryRouter>
+  const view = render(app('first-cook'))
+
+  const trigger = () => screen.getByRole('button', { name: 'Talk to Mori' })
+  fireEvent.click(trigger())
+  const preference = () => screen.getByRole('combobox', { name: 'Mori’s movement' })
+  fireEvent.change(preference(), { target: { value: 'hidden' } })
+  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+  const show = () => screen.getByRole('button', { name: 'Show Mori' })
+  expect(document.activeElement).toBe(show())
+
+  view.rerender(app('second-cook'))
+  expect(trigger()).toBeTruthy()
+  fireEvent.click(trigger())
+  expect(preference()).toHaveProperty('value', 'animated')
+  view.rerender(app('first-cook'))
+  fireEvent.click(show())
+  expect(document.activeElement).toBe(trigger())
+  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+})
+
+it('keeps Still Mori stationary while chat navigates and restores the choice on remount', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(pointer: fine) and (hover: hover)',
+    addEventListener() {},
+    removeEventListener() {},
+  }))
+  function CurrentLocation() {
+    return <output>{useLocation().pathname}</output>
+  }
+  const app = <MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider>
+    <MoriCompanion userId="quiet-cook" /><CurrentLocation />
+  </MoriCompanionProvider></MemoryRouter>
+  const view = render(app)
+  const open = () => fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  const preference = () => screen.getByRole('combobox', { name: 'Mori’s movement' })
+
+  open()
+  fireEvent.change(preference(), { target: { value: 'still' } })
+  const mori = screen.getByRole('button', { name: 'Talk to Mori' }).querySelector('svg')
+  expect(mori?.hasAttribute('data-animated')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Open cooking notes' }))
+  expect(screen.getByText('/app/quick-entry')).toBeTruthy()
+
+  view.unmount()
+  render(app)
+  open()
+  expect(preference()).toHaveProperty('value', 'still')
 })
 
 it('ignores other pointers while a primary pointer is dragging Mori', () => {
