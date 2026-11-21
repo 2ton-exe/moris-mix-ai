@@ -54,7 +54,12 @@ const emojiByIngredient: Record<string, string> = {
 
 export const genericIngredientEmoji = '🍽️'
 
+export function ingredientArtworkKey(name: string) {
+  return name.trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ')
+}
+
 export function ingredientEmojiFor(name: string) {
-  const phrase = name.trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ')
-  return emojiByIngredient[ingredientAliases[phrase] ?? phrase] ?? genericIngredientEmoji
+  const phrase = ingredientArtworkKey(name)
+  const canonical = Object.hasOwn(ingredientAliases, phrase) ? ingredientAliases[phrase] : phrase
+  return Object.hasOwn(emojiByIngredient, canonical) ? emojiByIngredient[canonical] : genericIngredientEmoji
 }

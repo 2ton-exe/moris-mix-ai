@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
 import { JournalSurface, PaperCard } from './Scrapbook'
-import { DeskStationery } from './DeskStationery'
+import { KitchenBackground } from './KitchenBackground'
 import { JournalFacingPageContext, JournalPageFooterContext, JournalPaginationContext } from './JournalLayoutContext'
 import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, useJournalPageTurnManager } from './JournalPageTurn'
 import type { JournalTurnDirection } from './JournalPageTurn'
@@ -106,8 +106,8 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     return () => observer.disconnect()
   }, [footer])
   return <JournalPageTurnContext.Provider value={pageTurn.contextValue}>
-  <JournalSurface material="wood" className={`mm-desk mm-desk--${mode}${companionEnabled ? ' mm-desk--with-companion' : ''}`}>
-    <DeskStationery />
+  <div className={`mm-desk mm-desk--${mode}${companionEnabled ? ' mm-desk--with-companion' : ''}`}>
+    <KitchenBackground />
     <a className="mm-skip-link" href="#journal-content">Skip to journal content</a>
     <header ref={toolbarRef} className="mm-desk-toolbar">
       <Link className="mm-desk-brand" to={publicNavigation ? '/home' : '/app/recipes'}><BrandMark /></Link>
@@ -156,6 +156,6 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     </div>
     {/* Portalled confirmations stay above the physical leaves and rings. */}
     <div id="journal-overlays" />
-  </JournalSurface>
+  </div>
   </JournalPageTurnContext.Provider>
 }

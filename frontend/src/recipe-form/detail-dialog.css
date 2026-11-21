@@ -1,0 +1,61 @@
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-link {
+  min-block-size: 28px;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--mm-color-burgundy-800);
+  background: transparent;
+  font: 650 .75rem/1.25 var(--mm-font-sans);
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-link:hover { background-color: var(--mm-color-parchment-200); }
+
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog {
+  box-sizing: border-box;
+  inline-size: min(34rem, calc(100% - 2rem));
+  max-block-size: calc(100dvh - 2rem);
+  padding: clamp(16px, 4vw, 28px);
+  border: 1px solid var(--mm-color-parchment-500);
+  border-radius: var(--mm-radius-card);
+  color: var(--mm-color-ink);
+  background: var(--mm-color-fresh) var(--mm-tex-grain);
+  box-shadow: var(--mm-shadow-paper);
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+  font: .9375rem/1.5 var(--mm-font-sans);
+}
+
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog[open] { display: grid; gap: 12px; }
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
+
+:is(.mm-chef-review, .mm-new-recipe) .mm-desk--writing .mm-review-detail-dialog h2 {
+  position: static;
+  inline-size: auto;
+  block-size: auto;
+  margin: 0;
+  padding: 0;
+  clip-path: none;
+  border: 0;
+  color: var(--mm-color-burgundy-900);
+  font: 600 1.5rem/1.2 var(--mm-font-serif);
+}
+
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog textarea {
+  width: 100%;
+  min-height: 7rem;
+  padding: 8px 10px;
+  border: 1px solid var(--mm-color-parchment-500);
+  border-radius: var(--mm-radius-control);
+  background: repeating-linear-gradient(180deg, transparent 0 27px, rgb(110 150 190 / .28) 27px 28px) var(--mm-color-fresh);
+  color: var(--mm-color-ink);
+  font: 1rem/28px var(--mm-font-sans);
+  resize: vertical;
+}
+
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog > .button { justify-self: end; width: auto; }
+:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }

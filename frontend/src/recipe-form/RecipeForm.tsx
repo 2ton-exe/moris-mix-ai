@@ -20,13 +20,14 @@ export type RecipeFormProps = {
   onEditorStateChange?: (state: RecipeEditorState) => void
   showExtractionHints?: boolean
   reviewWorkflow?: boolean
+  newRecipeScrapbook?: boolean
   editorIntro?: string
   draftKeptInSession?: boolean
   editorTitle?: string
   notesSupported?: boolean
-  renderFrame?: (content: ReactNode) => ReactNode
+  renderFrame?: (content: ReactNode, titleEditor?: ReactNode) => ReactNode
   notice?: ReactNode
-  reviewPages?: { title: string; content: ReactNode }[]
+  reviewPage?: { title: string; content: ReactNode }
   reviewStatus?: ReactNode
   supplement?: ReactNode
 }

@@ -42,6 +42,20 @@ const generated = {
   candidate_token: 'v1.fe10-browser-test-token',
   context: { status: 'MATCHED', matchedCandidateCount: 1, totalCandidateCount: 2 },
 }
+const expandedIngredients = ['smoked paprika', 'spring onions', 'sesame oil', 'toasted sesame seeds', 'light soy sauce']
+const extraParent = { id: '323e4567-e89b-42d3-a456-426614174000', title: 'Toasted sesame rice with spring onions', star_rating: 5 }
+const expandedSuggestion = {
+  ...generated,
+  recipe: {
+    ...generated.recipe,
+    ingredients: [
+      ...generated.recipe.ingredients,
+      ...expandedIngredients.map((name) => ({ name, quantity: null, unit: null, quantityText: 'to taste', inferred: false })),
+    ],
+  },
+  parents: [...generated.parents, extraParent],
+  context: { ...generated.context, totalCandidateCount: 3 },
+}
 const requests = []
 const recipeWrites = []
 const recipeUpdates = []
@@ -127,6 +141,11 @@ async function handleApiRequest(request, response) {
       response.setHeader('Retry-After', '2')
       response.setHeader('Access-Control-Expose-Headers', 'Retry-After')
       sendJson(request, response, 429, { error: { code: 'AI_RATE_LIMITED', message: 'private provider detail' } })
+      return
+    }
+
+    if (activeScenario === 'expanded-review') {
+      sendJson(request, response, 200, expandedSuggestion)
       return
     }
 
@@ -445,46 +464,69 @@ try {
   assert.deepEqual(generation.body, { pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
   assert.equal(recipeWrites.length, 0, 'Generation saved a recipe before review')
   const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
-  const bounds = await reviewLeaf.evaluate((leaf) => ({
-    height: leaf.clientHeight,
-    scrollHeight: leaf.scrollHeight,
-    side: leaf.closest('.mm-journal-page') ? 'right' : 'left',
-    hasEditor: Boolean(leaf.querySelector('textarea, input[name="title"]')),
-    blocks: [...leaf.querySelectorAll('section, section > *, details, summary')].map((node) => [node.tagName, node.className, Math.round(node.getBoundingClientRect().height), node.textContent.trim().slice(0, 60)]),
-  }))
-  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-review-inspiration-1440.png'), fullPage: true })
-  assert.equal(bounds.side, 'right')
-  assert.equal(bounds.hasEditor, false)
-  assert.ok(bounds.scrollHeight <= bounds.height + 2, `Review material should fit its own page: ${JSON.stringify(bounds)}`)
-  await assertJournalSemantics(page, 'AI Chef recipe review')
-  await expect(page.getByLabel('Recipe title')).toHaveValue('Egg and rice skillet')
-  await expect(page.getByRole('region', { name: 'Ingredients in this suggestion' })).toContainText('rice')
-  await reviewLeaf.getByText('Suggested substitutions', { exact: true }).click()
-  await expect(page.getByRole('region', { name: 'Suggested substitutions' })).toContainText('firm tofu')
-  await reviewLeaf.getByText('Your request', { exact: true }).click()
-  await reviewLeaf.getByText('Mori’s optional flavor estimates', { exact: true }).click()
-  await page.setViewportSize({ width: 1100, height: 640 })
-  await settleJournalLayout(page)
+  const recipeTitle = page.getByRole('textbox', { name: 'Recipe title', exact: true })
   const save = page.getByRole('button', { name: 'Save recipe', exact: true })
-  const geometry = await reviewLeaf.evaluate((leaf) => ({
-    visible: leaf.clientHeight,
-    content: leaf.scrollHeight,
-    bottom: leaf.getBoundingClientRect().bottom,
-  }))
-  assert.ok(geometry.content > geometry.visible, 'Expanded details must exercise the review scroll region')
-  const saveBox = await save.boundingBox()
-  assert.ok(saveBox && geometry.bottom <= saveBox.y + 1, 'Expanded recipe inspiration crossed the Save action')
-  await reviewLeaf.focus()
-  await page.keyboard.press('ArrowDown')
-  await expect.poll(() => reviewLeaf.evaluate((leaf) => leaf.scrollTop)).toBeGreaterThan(0)
-  await page.keyboard.press('Home')
-  await expect.poll(() => reviewLeaf.evaluate((leaf) => leaf.scrollTop)).toBe(0)
-  await save.click({ trial: true })
+  const back = page.getByRole('button', { name: 'Back to AI Chef' })
+  const reviewPages = page.locator('.mm-writing-leaf')
+  for (const [width, height] of [[1366, 768], [1536, 864], [1920, 1080]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await expect(recipeTitle).toBeInViewport({ ratio: 1 })
+    const titleBounds = await recipeTitle.boundingBox()
+    const progressTop = (await page.getByText('Review idea', { exact: true }).boundingBox()).y
+    assert.ok(titleBounds.y + titleBounds.height <= progressTop, 'The editable recipe title should sit above the review progress')
+    await expect(save).toBeInViewport({ ratio: 1 })
+    await expect(back).toBeInViewport({ ratio: 1 })
+    await expect(reviewLeaf.getByRole('heading', { name: 'Mori’s optional flavor estimates' })).toBeInViewport({ ratio: 1 })
+    const bounds = await reviewPages.evaluateAll((leaves) => leaves.map((leaf) => ({
+      height: leaf.clientHeight,
+      scrollHeight: leaf.scrollHeight,
+      side: leaf.closest('.mm-journal-page') ? 'right' : 'left',
+    })))
+    assert.deepEqual(bounds.map(({ side }) => side).sort(), ['left', 'right'])
+    assert.ok(bounds.every(({ height, scrollHeight }) => scrollHeight <= height + 1),
+      `Review leaves should fit at ${width}×${height}: ${JSON.stringify(bounds)}`)
+    assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1),
+      `Review should fit the viewport at ${width}×${height}`)
+  }
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
+  await assertJournalSemantics(page, 'AI Chef recipe review')
+  await expect(recipeTitle).toHaveValue('Egg and rice skillet')
+  await expect(reviewLeaf.getByRole('textbox')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Ingredients in this suggestion' })).toContainText('rice')
   await expect(reviewLeaf.getByText('2.5 out of 5', { exact: true })).toHaveCount(1)
-  await reviewLeaf.getByText('spicy', { exact: true }).scrollIntoViewIfNeeded()
-  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-review-details-1440.png'), fullPage: true })
+
+  const substitutions = reviewLeaf.getByRole('button', { name: 'Suggested substitutions' })
+  await substitutions.press('Enter')
+  const substitutionDialog = page.getByRole('dialog', { name: 'Suggested substitutions' })
+  await expect(substitutionDialog).toContainText('firm tofu')
+  await page.keyboard.press('Escape')
+  await expect(substitutionDialog).toBeHidden()
+  await expect(substitutions).toBeFocused()
+
+  await reviewLeaf.getByRole('button', { name: 'Full request' }).click()
+  const requestDialog = page.getByRole('dialog', { name: 'Your request' })
+  await expect(requestDialog.getByRole('listitem')).toHaveText(['rice', 'eggs'])
+  await expect(requestDialog).toContainText('quick, no frying')
+  await requestDialog.getByRole('button', { name: 'Done' }).click()
+
+  const longTitle = 'Crispy egg and rice skillet with garlic, summer tomatoes, toasted sesame seeds, and fresh spring onions'
+  const longNotes = 'Chill the rice overnight.\nFold the eggs in after the pan is hot.\n'.repeat(10)
+  await page.getByRole('button', { name: 'Expand recipe title' }).click()
+  const titleDialog = page.getByRole('dialog', { name: 'Recipe title' })
+  await titleDialog.getByRole('textbox', { name: 'Full recipe title' }).fill(longTitle)
+  await titleDialog.getByRole('button', { name: 'Done' }).click()
+  await expect(recipeTitle).toHaveValue(longTitle)
+  const expandNotes = page.getByRole('button', { name: 'Expand notes' })
+  await expandNotes.click()
+  await page.getByRole('dialog', { name: 'Notes' }).getByRole('textbox', { name: 'Full notes' }).fill(longNotes)
+  await page.keyboard.press('Escape')
+  await expect(expandNotes).toBeFocused()
+  await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(longNotes)
+  await page.getByLabel('Cooked date').fill('2026-10-19')
+  await page.getByRole('combobox', { name: 'Rating' }).selectOption('4')
+  await expect(reviewLeaf.getByRole('heading', { name: 'Recipe inspiration' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('Sunday fried rice')
   const firstParent = page.getByRole('checkbox', { name: /Sunday fried rice/ })
   const secondParent = page.getByRole('checkbox', { name: /Mori’s tomato rice/ })
@@ -533,7 +575,11 @@ try {
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Explicit Save did not create exactly one recipe')
   assert.equal(recipeWrites[0].authorization, `Bearer ${session.access_token}`)
-  assert.equal(recipeWrites[0].body.title, 'Egg and rice skillet')
+  assert.equal(recipeWrites[0].body.title, longTitle)
+  assert.equal(recipeWrites[0].body.notes, longNotes)
+  assert.equal(recipeWrites[0].body.cooked_at, '2026-10-19')
+  assert.equal(recipeWrites[0].body.star_rating, 4)
+  assert.equal('flavor_scores' in recipeWrites[0].body, false)
   assert.equal(recipeWrites[0].body.instructions[0].text, 'Warm the rice first, then fold in the eggs.')
   assert.equal('candidate_token' in recipeWrites[0].body, false)
   assert.equal(lineageWrites.length, 1, 'Explicit Save did not persist the selected lineage')
@@ -656,6 +702,7 @@ try {
     }))))
   assert.equal(requests.filter((request) => request.path.endsWith('/lineage') && request.method === 'GET').length, 1)
   assert.equal(lineageWrites[0].childRecipeId, scenarioRecipeIds.uncertain)
+  process.stdout.write('AI Chef browser acceptance Scenario E passed: lost lineage response reconciled through GET without a duplicate POST.\n')
   await page.evaluate(() => globalThis.sessionStorage.clear())
   resetScenario('generation-failure')
   await page.goto(`${origin}app/chef`)
@@ -680,9 +727,35 @@ try {
   assert.deepEqual(attempts[0].body, attempts[1].body)
   assert.equal(recipeWrites.length, 0)
   process.stdout.write('FE-13 generation failure: server cooldown, retained inputs, same-request retry and unsaved preview passed.\n')
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await beginScenario(page, origin, 'expanded-review')
+  const allIngredients = page.getByRole('button', { name: 'All suggested ingredients (7)' })
+  await allIngredients.click()
+  const ingredientDialog = page.getByRole('dialog', { name: 'Ingredients in this suggestion' })
+  await expect(ingredientDialog.getByRole('listitem')).toHaveText(expandedSuggestion.recipe.ingredients.map(({ name }) => name))
+  await ingredientDialog.getByRole('button', { name: 'Done' }).click()
+  await expect(allIngredients).toBeFocused()
+
+  const journalChooser = page.getByRole('button', { name: 'Choose journal recipes (3)' })
+  await journalChooser.click()
+  const journalDialog = page.getByRole('dialog', { name: 'From your journal' })
+  await expect(journalDialog.getByRole('checkbox')).toHaveCount(3)
+  await journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) }).check()
+  await page.keyboard.press('Escape')
+  await expect(journalChooser).toBeFocused()
+  await expect(page.getByText('1 of 10 parent recipes selected.')).toBeVisible()
+  await journalChooser.click()
+  await expect(journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) })).toBeChecked()
+  await journalDialog.getByRole('button', { name: 'Done' }).click()
+  assert.equal(recipeWrites.length, 0, 'Opening the review dialogs saved a recipe')
+  assert.equal(lineageWrites.length, 0, 'Selecting a parent created lineage before Save')
+
+  await back.click()
+  await page.getByRole('alertdialog', { name: 'Leave without saving?' }).getByRole('button', { name: 'Discard Changes' }).click()
+  await expect(page).toHaveURL(`${origin}app/chef`)
+  process.stdout.write('AI Chef overflow review passed: complete detail lists, selection, and return to the pantry.\n')
   assert.deepEqual(errors, [])
   await context.close()
-  process.stdout.write('AI Chef browser acceptance Scenario E passed: lost lineage response reconciled through GET without a duplicate POST.\n')
 } finally {
   await browser?.close()
   await server?.close()

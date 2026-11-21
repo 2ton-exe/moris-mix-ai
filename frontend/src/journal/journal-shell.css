@@ -12,14 +12,6 @@
   font: 400 var(--mm-text-base)/1.6 var(--mm-font-sans);
   overflow-wrap: anywhere;
 }
-.mm-desk::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(60% 55% at 50% 35%, rgb(255 228 180 / .16), transparent 70%), var(--mm-tex-grain);
-}
 .mm-desk-toolbar {
   position: relative;
   z-index: 20;
@@ -49,12 +41,13 @@
 .mm-desk-utilities .mm-bookmark {
   min-height: 44px;
   padding: 0 6px;
-  color: var(--mm-color-burgundy-900);
+  color: var(--mm-color-parchment-50);
   text-decoration: underline;
   text-underline-offset: .22em;
 }
 .mm-desk-utilities :is(.mm-bookmark:hover, .mm-bookmark:focus-visible) {
   border-radius: var(--mm-radius-control);
+  color: var(--mm-color-burgundy-900);
   background: var(--mm-color-parchment-100);
 }
 .mm-desk-toolbar .journal-account { min-width: 0; max-width: 100%; flex-wrap: wrap; }
@@ -298,15 +291,10 @@
   .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']:hover { box-shadow: 0 -1px 3px -1px rgb(40 24 10 / .12); }
 }
 .mm-desk :where(a, button, input, textarea, select, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
+.mm-desk-toolbar :is(.mm-desk-brand, .mm-bookmark):focus-visible { outline-color: var(--mm-color-parchment-50); }
 .mm-bookmarks .mm-bookmark:focus-visible { outline-offset: 2px; }
 .mm-skip-link { position: absolute; z-index: 100; left: 12px; top: 12px; padding: 12px; color: var(--mm-color-ink); background: var(--mm-color-fresh); transform: translateY(-200%); }
 .mm-skip-link:focus { transform: none; }
-.mm-stationery { position: absolute; pointer-events: none; z-index: -1; filter: drop-shadow(6px 10px 6px rgb(40 20 6 / .3)); }
-.mm-stationery--pencil { width: 300px; left: -120px; top: 80px; transform: rotate(-26deg); }
-.mm-stationery--sprig { width: 140px; right: 0; top: 260px; }
-.mm-stationery--clips { width: 100px; right: 2%; bottom: 8px; }
-.mm-stationery--tape { width: 90px; left: 8px; bottom: 12px; }
-.mm-stationery--ring-stain { width: 130px; right: 3%; top: 550px; opacity: .55; }
 
 /* At narrow or short viewports, use the same paper with one physical leaf visible. */
 @media (max-width: 1099.98px), (max-height: 639.98px) {
@@ -354,7 +342,6 @@
   .mm-journal-ring { left: calc(var(--mm-spine-x) - var(--mm-ring-width) / 2); }
   .mm-bookmarks:not(.mm-bookmarks--journal) { justify-content: stretch; }
   .mm-bookmarks:not(.mm-bookmarks--journal) .mm-bookmark { flex: 1; padding-inline: 6px; }
-  .mm-stationery--sprig, .mm-stationery--ring-stain, .mm-stationery--tape { display: none; }
 }
 @media (min-width: 600.02px) and (max-width: 1099.98px), (min-width: 600.02px) and (max-height: 639.98px) {
   .mm-desk--with-companion .mm-journal-stage {
@@ -368,7 +355,6 @@
   .mm-desk-toolbar .journal-account { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
   .mm-desk-toolbar .journal-account > span { flex: 1; font-size: 12px; min-width: 0; }
   .mm-desk--with-companion .mm-journal-stage { --mm-top-ui: max(206px, var(--mm-toolbar-reserve, 0px)); }
-  .mm-stationery--pencil, .mm-stationery--clips { display: none; }
 }
 @media (max-width: 460px) {
   .mm-journal-stage { --mm-journal-tabs-height: 52px; }

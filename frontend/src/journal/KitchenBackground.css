@@ -1,0 +1,103 @@
+.kitchen-background {
+  --tile: url('../assets/journal/textures/kitchen-tiles.webp');
+  --kitchen-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g' x='0' y='0' width='1' height='1'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23g)' opacity='.12'/%3E%3C/svg%3E");
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background-color: #414541;
+  background-image:
+    /* the middle of the counter is calmer so the journal leads */
+    radial-gradient(46% 52% at 50% 52%, rgb(62 65 61 / 0.42), transparent 100%),
+    /* warm window light from the upper left */
+    radial-gradient(110% 80% at 6% -12%, rgb(255 228 190 / 0.17), transparent 62%),
+    radial-gradient(160% 120% at 50% 45%, transparent 46%, rgb(12 12 10 / 0.5) 100%),
+    linear-gradient(180deg, rgb(255 240 220 / 0.03), rgb(20 18 14 / 0.12)),
+    var(--tile);
+  background-size: auto, auto, auto, auto, 1632px 1088px;
+  background-position: center, center, center, center, calc(50% + 34px) calc(50% + 12px);
+}
+
+.kitchen-background::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--kitchen-grain);
+  opacity: 0.28;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* A soft pool of lamp light under the journal */
+.kitchen-background__light {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(58% 52% at 50% 50%, rgb(255 236 205 / 0.07), transparent 72%);
+  z-index: 0;
+}
+
+.kitchen-background__prop {
+  position: absolute;
+  user-select: none;
+  z-index: 1;
+  transition:
+    transform 900ms cubic-bezier(0.3, 0.7, 0.2, 1),
+    opacity 600ms ease;
+}
+
+/* Spoon lies along the left margin: bowl up, handle running off the edge */
+.kitchen-background__prop--spoon {
+  width: 390px;
+  left: -150px;
+  top: 33%;
+  transform: rotate(108deg);
+  filter: drop-shadow(1px 2px 1.5px rgb(0 0 0 / 0.5)) drop-shadow(6px 11px 10px rgb(0 0 0 / 0.36));
+}
+
+.kitchen-background__prop--whisk {
+  width: 340px;
+  right: -104px;
+  bottom: 9%;
+  transform: rotate(-21deg);
+  filter: drop-shadow(1px 2px 1px rgb(0 0 0 / 0.55)) drop-shadow(5px 10px 9px rgb(0 0 0 / 0.34));
+}
+
+.kitchen-background__prop--flour {
+  left: 2%;
+  bottom: 3.5%;
+  width: 310px;
+  opacity: 0.92;
+}
+
+.kitchen-background__prop--sprig {
+  right: -40px;
+  top: 11%;
+  width: 170px;
+  transform: rotate(-19deg);
+  filter: drop-shadow(2px 3px 2px rgb(0 0 0 / 0.4)) drop-shadow(5px 9px 8px rgb(0 0 0 / 0.25));
+}
+
+@media (max-width: 1099.98px), (max-height: 639.98px) {
+  .kitchen-background__prop--spoon {
+    width: 256px;
+    left: -36px;
+    top: auto;
+    bottom: 1.5%;
+    transform: rotate(-16deg);
+    opacity: 0.92;
+  }
+  .kitchen-background__prop--whisk,
+  .kitchen-background__prop--flour,
+  .kitchen-background__prop--sprig {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kitchen-background__prop {
+    transition: none;
+  }
+}

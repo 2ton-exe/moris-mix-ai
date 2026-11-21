@@ -10,14 +10,6 @@
   color: var(--mm-color-ink);
   font: 400 16px/1.6 var(--mm-font-sans);
 }
-.mm-auth-desk::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(58% 56% at 50% 44%, rgb(255 228 180 / .2), transparent 74%), var(--mm-tex-grain);
-}
 .mm-auth-toolbar {
   position: relative;
   z-index: 1;
