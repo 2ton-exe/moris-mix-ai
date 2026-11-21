@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { writeJournalCriteria } from '../journal/indexNavigation'
 import { PaperCard } from '../journal/Scrapbook'
+import { isRecipeAccessError } from '../recipes/errors'
 import { RecipeError } from '../recipes/RecipeStates'
 import { RecipeSourceContext, RecipeIntegrationUnavailable } from '../recipes/source'
 import { useRecipeDiscovery } from '../recipes/useRecipeDiscovery'
@@ -38,7 +39,7 @@ export function PantryMatches({ ingredient, onLeave }: {
   const criteria = { ...initialDiscoveryCriteria, search: ingredient.trim(), searchMode: 'ingredients' } as const
   const { discovery } = useContext(RecipeSourceContext)
   const query = useRecipeDiscovery(criteria, false, 'first-page')
-  const shown = query.error ? undefined : query.recipes?.slice(0, 3)
+  const shown = isRecipeAccessError(query.error) ? undefined : query.recipes?.slice(0, 3)
   const error = discovery ? query.error : new RecipeIntegrationUnavailable()
   return shown ? <>
       <p role="status">{shown.length > 0

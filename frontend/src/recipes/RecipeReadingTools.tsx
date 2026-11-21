@@ -1,7 +1,8 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { ScrapbookButton } from '../journal/Scrapbook'
 import { appendPersonalNote, queueNoteHandoff } from '../recipe-form/noteHandoff'
@@ -37,9 +38,11 @@ export function RecipeReadingTools({ recipe, userId, journalReturn, retainActive
   const source = useContext(RecipeSourceContext)
   const client = useQueryClient()
   const navigate = useNavigate()
+  const { search } = useLocation()
+  const { isTurning } = useJournalPageTurn()
   const guard = useUnsavedChangesGuard(dirty && destination === null, { warnOnUnload: true })
   const reviewRequest = useRef<AbortController | null>(null)
-  useEffect(() => () => reviewRequest.current?.abort(), [])
+  useLayoutEffect(() => () => reviewRequest.current?.abort(), [search, isTurning])
   useLayoutEffect(() => {
     retainActiveTool(dirty || busy)
   }, [busy, dirty, retainActiveTool])
@@ -68,7 +71,7 @@ export function RecipeReadingTools({ recipe, userId, journalReturn, retainActive
   }, [destination, journalReturn, navigate])
 
   async function reviewNote(text: string, base: string) {
-    if (reviewRequest.current || destination) return
+    if (reviewRequest.current || destination || isTurning) return
     const controller = new AbortController()
     reviewRequest.current = controller
     setBusy(true)
@@ -86,7 +89,9 @@ export function RecipeReadingTools({ recipe, userId, journalReturn, retainActive
       const id = queueNoteHandoff({ userId, destination: recipe.id, title: recipe.title, text, baseChanged: base !== latest })
       setDestination({ id, path: `/app/recipes/${encodeURIComponent(recipe.id)}/edit` })
     } catch {
-      return 'Could not load current Personal Notes. Your text is still here. Try again.'
+      return controller.signal.aborted
+        ? undefined
+        : 'Could not load current Personal Notes. Your text is still here. Try again.'
     } finally {
       if (reviewRequest.current === controller) {
         reviewRequest.current = null
