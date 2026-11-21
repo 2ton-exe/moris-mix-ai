@@ -8,6 +8,7 @@ from genuine ones. This hint must never authorize a correction or a retry.
 from pathlib import Path
 import re
 import sys
+from typing import NamedTuple
 
 MAX_LOG_BYTES = 64 * 1024
 MAX_LINE_BYTES = 512
@@ -25,6 +26,24 @@ ERROR_CATEGORIES = {
     b"42501": "insufficient-privilege",
     b"42704": "undefined-object",
     b"42710": "duplicate-object",
+}
+# PostgreSQL 17 data replay hints. Keep role-only callers on ERROR_CATEGORIES.
+DATA_ERROR_CATEGORIES = {
+    b"22001": "string-data-right-truncation",
+    b"22003": "numeric-value-out-of-range",
+    b"22007": "invalid-datetime-format",
+    b"22008": "datetime-field-overflow",
+    b"22021": "character-not-in-repertoire",
+    b"22P02": "invalid-text-representation",
+    b"22P04": "bad-copy-file-format",
+    b"23502": "not-null-violation",
+    b"23503": "foreign-key-violation",
+    b"23505": "unique-violation",
+    b"23514": "check-violation",
+    b"23P01": "exclusion-violation",
+    b"42501": "insufficient-privilege",
+    b"42703": "undefined-column",
+    b"42P01": "undefined-table",
 }
 STATEMENT_CLASSES = {"role-membership-grant", "alter-role-set", "create-role",
                      "alter-role-attributes", "unknown"}
@@ -60,32 +79,47 @@ RECORD = re.compile(
 )
 
 
-def _accepted_error(stderr: bytes, exit_code: int):
-    """Return the sole fixed-path error tuple, rejecting ambiguous framing."""
+class AcceptedError(NamedTuple):
+    component: str
+    line_number: int
+    sqlstate: bytes
+    severity: bytes
+    has_other_messages: bool
+
+
+def _accepted_error(stderr: bytes, exit_code: int) -> AcceptedError | None:
+    """Return the sole fixed-path error, rejecting ambiguous framing."""
     if exit_code != 3 or not stderr or len(stderr) > MAX_LOG_BYTES:
         return None
     if not stderr.endswith(b"\n"):
         return None
-    errors = []
+    error = None
+    has_other_messages = False
     for line in stderr.split(b"\n")[:-1]:
         if not line or len(line) > MAX_LINE_BYTES:
             return None
         match = RECORD.fullmatch(line)
         if match is None or int(match["line"]) > (1 << 64) - 1:
             return None
-        if match["severity"] in (b"ERROR", b"FATAL", b"PANIC"):
-            errors.append((
-                COMPONENTS[match["component"]],
-                int(match["line"]),
-                match["sqlstate"],
-            ))
-    return errors[0] if len(errors) == 1 else None
+        severity = match["severity"]
+        if severity in (b"ERROR", b"FATAL", b"PANIC"):
+            if error is not None:
+                return None
+            error = match
+        elif severity not in (b"NOTICE", b"WARNING"):
+            has_other_messages = True
+    if error is None:
+        return None
+    return AcceptedError(
+        COMPONENTS[error["component"]], int(error["line"]), error["sqlstate"],
+        error["severity"], has_other_messages,
+    )
 
 
 def component_hint(stderr: bytes, exit_code: int) -> str:
     """Preserve the bounded, untrusted component-only hint API."""
     error = _accepted_error(stderr, exit_code)
-    return error[0] if error is not None else "unknown"
+    return error.component if error is not None else "unknown"
 
 
 def _ends_with_complete_statement(line: bytes) -> bool:
@@ -180,12 +214,14 @@ def diagnostic_hints(stderr: bytes, exit_code: int, roles_sql: Path):
     error = _accepted_error(stderr, exit_code)
     if error is None:
         return "unknown", "unknown", "unknown"
-    component, line_number, sqlstate = error
-    if component != "roles.sql":
-        return component, "unknown", "unknown"
-    category = ERROR_CATEGORIES.get(sqlstate, "unknown")
-    statement_class = statement_class_from_file(roles_sql, line_number)
-    return component, category, statement_class
+    component = error.component
+    if component == "roles.sql":
+        category = ERROR_CATEGORIES.get(error.sqlstate, "unknown")
+        statement_class = statement_class_from_file(roles_sql, error.line_number)
+        return component, category, statement_class
+    if component == "data.sql" and error.severity == b"ERROR" and not error.has_other_messages:
+        return component, DATA_ERROR_CATEGORIES.get(error.sqlstate, "unknown"), "unknown"
+    return component, "unknown", "unknown"
 
 
 def hint_from_file(path: Path, exit_code: int) -> str:
@@ -232,9 +268,10 @@ def main() -> None:
     # Keep stdout fixed even when arguments or private files are malformed.
     if component not in COMPONENTS.values():
         component = "unknown"
-    if category not in {"insufficient-privilege", "undefined-object", "duplicate-object", "unknown"}:
+    category_maps = {"roles.sql": ERROR_CATEGORIES, "data.sql": DATA_ERROR_CATEGORIES}
+    if category not in category_maps.get(component, {}).values():
         category = "unknown"
-    if statement_class not in STATEMENT_CLASSES:
+    if component != "roles.sql" or statement_class not in STATEMENT_CLASSES:
         statement_class = "unknown"
     print(f"{component} {category} {statement_class}")
 

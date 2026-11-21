@@ -196,10 +196,10 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
     fields = ("replay=failed category=unknown verb=unknown "
               f"doc_grant=unknown prefix_pass=unknown {unknown}")
     error = _accepted_error(stderr, exit_code)
-    if not error or error[0] != "roles.sql":
+    if error is None or error.component != "roles.sql":
         return fields
-    _, lineno, sqlstate = error
-    category = ERROR_CATEGORIES.get(sqlstate)
+    lineno = error.line_number
+    category = ERROR_CATEGORIES.get(error.sqlstate)
     if category is None:
         # An unsupported SQLSTATE may indicate a syntax or encoding failure.
         return fields
