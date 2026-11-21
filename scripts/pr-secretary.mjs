@@ -276,54 +276,123 @@ const displayed = state => `${indicator(state)} ${md(state)}`;
 const linkRun = (repository, run) => validId(run?.id) && validId(run?.run_attempt)
   ? `[run ${run.id}, attempt ${run.run_attempt}](https://github.com/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt})` : null;
 
+const attentionStates = new Set(['FAIL', 'CANCELLED', 'STALE', 'SKIPPED — INVESTIGATE',
+  'INTEGRATION MISMATCH', 'IDENTITY UNVERIFIED']);
+const pendingStates = new Set(['RUNNING', 'PENDING']);
+const statusList = (states, empty) => [...new Set(states)].map(md).join(' · ') || empty;
+const evidenceTable = rows => ['| Evidence | Status |', '| --- | --- |',
+  ...rows.map(([label, state]) => `| ${md(label)} | ${displayed(state)} |`)];
+const evidencePanel = (title, lines) => ['', '<details>', `<summary>${title}</summary>`, '', ...lines, '', '</details>'];
+
 export function render(data) {
   const { pr } = data;
   const s = summarize(data);
   const open = pr.state === 'open';
   const merged = !open && pr.merged === true;
   const lifecycle = open ? (pr.draft ? 'DRAFT' : 'OPEN') : merged ? 'MERGED' : 'CLOSED WITHOUT MERGE';
-  const requestedNames = [...s.requested.map(u => reviewer(u.login).name), ...(pr.requested_teams ?? []).map(t => `team: ${t.slug}`)];
+  const requestedNames = [...s.requested.map(u => reviewer(u.login).name),
+    ...(pr.requested_teams ?? []).map(t => `team: ${t.slug}`)];
   const required = s.rows.filter(row => s.requiredRows.has(row));
-  const delivery = s.rows.filter(row => !s.requiredRows.has(row));
-  const headRun = linkRun(data.repository, data.validationRun);
-  const out = [MARKER, '', '## PR Secretary', '', `**${displayed(lifecycle)}** · #${pr.number} — ${md(pr.title)}`, '',
-    `**${open ? 'PR head' : 'Final PR head'}** · \`${md(pr.head.sha)}\``];
-  if (merged) out.push(`**Merge on main** · ${validSha(pr.merge_commit_sha) ? `\`${pr.merge_commit_sha}\`` : 'SHA unknown'} · ${timestamp(pr.merged_at) ? pr.merged_at : 'time unknown'}`);
-  else if (!open && timestamp(pr.closed_at)) out.push(`**Closed** · ${pr.closed_at}`);
-  if (headRun) out.push(`**PR validation workflow** · ${displayed(normalize(data.validationRun))} · ${headRun}`);
-  out.push('', open ? '### Human reviews' : '### Historical human reviews', '');
-  if (open) out.push(`**Requested reviewers:** ${requestedNames.map(md).join(', ') || 'None'}`, '');
-  if (s.humans.length) out.push(...s.humans.map(r => `- ${md(reviewer(r.login).name)} — ${displayed(r.state)}`));
-  else out.push('➖ No submitted human reviews recorded.');
-  out.push('', '<sub>Review history is separate from GitHub’s merge decision.</sub>');
-  const table = rows => ['| Evidence | Status |', '| --- | --- |', ...rows.map(([label, state]) => `| ${md(label)} | ${displayed(state)} |`)];
-  out.push('', open ? '### Required checks' : '### Required checks on final PR head', '',
-    ...(required.length ? table(required) : ['➖ No required contexts established.']), '', `Policy source · ${md(data.requiredSource)}`);
-  const optionalDelivery = delivery.filter(([label]) => ['E2E (non-gating)', 'Staging deploy', 'Staging smoke'].includes(label));
-  if (optionalDelivery.length) out.push('', `**Other PR delivery** · ${optionalDelivery.map(([label, state]) =>
-    `${md(label)} ${displayed(state)}`).join(' · ')}`);
+  const additional = s.rows.filter(row => !s.requiredRows.has(row));
+  const optionalDelivery = additional.filter(([label, state]) =>
+    ['E2E (non-gating)', 'Staging deploy', 'Staging smoke'].includes(label) && !['NOT REQUIRED', 'NOT RUN'].includes(state));
+  const validationStatus = data.validationRun ? normalize(data.validationRun) : 'UNKNOWN';
+  const release = data.release ?? {};
+  const mainStatus = merged && release.run ? normalize(release.run) : null;
+  const mainNeedsAttention = mainStatus === 'FAIL' || mainStatus === 'CANCELLED';
+  const missingRequired = open && required.some(([, state]) => state === 'NOT RUN');
+  const releaseRows = merged ? [
+    ['Main validation', release.validation], ['Main E2E', release.e2e], ['Production job', release.production],
+    ['Production deployment', release.deploy], ['Production smoke', release.smoke],
+  ].map(([label, state]) => [label, state ?? 'UNKNOWN']) : [];
+  const criticalDiagnostics = [
+    'Staging caller: FAIL (inspect workflow execution)',
+    'Production deploy: observed PR job is not completed/skipped; inspect immediately',
+  ].filter(note => open && s.attention.includes(note));
+  const changesRequested = s.humans.filter(review => open && review.state === 'CHANGES REQUESTED');
+  const action = [
+    ...changesRequested.map(review => `- **Human review** · ${md(reviewer(review.login).name)} — CHANGES REQUESTED`),
+    ...(open && ['FAIL', 'CANCELLED'].includes(validationStatus) ?
+      [`- **PR validation workflow** · ${validationStatus}`] : []),
+    ...(mainNeedsAttention ? [`- **Main workflow** · ${mainStatus}`] : []),
+    ...[...required, ...additional, ...releaseRows].filter((row) =>
+      attentionStates.has(row[1]) || (missingRequired && row[1] === 'NOT RUN' && s.requiredRows.has(row)))
+      .map(([label, state]) => `- **${md(label)}** · ${md(state)}`),
+    ...criticalDiagnostics.map(note => `- ${md(note)}`),
+  ];
+
+  let outcome;
   if (merged) {
-    const release = data.release ?? {};
-    const mainLink = linkRun(data.repository, release.run);
-    out.push('', '### Main delivery for this merge', '',
-      mainLink ? `**Main workflow** · ${displayed(normalize(release.run))} · ${mainLink}` : '➖ No exact main workflow run established.', '',
-      ...table([['Main validation', release.validation], ['Main E2E', release.e2e],
-        ['Production job', release.production], ['Production deployment', release.deploy], ['Production smoke', release.smoke]]
-        .map(([label, state]) => [label, state ?? 'UNKNOWN'])));
+    if (mainNeedsAttention || releaseRows.some(([, state]) => attentionStates.has(state))) outcome = 'Release evidence needs attention.';
+    else if (release.deploy === 'VERIFIED' && release.smoke === 'VERIFIED') outcome = 'Production deployment and smoke verified for this merge.';
+    else if (releaseRows.some(([, state]) => pendingStates.has(state))) outcome = 'Main delivery evidence is still pending.';
+    else if (release.deploy === 'SKIPPED' && release.smoke === 'SKIPPED') outcome = 'Production deployment and smoke were skipped.';
+    else outcome = 'Production delivery evidence is incomplete.';
+  } else if (!open) outcome = 'This pull request closed without merging.';
+  else if (missingRequired) outcome = 'Check missing required CI results.';
+  else if (action.length) outcome = 'Address the review or check results below.';
+  else if (pr.draft) outcome = 'Prepare the draft for human review.';
+  else if (required.some(([, state]) => pendingStates.has(state))) outcome = 'Wait for required CI results.';
+  else if (s.humans.some(review => review.state === 'WAITING') || requestedNames.length) outcome = 'Await requested human review.';
+  else if (!required.length || required.some(([, state]) => !state.startsWith('PASS'))) outcome = 'Check required CI evidence.';
+  else if (!s.humans.some(review => review.state === 'APPROVED')) outcome = 'Review the current revision.';
+  else outcome = 'Check GitHub’s merge requirements.';
+
+  const headRun = linkRun(data.repository, data.validationRun);
+  const out = [MARKER, '', "<sub>MORI'S MIX · ENGINEERING</sub>", '', '## PR Secretary · Delivery Control Desk', '',
+    `**${displayed(lifecycle)}** · #${pr.number} — ${md(pr.title)}`, '',
+    `**${open ? 'Next attention' : 'Delivery outcome'}** · ${outcome}`];
+  if (action.length) out.push('', open ? '### Action needed' : '### Attention', '', ...action);
+  out.push('', '### Delivery journey', '', '| Stage | Status |', '| --- | --- |',
+    `| ${open ? 'Review' : 'Review (historical)'} | ${statusList(s.humans.map(review => review.state), 'NO REVIEW RECORDED')} |`,
+    `| CI (required PR checks) | ${statusList(required.map(([, state]) => state), 'UNKNOWN')} |`,
+    `| Merge | ${open ? 'NOT MERGED' : lifecycle} |`,
+    `| Deploy | ${merged ? md(release.deploy ?? 'UNKNOWN') : 'NOT APPLICABLE'} |`,
+    `| Smoke | ${merged ? md(release.smoke ?? 'UNKNOWN') : 'NOT APPLICABLE'} |`,
+    '', '### Status overview', '');
+  if (open) out.push(`- **Requested reviewers:** ${requestedNames.map(md).join(', ') || 'None'}`);
+  else out.push('- **Human review** · See historical reviews below.');
+  out.push(`- **Required CI policy** · ${md(data.requiredSource)}`);
+  for (const [label, state] of optionalDelivery) out.push(`- **${md(label)}** · ${md(state)}`);
+  if (merged) {
+    for (const [label, state] of releaseRows.slice(0, 2)) out.push(`- **${label}** · ${md(state)}`);
   }
-  out.push('', '### Automated review', '', `**CodeRabbit (optional)** · ${s.rabbit.state}`,
-    `**Open threads:** ${s.rabbit.count ?? 'Unavailable'}`);
-  if (open && s.attention.length) out.push('', '### Attention', '', ...s.attention.map(a => `- ${md(a)}`));
-  out.push('', '<details>', '<summary>Detailed evidence</summary>', '',
-    `**Affected ownership** · ${md(s.ownership.join(', ') || 'Unclassified')}`, '', '#### Other PR-head checks', '', ...table(delivery));
-  if (s.rabbit.latest) out.push('', `**Latest CodeRabbit activity** · ${md(s.rabbit.latest)}`);
-  if (s.rabbit.paths.length) out.push('', `**Thread paths** · ${s.rabbit.paths.slice(0, 5).map(md).join(', ')}${s.rabbit.paths.length > 5 ? ` (+${s.rabbit.paths.length - 5} more)` : ''}`);
+
+  const reviews = [open ? '#### Human reviews' : '#### Historical human reviews', '',
+    ...(s.humans.length ? s.humans.map(r => `- ${md(reviewer(r.login).name)} — ${displayed(r.state)}`) :
+      ['➖ No submitted human reviews recorded.']),
+    '', '<sub>GitHub evaluates merge requirements separately.</sub>', '',
+    `**CodeRabbit (optional)** · ${md(s.rabbit.state)}`, `**Open threads:** ${s.rabbit.count ?? 'Unavailable'}`];
+  if (s.rabbit.latest) reviews.push('', `**Latest CodeRabbit activity** · ${md(s.rabbit.latest)}`);
+  if (s.rabbit.paths.length) reviews.push('', `**Thread paths** · ${s.rabbit.paths.slice(0, 5).map(md).join(', ')}${s.rabbit.paths.length > 5 ? ` (+${s.rabbit.paths.length - 5} more)` : ''}`);
   for (const u of open ? s.requested : []) {
     const r = reviewer(u.login);
-    out.push('', `#### ${md(r.name)} — ${md(r.role ?? 'General')} review`, '', ...checklist(u.login, s.ownership, s.rabbit.routedOwnership).map(b => `- ${b}`));
+    reviews.push('', `#### ${md(r.name)} — ${md(r.role ?? 'General')} review`, '',
+      ...checklist(u.login, s.ownership, s.rabbit.routedOwnership).map(b => `- ${b}`));
   }
-  if (!open && data.collectionNotes?.length) out.push('', ...data.collectionNotes.map(note => `- ${md(note)}`));
-  out.push('', '</details>');
+  out.push(...evidencePanel('Human reviews and CodeRabbit', reviews));
+  out.push(...evidencePanel('PR validation', [
+    `**PR validation workflow** · ${displayed(validationStatus)}${headRun ? ` · ${headRun}` : ''}`,
+    '', '#### Required PR checks', '', ...(required.length ? evidenceTable(required) : ['➖ No required contexts established.']),
+    '', '#### Additional PR-head checks', '', ...evidenceTable(additional),
+  ]));
+  if (merged) {
+    const mainLink = linkRun(data.repository, release.run);
+    out.push(...evidencePanel('Exact main release evidence', [
+      `**Merge on main** · ${validSha(pr.merge_commit_sha) ? `\`${pr.merge_commit_sha}\`` : 'SHA unknown'} · ${timestamp(pr.merged_at) ? pr.merged_at : 'time unknown'}`,
+      '', mainLink ? `**Main workflow** · ${displayed(mainStatus)} · ${mainLink}` :
+        '➖ No exact main workflow run established.', '', ...evidenceTable(releaseRows),
+      '', '<sub>Release evidence covers this merge and attempt.</sub>',
+    ]));
+  }
+  out.push(...evidencePanel('Revision and diagnostics', [
+    `**${open ? 'PR head' : 'Final PR head'}** · ${validSha(pr.head.sha) ? `\`${pr.head.sha}\`` : 'SHA unknown'}`,
+    ...(!open && !merged && timestamp(pr.closed_at) ? [`**Closed** · ${pr.closed_at}`] : []),
+    '', `**Affected ownership** · ${md(s.ownership.join(', ') || 'Unclassified')}`,
+    ...(open && s.attention.length ? ['', '#### Diagnostic notes', '', ...s.attention.map(note => `- ${md(note)}`)] :
+      !open && data.collectionNotes?.length ? ['', ...data.collectionNotes.map(note => `- ${md(note)}`)] : []),
+  ]));
+  out.push('', '<sub>Informational · GitHub enforces merge requirements.</sub>');
   return out.join('\n');
 }
 

@@ -34,34 +34,72 @@ refresh. Review thread resolution or reopening without a review or inline
 comment event is picked up on reconciliation. Schedules and workflow dispatch
 are subject to GitHub’s queue and event delivery.
 
-## Dashboard
+## Delivery Control Desk
 
-- **Lifecycle and revision** show draft, open, merged, or closed without merge.
-  Merged comments include the full PR head and actual merge SHA and time.
-- **Human reviews** show actual reviewer and team requests separately from
-  affected ownership. Effective reviews use submitted time and ID, ignore bots
-  and pending drafts, and keep an approval or change request through a later
-  comment-only review. Dismissals and earlier-revision decisions are explicit.
-  Terminal views display historical reviews and remove reviewer prompts.
-- **Required checks** use the active branch rules with bound app identities
-  where available. The three documented main contexts are a fallback when the
-  rules endpoint is unavailable or empty. Fallback success is labeled
-  integration-unverified. Final-head checks on terminal PRs use the policy
-  visible at collection time.
-- **Other PR delivery** displays E2E and staging separately. Draft, fork,
-  Dependabot, and documentation-only staging exclusions require observed skip
-  evidence. A failed deploy and its dependent smoke skip are attributed only
-  within the same run and attempt. An unexpected PR production job remains a
-  diagnostic. Hosted RLS on the PR caller is expected to skip when observed.
-- **CodeRabbit** reports structured bot activity and unresolved bot-rooted
-  threads. A conversation comment shows activity. A submitted, non-dismissed
-  bot review on the PR head shows REVIEWED. Only humans appear in human review
-  history. The script never interprets finding prose or infers severity.
-  When thread inventory is unavailable, its count is unknown.
-- **Attention and detailed evidence** show open-PR issues, affected ownership,
-  optional checks, and relevant reviewer guidance. The expandable details use
-  GitHub-flavored Markdown with display-only symbols. An unchanged dashboard
-  retains its previous update timestamp and makes zero comment writes.
+The single PR comment starts with Mori’s Mix engineering, the PR title and
+number, and a prominent `DRAFT`, `OPEN`, `MERGED`, or `CLOSED WITHOUT MERGE`
+state. Open PRs show the next attention item. Terminal PRs show the delivery
+outcome. Current changes requested, missing required checks, and failures in
+required or additional PR-head checks appear before the evidence panels.
+On open PRs, a failed or cancelled PR validation workflow appears separately
+from the required checks. Advisory notes, such as changes that cross
+ownership areas, stay in diagnostics.
+
+When collection returns the selected exact main run, its failure or
+cancellation stays visible even if individual jobs lack results. Deployment
+and smoke retain their own evidence states. If a release collection request
+throws, the collector can mark release evidence unavailable and emit a
+diagnostic note. Retaining already-selected run metadata after a job lookup
+error is a proposed functional follow-up for [issue #246](https://github.com/2ton-exe/moris-mix-ai/issues/246).
+
+The **Delivery journey** shows five independently sourced stages:
+
+| Stage | Display evidence |
+| --- | --- |
+| Review | Effective submitted human reviews and outstanding reviewer requests. Terminal PRs show historical reviews. |
+| CI | Distinct statuses of the required PR-head contexts. Mixed results retain each observed state. |
+| Merge | The GitHub lifecycle state. GitHub evaluates merge requirements separately. |
+| Deploy | Deployment evidence for the exact merge and main run attempt, when available. |
+| Smoke | Runtime smoke evidence from the same attempt, tracked separately from deployment. |
+
+Deploy and Smoke are `NOT APPLICABLE` before merge and on closed-unmerged PRs.
+After merge, their existing statuses remain distinct, including `PENDING`,
+`RUNNING`, `SKIPPED`, `FAIL`, `UNKNOWN`, and `VERIFIED`. Verification
+describes the recorded release attempt for the merge. The dashboard makes
+no claim about the current production revision.
+
+The **Status overview** shows requested reviewers, the required CI policy
+source, any observed optional E2E and staging results, and main validation
+and E2E on merged PRs. `SKIPPED — EXPECTED` remains visible when supported
+by check evidence, including applicable draft, fork, Dependabot, and
+documentation-only staging exclusions. Unobserved optional checks remain in
+PR validation details.
+
+- **Human reviews and CodeRabbit** shows reviewer-by-reviewer evidence,
+  separately from optional, structured bot activity. Effective human reviews
+  use submitted time and ID. Bots and pending drafts are excluded. Comment-only
+  reviews preserve an existing approval or changes request. Dismissals and
+  earlier revisions stay explicit. Terminal comments omit reviewer prompts.
+  A current, submitted, non-dismissed bot review can show `REVIEWED`.
+  A conversation comment shows activity. Missing thread inventory is
+  unavailable. The dashboard excludes review prose and inferred severity.
+- **PR validation** expands the exact PR run and attempt, required checks,
+  and additional PR-head checks. Required checks use active branch rules with
+  bound app identities where available. The three documented main contexts
+  are the fallback when rules are unavailable or empty. Fallback success
+  retains its integration-unverified label. Final-head checks use the policy
+  visible at collection time. An observed hosted RLS skip on a PR is expected.
+- **Exact main release evidence**, shown for merged PRs, includes the actual
+  merge SHA and time, the main run and attempt, and the production job result
+  alongside deploy and smoke. For staging, a failed deploy and its dependent
+  smoke skip remain attributable within the same run and attempt.
+- **Revision and diagnostics** shows the full PR head SHA, close time where
+  applicable, affected ownership, and advisory or collection notes.
+
+The desk uses GitHub-flavored Markdown tables, status text, and native
+`<details>` panels. The publisher supplies the update timestamp when the
+dashboard changes. Identical renders keep the previous timestamp and make
+zero comment writes.
 
 | Symbol | Examples |
 | --- | --- |
@@ -69,6 +107,19 @@ are subject to GitHub’s queue and event delivery.
 | ⏳ | PENDING, RUNNING, WAITING, DRAFT |
 | ❌ | FAIL, CHANGES REQUESTED, CANCELLED, SKIPPED — INVESTIGATE |
 | ➖ | UNKNOWN, NOT RUN, SKIPPED, DISMISSED, or earlier-revision approval |
+
+For issue #258, Node 24 snapshots verify the collapsed dashboard and expanded
+evidence for the lifecycle, review, and release cases. The test suite also
+checks escaping, deterministic output, and the existing publication behavior.
+PR #267 tracks exact-head PR validation, which passed on the reviewed
+implementation commit `99edc0e63e9c9f1355b398b0752094bd10f0a35d`.
+[PR #267](https://github.com/2ton-exe/moris-mix-ai/pull/267) ·
+[Passing validation run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44892418533)
+
+Actual v3 GitHub comment rendering and same-comment updates remain unverified.
+The trusted Secretary workflow runs the renderer from `main`. Once `main`
+includes v3, verify narrow layouts, light and dark themes, and an update to
+the existing Secretary comment.
 
 Check and job evidence is read for the exact PR head. The selected Modular PR
 Validation run’s jobs take precedence over stale known workflow checks. Active
@@ -220,6 +271,102 @@ available.
 [GitHub Actions event reference](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
 [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use)
 [GitHub Actions REST jobs reference](https://docs.github.com/en/rest/actions/workflow-jobs)
+
+## Hosted acceptance observations after v2 rollout (issue #246; 2026-11-21)
+
+These observations supersede the **pre-rollout verification status** in the
+earlier baseline section, not its historical measurements. They are bounded
+GitHub-hosted outcomes, not an assertion that all issue #246 criteria are met.
+
+### Why review signals initially failed
+
+A controlled review on disposable [PR #254](https://github.com/2ton-exe/moris-mix-ai/pull/254)
+created [Review Signal #44775176691](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44775176691)
+with `startup_failure` and zero jobs. Its run annotation stated:
+`Event 'pull_request_review' is not allowed to trigger Actions workflows`.
+The workflow file was present on the PR head and synthetic merge ref.
+The maintainer updated the GitHub Actions **Restrict events** policy to allow
+`pull_request_review` and `pull_request_review_comment`. Subsequent
+same-workflow runs succeeded. This was an **Actions settings change**, not
+a YAML or application-code change. The workflow cannot bypass a policy
+that disallows its triggering event. Preserve a narrow allowlist and review
+applicable policy for `pull_request_target` separately.
+
+### Controlled hosted lifecycle tests
+
+The PR remained open, non-draft, documentation-only and **must not be merged**.
+Its head stayed at `742392f4c009a719dcd7b4fdb8ad461ee0a853f7`.
+The managed PR Secretary comment stayed at ID
+[7044735848](https://github.com/2ton-exe/moris-mix-ai/pull/254#issuecomment-7044735848).
+
+| Event | Server event time, UTC | Trusted writer / evidence | Comment update, UTC | Observed delay |
+| --- | --- | --- | --- | --- |
+| Belen submitted `CHANGES_REQUESTED` | 2026-11-20 17:03:34 | [signal #44779554534](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44779554534) → [writer #44779583090](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44779583090) | 17:04:09 | 35 s |
+| Belen submitted `APPROVED` | 17:23:38 | [signal #44782871138](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44782871138) → [writer #44782898171](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44782898171) | 17:24:12 | 34 s |
+| The test approval was dismissed | 17:39:01 | [signal #44785320704](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785320704) → [writer #44785350034](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785350034) | 17:39:35 | 34 s |
+| Belen was requested again | 17:40:00 | [writer #44785470093](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785470093) (`pull_request_target`) | 17:40:25 | 25 s |
+| Review request removed | 17:40:43 | [writer #44785587872](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785587872) (`pull_request_target`) | 17:41:50 | 67 s |
+
+All named signals and writer jobs above completed successfully.
+The same managed comment showed `CHANGES REQUESTED`, then `APPROVED`,
+then `DISMISSED`; reviewer requests changed from `None` to `Belen`
+and back to `None`. Neither CodeRabbit activity nor the schedule was
+needed for the review transitions. `DISMISSED` is the final state of the
+test approval, not an approval that remains effective.
+
+An inline test-only review comment was created on PR #254 at
+`17:45:55Z`; both the
+[inline-comment signal #44786410227](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786410227)
+and [submitted-review signal #44786411097](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786411097)
+succeeded. [Writer #44786437957](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786437957)
+updated the same comment at `17:46:26Z` (31 s).
+Editing that inline comment at `17:46:56Z` produced successful
+[inline signal #44786565826](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786565826);
+[writer #44786592237](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786592237)
+completed `summarize (254)` and logged `unchanged` at `17:47:27Z`.
+Its `unchanged` outcome correctly left the managed comment timestamp intact.
+The review was submitted by the test PR author as `COMMENTED`: it is **not**
+independent approval.
+
+Other hosted no-op examples include scheduled
+[writer #44782315350](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44782315350)
+(`summarize (254)` logged `unchanged` at `17:21:23Z`) and
+[writer #44786436897](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786436897)
+(`unchanged` at `17:46:38Z`). Multiple workflow-run notifications
+can invoke the resolver; successful no-op jobs are not evidence of
+unnecessary comment writes.
+
+### Boundaries and remaining acceptance
+
+These figures are **single observed event-to-comment intervals**, using
+GitHub event and comment timestamps. They are not means, percentile
+latencies, SLA compliance, or proof of a quantified optimization. The older
+PR #240 approval was not refreshed within the observed window, so it
+does not furnish a directly comparable numeric baseline.
+
+[PR #250](https://github.com/2ton-exe/moris-mix-ai/pull/250) already provided a
+separate hosted example of a merged PR transitioning its existing Secretary
+comment to `MERGED`, showing its actual merge identity and exact-associated
+main delivery evidence.
+
+The same closure-safe renderer was then verified on the disposable
+[PR #254](https://github.com/2ton-exe/moris-mix-ai/pull/254), which the maintainer
+**closed without merge** at `2026-11-20T17:56:26Z`. Its head stayed at
+`742392f4c009a719dcd7b4fdb8ad461ee0a853f7`. The
+[`pull_request_target` Secretary run #44788047179](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44788047179)
+passed (`resolve` and `summarize (254)`). The **same comment ID 7044735848**
+became `CLOSED WITHOUT MERGE` at `17:56:59Z` (**33 s observed**),
+retained historical reviews, and omitted open-PR `WAITING`, `Ready
+for review`, and `Attention` prompts. GitHub confirmed
+`merged=false`, `merged_at=null`, unchanged `main` at `91148de`,
+and that the test branch still exists. No production deploy was
+triggered by the closure.
+
+Still pending are additional edited-review and fork-specific review-event
+tests, broader comparable latency/no-op-write sampling, and the other
+unchecked work in [issue #246](https://github.com/2ton-exe/moris-mix-ai/issues/246).
+Do not merge the closed test PR, delete its branch without authorization,
+or close the parent issue solely because these exercised paths succeeded.
 
 ## Runtime repair evidence for issue #86 (2026-10-28)
 

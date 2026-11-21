@@ -221,11 +221,12 @@ component roles.sql, SQLSTATE category insufficient-privilege, statement class u
 This does not identify the failing statement.
 
 The separate manual Database Restore Role Diagnostic workflow is a
-**proposed investigation only**. It preserves the selected immutable Backup #4,
+**protected role-only exercise, not a full recovery drill**. It preserves the selected immutable Backup #4,
 its R2 and component checksum verification, disposable PostgreSQL 17 target,
 pinned PostgreSQL client, main-only and protected-environment gates, and
 always-run cleanup. It replays only the verified roles.sql using Stage B's
-local administrative principal and fail-fast transaction flags. It does not restore application schema
+local administrative principal and the same fail-fast transaction flags.
+It does not restore application schema
 or data, and its run must never be counted as recovery evidence.
 
 The runner emits only fixed attribute booleans for the local connection role,
@@ -235,8 +236,8 @@ and coarse untrusted error labels. The public labels never include private
 SQL text, role identifiers or SQL line numbers. All private stderr remains
 on the disposable runner until cleanup; generated labels are investigative
 hints, not authenticated proof of root cause. Unsupported multi-line forms
-are not ruled out by a zero static count. The attribute flags are for the
-guarded local administrative login used for replay.
+are not ruled out by a zero static count. The attribute flags describe the
+guarded local administrative principal used for replay.
 
 Any later compatibility transformation must be limited to independently
 confirmed failing statements, maintain the original archive and checksum
@@ -270,3 +271,12 @@ means it does not match; this **does not establish** that the GRANT affects
 object privileges. `not-applicable` means the attributed statement is not a
 GRANT, and `unknown` means attribution was not established. These labels
 never reveal identifiers or SQL and do not prove the permission root cause.
+
+The proposed `grant_type` label describes only the statement attributed by a
+validated replay error. `parameter-grant` means it matches the supported
+single-line PostgreSQL 17 configuration-parameter GRANT syntax.
+`role-membership-grant` means it matches the existing strict membership
+grammar. Success and unattributed, unsupported, or ambiguous statements use
+`other-or-unknown`. The label reveals no parameter names, role identifiers,
+or SQL. It describes syntax only and leaves the required privileges and
+permission root cause unverified.
