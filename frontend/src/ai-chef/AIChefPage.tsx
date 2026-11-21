@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate, useNavigationType } from 'react-router'
 import { useAuth } from '../auth/context'
 import { HttpError } from '../api/http'
 import { retryAfterSeconds } from '../api/retryAfter'
@@ -10,24 +10,38 @@ import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPa
 import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
+import { useJournalDesktopTools } from '../journal/useJournalDesktopTools'
 import { PaperCard } from '../journal/Scrapbook'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { formTextPageColumns, formTextRows, replaceFormTextPart, splitFormText } from '../recipe-form/physicalFormPages'
 import { MAX_PANTRY_ITEMS, MAX_PREFERENCES_CHARS, addPantryItems, pantryEntryErrorMessage, splitPastedPantryText } from './pantry'
 import { generateRecipeApi, generateRecipeErrorMessage, generateRecipeRequestSchema } from './generateRecipe'
-import type { ChefReviewHandoff } from './draft'
+import type { ChefPantryInput, ChefReviewHandoff } from './draft'
 import { readChefDraftResult, writeChefDraft } from './draft'
 import { ChefProgress } from './ChefProgress'
 import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
-import { ChevronLeft, ChevronRight, Grid3X3, List, Plus, Sparkles } from 'lucide-react'
+import { BookOpen, Bookmark, ChevronLeft, ChevronRight, Grid3X3, List, Plus, Search, Sparkles } from 'lucide-react'
 import { PantryCards } from './PantryCards'
 import type { PantryCardItem } from './PantryCards'
 import { usePantryPageEnds } from './usePantryPageEnds'
+import { PantryMatches, PantrySlip } from './PantryMatches'
 import './aiChef.css'
 
 const pantrySuggestions = ['eggs', 'tomatoes', 'rice', 'garlic']
+const pantryPairings = new Map([
+  ['eggs', { ingredient: 'chives', idea: 'Finish scrambled eggs with snipped chives.' }],
+  ['tomatoes', { ingredient: 'basil', idea: 'Tear basil over sliced tomatoes just before serving.' }],
+  ['rice', { ingredient: 'ginger', idea: 'Try a little ginger in the pot as the rice cooks.' }],
+  ['garlic', { ingredient: 'parsley', idea: 'Stir chopped parsley into a pan sauce with garlic.' }],
+  ['olive oil', { ingredient: 'lemon', idea: 'Whisk olive oil and lemon juice into a dressing.' }],
+  ['black pepper', { ingredient: 'lemon', idea: 'Try cracked black pepper and lemon zest on roast vegetables.' }],
+])
+type PantrySlipSelection =
+  | { kind: 'matches'; item: PantryCardItem }
+  | { kind: 'pairing'; item: PantryCardItem; pairing: { ingredient: string; idea: string } }
 const pantryCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 type PantrySort = 'added' | 'ascending' | 'descending'
+let pantryReturn: { userId: string; locationKey: string; ingredient: string } | undefined
 
 type ChefLeaf =
   | { kind: 'first' }
@@ -50,6 +64,10 @@ export function AIChefPage() {
 function AIChefSession({ userId }: { userId: string }) {
   const navigate = useNavigate()
   const { key: locationKey } = useLocation()
+  const navigationType = useNavigationType()
+  const desktopTools = useJournalDesktopTools()
+  const [openSlip, setOpenSlip] = useState<PantrySlipSelection | null>(null)
+  const slipTrigger = useRef<HTMLButtonElement | null>(null)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const cards = useJournalMedia('(min-width: 1024px) and (pointer: fine)')
   const board = useJournalMedia('(min-width: 1100px) and (min-height: 700px) and (pointer: fine)')
@@ -67,6 +85,10 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryItems = pantryEntries.map(({ name }) => name)
   const [pantryInput, setPantryInput] = useState(initialRead.draft.input.pantryInput)
   const [preferences, setPreferences] = useState(initialRead.draft.input.preferences)
+  const [priorityIngredient, setPriorityIngredient] = useState(() => {
+    const { pantryItems, priorityIngredient } = initialRead.draft.input
+    return priorityIngredient && pantryItems.includes(priorityIngredient) ? priorityIngredient : null
+  })
   const [handoff, setHandoff] = useState<ChefReviewHandoff | null>(initialRead.draft.handoff)
   const [pending, setPending] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -117,6 +139,17 @@ function AIChefSession({ userId }: { userId: string }) {
     } } })
 
   useEffect(() => () => controller.current?.abort(), [])
+
+  useLayoutEffect(() => {
+    if (navigationType !== 'POP' || pantryReturn?.userId !== userId || pantryReturn.locationKey !== locationKey) return
+    const ingredient = pantryReturn.ingredient
+    pantryReturn = undefined
+    const triggers = pageRef.current?.querySelectorAll<HTMLButtonElement>('button[data-pantry-lookup]')
+    const trigger = Array.from(triggers ?? []).find((button) =>
+      button.dataset.pantryLookup === ingredient && !button.closest('[inert]'))
+    const target = trigger ?? pantryInputRef.current
+    target?.focus()
+  }, [locationKey, navigationType, userId])
 
   useLayoutEffect(() => {
     if (moriFocusPantry) {
@@ -196,9 +229,13 @@ function AIChefSession({ userId }: { userId: string }) {
     return () => window.clearInterval(timer)
   }, [retryBlocked])
 
-  function persistInput(next: { pantryItems: string[]; pantryInput: string; preferences: string }) {
+  function inputWithPriority(next: ChefPantryInput, priority = priorityIngredient): ChefPantryInput {
+    return priority && next.pantryItems.includes(priority) ? { ...next, priorityIngredient: priority } : next
+  }
+
+  function persistInput(next: ChefPantryInput, priority = priorityIngredient) {
     if (handoff) return
-    const nextDraft = { input: next, handoff: null, completedReview: false }
+    const nextDraft = { input: inputWithPriority(next, priority), handoff: null, completedReview: false }
     const result = writeChefDraft(userId, nextDraft)
     setStorageIssue(result.persisted ? null : result.reason)
   }
@@ -214,7 +251,7 @@ function AIChefSession({ userId }: { userId: string }) {
       setStorageIssue('handoff-changed')
       return
     }
-    const result = writeChefDraft(userId, { input: { pantryItems, pantryInput, preferences }, handoff, completedReview: current.draft.completedReview })
+    const result = writeChefDraft(userId, { input: inputWithPriority({ pantryItems, pantryInput, preferences }), handoff, completedReview: current.draft.completedReview })
     setStorageIssue(result.persisted ? null : result.reason)
   }
 
@@ -241,8 +278,17 @@ function AIChefSession({ userId }: { userId: string }) {
     persistInput({ pantryItems: result.items, pantryInput: nextInput, preferences })
   }
 
+  function closeSlip() {
+    setOpenSlip(null)
+    const trigger = slipTrigger.current
+    const target = trigger?.isConnected ? trigger : pageRef.current?.querySelector<HTMLElement>('[tabindex="-1"]:not([inert] *)')
+    target?.focus({ preventScroll: true })
+  }
+
   function removeIngredient(id: number) {
+    if (openSlip?.item.id === id) setOpenSlip(null)
     const nextEntries = pantryEntries.filter((entry) => entry.id !== id)
+    if (priorityIngredient !== null && !nextEntries.some(({ name }) => name === priorityIngredient)) setPriorityIngredient(null)
     const active = previewLeaf ?? chefLeaf
     if (active.kind === 'pantry' && active.id === id) {
       const index = pantryEntries.findIndex((entry) => entry.id === id)
@@ -336,7 +382,7 @@ function AIChefSession({ userId }: { userId: string }) {
       requestController.signal.throwIfAborted()
       const nextHandoff: ChefReviewHandoff = { request: parsed.data, response, selectedParentIds: [], saved: false }
       const nextDraft = {
-        input: { pantryItems, pantryInput, preferences },
+        input: inputWithPriority({ pantryItems, pantryInput, preferences }),
         handoff: nextHandoff,
         completedReview: false,
       }
@@ -361,7 +407,7 @@ function AIChefSession({ userId }: { userId: string }) {
   }
 
   function discardPreview() {
-    const nextDraft = { input: { pantryItems, pantryInput, preferences }, handoff: null }
+    const nextDraft = { input: inputWithPriority({ pantryItems, pantryInput, preferences }), handoff: null }
     const result = writeChefDraft(userId, nextDraft)
     setStorageIssue(result.persisted ? null : result.reason)
     pendingFocus.current = 'pantry'
@@ -369,6 +415,69 @@ function AIChefSession({ userId }: { userId: string }) {
     setDiscardOpen(false)
   }
 
+  function changePriority(name: string | null) {
+    setPriorityIngredient(name)
+    persistInput({ pantryItems, pantryInput, preferences }, name)
+  }
+
+  function toggleSlip(selection: PantrySlipSelection, trigger: HTMLButtonElement) {
+    if (openSlip?.kind === selection.kind && openSlip.item.id === selection.item.id && slipTrigger.current === trigger) {
+      closeSlip()
+      return
+    }
+    slipTrigger.current = trigger
+    setOpenSlip(selection)
+  }
+
+  function pantryActions(item: PantryCardItem) {
+    const pairing = pantryPairings.get(item.name.toLowerCase())
+    const matching = openSlip?.kind === 'matches' && openSlip.item.id === item.id
+    const paired = openSlip?.kind === 'pairing' && openSlip.item.id === item.id
+    const prioritized = item.name === priorityIngredient
+    const disabled = pending || isTurning
+    return <>
+      <button type="button" className="mm-ai-chef__ingredient-action" data-pantry-lookup={item.name}
+        aria-label={`Find saved recipes with ${item.name}`} title="Find saved recipes" aria-expanded={matching}
+        aria-controls={matching ? 'ai-chef-pantry-slip' : undefined} disabled={disabled}
+        onClick={(event) => toggleSlip({ kind: 'matches', item }, event.currentTarget)}><Search size={15} aria-hidden="true" /></button>
+      {pairing && <button type="button" className="mm-ai-chef__ingredient-action"
+        aria-label={`See a pairing for ${item.name}`} title="See a pairing" aria-expanded={paired}
+        aria-controls={paired ? 'ai-chef-pantry-slip' : undefined} disabled={disabled}
+        onClick={(event) => toggleSlip({ kind: 'pairing', item, pairing }, event.currentTarget)}><BookOpen size={15} aria-hidden="true" /></button>}
+      <button type="button" className="mm-ai-chef__ingredient-action"
+        aria-label={`Prioritize ${item.name}`} title="Use it up" aria-pressed={prioritized} disabled={disabled}
+        onClick={(event) => {
+          changePriority(prioritized ? null : item.name)
+          if (!prioritized) {
+            slipTrigger.current = event.currentTarget
+            setOpenSlip({ kind: 'matches', item })
+          }
+        }}><Bookmark size={15} aria-hidden="true" /></button>
+    </>
+  }
+
+  const prioritySlip = desktopTools && priorityIngredient && !handoff && <div className="mm-ai-chef__priority">
+    <p>Use it up · {priorityIngredient}</p>
+    <button type="button" className="button button-secondary mm-button--small" disabled={pending || isTurning}
+      onClick={() => {
+        changePriority(null)
+        const target = slipTrigger.current?.isConnected ? slipTrigger.current : pantryInputRef.current
+        target?.focus({ preventScroll: true })
+      }}>Clear priority</button>
+  </div>
+  const slip = desktopTools && openSlip && !handoff && <PantrySlip key={`${openSlip.kind}-${openSlip.item.id}`}
+    title={openSlip.kind === 'matches' ? `Matches for ${openSlip.item.name}` : `A pairing for ${openSlip.item.name}`}
+    closeLabel={openSlip.kind === 'matches' ? 'Close ingredient matches' : 'Close pairing'} onClose={closeSlip}>
+    {openSlip.kind === 'matches'
+      ? <PantryMatches ingredient={openSlip.item.name}
+        onLeave={() => { pantryReturn = { userId, locationKey, ingredient: openSlip.item.name } }} />
+      : <>
+        <p>{openSlip.pairing.idea}</p>
+        <button type="button" className="button button-secondary mm-button--small"
+          disabled={pending || isTurning || pantryItems.some((name) => name.toLowerCase() === openSlip.pairing.ingredient)}
+          onClick={() => addIngredients(openSlip.pairing.ingredient, 'suggestion')}>Add {openSlip.pairing.ingredient}</button>
+      </>}
+  </PantrySlip>
   const pantryPageItems = board
     ? orderedEntries.slice(measuredEnds[activeBoardPage - 1] ?? 0, measuredEnds[activeBoardPage])
     : pantryEntries.slice(pantryEnds[page - 1] ?? 0, pantryEnds[page])
@@ -392,7 +501,7 @@ function AIChefSession({ userId }: { userId: string }) {
     </header>}
     {pantryItems.length === 0
       ? <p className="mm-ai-chef__empty"><strong>No ingredients yet.</strong><span>Add a few above to get your recipe started.</span></p>
-      : <PantryCards key={board ? activeBoardPage : page} items={pantryPageItems} onRemove={removeIngredient} disabled={pending || isTurning} animate={cards} />}
+      : <PantryCards key={board ? activeBoardPage : page} items={pantryPageItems} onRemove={removeIngredient} disabled={pending || isTurning} animate={cards} renderActions={desktopTools ? pantryActions : undefined} />}
     {board && <nav className="mm-ai-chef__board-pages" aria-label="Pantry board pages"
       data-measure-only={measuredEnds.length === 1 || undefined} inert={measuredEnds.length === 1} aria-hidden={measuredEnds.length === 1 || undefined}>
       <button type="button" aria-label="Previous ingredients" aria-disabled={activeBoardPage === 0} onClick={() => {
@@ -418,7 +527,10 @@ function AIChefSession({ userId }: { userId: string }) {
   const progressStage = handoff?.savedRecipeId ? 'saved' : handoff ? 'review' : pending ? 'generating' : 'pantry'
 
   return <>
-    <JournalFacingPage className={`mm-facing-content--ai-chef${cards && single ? ' mm-facing-content--ai-chef-compact' : ''}`}><ChefProgress stage={progressStage} scrapbook={board} /></JournalFacingPage>
+    <JournalFacingPage className={`mm-facing-content--ai-chef${cards && single ? ' mm-facing-content--ai-chef-compact' : ''}`}>
+      {!single && (slip || prioritySlip) && <div className="mm-ai-chef__facing-tools">{prioritySlip}{slip}</div>}
+      {(single || (!slip && !prioritySlip) || pending) && <ChefProgress stage={progressStage} scrapbook={board} />}
+    </JournalFacingPage>
     <section className="mm-ai-chef mm-page-column" data-pantry-board={board && !handoff ? view : undefined} data-pantry-front={board && !handoff && page === 0 || undefined} aria-labelledby="ai-chef-title">
     {discardOpen && <UnsavedChangesDialog
       title={handoff?.savedRecipeId ? 'Keep the saved recipe?' : 'Discard Mori’s recipe preview?'}
@@ -523,7 +635,7 @@ function AIChefSession({ userId }: { userId: string }) {
         <p id="ai-chef-preferences-help" className="mm-ai-chef__help">This request only · {preferences.length} / {MAX_PREFERENCES_CHARS} characters</p>
         </fieldset>}
         {cards && <div className="mm-ai-chef__measure mm-ai-chef__pantry-list" inert aria-hidden="true">
-          <PantryCards items={orderedEntries} />
+          <PantryCards items={orderedEntries} renderActions={desktopTools ? pantryActions : undefined} />
         </div>}
       </>}
 
@@ -535,6 +647,7 @@ function AIChefSession({ userId }: { userId: string }) {
       </section>
     </form>
     </PaperCard>
+    {single && (slip || prioritySlip) && <div className="mm-ai-chef__facing-tools">{prioritySlip}{slip}</div>}
     <JournalPageFooter>
       {!handoff && <div className="mm-ai-chef__footer-actions">
         <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked}>{board && <Sparkles size={17} aria-hidden="true" />}{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>

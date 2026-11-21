@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
-import type { MouseEvent } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
+import { X } from 'lucide-react'
 import pantryBottle from '../assets/stickers/pantry-bottle.svg'
 import peppercorns from '../assets/stickers/peppercorns.svg'
 import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
@@ -14,6 +15,7 @@ interface PantryCardsProps {
   onRemove?: (id: number) => void
   disabled?: boolean
   animate?: boolean
+  renderActions?: (item: PantryCardItem) => ReactNode
 }
 
 function cardIllustration(name: string) {
@@ -22,7 +24,7 @@ function cardIllustration(name: string) {
   return undefined
 }
 
-export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsProps) {
+export function PantryCards({ items, onRemove, disabled, animate, renderActions }: PantryCardsProps) {
   const listRef = useRef<HTMLUListElement>(null)
   const previousPositions = useRef<Map<string, DOMRect> | null>(null)
 
@@ -70,17 +72,20 @@ export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsP
   }
 
   return <ul className="mm-ai-chef__card-grid" ref={listRef} role="list">
-    {items.map(({ id, name }) => {
+    {items.map((item) => {
+      const { id, name } = item
       const illustration = onRemove && cardIllustration(name)
-      return <li key={id} data-tone={id % 6} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined}>
+      const removeButton = <button className="mm-ai-chef__remove" type="button" disabled={disabled}
+        aria-label={`Remove ${name}`} title={renderActions ? `Remove ${name}` : undefined} onClick={(event) => remove(id, event)}>
+        {renderActions ? <X size={15} aria-hidden="true" /> : <span><span className="mm-ai-chef__remove-mark" aria-hidden="true">× </span>Remove</span>}
+      </button>
+      return <li key={id} data-tone={id % 6} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined} data-pantry-tools={!!renderActions || undefined}>
         {!onRemove ? <span className="recipe-ingredient-emoji" />
           : illustration
             ? <img className="recipe-ingredient-emoji" src={illustration} alt="" loading="lazy" />
             : <IngredientEmoji name={name} />}
         <span className="mm-ai-chef__ingredient-name">{name}</span>
-        <button className="mm-ai-chef__remove" type="button" disabled={disabled} aria-label={`Remove ${name}`} onClick={(event) => remove(id, event)}>
-          <span><span className="mm-ai-chef__remove-mark" aria-hidden="true">× </span>Remove</span>
-        </button>
+        {renderActions ? <div className="mm-ai-chef__ingredient-actions">{renderActions(item)}{removeButton}</div> : removeButton}
       </li>
     })}
   </ul>

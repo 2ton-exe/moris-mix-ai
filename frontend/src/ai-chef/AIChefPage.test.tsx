@@ -9,6 +9,9 @@ import type { AuthState } from '../auth/context'
 import { MoriCompanion } from '../mori/MoriCompanion'
 import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import { JournalShell } from '../journal/JournalShell'
+import { createRecipeSource } from '../recipes/apiSource'
+import { RecipeSourceContext } from '../recipes/source'
+import type { RecipeDiscoveryPage } from '../recipes/discoveryTypes'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { lineageApi, LineageApiError } from './lineage'
 import type { GenerateRecipeResponse } from './generateRecipe'
@@ -57,6 +60,8 @@ class RouterTestRequest extends NativeRequest {
   }
 }
 
+const chefRecipeSource = createRecipeSource()
+
 let matchMediaDescriptor: PropertyDescriptor | undefined
 
 function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })) } = {}) {
@@ -64,11 +69,11 @@ function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async 
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
     { path: '/app', element: <WorkspaceLayout />, children: [
-      { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }] },
+      { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }, { path: 'recipes/:id', element: <h1>Saved recipe</h1> }] },
       { path: 'chef/review', element: <ChefRecipeReviewPage save={save} /> },
     ] },
   ], { initialEntries: ['/app/chef'] })
-  const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider></QueryClientProvider>)
+  const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RecipeSourceContext.Provider value={chefRecipeSource}><RouterProvider router={router} /></RecipeSourceContext.Provider></AuthContext.Provider></QueryClientProvider>)
   return { ...view, router, save }
 }
 
@@ -123,7 +128,93 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
+function desktopPantry() {
+  Object.defineProperty(window, 'matchMedia', { configurable: true, value: (query: string) => ({
+      matches: query.includes('prefers-reduced-motion') || query.includes('pointer: fine'),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }) })
+}
+
 describe('AI Chef pantry and review workflow', () => {
+  it('discloses a pantry pairing and adds it only when requested', async () => {
+    desktopPantry()
+    const generate = vi.spyOn(generateRecipeApi, 'generate')
+    renderChef()
+    addIngredient('garlic')
+    fireEvent.click(screen.getByRole('button', { name: 'See a pairing for garlic' }))
+    expect(screen.getByRole('heading', { name: 'A pairing for garlic' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Pantry list, 1 item' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add parsley' }))
+    expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('parsley')
+    expect(screen.getByRole('button', { name: 'Add parsley' })).toHaveProperty('disabled', true)
+    expect(generate).not.toHaveBeenCalled()
+  })
+
+  it('keeps one pantry priority across recipe navigation and clears it when the ingredient is removed', async () => {
+    desktopPantry()
+    const discovery = chefRecipeSource.discovery
+    if (!discovery) throw new Error('Test recipe source requires discovery.')
+    const page = vi.spyOn(discovery, 'page').mockResolvedValue({
+      recipes: [{ id: 'garden', title: 'Garden recipe' }], nextPage: null,
+    })
+    const { router } = renderChef()
+    addIngredient('spinach, garlic')
+    fireEvent.click(screen.getByRole('button', { name: 'Prioritize spinach' }))
+    expect(screen.getByText('Use it up · spinach')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Prioritize garlic' }))
+    expect(screen.queryByText('Use it up · spinach')).toBeNull()
+    expect(screen.getByText('Use it up · garlic')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('link', { name: 'Garden recipe' }))
+    await act(async () => router.navigate(-1))
+    expect(screen.getByText('Use it up · garlic')).toBeTruthy()
+    expect(page.mock.calls.map(([request]) => request.criteria.search)).toEqual(['spinach', 'garlic'])
+    fireEvent.click(screen.getByRole('button', { name: 'Remove garlic' }))
+    expect(screen.queryByText('Use it up · garlic')).toBeNull()
+    await act(async () => router.navigate('/app/recipes/garden'))
+    await act(async () => router.navigate(-1))
+    expect(screen.queryByText(/Use it up ·/)).toBeNull()
+  })
+
+  it('looks up just one scoped ingredient page and ignores an older request after selecting another card', async () => {
+    desktopPantry()
+    const discovery = chefRecipeSource.discovery
+    if (!discovery) throw new Error('Test recipe source requires discovery.')
+    let resolveGarlic!: (page: RecipeDiscoveryPage) => void
+    const garlic = new Promise<RecipeDiscoveryPage>((resolve) => { resolveGarlic = resolve })
+    const page = vi.spyOn(discovery, 'page')
+      .mockReturnValueOnce(garlic)
+      .mockResolvedValueOnce({
+        recipes: Array.from({ length: 4 }, (_, index) => ({ id: String(index), title: `Rice recipe ${index}` })),
+        nextPage: 'continuation',
+      })
+    const generate = vi.spyOn(generateRecipeApi, 'generate')
+    const { router } = renderChef()
+    addIngredient('garlic, rice')
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Find saved recipes with garlic' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Find saved recipes with rice' }))
+    const result = await screen.findByRole('link', { name: 'Rice recipe 0' })
+    expect(page.mock.calls.map(([request]) => [request.criteria.search, request.criteria.searchMode, request.continuation]))
+      .toEqual([['garlic', 'ingredients', null], ['rice', 'ingredients', null]])
+    expect(page.mock.calls[0][0].signal.aborted).toBe(true)
+    await act(async () => resolveGarlic({ recipes: [{ id: 'garlic', title: 'Garlic soup' }], nextPage: null }))
+    expect(screen.queryByText('Garlic soup')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Rice recipe 3' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'See all matches' }).getAttribute('href')).toBe('/app/recipes?q=rice&scope=ingredients')
+    expect(generate).not.toHaveBeenCalled()
+
+    fireEvent.click(result)
+    await screen.findByRole('heading', { name: 'Saved recipe' })
+    await act(async () => router.navigate(-1))
+    expect(screen.getByRole('region', { name: 'Pantry list, 2 items' })).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Find saved recipes with rice' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Find saved recipes with rice' }))
+    await screen.findByRole('link', { name: 'Rice recipe 0' })
+    expect(page).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Close ingredient matches' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Find saved recipes with rice' }))
+  })
+
   it('focuses and highlights the pantry field when Mori sends the cook there', async () => {
     const { router } = renderChef()
     await act(() => router.navigate('/app/chef', { state: { moriFocus: 'pantry' } }))
