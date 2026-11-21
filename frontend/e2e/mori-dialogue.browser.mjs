@@ -387,6 +387,43 @@ try {
   const engine = process.env.MORI_BROWSER ?? 'chromium'
   browser = await ({ chromium, firefox, webkit })[engine].launch({ ...(engine === 'chromium' ? { channel: 'chrome' } : {}), headless: true })
 
+  {
+    const { context, page, errors } = await createJournal(1440)
+    await page.goto(`${origin}app/recipes/new`)
+    await expect(page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
+    const trigger = page.getByRole('button', { name: 'Talk to Mori' })
+    await trigger.click()
+    const mode = page.getByRole('combobox', { name: 'Mori’s movement' })
+    await mode.selectOption('still')
+    await expect(trigger.locator('svg')).not.toHaveAttribute('data-animated')
+    await expect(page.locator('.mori-pet-trigger .mori-body-all')).toHaveCSS('animation-name', 'none')
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+    const layer = page.locator('[data-journal-page-turn]')
+    await expect(layer).toHaveAttribute('data-phase', 'animating')
+    await expect(layer.locator('[data-mori-paper-actor]')).toBeHidden()
+    await layer.evaluate((node) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
+    await expect(layer).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Previous Pages?$/ })).toBeEnabled()
+
+    await page.reload()
+    await trigger.click()
+    await expect(mode).toHaveValue('still')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await mode.selectOption('animated')
+    await expect(trigger.locator('svg')).not.toHaveAttribute('data-animated')
+    await mode.selectOption('hidden')
+    const show = page.getByRole('button', { name: 'Show Mori' })
+    await expect(show).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(trigger).toBeFocused()
+    await expect(trigger.locator('svg')).not.toHaveAttribute('data-animated')
+    assert.deepEqual(errors, [])
+    await context.close()
+    process.stdout.write('1440px: Mori still, reduced-motion, and visibility controls passed.\n')
+  }
+
   for (const width of [1440, 375]) {
     const { context, page, errors } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)
