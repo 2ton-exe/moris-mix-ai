@@ -126,9 +126,13 @@ also passed [run #44892418533](https://github.com/2ton-exe/moris-mix-ai/actions/
   reviewer prompts and keeps Deploy and Smoke `NOT APPLICABLE`.
 - Exact-head [draft run #44914882080](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44914882080)
   and [ready-run #44914938513](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44914938513)
-  both passed required Frontend, Database, and Edge/API checks. The docs-only
-  classifier passed; E2E and staging were **skipped as expected**, as was
-  PR-only Hosted RLS. Neither run deployed to staging or production.
+  returned `PASS` for the three required status-check contexts (Frontend,
+  Database, and Edge/API). The Frontend job executed the PR Secretary regression
+  suite and offline safety checks, then skipped lint, frontend tests, and build
+  under the documentation-only classifier. Database migrations/tests and
+  Edge/API type-check/tests were also skipped. E2E, staging, and PR-only Hosted
+  RLS were skipped as expected. These skips are not counted as executed tests;
+  neither run deployed to staging or production.
 - The public, real-GitHub v2 comments for
   [closed-unmerged #254](https://github.com/2ton-exe/moris-mix-ai/pull/254#issuecomment-7044735848)
   and [merged #250](https://github.com/2ton-exe/moris-mix-ai/pull/250#issuecomment-7038768048)
@@ -136,7 +140,8 @@ also passed [run #44892418533](https://github.com/2ton-exe/moris-mix-ai/actions/
   [issue #258](https://github.com/2ton-exe/moris-mix-ai/issues/258#issuecomment-7064254420).
   A controlled metadata-only refresh of disposable PR #254 then rendered v3
   **on the same PR**, without changing its title, head, lifecycle, reviews,
-  checks, or selected validation run. The original PR metadata was restored.
+  checks, or selected validation run. The temporary PR-description marker was
+  removed, restoring the original PR description.
   Its owned comment ID `7044735848` remained unchanged.
 - For the matched closed-unmerged #254 evidence, raw Markdown **before the
   first collapsed panel** decreased from **33 lines / 955 characters (v2)**
@@ -151,6 +156,14 @@ also passed [run #44892418533](https://github.com/2ton-exe/moris-mix-ai/actions/
   successfully executed production deployment, URL/AI-route verification,
   and runtime smoke on the newer SHA. The later run does not change #267's
   exact-merge deployment result.
+
+- The exact-head [PR #272 run #44915277045](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44915277045)
+  returned `PASS` for all three required status-check contexts. It executed
+  the PR Secretary regression suite and offline safety checks. Frontend
+  lint/tests/build, Database migrations/RLS tests, Edge/API type-check/tests,
+  E2E, staging, and PR Hosted RLS were skipped under the documentation-only
+  classifier, not counted as executed tests. No staging or production
+  deployment ran.
 
 **Remaining acceptance evidence:** API-confirmed GitHub comment publication
 is not the same as inspecting actual browser rendering at narrow widths
