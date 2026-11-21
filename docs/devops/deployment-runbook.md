@@ -1,5 +1,7 @@
 # Deployment Runbook and CI/CD Pipeline
 
+> **Current modular pipeline (2026-11-21):** See [PIPELINE.md](PIPELINE.md). Dated sections below preserve historical implementation/evidence; verify current GitHub workflows before relying on them.
+
 **Project:** Mori's Mix\
 **Team:** 2ton.exe  
 **Maintainer:** Haresco — DevOps Engineer  
@@ -1000,24 +1002,57 @@ The DevOps role owns execution and enforcement of the quality gate. The relevant
 
 A green workflow alone is not sufficient evidence of successful deployment.
 
-## 12. Recovery and Rollback
+## 12. Application recovery and rollback
 
-If a production deployment fails or introduces a defect:
+**Status (2026-11-21):** Documented application-version recovery procedure only. **No completed application rollback/redeployment drill, post-recovery production verification or teammate execution is claimed.** The former #73 CI ownership reversal was not an application-version rollback. [Issue #165](https://github.com/2ton-exe/moris-mix-ai/issues/165) tracks the real drill and evidence.
 
-1. Identify the affected commit and deployment.
-2. Inspect GitHub Actions and Cloudflare logs.
-3. Determine whether the issue involves application code, build configuration, credentials, or hosting.
-4. If necessary, prepare a corrective or revert pull request targeting `main`.
-5. Obtain the required approval and CI validation.
-6. Merge the corrective change to trigger the unified CI workflow and gated deployment after successful validation.
-7. Verify the restored application at the production URL.
-8. Record the incident, recovery action, and recovery duration.
+### Establish the recovery boundary
 
-Cloudflare deployment history may provide an alternative rollback mechanism, but its availability and behavior must be verified before relying on it as the project's recovery method.
+1. **Identify the incident and impact.** Record the current `main` SHA, most recent verified production revision, affected GitHub Actions run, observed user impact and relevant provider logs. Distinguish failed/partial deployments, successful deploy commands, successful runtime smoke, and separately verified application behavior.
+2. **Classify the failure before changing production.** Application code/assets, deployment configuration, an external AI/provider outage, an optional feature flag, and database schema/data changes need different responses. A Gemini outage is not automatically a reason to roll back the app. Preserve any active failed deployment evidence; do not blindly rerun stale workflows.
+3. **Confirm the production state and stop incompatible overlapping actions.** Check currently queued releases, database backups, proposed migrations and feature-flag changes. The `cloudflare-production` lock serializes repository-managed releases and backups, but not every out-of-band provider change. Do not bypass locks or the stale-revision guard.
+4. **Get the owners' decisions.** Belen/the release owner identifies the intended running release, a known-good candidate and desired final state, with exact commit/tag identifiers. Ramos/the database owner checks schema/data compatibility, migrations and whether application-only rollback is safe. Record owner agreement and drill approval before production actions.
+5. **Keep database recovery separate.** A Git revert, Cloudflare frontend rollback or Supabase Edge Function redeployment does **not** reverse migrations, restore row data or prove database recovery. Isolated restoration remains unsuccessful under [#159](https://github.com/2ton-exe/moris-mix-ai/issues/159); production migration readiness is separately tracked under [#155](https://github.com/2ton-exe/moris-mix-ai/issues/155), and [PR #154](https://github.com/2ton-exe/moris-mix-ai/pull/154) was still open during this documentation audit. Never treat a backup checksum as restore proof.
 
-**Recovery status:** Documented procedure only. No production rollback or recovery drill has been successfully tested yet.
+### Preferred reviewed application recovery path — not yet executed as a drill
 
-A rollback procedure must not be described as verified until an actual rollback or recovery exercise has been completed.
+1. From **current** `main`, prepare a small corrective or `git revert` PR that restores the agreed behavior without altering production data. Specify exactly which application changes the revert includes. A revert makes a **new** commit: other intervening changes can prevent byte-identical reconstruction of a former release.
+2. Validate the change through the normal PR process. Obtain independent human approval, all required Frontend/Database/Edge API contexts, and resolve review threads. Inspect relevant browser E2E and staging evidence separately. On `main`, E2E does **not** block production, so a release can succeed while a browser job has not passed. Staging authorization remains under #163 review; do not assume staging deployment waits for human approval.
+3. Merge only the approved change, then identify its **new main SHA** and matching `Modular Main Validation` run. Never dispatch an older SHA as a "rollback": the current production workflow rejects stale source revisions.
+4. Verify the actual job/step outcomes: frontend and database, Edge/API plus Hosted RLS, applicable image readiness, Supabase Function deployments, Cloudflare Worker deployment, URL and provider-free AI-route checks, and production runtime smoke. Retain run URLs and evidence artifacts. A job that is skipped or pending has not passed.
+5. Independently verify the affected user-visible behavior at the deployed URL using non-sensitive, owner-approved test data. Public frontend/demo smoke and unauthenticated AI-route checks alone do not prove recovery of authenticated CRUD, Chef, image or extraction features.
+6. Preserve the observed start/end timestamps, run/attempt outcomes, reviewer actions, required user actions and any actual incident details. Do not equate workflow duration or merge-to-smoke time with measured outage recovery time without defined endpoints.
+
+### Controlled DEVOPS-12 rehearsal and return to intended state
+
+**Prerequisites (manual coordination):** Belen designates the release/rollback revisions; Ramos confirms database compatibility and that no migration or data restoration is needed; a teammate reviewer and an explicit production-drill approval exist. Choose a reversible, non-destructive application-only change and a quiet release window. Validate the intended staging test approach without assuming its environment restrictions have already been proven.
+
+- **Phase A — Before state:** Record production URL, exact main source SHA, current deployment run, smoke evidence, relevant feature behavior and the intended final release. Do not call the latest green commit a "known-good rollback target" without release-owner agreement.
+- **Phase B — Controlled change:** Deliver a harmless application change through a reviewed PR and the regular main release path. Observe the changed behavior and deployment record. This is a rehearsal, not an incident or an invitation to break production deliberately.
+- **Phase C — Recovery:** Use a new reviewed corrective/revert PR to recover the agreed previous behavior. Verify its main validation, production deployment, smoke and the relevant affected behavior. This tests source-controlled application recovery; it does not test PostgreSQL restore or Cloudflare historical deployment-history rollback.
+- **Phase D — Final state:** If the rehearsal recovery result differs from the intended current release, deliver the release-owner-approved final source via the reviewed path and perform the same verification again. Production must finish in its agreed state, with separate before/recovered/final evidence.
+- **Phase E — Teammate followability:** Have a teammate follow the documented process or safe preflight/rehearsal steps, record which steps were actually performed, and identify any undocumented assumptions. A read-only walkthrough is useful feedback but is **not** proof that a teammate performed the live recovery.
+
+Do not perform any production drill based solely on this written plan. Follow issue #165's explicit authorization and owner-coordination requirements first.
+
+### Alternative provider rollback
+
+Cloudflare deployment history may offer a frontend rollback, but it is **not** the default proven recovery mechanism. Before relying on it, investigate permission requirements, backend/frontend source pairing, deployment provenance, concurrency and normal GitHub release behavior in a separate controlled exercise. Never present a historical frontend rollback as proof that Supabase functions or database state were restored.
+
+### Rollback evidence worksheet
+
+| Evidence | Record without guessing |
+| --- | --- |
+| Starting deployment | Production URL, commit/tag, Cloudflare/Supabase state, run, smoke and affected user behavior |
+| Known-good candidate | Release-owner decision, exact source SHA, schema/flag compatibility |
+| Change and recovery PRs | Scoped diffs, approvals, resolved threads, required checks and merge SHAs |
+| Rolled-back application | Exact main run, relevant deployment steps, URL/AI-route/runtime smoke and independently checked behavior |
+| Intended final release | Approved final revision, any restoring PR, deployment and final verification |
+| Timing | Source of start/end events and meaning of each measurement; `unavailable` where not captured |
+| Teammate rehearsal | Person, date, steps actually followed, feedback and any resulting corrections |
+| Boundaries | Explicit confirmation that application rollback does not imply schema/data restoration |
+
+**Current limitation:** This procedure is documentation, not operational execution evidence. Do not check #165's rollback-drill or production-restoration acceptance items until real authorized execution and verification exist. The current architecture and stage purposes are summarized in [`PIPELINE.md`](PIPELINE.md); older sections of this runbook preserve historical evidence and do not override current GitHub workflow source.
 
 ## 13. Pipeline Metrics
 
