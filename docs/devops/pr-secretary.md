@@ -1,92 +1,87 @@
-# PR Secretary v1
+# PR Secretary
 
-PR Secretary is a deterministic PR operations view for Mori's Mix (#86).
-It reports changed areas, requested reviewers, affected ownership, delivery
-evidence, human reviews, and optional CodeRabbit activity in one PR conversation
-comment. It uses Node 24 built-ins, with no LLM, runtime package installation,
-provider API, or production API calls. It does not review code, decide approval,
-merge, deploy, or change delivery gates.
+PR Secretary maintains one GitHub Actions bot comment per eligible Mori’s Mix
+pull request. The comment reports review and delivery evidence using Node 24
+built-ins and GitHub APIs. Existing merge policy and delivery workflows still
+make their own decisions. CodeRabbit is optional.
 
-## Architecture and security
+## Events and PR association
 
-The comment workflow remains informational and non-gating. Its deterministic
-regression tests run inside `reusable-frontend.yml`, producing the composed
-modular frontend check for each caller, from the repository root, using Node's
-built-in test runner with no added dependencies. A regression fails that existing
-modular frontend check. The retirement compatibility update changes the displayed
-workflow/check mapping; staging configuration and branch rules are unchanged.
-
-- `.github/workflows/pr-secretary.yml` resolves event metadata in a read-only job,
-  then renders and upserts a comment in a separate per-PR job.
-- `scripts/pr-secretary.mjs` collects GitHub state, classifies paths, normalizes
-  checks/reviews, renders Markdown, and maintains the comment. Pure functions
-  accept ordinary objects; tests mock all API calls.
-
-The comment workflow uses only default-branch event definitions (`workflow_run`,
-`issue_comment`, schedule). No Secretary workflow runs in PR-controlled
-workflow definitions. Both jobs explicitly check out `github.repository` at
-`github.event.repository.default_branch`, sparse-checkout `scripts`, and disable
-persisted credentials. They never check out a PR head/merge ref, import a PR
-module, install PR dependencies, consume artifacts/caches, or execute PR content.
-The only executed repository code comes from the trusted default branch.
-Protecting the default branch remains part of the repository's trust model.
-
-Workflow-level permissions are empty. The resolver grants `contents: read` and
-`pull-requests: read`. The writer grants `contents: read`, `actions: read`,
-`checks: read`, and `statuses: read`, with `pull-requests: write` as its only
-PR-comment write permission. It does not grant `issues: write`. The Actions
-installation token previously returned 403 with Issues write and PR read.
-There is no contents write, administration, deployments, or OIDC permission.
-GitHub does not offer a token
-permission limited to one comment. PR write technically permits other PR API
-mutations; the trusted module uses only issue-comment create/update mutations,
-and the resolver stays read-only. Default-branch-only execution is essential.
-
-Only `GITHUB_TOKEN` is supplied. No Cloudflare, Supabase, AI-provider,
-environment, or production secrets are read. Untrusted titles/logins/paths are
-escaped, including mentions and HTML. Review/comment prose is never reproduced
-or evaluated. API URLs are constructed locally; redirects are refused and
-returned URLs are never followed with the token.
-
-## Triggers and event-to-PR resolution
-
-| Event | Handling |
+| Event | Refresh behavior |
 | --- | --- |
-| `workflow_run` | In progress and completed for `CI` and `Modular PR Validation`. Only PR-origin runs from this repository are considered. These existing workflows provide the primary near-real-time signal for normal PR updates. |
-| `issue_comment` | Created/edited/deleted conversation comments only when the structured author is `coderabbitai[bot]` with type `Bot`, on a PR. Arbitrary human/Secretary comments skip the resolver job. |
-| Schedule | At minutes 17 and 47 each hour, re-read all open main-target PRs. Covers human review submit/edit/dismiss, reviewer request/remove, draft conversion, thread resolve/unresolve, missed CodeRabbit inline activity, missed events, and intermediate check progress. Scheduled execution can be delayed by GitHub. |
+| `pull_request_target` | Main-target open, reopen, synchronize, edit, draft, ready, close, reviewer request, and reviewer removal. The resolver validates the repository and PR number, then fetches fresh PR state. |
+| `pull_request_review` / `pull_request_review_comment` | Review submit, edit, dismissal, and inline create, edit, or delete start **PR Secretary Review Signal**. Approvals and changes requested are submitted reviews. A successful signal completion wakes the trusted writer. |
+| `workflow_run` for Modular PR Validation | Requested, in progress, and completed. A refresh reads the applicable run and current jobs, including retries, failures, and skips. GitHub omits the requested phase on reruns. |
+| `workflow_run` for Modular Main Validation | Requested, in progress, and completed on a same-repository `main` push or dispatch. The triggering SHA must be the actual merge SHA of a PR returned by GitHub’s commit-to-PR lookup. |
+| `issue_comment` | Conversation comment create, edit, or delete is filtered to structured CodeRabbit bot identity on a PR. |
+| Schedule | At minutes 17 and 47 past the hour, refresh open main-target PRs and up to ten recent closures. Scans the 30 most recently updated closed PRs and selects closures from the last seven days. |
+| Manual | Run **PR Secretary** on the `main` branch with one decimal PR number. Eligible open, merged, and closed-unmerged PRs can be refreshed, including older PRs. |
 
-The v1 consistency model is explicit:
+Review signals and PR validation runs must have the expected workflow path,
+event type, repository, head repository, head branch, and SHA. The resolver
+starts with GitHub’s run-to-PR association. When the run lists no PRs, it looks up
+the exact commit’s PRs and, if that yields no candidates, asks GitHub for the
+encoded head owner and branch. The fallback requires exactly one current,
+main-target PR whose head matches the run’s repository, branch, and SHA. A
+missing or ambiguous association, stale revision, fork restriction, or
+withheld signal leaves recovery to another qualifying event, manual refresh,
+or the schedule.
 
-| State change | Consistency |
+The triggering event chooses which PR to refresh. The writer rereads reviews,
+checks, and lifecycle from GitHub after acquiring the per-PR concurrency lock.
+Individual GitHub Actions job transitions become visible on the next supported
+refresh. Review thread resolution or reopening without a review or inline
+comment event is picked up on reconciliation. Schedules and workflow dispatch
+are subject to GitHub’s queue and event delivery.
+
+## Dashboard
+
+- **Lifecycle and revision** show draft, open, merged, or closed without merge.
+  Merged comments include the full PR head and actual merge SHA and time.
+- **Human reviews** show actual reviewer and team requests separately from
+  affected ownership. Effective reviews use submitted time and ID, ignore bots
+  and pending drafts, and keep an approval or change request through a later
+  comment-only review. Dismissals and earlier-revision decisions are explicit.
+  Terminal views display historical reviews and remove reviewer prompts.
+- **Required checks** use the active branch rules with bound app identities
+  where available. The three documented main contexts are a fallback when the
+  rules endpoint is unavailable or empty. Fallback success is labeled
+  integration-unverified. Final-head checks on terminal PRs use the policy
+  visible at collection time.
+- **Other PR delivery** displays E2E and staging separately. Draft, fork,
+  Dependabot, and documentation-only staging exclusions require observed skip
+  evidence. A failed deploy and its dependent smoke skip are attributed only
+  within the same run and attempt. An unexpected PR production job remains a
+  diagnostic. Hosted RLS on the PR caller is expected to skip when observed.
+- **CodeRabbit** reports structured bot activity and unresolved bot-rooted
+  threads. A conversation comment shows activity. A submitted, non-dismissed
+  bot review on the PR head shows REVIEWED. Only humans appear in human review
+  history. The script never interprets finding prose or infers severity.
+  When thread inventory is unavailable, its count is unknown.
+- **Attention and detailed evidence** show open-PR issues, affected ownership,
+  optional checks, and relevant reviewer guidance. The expandable details use
+  GitHub-flavored Markdown with display-only symbols. An unchanged dashboard
+  retains its previous update timestamp and makes zero comment writes.
+
+| Symbol | Examples |
 | --- | --- |
-| CI-related PR state | Near real time through `workflow_run`. |
-| CodeRabbit conversation | Near real time through filtered `issue_comment`. |
-| Review/thread-only state | Eventual through scheduled reconciliation. |
-| Missed-event recovery | Scheduled reconciliation. |
+| ✅ | PASS, VERIFIED, APPROVED, MERGED |
+| ⏳ | PENDING, RUNNING, WAITING, DRAFT |
+| ❌ | FAIL, CHANGES REQUESTED, CANCELLED, SKIPPED — INVESTIGATE |
+| ➖ | UNKNOWN, NOT RUN, SKIPPED, DISMISSED, or earlier-revision approval |
 
-Human review changes, reviewer request/removal, and draft conversion are not
-immediate if they do not start one of the existing CI workflows. Thread-only
-activity and resolution are also eventually consistent. The next qualifying
-workflow/comment event or scheduled reconciliation re-reads all state.
-There is no additional PR-controlled workflow to make these updates immediate.
-
-Workflow events first use `workflow_run.pull_requests`. An empty association
-falls back to the structured commit-to-PR API, using only a validated SHA.
-Every candidate is fetched afresh and must be open, target `main` in this
-repository, and (for workflow events) match the run's head SHA and head repository.
-Stale runs, unrelated pushes, unsafe/missing associations, and closed PRs exit
-successfully without writing. No inference from branch names, prose, artifacts,
-or shell output is used. Scheduled reconciliation paginates open PRs; more than 256
-eligible PRs fails visibly instead of silently dropping matrix entries.
-
-The consumer never subscribes to its own workflow runs. Its comment author is
-not CodeRabbit, so its comment writes cannot form an event loop.
+Check and job evidence is read for the exact PR head. The selected Modular PR
+Validation run’s jobs take precedence over stale known workflow checks. Active
+reruns discard prior-attempt job results while the new attempt is in flight.
+GitHub Actions jobs establish app identity through the locally constructed
+check-run ID lookup. A matching context name from a different app cannot meet
+an app-bound requirement. GitHub’s rules and review decisions remain
+authoritative for merging.
 
 ## Path classification
 
 Areas are additive and printed in a fixed order. Affected ownership describes
-review/delivery impact, not authorship or a GitHub reviewer request. Unmatched
+review and delivery impact. GitHub tracks reviewer requests separately. Unmatched
 paths are reported as unclassified; renames classify both old and new paths.
 
 | Paths | Affected ownership |
@@ -103,202 +98,128 @@ paths are reported as unclassified; renames classify both old and new paths.
 | Hosted RLS/lineage test paths `auth_rls_integration_test.ts`, `cross_user_rls_lineage_test.ts` | Backend/API + Integration |
 | Root `run-local-tests.mjs` | Integration |
 
-Migrations affect DevOps because schema/environment delivery safety matters;
-this does not claim DevOps authored the migration. Delivery config and migration
+Migrations affect DevOps because they can change schema and delivery safety. Delivery config and migration
 changes produce concrete Attention items. Four or more ownership areas produce
 a coordination reminder.
 
-## Reviewers and human reviews
+## Exact main delivery
 
-`TEAM` in the module is the single identity mapping:
+The merge SHA comes from the closed PR’s `merge_commit_sha` after GitHub confirms
+`merged: true`. On an open PR that field can identify a synthetic test merge.
+A squash, rebase, or merge can produce a different main commit from the PR
+head. A newer main run or a run on a different ref is unrelated.
 
-| GitHub identity | Name | Role |
-| --- | --- | --- |
-| DaeSaster | Haresco | DevOps |
-| DanielRamos1186 | Ramos | Backend |
-| adnro2 | Ong | Frontend |
-| KleinRheePagulongSioson | Sioson | AI |
-| myntchoc | Belen | Integration / Full-stack |
+The collector selects the newest **Modular Main Validation** run whose
+repository, workflow path, `main` branch, event, and exact head SHA match the
+merge. It links the selected attempt and reads its jobs. The main validation
+row covers the three core jobs plus Hosted RLS, with E2E shown separately.
+Production deployment requires success from the essential Supabase and
+Cloudflare deploy steps and accounts for observed feature-dependent steps.
+Production smoke requires the deployment URL check, deployed AI-route
+verification, and the runtime smoke step in that same attempt, with deployment
+established. The workflow run’s overall conclusion is insufficient by itself.
 
-Requested users/teams come exclusively from fresh GitHub metadata. Affected
-ownership never implies a reviewer was requested. Unknown users get a general
-section with no invented role. Teams are listed without inventing membership.
-Role-specific checklists appear only for currently requested human users and
-are shortened to relevant areas, with a general evidence item when unrelated.
+The production job has its own row. A setup failure or early cancellation is
+visible there even when deployment and smoke step evidence is skipped or
+unavailable. An active run can provide pending evidence. An explicit failed, skipped, or
+cancelled job or step retains that outcome. A missing or unrelated run, partial
+rerun without the necessary jobs, missing evidence, or API failure leaves the
+affected result unknown. Deployment can be verified while smoke fails.
+These are historical outcomes for that release attempt. The comment does not
+measure the current production revision or run a live probe.
 
-Human reviews use structured submitted review states, ordered by submission
-time/ID. Bot reviews and pending drafts are excluded. A later comment-only
-review does not erase an approval/change request; a dismissal is displayed as
-`DISMISSED`, never approval. Earlier-revision approvals/change requests are
-explicitly labeled. The Secretary does not calculate merge approval or enforce
-review dismissal rules. Submitted human reviewers remain visible after GitHub
-removes their review request. A ready PR without a requested human/team or
-current-revision human approval gets an Attention item; drafts do not.
+## Trust, concurrency, and API limits
 
-## Delivery evidence and required checks
+The review signal has empty permissions, no checkout, no action dependencies or
+secrets, and a fixed no-op command. Its definition can run in a PR context.
+The privileged pipeline consumes only GitHub-generated run metadata. It does
+not take a PR number or status from an artifact, output, log, cache, or
+user-controlled text.
 
-Collection reads check runs and commit statuses for the current PR **head SHA**.
-It also reads jobs from the newest head-SHA PR run of the Modular PR Validation workflow
-path, so pending/rerunning jobs take precedence over older successful checks.
-Known workflow paths accept GitHub's optional `@ref` suffix while still requiring
-the exact workflow file path before the suffix.
-Nested reusable job names are matched explicitly, including
-the three composed modular core validation jobs,
-`Modular E2E / Playwright E2E Tests`, and
-`Modular Staging / Staging Deploy` / `Modular Staging / Staging Smoke`.
-A skipped caller named `Modular Staging` supplies skip evidence for its absent
-children. The table omits unrelated checks; dynamically required extra contexts
-are included. GitHub Actions gates exclude external check-app/status name
-lookalikes. This summary is evidence display, not branch-protection enforcement.
+The resolver and writer check out only this repository’s `refs/heads/main`,
+with credential persistence disabled and checkout/Node actions pinned. Workflow
+permissions start empty. The resolver grants contents and pull requests read.
+The writer grants contents, actions, checks and statuses read plus pull
+requests write, the permission used by the PR conversation comment endpoint.
+GitHub scopes this token to PR operations, so trusted code restricts its writes
+to creating or updating the owned comment. No production credentials or
+provider services participate.
 
-The read-only branch-rules endpoint is tried first. Structured active
-`required_status_checks` objects preserve both `context` and `integration_id`
-(represented as `integrationId`) and take precedence. If unavailable (403/404/422)
-or absent, `PROJECT_REQUIRED` is the centralized documented **main-only policy
-fallback**: `Modular Frontend / Frontend Checks`, `Modular Database / Database Tests`,
-`Modular Edge/API / Edge/API Tests`. This is the intended final policy, not proof
-that GitHub has retired the six-check overlap; live rules still take precedence. Its source is
-`docs/devops/deployment-runbook.md` and `docs/devops/modular-workflows.md`.
-Each fallback entry has `integrationId: null` and `integrationUnverified: true`.
-The comment labels the fallback as live enforcement unconfirmed, and a successful
-fallback context displays `PASS (fallback; integration unverified)`. Empty branch
-rules are not proof of no requirements: legacy branch protection is outside
-that endpoint. No administration permission is added to read it. Other base
-branches have unknown requirements and are currently excluded from writing.
-Unexpected rule API failures fail the run visibly. Rules are never changed.
+The writer recognizes the bot-owned `<!-- moris-pr-secretary:v1 -->` comment and
+refuses unsafe IDs. Event content flows through validated fields and constructed
+API paths. Titles, logins, and paths are escaped before display, including
+mentions. Review and comment prose are excluded. The bot does not match its own
+issue-comment filter and the writer does not subscribe to its own runs.
 
-For an active app-bound requirement, a matching name alone is insufficient:
-the check's structured `app.id` must match the ruleset's integration ID. A
-same-name result from a different app displays `INTEGRATION MISMATCH`, with
-Attention. If no compatible app identity can be established, it displays
-`IDENTITY UNVERIFIED`, with Attention, rather than PASS. No matching context
-displays NOT RUN. Commit statuses' creator IDs and app slugs are not substitutes
-for a numeric check-app ID. Active requirements without an integration binding
-use the context; their absent binding is preserved as null. Distinct bindings
-for one context remain distinct required rows.
+One writer per repository/PR runs at a time, with active jobs protected from
+cancellation by a newcomer. GitHub may replace pending jobs. Each surviving
+job collects fresh state and checks the lifecycle before publishing, again
+immediately before a write. A changed lifecycle gets one recollection attempt.
+Observation timestamps guard against stale snapshots, with the legacy run
+marker used for legacy comments. The API offers no atomic compare-and-swap for
+a PR lifecycle and its comment. A PR can change after the final check or a
+same-head review/check can change between API reads. The next event or
+reconciliation rereads state.
 
-Actions jobs retain their newest-run state and obtain app identity by joining
-their `check_run_url` numeric ID to structured check-run data. A missing head-SHA
-check run is fetched by that ID through a locally constructed, same-repository
-endpoint; returned URLs are never followed. The join checks the exact ID and job
-name. Missing/unsafe links, unavailable check data, or an invalid identity leave
-the app unknown. A job's workflow name alone never proves its numeric app ID.
-No Actions integration ID is hard-coded into the runtime policy.
+Each job has a 120-request cap, a 30-second request timeout, a 32-page REST
+limit per collection, and a ten-page review-thread limit. Workflow signals
+consider at most 20 associated PR candidates. The matrix has a 256-entry limit
+and a concurrency cap of four within each run. Rate-limit exhaustion or a
+reported retry window halts further requests to that API resource in the same
+job. Comment mutations have no automatic transport retry. A later refresh
+looks up the owned comment again, covering a response lost after a successful
+write.
 
-| Display | Meaning |
-| --- | --- |
-| PASS | Observed success conclusion/status. |
-| FAIL | Failure/error, timeout, startup failure, or action required. |
-| RUNNING | Queued, pending, waiting, requested, or in progress. |
-| SKIPPED — EXPECTED | Observed skip explained by a known PR condition below. |
-| SKIPPED — DEPLOY FAILED | Staging smoke skipped after a concrete deployment job failed in the same run and attempt. |
-| SKIPPED — INVESTIGATE | Observed skip without a known eligibility explanation; inspect upstream dependencies too. |
-| NOT RUN | No matching evidence for an applicable gate. It is not a failure or a pass. |
-| NOT REQUIRED | No evidence and gate not applicable to the base branch. It does not claim GitHub enforcement state. |
-| CANCELLED / NEUTRAL / STALE | Preserved terminal state, never recast as PASS. |
-| INTEGRATION MISMATCH | Same context observed, but no check from the required app was established. |
-| IDENTITY UNVERIFIED | Context observed without enough structured app identity to establish the binding. |
+## Troubleshooting and verification
 
-Missing/failed/skipped/cancelled/stale or identity-unverified/mismatched required contexts generate
-Attention, including the policy source. Pending checks do not become failures.
-Validation success never implies staging or production deployment success.
+Check **PR Secretary** for resolver and writer results. An empty resolver
+matrix means no eligible association was established. For a review, first
+check whether the signal ran, then check its event, head metadata, and
+association. For a missing merge release, check the exact main run and attempt
+in Actions, including named steps. Use the single-PR manual refresh on
+`main` if necessary. The writer’s `created`, `updated`, and `unchanged`
+results distinguish writes from reads. For stale, permission, or rate-limit
+failures, inspect the run and wait for the next eligible refresh.
 
-Expected skips follow the inspected existing workflows:
+Baseline observed on November 20, 2026 at about 16:45 Manila time. PR #240
+opened at 12:34:40 and its Secretary comment appeared at 12:35:07, a 27-second
+observed creation delay. The latest update was at 14:41:44. Approval at 16:04:43
+and merge at 16:17:42 left the comment displaying Ready for review and Belen
+WAITING. The approval and merge refresh latencies were unobserved after about
+40 and 27 minutes respectively. The old workflow omitted direct review
+and close triggers, and the resolver, collector, and publisher excluded closed
+PRs. GitHub returned the actual merge SHA and the associated successful main
+run with named deployment and smoke steps.
+[PR #240 Secretary comment](https://github.com/2ton-exe/moris-mix-ai/pull/240#issuecomment-7030522088)
+[Exact main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44701388892)
 
-- **Production:** `Modular Main Production / Deploy to Supabase and Cloudflare`
-  runs only in Modular Main Validation on main push/dispatch after
-  validation; only an observed `status: completed`, `conclusion: skipped` is
-  expected. Any other observed PR production-job state produces Attention,
-  including queued, requested, waiting, in progress, success, failure, cancelled,
-  or incomplete conclusion data. Absence is NOT RUN. Validation never establishes
-  production execution or success.
-- **Staging.** The caller requires a non-draft, same-repository PR, a
-  non-Dependabot author, successful frontend/database/Edge checks, and no
-  cancellation or verified docs-only skip. The reported author is the PR's
-  author, even after a human rerun. A completed skip of the staging caller is
-  expected for Dependabot, drafts, forks, or a verified docs-only decision
-  from the same run. Other caller skips warrant investigation.
-  Concrete deploy and smoke results take precedence. A failed deploy stays
-  `FAIL`, and a skipped smoke job is `SKIPPED — DEPLOY FAILED` only when the
-  deployment failure is from the same run and attempt. Missing job evidence
-  displays `NOT RUN`. Each staging `PASS` requires its own completed job.
-  Staging evidence comes from the latest matched PR validation run.
-- **Hosted RLS:** `Modular Edge/API / Hosted RLS Integration` is a separate
-  main-only job, enabled by the main caller's mandatory input. An observed skip
-  is expected on both internal and fork PRs. Missing main hosted credentials fail
-  closed. Optional hosted-test steps inside Edge/API can skip when credentials
-  are absent; the Secretary does not infer their execution from parent success.
+To compare after rollout, use the same server timestamps and poll the same
+comment ID at a fixed interval. Record `created_at` from PR and comment for
+creation, `submitted_at` for reviews, `merged_at` for merge, and the exact job
+or run completion time for release. Record the first matching dashboard state,
+its comment `updated_at`, and the writer run URL. Record the polling window
+when a change remains unobserved. Send a repeat signal with unchanged evidence
+and check that the writer logs `unchanged` and the comment timestamp does not
+move. Include representative approval, changes-requested, dismissal,
+reviewer-change, fork, closed-without-merge, and successful/failed exact-main
+cases. Compare the same event classes and report unobserved transitions
+separately from measured latency.
 
-The Secretary workflow-run trigger, run allowlist and collection path now use only
-Modular PR Validation. Main pushes still do not resolve PR summaries; absence of a
-production check on a PR remains NOT RUN, never inferred success. Generic tests
-retain `ci.yml` as a historical changed-file/path fixture without opening it.
-This is retirement compatibility, not a Secretary redesign.
+The local Secretary suite passed 150 tests on Node 24, including associations,
+Markdown, staging, retries, stale writes, and closure and release races.
+Actionlint 1.7.7 passed on both Secretary workflows. The existing Frontend
+Checks job runs the Secretary suite. A separate related suite on Windows
+passed 118 of 123 tests, with the same five shell-dependent failures on clean
+`main` and the implementation branch. A read-only check of #240’s exact main
+run and attempt classified its recorded validation, E2E, deployment, and smoke
+outcomes as VERIFIED. GitHub-hosted delivery of this new workflow, fork
+approvals, live comment permissions, exact-head PR CI, and production
+behavior after rollout remain to be verified. No post-rollout latency is
+available.
 
-## CodeRabbit boundary
-
-CodeRabbit is optional. Only structured `Bot` identity with login
-`coderabbitai[bot]` (REST) or `coderabbitai` (GraphQL) is recognized. A user
-mentioning CodeRabbit or severity words has no special meaning.
-
-- `NOT DETECTED`: no recognized GitHub-visible evidence was found.
-- `ACTIVITY DETECTED`: recognized conversation/review/inline activity exists.
-- `REVIEWED`: a submitted, non-dismissed CodeRabbit review is attached to the
-  current head SHA. A conversation comment alone never establishes this state.
-
-Latest activity uses structured timestamps. Paginated GraphQL review threads
-count unresolved threads whose **root comment** is CodeRabbit-authored; a bot
-reply in a human-rooted thread does not change ownership. Resolved threads are
-excluded; unresolved outdated threads remain unresolved evidence. Paths are
-classified into affected areas. Only paths present in the PR's changed-file set
-route reminders into currently requested reviewers' checklists. At most five
-paths are printed, with an overflow count. No finding prose or inferred severity
-is copied. API differences/permission failures for optional inline/thread data
-do not fail the Secretary: unavailable thread counts print `Unavailable`, with
-an Attention note, rather than a misleading zero.
-
-## Comment lifecycle and concurrency
-
-The marker is exactly `<!-- moris-pr-secretary:v1 -->`. Before each write, the
-writer lists all conversation comments and selects an existing marker comment
-only if authored by `github-actions[bot]` with type Bot. Forged user markers are
-ignored. It updates that comment or creates one when absent; identical rendered
-content skips the write. Reviewer checkboxes are regenerated from current state
-and are not durable manual task tracking.
-
-All writer events share job concurrency group
-`pr-secretary-<repository>-<PR number>`, cancelling superseded runs. Each run
-collects fresh state instead of replaying the triggering payload. Immediately
-before writing it checks that the PR is still open with the same head SHA,
-base branch, base SHA, and base repository. It deliberately does not compare
-`updated_at`: comments/reviews and unrelated metadata can advance that timestamp
-without invalidating the collected code revision. Such activity no longer
-suppresses a valid summary. Non-revision metadata remains a collected snapshot
-and is refreshed by the next qualifying event or scheduled reconciliation.
-A hidden `secretary-run:<run ID>` watermark is an
-additional, best-effort stale-write guard: it skips a write when the existing
-comment carries a higher run ID. Run IDs do not guarantee event freshness or
-write ordering. These protections reduce stale overwrites; GitHub's comment API
-has no transactional compare-and-swap,
-so cancellation/in-flight write races cannot be eliminated absolutely.
-Scheduled reconciliation repairs missed refreshes. The feature never deletes
-comments or removes historical duplicates left by manual intervention.
-
-## Local validation and limitations
-
-```sh
-node --check scripts/pr-secretary.mjs
-node --test scripts/pr-secretary.test.mjs
-git diff --check
-actionlint -shellcheck= -pyflakes= .github/workflows/pr-secretary.yml
-```
-
-Tests use Node's built-in test runner and deterministic mocks, with no live
-GitHub access. They cover classification, review/check normalization, skips,
-attention/checklists, CodeRabbit boundaries, pagination, event resolution,
-fallback policy, comment ownership/idempotency, and stale-write protection.
-Regression tests also cover targeted writer permissions, safe non-2xx API
-diagnostics, timestamp-only activity, and rejection of changed/closed targets.
+[GitHub Actions event reference](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
+[GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use)
+[GitHub Actions REST jobs reference](https://docs.github.com/en/rest/actions/workflow-jobs)
 
 ## Runtime repair evidence for issue #86 (2026-10-28)
 
@@ -361,7 +282,7 @@ update of the same bot-owned summary. No comments or workflow reruns were
 performed during that repair task. Issue #86 was kept open pending that proof;
 the later recovery status above records its completion.
 
-Known limits:
+Known limits at the time of the #86 repair:
 
 - Only open PRs targeting `main` are maintained. Closed PR comments remain as
   historical snapshots. Unclassified paths need policy updates when new areas

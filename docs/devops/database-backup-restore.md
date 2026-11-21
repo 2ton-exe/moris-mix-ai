@@ -237,3 +237,11 @@ Ownership candidates include quoted and unquoted `supabase_admin` spellings.
 If static parsing encounters unsupported input, it reports the fixed
 `counts=unavailable` value without blocking the more informative role-only
 replay. That sentinel is not a successful static pattern check.
+
+A future protected diagnostic adds an optional `membership` label for the
+failing statement only. `match` means that statement matches the existing
+conservative single-line role-membership GRANT grammar, while `unclassified`
+means it does not match; this **does not establish** that the GRANT affects
+object privileges. `not-applicable` means the attributed statement is not a
+GRANT, and `unknown` means attribution was not established. These labels
+never reveal identifiers or SQL and do not prove the permission root cause.
