@@ -7,19 +7,27 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 classifier="$script_dir/classify_restore_component.py"
 root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/moris-restore-synthetic.XXXXXX")"
 workdir="$root/local"
-fixture="$root/fixtures"
+fixture="$root/restore-verified-sql"
 mkdir -p "$fixture"
+umask 077
 
 cleanup() {
   local original_status=$?
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
-    if ! supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
+    if supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
+      printf '%s\n' 'synthetic-database-shutdown=pass'
+    else
       printf '%s\n' '::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.'
       original_status=1
     fi
   fi
-  rm -rf "$root"
+  if rm -rf "$root" > /dev/null 2>&1; then
+    printf '%s\n' 'synthetic-fixture-cleanup=pass'
+  else
+    printf '%s\n' 'synthetic-fixture-cleanup=fail' >&2
+    original_status=1
+  fi
   exit "$original_status"
 }
 trap cleanup EXIT
@@ -348,27 +356,314 @@ owner_after="$("${client[@]}" psql -X -Atq -v ON_ERROR_STOP=1 \
 }
 echo 'Synthetic ALTER OWNER 42501 isolated; baseline ownership and cleanup verified.'
 
-# Positive control: restore all original fixtures, then check the persisted data.
-restore > "$root/positive.log" 2> "$root/positive.stderr" || {
-  echo '::error::Synthetic restore failed; synthetic-only SQL log kept off Actions output'
-  exit 1
+# Compare both principals on the existing disposable server. Do not reuse
+# this administrative connection for any hosted database or private replay.
+admin_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+principal_query() {
+  "${client[@]}" psql -X -qAt -F '|' --no-password -v ON_ERROR_STOP=1 \
+    -v VERBOSITY=sqlstate -d "$1" -c "$2" 2> "$root/principal-query.err"
 }
 
-counts="$("${client[@]}" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 \
-  -c "SELECT
-         (SELECT count(*) FROM public.profiles),
-         (SELECT count(*) FROM public.recipes),
-         (SELECT count(*) FROM public.recipe_lineage),
-         (SELECT count(*) FROM public.ai_usage_daily),
-         (SELECT count(*) FROM public.ai_quota_reservations),
-         (SELECT count(*) FROM devops_restore_synthetic.schema_migrations),
-         (SELECT string_agg(version, ',' ORDER BY version)
-          FROM devops_restore_synthetic.schema_migrations)" \
-  -d "$local_db")"
-[[ "$counts" == '1|1|1|1|1|2|20261114000000,20261114000001' ]] || {
-  echo '::error::Synthetic application counts or migration versions differ from fixtures'
+check_principal() {
+  local role="$1" db="$2" expected_superuser="$3" flags
+  if flags="$(principal_query "$db" \
+      "SELECT rolsuper::int, rolcreaterole::int, rolcreatedb::int
+       FROM pg_roles WHERE rolname = current_user
+         AND current_user = '$role' AND session_user = '$role'")" &&
+      [[ "$flags" =~ ^[01]\|[01]\|[01]$ ]]; then
+    if [[ "$flags" == "$expected_superuser|1|1" ]]; then
+      printf 'principal-attributes role=%s superuser=%s createrole=1 createdb=1 result=pass\n' \
+        "$role" "$expected_superuser"
+      return 0
+    fi
+    printf 'principal-attributes role=%s flags=%s result=unexpected\n' "$role" "$flags"
+  else
+    printf 'principal-attributes role=%s result=connection-or-identity-failure\n' "$role"
+  fi
+  return 1
+}
+
+failed=0
+check_principal postgres "$local_db" 0 || failed=1
+check_principal supabase_admin "$admin_db" 1 || failed=1
+[[ "$failed" == 0 ]] || exit 1
+
+if ! principal_query "$admin_db" \
+    'CREATE ROLE devops_principal_group NOLOGIN; CREATE ROLE devops_principal_grantee NOLOGIN;' \
+    > "$root/principal-setup.out"; then
+  echo 'principal-fixture-setup=fail'
+  exit 1
+fi
+
+# Pick a built-in setting on which postgres holds neither privilege. Otherwise
+# PostgreSQL can return success with a warning and apply no grant at all.
+if ! parameter="$(principal_query "$admin_db" \
+    "SELECT name FROM (VALUES ('log_min_messages', 1), ('log_statement', 2),
+                              ('log_min_error_statement', 3), ('session_replication_role', 4))
+                     AS settings(name, priority)
+     WHERE NOT has_parameter_privilege('postgres', name, 'SET')
+       AND NOT has_parameter_privilege('postgres', name, 'ALTER SYSTEM')
+       AND NOT has_parameter_privilege('devops_principal_grantee', name, 'SET')
+     ORDER BY priority LIMIT 1")"; then
+  parameter=
+fi
+
+principal_state() {
+  principal_query "$admin_db" \
+    "SELECT (to_regnamespace('devops_principal_$1') IS NOT NULL)::int, ($2)::int"
+}
+
+principal_replay() {
+  local kind="$1" role="$2" db="$3" privilege="$4" expected="$5"
+  local status=0 sqlstate=none grant_line=no state error
+  local record='^psql:/backup/principal[.]sql:([12]): ERROR:  ([0-9A-Z]{5})$'
+  "${client[@]}" psql -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
+    -v VERBOSITY=sqlstate -f /backup/principal.sql -d "$db" \
+    > "$root/principal.out" 2> "$root/principal.err" || status=$?
+  if (( status != 0 )); then
+    sqlstate=unclassified
+    error="$(< "$root/principal.err")"
+    if [[ "$error" =~ $record ]]; then
+      sqlstate="${BASH_REMATCH[2]}"
+      [[ "${BASH_REMATCH[1]}" != 2 ]] || grant_line=yes
+    fi
+  fi
+  if ! state="$(principal_state "$kind" "$privilege")" || [[ ! "$state" =~ ^[01]\|[01]$ ]]; then
+    state='unknown|unknown'
+  fi
+  printf 'principal-grant kind=%s role=%s exit=%d sqlstate=%s grant-line=%s marker=%s granted=%s\n' \
+    "$kind" "$role" "$status" "$sqlstate" "$grant_line" "${state%|*}" "${state#*|}"
+  [[ "$status:$sqlstate:$grant_line:$state" == "$expected" ]]
+}
+
+compare_principals() {
+  local kind="$1" grant_sql="$2" revoke_sql="$3" privilege="$4"
+  local result=0
+  if [[ "$(principal_state "$kind" "$privilege")" != '0|0' ]]; then
+    printf 'principal-grant kind=%s baseline=fail\n' "$kind"
+    return 1
+  fi
+  printf 'CREATE SCHEMA devops_principal_%s;\n%s;\n' "$kind" "$grant_sql" > "$fixture/principal.sql" ||
+    return 1
+  # Reset the effects of the administrative control before testing postgres
+  # on the exact same file and verifying failed transaction rollback.
+  principal_replay "$kind" supabase_admin "$admin_db" "$privilege" '0:none:no:1|1' || result=1
+  if ! principal_query "$admin_db" "$revoke_sql; DROP SCHEMA IF EXISTS devops_principal_$kind;" \
+      > "$root/principal-reset.out" || [[ "$(principal_state "$kind" "$privilege")" != '0|0' ]]; then
+    printf 'principal-grant kind=%s reset=fail\n' "$kind"
+    return 1
+  fi
+  principal_replay "$kind" postgres "$local_db" "$privilege" '3:42501:yes:0|0' || result=1
+  return "$result"
+}
+
+compare_principals membership \
+  'GRANT devops_principal_group TO devops_principal_grantee' \
+  'REVOKE devops_principal_group FROM devops_principal_grantee' \
+  "pg_has_role('devops_principal_grantee', 'devops_principal_group', 'MEMBER')" || failed=1
+case "$parameter" in
+  log_min_messages|log_statement|log_min_error_statement|session_replication_role)
+    compare_principals parameter \
+      "GRANT SET ON PARAMETER $parameter TO devops_principal_grantee" \
+      "REVOKE SET ON PARAMETER $parameter FROM devops_principal_grantee" \
+      "has_parameter_privilege('devops_principal_grantee', '$parameter', 'SET')" || failed=1
+    ;;
+  *)
+    echo 'principal-grant kind=parameter baseline=fail'
+    failed=1
+    ;;
+esac
+if (( failed )); then
+  echo 'synthetic-principal-comparison=fail'
+  exit 1
+fi
+echo 'synthetic-principal-comparison=pass'
+
+# Run the actual protected replay and verification commands against synthetic
+# files only. No archive, Environment, or workflow dispatch is involved.
+python3 - "$script_dir/../.github/workflows" "$root" <<'PY'
+from pathlib import Path
+import sys
+import textwrap
+
+workflows, target = map(Path, sys.argv[1:])
+for workflow, step, output in (
+    ("stage-b", "Restore SQL transactionally using patched PostgreSQL 17 client", "admin-restore"),
+    ("stage-b", "Validate restored application counts and migration versions", "aggregates"),
+    ("role-diagnostic", "Record bounded role patterns and replay diagnostics", "role-replay"),
+):
+    source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
+    _, body = source.split(f"      - name: {step}\n        shell: bash\n        run: |\n")
+    (target / f"{output}.sh").write_text(textwrap.dedent(body.split("\n      - name:", 1)[0]),
+                                       encoding="utf-8")
+PY
+
+run_restore_step() (
+  cd "$script_dir/.." || exit 1
+  # Use a separate Bash process so the checked-in step keeps its own errexit.
+  RUNNER_TEMP="$root" GITHUB_STEP_SUMMARY="$root/synthetic-summary.md" \
+    bash --noprofile --norc -c '
+      substitute_db="$2"
+      admin_db="$3"
+      if [[ -n "$substitute_db" ]]; then
+        docker() {
+          local args=("$@") index
+          for index in "${!args[@]}"; do
+            if [[ "${args[index]}" == "$admin_db" ]]; then
+              args[index]="$substitute_db"
+            fi
+          done
+          command docker "${args[@]}"
+        }
+      fi
+      source "$1"
+    ' bash "$root/$1.sh" "${2:-}" "$admin_db" > "$root/step.out" 2> "$root/step.err"
+)
+
+require_clean_restore() {
+  if [[ "$(principal_query "$admin_db" \
+      "SELECT (to_regclass('public.profiles') IS NULL
+               AND to_regclass('supabase_migrations.schema_migrations') IS NULL
+               AND NOT EXISTS (SELECT FROM pg_roles
+                               WHERE rolname IN ('devops_restore_synthetic', 'devops_restore_reader')))::int")" != 1 ]]; then
+    echo '::error::Synthetic administrative replay did not preserve the clean baseline'
+    exit 1
+  fi
+}
+
+cat > "$fixture/roles.sql" <<SQL
+\echo SYNTHETIC_ADMIN_FILES_REACHED
+\restrict SyntheticRestoreGuard2026
+CREATE ROLE devops_restore_synthetic NOLOGIN;
+CREATE ROLE devops_restore_reader NOLOGIN;
+GRANT devops_restore_synthetic TO devops_restore_reader;
+GRANT SET ON PARAMETER $parameter TO devops_restore_reader;
+\unrestrict SyntheticRestoreGuard2026
+SQL
+# Cover source ownership plus explicit read access on admin-owned objects.
+cat >> "$fixture/schema.sql" <<'SQL'
+ALTER TABLE public.profiles OWNER TO postgres;
+GRANT SELECT ON public.recipes, public.recipe_lineage, public.ai_usage_daily,
+  public.ai_quota_reservations TO postgres;
+SQL
+cat > "$fixture/history-schema.sql" <<'SQL'
+CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+CREATE TABLE supabase_migrations.schema_migrations (version text PRIMARY KEY);
+GRANT USAGE ON SCHEMA supabase_migrations TO postgres;
+GRANT SELECT ON supabase_migrations.schema_migrations TO postgres;
+SQL
+sed 's/devops_restore_synthetic[.]schema_migrations/supabase_migrations.schema_migrations/' \
+  "$fixture/history-data.sql" > "$root/history-data.sql"
+cp "$root/history-data.sql" "$fixture/history-data.sql"
+
+require_clean_restore
+for rejected in wrong-identity unavailable; do
+  case "$rejected" in
+    wrong-identity) db="$local_db"; expected_exit=1; phase=restore ;;
+    unavailable)
+      db='postgresql://devops_restore_missing_login:postgres@127.0.0.1:54322/postgres'
+      expected_exit=2
+      phase=connection
+      ;;
+  esac
+  status=0
+  run_restore_step admin-restore "$db" || status=$?
+  if [[ "$status" != "$expected_exit" ]] ||
+      ! grep -Fq "phase=$phase category=" "$root/step.out" ||
+      grep -Fq 'SYNTHETIC_ADMIN_FILES_REACHED' "$root/private-restore-result.log"; then
+    printf '::error::Synthetic administrative rejection failed: %s\n' "$rejected"
+    exit 1
+  fi
+  if [[ "$rejected" == wrong-identity ]] &&
+      ! grep -Fxq 'ERROR:  42501' "$root/private-restore-stderr.log"; then
+    echo '::error::Synthetic wrong identity did not reach the administrative guard'
+    exit 1
+  fi
+  require_clean_restore
+  printf 'synthetic-admin-rejection=%s exit=%d sql-files-skipped=yes\n' "$rejected" "$status"
+done
+
+# The role-only probe also rejects the wrong login without publishing flags.
+status=0
+run_restore_step role-replay "$local_db" || status=$?
+if [[ "$status" != 1 || -e "$root/synthetic-summary.md" ]] ||
+    ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out"; then
+  echo '::error::Synthetic role diagnostic did not reject the wrong identity'
+  exit 1
+fi
+require_clean_restore
+echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=yes summary-absent=yes'
+
+# The diagnostic must publish the guarded admin's flags even on SQL failure.
+cp "$fixture/roles.sql" "$root/roles.sql"
+echo 'GRANT devops_restore_missing TO devops_restore_synthetic;' >> "$fixture/roles.sql"
+status=0
+run_restore_step role-replay || status=$?
+if [[ "$status" != 1 ]] ||
+    ! grep -Fq 'superuser=1 ' "$root/synthetic-summary.md" ||
+    ! grep -Fq 'replay=failed category=undefined-object' "$root/synthetic-summary.md" ||
+    grep -Fq 'SYNTHETIC_ADMIN_FILES_REACHED' "$root/step.out" "$root/step.err" "$root/synthetic-summary.md"; then
+  echo '::error::Synthetic administrative role diagnostic failed'
+  exit 1
+fi
+require_clean_restore
+cp "$root/roles.sql" "$fixture/roles.sql"
+echo 'synthetic-admin-role-diagnostic=pass failed-replay-reported=yes rollback=pass'
+
+# Fail after all five components have been reached, then replay pristine fixtures.
+echo 'SELECT 1 / 0;' >> "$fixture/history-data.sql"
+status=0
+run_restore_step admin-restore || status=$?
+if [[ "$status" != 3 ]] ||
+    ! grep -Fq 'exit_code=3 component_hint=history-data.sql ' "$root/step.out" ||
+    ! grep -Eq '^psql:/backup/history-data[.]sql:[0-9]+: ERROR:  22012$' "$root/private-restore-stderr.log"; then
+  echo '::error::Synthetic administrative restore did not reach the intended SQL failure'
+  exit 1
+fi
+require_clean_restore
+cp "$root/history-data.sql" "$fixture/history-data.sql"
+echo 'synthetic-admin-replay=expected-failure exit=3 sqlstate=22012 rollback=pass'
+
+if ! run_restore_step admin-restore ||
+    ! grep -Fq 'Transactional isolated SQL restore passed.' "$root/step.out" ||
+    grep -Fq 'SYNTHETIC_ADMIN_FILES_REACHED' "$root/step.out" "$root/step.err"; then
+  echo '::error::Synthetic administrative restore failed'
+  exit 1
+fi
+effects="$(principal_query "$admin_db" \
+  "SELECT (pg_has_role('devops_restore_reader', 'devops_restore_synthetic', 'MEMBER')
+           AND has_parameter_privilege('devops_restore_reader', '$parameter', 'SET')
+           AND (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.profiles'::regclass) = 'postgres'
+           AND (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.recipes'::regclass) = 'supabase_admin')::int")"
+[[ "$effects" == 1 ]] || {
+  echo '::error::Synthetic administrative replay did not preserve expected grants and owners'
   exit 1
 }
-echo 'Five synthetic application counts and two migration versions verified.'
-echo 'Component hints are untrusted evidence; identical forged records cannot be authenticated.'
+echo 'synthetic-admin-replay=pass membership=pass parameter=pass ownership=pass'
+
+if ! run_restore_step aggregates ||
+    ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
+  echo '::error::Synthetic postgres aggregate verification failed after administrative replay'
+  exit 1
+fi
+echo 'synthetic-postgres-aggregates=pass'
+
+# Supabase can give postgres read access through predefined roles and default
+# grants. Remove those paths in this throwaway fixture and verify the effective ACL.
+if ! principal_query "$admin_db" \
+    'REVOKE pg_read_all_data FROM postgres;
+     REVOKE SELECT ON public.recipes FROM PUBLIC, postgres, anon, authenticated, service_role;' \
+    > "$root/revoke.out" ||
+    [[ "$(principal_query "$admin_db" \
+      "SELECT has_table_privilege('postgres', 'public.recipes', 'SELECT')::int")" != 0 ]]; then
+  echo '::error::Synthetic postgres negative ACL fixture still allows reads or could not be prepared'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]] || ! grep -Fxq '::error::Database aggregate verification query failed' "$root/step.out"; then
+  echo '::error::Synthetic postgres verification did not fail closed without read access'
+  exit 1
+fi
+echo 'synthetic-postgres-aggregates=expected-failure missing-select=yes'
 echo 'Synthetic compatibility probe passed. No private archive or managed-schema compatibility is claimed.'

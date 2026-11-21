@@ -316,10 +316,22 @@ class RestoreRoleProbeTests(unittest.TestCase):
 
         stub = r'''
         docker() {
-          case " $* " in
+          local args=" $* "
+          [[ "$args" == *' --no-password '* &&
+             "$args" == *" -c DO "* &&
+             "$args" == *"current_user <> 'supabase_admin'"* &&
+             "$args" == *"session_user <> 'supabase_admin'"* &&
+             "$args" == *"rolname = current_user AND rolsuper"* &&
+             "$args" == *' -d postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres '* ]] ||
+            return 98
+          case "$args" in
             *" -c SELECT rolsuper"*)
               printf 'flags\n' >> "$RUNNER_TEMP/calls"
-              printf '0|1|0|0|1\n'
+              if [[ "$REVIEW_IDENTITY_OK" == 0 ]]; then
+                printf 'PRIVATE_SYNTHETIC_IDENTITY_ERROR\n' >&2
+                return 1
+              fi
+              printf '1|1|1|0|1\n'
               ;;
             *" -f /backup/roles.sql "*)
               printf 'replay\n' >> "$RUNNER_TEMP/calls"
@@ -334,17 +346,18 @@ class RestoreRoleProbeTests(unittest.TestCase):
         }
         '''
         cases = (
-            (0, False, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501"),
-            (0, True, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501"),
-            (3, False, DOCUMENTED_GRANT, "match", "role-membership-grant", "42501"),
-            (3, True, DOCUMENTED_GRANT, "match", "role-membership-grant", "42501"),
-            (3, False, PARAMETER_SQL, "unclassified", "parameter-grant", "42501"),
-            (3, False, PARAMETER_SQL, "unknown", "other-or-unknown", "22021"),
+            (0, False, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501", True),
+            (0, True, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501", True),
+            (3, False, DOCUMENTED_GRANT, "match", "role-membership-grant", "42501", True),
+            (3, True, DOCUMENTED_GRANT, "match", "role-membership-grant", "42501", True),
+            (3, False, PARAMETER_SQL, "unclassified", "parameter-grant", "42501", True),
+            (3, False, PARAMETER_SQL, "unknown", "other-or-unknown", "22021", True),
+            (0, False, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501", False),
         )
         for index, case in enumerate(cases):
-            replay_exit, unavailable, sql, membership, grant_type, sqlstate = case
+            replay_exit, unavailable, sql, membership, grant_type, sqlstate, identity_ok = case
             with self.subTest(replay_exit=replay_exit, unavailable=unavailable,
-                              grant_type=grant_type):
+                              grant_type=grant_type, identity_ok=identity_ok):
                 root = self.root / f"replay-{index}"
                 root.mkdir()
                 verified = root / "restore-verified-sql"
@@ -359,18 +372,25 @@ class RestoreRoleProbeTests(unittest.TestCase):
                             "GITHUB_STEP_SUMMARY": str(summary),
                             "PSQL_IMAGE": "synthetic-image",
                             "REVIEW_SQLSTATE": sqlstate,
-                            "REVIEW_REPLAY_EXIT": str(replay_exit)})
+                            "REVIEW_REPLAY_EXIT": str(replay_exit),
+                            "REVIEW_IDENTITY_OK": str(int(identity_ok))})
                 run = subprocess.run(
                     ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
                     input=(stub + bash).encode(),
                     cwd=Path(__file__).resolve().parents[1], env=env,
                     capture_output=True, check=False)
-                self.assertEqual(run.returncode, 0 if replay_exit == 0 else 1,
+                self.assertEqual(run.returncode, 0 if identity_ok and replay_exit == 0 else 1,
                                  (run.stdout, run.stderr))
                 self.assertEqual((root / "calls").read_text().splitlines(),
-                                 ["flags", "replay"])
+                                 ["flags", "replay"] if identity_ok else ["flags"])
+                self.assertEqual(run.stderr, b"")
+                if not identity_ok:
+                    self.assertFalse(summary.exists())
+                    self.assertEqual(run.stdout, b"::error::Local role attribute probe failed\n")
+                    continue
                 self.assertTrue(summary.is_file())
                 public = run.stdout.decode() + summary.read_text()
+                self.assertIn("superuser=1 ", public)
                 self.assertNotIn("PRIVATE_SYNTHETIC_MARKER", public)
                 self.assertNotIn("psql:/backup/roles.sql", public)
                 self.assertNotIn("synthetic.setting", public)
