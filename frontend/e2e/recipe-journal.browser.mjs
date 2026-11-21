@@ -38,7 +38,7 @@ const recipes = [recipe, secondRecipe, longRecipe, retryRecipe]
 const recipeById = new Map(recipes.map((entry) => [entry.id, entry]))
 const outputDir = await mkdtemp(path.join(os.tmpdir(), 'moris-ui01-recipes-'))
 const server = await createServer({
-  root, configFile: false, envDir: false, plugins: [react()],
+  root, cacheDir: path.join(outputDir, 'vite'), configFile: false, envDir: false, plugins: [react()],
   define: {
     'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(apiOrigin),
     'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify('isolated-recipe-ui-public-key'),
