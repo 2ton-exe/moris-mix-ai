@@ -974,7 +974,11 @@ test('trusted-base security: checkout only default repository/branch, no PR exec
   assert.equal(checkout.with.repository, '${{ github.repository }}');
   assert.equal(checkout.with.ref, '${{ github.event.repository.default_branch }}');
   assert.equal(checkout.with['persist-credentials'], false);
-  assert.deepEqual(steps.filter(s => s.uses).map(s => s.uses), ['actions/checkout@v4', 'actions/setup-node@v4', 'actions/create-github-app-token@v3']);
+  assert.deepEqual(steps.filter(s => s.uses).map(s => s.uses.split('@')[0]),
+    ['actions/checkout', 'actions/setup-node', 'actions/create-github-app-token']);
+  for (const { uses } of steps.filter(s => s.uses)) {
+    assert.match(uses, /^[^@]+@[a-f0-9]{40}$/);
+  }
   assert.deepEqual(steps.filter(s => s.run).map(s => s.run).filter(s => /node /.test(s)), ['node scripts/project-sync.mjs']);
   assert.doesNotMatch(source, /pull_request\.head|pull_request\.(title|body)|npm |pnpm |yarn |git config|actions\/download-artifact|uses: \.\//);
   assert.equal(workflow.on.pull_request, undefined);
@@ -984,6 +988,10 @@ test('App credentials stay in action inputs/output env; no application/deploymen
   const app = steps.find(s => s.id === 'app');
   assert.equal(app.with['client-id'], '${{ vars.PROJECT_AUTOMATION_APP_CLIENT_ID }}');
   assert.equal(app.with['private-key'], '${{ secrets.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}');
+  assert.equal(app.with.owner, '2ton-exe');
+  assert.equal(app.with.repositories, 'moris-mix-ai');
+  assert.deepEqual(Object.keys(app.with).filter(key => key.startsWith('permission-')).sort(),
+    ['permission-issues', 'permission-metadata', 'permission-organization-projects', 'permission-pull-requests']);
   assert.equal(app.with['permission-issues'], 'read');
   assert.equal(app.with['permission-pull-requests'], 'read');
   assert.equal(app.with['permission-metadata'], 'read');
@@ -997,7 +1005,7 @@ test('App credentials stay in action inputs/output env; no application/deploymen
 test('exact activation validation gates write-token minting; dry-run retains read-only access', () => {
   const steps = workflow.jobs.synchronize.steps;
   const guard = steps.find(s => s.name === 'Require exact activation before write token');
-  const app = steps.find(s => s.uses === 'actions/create-github-app-token@v3');
+  const app = steps.find(s => s.id === 'app');
   assert.ok(guard && steps.indexOf(guard) < steps.indexOf(app));
   assert.equal(guard.shell, 'bash');
   assert.deepEqual(guard.env, { ENABLED: '${{ vars.PROJECT_AUTOMATION_ENABLED }}' });
