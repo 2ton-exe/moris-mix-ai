@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { BrandMark } from './BrandMark'
-import { DeskStationery } from './DeskStationery'
+import { KitchenBackground } from './KitchenBackground'
 import { Mori, MoriEmblem, type MoriMood } from './Mori'
 import { JournalSurface, PaperCard, PaperClip, Stamp, Tape } from './Scrapbook'
 
 export function JournalAuthScene({ children }: { children: ReactNode }) {
-  return <JournalSurface material="wood" className="mm-auth-desk">
-    <DeskStationery />
+  return <div className="mm-auth-desk">
+    <KitchenBackground />
     <header className="mm-auth-toolbar">
       <Link className="mm-auth-brand" to="/demo-recipe" aria-label="MORI'S MIX, view a demonstration recipe">
         <BrandMark />
@@ -19,7 +19,7 @@ export function JournalAuthScene({ children }: { children: ReactNode }) {
       <JournalCover />
     </div>
     <p className="mm-auth-caption">A place for the meals that become yours.</p>
-  </JournalSurface>
+  </div>
 }
 
 function JournalCover() {
