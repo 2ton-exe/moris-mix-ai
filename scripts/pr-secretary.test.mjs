@@ -428,6 +428,70 @@ test('required failures are above the panels and a passing optional check does n
   assert.doesNotMatch(visible, /all checks passed/i);
 });
 
+const passingRequiredDesk = () => {
+  const d = data();
+  d.required = PROJECT_REQUIRED.map(({ context }) => ({ context, integrationId: 15368 }));
+  d.checks = d.required.map(({ context }) => check(context, 'success', { app: { id: 15368, slug: 'github-actions' } }));
+  return d;
+};
+
+for (const [conclusion, state, icon] of [
+  ['failure', 'FAIL', '❌'],
+  ['success', 'PASS', '✅'],
+  ['skipped', 'SKIPPED — EXPECTED', '➖'],
+]) test(`Hosted RLS ${state} is classified correctly above the evidence panels`, () => {
+  const d = passingRequiredDesk();
+  const [, , hostedRls] = GATES.find(([label]) => label === 'Hosted RLS');
+  d.checks.push(check(hostedRls, conclusion));
+  const body = render(d);
+  const visible = visibleDesk(body);
+  assert.match(visible, /\| CI \(required PR checks\) \| PASS \|/);
+  if (state === 'FAIL') assert.match(visible, /### Action needed\n\n- \*\*Hosted RLS\*\* · FAIL/);
+  else assert.doesNotMatch(visible, /### Action needed|Hosted RLS/);
+  assert.ok(body.includes(`| Hosted RLS | ${icon} ${state} |`));
+});
+
+test('an additional check outside the active required policy can surface a failure', () => {
+  const d = passingRequiredDesk();
+  const [, , database] = GATES.find(([label]) => label === 'Database');
+  d.required = d.required.filter(({ context }) => context !== database);
+  d.checks.find(({ name }) => name === database).conclusion = 'failure';
+  const visible = visibleDesk(render(d));
+  assert.match(visible, /### Action needed\n\n- \*\*Database\*\* · FAIL/);
+  assert.match(visible, /\| CI \(required PR checks\) \| PASS \|/);
+  assert.doesNotMatch(visible.split('### Status overview')[1], /Database/);
+});
+
+for (const [label, run, state, icon, action] of [
+  ['failed', prRun({ id: 42, run_attempt: 3, conclusion: 'failure' }), 'FAIL', '❌', true],
+  ['cancelled', prRun({ id: 42, run_attempt: 3, conclusion: 'cancelled' }), 'CANCELLED', '❌', true],
+  ['running', prRun({ id: 42, run_attempt: 3, status: 'in_progress', conclusion: null }), 'RUNNING', '⏳', false],
+  ['passing', prRun({ id: 42, run_attempt: 3 }), 'PASS', '✅', false],
+  ['absent', undefined, 'UNKNOWN', '➖', false],
+]) test(`the ${label} PR validation workflow stays separate from passing required checks`, () => {
+  const body = render({ ...passingRequiredDesk(), validationRun: run });
+  const visible = visibleDesk(body);
+  assert.match(visible, /\| CI \(required PR checks\) \| PASS \|/);
+  if (action) assert.ok(visible.includes(`### Action needed\n\n- **PR validation workflow** · ${state}`));
+  else assert.doesNotMatch(visible, /### Action needed|PR validation workflow/);
+  assert.ok(body.includes(`**PR validation workflow** · ${icon} ${state}`));
+  const exactLink = `[run 42, attempt 3](https://github.com/${repository}/actions/runs/42/attempts/3)`;
+  if (run) {
+    assert.ok(body.includes(`**PR validation workflow** · ${icon} ${state} · ${exactLink}`));
+    assert.ok(!visible.includes(exactLink));
+  } else assert.doesNotMatch(body, /\/actions\/runs\//);
+});
+
+test('a failed PR validation workflow is visible when no required check results are available', () => {
+  const d = passingRequiredDesk();
+  d.checks = [];
+  d.validationRun = prRun({ conclusion: 'failure' });
+  const visible = visibleDesk(render(d));
+  assert.match(visible, /### Action needed\n\n- \*\*PR validation workflow\*\* · FAIL/);
+  assert.match(visible, /- \*\*Frontend\*\* · NOT RUN/);
+  assert.match(visible, /\| CI \(required PR checks\) \| NOT RUN \|/);
+});
+
 test('a missing required check gets a visible action even while a reviewer is waiting', () => {
   const d = data();
   d.required = [PROJECT_REQUIRED[0]];
@@ -968,6 +1032,23 @@ test('merged collection uses actual merge SHA and latest exact run attempt only'
   assert.equal(d.release.deploy, 'UNKNOWN');
   assert.match(render(d), /\/actions\/runs\/31\/attempts\/2/);
 });
+
+test('a release jobs lookup error leaves the existing unavailable-evidence diagnostic', async () => {
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return merged();
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path.includes('/actions/workflows/')) return [mainRun({ conclusion: 'failure' })];
+    if (path.includes('/attempts/')) throw new Error('Jobs endpoint unavailable');
+    return [];
+  });
+  const d = await collect(api, 87, repository);
+  assert.equal(d.release, null);
+  const body = render(d);
+  assert.match(body, /Exact main delivery evidence unavailable from GitHub/);
+  assert.doesNotMatch(visibleDesk(body), /\*\*Main workflow\*\* · FAIL/);
+  assert.match(visibleDesk(body), /\| Deploy \| UNKNOWN \|\n\| Smoke \| UNKNOWN \|/);
+});
+
 test('active PR retries suppress stale jobs from the previous attempt', async () => {
   const api = mockApi(path => {
     if (path.endsWith('/pulls/87')) return pr();

@@ -39,11 +39,18 @@ are subject to GitHub’s queue and event delivery.
 The single PR comment starts with Mori’s Mix engineering, the PR title and
 number, and a prominent `DRAFT`, `OPEN`, `MERGED`, or `CLOSED WITHOUT MERGE`
 state. Open PRs show the next attention item. Terminal PRs show the delivery
-outcome. Current changes requested, missing required checks, and check or
-release failures appear before the evidence panels. A failed or cancelled
-exact main workflow stays visible when its job evidence is unavailable.
-Deployment and smoke retain their own evidence states. Advisory notes, such
-as changes that cross ownership areas, stay in diagnostics.
+outcome. Current changes requested, missing required checks, and failures in
+required or additional PR-head checks appear before the evidence panels.
+On open PRs, a failed or cancelled PR validation workflow appears separately
+from the required checks. Advisory notes, such as changes that cross
+ownership areas, stay in diagnostics.
+
+When collection returns the selected exact main run, its failure or
+cancellation stays visible even if individual jobs lack results. Deployment
+and smoke retain their own evidence states. If a release collection request
+throws, the collector can mark release evidence unavailable and emit a
+diagnostic note. Retaining already-selected run metadata after a job lookup
+error is a proposed functional follow-up for [issue #246](https://github.com/2ton-exe/moris-mix-ai/issues/246).
 
 The **Delivery journey** shows five independently sourced stages:
 

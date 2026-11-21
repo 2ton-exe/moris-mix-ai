@@ -296,6 +296,7 @@ export function render(data) {
   const additional = s.rows.filter(row => !s.requiredRows.has(row));
   const optionalDelivery = additional.filter(([label, state]) =>
     ['E2E (non-gating)', 'Staging deploy', 'Staging smoke'].includes(label) && !['NOT REQUIRED', 'NOT RUN'].includes(state));
+  const validationStatus = data.validationRun ? normalize(data.validationRun) : 'UNKNOWN';
   const release = data.release ?? {};
   const mainStatus = merged && release.run ? normalize(release.run) : null;
   const mainNeedsAttention = mainStatus === 'FAIL' || mainStatus === 'CANCELLED';
@@ -311,8 +312,10 @@ export function render(data) {
   const changesRequested = s.humans.filter(review => open && review.state === 'CHANGES REQUESTED');
   const action = [
     ...changesRequested.map(review => `- **Human review** · ${md(reviewer(review.login).name)} — CHANGES REQUESTED`),
+    ...(open && ['FAIL', 'CANCELLED'].includes(validationStatus) ?
+      [`- **PR validation workflow** · ${validationStatus}`] : []),
     ...(mainNeedsAttention ? [`- **Main workflow** · ${mainStatus}`] : []),
-    ...[...required, ...optionalDelivery, ...releaseRows].filter((row) =>
+    ...[...required, ...additional, ...releaseRows].filter((row) =>
       attentionStates.has(row[1]) || (missingRequired && row[1] === 'NOT RUN' && s.requiredRows.has(row)))
       .map(([label, state]) => `- **${md(label)}** · ${md(state)}`),
     ...criticalDiagnostics.map(note => `- ${md(note)}`),
@@ -369,8 +372,8 @@ export function render(data) {
   }
   out.push(...evidencePanel('Human reviews and CodeRabbit', reviews));
   out.push(...evidencePanel('PR validation', [
-    ...(headRun ? [`**PR validation workflow** · ${displayed(normalize(data.validationRun))} · ${headRun}`, ''] : []),
-    '#### Required PR checks', '', ...(required.length ? evidenceTable(required) : ['➖ No required contexts established.']),
+    `**PR validation workflow** · ${displayed(validationStatus)}${headRun ? ` · ${headRun}` : ''}`,
+    '', '#### Required PR checks', '', ...(required.length ? evidenceTable(required) : ['➖ No required contexts established.']),
     '', '#### Additional PR-head checks', '', ...evidenceTable(additional),
   ]));
   if (merged) {
