@@ -1,0 +1,61 @@
+.mm-reading-tools {
+  margin-block: 0 8px;
+  color: var(--mm-color-ink);
+  font: 500 14px/1.4 var(--mm-font-sans);
+}
+
+.mm-reading-tools > summary {
+  width: fit-content;
+  min-height: 44px;
+  padding-block: 10px;
+  color: var(--mm-color-burgundy-800);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.mm-reading-tools__content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 8px;
+  padding: 3px 4px 8px;
+  overflow-wrap: anywhere;
+}
+
+.mm-desk .mm-reading-tools__content {
+  max-block-size: min(16rem, 30vh);
+  overflow: auto;
+}
+
+.mm-reading-tools__slip, .mm-reading-tools__status {
+  flex: 1 0 100%;
+  min-inline-size: 0;
+}
+
+.mm-reading-tools__slip {
+  padding: 12px;
+}
+
+.mm-reading-tools__slip form {
+  display: grid;
+  gap: 8px;
+}
+
+.mm-reading-tools__slip input, .mm-reading-tools__slip textarea {
+  max-inline-size: 100%;
+  font: inherit;
+}
+
+.mm-reading-tools__slip p, .mm-reading-tools__status {
+  margin: 0;
+}
+
+.mm-reading-tools__status:empty {
+  display: none;
+}
+
+.mm-reading-tools__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

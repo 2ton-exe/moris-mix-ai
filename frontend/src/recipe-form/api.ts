@@ -18,6 +18,12 @@ function parseRecipeResponse(value: unknown, userId: string, expectedId?: string
 
 export function createRecipeFormApi(client: typeof apiClient = apiClient) {
   return {
+    async recordCooking(id: string, date: string, request: RecipeRequest) {
+      const response = await client.patchAuthenticatedJson(`${recipesPath}/${encodeURIComponent(id)}`, { cooked_at: date }, request)
+      const recipe = parseRecipeResponse(response, request.userId, id)
+      if (recipe.cooked_at !== date) throw new InvalidRecipeData()
+      return recipe
+    },
     async save(draft: RecipeDraft, request: RecipeRequest, id?: string): Promise<RecipeSaveConfirmation> {
       const body = {
         title: draft.title,
