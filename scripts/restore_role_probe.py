@@ -32,9 +32,6 @@ OWNER = re.compile(
 OWNER_OTHER = re.compile(
     rb'^ALTER [^\r\n]+ OWNER TO (?:"supabase_admin"|supabase_admin);$'
 )
-CATEGORY = {b"42501": "insufficient-privilege",
-            b"42704": "undefined-object",
-            b"42710": "duplicate-object"}
 VERBS = {b"ALTER ROLE ": "alter-role",
          b"CREATE ROLE ": "create-role"}
 
@@ -197,7 +194,10 @@ def result(stderr: bytes, roles: Path, exit_code: int) -> str:
     if not error or error[0] != "roles.sql":
         return fields
     _, lineno, sqlstate = error
-    category = CATEGORY.get(sqlstate, "unknown")
+    category = ERROR_CATEGORIES.get(sqlstate)
+    if category is None:
+        # An unsupported SQLSTATE may indicate a syntax or encoding failure.
+        return fields
     unattributed = f"replay=failed category={category} verb=unknown doc_grant=unknown"
     if not (1 <= lineno <= MAX_ROLE_SCAN_LINES):
         return f"{unattributed} prefix_pass=unknown {unknown}"
@@ -296,6 +296,9 @@ def publish(count_path: Path, flag_path: Path, result_path: Path,
     else:
         if replay != "failed":
             raise ValueError("contradictory failure diagnostic")
+        if category == "unknown" and (verb, documented, prefix, membership, grant_type) != (
+                "unknown", "unknown", "unknown", "unknown", UNKNOWN_GRANT_TYPE):
+            raise ValueError("statement attribution requires a recognized error category")
         if prefix != "true" and (verb != "unknown" or documented != "unknown"
                                  or membership != "unknown"):
             raise ValueError("statement attribution missing validated prefix")

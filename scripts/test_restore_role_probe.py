@@ -10,6 +10,10 @@ from restore_role_probe import (
 ERROR1 = b"psql:/backup/roles.sql:1: ERROR:  42501\n"
 ERROR2 = b"psql:/backup/roles.sql:2: ERROR:  42501\n"
 PARAMETER_SQL = b'GRANT SET ON PARAMETER "synthetic.setting" TO "synthetic_role";'
+UNATTRIBUTED_FAILURE = (
+    "replay=failed category=unknown verb=unknown doc_grant=unknown "
+    "prefix_pass=unknown membership=unknown grant_type=other-or-unknown"
+)
 
 
 class RestoreRoleProbeTests(unittest.TestCase):
@@ -76,14 +80,42 @@ class RestoreRoleProbeTests(unittest.TestCase):
 
     def test_non_sql_error_and_success(self):
         self.put(DOCUMENTED_GRANT + b"\n")
-        unknown = ("replay=failed category=unknown verb=unknown "
-                   "doc_grant=unknown prefix_pass=unknown membership=unknown "
-                   "grant_type=other-or-unknown")
-        self.assertEqual(result(b"secret PRIVATE SQL\n", self.roles, 3), unknown)
+        self.assertEqual(result(b"secret PRIVATE SQL\n", self.roles, 3), UNATTRIBUTED_FAILURE)
         self.assertEqual(result(b"", self.roles, 0),
                          "replay=passed category=unknown verb=unknown "
                          "doc_grant=unknown prefix_pass=unknown membership=unknown "
                          "grant_type=other-or-unknown")
+
+    def test_unsupported_sqlstates_do_not_read_or_classify_the_statement(self):
+        from unittest.mock import patch
+
+        cases = (
+            (b"42601", b"GRANT example TO WHERE;"),
+            (b"22021", b'GRANT SET ON PARAMETER "synthetic.\xff" TO "synthetic_role";'),
+            (b"57014", DOCUMENTED_GRANT),
+        )
+        for sqlstate, sql in cases:
+            with self.subTest(sqlstate=sqlstate):
+                self.put(sql + b"\n")
+                stderr = ERROR1.replace(b"42501", sqlstate)
+                with patch("restore_role_probe.bounded_lines") as read_roles:
+                    self.assertEqual(result(stderr, self.roles, 3), UNATTRIBUTED_FAILURE)
+                    read_roles.assert_not_called()
+
+    def test_recognized_sqlstates_still_classify_valid_grants(self):
+        for sqlstate, category in ((b"42501", "insufficient-privilege"),
+                                   (b"42704", "undefined-object"),
+                                   (b"42710", "duplicate-object")):
+            for sql, documented, membership, kind in (
+                    (PARAMETER_SQL, "false", "unclassified", "parameter-grant"),
+                    (DOCUMENTED_GRANT, "true", "match", "role-membership-grant")):
+                with self.subTest(sqlstate=sqlstate, kind=kind):
+                    self.put(sql + b"\n")
+                    stderr = ERROR1.replace(b"42501", sqlstate)
+                    self.assertEqual(
+                        result(stderr, self.roles, 3),
+                        f"replay=failed category={category} verb=grant doc_grant={documented} "
+                        f"prefix_pass=true membership={membership} grant_type={kind}")
 
     def test_spoofed_multiple_error_is_rejected(self):
         self.put(DOCUMENTED_GRANT + b"\n")
@@ -254,6 +286,15 @@ class RestoreRoleProbeTests(unittest.TestCase):
         self.assertIn('Role-only SQL replay failed (diagnostic recorded; not recovery)', workflow)
         self.assertIn("printf 'counts=unavailable\\n'", workflow)
 
+    def test_workflow_always_cleans_up_private_replay_files(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/database-restore-role-diagnostic.yml").read_text()
+        cleanup = workflow.split("- name: Stop isolated database and delete private files\n")[1]
+        self.assertTrue(cleanup.startswith("        if: always()\n"))
+        self.assertIn("supabase stop", cleanup)
+        for name in ("private-probe-result.out", "private-probe-result.err",
+                     "private-restore-result.log", "private-restore-stderr.log"):
+            self.assertIn(f'"$RUNNER_TEMP/{name}"', cleanup)
 
 
     def test_checked_in_workflow_replay_exit_and_summary_with_stubs(self):
@@ -284,7 +325,7 @@ class RestoreRoleProbeTests(unittest.TestCase):
               printf 'replay\n' >> "$RUNNER_TEMP/calls"
               printf 'PRIVATE_SYNTHETIC_MARKER\n'
               if [[ "$REVIEW_REPLAY_EXIT" == 3 ]]; then
-                printf 'psql:/backup/roles.sql:1: ERROR:  42501\n' >&2
+                printf 'psql:/backup/roles.sql:1: ERROR:  %s\n' "$REVIEW_SQLSTATE" >&2
               fi
               return "$REVIEW_REPLAY_EXIT"
               ;;
@@ -293,13 +334,15 @@ class RestoreRoleProbeTests(unittest.TestCase):
         }
         '''
         cases = (
-            (0, False, DOCUMENTED_GRANT, "unknown", "other-or-unknown"),
-            (0, True, DOCUMENTED_GRANT, "unknown", "other-or-unknown"),
-            (3, False, DOCUMENTED_GRANT, "match", "role-membership-grant"),
-            (3, True, DOCUMENTED_GRANT, "match", "role-membership-grant"),
-            (3, False, PARAMETER_SQL, "unclassified", "parameter-grant"),
+            (0, False, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501"),
+            (0, True, DOCUMENTED_GRANT, "unknown", "other-or-unknown", "42501"),
+            (3, False, DOCUMENTED_GRANT, "match", "role-membership-grant", "42501"),
+            (3, True, DOCUMENTED_GRANT, "match", "role-membership-grant", "42501"),
+            (3, False, PARAMETER_SQL, "unclassified", "parameter-grant", "42501"),
+            (3, False, PARAMETER_SQL, "unknown", "other-or-unknown", "22021"),
         )
-        for index, (replay_exit, unavailable, sql, membership, grant_type) in enumerate(cases):
+        for index, case in enumerate(cases):
+            replay_exit, unavailable, sql, membership, grant_type, sqlstate = case
             with self.subTest(replay_exit=replay_exit, unavailable=unavailable,
                               grant_type=grant_type):
                 root = self.root / f"replay-{index}"
@@ -315,6 +358,7 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 env.update({"RUNNER_TEMP": str(root),
                             "GITHUB_STEP_SUMMARY": str(summary),
                             "PSQL_IMAGE": "synthetic-image",
+                            "REVIEW_SQLSTATE": sqlstate,
                             "REVIEW_REPLAY_EXIT": str(replay_exit)})
                 run = subprocess.run(
                     ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
@@ -338,6 +382,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 self.assertEqual("Role-only SQL replay failed" in public,
                                  replay_exit == 3)
                 expected = f"membership={membership} grant_type={grant_type}"
+                if sqlstate == "22021":
+                    expected = UNATTRIBUTED_FAILURE
                 self.assertIn(expected, run.stdout.decode())
                 self.assertIn(expected, summary.read_text())
 
@@ -595,6 +641,39 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 stdout = StringIO()
                 with redirect_stdout(stdout), self.assertRaises(ValueError):
                     publish(c, f, r, rc, out)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertEqual(out.read_bytes(), summary)
+
+    def test_publish_only_accepts_unattributed_failure_for_unknown_category(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from restore_role_probe import publish
+
+        c, f, r, out = (self.root / name for name in
+                        ("counts.out", "flags.out", "result.out", "summary.txt"))
+        c.write_bytes(b"counts=unavailable\n")
+        f.write_bytes(b"0|1|1|1|1\n")
+        unknown = UNATTRIBUTED_FAILURE.encode("ascii") + b"\n"
+        r.write_bytes(unknown)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            publish(c, f, r, 3, out)
+        self.assertIn(UNATTRIBUTED_FAILURE, stdout.getvalue())
+        self.assertIn(UNATTRIBUTED_FAILURE, out.read_text())
+        summary = out.read_bytes()
+
+        rejected = [unknown.replace(b"prefix_pass=unknown", b"prefix_pass=false"),
+                    unknown.replace(b"grant_type=other-or-unknown", b"grant_type=private.sql")]
+        for sql in (PARAMETER_SQL, DOCUMENTED_GRANT, b"CREATE ROLE example;"):
+            self.put(sql + b"\n")
+            record = result(ERROR1, self.roles, 3).encode("ascii") + b"\n"
+            rejected.append(record.replace(b"category=insufficient-privilege", b"category=unknown"))
+        for record in rejected:
+            with self.subTest(record=record):
+                r.write_bytes(record)
+                stdout = StringIO()
+                with redirect_stdout(stdout), self.assertRaises(ValueError):
+                    publish(c, f, r, 3, out)
                 self.assertEqual(stdout.getvalue(), "")
                 self.assertEqual(out.read_bytes(), summary)
 
