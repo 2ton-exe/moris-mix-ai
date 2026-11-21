@@ -450,13 +450,17 @@ describe('AI Chef pantry and review workflow', () => {
     addIngredient('rice')
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     await screen.findByRole('heading', { name: "Review Mori's recipe." })
+    expect(screen.getByText('Unsaved preview')).toBeTruthy()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
     await screen.findByRole('heading', { name: 'Your recipe is saved.' })
 
     fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value: 'Updated tomato egg rice' } })
+    expect(screen.getByText('Unsaved changes')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).toBeNull())
+    expect(save).toHaveBeenCalledTimes(2)
     expect(save.mock.calls[0]?.[1].recipeId).toBeUndefined()
     expect(save.mock.calls[1]?.[1].recipeId).toBe(savedRecipeId)
     expect(save.mock.calls[1]?.[0]).toMatchObject({ title: 'Updated tomato egg rice' })

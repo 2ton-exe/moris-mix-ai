@@ -763,7 +763,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
         } : undefined} />
       {!reviewWorkflow && <div className="actions recipe-form-actions">{desktopReview ? <>{exitButton}{saveButton}</> : <>{saveButton}{exitButton}</>}</div>}
       {reviewWorkflow && finalPage && estimateCount > 0 && <p className="field-hint">{estimateCount} ingredient {estimateCount === 1 ? 'estimate still needs' : 'estimates still need'} review.</p>}
-      {dirty && !(desktopReview && visibleIndices.includes(1)) && <p className="field-hint">{draftKeptInSession ? "Draft kept in this tab" : "Unsaved changes"}</p>}
+      {dirty && (hasConfirmedSave || !desktopReview || !visibleIndices.includes(1)) && <p className="field-hint">{draftKeptInSession ? "Draft kept in this tab" : "Unsaved changes"}</p>}
     </div></JournalPageFooter>
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>
