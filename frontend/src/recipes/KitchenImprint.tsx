@@ -20,12 +20,18 @@ function localToday() {
 
 type Status = { kind: 'idle' | 'pending' } | { kind: 'error' | 'uncertain'; message: string }
 
-export function KitchenImprint({ recipe, userId, close }: {
-  recipe: RecipeDetail; userId: string; journalReturn: string; close: (message?: string) => void
+export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty }: {
+  recipe: RecipeDetail; userId: string; close: (message?: string) => void;
+  reviewNote: (text: string, base: string) => Promise<void>; setNoteDirty: (dirty: boolean) => void
 }) {
   const today = localToday()
   const [date, setDate] = useState(today)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  const [note, setNote] = useState('')
+  const [base] = useState(recipe.notes ?? '')
+  const [dateSaved, setDateSaved] = useState(false)
+  const [preparingNote, setPreparingNote] = useState(false)
+  const [noteError, setNoteError] = useState('')
   const [dateError, setDateError] = useState('')
   const controlId = useId()
   const input = useRef<HTMLInputElement>(null)
@@ -39,9 +45,31 @@ export function KitchenImprint({ recipe, userId, close }: {
     return () => active.current?.abort()
   }, [])
 
+  function confirm() {
+    if (note.trim()) {
+      setDateSaved(true)
+      setStatus({ kind: 'idle' })
+    } else close('Cooking date saved.')
+  }
+
+  async function prepareNote() {
+    if (preparingNote || !note.trim()) return
+    setPreparingNote(true)
+    setNoteError('')
+    try {
+      await reviewNote(note.trim(), base)
+    } catch (error) {
+      setNoteError(error instanceof Error && !(error instanceof HttpError) && error.name !== 'AbortError'
+        ? error.message
+        : 'Could not load current Personal Notes. Your observation is still here. Try again.')
+    } finally {
+      setPreparingNote(false)
+    }
+  }
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (active.current) return
+    if (active.current || dateSaved) return
     const verifyOnly = status.kind === 'uncertain'
     if (!recipeDraftSchema.shape.cooked_at.safeParse(date).success || date > today) {
       setDateError('Enter a valid date on or before today.')
@@ -64,7 +92,7 @@ export function KitchenImprint({ recipe, userId, close }: {
         const current = await source.detail(recipe.id, request)
         signal.throwIfAborted()
         reconcile(current)
-        if (current.cooked_at === date) close('Cooking date saved.')
+        if (current.cooked_at === date) confirm()
         else setStatus({ kind: 'error', message: 'The cooking date was not recorded. You can try saving again.' })
       } catch {
         if (!signal.aborted) setStatus({ kind: 'uncertain', message: 'Could not check whether the cooking date was saved. Check the current date before retrying.' })
@@ -81,7 +109,7 @@ export function KitchenImprint({ recipe, userId, close }: {
       await queryClient.cancelQueries({ queryKey: key, exact: true })
       signal.throwIfAborted()
       reconcile(updated)
-      close('Cooking date saved.')
+      confirm()
     } catch (error) {
       if (signal.aborted) return
       const rejected = error instanceof HttpError &&
@@ -98,15 +126,25 @@ export function KitchenImprint({ recipe, userId, close }: {
   return <PaperCard surface="ruled" className="mm-reading-tools__slip">
     <form noValidate onSubmit={(event) => { void save(event) }}>
       <label htmlFor={controlId}>Cooking date</label>
-      <input type="date" id={controlId} ref={input} value={date} max={today} required disabled={pending || verifyOnly}
+      <input type="date" id={controlId} ref={input} value={date} max={today} required disabled={pending || verifyOnly || dateSaved}
         aria-invalid={!!dateError} aria-describedby={dateError ? `${controlId}-error` : undefined}
         onChange={(event) => { setDate(event.target.value); setDateError('') }} />
       {dateError && <p className="field-error" role="alert" id={`${controlId}-error`}>{dateError}</p>}
       {(status.kind === 'uncertain' || status.kind === 'error') && <p className="field-error" role="alert">{status.message}</p>}
+      <label htmlFor={`${controlId}-note`}>Observation (optional)</label>
+      <textarea id={`${controlId}-note`} rows={2} maxLength={400} value={note}
+        disabled={pending || preparingNote}
+        onChange={(event) => { setNote(event.target.value); setNoteDirty(!!event.target.value.trim()); setNoteError('') }} />
+      {noteError && <p className="field-error" role="alert">{noteError}</p>}
+      {dateSaved && <p role="status">Cooking date saved.</p>}
       {pending && <p role="status">Checking cooking date…</p>}
       <div className="mm-reading-tools__actions">
-        <ScrapbookButton size="small" type="submit" disabled={pending}>{verifyOnly ? 'Check saved date' : 'Save imprint'}</ScrapbookButton>
-        <ScrapbookButton size="small" tone="paper" disabled={pending} onClick={() => close()}>Cancel</ScrapbookButton>
+        {dateSaved
+          ? <ScrapbookButton size="small" disabled={preparingNote || !note.trim()} onClick={() => { void prepareNote() }}>
+              {preparingNote ? 'Loading notes…' : 'Review observation in editor'}
+            </ScrapbookButton>
+          : <ScrapbookButton size="small" type="submit" disabled={pending}>{verifyOnly ? 'Check saved date' : 'Save imprint'}</ScrapbookButton>}
+        <ScrapbookButton size="small" tone="paper" disabled={pending || preparingNote} onClick={() => close(dateSaved ? 'Cooking date saved.' : '')}>{dateSaved ? 'Close' : 'Cancel'}</ScrapbookButton>
       </div>
     </form>
   </PaperCard>

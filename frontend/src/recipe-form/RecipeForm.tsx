@@ -4,6 +4,7 @@ import type { RecipeDraft, RecipeDraftInput, RecipeEditorState } from './draft'
 import { recipeDraftSchema, recipeEditorStateSchema } from './draft'
 import type { RecipeSaveConfirmation } from './submission'
 import { confirmedSave } from './submission'
+import type { readNoteHandoff } from './noteHandoff'
 import { RecipeFormEditor } from './RecipeFormEditor'
 
 export type RecipeFormProps = {
@@ -24,6 +25,7 @@ export type RecipeFormProps = {
   draftKeptInSession?: boolean
   editorTitle?: string
   notesSupported?: boolean
+  noteHandoff?: ReturnType<typeof readNoteHandoff>
   renderFrame?: (content: ReactNode) => ReactNode
   notice?: ReactNode
   reviewPages?: { title: string; content: ReactNode }[]

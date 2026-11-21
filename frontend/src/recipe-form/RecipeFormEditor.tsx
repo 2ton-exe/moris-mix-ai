@@ -4,6 +4,7 @@ import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { ArrowDown, ArrowLeft, ArrowUp, Check, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
 import type { RecipeDraft, RecipeEditorState } from './draft'
+import { appendPersonalNote, clearNoteHandoff } from './noteHandoff'
 import { emptyRecipeDraft, editorState, moveRow, validateEditor } from './draft'
 import { confirmedSave, RecipeSubmissionError, submissionMessage } from './submission'
 import { RecipeFormField } from './RecipeFormField'
@@ -25,11 +26,14 @@ function resizeTextarea(target: EventTarget | null) {
   target.style.height = `${target.scrollHeight}px`
 }
 
-export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPages, reviewStatus, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, noteHandoff, renderFrame, notice, reviewPages, reviewStatus, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [dismissedTransfer, setDismissedTransfer] = useState('')
+  const transfer = noteHandoff && noteHandoff.id !== dismissedTransfer ? noteHandoff : undefined
+  const transferredNotes = transfer ? appendPersonalNote(state.notes, transfer.text) : ''
   const [message, setMessage] = useState<string | null>(null)
   const [hasConfirmedSave, setHasConfirmedSave] = useState(initialSaveConfirmation !== undefined)
   const [confirmationMessage, setConfirmationMessage] = useState(initialSaveConfirmation?.statusMessage ?? 'Recipe saved.')
@@ -494,6 +498,29 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
               </select>
             </RecipeFormField>
           </div>
+          {transfer && notesSupported && <details className="recipe-note-transfer" open>
+            <summary>Review text for Personal Notes</summary>
+            <p className="recipe-note-transfer__source">From {transfer.title}</p>
+            <blockquote>{transfer.text}</blockquote>
+            {transfer.baseChanged && <p>Personal Notes have changed. Review the current notes before adding your text.</p>}
+            {transferredNotes.length > 20_000 && <p className="field-error">The notes would exceed 20,000 characters. Shorten the current notes to make room.</p>}
+            <div className="recipe-note-transfer__actions">
+              <button className="button button-secondary mm-button--small" type="button" disabled={pending || transferredNotes.length > 20_000}
+                onClick={() => {
+                  focusStable('notes:0')
+                  change({ ...state, notes: transferredNotes })
+                  clearNoteHandoff(transfer.id)
+                  setDismissedTransfer(transfer.id)
+                  setAnnouncement('Text added to the draft’s Personal Notes.')
+                }}>Add to Personal Notes</button>
+              <button className="button button-secondary mm-button--small" type="button"
+                onClick={() => {
+                  focusStable('notes:0')
+                  clearNoteHandoff(transfer.id)
+                  setDismissedTransfer(transfer.id)
+                }}>Discard copied text</button>
+            </div>
+          </details>}
           <RecipeFormField id={field('notes').id} label="Notes" error={errors.notes} hint={notesSupported ? undefined : 'Local draft only. Notes have no published saving contract yet.'}>
             <textarea {...field('notes', !notesSupported, 'notes:0')} data-form-page-anchor="notes:0" data-form-autosize maxLength={Math.max(noteParts[0].length, 20_000 - state.notes.length + noteParts[0].length)} rows={4} value={noteParts[0]} onChange={(event) => change({ ...state, notes: replaceFormTextPart(noteParts, 0, event.target.value) })} />
           </RecipeFormField>
