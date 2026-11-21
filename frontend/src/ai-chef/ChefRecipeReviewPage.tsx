@@ -479,15 +479,17 @@ function ChefGenerationNotice({
   compact: boolean
 }) {
   const ingredientsHeading = useId()
-  const smallSpread = useJournalMedia('(max-width: 1279.98px), (max-height: 839.98px)')
+  const smallSpread = useJournalMedia('(max-width: 1279.98px), (max-height: 879.98px)')
   const { request, response } = handoff
   const flavorScores = response.recipe.flavor_scores
   const ingredients = [...new Set(response.recipe.ingredients.map(({ name }) => name))]
   const parents = uniqueCandidateParents(handoff)
   const showAllIngredients = !compact || (ingredients.length <= (smallSpread ? 5 : 6)
     && ingredients.every((name) => name.length <= 22) && ingredients.join('').length <= (smallSpread ? 34 : 68))
-  const showAllParents = !compact || (parents.length <= (smallSpread ? 1 : 2) && parents.every((parent) => parent.title.length <= 40))
-  const showFullRequest = !compact || (!request.preferences && request.pantryItems.length <= 6 && request.pantryItems.every((item) => item.length <= 18))
+  const showAllParents = !compact || (parents.length <= (smallSpread ? 1 : 2)
+    && parents.every((parent) => parent.title.length <= (smallSpread ? 26 : 40)))
+  const showFullRequest = !compact || (!request.preferences && request.pantryItems.length <= (smallSpread ? 5 : 6)
+    && request.pantryItems.every((item) => item.length <= (smallSpread ? 12 : 18)))
 
   const ingredientList = <ul role="list">{ingredients.map((name) => <li key={name}>
     {compact ? <SuggestedIngredientIcon name={name} /> : <IngredientEmoji name={name} />}

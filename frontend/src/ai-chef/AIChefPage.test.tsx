@@ -284,6 +284,31 @@ describe('AI Chef pantry and review workflow', () => {
     expect(review.getByText('5 out of 5').className).toBe('visually-hidden')
   })
 
+  it('gives long journal titles and pantry requests room in a smaller spread', async () => {
+    const matchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+      const result = matchMedia(query)
+      return { ...result, matches: result.matches || query.includes('max-width: 1279.98px') }
+    })
+    const parent = { ...response.parents[0], title: 'Weeknight stir-fried rice with tomatoes' }
+    const pantryItems = ['yellow bell pepper', 'Worcestershire', 'spring onions', 'polenta', 'sweet red chili', 'cherry tomatoes']
+    writeChefDraft('chef-cook', {
+      input: { pantryItems, pantryInput: '', preferences: '' },
+      handoff: { request: { pantryItems }, response: { ...response, parents: [parent] }, selectedParentIds: [], saved: false },
+    })
+    const { router } = renderChef()
+    await act(() => router.navigate('/app/chef/review'))
+
+    const journal = openReviewDetail('Choose journal recipes (1)', 'From your journal')
+    fireEvent.click(journal.getByRole('checkbox', { name: new RegExp(parent.title) }))
+    fireEvent.click(journal.getByRole('button', { name: 'Done' }))
+    expect(screen.getByText('1 of 10 parent recipes selected.')).toBeTruthy()
+
+    const request = openReviewDetail('Full request', 'Your request')
+    const shownItems = request.getAllByRole('listitem').map((item) => item.textContent)
+    expect(shownItems).toEqual(pantryItems)
+  })
+
   it('rejects an empty pantry locally and retains inputs after quota failure for retry', async () => {
     const generate = vi.spyOn(generateRecipeApi, 'generate')
       .mockRejectedValueOnce(new HttpError('http', 'private text', 429, { error: { code: 'QUOTA_EXCEEDED' } }, '60'))
