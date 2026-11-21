@@ -22,7 +22,7 @@ type Status = { kind: 'idle' | 'pending' } | { kind: 'error' | 'uncertain'; mess
 
 export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty }: {
   recipe: RecipeDetail; userId: string; close: (message?: string) => void;
-  reviewNote: (text: string, base: string) => Promise<void>; setNoteDirty: (dirty: boolean) => void
+  reviewNote: (text: string, base: string) => Promise<string | undefined>; setNoteDirty: (dirty: boolean) => void
 }) {
   const today = localToday()
   const [date, setDate] = useState(today)
@@ -56,15 +56,9 @@ export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty
     if (preparingNote || !note.trim()) return
     setPreparingNote(true)
     setNoteError('')
-    try {
-      await reviewNote(note.trim(), base)
-    } catch (error) {
-      setNoteError(error instanceof Error && !(error instanceof HttpError) && error.name !== 'AbortError'
-        ? error.message
-        : 'Could not load current Personal Notes. Your observation is still here. Try again.')
-    } finally {
-      setPreparingNote(false)
-    }
+    const issue = await reviewNote(note.trim(), base)
+    if (issue) setNoteError(issue)
+    setPreparingNote(false)
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
