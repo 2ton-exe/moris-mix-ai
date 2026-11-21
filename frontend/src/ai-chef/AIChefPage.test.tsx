@@ -142,7 +142,7 @@ describe('AI Chef pantry and review workflow', () => {
     renderChef()
     addIngredient('garlic')
     fireEvent.click(screen.getByRole('button', { name: 'See a pairing for garlic' }))
-    expect(screen.getByRole('heading', { name: 'A pairing for garlic' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'A pairing for garlic' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Pantry list, 1 item' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Add parsley' }))
     expect(screen.getByRole('region', { name: 'Pantry list, 2 items' }).textContent).toContain('parsley')

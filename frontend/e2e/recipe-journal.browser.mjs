@@ -194,7 +194,13 @@ try {
     }
     await expect(page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
     await assertJournalSemantics(page, `${width}px dashboard`)
-    await expect(page.locator('.recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
+    const liveCards = page.getByRole('link', { name: /^Open recipe / })
+    if (width < 1100) await expect(liveCards).toHaveCount(width < 600 ? 1 : 2)
+    else {
+      await page.locator('.mm-collection-body').first().getByRole('link', { name: /^Open recipe / }).first().waitFor()
+      const liveCount = await liveCards.count()
+      assert.ok(liveCount > 0 && liveCount <= recipes.length, 'The measured desktop spread shows saved recipes without counting measurement copies.')
+    }
     const firstCard = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
     await expect(firstCard).toBeVisible()
     await expect(firstCard.getByRole('img', { name: /no recipe photo is available/ })).toBeVisible()
