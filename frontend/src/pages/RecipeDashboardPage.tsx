@@ -11,6 +11,8 @@ import { RecipeSourceContext } from '../recipes/source'
 import { PaperCard, Tape } from '../journal/Scrapbook'
 import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
 import { useMoriHeadingFocusKey } from '../mori/routeState'
+import { RecipeComparison } from '../recipes/RecipeComparison'
+import { useJournalDesktopTools } from '../journal/useJournalDesktopTools'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPageContext } from '../journal/JournalLayoutContext'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
@@ -38,6 +40,19 @@ export default function RecipeDashboardPage() {
   const restoreIndexFocus = useRef(true)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
+  const desktopTools = useJournalDesktopTools()
+  const [comparisonAccount, setComparisonAccount] = useState<string | null>(null)
+  const compareButton = useRef<HTMLButtonElement>(null)
+  const restoreCompareFocus = useRef(false)
+  const comparisonOpen = desktopTools && comparisonAccount !== null && comparisonAccount === user?.id
+  useEffect(() => {
+    if (comparisonAccount !== null && comparisonAccount !== user?.id) setComparisonAccount(null)
+  }, [comparisonAccount, user?.id])
+  useEffect(() => {
+    if (comparisonOpen || !restoreCompareFocus.current) return
+    restoreCompareFocus.current = false
+    compareButton.current?.focus()
+  }, [comparisonOpen])
   const facingPage = useContext(JournalFacingPageContext)
   const [params, setParams] = useSearchParams()
   const otherAccount = location.state?.journalAccount !== undefined && location.state.journalAccount !== user?.id
@@ -223,6 +238,10 @@ export default function RecipeDashboardPage() {
         {query.isFetchingNextPage && <p role="status">Loading more recipes…</p>}
 
   </>
+  if (comparisonOpen) return <RecipeComparison key={comparisonAccount} onClose={() => {
+    restoreCompareFocus.current = true
+    setComparisonAccount(null)
+  }} />
   return <div data-journal-ready={(query.isFetchNextPageError || query.isPaused) && turnSearch !== null ? 'error' : turnSearch !== null && (query.isPending || controls.waiting || ((recipes?.length ?? 0) < needed && query.hasNextPage)) ? 'false' : 'true'} className="mm-page-column">
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       catalog={pagedIndex ? { start: catalogStart, end: nextCatalogStart ?? recipes?.length ?? 0, indicator: `Page ${catalogPage + 1}`, measure: measureCatalog } : undefined}
@@ -230,6 +249,8 @@ export default function RecipeDashboardPage() {
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
         <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
+        {desktopTools && user && source.mode === 'live' && <button ref={compareButton} className="button button-secondary mm-button--small"
+          type="button" onClick={() => setComparisonAccount(user.id)}>Compare recipes</button>}
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}

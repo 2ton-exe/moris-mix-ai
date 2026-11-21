@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { RecipeIntegrationUnavailable, RecipeSourceContext } from './source'
+import { clearDeletedRecipeKeepsakes } from './recipeKeepsakeRecords'
 import { recipeKeys } from './queryOptions'
 
 interface DeleteRecipeVariables {
@@ -44,6 +45,7 @@ export function useDeleteRecipe() {
       }
     },
     onSuccess: ({ recipeId, userId: deletedUserId }) => {
+      clearDeletedRecipeKeepsakes(deletedUserId, recipeId)
       queryClient.removeQueries({ queryKey: recipeKeys.detail(deletedUserId, recipeId), exact: true })
       void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(deletedUserId) })
     },

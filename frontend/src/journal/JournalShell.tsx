@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 import { BrandMark } from './BrandMark'
-import { MoriEmblem } from './Mori'
-import { JournalSurface, PaperCard } from './Scrapbook'
+import { JournalBookplate } from './JournalBookplate'
+import { JournalSurface } from './Scrapbook'
 import { DeskStationery } from './DeskStationery'
 import { JournalFacingPageContext, JournalPageFooterContext, JournalPaginationContext } from './JournalLayoutContext'
 import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, useJournalPageTurnManager } from './JournalPageTurn'
@@ -53,9 +53,9 @@ function JournalNavigation() {
 }
 
 /** Presentation only: no router, auth, query, snapshot, or animation providers. */
-export function JournalShell({ account, children, pageClassName = '', mode = 'journal', publicNavigation = false, ownerName = 'a cook' }: {
+export function JournalShell({ account, children, pageClassName = '', mode = 'journal', publicNavigation = false, bookplate, ownerName = 'a cook' }: {
   account?: ReactNode; children: ReactNode; pageClassName?: string
-  mode?: 'journal' | 'reading' | 'writing' | 'demo'; publicNavigation?: boolean; ownerName?: string
+  mode?: 'journal' | 'reading' | 'writing' | 'demo'; publicNavigation?: boolean; ownerName?: string; bookplate?: ReactNode
 }) {
   const location = useLocation()
   const companionEnabled = !publicNavigation && (location.pathname === '/app' || location.pathname.startsWith('/app/'))
@@ -123,14 +123,8 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
         <div className="mm-journal-stack mm-journal-stack--left" aria-hidden="true" />
         <div className="mm-journal-stack mm-journal-stack--right" aria-hidden="true" />
         <main className="mm-journal-spread" id="journal-content" tabIndex={-1} inert={pageTurn.isTurning} aria-busy={pageTurn.isTurning || undefined}>
-          <section className="mm-journal-flyleaf" aria-label="Facing journal page" tabIndex={0}>
-            <PaperCard className="mm-bookplate" surface="fresh">
-              <MoriEmblem size={46} />
-              <span className="mm-bookplate__ex-libris">Cooking journal</span>
-              <p>This journal belongs to</p>
-              <p className="mm-bookplate__title">{ownerName}</p>
-              <span className="mm-bookplate__rule" aria-hidden="true" />
-            </PaperCard>
+          <section className="mm-journal-flyleaf" data-custom-bookplate={!!bookplate || undefined} aria-label="Facing journal page" tabIndex={0}>
+            {bookplate ?? <JournalBookplate ownerName={ownerName} />}
             <PaperHoles side="left" />
             <div ref={setFacingPage} className="mm-facing-slot" />
             <div ref={setLeftPagination} className="mm-pagination-slot mm-pagination-slot--left" />
