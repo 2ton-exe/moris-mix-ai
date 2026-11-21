@@ -333,51 +333,211 @@ test('marker occurs exactly once; rendering identical state is deterministic', (
   const body = render(d); assert.equal(body.split(MARKER).length - 1, 1);
   assert.equal(body, render(d)); assert.doesNotMatch(body, /@everyone/);
 });
-test('empty Attention section is omitted', () => assert.doesNotMatch(render(data()), /### Attention/));
+test('title, reviewer, and required check text cannot break the desk layout', () => {
+  const d = data();
+  d.pr.title = 'a | `tick`\n</details> @everyone [urgent](https://example.invalid)';
+  d.pr.requested_reviewers = [user('r | `tick`\r\n<summary> @team')];
+  d.required = [{ context: 'check | `tick`\n<details> @team', integrationId: null }];
+  const body = render(d);
+  assert.equal(body, render(d));
+  assert.equal(body.split(MARKER).length - 1, 1);
+  assert.equal((body.match(/<details>/g) ?? []).length, 3);
+  assert.equal((body.match(/<\/details>/g) ?? []).length, 3);
+  assert.doesNotMatch(body, /@everyone|@team|\[urgent\]\(https:\/\/example\.invalid\)/);
+  const quote = String.fromCharCode(96);
+  assert.ok(body.includes(`a \\| \\${quote}tick\\${quote} &lt;/details&gt; &\\#64;everyone \\[urgent\\](https://example.invalid)`));
+  assert.ok(body.includes(`r \\| \\${quote}tick\\${quote} &lt;summary&gt; &\\#64;team`));
+  assert.ok(body.includes(`| check \\| \\${quote}tick\\${quote} &lt;details&gt; &\\#64;team (required) | ➖ NOT RUN |`));
+});
+const visibleDesk = body => body.split('\n\n<details>')[0];
+const panelTitles = body => [...body.matchAll(/<summary>([^<]+)<\/summary>/g)].map(match => match[1]);
+test('empty attention is omitted and advisory diagnostics stay out of the action area', () => {
+  const d = data();
+  d.paths = ['docs/devops/runbook.md', '.github/workflows/ci.yml'];
+  const body = render(d);
+  assert.doesNotMatch(visibleDesk(body), /### (Attention|Action needed)|inspect delivery and secrets boundaries/);
+  assert.match(body, /#### Diagnostic notes\n\n- workflow\/deployment configuration changed/);
+});
 
-for (const [label, state, line] of [
-  ['open', undefined, '- Haresco — ⏳ WAITING'],
-  ['approved', 'APPROVED', '- Haresco — ✅ APPROVED'],
-  ['changes requested', 'CHANGES_REQUESTED', '- Haresco — ❌ CHANGES REQUESTED'],
-  ['merged', 'APPROVED', '- Haresco — ✅ APPROVED'],
+for (const [label, state, summary, reviewLine] of [
+  ['open', undefined, 'Await requested human review.', '- Haresco — ⏳ WAITING'],
+  ['approved', 'APPROVED', 'Wait for required CI results.', '- Haresco — ✅ APPROVED'],
+  ['changes requested', 'CHANGES_REQUESTED', 'Address the review or check results below.', '- Haresco — ❌ CHANGES REQUESTED'],
+  ['merged', 'APPROVED', 'Production delivery evidence is incomplete.', '- Haresco — ✅ APPROVED'],
 ]) test(`Markdown dashboard snapshot: ${label}`, () => {
   const d = data();
   const terminal = label === 'merged';
   if (terminal) d.pr = merged();
   if (state) d.reviews = [review('DaeSaster', state)];
   d.required = [{ context: GATES[0][2], integrationId: 15368 }];
-  d.checks = [check(GATES[0][2], 'success', { app: { id: 15368 } })];
+  d.checks = [check(GATES[0][2], 'success', { app: { id: 15368 },
+    ...(label === 'approved' ? { status: 'in_progress', conclusion: null } : {}) })];
   const body = render(d);
   const snapshot = [
-    MARKER, '', '## PR Secretary', '',
+    MARKER, '', "<sub>MORI'S MIX · ENGINEERING</sub>", '', '## PR Secretary · Delivery Control Desk', '',
     `**${terminal ? '✅ MERGED' : '⏳ OPEN'}** · #87 — Delivery metadata`, '',
-    `**${terminal ? 'Final PR head' : 'PR head'}** · \`${sha}\``,
-    ...(terminal ? [`**Merge on main** · \`${mergeSha}\` · ${mergedAt}`] : []), '',
-    terminal ? '### Historical human reviews' : '### Human reviews', '',
-    ...(terminal ? [] : ['**Requested reviewers:** Haresco', '']), line, '',
-    '<sub>Review history is separate from GitHub’s merge decision.</sub>', '',
-    terminal ? '### Required checks on final PR head' : '### Required checks', '',
-    '| Evidence | Status |', '| --- | --- |', '| Frontend | ✅ PASS |', '', 'Policy source · test policy',
-    '', '**Other PR delivery** · E2E (non-gating) ➖ NOT RUN · Staging deploy ➖ NOT RUN · Staging smoke ➖ NOT RUN',
-    ...(terminal ? ['', '### Main delivery for this merge', '', '➖ No exact main workflow run established.', '',
-      '| Evidence | Status |', '| --- | --- |', '| Main validation | ➖ UNKNOWN |', '| Main E2E | ➖ UNKNOWN |',
-      '| Production job | ➖ UNKNOWN |', '| Production deployment | ➖ UNKNOWN |', '| Production smoke | ➖ UNKNOWN |'] : []),
-    '', '### Automated review', '', '**CodeRabbit (optional)** · NOT DETECTED', '**Open threads:** 0',
-    ...(state === 'CHANGES_REQUESTED' ? ['', '### Attention', '', '- Review the current-revision changes requested'] : []),
+    `**${terminal ? 'Delivery outcome' : 'Next attention'}** · ${summary}`,
+    ...(state === 'CHANGES_REQUESTED' ? ['', '### Action needed', '', '- **Human review** · Haresco — CHANGES REQUESTED'] : []),
+    '', '### Delivery journey', '', '| Stage | Status |', '| --- | --- |',
+    `| ${terminal ? 'Review (historical)' : 'Review'} | ${state?.replace('_', ' ') ?? 'WAITING'} |`,
+    `| CI (required PR checks) | ${label === 'approved' ? 'RUNNING' : 'PASS'} |`,
+    `| Merge | ${terminal ? 'MERGED' : 'NOT MERGED'} |`,
+    `| Deploy | ${terminal ? 'UNKNOWN' : 'NOT APPLICABLE'} |`,
+    `| Smoke | ${terminal ? 'UNKNOWN' : 'NOT APPLICABLE'} |`,
+    '', '### Status overview', '',
+    terminal ? '- **Human review** · See historical reviews below.' : '- **Requested reviewers:** Haresco',
+    '- **Required CI policy** · test policy',
+    ...(terminal ? ['- **Main validation** · UNKNOWN', '- **Main E2E** · UNKNOWN'] : []),
   ].join('\n');
-  assert.equal(body.split('\n\n<details>')[0], snapshot);
-  assert.match(body, /<summary>Detailed evidence<\/summary>/);
+  assert.equal(visibleDesk(body), snapshot);
+  assert.deepEqual(panelTitles(body), ['Human reviews and CodeRabbit', 'PR validation',
+    ...(terminal ? ['Exact main release evidence'] : []), 'Revision and diagnostics']);
+  assert.ok(body.includes(reviewLine));
+  assert.match(body, /\*\*CodeRabbit \(optional\)\*\* · NOT DETECTED/);
+  assert.match(body, /\| Frontend \| (✅ PASS|⏳ RUNNING) \|/);
+  assert.ok(body.includes(`**${terminal ? 'Final PR head' : 'PR head'}** · \`${sha}\``));
+  if (terminal) assert.ok(body.includes(`**Merge on main** · \`${mergeSha}\` · ${mergedAt}`));
   assert.doesNotMatch(body, /- \[ \]/);
   if (terminal) assert.doesNotMatch(body, /WAITING|Ready for review|Requested reviewers|### Attention|Haresco — DevOps review/);
+  assert.doesNotMatch(body, /merge-ready|ready to merge|merge eligible/i);
 });
+
+test('a draft with no submitted review does not imply production or missing staging work', () => {
+  const d = data();
+  d.pr.draft = true;
+  d.pr.requested_reviewers = [];
+  const body = render(d);
+  const visible = visibleDesk(body);
+  assert.match(visible, /\*\*⏳ DRAFT\*\*/);
+  assert.match(visible, /Prepare the draft for human review/);
+  assert.match(visible, /\| Review \| NO REVIEW RECORDED \|/);
+  assert.match(visible, /\| Deploy \| NOT APPLICABLE \|\n\| Smoke \| NOT APPLICABLE \|/);
+  assert.doesNotMatch(visible, /WAITING|Action needed|Staging deploy/);
+  assert.match(body, /\| Staging deploy \| ➖ NOT RUN \|/);
+});
+
+test('required failures are above the panels and a passing optional check does not turn the CI stage green', () => {
+  const d = data();
+  d.required = [PROJECT_REQUIRED[0], PROJECT_REQUIRED[1]];
+  d.checks = [check(PROJECT_REQUIRED[0].context, 'failure'), check(PROJECT_REQUIRED[1].context, 'success'),
+    check(GATES.find(([label]) => label === 'E2E (non-gating)')[2], 'success')];
+  const visible = visibleDesk(render(d));
+  assert.match(visible, /### Action needed\n\n- \*\*Frontend\*\* · FAIL/);
+  assert.match(visible, /\| CI \(required PR checks\) \| FAIL · PASS \(fallback; integration unverified\) \|/);
+  assert.match(visible, /\*\*E2E \(non-gating\)\*\* · PASS/);
+  assert.doesNotMatch(visible, /all checks passed/i);
+});
+
+const passingRequiredDesk = () => {
+  const d = data();
+  d.required = PROJECT_REQUIRED.map(({ context }) => ({ context, integrationId: 15368 }));
+  d.checks = d.required.map(({ context }) => check(context, 'success', { app: { id: 15368, slug: 'github-actions' } }));
+  return d;
+};
+
+for (const [conclusion, state, icon] of [
+  ['failure', 'FAIL', '❌'],
+  ['success', 'PASS', '✅'],
+  ['skipped', 'SKIPPED — EXPECTED', '➖'],
+]) test(`Hosted RLS ${state} is classified correctly above the evidence panels`, () => {
+  const d = passingRequiredDesk();
+  const [, , hostedRls] = GATES.find(([label]) => label === 'Hosted RLS');
+  d.checks.push(check(hostedRls, conclusion));
+  const body = render(d);
+  const visible = visibleDesk(body);
+  assert.match(visible, /\| CI \(required PR checks\) \| PASS \|/);
+  if (state === 'FAIL') assert.match(visible, /### Action needed\n\n- \*\*Hosted RLS\*\* · FAIL/);
+  else assert.doesNotMatch(visible, /### Action needed|Hosted RLS/);
+  assert.ok(body.includes(`| Hosted RLS | ${icon} ${state} |`));
+});
+
+test('an additional check outside the active required policy can surface a failure', () => {
+  const d = passingRequiredDesk();
+  const [, , database] = GATES.find(([label]) => label === 'Database');
+  d.required = d.required.filter(({ context }) => context !== database);
+  d.checks.find(({ name }) => name === database).conclusion = 'failure';
+  const visible = visibleDesk(render(d));
+  assert.match(visible, /### Action needed\n\n- \*\*Database\*\* · FAIL/);
+  assert.match(visible, /\| CI \(required PR checks\) \| PASS \|/);
+  assert.doesNotMatch(visible.split('### Status overview')[1], /Database/);
+});
+
+for (const [label, run, state, icon, action] of [
+  ['failed', prRun({ id: 42, run_attempt: 3, conclusion: 'failure' }), 'FAIL', '❌', true],
+  ['cancelled', prRun({ id: 42, run_attempt: 3, conclusion: 'cancelled' }), 'CANCELLED', '❌', true],
+  ['running', prRun({ id: 42, run_attempt: 3, status: 'in_progress', conclusion: null }), 'RUNNING', '⏳', false],
+  ['passing', prRun({ id: 42, run_attempt: 3 }), 'PASS', '✅', false],
+  ['absent', undefined, 'UNKNOWN', '➖', false],
+]) test(`the ${label} PR validation workflow stays separate from passing required checks`, () => {
+  const body = render({ ...passingRequiredDesk(), validationRun: run });
+  const visible = visibleDesk(body);
+  assert.match(visible, /\| CI \(required PR checks\) \| PASS \|/);
+  if (action) assert.ok(visible.includes(`### Action needed\n\n- **PR validation workflow** · ${state}`));
+  else assert.doesNotMatch(visible, /### Action needed|PR validation workflow/);
+  assert.ok(body.includes(`**PR validation workflow** · ${icon} ${state}`));
+  const exactLink = `[run 42, attempt 3](https://github.com/${repository}/actions/runs/42/attempts/3)`;
+  if (run) {
+    assert.ok(body.includes(`**PR validation workflow** · ${icon} ${state} · ${exactLink}`));
+    assert.ok(!visible.includes(exactLink));
+  } else assert.doesNotMatch(body, /\/actions\/runs\//);
+});
+
+test('a failed PR validation workflow is visible when no required check results are available', () => {
+  const d = passingRequiredDesk();
+  d.checks = [];
+  d.validationRun = prRun({ conclusion: 'failure' });
+  const visible = visibleDesk(render(d));
+  assert.match(visible, /### Action needed\n\n- \*\*PR validation workflow\*\* · FAIL/);
+  assert.match(visible, /- \*\*Frontend\*\* · NOT RUN/);
+  assert.match(visible, /\| CI \(required PR checks\) \| NOT RUN \|/);
+});
+
+test('a missing required check gets a visible action even while a reviewer is waiting', () => {
+  const d = data();
+  d.required = [PROJECT_REQUIRED[0]];
+  const visible = visibleDesk(render(d));
+  assert.match(visible, /\*\*Next attention\*\* · Check missing required CI results\./);
+  assert.match(visible, /### Action needed\n\n- \*\*Frontend\*\* · NOT RUN/);
+  assert.match(visible, /\| Review \| WAITING \|\n\| CI \(required PR checks\) \| NOT RUN \|/);
+  assert.match(visible, /\*\*Requested reviewers:\*\* Haresco/);
+  assert.doesNotMatch(visible, /Await requested human review|merge-ready|ready to merge|merge eligible/i);
+});
+
+test('earlier-revision changes requested remain visible as history without a current action', () => {
+  const d = data();
+  d.reviews = [review('DaeSaster', 'CHANGES_REQUESTED', 1, { commit_id: 'e'.repeat(40) })];
+  const body = render(d);
+  assert.match(visibleDesk(body), /\| Review \| CHANGES REQUESTED \(earlier revision\) \|/);
+  assert.doesNotMatch(visibleDesk(body), /### Action needed/);
+  assert.match(body, /Haresco — ❌ CHANGES REQUESTED \(earlier revision\)/);
+});
+
+test('expected skips remain visible and unavailable evidence stays distinct', () => {
+  const d = data();
+  d.checks = [check('Classify PR paths', 'success', { workflow: 'Modular PR Validation',
+    app: { slug: 'github-actions' }, run_id: 8, steps: [check('Record documentation-only E2E/staging skips', 'success')] }),
+  check('Modular E2E', 'skipped', { run_id: 8 }), check('Modular Staging', 'skipped', { run_id: 8 })];
+  d.threadsAvailable = false;
+  const body = render(d);
+  const visible = visibleDesk(body);
+  assert.match(visible, /\| CI \(required PR checks\) \| UNKNOWN \|/);
+  for (const label of ['E2E (non-gating)', 'Staging deploy', 'Staging smoke']) {
+    assert.ok(visible.includes(`- **${label}** · SKIPPED — EXPECTED`));
+  }
+  assert.doesNotMatch(visible, /### Action needed|VERIFIED/);
+  assert.match(body, /CodeRabbit \(optional\)\*\* · NOT DETECTED\n\*\*Open threads:\*\* Unavailable/);
+});
+
 test('closed without merge is terminal even if a temporary merge SHA and requests remain', () => {
   const d = data();
   d.pr = { ...merged(), merged: false, merged_at: null };
   d.reviews = [review('myntchoc', 'DISMISSED')];
+  d.release = { run: mainRun(), deploy: 'VERIFIED', smoke: 'VERIFIED' };
   const body = render(d);
   assert.match(body, /CLOSED WITHOUT MERGE/);
+  assert.match(visibleDesk(body), /\| Merge \| CLOSED WITHOUT MERGE \|\n\| Deploy \| NOT APPLICABLE \|\n\| Smoke \| NOT APPLICABLE \|/);
   assert.match(body, /Belen — ➖ DISMISSED/);
-  assert.doesNotMatch(body, /WAITING|Ready for review|Main delivery|Merge on main|Requested reviewers|### Attention/);
+  assert.doesNotMatch(body, /WAITING|Ready for review|Exact main release|Merge on main|Requested reviewers|### Attention|VERIFIED/);
 });
 
 function mockApi(handler) {
@@ -774,6 +934,50 @@ const mainJobs = [
     'Modular Main Edge/API / Hosted RLS Integration', 'Modular Main E2E / Playwright E2E Tests'].map(name => check(name, 'success')),
   check(productionJob, 'success', { steps: [...deploySteps, ...smokeSteps].map(name => check(name, 'success')) }),
 ];
+for (const [label, deploy, smoke, outcome, action] of [
+  ['pending', 'PENDING', 'PENDING', 'Main delivery evidence is still pending.'],
+  ['skipped', 'SKIPPED', 'SKIPPED', 'Production deployment and smoke were skipped.'],
+  ['deployment failed', 'FAIL', 'SKIPPED', 'Release evidence needs attention.', '- **Production deployment** · FAIL'],
+  ['smoke failed', 'VERIFIED', 'FAIL', 'Release evidence needs attention.', '- **Production smoke** · FAIL'],
+  ['verified', 'VERIFIED', 'VERIFIED', 'Production deployment and smoke verified for this merge.'],
+]) test(`collapsed main delivery remains accurate: ${label}`, () => {
+  const run = mainRun({ run_attempt: 2, ...(label === 'pending' ? { status: 'in_progress', conclusion: null } : {}) });
+  const jobs = structuredClone(mainJobs);
+  if (label === 'deployment failed') {
+    jobs.at(-1).conclusion = 'failure';
+    jobs.at(-1).steps.at(0).conclusion = 'failure';
+    for (const step of jobs.at(-1).steps.slice(1)) step.conclusion = 'skipped';
+  } else if (label === 'smoke failed') {
+    jobs.at(-1).conclusion = 'failure';
+    jobs.at(-1).steps.at(-1).conclusion = 'failure';
+  }
+  const release = releaseEvidence(run, label === 'pending' ? [] : label === 'skipped' ?
+    [check('Modular Main Production', 'skipped')] : jobs);
+  const body = render({ ...data(), pr: merged(), release });
+  const visible = visibleDesk(body);
+  assert.ok(visible.includes(`**Delivery outcome** · ${outcome}`));
+  assert.ok(visible.includes(`| Merge | MERGED |\n| Deploy | ${deploy} |\n| Smoke | ${smoke} |`));
+  if (action) assert.ok(visible.includes(action));
+  else assert.doesNotMatch(visible, /### Attention/);
+  assert.ok(body.includes(`[run ${run.id}, attempt 2](https://github.com/${repository}/actions/runs/${run.id}/attempts/2)`));
+  assert.doesNotMatch(body, /WAITING|current production|ready to merge/i);
+});
+
+for (const [conclusion, state] of [['failure', 'FAIL'], ['cancelled', 'CANCELLED']]) {
+  test(`exact main workflow ${conclusion} is visible when job evidence is unavailable`, () => {
+    const run = mainRun({ run_attempt: 2, conclusion });
+    const release = releaseEvidence(run, []);
+    const body = render({ ...data(), pr: merged(), release });
+    const visible = visibleDesk(body);
+    assert.match(visible, /\*\*Delivery outcome\*\* · Release evidence needs attention\./);
+    assert.ok(visible.includes(`### Attention\n\n- **Main workflow** · ${state}`));
+    assert.match(visible, /\| Deploy \| UNKNOWN \|\n\| Smoke \| UNKNOWN \|/);
+    assert.doesNotMatch(visible, /\*\*Production (job|deployment|smoke)\*\*|VERIFIED/);
+    assert.ok(body.includes(`[run ${run.id}, attempt 2](https://github.com/${repository}/actions/runs/${run.id}/attempts/2)`));
+    assert.match(body, /\| Production deployment \| ➖ UNKNOWN \|/);
+  });
+}
+
 test('exact attempt separates deployment success from smoke failure and does not infer success from aggregate jobs', () => {
   const run = mainRun();
   assert.deepEqual(releaseEvidence(run, mainJobs), { run, validation: 'VERIFIED', e2e: 'VERIFIED',
@@ -804,6 +1008,7 @@ test('production setup failure and early cancellation stay visible when delivery
     assert.deepEqual([release.production, release.deploy, release.smoke], [outcome, phase, phase]);
     const body = render({ ...data(), pr: merged(), release });
     assert.ok(body.includes(`| Production job | ❌ ${outcome} |`));
+    assert.ok(visibleDesk(body).includes(`- **Production job** · ${outcome}`));
   }
 });
 test('merged collection uses actual merge SHA and latest exact run attempt only', async () => {
@@ -827,6 +1032,23 @@ test('merged collection uses actual merge SHA and latest exact run attempt only'
   assert.equal(d.release.deploy, 'UNKNOWN');
   assert.match(render(d), /\/actions\/runs\/31\/attempts\/2/);
 });
+
+test('a release jobs lookup error leaves the existing unavailable-evidence diagnostic', async () => {
+  const api = mockApi(path => {
+    if (path.endsWith('/pulls/87')) return merged();
+    if (path.endsWith('/files')) return [{ filename: 'README.md' }];
+    if (path.includes('/actions/workflows/')) return [mainRun({ conclusion: 'failure' })];
+    if (path.includes('/attempts/')) throw new Error('Jobs endpoint unavailable');
+    return [];
+  });
+  const d = await collect(api, 87, repository);
+  assert.equal(d.release, null);
+  const body = render(d);
+  assert.match(body, /Exact main delivery evidence unavailable from GitHub/);
+  assert.doesNotMatch(visibleDesk(body), /\*\*Main workflow\*\* · FAIL/);
+  assert.match(visibleDesk(body), /\| Deploy \| UNKNOWN \|\n\| Smoke \| UNKNOWN \|/);
+});
+
 test('active PR retries suppress stale jobs from the previous attempt', async () => {
   const api = mockApi(path => {
     if (path.endsWith('/pulls/87')) return pr();
