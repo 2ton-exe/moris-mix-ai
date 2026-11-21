@@ -62,9 +62,9 @@ function ReadingUnits({ units, prefix, measured = false, width }: {
 }
 
 /** Shared physical reading leaves. Backend cursors never enter this component. */
-export function RecipeReading({ recipe, titleRef, folio, back, actions, status, artwork, publicDemo = false }: {
+export function RecipeReading({ recipe, titleRef, folio, back, actions, status, artwork, tools, publicDemo = false }: {
   recipe: RecipeDetail; titleRef?: Ref<HTMLHeadingElement>; folio?: number
-  back: ReactNode; actions?: ReactNode; status?: ReactNode; artwork?: ReactNode; publicDemo?: boolean
+  back: ReactNode; actions?: ReactNode; status?: ReactNode; artwork?: ReactNode; tools?: ReactNode; publicDemo?: boolean
 }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -162,6 +162,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     <div className="mm-reading-running-head">
       {single ? <span className="mm-reading-return">{back}</span> : <span>{current ? 'Recipe continued' : 'From your journal'}</span>}
     </div>
+    {tools && <div hidden={!identityVisible}>{tools}</div>}
     <div className="mm-reading-request-status">{status}</div>
     <div ref={bodyRef} className="mm-continuation-body mm-recipe-reading-body" tabIndex={0} role="region" aria-label="Recipe ingredients, instructions and notes">
       {!ready && !layout && <p aria-live="polite">Preparing recipe pages…</p>}
