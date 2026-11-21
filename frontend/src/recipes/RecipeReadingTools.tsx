@@ -1,10 +1,13 @@
-import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import { ScrapbookButton } from '../journal/Scrapbook'
 import { appendPersonalNote, queueNoteHandoff } from '../recipe-form/noteHandoff'
 import { UnsavedChangesDialog } from '../recipe-form/UnsavedChangesDialog'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
+import { BorrowedNote } from './BorrowedNote'
+import { RecipeFamilyMargins } from './RecipeFamilyMargins'
+import { RecipeKeepsakes } from './RecipeKeepsakes'
 import { OneSmallChange } from './OneSmallChange'
 import { KitchenImprint } from './KitchenImprint'
 import { recipeKeys } from './queryOptions'
@@ -12,14 +15,13 @@ import { RecipeSourceContext } from './source'
 import type { RecipeDetail } from './types'
 import './recipeReadingTools.css'
 
-type Tool = 'imprint' | 'trial'
+type Tool = 'imprint' | 'trial' | 'family' | 'borrow' | 'ribbon' | 'sticker'
 type EditorDestination = { id: string; path: string }
 
-export function RecipeReadingTools({ recipe, userId, journalReturn, children }: {
-  recipe: RecipeDetail; userId: string; journalReturn: string; children?: ReactNode
+export function RecipeReadingTools({ recipe, userId, journalReturn }: {
+  recipe: RecipeDetail; userId: string; journalReturn: string
 }) {
-  const imprintTrigger = useRef<HTMLButtonElement>(null)
-  const trialTrigger = useRef<HTMLButtonElement>(null)
+  const activeTrigger = useRef<HTMLButtonElement>(null)
   const [tool, setTool] = useState<Tool | null>(null)
   const [message, setMessage] = useState('')
   const [dirty, setDirty] = useState(false)
@@ -63,24 +65,36 @@ export function RecipeReadingTools({ recipe, userId, journalReturn, children }: 
     setMessage(confirmation)
     setTool(null)
     setDirty(false)
-    if (tool === 'imprint') imprintTrigger.current?.focus()
-    if (tool === 'trial') trialTrigger.current?.focus()
+    activeTrigger.current?.focus()
   }
 
   return <>
     <details className="mm-reading-tools">
       <summary>Journal tools</summary>
       <div className="mm-reading-tools__content">
-        <ScrapbookButton ref={imprintTrigger} tone="paper" size="small" aria-expanded={tool === 'imprint'}
-          disabled={dirty && tool !== 'imprint'} onClick={() => { setMessage(''); setTool('imprint') }}>
-          {recipe.cooked_at ? 'Update cooking record' : 'Record cooking'}
-        </ScrapbookButton>
-        <ScrapbookButton ref={trialTrigger} tone="paper" size="small" aria-expanded={tool === 'trial'}
-          disabled={dirty && tool !== 'trial'} onClick={() => setTool('trial')}>One small change</ScrapbookButton>
-        {children}
+        {([
+          { id: 'imprint', label: recipe.cooked_at ? 'Update cooking record' : 'Record cooking' },
+          { id: 'trial', label: 'One small change' },
+          { id: 'family', label: 'Recipe family' },
+          { id: 'ribbon', label: 'Cook next ribbon' },
+          { id: 'sticker', label: 'Sticker memories' },
+          ...(recipe.notes?.trim() ? [{ id: 'borrow', label: 'Borrow from Personal Notes' } as const] : []),
+        ] satisfies { id: Tool; label: string }[]).map(({ id, label }) => <ScrapbookButton key={id}
+          tone="paper" size="small" aria-expanded={tool === id} disabled={dirty && tool !== id}
+          onClick={(event) => {
+            activeTrigger.current = event.currentTarget
+            setMessage('')
+            if (!dirty) setTool(tool === id ? null : id)
+          }}>{label}</ScrapbookButton>)}
         {tool === 'imprint' && <KitchenImprint recipe={recipe} userId={userId} close={close} reviewNote={reviewNote} setNoteDirty={setDirty} />}
         {tool === 'trial' && <OneSmallChange recipe={recipe} userId={userId} close={close} reviewNote={reviewNote} setNoteDirty={setDirty} />}
-        <p className="mm-reading-tools__status" role="status">{message}</p>
+        {tool === 'family' && <RecipeFamilyMargins recipeId={recipe.id} userId={userId} journalReturn={journalReturn} />}
+        {(tool === 'ribbon' || tool === 'sticker') && <RecipeKeepsakes recipe={recipe} tool={tool} />}
+        {tool === 'borrow' && recipe.notes && <BorrowedNote notes={recipe.notes} title={recipe.title} onContinue={(text) => {
+          const id = queueNoteHandoff({ userId, destination: 'new', title: recipe.title, text, baseChanged: false })
+          setDestination({ id, path: '/app/recipes/new' })
+        }} />}
+        {message && <p className="mm-reading-tools__status" role="status">{message}</p>}
       </div>
     </details>
     {guard.open && <UnsavedChangesDialog onKeepEditing={guard.keepEditing} onDiscardChanges={guard.discardChanges} />}

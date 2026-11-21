@@ -1,5 +1,5 @@
 import { useJournalMedia } from './useJournalMedia'
 
 export function useJournalDesktopTools() {
-  return useJournalMedia('(pointer: fine) and (hover: hover)')
+  return useJournalMedia('(min-width: 500px) and (pointer: fine) and (hover: hover)')
 }

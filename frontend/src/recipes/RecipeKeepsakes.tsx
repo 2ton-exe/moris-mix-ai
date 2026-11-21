@@ -82,7 +82,7 @@ function RibbonEditor({ userId, recipe }: { userId: string; recipe: RecipeDetail
         }}>Cancel</button>
       </div>
     </div>}
-    <p role="status">{status}</p>
+    {status && <p role="status">{status}</p>}
   </div>
 }
 
@@ -91,10 +91,10 @@ export function CookNextRibbon({ userId }: { userId: string }) {
   const ribbon = useJournalRecord(ribbonKey(userId), ribbonRecipeSchema)
   const current = useRecipe(ribbon.value ?? '')
   const [status, setStatus] = useState('')
-  const heading = useRef<HTMLHeadingElement>(null)
+  const heading = useRef<HTMLParagraphElement>(null)
   const available = current.data && !isRecipeAccessError(current.error)
   return <section className="mm-cook-next" aria-label="Cook next ribbon">
-    <h2 ref={heading} tabIndex={-1}>Cook next</h2>
+    <p className="mm-cook-next__label" ref={heading} tabIndex={-1}>Cook next</p>
     {ribbon.value ? <>
       {available && <Link to={`/app/recipes/${encodeURIComponent(current.data.id)}`}
         state={{ journalReturn: pathname + search + hash, journalAccount: userId }}>{current.data.title}</Link>}
@@ -110,7 +110,7 @@ export function CookNextRibbon({ userId }: { userId: string }) {
       if (removed) heading.current?.focus()
     }}>Remove Ribbon</button>}
     <p className="mm-journal-tool__hint">Saved on this browser.</p>
-    <p role="status">{status}</p>
+    {status && <p role="status">{status}</p>}
   </section>
 }
 
@@ -172,6 +172,6 @@ function StickerMemory({ userId, recipeId }: { userId: string; recipeId: string 
         <button type="button" className="button button-secondary mm-button--small" onClick={() => finish('')}>Cancel</button>
       </div>
     </form>}
-    <p role="status">{status}</p>
+    {status && <p role="status">{status}</p>}
   </div>
 }

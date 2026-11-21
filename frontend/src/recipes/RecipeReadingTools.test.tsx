@@ -99,3 +99,31 @@ it('keeps a planned change and reflection in this browser after reopening the re
   expect(screen.getByLabelText('Try it again?')).toHaveProperty('value', 'yes')
   expect(patch).not.toHaveBeenCalled()
 })
+
+it('loads confirmed parents on demand and links to their saved recipes', async () => {
+  const parent = previewRecipes[1]
+  vi.mocked(source.detail).mockImplementation(async (id) => id === recipe.id ? recipe : parent)
+  get.mockResolvedValue({ lineage: [{
+    id: '44444444-4444-4444-8444-444444444444', child_recipe_id: recipe.id,
+    parent_recipe_id: parent.id, created_at: '2026-10-19',
+  }] })
+  renderReading()
+  await screen.findByRole('heading', { name: recipe.title, level: 1 })
+  expect(get).not.toHaveBeenCalled()
+  await openTool('Recipe family')
+  const link = await screen.findByRole('link', { name: `Based on ${parent.title}` })
+  expect(link.getAttribute('href')).toBe(`/app/recipes/${parent.id}`)
+})
+
+it('previews only the selected excerpt before carrying it to a new draft', async () => {
+  renderReading()
+  await openTool('Borrow from Personal Notes')
+  const notes = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Select an excerpt from Personal Notes' })
+  notes.setSelectionRange(0, 8)
+  fireEvent.click(screen.getByRole('button', { name: 'Preview selected excerpt' }))
+  expect(screen.getByText('Keep the', { selector: 'blockquote' })).toBeTruthy()
+  expect(patch).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel excerpt' }))
+  expect(screen.queryByRole('button', { name: 'Continue to new recipe' })).toBeNull()
+  expect(document.activeElement).toBe(notes)
+})

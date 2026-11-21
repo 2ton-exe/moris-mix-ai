@@ -487,3 +487,73 @@ it('retains the confirmed detail after a failed refresh and retries without movi
   expect(screen.queryByRole('alert')).toBeNull()
   expect(document.body.textContent).not.toContain('private refresh error')
 })
+
+function desktopToolsMedia() {
+  const previous = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+  Object.defineProperty(window, 'matchMedia', { configurable: true, value: (media: string) => ({
+    matches: media.includes('pointer: fine') || media.includes('prefers-reduced-motion'),
+    addEventListener() {}, removeEventListener() {},
+  }) })
+  return () => {
+    if (previous) Object.defineProperty(window, 'matchMedia', previous)
+    else Reflect.deleteProperty(window, 'matchMedia')
+    window.localStorage.clear()
+  }
+}
+
+it('sets aside a recipe, personalizes the bookplate, and restores the default by choice', async () => {
+  const reset = desktopToolsMedia()
+  try {
+    vi.mocked(source.detail).mockImplementation(async (id) => {
+      const recipe = previewRecipes.find((entry) => entry.id === id)
+      if (!recipe) throw new HttpError('http', 'Recipe not found', 404)
+      return recipe
+    })
+    render(tree('/app/recipes'))
+    const customize = await screen.findByRole('button', { name: 'Customize bookplate' })
+    fireEvent.click(customize)
+    fireEvent.click(screen.getByRole('radio', { name: 'Kitchen basket' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nickname (optional)' }), { target: { value: 'Rice cook' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save bookplate' }))
+    expect(screen.getByText('Rice cook')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('link', { name: /Open recipe Ginger and garlic rice/ }))
+    await screen.findByRole('heading', { name: 'Ginger and garlic rice' })
+    fireEvent.click(screen.getByText('Journal tools', { selector: 'summary' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cook next ribbon' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Set aside to cook next' }))
+    expect(await screen.findByText('Recipe set aside.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('link', { name: 'Back to recipes' }))
+    const ribbon = await screen.findByRole('region', { name: 'Cook next ribbon' })
+    expect(await within(ribbon).findByRole('link', { name: 'Ginger and garlic rice' })).toBeTruthy()
+    fireEvent.click(within(ribbon).getByRole('button', { name: 'Remove Ribbon' }))
+    expect(within(ribbon).queryByRole('link')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Customize bookplate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset bookplate' }))
+    expect(screen.queryByText('Rice cook')).toBeNull()
+  } finally { reset() }
+})
+
+it('compares distinct saved recipes with zero and missing flavors and returns to the same collection URL', async () => {
+  const reset = desktopToolsMedia()
+  try {
+    vi.mocked(source.detail).mockImplementation(async (id) => {
+      const recipe = previewRecipes.find((entry) => entry.id === id)
+      if (!recipe) throw new HttpError('http', 'Recipe not found', 404)
+      return recipe
+    })
+    render(tree('/app/recipes?view=collection&leaf=1'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Compare recipes' }))
+    const first = await screen.findByRole('combobox', { name: 'First recipe' })
+    fireEvent.change(first, { target: { value: previewRecipes[0].id } })
+    const second = screen.getByRole('combobox', { name: 'Second recipe' })
+    expect(within(second).queryByRole('option', { name: 'Ginger and garlic rice' })).toBeNull()
+    fireEvent.change(second, { target: { value: previewRecipes[1].id } })
+    const scores = await screen.findByRole('table', { name: 'Saved flavor scores (0–5)' })
+    const sweet = within(scores).getByRole('row', { name: 'Sweet 0 Unavailable' })
+    expect(sweet).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Tradeoffs for the first recipe' }), { target: { value: 'We have leftover rice' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Back to My Recipes' }))
+    expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?view=collection&leaf=1')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Compare recipes' })))
+  } finally { reset() }
+})

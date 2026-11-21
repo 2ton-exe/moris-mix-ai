@@ -11,6 +11,7 @@ import { RecipeSourceContext } from '../recipes/source'
 import { PaperCard, Tape } from '../journal/Scrapbook'
 import { useMoriActivity, useMoriGuidance } from '../mori/MoriCompanionContext'
 import { useMoriHeadingFocusKey } from '../mori/routeState'
+import { CollectionBookplate } from '../recipes/CollectionBookplate'
 import { RecipeComparison } from '../recipes/RecipeComparison'
 import { useJournalDesktopTools } from '../journal/useJournalDesktopTools'
 import { useJournalMedia } from '../journal/useJournalMedia'
@@ -247,12 +248,17 @@ export default function RecipeDashboardPage() {
       catalog={pagedIndex ? { start: catalogStart, end: nextCatalogStart ?? recipes?.length ?? 0, indicator: `Page ${catalogPage + 1}`, measure: measureCatalog } : undefined}
       collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
-      header={<div className="mm-collection-tools">
+      header={<><div className="mm-collection-tools">
         <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
         {desktopTools && user && source.mode === 'live' && <button ref={compareButton} className="button button-secondary mm-button--small"
           type="button" onClick={() => setComparisonAccount(user.id)}>Compare recipes</button>}
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
-      </div>}
+      </div>
+      {desktopTools && (single || indexView || leaf > 1) && user && source.mode === 'live' && <details className="mm-compact-bookplate">
+        <summary>Bookplate and ribbon</summary>
+        <CollectionBookplate key={user.id} userId={user.id} ownerName={typeof user.user_metadata?.name === 'string' ? user.user_metadata.name : user.email?.split('@')[0] ?? 'a cook'} />
+      </details>}
+      </>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}

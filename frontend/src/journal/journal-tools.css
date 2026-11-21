@@ -13,8 +13,7 @@
 .mm-journal-tool p,
 .mm-recipe-comparison p,
 .mm-recipe-comparison h2,
-.mm-cook-next p,
-.mm-cook-next h2 {
+.mm-cook-next p {
   margin: 0;
 }
 
@@ -104,8 +103,8 @@
   gap: 4px;
 }
 
-.mm-cook-next h2 {
-  font-size: 1rem;
+.mm-desk .mm-cook-next .mm-cook-next__label {
+  font: 600 1rem/1.2 var(--mm-font-serif);
 }
 
 .mm-desk .mm-cook-next p {
@@ -156,11 +155,18 @@
   margin-top: 8px;
 }
 
-@media (max-width: 1099.98px), (max-height: 639.98px) {
-  .mm-journal-flyleaf[data-custom-bookplate]:not(:has(.mm-facing-content)) {
-    display: grid;
-    justify-items: center;
-    padding: 18px;
-    overflow: visible;
-  }
+.mm-compact-bookplate {
+  margin-block: 8px;
+}
+
+.mm-compact-bookplate .mm-bookplate {
+  transform: none;
+  margin-block: 8px;
+}
+
+.mm-note-excerpt {
+  margin: 0;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--mm-color-burgundy-300);
+  white-space: pre-wrap;
 }

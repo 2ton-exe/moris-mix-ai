@@ -462,7 +462,7 @@ function Companion({ userId }: { userId?: string }) {
         </section>
       </div>
     </div>
-    <span className="mori-pet-sr" role="status">{modeStorageUnavailable ? 'Mori’s setting applies until you close this journal.' : ''}</span>
+    {modeStorageUnavailable && <span className="mori-pet-sr" role="status">Mori’s setting applies until you close this journal.</span>}
   </div>
   <div ref={navigationTap} className="mori-navigation-tap" hidden aria-hidden="true" style={navigationTapStyle}>
     <Mori mood="wave" size={navigationTapSize} />

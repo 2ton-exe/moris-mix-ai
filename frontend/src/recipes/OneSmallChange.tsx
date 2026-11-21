@@ -90,7 +90,7 @@ export function OneSmallChange({ recipe, userId, close, reviewNote, setNoteDirty
           {pending ? 'Loading notes…' : 'Review trial in editor'}
         </ScrapbookButton>}
         {(record.value || record.unreadable) && <ScrapbookButton size="small" tone="paper" disabled={pending} onClick={removeTrial}>Clear trial</ScrapbookButton>}
-        <ScrapbookButton size="small" tone="paper" disabled={pending} onClick={close}>{dirty ? 'Cancel trial edits' : 'Close trial'}</ScrapbookButton>
+        <ScrapbookButton size="small" tone="paper" disabled={pending} onClick={() => close()}>{dirty ? 'Cancel trial edits' : 'Close trial'}</ScrapbookButton>
       </div>
     </form>
   </PaperCard>

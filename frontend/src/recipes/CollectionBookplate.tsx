@@ -62,7 +62,7 @@ export function CollectionBookplate({ userId, ownerName }: { userId: string; own
         }}>Reset bookplate</button>}
       </div>
     </form>}
-    <p role="status">{status}</p>
+    {status && <p role="status">{status}</p>}
     <CookNextRibbon userId={userId} />
   </JournalBookplate>
 }

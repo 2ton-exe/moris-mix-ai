@@ -256,6 +256,60 @@ try {
     process.stdout.write(`${width}px: populated index, illustrated cards, detail/notes, long content, focus/history, edit/delete controls and no horizontal overflow passed.\n`)
   }
 
+  for (const width of [1440, 1280, 1100]) {
+    const app = await newJournalContext(width)
+    const { context, page } = app
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto(`${origin}app/recipes/${recipe.id}`)
+    const tools = page.locator('summary').filter({ hasText: 'Journal tools' })
+    await tools.focus()
+    await page.keyboard.press('Enter')
+    await page.getByRole('button', { name: 'Cook next ribbon' }).click()
+    await page.getByRole('button', { name: 'Set aside to cook next' }).click()
+    await expect(page.getByText('Recipe set aside.')).toBeVisible()
+    await page.getByRole('button', { name: 'Sticker memories' }).click()
+    await page.getByRole('button', { name: 'Place a sticker' }).click()
+    await page.getByRole('radio', { name: 'Hearts' }).check()
+    await page.getByRole('textbox', { name: 'Memory label' }).fill('Made this with Dad')
+    await page.getByRole('button', { name: 'Save sticker memory' }).click()
+    await expect(page.getByText('Made this with Dad')).toBeVisible()
+    await page.getByRole('link', { name: 'Back to recipes' }).click()
+
+    const ribbon = page.getByRole('region', { name: 'Cook next ribbon' })
+    await expect(ribbon.getByRole('link', { name: recipe.title })).toBeVisible()
+    await page.getByRole('button', { name: 'Customize bookplate' }).click()
+    await page.getByRole('radio', { name: 'Kitchen basket' }).check()
+    await page.getByRole('textbox', { name: 'Nickname (optional)' }).fill('Sunday cook')
+    await page.getByRole('button', { name: 'Save bookplate' }).click()
+    await expect(page.getByText('Sunday cook', { exact: true })).toBeVisible()
+
+    const collection = page.url()
+    await page.getByRole('button', { name: 'Compare recipes' }).click()
+    await page.getByRole('combobox', { name: 'First recipe' }).selectOption(recipe.id)
+    await page.getByRole('combobox', { name: 'Second recipe' }).selectOption(secondRecipe.id)
+    await expect(page.getByRole('table', { name: 'Saved flavor scores (0–5)' })).toBeVisible()
+    await page.getByRole('textbox', { name: 'Tradeoffs for the first recipe' }).fill('We have the ingredients.')
+    await page.getByRole('button', { name: 'Back to My Recipes' }).click()
+    await expect(page).toHaveURL(collection)
+    await expect(page.getByRole('button', { name: 'Compare recipes' })).toBeFocused()
+    await expect(ribbon.getByRole('link', { name: recipe.title })).toBeVisible()
+
+    if (width === 1440) {
+      const secondTab = await context.newPage()
+      await secondTab.goto(collection)
+      await expect(secondTab.getByRole('region', { name: 'Cook next ribbon' }).getByRole('link', { name: recipe.title })).toBeVisible()
+      await secondTab.getByRole('button', { name: 'Remove Ribbon' }).click()
+      await expect(ribbon.getByRole('link')).toHaveCount(0)
+      await secondTab.close()
+      await app.switchAccount()
+      await expect(page.getByText('Sunday cook', { exact: true })).toHaveCount(0)
+      await expect(ribbon.getByRole('link')).toHaveCount(0)
+    }
+    assert.deepEqual(app.pageErrors, [])
+    await context.close()
+    process.stdout.write(`${width}px creative tools: reading disclosures, ribbon, bookplate and comparison passed.\n`)
+  }
+
   const switched = await newJournalContext(375)
   await switched.page.goto(`${origin}app/recipes`)
   await expect(switched.page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
