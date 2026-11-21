@@ -294,12 +294,8 @@ try {
 
       await settleJournalLayout(page)
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      const reducedCardMotion = await page.locator('.mm-collection-entry').first().evaluate((element) => {
-        const style = globalThis.getComputedStyle(element)
-        return { transition: style.transitionProperty, transform: style.transform }
-      })
-      assert.equal(reducedCardMotion.transition, 'none', 'Recipe cards should not transition with reduced motion enabled')
-      assert.equal(reducedCardMotion.transform, 'none', 'Recipe cards should not tilt with reduced motion enabled')
+      await expect(firstCard).toHaveCSS('transition-property', 'none')
+      await expect(firstCard).toHaveCSS('transform', 'none')
       await page.emulateMedia({ reducedMotion: 'no-preference' })
 
       // Warm the route module: Vite's development assets cannot load offline.
