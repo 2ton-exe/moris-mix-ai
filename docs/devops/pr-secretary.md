@@ -111,9 +111,15 @@ zero comment writes.
 For issue #258, Node 24 snapshots verify the collapsed dashboard and expanded
 evidence for the lifecycle, review, and release cases. The test suite also
 checks escaping, deterministic output, and the existing publication behavior.
-Exact-head CI and an authorized GitHub-rendered comment check remain pending.
-The hosted check should cover narrow layouts, light and dark themes, and
-updates to the same comment.
+PR #267 tracks exact-head PR validation, which passed on the reviewed
+implementation commit `99edc0e63e9c9f1355b398b0752094bd10f0a35d`.
+[PR #267](https://github.com/2ton-exe/moris-mix-ai/pull/267) ·
+[Passing validation run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44892418533)
+
+Actual v3 GitHub comment rendering and same-comment updates remain unverified.
+The trusted Secretary workflow runs the renderer from `main`. Once `main`
+includes v3, verify narrow layouts, light and dark themes, and an update to
+the existing Secretary comment.
 
 Check and job evidence is read for the exact PR head. The selected Modular PR
 Validation run’s jobs take precedence over stale known workflow checks. Active
