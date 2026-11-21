@@ -221,6 +221,102 @@ available.
 [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use)
 [GitHub Actions REST jobs reference](https://docs.github.com/en/rest/actions/workflow-jobs)
 
+## Hosted acceptance observations after v2 rollout (issue #246; 2026-11-21)
+
+These observations supersede the **pre-rollout verification status** in the
+earlier baseline section, not its historical measurements. They are bounded
+GitHub-hosted outcomes, not an assertion that all issue #246 criteria are met.
+
+### Why review signals initially failed
+
+A controlled review on disposable [PR #254](https://github.com/2ton-exe/moris-mix-ai/pull/254)
+created [Review Signal #44775176691](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44775176691)
+with `startup_failure` and zero jobs. Its run annotation stated:
+`Event 'pull_request_review' is not allowed to trigger Actions workflows`.
+The workflow file was present on the PR head and synthetic merge ref.
+The maintainer updated the GitHub Actions **Restrict events** policy to allow
+`pull_request_review` and `pull_request_review_comment`. Subsequent
+same-workflow runs succeeded. This was an **Actions settings change**, not
+a YAML or application-code change. The workflow cannot bypass a policy
+that disallows its triggering event. Preserve a narrow allowlist and review
+applicable policy for `pull_request_target` separately.
+
+### Controlled hosted lifecycle tests
+
+The PR remained open, non-draft, documentation-only and **must not be merged**.
+Its head stayed at `742392f4c009a719dcd7b4fdb8ad461ee0a853f7`.
+The managed PR Secretary comment stayed at ID
+[7044735848](https://github.com/2ton-exe/moris-mix-ai/pull/254#issuecomment-7044735848).
+
+| Event | Server event time, UTC | Trusted writer / evidence | Comment update, UTC | Observed delay |
+| --- | --- | --- | --- | --- |
+| Belen submitted `CHANGES_REQUESTED` | 2026-11-20 17:03:34 | [signal #44779554534](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44779554534) → [writer #44779583090](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44779583090) | 17:04:09 | 35 s |
+| Belen submitted `APPROVED` | 17:23:38 | [signal #44782871138](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44782871138) → [writer #44782898171](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44782898171) | 17:24:12 | 34 s |
+| The test approval was dismissed | 17:39:01 | [signal #44785320704](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785320704) → [writer #44785350034](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785350034) | 17:39:35 | 34 s |
+| Belen was requested again | 17:40:00 | [writer #44785470093](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785470093) (`pull_request_target`) | 17:40:25 | 25 s |
+| Review request removed | 17:40:43 | [writer #44785587872](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44785587872) (`pull_request_target`) | 17:41:50 | 67 s |
+
+All named signals and writer jobs above completed successfully.
+The same managed comment showed `CHANGES REQUESTED`, then `APPROVED`,
+then `DISMISSED`; reviewer requests changed from `None` to `Belen`
+and back to `None`. Neither CodeRabbit activity nor the schedule was
+needed for the review transitions. `DISMISSED` is the final state of the
+test approval, not an approval that remains effective.
+
+An inline test-only review comment was created on PR #254 at
+`17:45:55Z`; both the
+[inline-comment signal #44786410227](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786410227)
+and [submitted-review signal #44786411097](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786411097)
+succeeded. [Writer #44786437957](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786437957)
+updated the same comment at `17:46:26Z` (31 s).
+Editing that inline comment at `17:46:56Z` produced successful
+[inline signal #44786565826](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786565826);
+[writer #44786592237](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786592237)
+completed `summarize (254)` and logged `unchanged` at `17:47:27Z`.
+Its `unchanged` outcome correctly left the managed comment timestamp intact.
+The review was submitted by the test PR author as `COMMENTED`: it is **not**
+independent approval.
+
+Other hosted no-op examples include scheduled
+[writer #44782315350](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44782315350)
+(`summarize (254)` logged `unchanged` at `17:21:23Z`) and
+[writer #44786436897](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44786436897)
+(`unchanged` at `17:46:38Z`). Multiple workflow-run notifications
+can invoke the resolver; successful no-op jobs are not evidence of
+unnecessary comment writes.
+
+### Boundaries and remaining acceptance
+
+These figures are **single observed event-to-comment intervals**, using
+GitHub event and comment timestamps. They are not means, percentile
+latencies, SLA compliance, or proof of a quantified optimization. The older
+PR #240 approval was not refreshed within the observed window, so it
+does not furnish a directly comparable numeric baseline.
+
+[PR #250](https://github.com/2ton-exe/moris-mix-ai/pull/250) already provided a
+separate hosted example of a merged PR transitioning its existing Secretary
+comment to `MERGED`, showing its actual merge identity and exact-associated
+main delivery evidence.
+
+The same closure-safe renderer was then verified on the disposable
+[PR #254](https://github.com/2ton-exe/moris-mix-ai/pull/254), which the maintainer
+**closed without merge** at `2026-11-20T17:56:26Z`. Its head stayed at
+`742392f4c009a719dcd7b4fdb8ad461ee0a853f7`. The
+[`pull_request_target` Secretary run #44788047179](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44788047179)
+passed (`resolve` and `summarize (254)`). The **same comment ID 7044735848**
+became `CLOSED WITHOUT MERGE` at `17:56:59Z` (**33 s observed**),
+retained historical reviews, and omitted open-PR `WAITING`, `Ready
+for review`, and `Attention` prompts. GitHub confirmed
+`merged=false`, `merged_at=null`, unchanged `main` at `91148de`,
+and that the test branch still exists. No production deploy was
+triggered by the closure.
+
+Still pending are additional edited-review and fork-specific review-event
+tests, broader comparable latency/no-op-write sampling, and the other
+unchecked work in [issue #246](https://github.com/2ton-exe/moris-mix-ai/issues/246).
+Do not merge the closed test PR, delete its branch without authorization,
+or close the parent issue solely because these exercised paths succeeded.
+
 ## Runtime repair evidence for issue #86 (2026-10-28)
 
 ### Later recovery status
