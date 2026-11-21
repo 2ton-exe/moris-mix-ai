@@ -12,7 +12,7 @@ export function UnsavedChangesDialog({
   discardLabel = 'Discard Changes',
 }: {
   onKeepEditing: () => void
-  onDiscardChanges: () => void
+  onDiscardChanges?: () => void
   title?: string
   message?: string
   discardLabel?: string
@@ -40,7 +40,7 @@ export function UnsavedChangesDialog({
       if (event.key !== 'Tab') return
 
       const first = keepEditingRef.current
-      const last = discardRef.current
+      const last = discardRef.current ?? first
       if (!first || !last) return
       const focusIsInside = dialogRef.current?.contains(document.activeElement) ?? false
       if (!focusIsInside || (event.shiftKey && document.activeElement === first)) {
@@ -84,7 +84,7 @@ export function UnsavedChangesDialog({
       </p>
       <div className="mm-recipe-navigation-dialog__actions">
         <button ref={keepEditingRef} className="button button-primary" type="button" onClick={onKeepEditing}>Keep Editing</button>
-        <button ref={discardRef} className="button button-danger" type="button" onClick={onDiscardChanges}>{discardLabel}</button>
+        {onDiscardChanges && <button ref={discardRef} className="button button-danger" type="button" onClick={onDiscardChanges}>{discardLabel}</button>}
       </div>
     </PaperCard>
   </div>, document.getElementById('journal-overlays') ?? document.body)

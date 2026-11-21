@@ -40,7 +40,7 @@ export function RecipeReadingTools({ recipe, userId, journalReturn, retainActive
   const navigate = useNavigate()
   const { search } = useLocation()
   const { isTurning } = useJournalPageTurn()
-  const guard = useUnsavedChangesGuard(dirty && destination === null, { warnOnUnload: true })
+  const guard = useUnsavedChangesGuard((dirty || busy) && destination === null, { warnOnUnload: true })
   const reviewRequest = useRef<AbortController | null>(null)
   useLayoutEffect(() => () => reviewRequest.current?.abort(), [search, isTurning])
   useLayoutEffect(() => {
@@ -136,7 +136,10 @@ export function RecipeReadingTools({ recipe, userId, journalReturn, retainActive
         {message && <p className="mm-reading-tools__status" role="status">{message}</p>}
       </div>
     </details>
-    {confirmLogout ? <UnsavedChangesDialog title="Log out of the journal?"
+    {(confirmLogout || guard.open) && busy ? <UnsavedChangesDialog title="Cooking entry in progress"
+      message="Wait for the current request to finish before leaving the recipe."
+      onKeepEditing={() => { setConfirmLogout(false); guard.keepEditing() }} />
+      : confirmLogout ? <UnsavedChangesDialog title="Log out of the journal?"
       message="You have a cooking entry in progress. Keep editing or log out now."
       discardLabel={logoutPending ? 'Logging out…' : 'Log out'}
       onKeepEditing={() => { if (!logoutPending) setConfirmLogout(false) }}

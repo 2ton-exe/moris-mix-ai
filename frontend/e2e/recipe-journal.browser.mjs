@@ -175,6 +175,12 @@ try {
     await expect(ribbon.getByRole('link', { name: recipe.title })).toBeVisible()
 
     if (width === 1440) {
+      await page.getByRole('link', { name: 'Search & index' }).click()
+      await page.getByText('Bookplate and ribbon', { exact: true }).click()
+      const indexRibbon = page.getByRole('region', { name: 'Cook next ribbon' })
+      await expect(indexRibbon.getByRole('link', { name: recipe.title })).toBeVisible()
+      await expect(page.getByText('Sunday cook', { exact: true })).toBeVisible()
+      await page.getByRole('link', { name: 'Browse journal' }).click()
       const secondTab = await context.newPage()
       await secondTab.goto(collection)
       await expect(secondTab.getByRole('region', { name: 'Cook next ribbon' }).getByRole('link', { name: recipe.title })).toBeVisible()
@@ -267,8 +273,8 @@ try {
     await page.goto(`${origin}app/recipes/${longRecipe.id}`)
     await expect(page.getByRole('heading', { name: longRecipe.title, level: 1 })).toBeVisible()
     const longUnits = await readAllRecipePages(page)
-    assert.equal(longUnits.filter((unit) => unit.id.startsWith('ingredient-')).length, 34)
-    assert.equal(longUnits.filter((unit) => unit.id.startsWith('instruction-')).length, 22)
+    assert.equal(longUnits.filter((unit) => /^ingredient-\d+$/.test(unit.id)).length, 34)
+    assert.equal(longUnits.filter((unit) => /^instruction-\d+$/.test(unit.id)).length, 22)
     assert.ok(longUnits.some((unit) => unit.text.includes('long personal note from the margin')))
     assert.ok(longUnits.some((unit) => unit.text.includes('unbrokennote')))
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Long detail overflow at ${width}px`)

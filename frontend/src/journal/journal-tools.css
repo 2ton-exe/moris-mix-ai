@@ -78,7 +78,7 @@
   padding-bottom: calc(var(--mm-footer-inset) + var(--mm-pagination-height) + 8px);
 }
 
-.mm-journal-flyleaf[data-custom-bookplate] .mm-bookplate {
+.mm-journal-flyleaf[data-custom-bookplate] > .mm-bookplate {
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;

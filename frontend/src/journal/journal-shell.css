@@ -152,7 +152,7 @@
   background-size: auto;
   box-shadow: inset 0 0 0 1px rgb(120 88 46 / .16), inset 0 0 60px rgb(150 108 56 / .14);
 }
-.mm-journal-flyleaf:has(.mm-facing-content) .mm-bookplate { display: none; }
+.mm-journal-flyleaf:has(.mm-facing-content) > .mm-bookplate { display: none; }
 .mm-facing-slot { width: 100%; min-width: 0; }
 .mm-facing-slot:empty { display: none; }
 .mm-facing-content { min-width: 0; }

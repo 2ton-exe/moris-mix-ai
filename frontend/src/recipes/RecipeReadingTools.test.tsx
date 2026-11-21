@@ -63,6 +63,10 @@ it('records the cooking date only after explicit confirmation', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Save imprint' }))
 
   expect(screen.getByRole('button', { name: 'One small change' })).toHaveProperty('disabled', true)
+  fireEvent.click(screen.getByRole('link', { name: 'Back to recipes' }))
+  expect(await screen.findByRole('alertdialog', { name: 'Cooking entry in progress' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Discard Changes' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }))
   confirmWrite({ recipe: { ...recipe, user_id: user.id, cooked_at: '2024-11-05' } })
   expect(patch).toHaveBeenCalledWith(`/functions/v1/recipes/${recipe.id}`, { cooked_at: '2024-11-05' }, expect.objectContaining({ userId: user.id }))
   await waitFor(() => expect(screen.getByText('Cooking date saved.')).toBeTruthy())
