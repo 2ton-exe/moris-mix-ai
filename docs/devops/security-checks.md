@@ -6,7 +6,94 @@ The initial [#163 / DEVOPS-09 (S4)](https://github.com/2ton-exe/moris-mix-ai/iss
 
 Inventory observed on 2026-11-02 against main `d1dbba6c001c39c65d74d6856a83058f750a93ff`. Configuration, local execution and future hosted execution are distinguished below. API results and advisory databases can change.
 
-**Reading this document:** The 2026-11-02 inventory is retained below as a historical baseline; it is *not* the current native-control state. The 2026-11-06 operator walkthrough supersedes it for GitHub security settings. Source-code/workflow facts are independently inspected at `main` commit `f051d52f8c7b19a4f837794b1d26720dc78219ae`; UI-only settings are reported explicitly as operator-confirmed.
+The status below supersedes the November 2 and November 6 inventories. Those
+sections preserve the evidence available at the time.
+
+## Current controls and remaining decisions — 2026-11-21
+
+This review used `main` at `7805976369ee6fd460dc0559195be39a01532748`
+and live GitHub settings. The repository's default Actions token is read-only
+and cannot approve pull requests. The PR and main callers explicitly request
+`contents: read`. The three required merge contexts are Frontend, Database,
+and Edge/API. E2E and staging are separate, and production runs its own
+validation and post-deployment smoke. The [reviewed main run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44873265800)
+recorded successful deployment URL, AI-route, and runtime smoke steps.
+
+### Workflow permissions and staging
+
+- The staging, production, Edge/API, backup, and scheduled image-cleanup paths
+  use pinned actions and disable checkout credential persistence. PR Secretary
+  gives its comment-writing job `pull-requests: write` and reads trusted
+  default-branch code. Project synchronization uses a guarded GitHub App token
+  with Project write only for reconciliation and read for dry runs. The
+  token-minting job now pins all three actions to the existing upstream
+  commits. Its hosted execution with those pins remains to be verified.
+- Standard validation still has mutable action references, and the dormant
+  reusable Cloudflare workflow has no active caller. These are separately
+  tracked supply-chain surfaces. Pins reduce tag drift, while runner images,
+  tool majors, and provider permissions remain separate trust decisions.
+- GitHub `staging` permits only `refs/pull/*/merge` and has no required
+  reviewers. Administrator bypass is disabled. Eligible same-repository PRs
+  deploy automatically after the core checks succeed. Drafts, forks,
+  Dependabot authors, and verified docs-only changes are excluded. The
+  rejected [#263 probe](https://github.com/2ton-exe/moris-mix-ai/pull/263)
+  recorded how the former approval policy behaved. On
+  [PR #266, attempt 3](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44886246923/attempts/3),
+  the staging deploy, URL check and frontend/demo smoke step passed with no
+  deployment approval recorded. A
+  [fresh Dependabot run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44706776512)
+  separately showed the staging caller skip with core and E2E checks passing.
+- Automatic staging trusts repository writers and the eligible PR revision.
+  The Cloudflare dashboard entry named **Moris Mix Staging Deploy** showed
+  account-wide Workers Scripts Edit plus account and user read permissions.
+  GitHub's masked secret prevents independently matching that entry to the
+  installed value. A Worker-specific Editor candidate was prepared as an
+  unsubmitted draft. The incumbent secret stays in place while the replacement and
+  rollback path are unverified. DevOps and the Cloudflare owner must decide
+  whether to accept that residual scope pending a controlled candidate run.
+  The two generic Cloudflare secret names also exist in the staging
+  environment. The active staging workflow uses the staging-specific names.
+  The provider owner should verify the generic entries' intended scope and
+  usage before deciding whether to remove them.
+  [Cloudflare Worker roles](https://developers.cloudflare.com/workers/authorization/workers/)
+
+### Dependency and secret findings
+
+GitHub reports Dependabot security updates, Secret Protection, and repository
+Push protection enabled. Non-provider patterns and validity checks are
+disabled. The open secret-alert query returned zero records. Keep the
+supported-pattern and history-coverage limits below, and use clearly invalid
+placeholders in tests. This evidence does not cover every historical commit,
+CI log, issue, or artifact.
+
+The one open Dependabot record is the moderate
+[`minimatch` alert #10](https://github.com/2ton-exe/moris-mix-ai/security/dependabot/10)
+for the frontend lockfile. The affected `10.2.6` resolution comes through
+`@typescript-eslint/typescript-estree`. The advisory lists `11.0.1` as its
+first patched version. The frontend tooling owner should evaluate an upstream
+tooling update and verify the resulting graph, lint, tests, run-time build, and
+fresh audit. A blind major override can violate the parent's dependency
+contract. The [latest hosted frontend audit](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44706776506/job/136188235380)
+reported one moderate `minimatch` finding with audit exit 1 even though the
+observation job succeeded. Earlier Zod, Tinypool/Vitest, and Vite findings belong to older
+snapshots. See [Vitest upgrade #183](https://github.com/2ton-exe/moris-mix-ai/pull/183)
+and [Vite update #241](https://github.com/2ton-exe/moris-mix-ai/pull/241).
+
+### Enforcement and triage
+
+| Signal | Current enforcement and owner action |
+| --- | --- |
+| Supported secret on an eligible push | GitHub Push protection can block the push. DevOps and the credential owner follow the incident procedure below before release. |
+| Required validation failure | GitHub requires the three existing merge checks. Main separately enforces its production prerequisites and records deployment and smoke results. |
+| Dependency advisory | Security Audit is path-filtered and observation-only. The component owner assesses reachability, build or runtime exposure, severity, and the supported patch. DevOps coordinates evidence and escalation. |
+| Scanner error, skipped run, or suspected false positive | Treat coverage as unknown. Inspect the audit step and report, then retry or record the limitation. Severity and a green job alone do not establish a release decision. |
+
+For final review, decide whether a confirmed high or critical finding on a
+shipped or CI-executed path should require a manual release hold until the
+component owner remediates it or the release owner records an exception with
+scope, owner, rationale, and expiry. A live credential exposure is handled
+through the incident process. No additional automated merge or release gate
+is proposed for path-filtered audits or registry failures.
 
 ## GitHub-native security controls — 2026-11-06
 
@@ -65,7 +152,7 @@ All external action references in the existing 13 workflow files use mutable ver
 
 The new workflow uses only SHA-pinned checkout, setup-node and setup-deno actions, with release comments. GitHub release/ref APIs resolved checkout v7.0.1 to `3d3c42e5aac5ba805825da76410c181273ba90b1`, setup-node v7.1.0 to `949feb2413d6458794dcd2491c4babbbce0c15c1`, and setup-deno v2.0.5 to `22d081ff2d3a40755e97629de92e3bcbfa7cf2ed`. pnpm is requested at exact registry version 10.34.9 through npx; it is not a SHA-pinned action. Runner images and Node 24 remain moving platform inputs. Pinning reduces action-reference drift, not all supply-chain risk.
 
-## GitHub Actions permissions and action-source follow-up — 2026-11-06
+## Historical GitHub Actions permissions and action-source follow-up — 2026-11-06
 
 A read-only reinspection of the **15** checked-in workflow YAML files on `main` `f051d52f8c7b19a4f837794b1d26720dc78219ae` identified the following. These findings are a *configuration audit*, not a successful hardened-workflow execution:
 
@@ -167,7 +254,7 @@ References: [GitHub secret scanning](https://docs.github.com/en/code-security/co
 
 Local `deno --version` confirmed 2.9.7, matching current CI. `deno help audit` explicitly documents lockfile auditing, and `deno audit --lock=deno.lock` successfully queried advisory data and reported the Zod finding. That validates the command for inclusion; it does not establish exhaustive advisory coverage of all JSR, npm or remote modules. No `--fix`, ignored advisory, severity exclusion, registry-error suppression or lockfile rewrite is used. Dependency integrity locks and advisory auditing provide different controls. Hosted Deno audit execution is recorded in the evidence section above. Advisory output and step exit state must be interpreted separately; a successful observation job does not establish zero vulnerabilities.
 
-## Deferred hardening work
+## Historical deferred hardening work
 
 - Triage current frontend high/critical and Deno findings with component owners; do not silently upgrade application dependencies here.
 - Native Secret Protection, repository Push protection, Dependency graph and Dependabot alerts are now operator-confirmed enabled (November 6). Dependency alert remediation, optional updates, bypass governance and any justified supplemental secret scanning remain separate follow-ups.
