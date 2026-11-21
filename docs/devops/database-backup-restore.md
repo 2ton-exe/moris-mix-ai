@@ -245,3 +245,12 @@ means it does not match; this **does not establish** that the GRANT affects
 object privileges. `not-applicable` means the attributed statement is not a
 GRANT, and `unknown` means attribution was not established. These labels
 never reveal identifiers or SQL and do not prove the permission root cause.
+
+The proposed `grant_type` label describes only the statement attributed by a
+validated replay error. `parameter-grant` means it matches the supported
+single-line PostgreSQL 17 configuration-parameter GRANT syntax.
+`role-membership-grant` means it matches the existing strict membership
+grammar. Success and unattributed, unsupported, or ambiguous statements use
+`other-or-unknown`. The label reveals no parameter names, role identifiers,
+or SQL. It describes syntax only and leaves the required privileges and
+permission root cause unverified.
