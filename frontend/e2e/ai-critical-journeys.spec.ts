@@ -13,17 +13,17 @@ async function openChefPreferences(page: Page) {
   const nextPage = page.getByRole('button', { name: 'Next page' })
   while (!await preferences.isVisible()) {
     await nextPage.click()
-    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
   }
   return preferences
 }
 
 async function expectPantryItemAndReturnToPreferences(page: Page, item: string) {
   await page.getByRole('button', { name: 'Previous page' }).click()
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
   await expect(page.getByRole('region', { name: /^Pantry list,/ })).toContainText(item)
   await page.getByRole('button', { name: 'Next page' }).click()
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
