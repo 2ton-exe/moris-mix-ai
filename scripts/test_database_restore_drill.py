@@ -336,15 +336,24 @@ class ComponentHintTests(unittest.TestCase):
             self.assertEqual(diagnostic_hints(stderr, 3, unused),
                              (component.decode("ascii"), "unknown", "unknown"))
 
-    def test_data_category_requires_one_complete_error_record(self):
+    def test_data_category_requires_one_error_and_allows_notices_and_warnings(self):
         record = b"psql:/backup/data.sql:987654321: ERROR:  23505\n"
         notice = b"psql:/backup/roles.sql:2: NOTICE:  00000\n"
+        warning = b"psql:/backup/data.sql:3: WARNING:  01000\n"
+        expected_category = ("data.sql", "unique-violation", "unknown")
         cases = [
-            (record, 3, ("data.sql", "unique-violation", "unknown")),
+            (record, 3, expected_category),
             (record, 2, ("unknown", "unknown", "unknown")),
-            (notice + record, 3, ("data.sql", "unknown", "unknown")),
-            (record + notice, 3, ("data.sql", "unknown", "unknown")),
-            (record.replace(b"ERROR", b"FATAL"), 3, ("data.sql", "unknown", "unknown")),
+            (notice + record, 3, expected_category),
+            (record + notice, 3, expected_category),
+            (warning + record, 3, expected_category),
+            (record + warning, 3, expected_category),
+            (notice + record + warning, 3, expected_category),
+            (notice + warning, 3, ("unknown", "unknown", "unknown")),
+            (notice.replace(b"NOTICE", b"INFO") + record, 3, ("data.sql", "unknown", "unknown")),
+            (notice + record.replace(b"ERROR", b"FATAL"), 3, ("data.sql", "unknown", "unknown")),
+            (record.replace(b"ERROR", b"PANIC") + warning, 3, ("data.sql", "unknown", "unknown")),
+            (record + record.replace(b"ERROR", b"FATAL"), 3, ("unknown", "unknown", "unknown")),
             (record + record, 3, ("unknown", "unknown", "unknown")),
             (record + record.replace(b"data.sql", b"roles.sql"), 3,
              ("unknown", "unknown", "unknown")),
@@ -768,6 +777,24 @@ python3() {
                 self.assertNotIn("987654321", result.stdout)
                 self.assertNotIn(state, result.stdout)
                 self.assertNotIn("psql:/backup/", result.stdout)
+
+    def test_workflow_preserves_data_category_with_canonical_notices_and_warnings(self):
+        record = "psql:/backup/data.sql:987654321: ERROR:  22P02\n"
+        notice = "psql:/backup/schema.sql:987654322: NOTICE:  00000\n"
+        warning = "psql:/backup/data.sql:987654323: WARNING:  01000\n"
+        for stderr in (notice + record + warning, warning + record + notice):
+            with self.subTest(stderr=stderr):
+                result, _ = self.run_diagnostic("restore", 3, stderr=stderr)
+                self.assertEqual(result.returncode, 3)
+                self.assertEqual(
+                    result.stdout,
+                    "Restore diagnostic: phase=client status=passed\n"
+                    "Restore diagnostic: phase=files status=passed\n"
+                    "Restore diagnostic: phase=connection status=passed\n"
+                    "::error::Restore diagnostic: phase=restore category=sql-script "
+                    "exit_code=3 component_hint=data.sql "
+                    "untrusted_error_category_hint=invalid-text-representation "
+                    "untrusted_statement_class_hint=unknown; private output suppressed\n")
 
     def test_workflow_redacts_malformed_and_forged_looking_data_records(self):
         record = "psql:/backup/data.sql:987654321: ERROR:  22P02\n"

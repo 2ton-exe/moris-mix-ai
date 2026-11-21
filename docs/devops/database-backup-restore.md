@@ -186,12 +186,13 @@ files produce an `unknown` statement class; malformed or ambiguous records and
 over-bound stderr produce only `unknown` labels. Each of the three role error
 categories identifies one allowlisted SQLSTATE.
 
-For `data.sql` only, a single complete SQLSTATE-only `ERROR` record can also
-produce an untrusted category hint. The allowlist covers COPY format, data
-conversion and encoding, constraint violations, insufficient privilege, and
-missing tables or columns. A non-allowlisted code or additional stderr records
-leave the category `unknown`. Stage B does not inspect data statements or rows
-to produce this hint, and the statement class remains `unknown`.
+For `data.sql` only, a sole SQLSTATE-only `ERROR` can also produce an untrusted
+category hint, even with canonical `NOTICE` or `WARNING` records before or after
+it. The allowlist covers COPY format, data conversion and encoding, constraint
+violations, insufficient privilege, and missing tables or columns. Unsupported
+codes or message severities, malformed or ambiguous records, and out-of-bounds
+logs leave the category `unknown`. Stage B does not inspect data statements or
+rows to produce this hint, and the statement class remains `unknown`.
 
 All hints are investigative leads. An identical forged record remains
 indistinguishable from a genuine one. Raw diagnostic records, line numbers, SQL,

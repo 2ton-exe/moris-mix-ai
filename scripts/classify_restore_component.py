@@ -8,6 +8,7 @@ from genuine ones. This hint must never authorize a correction or a retry.
 from pathlib import Path
 import re
 import sys
+from typing import NamedTuple
 
 MAX_LOG_BYTES = 64 * 1024
 MAX_LINE_BYTES = 512
@@ -78,32 +79,47 @@ RECORD = re.compile(
 )
 
 
-def _accepted_error(stderr: bytes, exit_code: int):
-    """Return the sole fixed-path error tuple, rejecting ambiguous framing."""
+class AcceptedError(NamedTuple):
+    component: str
+    line_number: int
+    sqlstate: bytes
+    severity: bytes
+    has_other_messages: bool
+
+
+def _accepted_error(stderr: bytes, exit_code: int) -> AcceptedError | None:
+    """Return the sole fixed-path error, rejecting ambiguous framing."""
     if exit_code != 3 or not stderr or len(stderr) > MAX_LOG_BYTES:
         return None
     if not stderr.endswith(b"\n"):
         return None
-    errors = []
+    error = None
+    has_other_messages = False
     for line in stderr.split(b"\n")[:-1]:
         if not line or len(line) > MAX_LINE_BYTES:
             return None
         match = RECORD.fullmatch(line)
         if match is None or int(match["line"]) > (1 << 64) - 1:
             return None
-        if match["severity"] in (b"ERROR", b"FATAL", b"PANIC"):
-            errors.append((
-                COMPONENTS[match["component"]],
-                int(match["line"]),
-                match["sqlstate"],
-            ))
-    return errors[0] if len(errors) == 1 else None
+        severity = match["severity"]
+        if severity in (b"ERROR", b"FATAL", b"PANIC"):
+            if error is not None:
+                return None
+            error = match
+        elif severity not in (b"NOTICE", b"WARNING"):
+            has_other_messages = True
+    if error is None:
+        return None
+    return AcceptedError(
+        COMPONENTS[error["component"]], int(error["line"]), error["sqlstate"],
+        error["severity"], has_other_messages,
+    )
 
 
 def component_hint(stderr: bytes, exit_code: int) -> str:
     """Preserve the bounded, untrusted component-only hint API."""
     error = _accepted_error(stderr, exit_code)
-    return error[0] if error is not None else "unknown"
+    return error.component if error is not None else "unknown"
 
 
 def _ends_with_complete_statement(line: bytes) -> bool:
@@ -198,17 +214,13 @@ def diagnostic_hints(stderr: bytes, exit_code: int, roles_sql: Path):
     error = _accepted_error(stderr, exit_code)
     if error is None:
         return "unknown", "unknown", "unknown"
-    component, line_number, sqlstate = error
+    component = error.component
     if component == "roles.sql":
-        category = ERROR_CATEGORIES.get(sqlstate, "unknown")
-        statement_class = statement_class_from_file(roles_sql, line_number)
+        category = ERROR_CATEGORIES.get(error.sqlstate, "unknown")
+        statement_class = statement_class_from_file(roles_sql, error.line_number)
         return component, category, statement_class
-    if component == "data.sql":
-        # Require one ERROR record for the extra hint. Even a well-framed
-        # notice alongside it suppresses the category, not the component hint.
-        record = RECORD.fullmatch(stderr[:-1])
-        if record is not None and record["severity"] == b"ERROR":
-            return component, DATA_ERROR_CATEGORIES.get(sqlstate, "unknown"), "unknown"
+    if component == "data.sql" and error.severity == b"ERROR" and not error.has_other_messages:
+        return component, DATA_ERROR_CATEGORIES.get(error.sqlstate, "unknown"), "unknown"
     return component, "unknown", "unknown"
 
 
