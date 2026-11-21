@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { recipeEditorStateSchema } from '../recipe-form/draft'
 import type { RecipeEditorState } from '../recipe-form/draft'
+import { MAX_PANTRY_ITEM_CHARS } from './pantry'
 import { generateRecipeRequestSchema, generateRecipeResponseSchema } from './generateRecipe'
 import type { GenerateRecipeRequest, GenerateRecipeResponse } from './generateRecipe'
 
@@ -8,6 +9,7 @@ const pantryInputSchema = z.object({
   pantryItems: z.array(z.string()),
   pantryInput: z.string(),
   preferences: z.string(),
+  priorityIngredient: z.string().max(MAX_PANTRY_ITEM_CHARS).optional().catch(undefined),
 })
 
 const lineageStatusSchema = z.enum(['pending', 'expired', 'blocked', 'confirmed'])
@@ -48,6 +50,7 @@ export interface ChefPantryInput {
   pantryItems: string[]
   pantryInput: string
   preferences: string
+  priorityIngredient?: string
 }
 
 export interface ChefReviewHandoff {

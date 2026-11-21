@@ -5,6 +5,7 @@ import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { ErrorState } from '../components/ErrorState'
 import { LoadingState } from '../components/LoadingState'
+import { readNoteHandoff } from '../recipe-form/noteHandoff'
 import { RecipeForm } from '../recipe-form/RecipeForm'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import type { RecipeEditorRecord, SaveRecipeDraft } from '../recipe-form/submission'
@@ -50,7 +51,7 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const available = activeRecord && activeRecord.id === recipeId && activeRecord.userId === user?.id
   const accessDenied = activeError instanceof HttpError && [401, 403, 404].includes(activeError.status ?? 0)
   const canEdit = available && !accessDenied
-  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
+  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} noteHandoff={readNoteHandoff(location.state, user?.id, recipeId)} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && <RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
     renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />

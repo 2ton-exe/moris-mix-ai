@@ -677,3 +677,64 @@
   .mm-ai-chef__journey--scrapbook li + li::before { width: 8px; }
   .mm-ai-chef__journey--scrapbook .mm-ai-chef__journey-mark { flex-basis: 20px; width: 20px; height: 20px; }
 }
+
+.mm-ai-chef__pantry-slip {
+  width: min(100%, 370px);
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  overflow-wrap: anywhere;
+}
+.mm-ai-chef__pantry-slip :is(h2, p, ul) { margin: 0; }
+.mm-ai-chef__pantry-slip h2 { color: var(--mm-color-burgundy-900); font: 600 23px/1.2 var(--mm-font-serif); }
+.mm-ai-chef__pantry-slip ul { padding-inline-start: 1.25em; }
+.mm-ai-chef__pantry-slip a { display: inline-flex; align-items: center; min-block-size: 32px; text-underline-offset: .15em; }
+.mm-ai-chef__facing-tools { display: grid; gap: 12px; width: min(100%, 370px); }
+.mm-ai-chef > .mm-ai-chef__facing-tools { margin-block: 14px; }
+.mm-ai-chef__priority {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--mm-color-parchment-400);
+  border-radius: var(--mm-radius-control);
+  color: var(--mm-color-burgundy-900);
+  background: var(--mm-color-sage-100);
+}
+.mm-ai-chef__priority p { min-width: 0; margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.mm-ai-chef__pantry-list li[data-pantry-tools] { flex-wrap: wrap; border-radius: 10px; }
+.mm-ai-chef__ingredient-actions { display: flex; flex-wrap: wrap; gap: 0 2px; grid-column: 1 / -1; }
+.mm-ai-chef__ingredient-actions :is(.mm-ai-chef__ingredient-action, .mm-ai-chef__remove) {
+  display: grid;
+  place-items: center;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--mm-color-burgundy-900);
+  background: transparent;
+  cursor: pointer;
+}
+.mm-ai-chef__ingredient-actions button:not(:disabled):hover,
+.mm-ai-chef__ingredient-actions [aria-expanded='true'],
+.mm-ai-chef__ingredient-actions [aria-pressed='true'] {
+  border-color: var(--mm-color-parchment-500);
+  background: var(--mm-color-fresh);
+}
+.mm-ai-chef__ingredient-actions button:disabled { cursor: default; opacity: .65; }
+[data-pantry-board] .mm-ai-chef__card-grid > li[data-pantry-tools] .recipe-ingredient-emoji {
+  grid-area: 1 / 1;
+  inline-size: min(100%, 23px);
+}
+[data-pantry-board] .mm-ai-chef__ingredient-actions :is(.mm-ai-chef__ingredient-action, .mm-ai-chef__remove) {
+  min-block-size: 24px;
+  min-inline-size: 24px;
+}
+[data-pantry-board='list'] .mm-ai-chef__card-grid > li[data-pantry-tools] {
+  grid-template-columns: 23px minmax(0, 1fr) auto;
+}
+[data-pantry-board='list'] .mm-ai-chef__ingredient-actions { grid-area: 1 / 3; justify-content: end; }
+[data-pantry-board='list'] .mm-ai-chef__card-grid > li[data-pantry-tools] .mm-ai-chef__remove { grid-area: auto; }

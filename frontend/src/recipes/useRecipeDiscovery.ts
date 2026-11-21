@@ -9,15 +9,22 @@ import { InvalidRecipeData, validateRecipeList } from './validation'
 import { supportsDiscovery } from './discoveryTypes'
 import type { RecipeContinuation, RecipeDiscoveryCriteria, RecipeDiscoveryPage } from './discoveryTypes'
 
-export function useRecipeDiscovery(criteria: RecipeDiscoveryCriteria, waiting: boolean) {
+export function useRecipeDiscovery(criteria: RecipeDiscoveryCriteria, waiting: boolean, mode: 'collection' | 'first-page' = 'collection') {
   const source = useContext(RecipeSourceContext)
   const { user, isAuthenticated, isLoading } = useAuth()
   const userId = user?.id ?? null
   const adapter = source.discovery
-  const legacy = useRecipes(!adapter)
+  const preview = mode === 'first-page'
+  const legacy = useRecipes(!adapter && !preview)
   const infinite = useInfiniteQuery({
     queryKey: adapter ? recipeKeys.discovery(userId, criteria) : [...recipeKeys.all(userId), 'discovery-unavailable'],
     enabled: !!adapter && !waiting && !!userId && isAuthenticated && !isLoading,
+    ...(preview && {
+      retry: false,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    }),
     initialPageParam: null as RecipeContinuation | null,
     queryFn: async ({ signal, pageParam }): Promise<RecipeDiscoveryPage> => {
       if (!userId) throw new HttpError('http', 'Authentication required.', 401)
@@ -40,7 +47,7 @@ export function useRecipeDiscovery(criteria: RecipeDiscoveryCriteria, waiting: b
   const uniqueRecipes = useMemo(() => pages && [...new Map(
     pages.flatMap((page) => page.recipes).map((recipe) => [recipe.id, recipe]),
   ).values()], [pages])
-  const recipes = adapter ? uniqueRecipes : legacy.data
+  const recipes = adapter ? preview ? pages?.[0]?.recipes : uniqueRecipes : preview ? undefined : legacy.data
   const loadingMore = useRef(false)
   async function loadMore() {
     if (loadingMore.current || infinite.isFetching || !infinite.hasNextPage) return

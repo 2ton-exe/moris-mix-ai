@@ -68,6 +68,7 @@ function Companion({ userId }: { userId?: string }) {
   const [pageTurn, setPageTurn] = useState(false)
   const [traveling, setTraveling] = useState(false)
   const [dock, setDock] = useState<Position | null>(null)
+  const [bookmarkBounds, setBookmarkBounds] = useState<Pick<DOMRect, 'left' | 'right' | 'bottom'> | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const desktopTools = useJournalDesktopTools()
@@ -119,10 +120,13 @@ function Companion({ userId }: { userId?: string }) {
     return () => { window.removeEventListener('resize', resize); visual?.removeEventListener('resize', resize); visual?.removeEventListener('scroll', resize) }
   }, [])
   useLayoutEffect(() => {
-    if (singleLayout) { setDock(null); return }
+    if (singleLayout) { setDock(null); setBookmarkBounds(null); return }
     let paper: HTMLElement | null = null
     const place = () => {
       const rect = paper?.getBoundingClientRect()
+      const tabs = paper?.querySelector('.mm-bookmarks--journal')?.getBoundingClientRect()
+      const bounds = tabs?.width ? { left: tabs.left, right: tabs.right, bottom: tabs.bottom } : null
+      setBookmarkBounds((current) => current?.left === bounds?.left && current?.right === bounds?.right && current?.bottom === bounds?.bottom ? current : bounds)
       const next = rect?.width ? moriRestFoot(rect) : null
       let dockPosition: Position | null = null
       if (next && rect && paper) {
@@ -277,8 +281,10 @@ function Companion({ userId }: { userId?: string }) {
     : placement === 'right'
       ? actual.x + width + gap
       : Math.max(left, Math.min(actual.x + width / 2 - panelWidth / 2, right - panelWidth))
+  const overlapsBookmarks = bookmarkBounds && panelLeft < bookmarkBounds.right && panelLeft + panelWidth > bookmarkBounds.left
+  const sidePanelTop = overlapsBookmarks ? Math.max(top, bookmarkBounds.bottom + gap) : top
   const panelTop = placement === 'left' || placement === 'right'
-    ? Math.max(top, Math.min(mouthY - measuredPanelHeight / 2, bottom - measuredPanelHeight))
+    ? Math.max(sidePanelTop, Math.min(mouthY - measuredPanelHeight / 2, bottom - measuredPanelHeight))
     : placement === 'top'
       ? Math.max(top, Math.min(actual.y - gap - measuredPanelHeight, bottom - measuredPanelHeight))
       : Math.max(top, Math.min(actual.y + height + gap, bottom - measuredPanelHeight))
