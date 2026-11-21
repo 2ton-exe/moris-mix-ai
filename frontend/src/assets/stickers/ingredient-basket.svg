@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 154 142" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path fill="#fff8e7" stroke="#fff8e7" stroke-width="10" d="M26 88C-4 67 4 47 27 52 11 21 38 12 52 46c3-27 22-35 29-14q4 16-6 40l14-1 11-21q-11-22 3-22l8 8q3-25 16-26 14-1 4 22 22-8 16 6-4 10-23 16 23-5 19 9-4 11-16 15l8 10q-3 32-17 43H45q-14-4-19-43Z"/>
+  <path stroke="#96603e" stroke-width="8" d="M39 92c0-66 83-66 83 0"/>
+  <path stroke="#dfb473" stroke-width="3" d="M39 92c0-66 83-66 83 0"/>
+  <path fill="#82925b" stroke="#526341" stroke-width="2" d="M54 88C13 81 8 60 15 56q10-7 34 15C21 43 24 28 34 28q13-1 24 36 0-33 13-37 17 1 4 45Z"/>
+  <path stroke="#c6ca92" stroke-width="2" d="M57 84 25 64m35 16L37 40m22 43 13-44"/>
+  <path stroke="#526341" stroke-width="3" d="M97 88 127 27"/>
+  <path fill="#a6b27d" stroke="#526341" stroke-width="2" d="M117 47q-21-6-15-19 9 1 15 19Zm2-3q3-16 20-12-2 10-20 12Zm6-12q-5-18 8-22 7 7-8 22Zm-13 21q1 15 19 3 5-10-19-3Z"/>
+  <path fill="#cb6354" stroke="#8e463b" stroke-width="2" d="M43 86c-2-15 15-21 23-14 14-7 25 3 22 17q-5 17-24 13-16 3-21-16Z"/>
+  <path fill="#6e814d" d="m66 67 2 6 11 1-10 3 0 6-5-6-7 3 3-7Z"/>
+  <path fill="#dd9655" stroke="#96603e" stroke-width="2" d="M83 72q8-7 11-21 2 14 10 20 15 10 8 23-5 11-26 7-21-6-3-29Z"/>
+  <path stroke="#f4c388" stroke-width="2" d="M94 63q-13 27-2 35m5-32q13 22 1 31"/>
+  <path fill="#cf935e" stroke="#875337" stroke-width="2.5" d="M27 89h105q-4 35-16 41H46Q33 126 27 89Z"/>
+  <path stroke="#edbd82" stroke-width="3" d="M34 102h91m-88 8h84m-79 8h75m-68 7h62"/>
+  <path stroke="#a76d43" stroke-width="2" d="m50 95 7 32m6-32 5 33m6-34 3 35m13-35-1 35m15-34-5 33m18-34-7 31"/>
+  <path fill="#e5b37a" stroke="#96603e" stroke-width="2.5" d="M30 87q49 6 99 0 8 2 2 9-48 12-100 0-8-3-1-9Z"/>
+  <path fill="#f5d2b4" stroke="#9f665e" stroke-width="1.5" d="m82 96 35-2-2 33-9 3-8-1-8 2-7-4Z"/>
+  <path stroke="#bd7d74" stroke-width="4" opacity=".6" d="m91 97 1 31m10-31 1 30m9-32-1 31m-26-22 29-2m-29 10 28-2m-27 11 26-2"/>
+</svg>

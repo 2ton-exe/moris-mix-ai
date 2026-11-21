@@ -286,13 +286,14 @@ try {
   const pantryInput = page.getByRole('textbox', { name: 'Pantry ingredient' })
   await expect(page.getByText('No ingredients yet.')).toBeVisible()
   await expect(page.getByText('Add what you have; Mori will suggest a recipe for you to review.')).toHaveCount(0)
-  const firstFour = ['Vinegar', 'Garlic', 'Onion', 'Bay Leaves']
-  await pantryInput.fill(firstFour.join(', '))
+  const referenceItems = ['Vinegar', 'Garlic', 'Onion', 'Bay Leaves', 'Rice', 'Eggs', 'Tomatoes', 'Olive Oil', 'Salt', 'Pepper', 'Sugar', 'Flour']
+  await pantryInput.fill(referenceItems.join(', '))
   await pantryInput.press('Enter')
-  const firstCards = page.getByRole('region', { name: 'Pantry list, 4 items' }).getByRole('listitem')
-  await expect(firstCards).toHaveCount(4)
-  await expect(page.getByText('4 ingredients added. Turn the page to see the rest.')).toHaveCount(0)
+  const board = page.getByRole('region', { name: 'Pantry list, 12 items' })
+  const firstCards = board.getByRole('listitem')
+  await expect(firstCards).toHaveCount(12)
   await expect(page.getByRole('region', { name: 'AI Chef page 1 of 2' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toHaveCount(0)
   await settleJournalLayout(page)
   const cardBoxes = await firstCards.evaluateAll((cards) => cards.map((card) => {
     const { left, top, bottom } = card.getBoundingClientRect()
@@ -300,80 +301,84 @@ try {
   }))
   const footer = await page.getByRole('button', { name: 'Ask Mori for a recipe' }).boundingBox()
   assert.ok(footer && cardBoxes.every((box) => box.bottom < footer.y), 'Pantry cards must stay above the action')
-  assert.ok(cardBoxes[0].top === cardBoxes[1].top && cardBoxes[2].top === cardBoxes[3].top
-    && cardBoxes[0].top < cardBoxes[2].top && cardBoxes[0].left === cardBoxes[2].left
-    && cardBoxes[0].left < cardBoxes[1].left, 'Four pantry cards must form a two-by-two grid')
-  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-cards-1440.png'), fullPage: true })
-  for (const [width, height, count] of [[1100, 700, 2], [1050, 900, 4]]) {
-    await page.setViewportSize({ width, height })
-    await settleJournalLayout(page)
-    await expect(firstCards).toHaveCount(count)
-    assert.ok(await firstCards.evaluateAll((cards) => cards.every((card) =>
-      card.getBoundingClientRect().bottom < card.closest('.mm-journal-page').querySelector('.mm-journal-page-footer').getBoundingClientRect().top
-    )), `Cards overlap the journal footer at ${width}×${height}`)
-    await page.screenshot({ path: path.join(os.tmpdir(), `moris-pantry-cards-${width}.png`), fullPage: true })
-    if (count === 2) {
-      await page.getByRole('button', { name: 'Next page', exact: true }).click()
-      await expect(page.getByRole('heading', { name: 'Pantry ingredients · continued' })).toBeFocused()
-      await page.setViewportSize({ width: 1440, height: 900 })
-      await expect(firstCards).toHaveCount(4)
-      await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeFocused()
-    }
-  }
+  assert.equal(new Set(cardBoxes.map(({ left }) => left)).size, 3)
+  assert.equal(new Set(cardBoxes.map(({ top }) => top)).size, 4)
+  assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1), 'The pantry must fit the viewport')
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-board-1440.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 1586, height: 992 })
+  await settleJournalLayout(page)
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-board-1586.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
+
+  const sort = page.getByRole('combobox', { name: 'Sort pantry ingredients' })
+  await sort.selectOption('ascending')
+  await expect(firstCards.first()).toContainText('Bay Leaves')
+  await sort.selectOption('descending')
+  await expect(firstCards.first()).toContainText('Vinegar')
+  await sort.selectOption('added')
+  await page.getByRole('button', { name: 'List view' }).click()
+  await expect(page.getByRole('button', { name: 'List view' })).toHaveAttribute('aria-pressed', 'true')
+  assert.equal(await firstCards.evaluateAll((cards) => new Set(cards.map((card) => card.getBoundingClientRect().left)).size), 1)
+  await page.getByRole('button', { name: 'Grid view' }).click()
+  await expect(firstCards).toHaveCount(12)
+
+  await page.getByRole('button', { name: 'Remove Garlic' }).click()
+  const garlic = page.getByRole('button', { name: 'garlic', exact: true })
+  await expect(garlic).toBeEnabled()
+  await pantryInput.fill('unsent ingredient')
+  await garlic.click()
+  await expect(garlic).toBeDisabled()
+  await expect(pantryInput).toHaveValue('unsent ingredient')
+  await expect(pantryInput).toBeFocused()
+  await pantryInput.clear()
+
+  await page.setViewportSize({ width: 1100, height: 700 })
+  await settleJournalLayout(page)
+  await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toBeVisible()
+  assert.ok(await board.evaluate((element) =>
+    element.getBoundingClientRect().bottom < element.closest('.mm-journal-page').querySelector('.mm-journal-page-footer').getBoundingClientRect().top
+  ), 'The compact desktop board, including its pager, stays above the journal footer')
+  await pantryInput.fill('a'.repeat(101))
+  await pantryInput.press('Enter')
+  await expect(page.getByRole('alert')).toContainText('100 characters or fewer')
+  assert.ok(await board.evaluate((element) =>
+    element.closest('.mm-ai-chef__page').getBoundingClientRect().bottom < element.closest('.mm-journal-page')
+      .querySelector('.mm-journal-page-footer').getBoundingClientRect().top
+  ), 'Validation stays within the bounded pantry workspace on compact desktop')
+  await pantryInput.clear()
   await page.setViewportSize({ width: 375, height: 800 })
   await settleJournalLayout(page)
   await expect(firstCards).toHaveCount(1)
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
-  await expect(firstCards).toHaveCount(4)
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toBeVisible()
-  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Remove Bay Leaves' })).toBeVisible()
-  await expect(page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Remove Bay Leaves' }) }).locator('img')).toHaveAttribute('src', '/twemoji/svg/1f33f.svg')
-
-  for (const item of firstFour) await page.getByRole('button', { name: 'Remove ' + item }).click()
-  await expect(page.getByText('No ingredients yet.')).toBeVisible()
+  await expect(firstCards).toHaveCount(12)
 
   const longIngredient = 'W'.repeat(100)
-  const pantryOverflow = ['Rice', 'Beans', 'Eggs', 'Tomatoes', longIngredient]
-  await pantryInput.fill(pantryOverflow.join(', '))
+  await pantryInput.fill(longIngredient)
   await pantryInput.press('Enter')
-  await expect(page.getByRole('region', { name: 'AI Chef page 1 of 3' })).toBeVisible()
-  await page.emulateMedia({ reducedMotion: 'no-preference' })
-  await page.getByRole('button', { name: 'Next page', exact: true }).click()
-  const turn = page.locator('[data-journal-page-turn][data-phase="animating"]')
-  await expect(turn).toBeVisible()
-  await page.setViewportSize({ width: 1100, height: 640 })
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Pantry ingredients · continued' })).toBeFocused()
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await settleJournalLayout(page)
+  const nextIngredients = page.getByRole('button', { name: 'Next ingredients' })
+  await expect(nextIngredients).toBeEnabled()
+  await nextIngredients.click()
   const longCard = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Remove ' + longIngredient }) })
   await expect(longCard).toBeVisible()
   await expect(longCard.locator('img')).toHaveAttribute('src', '/twemoji/svg/1f37d.svg')
-  const fits = await longCard.evaluate((card) => {
-    const footer = card.closest('.mm-journal-page').querySelector('.mm-journal-page-footer')
-    return card.scrollWidth <= card.clientWidth && card.getBoundingClientRect().bottom < footer.getBoundingClientRect().top
-  })
-  assert.ok(fits, 'The longest ingredient fits its card above the actions on a compact desktop continuation')
-  for (const [width, height] of [[1366, 768], [1366, 550], [1024, 450]]) {
-    await page.setViewportSize({ width, height })
-    await settleJournalLayout(page)
-    await expect(longCard).toBeVisible()
-    await expect.poll(() => longCard.evaluate((card) =>
-      card.getBoundingClientRect().bottom < card.closest('.mm-journal-page')
-        .querySelector('.mm-journal-page-footer').getBoundingClientRect().top,
-    )).toBe(true)
-  }
+  assert.ok(await longCard.evaluate((card) => card.scrollWidth <= card.clientWidth))
+  await longCard.getByRole('button').click()
+  await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toHaveCount(0)
+  await expect(firstCards).toHaveCount(12)
 
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.getByRole('button', { name: 'Next page', exact: true }).click()
+  await expect(page.locator('[data-journal-page-turn][data-phase="animating"]')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toBeVisible()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByRole('button', { name: 'Previous page', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Remove Bay Leaves' })).toBeVisible()
 
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await settleJournalLayout(page)
-  await page.getByRole('button', { name: 'Remove ' + longIngredient }).click()
-  await expect(page.getByRole('region', { name: 'AI Chef page 1 of 2' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeFocused()
-  for (const item of pantryOverflow.slice(0, -1)) await page.getByRole('button', { name: 'Remove ' + item }).click()
+  for (const item of referenceItems) await page.getByRole('button', { name: new RegExp('^Remove ' + item + '$', 'i') }).click()
+  await expect(page.getByText('No ingredients yet.')).toBeVisible()
 
   const ingredientsAtLimit = Array.from({ length: 100 }, (_, index) => `Ingredient ${index + 1}`)
   await pantryInput.evaluate((input, entries) => {
@@ -381,7 +386,15 @@ try {
     clipboardData.setData('text/plain', entries.join(',\n'))
     input.dispatchEvent(new globalThis.ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
   }, ingredientsAtLimit)
-  await expect(page.getByRole('region', { name: 'Pantry list, 100 items' })).toBeVisible()
+  const fullBoard = page.getByRole('region', { name: 'Pantry list, 100 items' })
+  await expect(fullBoard).toBeVisible()
+  const seen = []
+  do {
+    seen.push(...await fullBoard.locator('.mm-ai-chef__ingredient-name').allTextContents())
+    if (!await nextIngredients.isEnabled()) break
+    await nextIngredients.click()
+  } while (seen.length < 100)
+  assert.deepEqual(seen, ingredientsAtLimit)
   await pantryInput.fill('Ingredient 101')
   await pantryInput.press('Enter')
   await expect(page.getByRole('alert')).toContainText('You can add up to 100 pantry items.')

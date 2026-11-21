@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { MouseEvent } from 'react'
+import pantryBottle from '../assets/stickers/pantry-bottle.svg'
+import peppercorns from '../assets/stickers/peppercorns.svg'
 import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 
 export interface PantryCardItem {
@@ -12,6 +14,12 @@ interface PantryCardsProps {
   onRemove?: (id: number) => void
   disabled?: boolean
   animate?: boolean
+}
+
+function cardIllustration(name: string) {
+  if (/^(?:(?:apple cider|balsamic|rice|white|red wine) )?vinegar$|^olive oil$/i.test(name)) return pantryBottle
+  if (/^(?:(?:black|white) )?pepper(?:corns?)?$/i.test(name)) return peppercorns
+  return undefined
 }
 
 export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsProps) {
@@ -62,12 +70,18 @@ export function PantryCards({ items, onRemove, disabled, animate }: PantryCardsP
   }
 
   return <ul className="mm-ai-chef__card-grid" ref={listRef} role="list">
-    {items.map(({ id, name }) => <li key={id} data-tone={id % 5} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined}>
-      {onRemove ? <IngredientEmoji name={name} /> : <span className="recipe-ingredient-emoji" />}
-      <span className="mm-ai-chef__ingredient-name">{name}</span>
-      <button className="mm-ai-chef__remove" type="button" disabled={disabled} aria-label={`Remove ${name}`} onClick={(event) => remove(id, event)}>
-        <span><span className="mm-ai-chef__remove-mark" aria-hidden="true">× </span>Remove</span>
-      </button>
-    </li>)}
+    {items.map(({ id, name }) => {
+      const illustration = onRemove && cardIllustration(name)
+      return <li key={id} data-tone={id % 6} data-long-name={name.length > 48 ? 'extended' : name.length > 30 ? 'compact' : undefined} data-pantry-ingredient={onRemove ? id : undefined}>
+        {!onRemove ? <span className="recipe-ingredient-emoji" />
+          : illustration
+            ? <img className="recipe-ingredient-emoji" src={illustration} alt="" loading="lazy" />
+            : <IngredientEmoji name={name} />}
+        <span className="mm-ai-chef__ingredient-name">{name}</span>
+        <button className="mm-ai-chef__remove" type="button" disabled={disabled} aria-label={`Remove ${name}`} onClick={(event) => remove(id, event)}>
+          <span><span className="mm-ai-chef__remove-mark" aria-hidden="true">× </span>Remove</span>
+        </button>
+      </li>
+    })}
   </ul>
 }
