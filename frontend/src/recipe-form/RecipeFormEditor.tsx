@@ -799,7 +799,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       }
     }} onInputCapture={(event) => {
       const target = event.target
-      if (!desktopReview || (target instanceof HTMLElement && target.hasAttribute('data-form-autosize'))) resizeTextarea(target)
+      if ((!desktopReview && !desktopCreate) || (target instanceof HTMLElement && target.hasAttribute('data-form-autosize'))) resizeTextarea(target)
       rememberFocus(target)
     }}
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
