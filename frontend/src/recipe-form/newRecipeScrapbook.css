@@ -216,6 +216,7 @@
   .mm-new-recipe .mm-desk--writing .recipe-ingredient-edit-step .recipe-form-field { margin: 0; }
   .mm-new-recipe .recipe-ingredient-edit-step .recipe-form-field label small { display: block; font-size: .72rem; }
   .mm-new-recipe .recipe-ingredient-edit-step__navigation { min-block-size: 25px; }
+  .mm-new-recipe .recipe-ingredient-edit-step__navigation > span { margin-inline-end: clamp(32px, 5.5vw, 108px); }
   .mm-new-recipe .recipe-ingredient-back { padding: 2px 0; }
   .mm-new-recipe .recipe-ingredient-edit-step__title { min-block-size: 26px; }
   .mm-new-recipe .recipe-ingredient-edit-step__actions .button { min-block-size: 40px; }
@@ -226,6 +227,14 @@
 
   .mm-new-recipe .mm-desk .mm-form-footer .recipe-form-actions { flex-direction: row; justify-content: flex-start; gap: 10px; padding: 0; }
   .mm-new-recipe .mm-form-footer .recipe-form-actions .mm-scrapbook-sticker { inline-size: 18px; }
+}
+
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 767.98px),
+  (min-width: 1100px) and (max-width: 1365.98px) and (min-height: 640px) {
+  .mm-new-recipe .mm-desk--writing .mm-writing-leaf {
+    overflow: auto;
+    padding-block: 10px 14px;
+  }
 }
 
 @media (forced-colors: active) {

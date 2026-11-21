@@ -211,6 +211,9 @@ try {
     assert.equal(leaves.length, 2)
     assert.ok(leaves.every(({ client, scroll }) => scroll <= client + 1), `New Recipe must fit at ${width}×${height}: ${JSON.stringify(leaves)}`)
   }
+  await page.setViewportSize({ width: 1100, height: 640 })
+  await settleJournalLayout(page)
+  await page.getByRole('button', { name: 'Done' }).click({ trial: true })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByLabel('Ingredient 1 name').fill('Tomatoes')
   await page.getByLabel('Ingredient 1 quantity').fill('some')

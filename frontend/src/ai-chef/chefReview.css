@@ -110,7 +110,7 @@
 }
 
 .mm-chef-review__title,
-.mm-scrapbook-form__notes {
+.mm-chef-review .mm-scrapbook-form__notes {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 4px;
@@ -170,10 +170,10 @@
   resize: none;
 }
 
-.mm-scrapbook-form__garnish { display: flex; justify-content: space-between; padding-inline: 2px; }
-.mm-scrapbook-form__garnish .mm-scrapbook-sticker { inline-size: clamp(29px, 5vh, 51px); filter: drop-shadow(0 2px 1px rgb(66 36 16 / .2)); }
-.mm-scrapbook-form__garnish .mm-scrapbook-sticker:first-child { transform: rotate(-10deg); }
-.mm-scrapbook-form__garnish .mm-scrapbook-sticker:last-child { transform: rotate(8deg); }
+.mm-chef-review .mm-scrapbook-form__garnish { display: flex; justify-content: space-between; padding-inline: 2px; }
+.mm-chef-review .mm-scrapbook-form__garnish .mm-scrapbook-sticker { inline-size: clamp(29px, 5vh, 51px); filter: drop-shadow(0 2px 1px rgb(66 36 16 / .2)); }
+.mm-chef-review .mm-scrapbook-form__garnish .mm-scrapbook-sticker:first-child { transform: rotate(-10deg); }
+.mm-chef-review .mm-scrapbook-form__garnish .mm-scrapbook-sticker:last-child { transform: rotate(8deg); }
 
 .mm-chef-review .mm-chef-review__inspiration {
   display: grid;
