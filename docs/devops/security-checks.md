@@ -24,10 +24,17 @@ recorded successful deployment URL, AI-route, and runtime smoke steps.
 - The staging, production, Edge/API, backup, and scheduled image-cleanup paths
   use pinned actions and disable checkout credential persistence. PR Secretary
   gives its comment-writing job `pull-requests: write` and reads trusted
-  default-branch code. Project synchronization uses a guarded GitHub App token
-  with Project write only for reconciliation and read for dry runs. The
-  token-minting job now pins all three actions to the existing upstream
-  commits. Its hosted execution with those pins remains to be verified.
+  default-branch code. Project synchronization requests the GitHub App's
+  organization-level `organization-projects` permission as `write` for
+  reconciliation and `read` for dry runs. That permission is not scoped
+  exclusively to Project #2. The `repositories: moris-mix-ai` input limits
+  repository access to `2ton-exe/moris-mix-ai` and does not narrow the
+  organization-level Projects permission. Before planning changes,
+  `project-sync.mjs` queries the configured organization and validates that
+  Project #2 is open and matches the expected owner and title. This is an
+  application check. The token-minting job now pins all three actions to the
+  existing upstream commits. Its hosted execution with those pins remains
+  to be verified.
 - Standard validation still has mutable action references, and the dormant
   reusable Cloudflare workflow has no active caller. These are separately
   tracked supply-chain surfaces. Pins reduce tag drift, while runner images,

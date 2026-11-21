@@ -988,6 +988,10 @@ test('App credentials stay in action inputs/output env; no application/deploymen
   const app = steps.find(s => s.id === 'app');
   assert.equal(app.with['client-id'], '${{ vars.PROJECT_AUTOMATION_APP_CLIENT_ID }}');
   assert.equal(app.with['private-key'], '${{ secrets.PROJECT_AUTOMATION_APP_PRIVATE_KEY }}');
+  assert.equal(app.with.owner, '2ton-exe');
+  assert.equal(app.with.repositories, 'moris-mix-ai');
+  assert.deepEqual(Object.keys(app.with).filter(key => key.startsWith('permission-')).sort(),
+    ['permission-issues', 'permission-metadata', 'permission-organization-projects', 'permission-pull-requests']);
   assert.equal(app.with['permission-issues'], 'read');
   assert.equal(app.with['permission-pull-requests'], 'read');
   assert.equal(app.with['permission-metadata'], 'read');
