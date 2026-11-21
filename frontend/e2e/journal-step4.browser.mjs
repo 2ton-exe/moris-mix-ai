@@ -9,6 +9,7 @@ import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { assertReferencePrerequisites } from './reference-prerequisites.mjs'
+import { holdSpatialPaperGrip } from './journal-geometry.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const referenceRoot = path.resolve(root, '../../figma-make-reference')
@@ -139,7 +140,7 @@ async function turnDiagnostics(page, reference = false) {
       animationTimingFunction: css.animationTimingFunction,
       transitionDuration: css.transitionDuration,
       transitionTimingFunction: css.transitionTimingFunction,
-      currentTime: reference ? leaf.getAnimations()[0]?.currentTime ?? null : Number(leaf.parentElement.dataset.progress) * 900,
+      currentTime: reference ? leaf.getAnimations()[0]?.currentTime ?? null : Number(leaf.parentElement.dataset.progress) * Number(leaf.parentElement.dataset.duration),
       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       box: { width: css.width, height: css.height, offsetWidth: leaf.offsetWidth, offsetHeight: leaf.offsetHeight, boxSizing: css.boxSizing, left: css.left, top: css.top },
       perspective: parentCss ? { name: parent?.className, perspective: parentCss.perspective, perspectiveOrigin: parentCss.perspectiveOrigin, transform: parentCss.transform, transformStyle: parentCss.transformStyle, width: parentCss.width, height: parentCss.height } : null,
@@ -154,7 +155,7 @@ async function holdTurnAtMidpoint(page, reference = false, animationTime = 410) 
   const selector = reference ? '.turn-layer' : '[data-journal-page-turn]'
   if (!reference) await expect(page.locator(`${selector}[data-phase="animating"]`)).toBeVisible()
   if (!reference) {
-    await page.locator(selector).evaluate((node, time) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: time / 900 })), animationTime)
+    await page.locator(selector).evaluate((node, time) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: time / Number(node.dataset.duration) })), animationTime)
     return [animationTime]
   }
   return page.evaluate(({ selector, animationTime }) => {
@@ -180,17 +181,8 @@ async function resumeTurn(page, reference = false) {
   }, selector)
 }
 
-async function holdMoriAtMidpoint(page) {
-  return page.locator('.mori-pet-character[data-turn-direction]').evaluate((character) => {
-    const hand = character.querySelector('[data-mori-hand]')
-    const point = new globalThis.DOMPoint(148, 190).matrixTransform(hand.getScreenCTM())
-    const corner = globalThis.document.querySelector('[data-page-corner]').getBoundingClientRect()
-    return { direction: character.dataset.turnDirection, separation: Math.hypot(point.x - corner.x, point.y - corner.y) }
-  })
-}
-
 async function finishTurn(page) {
-  await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'), null, { timeout: 3000 })
+  await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'), null, { timeout: 5_000 })
 }
 
 try {
@@ -228,25 +220,24 @@ try {
   await snapshot(referencePage, 'reference-1440-before-forward')
   await appPage.getByRole('link', { name: /Next page/ }).click()
   await referencePage.getByRole('button', { name: 'Turn to older scraps' }).click()
-  await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
-  await expect(appPage.locator('.mori-pet-character')).toHaveAttribute('data-turn-direction', 'forward')
+  const forwardLayer = appPage.locator('[data-journal-page-turn]')
+  await expect(forwardLayer).toHaveAttribute('data-phase', 'animating')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
-  const forwardTimes = await Promise.all([holdTurnAtMidpoint(appPage, false, 290), holdTurnAtMidpoint(referencePage, true, 410)])
-  const forwardMori = await holdMoriAtMidpoint(appPage)
+  const [forwardMori, forwardReferenceTimes] = await Promise.all([holdSpatialPaperGrip(forwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
   assert.equal(forwardMori?.direction, 'forward')
   assert.ok(forwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
-  await expect(appPage.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
+  await expect(forwardLayer.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
   await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
-  assert.ok(forwardTimes.flat().length >= 2, 'Both spread turns expose leaf and lighting animations')
+  assert.ok(forwardReferenceTimes.length > 0, 'The reference spread exposes its turn animations')
   const forwardMidCurrent = await turnDiagnostics(appPage)
   const forwardMidReference = await turnDiagnostics(referencePage, true)
-  assert.ok(forwardMidCurrent, 'The current leaf remains active at the 290ms midpoint')
+  assert.ok(forwardMidCurrent, 'The current leaf remains active during Mori’s grip')
   assert.ok(forwardMidReference, 'The reference leaf remains active at the 410ms midpoint')
   assert.equal(forwardMidCurrent.transitionDuration, '0s')
   assert.equal(forwardMidReference.animationDuration, '0.82s')
   assert.match(forwardMidCurrent.transform, /^matrix3d\(/)
   assert.notEqual(forwardMidReference.transform, 'none')
-  assert.ok(Math.abs(Number(forwardMidCurrent.currentTime) - 290) < 1)
+  assert.ok(Math.abs(Number(forwardMidCurrent.currentTime) - forwardMori.time) < 1)
   assert.ok(Math.abs(Number(forwardMidReference.currentTime) - 410) < 1)
   await snapshot(appPage, 'current-1440-forward-midpoint')
   await snapshot(referencePage, 'reference-1440-forward-midpoint')
@@ -261,21 +252,20 @@ try {
 
   await appPage.getByRole('link', { name: /Previous page/ }).click()
   await referencePage.getByRole('button', { name: 'Turn back to newer scraps' }).click()
-  await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
-  await expect(appPage.locator('.mori-pet-character')).toHaveAttribute('data-turn-direction', 'backward')
+  const backwardLayer = appPage.locator('[data-journal-page-turn]')
+  await expect(backwardLayer).toHaveAttribute('data-phase', 'animating')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
-  const backwardTimes = await Promise.all([holdTurnAtMidpoint(appPage, false, 290), holdTurnAtMidpoint(referencePage, true, 410)])
-  const backwardMori = await holdMoriAtMidpoint(appPage)
+  const [backwardMori, backwardReferenceTimes] = await Promise.all([holdSpatialPaperGrip(backwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
   assert.equal(backwardMori?.direction, 'backward')
   assert.ok(backwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
-  assert.ok(backwardTimes.flat().length >= 2, 'Both backward spread turns expose leaf and lighting animations')
+  assert.ok(backwardReferenceTimes.length > 0, 'The reference spread exposes its turn animations')
   const backwardMidCurrent = await turnDiagnostics(appPage)
   const backwardMidReference = await turnDiagnostics(referencePage, true)
   assert.equal(backwardMidCurrent.transitionDuration, '0s')
   assert.equal(backwardMidReference.animationDuration, '0.82s')
   assert.match(backwardMidCurrent.transform, /^matrix3d\(/)
   assert.notEqual(backwardMidReference.transform, 'none')
-  assert.ok(Math.abs(Number(backwardMidCurrent.currentTime) - 290) < 1)
+  assert.ok(Math.abs(Number(backwardMidCurrent.currentTime) - backwardMori.time) < 1)
   assert.ok(Math.abs(Number(backwardMidReference.currentTime) - 410) < 1)
   await snapshot(appPage, 'current-1440-backward-midpoint')
   await snapshot(referencePage, 'reference-1440-backward-midpoint')

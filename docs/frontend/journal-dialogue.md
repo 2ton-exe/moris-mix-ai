@@ -1,9 +1,9 @@
 # Mori companion
 
 Mori is an optional companion shared by signed-in recipe and AI pages. It replaces
-the dashboard's inline note and the older floating feature chooser. One full
-Mori stays outside the physical book; the bookplate keeps its static emblem.
-Modal confirmations may show Mori while the companion is suspended.
+the dashboard's inline note and the older floating feature chooser. The
+bookplate keeps its static emblem. Modal confirmations may show Mori while the
+companion is suspended.
 
 ## Real activity
 
@@ -38,9 +38,17 @@ Movement feedback uses a polite status region; decorative animation is not
 announced. A drag does not also activate the Talk button. No sound, roaming,
 generated conversation, or companion operation history is introduced.
 
-Turning a page briefly sends the same companion across the book with a paper-grab
-pose. Page snapshots do not contain full Mori figures, and reduced motion skips
-the run.
+Desktop pagination has one transaction for the paper and Mori’s motion.
+Next and Previous walk to opposite outer paper edges. Mori approaches, aligns,
+grips, pulls, releases as the sheet settles, and walks back to rest. The rendered
+paper bounds and the gap between ring groups determine the path. The sheet’s
+projected edge anchor drives the mitt while Mori’s feet stay planted. Six approved
+walking frames per direction advance by distance on a shared ground baseline.
+Page snapshots keep their existing handoff to live content. Reduced motion
+commits without the character or paper animation. Compact layouts retain their
+existing turn motion.
+
+See the [directional atlas and artwork inventory](../../frontend/src/assets/journal/README.md#moris-directional-atlas).
 
 The companion remains outside public/authentication pages and yields to modal
 dialogs. Its provider is keyed to the authenticated user, so transient activity
@@ -52,7 +60,9 @@ to their owners while Mori's position survives recipe navigation.
 The application browser seam uses synthetic sessions and intercepted API responses.
 The existing Mori browser journey covers keyboard operation, character dragging,
 position persistence, bubble reachability, route scope, narrow layouts, and
-reduced motion without production services. Component integration tests cover
+reduced motion without production services. Desktop turn samples check facing
+against foot travel, ring clearance, stationary paper before contact, the mitt
+against the moving edge, and snapshot handoff. Component integration tests cover
 activity ownership/precedence and actual workflow status transitions. Existing
 shell and Chef browser journeys retain feature navigation and focus checks.
 

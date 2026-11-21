@@ -8,6 +8,7 @@ import { generateRecipeApi } from '../ai-chef/generateRecipe'
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from '../quick-ai/draft'
 import type { ExtractedRecipe } from '../quick-ai/extractRecipe'
 import { extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS } from '../quick-ai/extractRecipe'
+import * as moriSpriteAtlas from '../journal/moriSpriteAtlas'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider, useMoriReviewCompletion } from './MoriCompanionContext'
 import { MoriChatPanel } from './MoriChatPanel'
@@ -403,6 +404,31 @@ it('keeps Mori and the conversation open across its own route navigation', async
   fireEvent.click(screen.getByRole('button', { name: 'Close Mori' }))
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
   expect(screen.getByText('Opening your cooking notes.')).toBeTruthy()
+})
+
+it('walks toward the actual bookmark with matching idle art while walk frames are unavailable', async () => {
+  const loaded = new Image()
+  vi.spyOn(moriSpriteAtlas, 'loadedMoriSprite').mockImplementation((src) => src.includes('/idle.svg') ? loaded : null)
+  render(<MemoryRouter initialEntries={['/app/recipes']}><MoriCompanionProvider>
+    <div className="mm-journal-book"><div className="mm-journal-spread"><nav className="mm-bookmarks--journal">
+      <a href="/app/recipes/new">New recipe</a>
+    </nav></div></div>
+    <MoriCompanion userId="mori-chat-travel" /><Location />
+  </MoriCompanionProvider></MemoryRouter>)
+  const trigger = screen.getByRole('button', { name: 'Talk to Mori' })
+  const tab = screen.getByRole('link', { name: 'New recipe' })
+  vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(600, 450, 96, 115.2))
+  vi.spyOn(tab, 'getBoundingClientRect').mockReturnValue(new DOMRect(886, 200, 70, 40))
+  fireEvent.click(trigger)
+  fireEvent.click(screen.getByRole('button', { name: 'Open recipe editor' }))
+
+  const character = screen.getByRole('group', { name: 'Mori companion' })
+  await waitFor(() => expect(character.querySelector('.mori-navigation-sprite')?.getAttribute('src')).toEqual(expect.stringMatching(/\/(NE|N|E)\/idle\.svg/)))
+  await waitFor(() => expect(tab.hasAttribute('data-mori-tap-target')).toBe(true))
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
+  expect(screen.getByRole('button', { name: 'Open recipes' })).toHaveProperty('disabled', true)
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new|'))
+  expect(tab.hasAttribute('data-mori-tap-target')).toBe(false)
 })
 
 it('opens an existing AI Chef review instead of targeting its disabled pantry field', async () => {

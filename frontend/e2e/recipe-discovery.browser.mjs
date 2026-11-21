@@ -10,6 +10,7 @@ import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
+import { holdSpatialPaperGrip } from './journal-geometry.mjs'
 
 const apiOrigin = 'https://fe07.example.test'
 const userId = '11111111-1111-4111-8111-111111111111'
@@ -119,15 +120,9 @@ try {
       const layer = page.locator('[data-journal-page-turn="true"]')
       async function sampleTurn(direction) {
         await expect(layer).toHaveAttribute('data-phase', 'animating')
-        await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: .57 })))
-        await expect(layer).toHaveAttribute('data-direction', direction)
-        const distance = await layer.evaluate((element) => {
-          const corner = element.querySelector('[data-page-corner]').getBoundingClientRect()
-          const hand = globalThis.document.querySelector('[data-mori-hand]')
-          const point = new globalThis.DOMPoint(hand.cx.baseVal.value, hand.cy.baseVal.value).matrixTransform(hand.getScreenCTM())
-          return Math.hypot(corner.x - point.x, corner.y - point.y)
-        })
-        assert.ok(distance <= 2, `${direction} turn separates Mori's mitt from the sheet by ${distance}px`)
+        const grip = await holdSpatialPaperGrip(layer)
+        assert.equal(grip.direction, direction)
+        assert.ok(grip.separation <= 2, `${direction} turn separates Mori's mitt from the sheet by ${grip.separation}px`)
         await page.screenshot({ path: path.join(outputDir, `1440-turn-${direction}.png`) })
         await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
         await expect(layer).toHaveCount(0)
@@ -247,7 +242,7 @@ try {
     const mori = page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await mori.click()
     const moriPanel = page.getByRole('region', { name: 'Mori', exact: true })
-    await moriPanel.getByRole('button', { name: 'My recipes' }).click()
+    await moriPanel.getByRole('button', { name: 'Open recipes' }).click()
     await expect(page).toHaveURL(/\/app\/recipes$/)
     await expect(moriPanel).toBeVisible()
     await moriPanel.getByRole('button', { name: 'Close Mori' }).click()

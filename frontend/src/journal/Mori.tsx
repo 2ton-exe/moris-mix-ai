@@ -83,8 +83,8 @@ export function Mori({ mood = 'happy', size = 120, className = '', style, label,
           <path d="M126 200 C160 204 180 188 175 165 C171 148 155 147 152 160" stroke={PINK} strokeWidth="4.5" fill="none" strokeLinecap="round" />
         </g>
         {/* feet */}
-        <ellipse cx="84" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
-        <ellipse cx="116" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
+        <ellipse className="mori-foot-l" cx="84" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
+        <ellipse className="mori-foot-r" cx="116" cy="222" rx="13" ry="7" fill="#d2bcb1" stroke={O} strokeWidth="3.2" />
         {/* body */}
         <path d="M68 168 C64 200 74 222 100 222 C126 222 136 200 132 168 C128 150 72 150 68 168Z" fill={FUR} stroke={O} strokeWidth="3.5" />
         {/* apron */}

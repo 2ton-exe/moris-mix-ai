@@ -23,6 +23,27 @@ export async function settleJournalLayout(page, reference = false) {
   await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
 }
 
+export async function holdSpatialPaperGrip(layer) {
+  return layer.evaluate((node) => {
+    const actor = node.querySelector('[data-mori-paper-actor]')
+    if (!actor || actor.hidden) throw new Error('The desktop turn has no visible paper actor')
+    const sample = (progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
+    const attached = []
+    for (let index = 0; index < 200; index++) {
+      const progress = index / 200
+      sample(progress)
+      if (actor.hasAttribute('data-mori-gripping') && Number(node.dataset.travel) > 0) attached.push(progress)
+    }
+    const progress = attached[Math.floor(attached.length / 2)]
+    if (progress === undefined) throw new Error('The desktop turn never grips the moving paper')
+    sample(progress)
+    const hand = actor.querySelector('[data-mori-hand]')
+    const point = new globalThis.DOMPoint(hand.cx.baseVal.value, hand.cy.baseVal.value).matrixTransform(hand.getScreenCTM())
+    const corner = node.querySelector('[data-page-corner]').getBoundingClientRect()
+    return { direction: node.dataset.direction, separation: Math.hypot(point.x - corner.x, point.y - corner.y), time: progress * Number(node.dataset.duration) }
+  })
+}
+
 /** Check journal proportions, page layers, and the exposed bookmark controls. */
 export async function assertJournalGeometry(page, label) {
   await settleJournalLayout(page)

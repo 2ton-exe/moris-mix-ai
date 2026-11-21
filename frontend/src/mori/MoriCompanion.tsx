@@ -3,12 +3,14 @@ import { X } from 'lucide-react'
 import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
-import { mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
+import { MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from '../journal/moriPaperMotion'
+import { MORI_FOOT, preloadMoriSprites } from '../journal/moriSpriteAtlas'
+import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
-import { travelToJournalTab } from './moriNavigationMotion'
 import { useMoriCompanionState } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
+import { travelToJournalTab } from './moriNavigationMotion'
 import './mori-companion.css'
 
 const navigationTapSize = 48
@@ -52,9 +54,11 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
   const [traveling, setTraveling] = useState(false)
+  const [dock, setDock] = useState<Position | null>(null)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
+  const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
@@ -69,7 +73,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const headingId = useId()
   const panelId = useId()
   const moveHintId = useId()
-  const size = mobile ? 72 : 96
+  const size = mobile ? 72 : MORI_DESKTOP_SIZE
   const width = size + 20
   const height = size * 1.2 + 64
   const left = viewport.left + 8
@@ -80,16 +84,17 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     x: Math.max(left, Math.min(position.x, right - width)),
     y: Math.max(top, Math.min(position.y, bottom - height)),
   }), [left, right, width, top, bottom, height])
-  const position = clamp(preferences.position ?? { x: mobile ? left + 12 : right - width - 12, y: bottom - height - 12 })
+  const position = clamp(preferences.position ?? dock ?? { x: mobile ? left + 12 : right - width - 12, y: bottom - height - 12 })
   const actual = mobile ? { ...position, x: position.x < viewport.left + viewport.width / 2 ? left : Math.max(left, right - width) } : position
   const page = companionPage(location.pathname)
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
 
+  useEffect(() => () => stopNavigationTravel.current?.(), [])
+  useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)) } catch { /* Storage may be unavailable in private browsing. */ }
   }, [preferences])
-  useEffect(() => () => stopNavigationTravel.current?.(), [])
   useEffect(() => {
     const resize = () => setViewport(readViewport())
     const visual = window.visualViewport
@@ -98,6 +103,48 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     visual?.addEventListener('scroll', resize)
     return () => { window.removeEventListener('resize', resize); visual?.removeEventListener('resize', resize); visual?.removeEventListener('scroll', resize) }
   }, [])
+  useLayoutEffect(() => {
+    if (singleLayout) { setDock(null); return }
+    let paper: HTMLElement | null = null
+    const place = () => {
+      const rect = paper?.getBoundingClientRect()
+      const next = rect?.width ? moriRestFoot(rect) : null
+      let dockPosition: Position | null = null
+      if (next && rect && paper) {
+        const x = next.x - size / 2
+        const artHeight = size * 1.2
+        const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable]'), (control) => control.getBoundingClientRect())
+          .filter((control) => control.width && control.height && control.left < x + size && control.right > x)
+        let y = next.y - MORI_FOOT.y * MORI_ART_SCALE
+        const minimum = Math.max(rect.top + 8, 8)
+        controls.sort((a, b) => b.bottom - a.bottom)
+        for (const control of controls) {
+          if (control.top < y + artHeight && control.bottom > y) y = control.top - artHeight - 4
+        }
+        if (y >= minimum) dockPosition = { x: next.x - width / 2, y }
+      }
+      setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
+    }
+    const findPaper = () => {
+      if (paper?.isConnected) return
+      paper = document.querySelector('.mm-desk--with-companion .mm-journal-spread > .mm-journal-page')
+      place()
+    }
+    const mutation = new MutationObserver((records) => {
+      if (!paper?.isConnected) findPaper()
+      else if (records.some(({ target }) => paper?.contains(target))) place()
+    })
+    const root = character.current?.closest('.mori-pet-root')?.parentElement
+    if (root) mutation.observe(root, { childList: true, subtree: true })
+    findPaper()
+    window.addEventListener('scroll', place, { passive: true })
+    window.addEventListener('resize', place)
+    return () => {
+      mutation.disconnect()
+      window.removeEventListener('scroll', place)
+      window.removeEventListener('resize', place)
+    }
+  }, [location.pathname, singleLayout, size, width])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
   useEffect(() => { if (keepOpen) setOpen(true); else setOpen(false) }, [location.pathname, keepOpen])
   useEffect(() => {
@@ -118,6 +165,25 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     const openMitt = svg.querySelector<SVGElement>('[data-mori-open-mitt]')
     const neutralArm = arm?.getAttribute('transform')
     return registerTurnCompanion({
+      startSpatial() {
+        const button = trigger.current
+        const rect = button?.getBoundingClientRect()
+        stopNavigationTravel.current?.()
+        if (!rect || element.closest('[hidden]')) return null
+        if (rect.width === 0) return null
+        element.dataset.moriSpatialTurn = ''
+        setPageTurn(true)
+        setOpen(false)
+        return {
+          screenFoot: { x: rect.left + rect.width / 2, y: rect.top + MORI_FOOT.y * MORI_ART_SCALE },
+          setActorOpacity(opacity) { element.style.opacity = String(1 - opacity) },
+          stop() {
+            delete element.dataset.moriSpatialTurn
+            element.style.removeProperty('opacity')
+            setPageTurn(false)
+          },
+        }
+      },
       start(direction, single) {
         stopNavigationTravel.current?.()
         if (!element.getClientRects().length) return
@@ -164,7 +230,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       },
     })
   }, [size])
-  useLayoutEffect(() => { if (open) heading.current?.focus() }, [open])
+  useLayoutEffect(() => { if (open) heading.current?.focus({ preventScroll: true }) }, [open])
   useLayoutEffect(() => {
     if (!focusAfterVisibilityChange.current) return
     focusAfterVisibilityChange.current = false
@@ -260,11 +326,15 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
 
   async function playNavigationTravel(findTab: () => HTMLElement | null, signal: AbortSignal) {
     const element = character.current
-    const art = trigger.current?.querySelector('svg')
-    if (!element || !art || element.dataset.turnDirection) return
-    stopNavigationTravel.current?.()
+    const button = trigger.current
+    if (signal.aborted || element?.dataset.turnDirection || element?.hasAttribute('data-mori-spatial-turn')) return false
+    if (!element || !button) return true
+    if (stopNavigationTravel.current) return false
     setTraveling(true)
-    const travel = travelToJournalTab(element, art, findTab, signal, () => setTraveling(false))
+    const travel = travelToJournalTab({ character: element, trigger: button, findTab, signal, onSettled() {
+      stopNavigationTravel.current = null
+      setTraveling(false)
+    } })
     stopNavigationTravel.current = travel.cancel
     return travel.arrived
   }
@@ -280,7 +350,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (description) setMoved(description)
   }
   function moveKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (pageTurn || character.current?.dataset.navigationStage) return
+    if (pageTurn || traveling) return
     const directions: Record<string, [number, number, string]> = { ArrowLeft: [-16, 0, 'left'], ArrowRight: [16, 0, 'right'], ArrowUp: [0, -16, 'up'], ArrowDown: [0, 16, 'down'] }
     const direction = directions[event.key]
     if (!direction) return
@@ -291,6 +361,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     left: actual.x,
     top: actual.y,
     width,
+    '--mori-navigation-width': `${size}px`,
   } as CSSProperties
   return <>
   <div className="mori-pet-root">
@@ -299,9 +370,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
       <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
-        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined}
+        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn || traveling ? 'true' : undefined} tabIndex={pageTurn || traveling ? -1 : undefined}
           onClick={(event) => {
-            if (pageTurn || character.current?.dataset.navigationStage) { event.preventDefault(); return }
+            if (pageTurn || traveling) { event.preventDefault(); return }
             if (suppressClick.current) {
               suppressClick.current = false
               if (event.detail !== 0) { event.preventDefault(); return }
@@ -311,7 +382,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           }}
           onKeyDown={moveKey}
           onPointerDown={(event) => {
-            if (pageTurn || event.button !== 0 || !event.isPrimary) return
+            if (pageTurn || traveling || event.button !== 0 || !event.isPrimary) return
             drag.current = { pointerId: event.pointerId, x: event.clientX - actual.x, y: event.clientY - actual.y, startX: event.clientX, startY: event.clientY, moved: false }
             event.currentTarget.setPointerCapture(event.pointerId)
           }}

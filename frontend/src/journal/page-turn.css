@@ -174,3 +174,18 @@
 .mm-turn-under--reveal :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-under-footer-opacity, 0); }
 .mm-turn-under--single .mm-journal-page-footer { visibility: hidden; }
 .mm-turn-under--retained :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-old-footer-opacity, 1); }
+
+.mm-mori-paper-actor {
+  position: absolute;
+  inset: 0 auto auto 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.mm-mori-paper-actor[hidden] { display: none; }
+.mm-mori-paper-actor > img { width: 96px; height: auto; }
+.mm-mori-paper-actor > :is(svg, img, [data-mori-foot]) {
+  position: absolute;
+  inset: 0 auto auto 0;
+}
+.mm-mori-paper-actor > svg { overflow: visible; }
+.mm-mori-paper-actor > :is(svg, img) { filter: drop-shadow(0 5px 3px rgb(47 33 26 / .2)); }

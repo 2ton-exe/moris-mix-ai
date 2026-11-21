@@ -21,3 +21,24 @@ and are copied into production output by Vite.
 Mori's vector art remains React SVG in `src/journal/Mori.tsx`. Procedural grain,
 mottle, specks, fibers, and endpaper textures are in `src/journal/textures.css`.
 No preview PNG is used as an application asset.
+
+## Mori’s directional atlas
+
+The official 200 × 240 SVG includes front-facing idle, expressions, and an
+open and closed page-grab mitt. The local keyframe reference board shows
+front-facing blink, ear, tail, wave, hop, stir, sleep, and sweat poses. The
+asymmetric tail and apron details require separately drawn left and right views.
+
+The `mori/` directory contains an idle and six walking frames in each of the
+eight directions. The south idle uses the official front pose directly. The
+east and west directories also contain reach, grip, and release poses. During
+desktop turns the scene tracks the moving paper edge with the articulated mitt.
+The compact layout uses the original companion illustration.
+
+Keep each frame on the 200 × 240 SVG artboard. The common ground datum is
+`(100, 230.6)` and each walking frame’s planted sole sits on that line. Store
+its horizontal coordinate and the complete stride length in `mori/strides.json`.
+The atlas resolves the numbered `walk-01.svg` to `walk-06.svg` files and
+`idle.svg` automatically. The SVG descriptions also record the anchor coordinates.
+In page-turn art, preserve the shoulder, wrist, forearm, mitt, and contact
+annotations so the scene can position just the gripping arm.

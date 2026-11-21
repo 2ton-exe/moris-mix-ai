@@ -51,3 +51,30 @@ it('varies the reachable grab point before repeating and falls back to the corne
     random.mockRestore()
   }
 })
+
+it('samples different heights within the safe desktop grip region', () => {
+  const setup = {
+    geometry: { left: 0, top: 100, width: 1200, height: 700, hinge: 600, pageTop: 0, radius: 600 },
+    direction: 'forward',
+    pageHeight: 700,
+    viewportTop: 0,
+    viewportHeight: 900,
+    previous: 'corner',
+    range: { min: 180, max: 390 },
+  } as const
+  const random = vi.spyOn(Math, 'random')
+  try {
+    random.mockReturnValueOnce(0).mockReturnValueOnce(0)
+    const high = chooseTurnGrab(setup)
+    random.mockReturnValueOnce(0).mockReturnValueOnce(.9)
+    const sameArea = chooseTurnGrab(setup)
+    random.mockReturnValueOnce(.99).mockReturnValueOnce(.9)
+    const low = chooseTurnGrab({ ...setup, previous: high.spot })
+    expect(sameArea.spot).toBe(high.spot)
+    expect(sameArea.y - high.y).toBeGreaterThan(40)
+    expect(low.y - high.y).toBeGreaterThan(140)
+    expect(low.y).toBeLessThan(390)
+  } finally {
+    random.mockRestore()
+  }
+})
