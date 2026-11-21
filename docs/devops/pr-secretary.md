@@ -34,34 +34,65 @@ refresh. Review thread resolution or reopening without a review or inline
 comment event is picked up on reconciliation. Schedules and workflow dispatch
 are subject to GitHub’s queue and event delivery.
 
-## Dashboard
+## Delivery Control Desk
 
-- **Lifecycle and revision** show draft, open, merged, or closed without merge.
-  Merged comments include the full PR head and actual merge SHA and time.
-- **Human reviews** show actual reviewer and team requests separately from
-  affected ownership. Effective reviews use submitted time and ID, ignore bots
-  and pending drafts, and keep an approval or change request through a later
-  comment-only review. Dismissals and earlier-revision decisions are explicit.
-  Terminal views display historical reviews and remove reviewer prompts.
-- **Required checks** use the active branch rules with bound app identities
-  where available. The three documented main contexts are a fallback when the
-  rules endpoint is unavailable or empty. Fallback success is labeled
-  integration-unverified. Final-head checks on terminal PRs use the policy
-  visible at collection time.
-- **Other PR delivery** displays E2E and staging separately. Draft, fork,
-  Dependabot, and documentation-only staging exclusions require observed skip
-  evidence. A failed deploy and its dependent smoke skip are attributed only
-  within the same run and attempt. An unexpected PR production job remains a
-  diagnostic. Hosted RLS on the PR caller is expected to skip when observed.
-- **CodeRabbit** reports structured bot activity and unresolved bot-rooted
-  threads. A conversation comment shows activity. A submitted, non-dismissed
-  bot review on the PR head shows REVIEWED. Only humans appear in human review
-  history. The script never interprets finding prose or infers severity.
-  When thread inventory is unavailable, its count is unknown.
-- **Attention and detailed evidence** show open-PR issues, affected ownership,
-  optional checks, and relevant reviewer guidance. The expandable details use
-  GitHub-flavored Markdown with display-only symbols. An unchanged dashboard
-  retains its previous update timestamp and makes zero comment writes.
+The single PR comment starts with Mori’s Mix engineering, the PR title and
+number, and a prominent `DRAFT`, `OPEN`, `MERGED`, or `CLOSED WITHOUT MERGE`
+state. Open PRs show the next attention item. Terminal PRs show the delivery
+outcome. Current changes requested, missing required checks, and check or
+release failures appear before the evidence panels. A failed or cancelled
+exact main workflow stays visible when its job evidence is unavailable.
+Deployment and smoke retain their own evidence states. Advisory notes, such
+as changes that cross ownership areas, stay in diagnostics.
+
+The **Delivery journey** shows five independently sourced stages:
+
+| Stage | Display evidence |
+| --- | --- |
+| Review | Effective submitted human reviews and outstanding reviewer requests. Terminal PRs show historical reviews. |
+| CI | Distinct statuses of the required PR-head contexts. Mixed results retain each observed state. |
+| Merge | The GitHub lifecycle state. GitHub evaluates merge requirements separately. |
+| Deploy | Deployment evidence for the exact merge and main run attempt, when available. |
+| Smoke | Runtime smoke evidence from the same attempt, tracked separately from deployment. |
+
+Deploy and Smoke are `NOT APPLICABLE` before merge and on closed-unmerged PRs.
+After merge, their existing statuses remain distinct, including `PENDING`,
+`RUNNING`, `SKIPPED`, `FAIL`, `UNKNOWN`, and `VERIFIED`. Verification
+describes the recorded release attempt for the merge. The dashboard makes
+no claim about the current production revision.
+
+The **Status overview** shows requested reviewers, the required CI policy
+source, any observed optional E2E and staging results, and main validation
+and E2E on merged PRs. `SKIPPED — EXPECTED` remains visible when supported
+by check evidence, including applicable draft, fork, Dependabot, and
+documentation-only staging exclusions. Unobserved optional checks remain in
+PR validation details.
+
+- **Human reviews and CodeRabbit** shows reviewer-by-reviewer evidence,
+  separately from optional, structured bot activity. Effective human reviews
+  use submitted time and ID. Bots and pending drafts are excluded. Comment-only
+  reviews preserve an existing approval or changes request. Dismissals and
+  earlier revisions stay explicit. Terminal comments omit reviewer prompts.
+  A current, submitted, non-dismissed bot review can show `REVIEWED`.
+  A conversation comment shows activity. Missing thread inventory is
+  unavailable. The dashboard excludes review prose and inferred severity.
+- **PR validation** expands the exact PR run and attempt, required checks,
+  and additional PR-head checks. Required checks use active branch rules with
+  bound app identities where available. The three documented main contexts
+  are the fallback when rules are unavailable or empty. Fallback success
+  retains its integration-unverified label. Final-head checks use the policy
+  visible at collection time. An observed hosted RLS skip on a PR is expected.
+- **Exact main release evidence**, shown for merged PRs, includes the actual
+  merge SHA and time, the main run and attempt, and the production job result
+  alongside deploy and smoke. For staging, a failed deploy and its dependent
+  smoke skip remain attributable within the same run and attempt.
+- **Revision and diagnostics** shows the full PR head SHA, close time where
+  applicable, affected ownership, and advisory or collection notes.
+
+The desk uses GitHub-flavored Markdown tables, status text, and native
+`<details>` panels. The publisher supplies the update timestamp when the
+dashboard changes. Identical renders keep the previous timestamp and make
+zero comment writes.
 
 | Symbol | Examples |
 | --- | --- |
@@ -69,6 +100,13 @@ are subject to GitHub’s queue and event delivery.
 | ⏳ | PENDING, RUNNING, WAITING, DRAFT |
 | ❌ | FAIL, CHANGES REQUESTED, CANCELLED, SKIPPED — INVESTIGATE |
 | ➖ | UNKNOWN, NOT RUN, SKIPPED, DISMISSED, or earlier-revision approval |
+
+For issue #258, Node 24 snapshots verify the collapsed dashboard and expanded
+evidence for the lifecycle, review, and release cases. The test suite also
+checks escaping, deterministic output, and the existing publication behavior.
+Exact-head CI and an authorized GitHub-rendered comment check remain pending.
+The hosted check should cover narrow layouts, light and dark themes, and
+updates to the same comment.
 
 Check and job evidence is read for the exact PR head. The selected Modular PR
 Validation run’s jobs take precedence over stale known workflow checks. Active
