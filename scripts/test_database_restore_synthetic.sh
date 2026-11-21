@@ -9,17 +9,25 @@ root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/moris-restore-synthetic.XXXXXX")"
 workdir="$root/local"
 fixture="$root/fixtures"
 mkdir -p "$fixture"
+umask 077
 
 cleanup() {
   local original_status=$?
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
-    if ! supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
+    if supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
+      printf '%s\n' 'synthetic-database-shutdown=pass'
+    else
       printf '%s\n' '::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.'
       original_status=1
     fi
   fi
-  rm -rf "$root"
+  if rm -rf "$root" > /dev/null 2>&1; then
+    printf '%s\n' 'synthetic-fixture-cleanup=pass'
+  else
+    printf '%s\n' 'synthetic-fixture-cleanup=fail' >&2
+    original_status=1
+  fi
   exit "$original_status"
 }
 trap cleanup EXIT
@@ -371,4 +379,127 @@ counts="$("${client[@]}" psql -X -A -t -F '|' -v ON_ERROR_STOP=1 \
 }
 echo 'Five synthetic application counts and two migration versions verified.'
 echo 'Component hints are untrusted evidence; identical forged records cannot be authenticated.'
+
+# Compare both principals on the existing disposable server. Do not reuse
+# this administrative connection for any hosted database or private replay.
+admin_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+principal_query() {
+  "${client[@]}" psql -X -qAt -F '|' --no-password -v ON_ERROR_STOP=1 \
+    -v VERBOSITY=sqlstate -d "$1" -c "$2" 2> "$root/principal-query.err"
+}
+
+check_principal() {
+  local role="$1" db="$2" expected_superuser="$3" flags
+  if flags="$(principal_query "$db" \
+      "SELECT rolsuper::int, rolcreaterole::int, rolcreatedb::int
+       FROM pg_roles WHERE rolname = current_user
+         AND current_user = '$role' AND session_user = '$role'")" &&
+      [[ "$flags" =~ ^[01]\|[01]\|[01]$ ]]; then
+    if [[ "$flags" == "$expected_superuser|1|1" ]]; then
+      printf 'principal-attributes role=%s superuser=%s createrole=1 createdb=1 result=pass\n' \
+        "$role" "$expected_superuser"
+      return 0
+    fi
+    printf 'principal-attributes role=%s flags=%s result=unexpected\n' "$role" "$flags"
+  else
+    printf 'principal-attributes role=%s result=connection-or-identity-failure\n' "$role"
+  fi
+  return 1
+}
+
+failed=0
+check_principal postgres "$local_db" 0 || failed=1
+check_principal supabase_admin "$admin_db" 1 || failed=1
+[[ "$failed" == 0 ]] || exit 1
+
+if ! principal_query "$admin_db" \
+    'CREATE ROLE devops_principal_group NOLOGIN; CREATE ROLE devops_principal_grantee NOLOGIN;' \
+    > "$root/principal-setup.out"; then
+  echo 'principal-fixture-setup=fail'
+  exit 1
+fi
+
+# Pick a built-in setting on which postgres holds neither privilege. Otherwise
+# PostgreSQL can return success with a warning and apply no grant at all.
+if ! parameter="$(principal_query "$admin_db" \
+    "SELECT name FROM (VALUES ('log_min_messages', 1), ('log_statement', 2),
+                              ('log_min_error_statement', 3), ('session_replication_role', 4))
+                     AS settings(name, priority)
+     WHERE NOT has_parameter_privilege('postgres', name, 'SET')
+       AND NOT has_parameter_privilege('postgres', name, 'ALTER SYSTEM')
+       AND NOT has_parameter_privilege('devops_principal_grantee', name, 'SET')
+     ORDER BY priority LIMIT 1")"; then
+  parameter=
+fi
+
+principal_state() {
+  principal_query "$admin_db" \
+    "SELECT (to_regnamespace('devops_principal_$1') IS NOT NULL)::int, ($2)::int"
+}
+
+principal_replay() {
+  local kind="$1" role="$2" db="$3" privilege="$4" expected="$5"
+  local status=0 sqlstate=none grant_line=no state error
+  local record='^psql:/backup/principal[.]sql:([12]): ERROR:  ([0-9A-Z]{5})$'
+  "${client[@]}" psql -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
+    -v VERBOSITY=sqlstate -f /backup/principal.sql -d "$db" \
+    > "$root/principal.out" 2> "$root/principal.err" || status=$?
+  if (( status != 0 )); then
+    sqlstate=unclassified
+    error="$(< "$root/principal.err")"
+    if [[ "$error" =~ $record ]]; then
+      sqlstate="${BASH_REMATCH[2]}"
+      [[ "${BASH_REMATCH[1]}" != 2 ]] || grant_line=yes
+    fi
+  fi
+  if ! state="$(principal_state "$kind" "$privilege")" || [[ ! "$state" =~ ^[01]\|[01]$ ]]; then
+    state='unknown|unknown'
+  fi
+  printf 'principal-grant kind=%s role=%s exit=%d sqlstate=%s grant-line=%s marker=%s granted=%s\n' \
+    "$kind" "$role" "$status" "$sqlstate" "$grant_line" "${state%|*}" "${state#*|}"
+  [[ "$status:$sqlstate:$grant_line:$state" == "$expected" ]]
+}
+
+compare_principals() {
+  local kind="$1" grant_sql="$2" revoke_sql="$3" privilege="$4"
+  local result=0
+  if [[ "$(principal_state "$kind" "$privilege")" != '0|0' ]]; then
+    printf 'principal-grant kind=%s baseline=fail\n' "$kind"
+    return 1
+  fi
+  printf 'CREATE SCHEMA devops_principal_%s;\n%s;\n' "$kind" "$grant_sql" > "$fixture/principal.sql" ||
+    return 1
+  # Reset the effects of the administrative control before testing postgres
+  # on the exact same file and verifying failed transaction rollback.
+  principal_replay "$kind" supabase_admin "$admin_db" "$privilege" '0:none:no:1|1' || result=1
+  if ! principal_query "$admin_db" "$revoke_sql; DROP SCHEMA IF EXISTS devops_principal_$kind;" \
+      > "$root/principal-reset.out" || [[ "$(principal_state "$kind" "$privilege")" != '0|0' ]]; then
+    printf 'principal-grant kind=%s reset=fail\n' "$kind"
+    return 1
+  fi
+  principal_replay "$kind" postgres "$local_db" "$privilege" '3:42501:yes:0|0' || result=1
+  return "$result"
+}
+
+compare_principals membership \
+  'GRANT devops_principal_group TO devops_principal_grantee' \
+  'REVOKE devops_principal_group FROM devops_principal_grantee' \
+  "pg_has_role('devops_principal_grantee', 'devops_principal_group', 'MEMBER')" || failed=1
+case "$parameter" in
+  log_min_messages|log_statement|log_min_error_statement|session_replication_role)
+    compare_principals parameter \
+      "GRANT SET ON PARAMETER $parameter TO devops_principal_grantee" \
+      "REVOKE SET ON PARAMETER $parameter FROM devops_principal_grantee" \
+      "has_parameter_privilege('devops_principal_grantee', '$parameter', 'SET')" || failed=1
+    ;;
+  *)
+    echo 'principal-grant kind=parameter baseline=fail'
+    failed=1
+    ;;
+esac
+if (( failed )); then
+  echo 'synthetic-principal-comparison=fail'
+  exit 1
+fi
+echo 'synthetic-principal-comparison=pass'
 echo 'Synthetic compatibility probe passed. No private archive or managed-schema compatibility is claimed.'
