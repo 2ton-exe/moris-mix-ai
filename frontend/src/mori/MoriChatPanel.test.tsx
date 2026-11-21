@@ -46,7 +46,8 @@ function renderIntegratedChat(userId: string) {
   </MoriCompanionProvider></MemoryRouter>)
 }
 
-function choosePrompt(label: 'Record a recipe' | 'Use my ingredients') {
+function choosePrompt(label: 'Record a recipe' | 'Use my ingredients' | 'No-oven idea') {
+  fireEvent.click(screen.getByText('Suggested prompts', { selector: 'summary' }))
   fireEvent.click(screen.getByRole('button', { name: 'See more' }))
   fireEvent.click(screen.getByRole('button', { name: label }))
 }
@@ -476,7 +477,7 @@ it('identifies speakers and announces pending work outside the busy transcript',
 
 it('separates the prompt library from journal navigation', () => {
   renderChat('mori-chat-clear-actions')
-  expect(screen.getByRole('group', { name: 'Suggested prompts' })).toBeTruthy()
+  expect(screen.getByText('Suggested prompts', { selector: 'summary' }).closest('details')?.open).toBe(false)
   const navigation = screen.getByRole('navigation', { name: 'Open a journal page' })
   expect(navigation.contains(screen.getByRole('button', { name: 'Open recipes' }))).toBe(true)
   choosePrompt('Use my ingredients')
@@ -488,8 +489,7 @@ it('separates the prompt library from journal navigation', () => {
 it('places the caret in the ingredient slot and preserves the selected meal preference', async () => {
   const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(suggestion())
   renderChat('mori-chip-preferences')
-  fireEvent.click(screen.getByRole('button', { name: 'See more' }))
-  fireEvent.click(screen.getByRole('button', { name: 'No-oven idea' }))
+  choosePrompt('No-oven idea')
   const input = screen.getByRole('textbox', { name: 'Message Mori' })
   if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected textarea')
   expect(document.activeElement).toBe(input)
@@ -503,8 +503,7 @@ it('places the caret in the ingredient slot and preserves the selected meal pref
 it('refocuses the ingredient slot when the same prompt is selected again', () => {
   renderChat('mori-reselect-prompt')
   for (let attempt = 0; attempt < 2; attempt++) {
-    fireEvent.click(screen.getByRole('button', { name: 'See more' }))
-    fireEvent.click(screen.getByRole('button', { name: 'No-oven idea' }))
+    choosePrompt('No-oven idea')
     const input = screen.getByRole('textbox', { name: 'Message Mori' })
     expect(document.activeElement).toBe(input)
     if (!(input instanceof HTMLTextAreaElement)) throw new Error('Expected textarea')

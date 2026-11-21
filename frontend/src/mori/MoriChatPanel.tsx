@@ -66,9 +66,14 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
   </div>
 }
 
-type PlayNavigationTap = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void>
+type PlayNavigationMotion = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void | boolean>
 
-export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; playNavigationTap?: PlayNavigationTap }) {
+export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false }: {
+  userId: string
+  playNavigationTap?: PlayNavigationMotion
+  playNavigationTravel?: PlayNavigationMotion
+  traveling?: boolean
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   const currentLocationKey = useRef(location.key)
@@ -231,23 +236,24 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
     }
   }, [location.key, location.pathname])
 
-  function navigateWithMori({ path, message, anchor, options, arrivalMessage, prepare }: {
+  function navigateWithMori({ path, message, anchor, options, arrivalMessage, prepare, journalTab }: {
     path: string
     message: string
     anchor?: HTMLButtonElement
     options?: NavigateOptions
     arrivalMessage?: string
     prepare?: () => boolean
+    journalTab?: string
   }) {
     if (navigationRequest.current) return
     const controller = new AbortController()
     navigationRequest.current = controller
-    const cancel = () => {
+    const cancel = (restoreFocus = true) => {
       controller.abort()
       if (navigationRequest.current !== controller) return
       navigationRequest.current = null
       setNavigating(false)
-      window.requestAnimationFrame(() => {
+      if (restoreFocus) window.requestAnimationFrame(() => {
         if (!navigationRequest.current) (anchor ?? document.getElementById(composerId))?.focus()
       })
     }
@@ -261,14 +267,21 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
         if (arrivalMessage) arrival.current = { path, message: arrivalMessage }
         allowNavigation(() => { void navigate(path, options) })
       }
-      if (playNavigationTap && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      const playNavigation = journalTab ? playNavigationTravel : playNavigationTap
+      if (playNavigation && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
         const active = document.activeElement
         if (active === document.body || log.current?.parentElement?.contains(active)) {
           log.current?.focus({ preventScroll: true })
         }
         setNavigating(true)
-        void playNavigationTap(() => anchor ?? log.current?.querySelector<HTMLElement>(`[data-message-id="${acknowledgment}"]`) ?? null, controller.signal)
-          .then(finish, finish)
+        const findAnchor = () => journalTab
+          ? Array.from(document.querySelectorAll<HTMLAnchorElement>('.mm-journal-book > .mm-journal-spread .mm-bookmarks--journal a'))
+            .find((link) => link.pathname === journalTab) ?? null
+          : anchor ?? log.current?.querySelector<HTMLElement>(`[data-message-id="${acknowledgment}"]`) ?? null
+        void playNavigation(findAnchor, controller.signal).then((continueNavigation) => {
+          if (continueNavigation === false) cancel(false)
+          else finish()
+        }, finish)
       } else {
         finish()
       }
@@ -280,7 +293,13 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
     proceed((action) => action())
   }
 
-  function openRoute(path: string, message: string, focus?: 'notes' | 'pantry', anchor?: HTMLButtonElement) {
+  function openRoute(path: string, message: string, { focus, anchor, shortcut }: {
+    focus?: 'notes' | 'pantry'
+    anchor?: HTMLButtonElement
+    shortcut?: boolean
+  } = {}) {
+    if (shortcut && traveling) return
+    const journalTab = shortcut ? path : undefined
     const prepare = () => {
       setMode(null)
       setFollowUp(null)
@@ -297,11 +316,12 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
         message: 'You already have a pantry idea waiting in review. I’ll take you there.',
         anchor,
         prepare,
+        journalTab,
         options: { replace: location.pathname === '/app/chef/review', state: { moriKeepOpen: true, ...(reviewKey === undefined ? {} : { moriReviewKey: reviewKey }) } },
       })
       return
     }
-    navigateWithMori({ path, message, anchor, prepare, options: { state: { moriKeepOpen: true, ...(focus ? { moriFocus: focus } : {}) } } })
+    navigateWithMori({ path, message, anchor, prepare, journalTab, options: { state: { moriKeepOpen: true, ...(focus ? { moriFocus: focus } : {}) } } })
   }
 
   async function createRecipe(notes: string) {
@@ -388,7 +408,7 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
   }
 
   function openRecipe(recipe: RecipeSummary, anchor?: HTMLButtonElement) {
-    openRoute(`/app/recipes/${encodeURIComponent(recipe.id)}`, `I’ll open “${recipe.title}”.`, undefined, anchor)
+    openRoute(`/app/recipes/${encodeURIComponent(recipe.id)}`, `I’ll open “${recipe.title}”.`, { anchor })
   }
 
   async function findRecipe(title: string) {
@@ -468,7 +488,7 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
       setComposer('')
       setRetryRequest(null)
       say('user', text)
-      openRoute(navigation.path, navigation.message, navigation.focus)
+      openRoute(navigation.path, navigation.message, { focus: navigation.focus })
       return
     }
 
@@ -602,10 +622,10 @@ export function MoriChatPanel({ userId, playNavigationTap }: { userId: string; p
       <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
     </form>
     <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', undefined, event.currentTarget)}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', undefined, event.currentTarget)}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', 'notes', event.currentTarget)}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
-      <button type="button" disabled={pending || navigating} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', 'pantry', event.currentTarget)}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
+      <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
     </nav>
     <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
   </div>

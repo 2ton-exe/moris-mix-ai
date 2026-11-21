@@ -6,6 +6,7 @@ import { Mori, type MoriMood } from '../journal/Mori'
 import { mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
+import { travelToJournalTab } from './moriNavigationMotion'
 import { useMoriCompanionState } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
 import './mori-companion.css'
@@ -50,12 +51,14 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
+  const [traveling, setTraveling] = useState(false)
   const [viewport, setViewport] = useState(readViewport)
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
+  const stopNavigationTravel = useRef<(() => void) | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const showButton = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -86,6 +89,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(preferences)) } catch { /* Storage may be unavailable in private browsing. */ }
   }, [preferences])
+  useEffect(() => () => stopNavigationTravel.current?.(), [])
   useEffect(() => {
     const resize = () => setViewport(readViewport())
     const visual = window.visualViewport
@@ -115,6 +119,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     const neutralArm = arm?.getAttribute('transform')
     return registerTurnCompanion({
       start(direction, single) {
+        stopNavigationTravel.current?.()
+        if (!element.getClientRects().length) return
         element.dataset.turnDirection = direction
         svg.style.transform = 'none'
         const rect = element.getBoundingClientRect()
@@ -145,6 +151,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         }
       },
       stop() {
+        if (!element.dataset.turnDirection) return
         element.style.removeProperty('transform')
         svg.style.removeProperty('transform')
         if (neutralArm == null) arm?.removeAttribute('transform')
@@ -206,6 +213,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
 
   async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
     if (document.hidden) return
+    stopNavigationTravel.current?.()
     // Let the acknowledgment or the closing dialog paint before measuring the anchor.
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
     const anchor = findAnchor()
@@ -250,6 +258,17 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     }
   }
 
+  async function playNavigationTravel(findTab: () => HTMLElement | null, signal: AbortSignal) {
+    const element = character.current
+    const art = trigger.current?.querySelector('svg')
+    if (!element || !art || element.dataset.turnDirection) return
+    stopNavigationTravel.current?.()
+    setTraveling(true)
+    const travel = travelToJournalTab(element, art, findTab, signal, () => setTraveling(false))
+    stopNavigationTravel.current = travel.cancel
+    return travel.arrived
+  }
+
   function close() { setOpen(false); trigger.current?.focus() }
   function show() {
     focusAfterVisibilityChange.current = true
@@ -261,7 +280,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (description) setMoved(description)
   }
   function moveKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (pageTurn) return
+    if (pageTurn || character.current?.dataset.navigationStage) return
     const directions: Record<string, [number, number, string]> = { ArrowLeft: [-16, 0, 'left'], ArrowRight: [16, 0, 'right'], ArrowUp: [0, -16, 'up'], ArrowDown: [0, 16, 'down'] }
     const direction = directions[event.key]
     if (!direction) return
@@ -282,7 +301,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
         <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn ? 'true' : undefined}
           onClick={(event) => {
-            if (pageTurn) { event.preventDefault(); return }
+            if (pageTurn || character.current?.dataset.navigationStage) { event.preventDefault(); return }
             if (suppressClick.current) {
               suppressClick.current = false
               if (event.detail !== 0) { event.preventDefault(); return }
@@ -324,7 +343,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
