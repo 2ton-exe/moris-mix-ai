@@ -157,13 +157,18 @@ also passed [run #44892418533](https://github.com/2ton-exe/moris-mix-ai/actions/
   and runtime smoke on the newer SHA. The later run does not change #267's
   exact-merge deployment result.
 
-- The exact-head [PR #272 run #44915277045](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44915277045)
-  returned `PASS` for all three required status-check contexts. It executed
-  the PR Secretary regression suite and offline safety checks. Frontend
-  lint/tests/build, Database migrations/RLS tests, Edge/API type-check/tests,
-  E2E, staging, and PR Hosted RLS were skipped under the documentation-only
-  classifier, not counted as executed tests. No staging or production
-  deployment ran.
+- Historical PR #272 validation: [run #44915277045](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44915277045)
+  passed on commit `6c03c1921752dd7f130e21757c7e1d516b204cd3`, and
+  [run #44921876676](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44921876676)
+  passed on subsequent commit `c43035c295d3b3d7a6ee36adffb16cb535414b36`.
+  Both returned `PASS` for the three required status-check contexts and
+  executed the PR Secretary regression suite and offline safety checks.
+  Frontend lint/tests/build, Database migrations/RLS tests, Edge/API
+  type-check/tests, E2E, staging, and PR Hosted RLS were skipped under the
+  documentation-only classifier, not counted as executed tests. Neither run
+  deployed to staging or production. These are results for the cited commits,
+  **not** proof of CI on later documentation revisions. Before merge, verify
+  required checks on the PR's then-current head in GitHub.
 
 **Remaining acceptance evidence:** API-confirmed GitHub comment publication
 is not the same as inspecting actual browser rendering at narrow widths
