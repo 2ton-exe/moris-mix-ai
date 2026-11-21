@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { finishRecipeReview, createRecipe, navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
+import { finishRecipeReview, createRecipe, navigateToRecipeSection, signIn, waitForCollection, waitForJournalPageTurn } from './recipe-journey-helpers'
 
 async function addPantryItem(page: Page, item: string) {
   const input = page.getByRole('textbox', { name: 'Pantry ingredient' })
@@ -13,17 +13,17 @@ async function openChefPreferences(page: Page) {
   const nextPage = page.getByRole('button', { name: 'Next page' })
   while (!await preferences.isVisible()) {
     await nextPage.click()
-    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+    await waitForJournalPageTurn(page)
   }
   return preferences
 }
 
 async function expectPantryItemAndReturnToPreferences(page: Page, item: string) {
   await page.getByRole('button', { name: 'Previous page' }).click()
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+  await waitForJournalPageTurn(page)
   await expect(page.getByRole('region', { name: /^Pantry list,/ })).toContainText(item)
   await page.getByRole('button', { name: 'Next page' }).click()
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+  await waitForJournalPageTurn(page)
 }
 
 async function expectNoHorizontalOverflow(page: Page) {

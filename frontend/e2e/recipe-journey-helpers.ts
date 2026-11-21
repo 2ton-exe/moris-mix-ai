@@ -1,5 +1,10 @@
 import { expect, type Page } from '@playwright/test'
 
+// A turn includes layout preparation and Mori's animation.
+export async function waitForJournalPageTurn(page: Page) {
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+}
+
 type E2eUser = {
   email: string
   password: string
@@ -64,7 +69,7 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
     await expect(turn, `Cannot reach recipe section: ${sectionName}`).toBeEnabled()
     const currentPosition = await pagePosition.innerText()
     await turn.click()
-    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+    await waitForJournalPageTurn(page)
     await expect(pagePosition).not.toHaveText(currentPosition)
   }
 
@@ -78,7 +83,7 @@ export async function finishRecipeReview(page: Page) {
     const progress = page.locator('.mm-review-progress')
     const current = await progress.innerText()
     await next.click()
-    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+    await waitForJournalPageTurn(page)
     await expect(progress).not.toHaveText(current)
   }
   await expect(page.getByRole('button', { name: 'Save recipe' })).toBeVisible()
