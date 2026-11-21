@@ -485,7 +485,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
                     "grant_type=other-or-unknown"))
 
     def test_group_requires_an_ordinary_role_name(self):
-        for role in (b"PUBLIC", b"Current_Role", b"CURRENT_USER", b"SESSION_USER"):
+        for role in (b"PUBLIC", b'"public"', b"Current_Role", b"CURRENT_USER",
+                     b"SESSION_USER"):
             with self.subTest(role=role):
                 self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role + b";\n")
                 self.assertTrue(result(ERROR1, self.roles, 3).endswith(
@@ -496,14 +497,22 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 self.assertTrue(result(ERROR1, self.roles, 3).endswith(
                     "grant_type=parameter-grant"))
 
-    def test_public_keyword_is_distinct_from_quoted_identifier(self):
+    def test_parameter_grant_public_role_is_case_sensitive_when_quoted(self):
         cases = (
             (b'TO PuBLiC', "parameter-grant"),
-            (b'TO GROUP "public"', "parameter-grant"),
-            (b'TO y, "public" WITH GRANT OPTION', "parameter-grant"),
-            (b'TO "public" WITH GRANT OPTION GRANTED BY "public"', "parameter-grant"),
-            (b'TO y GRANTED BY "public"', "parameter-grant"),
-            (b'TO "public", PuBLiC WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO "public"', "parameter-grant"),
+            (b'TO y, "public" GRANTED BY "Public"', "parameter-grant"),
+            (b'TO "Public" WITH GRANT OPTION GRANTED BY "PUBLIC"', "parameter-grant"),
+            (b'TO GROUP "PUBLIC" WITH GRANT OPTION', "parameter-grant"),
+            (b'TO public_reader, "public,team" WITH GRANT OPTION', "parameter-grant"),
+            (b'TO GROUP "public""team" WITH GRANT OPTION GRANTED BY "public""team"',
+             "parameter-grant"),
+            (b'TO "public" WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO GROUP "public" WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO y, "public" WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO "public", y WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO "Public", PuBLiC WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO y GRANTED BY "public"', "other-or-unknown"),
             (b'TO "public" GRANTED BY PuBLiC', "other-or-unknown"),
         )
         for clause, grant_type in cases:

@@ -73,11 +73,16 @@ PARAMETER_NAME = (
     PARAMETER_COMPONENT + rb"(?:" + SQL_SPACE + rb"*\." + SQL_SPACE
     + rb"*" + PARAMETER_COMPONENT + rb")*"
 )
-ROLE_NAME = rb'(?!(?-i:"none"))' + identifier_excluding(
-    RESERVED_WORDS + [b"none", b"public"]
+# PostgreSQL 17 RoleSpec recognizes folded PUBLIC and exact quoted "public".
+# A second quote can escape the apparent closing quote in a longer role name.
+PUBLIC_ROLE = rb'(?:PUBLIC(?![a-z0-9_$])|(?-i:"public")(?!"))'
+ROLE_NAME = rb'(?!(?-i:"none")|' + PUBLIC_ROLE + rb")" + identifier_excluding(
+    RESERVED_WORDS + [b"none"]
 )
 ROLE_SPEC = rb"(?:CURRENT_ROLE|CURRENT_USER|SESSION_USER|" + ROLE_NAME + rb")"
-GRANTEE = rb"(?:GROUP" + BEFORE_IDENTIFIER + ROLE_NAME + rb"|PUBLIC|" + ROLE_SPEC + rb")"
+GRANTEE = (
+    rb"(?:GROUP" + BEFORE_IDENTIFIER + ROLE_NAME + rb"|" + PUBLIC_ROLE + rb"|" + ROLE_SPEC + rb")"
+)
 PARAMETER_PRIVILEGE = rb"(?:SET|ALTER" + SQL_SEPARATOR + rb"SYSTEM)"
 PARAMETER_GRANT = re.compile(
     rb"GRANT" + SQL_SEPARATOR
@@ -94,16 +99,16 @@ PARAMETER_GRANT = re.compile(
     + SQL_SPACE + rb"*;",
     re.IGNORECASE,
 )
-PUBLIC_KEYWORD = re.compile(rb"public", re.IGNORECASE)
+PUBLIC_GRANTEE = re.compile(PUBLIC_ROLE, re.IGNORECASE)
 
 
 def is_parameter_grant(candidate: bytes) -> bool:
     match = PARAMETER_GRANT.fullmatch(candidate)
     if match is None:
         return False
-    # Apply the PUBLIC keyword check to unquoted tokens only.
+    # PUBLIC can receive privileges, but cannot receive grant options.
     return not (match["grant_option"] and any(
-        PUBLIC_KEYWORD.fullmatch(name.group())
+        PUBLIC_GRANTEE.fullmatch(name.group())
         for name in re.finditer(IDENTIFIER, match["grantees"])
     ))
 
