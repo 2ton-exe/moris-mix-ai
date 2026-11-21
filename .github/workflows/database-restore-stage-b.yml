@@ -296,7 +296,9 @@ jobs:
               versions=[]
               active=None
               version_index=None
-              for line in pathlib.Path(path).read_text().splitlines():
+              # PostgreSQL COPY rows end at LF, not Unicode line separators.
+              # splitlines() would overcount rows containing U+2028/U+2029.
+              for line in pathlib.Path(path).read_text(encoding='utf-8').split('\n'):
                   if active is not None:
                       if line==r'\.': active=None; continue
                       if active in result: result[active]+=1
