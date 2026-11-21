@@ -1,3 +1,4 @@
+import { JOURNAL_DESKTOP_TOOLS_QUERY } from '../journal/useJournalDesktopTools'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -75,7 +76,7 @@ it('supports keyboard repositioning without reset or hide controls', () => {
 
 it('keeps Mori’s visibility account-local and returns focus when hiding or showing', () => {
   vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: query === '(pointer: fine) and (hover: hover)',
+    matches: query === JOURNAL_DESKTOP_TOOLS_QUERY,
     addEventListener() {},
     removeEventListener() {},
   }))
@@ -104,7 +105,7 @@ it('keeps Mori’s visibility account-local and returns focus when hiding or sho
 
 it('keeps Still Mori stationary while chat navigates and restores the choice on remount', () => {
   vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: query === '(pointer: fine) and (hover: hover)',
+    matches: query === JOURNAL_DESKTOP_TOOLS_QUERY,
     addEventListener() {},
     removeEventListener() {},
   }))

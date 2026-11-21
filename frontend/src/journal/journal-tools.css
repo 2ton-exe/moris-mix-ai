@@ -75,11 +75,13 @@
 .mm-sticker-memories { margin: 0; padding-inline-start: 20px; }
 
 .mm-journal-flyleaf[data-custom-bookplate]:not(:has(.mm-facing-content)) {
-  overflow-y: auto;
+  padding-bottom: calc(var(--mm-footer-inset) + var(--mm-pagination-height) + 8px);
 }
 
 .mm-journal-flyleaf[data-custom-bookplate] .mm-bookplate {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   margin-block: auto;
   max-width: 100%;
   transform: none;

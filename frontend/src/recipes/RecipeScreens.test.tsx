@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes, useLocation } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { beforeEach, expect, it, vi } from 'vitest'
@@ -509,7 +509,13 @@ it('sets aside a recipe, personalizes the bookplate, and restores the default by
       if (!recipe) throw new HttpError('http', 'Recipe not found', 404)
       return recipe
     })
-    render(tree('/app/recipes'))
+    const router = createMemoryRouter([{ path: '/app', element: <JournalPage />, children: [
+      { path: 'recipes', element: <RecipeDashboardPage /> },
+      { path: 'recipes/:recipeId', element: <RecipeDetailPage /> },
+    ] }], { initialEntries: ['/app/recipes'] })
+    render(<AuthContext.Provider value={authState()}><RecipeQueryProvider source={source}>
+      <RouterProvider router={router} />
+    </RecipeQueryProvider></AuthContext.Provider>)
     const customize = await screen.findByRole('button', { name: 'Customize bookplate' })
     fireEvent.click(customize)
     fireEvent.click(screen.getByRole('radio', { name: 'Kitchen basket' }))

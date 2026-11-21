@@ -14,7 +14,7 @@ export function PantrySlip({ title, closeLabel, onClose, children }: {
   onClose: () => void
   children: ReactNode
 }) {
-  const heading = useRef<HTMLHeadingElement>(null)
+  const heading = useRef<HTMLParagraphElement>(null)
   const label = useId()
   useLayoutEffect(() => { heading.current?.focus() }, [])
 
@@ -25,7 +25,7 @@ export function PantrySlip({ title, closeLabel, onClose, children }: {
         onClose()
       }
     }}>
-    <h2 ref={heading} id={label} tabIndex={-1}>{title}</h2>
+    <p className="mm-ai-chef__slip-title" ref={heading} id={label} tabIndex={-1}>{title}</p>
     {children}
     <button type="button" className="button button-secondary mm-button--small" onClick={onClose}>{closeLabel}</button>
   </PaperCard>
@@ -38,7 +38,7 @@ export function PantryMatches({ ingredient, onLeave }: {
   const criteria = { ...initialDiscoveryCriteria, search: ingredient.trim(), searchMode: 'ingredients' } as const
   const { discovery } = useContext(RecipeSourceContext)
   const query = useRecipeDiscovery(criteria, false, 'first-page')
-  const shown = query.recipes?.slice(0, 3)
+  const shown = query.error ? undefined : query.recipes?.slice(0, 3)
   const error = discovery ? query.error : new RecipeIntegrationUnavailable()
   return shown ? <>
       <p role="status">{shown.length > 0
