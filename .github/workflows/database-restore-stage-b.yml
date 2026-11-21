@@ -204,7 +204,7 @@ jobs:
                 diagnostic_details="$(python3 scripts/classify_restore_component.py --details \
                   "$RUNNER_TEMP/private-restore-stderr.log" "$rc" \
                   "$RUNNER_TEMP/restore-verified-sql/roles.sql" 2> /dev/null)" || diagnostic_details=
-                if [[ "$diagnostic_details" =~ ^(roles[.]sql|schema[.]sql|history-schema[.]sql|data[.]sql|history-data[.]sql|unknown)\ (insufficient-privilege|undefined-object|duplicate-object|unknown)\ (role-membership-grant|alter-role-set|create-role|alter-role-attributes|unknown)$ ]]; then
+                if [[ "$diagnostic_details" =~ ^(roles[.]sql|schema[.]sql|history-schema[.]sql|data[.]sql|history-data[.]sql|unknown)\ ([a-z-]{1,32})\ (role-membership-grant|alter-role-set|create-role|alter-role-attributes|unknown)$ ]]; then
                   read -r component_hint error_category_hint statement_class_hint <<< "$diagnostic_details"
                 fi
               fi
@@ -212,12 +212,19 @@ jobs:
                 roles.sql|schema.sql|history-schema.sql|data.sql|history-data.sql|unknown) ;;
                 *) component_hint=unknown ;;
               esac
-              case "$error_category_hint" in
-                insufficient-privilege|undefined-object|duplicate-object|unknown) ;;
+              case "$component_hint:$error_category_hint" in
+                *:unknown|roles.sql:insufficient-privilege|roles.sql:undefined-object|roles.sql:duplicate-object|\
+                data.sql:bad-copy-file-format|data.sql:character-not-in-repertoire|\
+                data.sql:invalid-text-representation|data.sql:string-data-right-truncation|\
+                data.sql:numeric-value-out-of-range|data.sql:invalid-datetime-format|\
+                data.sql:datetime-field-overflow|data.sql:not-null-violation|data.sql:foreign-key-violation|\
+                data.sql:unique-violation|data.sql:check-violation|data.sql:exclusion-violation|\
+                data.sql:insufficient-privilege|data.sql:undefined-column|data.sql:undefined-table) ;;
                 *) error_category_hint=unknown ;;
               esac
-              case "$statement_class_hint" in
-                role-membership-grant|alter-role-set|create-role|alter-role-attributes|unknown) ;;
+              case "$component_hint:$statement_class_hint" in
+                *:unknown|roles.sql:role-membership-grant|roles.sql:alter-role-set|\
+                roles.sql:create-role|roles.sql:alter-role-attributes) ;;
                 *) statement_class_hint=unknown ;;
               esac
               printf '::error::Restore diagnostic: phase=%s category=%s exit_code=%d component_hint=%s untrusted_error_category_hint=%s untrusted_statement_class_hint=%s; private output suppressed\n' \

@@ -26,6 +26,24 @@ ERROR_CATEGORIES = {
     b"42704": "undefined-object",
     b"42710": "duplicate-object",
 }
+# PostgreSQL 17 data replay hints. Keep role-only callers on ERROR_CATEGORIES.
+DATA_ERROR_CATEGORIES = {
+    b"22001": "string-data-right-truncation",
+    b"22003": "numeric-value-out-of-range",
+    b"22007": "invalid-datetime-format",
+    b"22008": "datetime-field-overflow",
+    b"22021": "character-not-in-repertoire",
+    b"22P02": "invalid-text-representation",
+    b"22P04": "bad-copy-file-format",
+    b"23502": "not-null-violation",
+    b"23503": "foreign-key-violation",
+    b"23505": "unique-violation",
+    b"23514": "check-violation",
+    b"23P01": "exclusion-violation",
+    b"42501": "insufficient-privilege",
+    b"42703": "undefined-column",
+    b"42P01": "undefined-table",
+}
 STATEMENT_CLASSES = {"role-membership-grant", "alter-role-set", "create-role",
                      "alter-role-attributes", "unknown"}
 IDENTIFIER = rb'(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:[^"\r\n]|"")+")'
@@ -181,11 +199,17 @@ def diagnostic_hints(stderr: bytes, exit_code: int, roles_sql: Path):
     if error is None:
         return "unknown", "unknown", "unknown"
     component, line_number, sqlstate = error
-    if component != "roles.sql":
-        return component, "unknown", "unknown"
-    category = ERROR_CATEGORIES.get(sqlstate, "unknown")
-    statement_class = statement_class_from_file(roles_sql, line_number)
-    return component, category, statement_class
+    if component == "roles.sql":
+        category = ERROR_CATEGORIES.get(sqlstate, "unknown")
+        statement_class = statement_class_from_file(roles_sql, line_number)
+        return component, category, statement_class
+    if component == "data.sql":
+        # Require one ERROR record for the extra hint. Even a well-framed
+        # notice alongside it suppresses the category, not the component hint.
+        record = RECORD.fullmatch(stderr[:-1])
+        if record is not None and record["severity"] == b"ERROR":
+            return component, DATA_ERROR_CATEGORIES.get(sqlstate, "unknown"), "unknown"
+    return component, "unknown", "unknown"
 
 
 def hint_from_file(path: Path, exit_code: int) -> str:
@@ -232,9 +256,10 @@ def main() -> None:
     # Keep stdout fixed even when arguments or private files are malformed.
     if component not in COMPONENTS.values():
         component = "unknown"
-    if category not in {"insufficient-privilege", "undefined-object", "duplicate-object", "unknown"}:
+    category_maps = {"roles.sql": ERROR_CATEGORIES, "data.sql": DATA_ERROR_CATEGORIES}
+    if category not in category_maps.get(component, {}).values():
         category = "unknown"
-    if statement_class not in STATEMENT_CLASSES:
+    if component != "roles.sql" or statement_class not in STATEMENT_CLASSES:
         statement_class = "unknown"
     print(f"{component} {category} {statement_class}")
 

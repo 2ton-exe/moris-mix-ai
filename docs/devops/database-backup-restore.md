@@ -183,12 +183,20 @@ attribute list; password, connection-limit and validity clauses remain unsupport
 uses only the verified `roles.sql` file and the reported line number, which may
 identify the statement's ending line. Unsupported forms and unreadable role
 files produce an `unknown` statement class; malformed or ambiguous records and
-over-bound stderr produce only `unknown` labels. The labels
-are investigative leads, not proof of the original failing statement; a forged
-matching diagnostic cannot be distinguished from a real one. The three public error categories each identify one allowlisted SQLSTATE.
-Raw diagnostic records, line numbers, SQL, and identifiers stay private. Any diagnostic
-failure preserves the restore's original exit status, and the disposable target
-cleanup remains an always-run step.
+over-bound stderr produce only `unknown` labels. Each of the three role error
+categories identifies one allowlisted SQLSTATE.
+
+For `data.sql` only, a single complete SQLSTATE-only `ERROR` record can also
+produce an untrusted category hint. The allowlist covers COPY format, data
+conversion and encoding, constraint violations, insufficient privilege, and
+missing tables or columns. A non-allowlisted code or additional stderr records
+leave the category `unknown`. Stage B does not inspect data statements or rows
+to produce this hint, and the statement class remains `unknown`.
+
+All hints are investigative leads. An identical forged record remains
+indistinguishable from a genuine one. Raw diagnostic records, line numbers, SQL,
+row contents, and identifiers stay private. The diagnostic preserves the
+restore's original exit status, and disposable target cleanup always runs.
 
 Do not weaken database TLS, expose dump contents, make the bucket public, reuse recipe-image credentials, bypass the consistency gate, or restore into a shared/production database to make the task pass.
 
