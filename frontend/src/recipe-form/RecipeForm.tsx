@@ -26,7 +26,7 @@ export type RecipeFormProps = {
   notesSupported?: boolean
   renderFrame?: (content: ReactNode) => ReactNode
   notice?: ReactNode
-  reviewPages?: { title: string; content: ReactNode }[]
+  reviewPage?: { title: string; content: ReactNode }
   reviewStatus?: ReactNode
   supplement?: ReactNode
 }

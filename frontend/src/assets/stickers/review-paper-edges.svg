@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 700" preserveAspectRatio="none">
+  <defs>
+    <pattern id="gingham" width="22" height="22" patternUnits="userSpaceOnUse">
+      <path d="M0 0h22v22H0z" fill="#c6d2a7" fill-opacity=".23"/>
+      <path d="M0 0h22v11H0zM0 0h11v22H0z" fill="#9fb077" fill-opacity=".16"/>
+      <path d="M0 0h11v11H0z" fill="#9fb077" fill-opacity=".23"/>
+    </pattern>
+  </defs>
+  <path fill="url(#gingham)" d="M0 0h500v17q-21-5-42 0t-42-2-42 1-42 0-42-1-42 2-42-1-42-1-42 2-42-1-42-1-38 2zm0 682q19-7 40-1t42 0 42 2 42-3 42 1 42-1 42 2 42-2 42 2 42-3 42 1 38 1v19H0z"/>
+</svg>

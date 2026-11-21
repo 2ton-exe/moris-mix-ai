@@ -18,7 +18,7 @@ export function RecipeEditorFrame({ mode, connected, children, navigationConfirm
   mode: 'create' | 'edit'; connected: boolean; children: ReactNode
   navigationConfirmation?: NavigationConfirmation
   showBack?: boolean
-  headingTitle?: string
+  headingTitle?: ReactNode
   headingIntro?: string
   facingPageContent?: ReactNode
 }) {
