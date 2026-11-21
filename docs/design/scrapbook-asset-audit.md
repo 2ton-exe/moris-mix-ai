@@ -94,3 +94,11 @@ Artwork can be more specific than emoji. For example, tomato sauce, paste, puré
 The [sticker registry](../../frontend/src/journal/scrapbookRegistry.ts) contains the 17 Review drawings, five existing Pantry assets, and the extracted desk sprig. The [sticker component](../../frontend/src/journal/ScrapbookSticker.tsx) provides plain and die-cut treatments. The warm paper brush and gingham trim remain reusable CSS backgrounds sourced from their original SVGs. The existing `Tape` component still owns dotted sage tape. The desk’s other stationery drawings stay in its shared scene, where their coordinates, theme tokens, and arrangement define the illustration.
 
 The centralized ingredient presentation uses local SVGs in Pantry, the recipe editors, AI Chef review, and desktop journal reading. Form, Pantry, and reading labels still expose the ingredient name as text. Carrot and the remaining unmapped ingredients retain their vendored Twemoji artwork.
+
+## Visual comparison
+
+Both captures use the same seeded draft and a 1366 × 768 viewport. The updated ingredient editor leaves room for its Done button above the save footer.
+
+| Before | After |
+| --- | --- |
+| [Original New Recipe and ingredient editor](images/new-recipe-before.webp) | [Scrapbook spread with rating stars and ingredient editor](images/new-recipe-after.webp) |
