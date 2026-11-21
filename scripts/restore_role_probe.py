@@ -80,9 +80,9 @@ ROLE_NAME = rb'(?!(?-i:"none")|' + PUBLIC_ROLE + rb")" + identifier_excluding(
     RESERVED_WORDS + [b"none"]
 )
 ROLE_SPEC = rb"(?:CURRENT_ROLE|CURRENT_USER|SESSION_USER|" + ROLE_NAME + rb")"
-GRANTEE = (
-    rb"(?:GROUP" + BEFORE_IDENTIFIER + ROLE_NAME + rb"|" + PUBLIC_ROLE + rb"|" + ROLE_SPEC + rb")"
-)
+GRANTEE_ROLE = rb"(?:" + PUBLIC_ROLE + rb"|" + ROLE_SPEC + rb")"
+# GROUP has the same RoleSpec options as an unprefixed grantee in PG 17.
+GRANTEE = rb"(?:(?:GROUP" + BEFORE_IDENTIFIER + rb")?" + GRANTEE_ROLE + rb")"
 PARAMETER_PRIVILEGE = rb"(?:SET|ALTER" + SQL_SEPARATOR + rb"SYSTEM)"
 PARAMETER_GRANT = re.compile(
     rb"GRANT" + SQL_SEPARATOR

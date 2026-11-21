@@ -484,23 +484,38 @@ class RestoreRoleProbeTests(unittest.TestCase):
                 self.assertTrue(result(ERROR1, self.roles, 3).endswith(
                     "grant_type=other-or-unknown"))
 
-    def test_group_requires_an_ordinary_role_name(self):
-        for role in (b"PUBLIC", b'"public"', b"Current_Role", b"CURRENT_USER",
-                     b"SESSION_USER"):
-            with self.subTest(role=role):
-                self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role + b";\n")
-                self.assertTrue(result(ERROR1, self.roles, 3).endswith(
-                    "grant_type=other-or-unknown"))
-        for role in (b"public_reader", b'"current_role"', b'"CURRENT_USER"', b'"session_user"'):
-            with self.subTest(role=role):
+    def test_group_accepts_rolespec_but_preserves_public_grant_option_guard(self):
+        supported_roles = (
+            b"PUBLIC", b"PuBLiC", b'"public"', b"Current_Role",
+            b"CURRENT_USER", b"SESSION_USER", b"public_reader",
+            b'"Public"', b'"PUBLIC"', b'"current_role"',
+            b'"CURRENT_USER"', b'"session_user"', b'"public""team"',
+        )
+        for role in supported_roles:
+            with self.subTest(role=role, grant_option=False):
                 self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role + b";\n")
                 self.assertTrue(result(ERROR1, self.roles, 3).endswith(
                     "grant_type=parameter-grant"))
+
+        for role in (b"PUBLIC", b"PuBLiC", b'"public"'):
+            with self.subTest(role=role, grant_option=True):
+                self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role
+                         + b" WITH GRANT OPTION;\n")
+                self.assertTrue(result(ERROR1, self.roles, 3).endswith(
+                    "grant_type=other-or-unknown"))
+
+        for role in (b'"none"', b"WHERE", b"GROUP"):
+            with self.subTest(role=role, malformed=True):
+                self.put(b"GRANT SET ON PARAMETER x TO GROUP " + role + b";\n")
+                self.assertTrue(result(ERROR1, self.roles, 3).endswith(
+                    "grant_type=other-or-unknown"))
 
     def test_parameter_grant_public_role_is_case_sensitive_when_quoted(self):
         cases = (
             (b'TO PuBLiC', "parameter-grant"),
             (b'TO "public"', "parameter-grant"),
+            (b'TO GROUP "public"', "parameter-grant"),
+            (b'TO GROUP "Public" WITH GRANT OPTION', "parameter-grant"),
             (b'TO y, "public" GRANTED BY "Public"', "parameter-grant"),
             (b'TO "Public" WITH GRANT OPTION GRANTED BY "PUBLIC"', "parameter-grant"),
             (b'TO GROUP "PUBLIC" WITH GRANT OPTION', "parameter-grant"),
@@ -509,6 +524,8 @@ class RestoreRoleProbeTests(unittest.TestCase):
              "parameter-grant"),
             (b'TO "public" WITH GRANT OPTION', "other-or-unknown"),
             (b'TO GROUP "public" WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO GROUP PUBLIC, y WITH GRANT OPTION', "other-or-unknown"),
+            (b'TO y, GROUP "public" WITH GRANT OPTION', "other-or-unknown"),
             (b'TO y, "public" WITH GRANT OPTION', "other-or-unknown"),
             (b'TO "public", y WITH GRANT OPTION', "other-or-unknown"),
             (b'TO "Public", PuBLiC WITH GRANT OPTION', "other-or-unknown"),
