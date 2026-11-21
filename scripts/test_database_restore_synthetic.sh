@@ -610,6 +610,31 @@ require_clean_restore
 cp "$root/roles.sql" "$fixture/roles.sql"
 echo 'synthetic-admin-role-diagnostic=pass failed-replay-reported=yes rollback=pass'
 
+# Exercise the checked-in Stage B diagnostic on a real notice and bad COPY value.
+cp "$fixture/data.sql" "$root/admin-data.sql"
+cat >> "$fixture/data.sql" <<'SQL'
+SET LOCAL client_min_messages = notice;
+DO $synthetic$ BEGIN
+  RAISE NOTICE 'SYNTHETIC_PRIVATE_COPY_NOTICE';
+END $synthetic$;
+COPY public.recipes (id) FROM stdin;
+SYNTHETIC_PRIVATE_INVALID_INTEGER
+\.
+SQL
+status=0
+run_restore_step admin-restore || status=$?
+if [[ "$status" != 3 ]] ||
+    ! grep -Eq '^psql:/backup/data[.]sql:[0-9]+: NOTICE:  00000$' "$root/private-restore-stderr.log" ||
+    ! grep -Eq '^psql:/backup/data[.]sql:[0-9]+: ERROR:  22P02$' "$root/private-restore-stderr.log" ||
+    ! grep -Fxq '::error::Restore diagnostic: phase=restore category=sql-script exit_code=3 component_hint=data.sql untrusted_error_category_hint=invalid-text-representation untrusted_statement_class_hint=unknown; private output suppressed' "$root/step.out" ||
+    grep -Eq 'SYNTHETIC_PRIVATE_|psql:/backup/|22P02' "$root/step.out" "$root/step.err"; then
+  echo '::error::Synthetic data COPY failure did not produce the expected redacted diagnostic'
+  exit 1
+fi
+require_clean_restore
+cp "$root/admin-data.sql" "$fixture/data.sql"
+echo 'synthetic-admin-data-diagnostic=pass category=invalid-text-representation rollback=pass'
+
 # Fail after all five components have been reached, then replay pristine fixtures.
 echo 'SELECT 1 / 0;' >> "$fixture/history-data.sql"
 status=0

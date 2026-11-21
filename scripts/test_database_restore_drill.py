@@ -15,6 +15,7 @@ import unittest
 
 from classify_restore_component import (
     COMPONENTS,
+    DATA_ERROR_CATEGORIES,
     MAX_LOG_BYTES,
     MAX_ROLE_LINE_BYTES,
     MAX_ROLE_SCAN_LINES,
@@ -309,6 +310,67 @@ class ComponentHintTests(unittest.TestCase):
         # Deliberately document the limitation; do not claim spoof-proof parsing.
         self.assertEqual(component_hint(forged, 3), "data.sql")
 
+    def test_data_category_is_component_scoped_and_does_not_open_sql(self):
+        class UnusedRolesFile:
+            def open(self, mode):
+                raise AssertionError("data diagnostics must not read SQL")
+
+        unused = UnusedRolesFile()
+        record = b"psql:/backup/data.sql:987654321: ERROR:  "
+        cases = [
+            (b"22P02", "invalid-text-representation"),
+            (b"22P04", "bad-copy-file-format"),
+            (b"23503", "foreign-key-violation"),
+            (b"23505", "unique-violation"),
+            (b"22021", "character-not-in-repertoire"),
+            (b"42P01", "undefined-table"),
+            (b"42704", "unknown"),
+            (b"ZZZZZ", "unknown"),
+        ]
+        for sqlstate, category in cases:
+            with self.subTest(sqlstate=sqlstate):
+                self.assertEqual(diagnostic_hints(record + sqlstate + b"\n", 3, unused),
+                                 ("data.sql", category, "unknown"))
+        for component in (b"schema.sql", b"history-schema.sql", b"history-data.sql"):
+            stderr = record.replace(b"data.sql", component) + b"23505\n"
+            self.assertEqual(diagnostic_hints(stderr, 3, unused),
+                             (component.decode("ascii"), "unknown", "unknown"))
+
+    def test_data_category_requires_one_error_and_allows_notices_and_warnings(self):
+        record = b"psql:/backup/data.sql:987654321: ERROR:  23505\n"
+        notice = b"psql:/backup/roles.sql:2: NOTICE:  00000\n"
+        warning = b"psql:/backup/data.sql:3: WARNING:  01000\n"
+        expected_category = ("data.sql", "unique-violation", "unknown")
+        cases = [
+            (record, 3, expected_category),
+            (record, 2, ("unknown", "unknown", "unknown")),
+            (notice + record, 3, expected_category),
+            (record + notice, 3, expected_category),
+            (warning + record, 3, expected_category),
+            (record + warning, 3, expected_category),
+            (notice + record + warning, 3, expected_category),
+            (notice + warning, 3, ("unknown", "unknown", "unknown")),
+            (notice.replace(b"NOTICE", b"INFO") + record, 3, ("data.sql", "unknown", "unknown")),
+            (notice + record.replace(b"ERROR", b"FATAL"), 3, ("data.sql", "unknown", "unknown")),
+            (record.replace(b"ERROR", b"PANIC") + warning, 3, ("data.sql", "unknown", "unknown")),
+            (record + record.replace(b"ERROR", b"FATAL"), 3, ("unknown", "unknown", "unknown")),
+            (record + record, 3, ("unknown", "unknown", "unknown")),
+            (record + record.replace(b"data.sql", b"roles.sql"), 3,
+             ("unknown", "unknown", "unknown")),
+            (record.rstrip(b"\n"), 3, ("unknown", "unknown", "unknown")),
+            (record.replace(b"23505\n", b"23505 SYNTHETIC_PRIVATE_ROW\n"), 3,
+             ("unknown", "unknown", "unknown")),
+            (b"NOTICE:  SYNTHETIC_PRIVATE_FAKE_ERROR\n" + record, 3,
+             ("unknown", "unknown", "unknown")),
+            (record + b"DETAIL:  SYNTHETIC_PRIVATE_IDENTIFIER\n", 3,
+             ("unknown", "unknown", "unknown")),
+        ]
+        # Exact framing is a heuristic. A single byte-for-byte forgery would
+        # satisfy the same check, so the resulting category is always untrusted.
+        for payload, code, expected in cases:
+            with self.subTest(payload=payload, code=code):
+                self.assertEqual(diagnostic_hints(payload, code, Path("unused")), expected)
+
     def test_role_sql_category_and_statement_classes(self):
         classifier = Path(__file__).with_name("classify_restore_component.py")
         cases = [
@@ -539,7 +601,7 @@ class RestoreDiagnosticTests(unittest.TestCase):
 
     def run_diagnostic(self, phase="none", code=0, missing_file=False,
                        temp_prefix="tmp", stderr=None, helper_mode="normal",
-                       roles_sql=None):
+                       roles_sql=None, helper_output=None):
         # No Docker daemon, network, or SQL execution. Both streams deliberately
         # contain synthetic private markers, including annotation-like content.
         stub = r'''
@@ -570,6 +632,7 @@ python3() {
   case "$HELPER_MODE" in
     crash) printf 'SYNTHETIC_PRIVATE_EXCEPTION\n' >&2; return 77 ;;
     invalid) printf '::error::SYNTHETIC_PRIVATE_HELPER_OUTPUT\n'; return 0 ;;
+    override) printf '%s\n' "$HELPER_OUTPUT"; return 0 ;;
     *) "$TEST_PYTHON" -B "$@" ;;
   esac
 }
@@ -588,7 +651,8 @@ python3() {
             env = dict(os.environ, RUNNER_TEMP=root.as_posix(),
                        PSQL_IMAGE="synthetic-pinned-image", FAIL_PHASE=phase,
                        FAIL_CODE=str(code), TEST_PYTHON=sys.executable,
-                       HELPER_MODE=helper_mode, DIAG_STDERR=stderr if stderr is not None
+                       HELPER_MODE=helper_mode, HELPER_OUTPUT=helper_output or "",
+                       DIAG_STDERR=stderr if stderr is not None
                        else "::error::SYNTHETIC_PRIVATE_STDERR SELECT secret FROM synthetic;\n")
             result = subprocess.run([self.bash, "--noprofile", "--norc"],
                                     input=stub + self.script, text=True,
@@ -696,6 +760,75 @@ python3() {
                 self.assertIn(f"exit_code=3 component_hint={component} ", result.stdout)
                 self.assertIn("untrusted_error_category_hint=unknown", result.stdout)
                 self.assertIn("untrusted_statement_class_hint=unknown", result.stdout)
+
+    def test_data_categories_survive_both_allowlists_without_private_output(self):
+        for sqlstate, category in DATA_ERROR_CATEGORIES.items():
+            with self.subTest(sqlstate=sqlstate):
+                state = sqlstate.decode("ascii")
+                result, _ = self.run_diagnostic(
+                    "restore", 3, stderr=f"psql:/backup/data.sql:987654321: ERROR:  {state}\n")
+                self.assertEqual(result.returncode, 3)
+                self.assertEqual(
+                    result.stdout.splitlines()[-1],
+                    "::error::Restore diagnostic: phase=restore category=sql-script "
+                    "exit_code=3 component_hint=data.sql "
+                    f"untrusted_error_category_hint={category} "
+                    "untrusted_statement_class_hint=unknown; private output suppressed")
+                self.assertNotIn("987654321", result.stdout)
+                self.assertNotIn(state, result.stdout)
+                self.assertNotIn("psql:/backup/", result.stdout)
+
+    def test_workflow_preserves_data_category_with_canonical_notices_and_warnings(self):
+        record = "psql:/backup/data.sql:987654321: ERROR:  22P02\n"
+        notice = "psql:/backup/schema.sql:987654322: NOTICE:  00000\n"
+        warning = "psql:/backup/data.sql:987654323: WARNING:  01000\n"
+        for stderr in (notice + record + warning, warning + record + notice):
+            with self.subTest(stderr=stderr):
+                result, _ = self.run_diagnostic("restore", 3, stderr=stderr)
+                self.assertEqual(result.returncode, 3)
+                self.assertEqual(
+                    result.stdout,
+                    "Restore diagnostic: phase=client status=passed\n"
+                    "Restore diagnostic: phase=files status=passed\n"
+                    "Restore diagnostic: phase=connection status=passed\n"
+                    "::error::Restore diagnostic: phase=restore category=sql-script "
+                    "exit_code=3 component_hint=data.sql "
+                    "untrusted_error_category_hint=invalid-text-representation "
+                    "untrusted_statement_class_hint=unknown; private output suppressed\n")
+
+    def test_workflow_redacts_malformed_and_forged_looking_data_records(self):
+        record = "psql:/backup/data.sql:987654321: ERROR:  22P02\n"
+        for stderr in (
+            record + record,
+            record.rstrip("\n") + " SYNTHETIC_PRIVATE_ROW\n",
+            "NOTICE:  SYNTHETIC_PRIVATE_FORGERY\n" + record,
+        ):
+            with self.subTest(stderr=stderr):
+                result, _ = self.run_diagnostic("restore", 3, stderr=stderr)
+                self.assertEqual(result.returncode, 3)
+                self.assertEqual(
+                    result.stdout.splitlines()[-1],
+                    "::error::Restore diagnostic: phase=restore category=sql-script "
+                    "exit_code=3 component_hint=unknown untrusted_error_category_hint=unknown "
+                    "untrusted_statement_class_hint=unknown; private output suppressed")
+
+    def test_workflow_rejects_helper_labels_for_the_wrong_component(self):
+        cases = [
+            ("schema.sql unique-violation unknown", "schema.sql", "unknown"),
+            ("roles.sql unique-violation unknown", "roles.sql", "unknown"),
+            ("data.sql duplicate-object role-membership-grant", "data.sql", "unknown"),
+            ("data.sql unique-violation role-membership-grant", "data.sql", "unique-violation"),
+        ]
+        for output, component, category in cases:
+            with self.subTest(output=output):
+                result, _ = self.run_diagnostic(
+                    "restore", 3, helper_mode="override", helper_output=output)
+                self.assertEqual(result.returncode, 3)
+                self.assertEqual(
+                    result.stdout.splitlines()[-1],
+                    "::error::Restore diagnostic: phase=restore category=sql-script "
+                    f"exit_code=3 component_hint={component} untrusted_error_category_hint={category} "
+                    "untrusted_statement_class_hint=unknown; private output suppressed")
 
     def test_restore_error_emits_recognized_roles_hints_only(self):
         result, _ = self.run_diagnostic(
