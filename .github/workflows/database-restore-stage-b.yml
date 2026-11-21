@@ -235,19 +235,31 @@ jobs:
           checked client "${client[@]}" psql --version
           checked files "${client[@]}" sh -c \
             'for file in /backup/roles.sql /backup/schema.sql /backup/history-schema.sql /backup/data.sql /backup/history-data.sql; do test -f "$file" && test -r "$file" || exit 1; done'
+          # Validate the local login inside the same transaction before any private SQL.
+          restore_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+          require_admin="$(cat <<'SQL'
+          DO $restore_identity$
+          BEGIN
+            IF current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+                OR NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = current_user AND rolsuper)
+            THEN
+              RAISE insufficient_privilege USING MESSAGE = 'Unexpected local restore identity';
+            END IF;
+          END;
+          $restore_identity$;
+          SQL
+          )"
           checked connection "${client[@]}" \
-            psql -X -q -v ON_ERROR_STOP=1 -c 'SELECT 1' \
-            -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+            psql -X -q --no-password -v ON_ERROR_STOP=1 -c 'SELECT 1' -d "$restore_db"
           checked restore "${client[@]}" \
-              psql -X -q --single-transaction -v ON_ERROR_STOP=1 \
-              -v VERBOSITY=sqlstate \
+              psql -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
+              -v VERBOSITY=sqlstate -c "$require_admin" \
               -f /backup/roles.sql \
               -f /backup/schema.sql \
               -f /backup/history-schema.sql \
               -c 'SET session_replication_role = replica' \
               -f /backup/data.sql \
-              -f /backup/history-data.sql \
-              -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+              -f /backup/history-data.sql -d "$restore_db"
           echo 'Transactional isolated SQL restore passed.'
 
       - name: Validate restored application counts and migration versions
