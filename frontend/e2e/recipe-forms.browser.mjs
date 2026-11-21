@@ -205,6 +205,11 @@ try {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await expect(page.getByRole('button', { name: 'Done' })).toBeInViewport({ ratio: 1 })
+    const amountFieldBounds = await Promise.all(['quantity', 'unit', 'amount description'].map((field) =>
+      page.getByLabel(`Ingredient 1 ${field}`).boundingBox()))
+    const topEdges = amountFieldBounds.map(({ y }) => y)
+    assert.ok(Math.max(...topEdges) - Math.min(...topEdges) <= 1,
+      `Ingredient amount inputs must align at ${width}×${height}: ${topEdges.join(', ')}`)
     await page.getByRole('button', { name: 'Done' }).click({ trial: true })
     const leaves = await page.locator('.mm-writing-leaf').evaluateAll((pages) =>
       pages.map((leaf) => ({ client: leaf.clientHeight, scroll: leaf.scrollHeight })))
