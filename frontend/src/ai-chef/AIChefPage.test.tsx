@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, configure, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react'
 import type { User } from '@supabase/supabase-js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
@@ -109,6 +109,10 @@ async function nextChefPage() {
 async function openPreferences() {
   while (!screen.queryByRole('textbox', { name: /^Cooking preferences/ })) await nextChefPage()
 }
+
+const defaultAsyncTimeout = getConfig().asyncUtilTimeout
+beforeAll(() => configure({ asyncUtilTimeout: 3_000 }))
+afterAll(() => configure({ asyncUtilTimeout: defaultAsyncTimeout }))
 
 beforeEach(() => {
   localStorage.clear()

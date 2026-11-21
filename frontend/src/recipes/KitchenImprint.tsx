@@ -20,9 +20,9 @@ function localToday() {
 
 type Status = { kind: 'idle' | 'pending' } | { kind: 'error' | 'uncertain'; message: string }
 
-export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty }: {
+export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty, setBusy }: {
   recipe: RecipeDetail; userId: string; close: (message?: string) => void;
-  reviewNote: (text: string, base: string) => Promise<string | undefined>; setNoteDirty: (dirty: boolean) => void
+  reviewNote: (text: string, base: string) => Promise<string | undefined>; setNoteDirty: (dirty: boolean) => void; setBusy: (busy: boolean) => void
 }) {
   const today = localToday()
   const [date, setDate] = useState(today)
@@ -73,6 +73,7 @@ export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty
 
     const controller = new AbortController()
     active.current = controller
+    setBusy(true)
     const { signal } = controller
     const request = { userId, signal }
     setStatus({ kind: 'pending' })
@@ -111,7 +112,10 @@ export function KitchenImprint({ recipe, userId, close, reviewNote, setNoteDirty
       if (rejected) setStatus({ kind: 'error', message: submissionMessage(error) })
       else await verify()
     } finally {
-      if (active.current === controller) active.current = null
+      if (active.current === controller) {
+        active.current = null
+        if (!signal.aborted) setBusy(false)
+      }
     }
   }
 

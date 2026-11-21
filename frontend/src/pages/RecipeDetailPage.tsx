@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { RecipeError, RecipeReadingSkeleton } from '../recipes/RecipeStates'
 import { RecipeDeletionControl } from '../recipes/RecipeDeletionControl'
@@ -18,6 +18,11 @@ export default function RecipeDetailPage() {
   const { recipeId = '' } = useParams()
   const { user } = useAuth()
   const desktopTools = useJournalDesktopTools()
+  const toolsKey = `${user?.id ?? ''}:${recipeId}`
+  const [retainedTools, setRetainedTools] = useState<string | null>(null)
+  const retainActiveTool = useCallback((active: boolean) => {
+    setRetainedTools((current) => active ? toolsKey : current === toolsKey ? null : current)
+  }, [toolsKey])
   const location = useLocation()
   const moriFocusKey = useMoriHeadingFocusKey()
   const source = useContext(RecipeSourceContext)
@@ -52,7 +57,7 @@ export default function RecipeDetailPage() {
     {query.isPaused && <p className="mm-recipe-detail__offline" role="status">You appear to be offline. This recipe will load when you reconnect.</p>}
     {!recipe && query.isError && <><h1 ref={titleRef} tabIndex={-1}>Recipe unavailable</h1><RecipeError detail error={query.error} onRetry={retry} /></>}
     {recipe && <RecipeReading recipe={recipe} titleRef={titleRef} folio={folio}
-      tools={desktopTools && user && source.mode === 'live' && <RecipeReadingTools key={`${user.id}:${recipe.id}`} userId={user.id} recipe={recipe} journalReturn={journalReturn} />}
+      tools={(desktopTools || retainedTools === toolsKey) && user && source.mode === 'live' && <RecipeReadingTools key={`${user.id}:${recipe.id}`} userId={user.id} recipe={recipe} journalReturn={journalReturn} retainActiveTool={retainActiveTool} />}
       artwork={<RecipeImagePanel key={`image-${recipe.id}`} recipeId={recipe.id} recipeTitle={recipe.title} cookedAt={recipe.cooked_at} framed />}
       back={<Link to={journalReturn} state={{ focusRecipe: recipeId }}><span aria-hidden="true">←</span> Back to recipes</Link>}
       status={<>

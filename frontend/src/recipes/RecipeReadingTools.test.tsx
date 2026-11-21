@@ -58,9 +58,12 @@ it('records the cooking date only after explicit confirmation', async () => {
   fireEvent.change(date, { target: { value: '2024-11-05' } })
   expect(patch).not.toHaveBeenCalled()
 
-  patch.mockResolvedValue({ recipe: { ...recipe, user_id: user.id, cooked_at: '2024-11-05' } })
+  let confirmWrite: (value: unknown) => void = () => {}
+  patch.mockReturnValue(new Promise((resolve) => { confirmWrite = resolve }))
   fireEvent.click(screen.getByRole('button', { name: 'Save imprint' }))
 
+  expect(screen.getByRole('button', { name: 'One small change' })).toHaveProperty('disabled', true)
+  confirmWrite({ recipe: { ...recipe, user_id: user.id, cooked_at: '2024-11-05' } })
   expect(patch).toHaveBeenCalledWith(`/functions/v1/recipes/${recipe.id}`, { cooked_at: '2024-11-05' }, expect.objectContaining({ userId: user.id }))
   await waitFor(() => expect(screen.getByText('Cooking date saved.')).toBeTruthy())
   expect(screen.getByText('Nov 5, 2024', { selector: 'time' })).toBeTruthy()
