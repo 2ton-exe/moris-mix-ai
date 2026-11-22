@@ -481,7 +481,9 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
       const book = bookRef.current
       const acknowledge = () => {
         const live = book?.querySelector('.mm-journal-spread')
-        if (pending.current !== request || live?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) return
+        // A navigation gap is not an acknowledgement: wait for the replacement spread
+        // to mount, then for its critical content to become ready.
+        if (pending.current !== request || !live || live.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) return
         pending.current = null
         publishTurn(owner.current, false)
         notifyTurnFinished(request.id, true)
