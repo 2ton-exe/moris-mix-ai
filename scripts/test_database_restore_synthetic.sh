@@ -503,6 +503,12 @@ PY
 
 run_restore_step() (
   cd "$script_dir/.." || exit 1
+  if [[ "$1" == role-replay ]]; then
+    local role_sql_dir="$root/restore-private/restore-verified-sql"
+    mkdir -p "$role_sql_dir"
+    cp "$fixture/roles.sql" "$role_sql_dir/roles.sql"
+    cp "$fixture/schema.sql" "$role_sql_dir/schema.sql"
+  fi
   # Use a separate Bash process so the checked-in step keeps its own errexit.
   RUNNER_TEMP="$root" GITHUB_STEP_SUMMARY="$root/synthetic-summary.md" \
     bash --noprofile --norc -c '
