@@ -175,6 +175,34 @@ if [[ "$stage_a_status" != 3 ]]; then
 fi
 python3 "$repo_root/scripts/owner_restore_diagnostic.py" prepare \
   --private-dir "$root" --sql-dir "$sql_dir" --stderr "$root/stage-a.stderr"
+python3 - "$root/candidate.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+candidate = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
+error = candidate.get("error")
+context = candidate.get("context")
+parsed = context.get("candidate") if isinstance(context, dict) else None
+relation = parsed.get("relation") if isinstance(parsed, dict) else None
+if not (
+    isinstance(error, dict)
+    and error.get("sqlstate") == "42P01"
+    and isinstance(context, dict)
+    and context.get("location") == "copy-header"
+    and isinstance(parsed, dict)
+    and parsed.get("kind") == "copy"
+    and parsed.get("columns") == ["id"]
+    and relation == {
+        "regclass": "public.owner_diag_absent",
+        "schema": "public",
+        "name": "owner_diag_absent",
+    }
+    and error.get("line") == 1
+):
+    raise SystemExit("Synthetic COPY attribution did not match its fixture")
+print("synthetic-owner-copy-attribution=pass")
+PY
 rollback_state="$(client -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
   -d "postgresql://postgres:synthetic@127.0.0.1:$port_a/postgres" \
   -c "SELECT concat((pg_catalog.to_regclass('public.owner_diag_present') IS NULL)::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='owner_diag_history'))::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname='owner_diag_synthetic'))::int)")"
@@ -208,6 +236,37 @@ client -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
 client -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
   -f /private/catalog-after.sql -d "postgresql://postgres:synthetic@127.0.0.1:$port_b/postgres" \
   > "$root/catalog-after.json" 2> "$root/catalog-after.stderr"
+python3 - "$root/target-b-before.json" "$root/catalog-after.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+before, after = (json.loads(Path(name).read_text(encoding="utf-8")) for name in sys.argv[1:])
+if not (
+    isinstance(before, dict)
+    and isinstance(after, dict)
+    and before.get("server_version_num", 0) // 10000 == 17
+    and before.get("database") == "postgres"
+    and before.get("auth_users_present") is True
+    and before.get("public_recipes_absent") is True
+    and before.get("public_profiles_absent") is True
+    and after.get("system_identifier") == before.get("system_identifier")
+    and after.get("server_version_num", 0) // 10000 == 17
+    and after.get("database") == "postgres"
+    and after.get("auth_users_present") is True
+    and isinstance(after.get("candidate"), dict)
+    and after["candidate"].get("sequence_present") is None
+    and after["candidate"].get("relkind") is None
+    and after["candidate"].get("missing_columns") == []
+    and after["candidate"].get("relation_present") is False
+    and after["candidate"].get("schema") is None
+    and after["candidate"].get("name") is None
+    and after["candidate"].get("kind") == "copy"
+    and after["candidate"].get("requested_relation") == "public.owner_diag_absent"
+):
+    raise SystemExit("Synthetic catalog reconstruction did not match its fixture")
+print("synthetic-owner-catalog-state=pass")
+PY
 label="$(python3 "$repo_root/scripts/owner_restore_diagnostic.py" finalize \
   --private-dir "$root" --target-before "$root/target-b-before.json" \
   --catalog-after "$root/catalog-after.json")"
@@ -218,7 +277,6 @@ if [[ "$label" != 'header-target-absent' ]]; then
 fi
 printf '%s\n' 'synthetic-stage-b-rollback=pass'
 printf '%s\n' 'synthetic-separate-catalog-reconstruction=pass'
-printf '%s\n' 'synthetic-owner-diagnostic-label=header-target-absent'
 
 # Prove the reconstructed objects are disposable before container teardown.
 client -X -q --no-password -v ON_ERROR_STOP=1 -d "$dsn_b" \
