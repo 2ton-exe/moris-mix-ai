@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -257,6 +258,67 @@ it('keeps the final paper mounted until the expected location acknowledges the c
   expect(document.querySelector('[data-journal-page-turn]')).toBeNull()
   expect(frames.size).toBe(0)
 })
+it('keeps observing readiness when navigation replaces the live spread during commit', async () => {
+  const commit = vi.fn()
+  let detachedSpread: HTMLElement | null = null
+  let spreadParent: HTMLElement | null = null
+  function ReplacingSpreadProbe() {
+    const { requestPageTurn } = useJournalPageTurn()
+    // Keep controls outside the removable spread so the test can mount its replacement.
+    return createPortal(<div>
+      <button data-testid="replace-start" onClick={() => requestPageTurn('forward', () => undefined, commit)}>Start</button>
+      <button data-testid="remove-spread" onClick={() => {
+        const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
+        if (!spread) throw new Error('The live journal spread is missing.')
+        detachedSpread = spread
+        spreadParent = spread.parentElement
+        spread.remove()
+      }}>Remove spread</button>
+      <button data-testid="mount-spread" onClick={() => {
+        if (!detachedSpread) throw new Error('The outgoing journal spread was not detached.')
+        const replacement = detachedSpread.cloneNode(true) as HTMLElement
+        // The cloned outgoing spread carries its old readiness marker; the replacement
+        // must expose only its own readiness state.
+        replacement.querySelectorAll('[data-journal-ready="false"], [data-reading-ready="false"]').forEach((node) => node.remove())
+        const readiness = document.createElement('span')
+        readiness.setAttribute('data-journal-ready', 'false')
+        replacement.appendChild(readiness)
+        if (!spreadParent) throw new Error('The journal spread parent is missing.')
+        spreadParent.appendChild(replacement)
+      }}>Mount spread</button>
+    </div>, document.body)
+  }
+  render(<MemoryRouter><JournalShell><ReplacingSpreadProbe /></JournalShell></MemoryRouter>)
+  fireEvent.click(screen.getByTestId('replace-start'))
+  advance()
+  const outgoingSpread = document.querySelector<HTMLElement>('.mm-journal-spread')
+  expect(outgoingSpread).not.toBeNull()
+  // Hold acknowledgement with a descendant readiness marker; the production check
+  // intentionally queries markers inside the live spread, not attributes on the spread itself.
+  const outgoingReadiness = document.createElement('span')
+  outgoingReadiness.setAttribute('data-journal-ready', 'false')
+  outgoingSpread!.appendChild(outgoingReadiness)
+  sample(1)
+  expect(commit).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('committing')
+
+  fireEvent.click(screen.getByTestId('remove-spread'))
+  await act(async () => { await Promise.resolve() })
+  // The root observer must not interpret the temporary absence of a live spread as ready.
+  expect(document.querySelector('.mm-journal-spread')).toBeNull()
+  expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
+
+  fireEvent.click(screen.getByTestId('mount-spread'))
+  const replacement = document.querySelector<HTMLElement>('.mm-journal-spread')!
+  const readiness = replacement.querySelector<HTMLElement>('[data-journal-ready="false"]')!
+  expect(readiness.getAttribute('data-journal-ready')).toBe('false')
+  expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
+
+  readiness.setAttribute('data-journal-ready', 'true')
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
+  expect(commit).toHaveBeenCalledTimes(1)
+})
+
 it('waits for critical data after a resize interrupts preparation, then settles without motion', () => {
   const { commit } = readinessProbe()
   fireEvent(window, new Event('resize'))

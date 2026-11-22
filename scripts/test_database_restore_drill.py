@@ -203,6 +203,34 @@ class StageBOfflineTests(unittest.TestCase):
             self.assertIn("Restored migration version set does not match backup", response.stderr)
 
 
+    def test_copy_counts_use_physical_newlines_with_unicode_separators(self):
+        """Unicode line separators inside a COPY field must count as one row."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data, history = root / "data.sql", root / "history.sql"
+            data.write_text(
+                "COPY public.recipes (id, title) FROM stdin;\n"
+                "1\talpha\u2028beta\u2029gamma\u0085delta\n"
+                "\\.\n", encoding="utf-8")
+            history.write_text(
+                "COPY supabase_migrations.schema_migrations (version, name) FROM stdin;\n"
+                "20261013000000\tinitial\u2028migration\n"
+                "\\.\n", encoding="utf-8")
+            digest = hashlib.md5(b"20261013000000").hexdigest()
+            response = subprocess.run(
+                [sys.executable, "-", str(data), str(history),
+                 f"0|1|0|0|0|1|{digest}"],
+                input=self.verify_counts, text=True, capture_output=True, check=False)
+            self.assertEqual(response.returncode, 0, response.stderr)
+            self.assertIn("Five application table counts", response.stdout)
+
+            mismatch = subprocess.run(
+                [sys.executable, "-", str(data), str(history),
+                 f"0|2|0|0|0|1|{digest}"],
+                input=self.verify_counts, text=True, capture_output=True, check=False)
+            self.assertNotEqual(mismatch.returncode, 0)
+            self.assertIn("Restored row counts do not match backup", mismatch.stderr)
+
     def test_quoted_copy_identifiers_and_versions(self):
         """Accept quoted schema, table, and migration column identifiers."""
         with tempfile.TemporaryDirectory() as td:
