@@ -267,7 +267,9 @@ it('keeps observing readiness when navigation replaces the live spread during co
         const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
         if (!spread) throw new Error('The live journal spread is missing.')
         const replacement = spread.cloneNode(true) as HTMLElement
-        replacement.setAttribute('data-journal-ready', 'false')
+        const readiness = document.createElement('span')
+        readiness.setAttribute('data-journal-ready', 'false')
+        replacement.appendChild(readiness)
         spread.replaceWith(replacement)
       }}>Replace spread</button>
     </>
@@ -281,10 +283,11 @@ it('keeps observing readiness when navigation replaces the live spread during co
 
   fireEvent.click(screen.getByTestId('replace-spread'))
   const replacement = document.querySelector<HTMLElement>('.mm-journal-spread')!
-  expect(replacement.getAttribute('data-journal-ready')).toBe('false')
+  const readiness = replacement.querySelector<HTMLElement>('[data-journal-ready]')!
+  expect(readiness.getAttribute('data-journal-ready')).toBe('false')
   expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
 
-  replacement.setAttribute('data-journal-ready', 'true')
+  readiness.setAttribute('data-journal-ready', 'true')
   await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
   expect(commit).toHaveBeenCalledTimes(1)
 })
