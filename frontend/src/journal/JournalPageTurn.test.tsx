@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -263,7 +264,8 @@ it('keeps observing readiness when navigation replaces the live spread during co
   let spreadParent: HTMLElement | null = null
   function ReplacingSpreadProbe() {
     const { requestPageTurn } = useJournalPageTurn()
-    return <>
+    // Keep controls outside the removable spread so the test can mount its replacement.
+    return createPortal(<div>
       <button data-testid="replace-start" onClick={() => requestPageTurn('forward', () => undefined, commit)}>Start</button>
       <button data-testid="remove-spread" onClick={() => {
         const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
@@ -284,7 +286,7 @@ it('keeps observing readiness when navigation replaces the live spread during co
         if (!spreadParent) throw new Error('The journal spread parent is missing.')
         spreadParent.appendChild(replacement)
       }}>Mount spread</button>
-    </>
+    </div>, document.body)
   }
   render(<MemoryRouter><JournalShell><ReplacingSpreadProbe /></JournalShell></MemoryRouter>)
   fireEvent.click(screen.getByTestId('replace-start'))
