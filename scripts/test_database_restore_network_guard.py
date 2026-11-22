@@ -135,15 +135,22 @@ class OwnerRestoreNetworkGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(guard.NetworkGuardError, "host-egress-unverified"):
                 guard._host_egress_is_blocked()
 
-    def test_docker_probe_requires_network_unreachable_or_timeout_for_every_ip(self):
-        blocked = subprocess.CompletedProcess([], 2, "", "timeout expired")
-        with patch.object(guard, "_run", return_value=blocked) as probe:
-            guard._docker_egress_is_blocked(NETWORK, guard.PSQL_IMAGE)
-            self.assertEqual(probe.call_count, len(guard.PROBES))
-        reachable = subprocess.CompletedProcess([], 2, "", "received invalid response to SSL negotiation")
-        with patch.object(guard, "_run", return_value=reachable):
-            with self.assertRaisesRegex(guard.NetworkGuardError, "docker-egress-unverified"):
-                guard._docker_egress_is_blocked(NETWORK, guard.PSQL_IMAGE)
+    def test_docker_probe_checks_tcp_inside_container_network_and_cleans_up(self):
+        container_id = "a" * 64
+        for probe_status in (0, 1):
+            with self.subTest(probe_status=probe_status), patch.object(guard, "_run", side_effect=[
+                subprocess.CompletedProcess([], 0, container_id + "\n", ""),
+                subprocess.CompletedProcess([], 0, "1234\n", ""),
+                subprocess.CompletedProcess([], probe_status, "", ""),
+                subprocess.CompletedProcess([], 0, "", ""),
+            ]) as run:
+                if probe_status == 0:
+                    guard._docker_egress_is_blocked(NETWORK, guard.PSQL_IMAGE)
+                else:
+                    with self.assertRaisesRegex(guard.NetworkGuardError, "docker-egress-unverified"):
+                        guard._docker_egress_is_blocked(NETWORK, guard.PSQL_IMAGE)
+                self.assertEqual(run.call_args_list[2].args[0][:2], ["nsenter", "--net=/proc/1234/ns/net"])
+                self.assertEqual(run.call_args_list[3], call(["docker", "rm", "-f", container_id]))
 
     def test_loopback_check_requires_successful_local_query(self):
         success = subprocess.CompletedProcess([], 0, "1\n", "")

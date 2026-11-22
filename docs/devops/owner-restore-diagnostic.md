@@ -45,7 +45,7 @@ replay; do not leave an external management path open to the VM.
 Install or verify the dependencies before handling the backup:
 
 - Supabase CLI `2.122.0`, Docker Engine and Compose support, AWS CLI v2, Python
-  3, `nftables`, and `iproute2`.
+  3, `nftables`, `iproute2`, and `nsenter` from `util-linux`.
 - The pinned client image
   `postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b`.
 - The local Supabase server image expected from the pinned CLI:

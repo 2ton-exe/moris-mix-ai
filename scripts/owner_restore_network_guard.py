@@ -11,6 +11,7 @@ raw firewall output.
 import argparse
 import errno
 import json
+from pathlib import Path
 import re
 import socket
 import subprocess
@@ -35,13 +36,6 @@ BLOCKED_ERRNOS = {
     errno.EHOSTUNREACH,
     errno.ETIMEDOUT,
 }
-BLOCKED_DOCKER_TEXT = (
-    "timeout expired",
-    "connection timed out",
-    "network is unreachable",
-    "no route to host",
-    "host is unreachable",
-)
 BRIDGE_NAME = re.compile(r"[A-Za-z0-9_.-]{1,15}")
 
 
@@ -156,22 +150,34 @@ def _host_egress_is_blocked():
 
 
 def _docker_egress_is_blocked(network, image):
-    for address, port in PROBES:
-        dsn = (
-            f"host={address} port={port} connect_timeout=2 sslmode=disable "
-            "user=restore_probe dbname=restore_probe"
-        )
+    container = _run([
+        "docker", "run", "--detach", "--rm", "--network", network,
+        "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--read-only", image, "sleep", "60",
+    ])
+    container_id = container.stdout.strip()
+    if container.returncode != 0 or re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
+        raise NetworkGuardError("docker-egress-unverified")
+    try:
+        inspected = _run(["docker", "inspect", "--format", "{{.State.Pid}}", container_id])
+        pid = inspected.stdout.strip()
+        if inspected.returncode != 0 or re.fullmatch(r"[1-9][0-9]*", pid) is None:
+            raise NetworkGuardError("docker-egress-unverified")
+        # Run the same TCP connect checks in the container network namespace.
+        # No PostgreSQL handshake or DNS lookup is needed to detect egress.
         result = _run(
             [
-                "docker", "run", "--rm", "--network", network,
-                "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                "--read-only", image, "psql", "-X", "--no-password", "-d", dsn,
-                "-c", "SELECT 1",
+                "nsenter", f"--net=/proc/{pid}/ns/net", "--", sys.executable,
+                "-I", "-c", "import runpy, sys; runpy.run_path(sys.argv[1])['_host_egress_is_blocked']()",
+                str(Path(__file__).resolve()),
             ],
-            timeout=10,
+            timeout=15,
         )
-        diagnostic = (result.stdout + "\n" + result.stderr).lower()
-        if result.returncode == 0 or not any(marker in diagnostic for marker in BLOCKED_DOCKER_TEXT):
+        if result.returncode != 0:
+            raise NetworkGuardError("docker-egress-unverified")
+    finally:
+        removed = _run(["docker", "rm", "-f", container_id])
+        if removed.returncode != 0:
             raise NetworkGuardError("docker-egress-unverified")
 
 
