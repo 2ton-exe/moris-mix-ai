@@ -11,6 +11,7 @@ from io import StringIO
 
 from owner_restore_diagnostic import (
     COMPONENTS,
+    _catalog_query,
     _private_root,
     main,
     prepare,
@@ -118,6 +119,18 @@ class OwnerRestoreDiagnosticTests(unittest.TestCase):
             "sequence", "other/unknown",
         })
         return output.getvalue()
+
+    def test_absent_relation_does_not_report_columns_as_missing(self):
+        query = _catalog_query({
+            "kind": "copy",
+            "relation": {
+                "regclass": "public.synthetic_missing",
+                "schema": "public",
+                "name": "synthetic_missing",
+            },
+            "columns": ["id"],
+        })
+        self.assertIn("WHERE candidate.oid IS NOT NULL", query)
 
     def test_missing_copy_target_only_emits_fixed_label(self):
         row = b"synthetic-private-copy-row"
