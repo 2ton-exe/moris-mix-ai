@@ -308,7 +308,7 @@ it('keeps observing readiness when navigation replaces the live spread during co
 
   fireEvent.click(screen.getByTestId('mount-spread'))
   const replacement = document.querySelector<HTMLElement>('.mm-journal-spread')!
-  const readiness = replacement.querySelector<HTMLElement>('[data-journal-ready]')!
+  const readiness = replacement.querySelector<HTMLElement>('[data-journal-ready="false"]')!
   expect(readiness.getAttribute('data-journal-ready')).toBe('false')
   expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
 
