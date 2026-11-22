@@ -475,8 +475,12 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     if (!request || !turn) return
     const expectedLocation = pathname === request.pathname && (request.expectedSearch === undefined || search === request.expectedSearch)
     if (turn.phase === 'committing' && expectedLocation) {
-      const live = bookRef.current?.querySelector('.mm-journal-spread')
+      // Navigation can replace the spread while the destination is becoming ready.
+      // Observe the stable book root and resolve the current spread on every callback;
+      // observing the outgoing spread can strand the turn layer on a detached node.
+      const book = bookRef.current
       const acknowledge = () => {
+        const live = book?.querySelector('.mm-journal-spread')
         if (pending.current !== request || live?.querySelector('[data-journal-ready="false"], [data-reading-ready="false"]')) return
         pending.current = null
         publishTurn(owner.current, false)
@@ -484,7 +488,7 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
         setTurn(null)
       }
       const observer = new MutationObserver(acknowledge)
-      if (live) observer.observe(live, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-journal-ready', 'data-reading-ready'] })
+      if (book) observer.observe(book, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-journal-ready', 'data-reading-ready'] })
       acknowledge()
       return () => observer.disconnect()
     } else if (pathname !== request.pathname || (search !== request.search && search !== request.expectedSearch)) {
