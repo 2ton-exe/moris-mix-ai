@@ -87,7 +87,9 @@ init_sql = (
     "CREATE TABLE auth.users (id integer PRIMARY KEY);\n"
 )
 (root / "init.sql").write_text(init_sql, encoding="ascii")
-os.chmod(root / "init.sql", 0o600)
+# The pinned PostgreSQL container reads this synthetic-only bind mount as its
+# unprivileged `postgres` user; it contains no real credentials or backup data.
+os.chmod(root / "init.sql", 0o644)
 PY
 
 client() {
