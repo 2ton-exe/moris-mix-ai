@@ -277,6 +277,10 @@ it('keeps observing readiness when navigation replaces the live spread during co
   render(<MemoryRouter><JournalShell><ReplacingSpreadProbe /></JournalShell></MemoryRouter>)
   fireEvent.click(screen.getByTestId('replace-start'))
   advance()
+  const outgoingSpread = document.querySelector<HTMLElement>('.mm-journal-spread')
+  expect(outgoingSpread).not.toBeNull()
+  // Hold acknowledgement so the commit remains mounted while navigation swaps the spread.
+  outgoingSpread!.setAttribute('data-journal-ready', 'false')
   sample(1)
   expect(commit).toHaveBeenCalledTimes(1)
   expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('committing')
