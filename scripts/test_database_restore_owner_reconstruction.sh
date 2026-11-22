@@ -211,6 +211,7 @@ client -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
 label="$(python3 "$repo_root/scripts/owner_restore_diagnostic.py" finalize \
   --private-dir "$root" --target-before "$root/target-b-before.json" \
   --catalog-after "$root/catalog-after.json")"
+printf 'synthetic-owner-diagnostic-label=%s\n' "$label"
 if [[ "$label" != 'header-target-absent' ]]; then
   printf '%s\n' 'Synthetic private diagnostic label was not corroborated.' >&2
   exit 1
