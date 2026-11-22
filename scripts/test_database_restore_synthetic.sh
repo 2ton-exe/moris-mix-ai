@@ -5,11 +5,10 @@ set -euo pipefail
 : "${PSQL_IMAGE:?The digest-pinned PostgreSQL client image is required}"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 classifier="$script_dir/classify_restore_component.py"
+umask 077
 root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/moris-restore-synthetic.XXXXXX")"
 workdir="$root/local"
 fixture="$root/restore-verified-sql"
-mkdir -p "$fixture"
-umask 077
 
 cleanup() {
   local original_status=$?
@@ -19,18 +18,19 @@ cleanup() {
       printf '%s\n' 'synthetic-database-shutdown=pass'
     else
       printf '%s\n' '::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.'
-      original_status=1
+      if (( original_status == 0 )); then original_status=1; fi
     fi
   fi
-  if rm -rf "$root" > /dev/null 2>&1; then
+  if rm -rf "$root" > /dev/null 2>&1 && [[ ! -e "$root" ]]; then
     printf '%s\n' 'synthetic-fixture-cleanup=pass'
   else
     printf '%s\n' 'synthetic-fixture-cleanup=fail' >&2
-    original_status=1
+    if (( original_status == 0 )); then original_status=1; fi
   fi
   exit "$original_status"
 }
 trap cleanup EXIT
+mkdir -p "$fixture"
 
 # Generate an independent local Supabase project. Never load repository or hosted config.
 supabase init --workdir "$workdir"
@@ -53,11 +53,6 @@ PY
 supabase db start --workdir "$workdir"
 
 local_db='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-server_version="$(psql "$local_db" -X -A -t -v ON_ERROR_STOP=1 -c 'SHOW server_version')"
-[[ "$server_version" == 17.11* ]] || {
-  echo "::error::Unexpected disposable PostgreSQL version: $server_version"
-  exit 1
-}
 # The pinned CLI currently selects this server image. Fail if it drifts.
 if ! docker ps --format '{{.Image}}' | grep -Eq '(^|/)supabase/postgres:17[.]11[.]0[.]006$'; then
   echo '::error::The expected Supabase PostgreSQL server image is not running'
@@ -69,7 +64,15 @@ client=(docker run --rm --network host \
   --security-opt no-new-privileges --read-only \
   --mount "type=bind,source=$fixture,target=/backup,readonly" \
   "$PSQL_IMAGE")
-"${client[@]}" psql --version
+client_version="$("${client[@]}" psql --version)"
+server_version="$("${client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
+  -c 'SHOW server_version' -d "$local_db")"
+if [[ ! "$client_version" =~ ^psql[[:space:]]\(PostgreSQL\)[[:space:]]17[.]11([[:space:]]|$) ||
+      ! "$server_version" =~ ^17[.]11([[:space:]]|$) ]]; then
+  echo '::error::Expected PostgreSQL 17.11 client and server'
+  exit 1
+fi
+echo 'Synthetic client/server version=17.11'
 
 # The setting is tested on the exact pinned client/server pair.
 "${client[@]}" psql -X -q -v ON_ERROR_STOP=1 \
@@ -634,6 +637,68 @@ fi
 require_clean_restore
 cp "$root/admin-data.sql" "$fixture/data.sql"
 echo 'synthetic-admin-data-diagnostic=pass category=invalid-text-representation rollback=pass'
+
+# Phase 1A: run the checked-in Stage B step for each synthetic 42P01 case.
+# The baseline lives across restore transactions to distinguish rollback from setval.
+if ! principal_query "$admin_db" \
+    'CREATE SCHEMA phase276_baseline;
+     CREATE TABLE phase276_baseline.rows (id integer);
+     CREATE SEQUENCE phase276_baseline.seq START WITH 11;' > "$root/phase276-setup.out"; then
+  echo '::error::Synthetic 42P01 baseline setup failed'
+  exit 1
+fi
+cp "$fixture/schema.sql" "$root/phase276-schema.sql"
+cat >> "$fixture/schema.sql" <<'SQL'
+CREATE SCHEMA phase276;
+CREATE SEQUENCE phase276.transient_seq;
+CREATE TABLE phase276.copy_target (payload text);
+CREATE FUNCTION phase276.check_row() RETURNS trigger LANGUAGE plpgsql AS $check$
+BEGIN
+  IF current_setting('session_replication_role') <> 'replica' THEN
+    RAISE EXCEPTION 'Unexpected replication role';
+  END IF;
+  IF NEW.payload = 'fail-row' THEN
+    PERFORM 1 FROM phase276.missing_dependency;
+  END IF;
+  RETURN NEW;
+END;
+$check$;
+CREATE TRIGGER check_row BEFORE INSERT ON phase276.copy_target
+  FOR EACH ROW EXECUTE FUNCTION phase276.check_row();
+ALTER TABLE phase276.copy_target ENABLE ALWAYS TRIGGER check_row;
+SQL
+
+location_test="$script_dir/test_database_restore_failure_locations.py"
+for case_name in missing-copy-target copy-header-expression row-dependency-short \
+    row-dependency-streamed unsupported-sql ambiguous-record missing-sequence; do
+  python3 "$location_test" write "$case_name" "$root"
+  status=0
+  run_restore_step admin-restore || status=$?
+  if [[ "$status" != 3 ]]; then
+    printf '::error::Synthetic 42P01 case %s expected exit 3; received %d\n' "$case_name" "$status"
+    exit 1
+  fi
+  python3 "$location_test" check "$case_name" "$root"
+  require_clean_restore
+  expected_sequence='11|f'
+  [[ "$case_name" != missing-sequence ]] || expected_sequence='23|t'
+  if ! state="$(principal_query "$admin_db" \
+      "SELECT (to_regnamespace('phase276') IS NULL
+               AND NOT EXISTS (SELECT FROM phase276_baseline.rows))::int, last_value, is_called
+       FROM phase276_baseline.seq")" || [[ "$state" != "1|$expected_sequence" ]]; then
+    printf '::error::Synthetic 42P01 case %s rollback or sequence-state check failed\n' "$case_name"
+    exit 1
+  fi
+done
+if ! principal_query "$admin_db" \
+    'DROP TABLE phase276_baseline.rows; DROP SEQUENCE phase276_baseline.seq; DROP SCHEMA phase276_baseline;' \
+    > "$root/phase276-cleanup.out"; then
+  echo '::error::Synthetic 42P01 baseline cleanup failed'
+  exit 1
+fi
+cp "$root/phase276-schema.sql" "$fixture/schema.sql"
+cp "$root/admin-data.sql" "$fixture/data.sql"
+echo 'Synthetic 42P01 rollback and sequence state verified; baseline removed.'
 
 # Fail after all five components have been reached, then replay pristine fixtures.
 echo 'SELECT 1 / 0;' >> "$fixture/history-data.sql"

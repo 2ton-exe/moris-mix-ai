@@ -10,6 +10,8 @@ on:
       - scripts/restore_role_probe.py
       - scripts/test_restore_role_probe.py
       - scripts/test_database_restore_synthetic.sh
+      - scripts/test_database_restore_failure_locations.py
+      - scripts/test_database_restore_drill.py
       - scripts/classify_restore_component.py
 
 permissions:
@@ -37,6 +39,10 @@ jobs:
       - name: Test role-only diagnostic output safety (offline)
         shell: bash
         run: python3 -m unittest discover -s scripts -p 'test_restore_role_probe.py'
+
+      - name: Test restore diagnostics and synthetic cleanup (offline)
+        shell: bash
+        run: python3 -m unittest discover -s scripts -p 'test_database_restore_*.py'
 
       - name: Check synthetic shell syntax (offline)
         shell: bash
