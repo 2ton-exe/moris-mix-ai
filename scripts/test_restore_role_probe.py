@@ -292,9 +292,12 @@ class RestoreRoleProbeTests(unittest.TestCase):
         cleanup = workflow.split("- name: Stop isolated database and delete private files\n")[1]
         self.assertTrue(cleanup.startswith("        if: always()\n"))
         self.assertIn("supabase stop", cleanup)
+        self.assertIn('private="$RUNNER_TEMP/restore-private"', cleanup)
+        self.assertIn('rm -rf "$private"', cleanup)
         for name in ("private-probe-result.out", "private-probe-result.err",
                      "private-restore-result.log", "private-restore-stderr.log"):
-            self.assertIn(f'"$RUNNER_TEMP/{name}"', cleanup)
+            self.assertIn(f'"$private/{name}"', workflow)
+            self.assertNotIn(f'"$RUNNER_TEMP/{name}"', workflow)
 
 
     def test_checked_in_workflow_replay_exit_and_summary_with_stubs(self):
