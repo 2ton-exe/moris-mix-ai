@@ -363,7 +363,9 @@ class RestoreRoleProbeTests(unittest.TestCase):
                               grant_type=grant_type, identity_ok=identity_ok):
                 root = self.root / f"replay-{index}"
                 root.mkdir()
-                verified = root / "restore-verified-sql"
+                private = root / "restore-private"
+                private.mkdir()
+                verified = private / "restore-verified-sql"
                 verified.mkdir()
                 (verified / "roles.sql").write_bytes(sql + b"\n")
                 (verified / "schema.sql").write_bytes(
