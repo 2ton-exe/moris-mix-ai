@@ -11,6 +11,8 @@ on:
       - scripts/test_restore_role_probe.py
       - scripts/test_database_restore_synthetic.sh
       - scripts/test_database_restore_failure_locations.py
+      - scripts/test_database_restore_data_failure.py
+      - scripts/restore_data_failure.py
       - scripts/test_database_restore_drill.py
       - scripts/classify_restore_component.py
 
