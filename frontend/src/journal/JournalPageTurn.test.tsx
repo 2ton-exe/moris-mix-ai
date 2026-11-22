@@ -260,6 +260,7 @@ it('keeps the final paper mounted until the expected location acknowledges the c
 it('keeps observing readiness when navigation replaces the live spread during commit', async () => {
   const commit = vi.fn()
   let detachedSpread: HTMLElement | null = null
+  let spreadParent: HTMLElement | null = null
   function ReplacingSpreadProbe() {
     const { requestPageTurn } = useJournalPageTurn()
     return <>
@@ -268,6 +269,7 @@ it('keeps observing readiness when navigation replaces the live spread during co
         const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
         if (!spread) throw new Error('The live journal spread is missing.')
         detachedSpread = spread
+        spreadParent = spread.parentElement
         spread.remove()
       }}>Remove spread</button>
       <button data-testid="mount-spread" onClick={() => {
@@ -279,7 +281,8 @@ it('keeps observing readiness when navigation replaces the live spread during co
         const readiness = document.createElement('span')
         readiness.setAttribute('data-journal-ready', 'false')
         replacement.appendChild(readiness)
-        detachedSpread.replaceWith(replacement)
+        if (!spreadParent) throw new Error('The journal spread parent is missing.')
+        spreadParent.appendChild(replacement)
       }}>Mount spread</button>
     </>
   }
