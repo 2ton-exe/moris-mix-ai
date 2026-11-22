@@ -259,22 +259,28 @@ it('keeps the final paper mounted until the expected location acknowledges the c
 })
 it('keeps observing readiness when navigation replaces the live spread during commit', async () => {
   const commit = vi.fn()
+  let detachedSpread: HTMLElement | null = null
   function ReplacingSpreadProbe() {
     const { requestPageTurn } = useJournalPageTurn()
     return <>
       <button data-testid="replace-start" onClick={() => requestPageTurn('forward', () => undefined, commit)}>Start</button>
-      <button data-testid="replace-spread" onClick={() => {
+      <button data-testid="remove-spread" onClick={() => {
         const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
         if (!spread) throw new Error('The live journal spread is missing.')
-        const replacement = spread.cloneNode(true) as HTMLElement
+        detachedSpread = spread
+        spread.remove()
+      }}>Remove spread</button>
+      <button data-testid="mount-spread" onClick={() => {
+        if (!detachedSpread) throw new Error('The outgoing journal spread was not detached.')
+        const replacement = detachedSpread.cloneNode(true) as HTMLElement
         // The cloned outgoing spread carries its old readiness marker; the replacement
         // must expose only its own readiness state.
         replacement.querySelectorAll('[data-journal-ready="false"], [data-reading-ready="false"]').forEach((node) => node.remove())
         const readiness = document.createElement('span')
         readiness.setAttribute('data-journal-ready', 'false')
         replacement.appendChild(readiness)
-        spread.replaceWith(replacement)
-      }}>Replace spread</button>
+        detachedSpread.replaceWith(replacement)
+      }}>Mount spread</button>
     </>
   }
   render(<MemoryRouter><JournalShell><ReplacingSpreadProbe /></JournalShell></MemoryRouter>)
@@ -291,7 +297,13 @@ it('keeps observing readiness when navigation replaces the live spread during co
   expect(commit).toHaveBeenCalledTimes(1)
   expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('committing')
 
-  fireEvent.click(screen.getByTestId('replace-spread'))
+  fireEvent.click(screen.getByTestId('remove-spread'))
+  await act(async () => { await Promise.resolve() })
+  // The root observer must not interpret the temporary absence of a live spread as ready.
+  expect(document.querySelector('.mm-journal-spread')).toBeNull()
+  expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
+
+  fireEvent.click(screen.getByTestId('mount-spread'))
   const replacement = document.querySelector<HTMLElement>('.mm-journal-spread')!
   const readiness = replacement.querySelector<HTMLElement>('[data-journal-ready]')!
   expect(readiness.getAttribute('data-journal-ready')).toBe('false')
