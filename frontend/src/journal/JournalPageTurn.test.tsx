@@ -257,6 +257,38 @@ it('keeps the final paper mounted until the expected location acknowledges the c
   expect(document.querySelector('[data-journal-page-turn]')).toBeNull()
   expect(frames.size).toBe(0)
 })
+it('keeps observing readiness when navigation replaces the live spread during commit', async () => {
+  const commit = vi.fn()
+  function ReplacingSpreadProbe() {
+    const { requestPageTurn } = useJournalPageTurn()
+    return <>
+      <button data-testid="replace-start" onClick={() => requestPageTurn('forward', () => undefined, commit)}>Start</button>
+      <button data-testid="replace-spread" onClick={() => {
+        const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
+        if (!spread) throw new Error('The live journal spread is missing.')
+        const replacement = spread.cloneNode(true) as HTMLElement
+        replacement.setAttribute('data-journal-ready', 'false')
+        spread.replaceWith(replacement)
+      }}>Replace spread</button>
+    </>
+  }
+  render(<MemoryRouter><JournalShell><ReplacingSpreadProbe /></JournalShell></MemoryRouter>)
+  fireEvent.click(screen.getByTestId('replace-start'))
+  advance()
+  sample(1)
+  expect(commit).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('committing')
+
+  fireEvent.click(screen.getByTestId('replace-spread'))
+  const replacement = document.querySelector<HTMLElement>('.mm-journal-spread')!
+  expect(replacement.getAttribute('data-journal-ready')).toBe('false')
+  expect(document.querySelector('[data-journal-page-turn]')).not.toBeNull()
+
+  replacement.setAttribute('data-journal-ready', 'true')
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
+  expect(commit).toHaveBeenCalledTimes(1)
+})
+
 it('waits for critical data after a resize interrupts preparation, then settles without motion', () => {
   const { commit } = readinessProbe()
   fireEvent(window, new Event('resize'))
