@@ -63,4 +63,8 @@ jobs:
 
       - name: Exercise owner diagnostic reconstruction and cleanup
         shell: bash
-        run: bash scripts/test_database_restore_owner_reconstruction.sh
+        env:
+          OWNER_RESTORE_LIVE_GUARD: "1"
+        run: |
+          command -v nft >/dev/null || sudo apt-get install -y nftables
+          timeout --kill-after=20s 3m bash scripts/test_database_restore_owner_reconstruction.sh

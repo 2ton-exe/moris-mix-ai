@@ -120,7 +120,7 @@ add rule inet {TABLE} forward iifname "veth*" oifname "veth*" accept
 
 
 def _verify_firewall_table():
-    result = _run(["nft", "list", "table", "inet", TABLE])
+    result = _run(["nft", "--numeric-priority", "list", "table", "inet", TABLE])
     if result.returncode != 0:
         raise NetworkGuardError("firewall-table-missing")
     output = result.stdout

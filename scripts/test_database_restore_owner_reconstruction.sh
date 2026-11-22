@@ -15,6 +15,10 @@ root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/owner-restore-reconstruction.XXXXXX")"
 sql_dir="$root/restore-verified-sql"
 container_a="owner-restore-synthetic-a-$$"
 container_b="owner-restore-synthetic-b-$$"
+network="owner-restore-synthetic-$$"
+network_args=()
+live_guard=${OWNER_RESTORE_LIVE_GUARD:-0}
+guard_started=0
 
 cleanup() {
   local original_status=$?
@@ -26,6 +30,19 @@ cleanup() {
     fi
     if docker container inspect "$name" >/dev/null 2>&1; then failed=1; fi
   done
+  if [[ "$live_guard" == 1 ]]; then
+    if docker network inspect "$network" >/dev/null 2>&1; then
+      docker network rm "$network" >/dev/null 2>&1 || failed=1
+    fi
+  fi
+  if [[ "$guard_started" == 1 ]]; then
+    if sudo nft list table inet owner_restore_diag >/dev/null 2>&1; then
+      sudo nft delete table inet owner_restore_diag || failed=1
+    fi
+    if sudo nft list table inet owner_restore_diag >/dev/null 2>&1; then
+      failed=1
+    fi
+  fi
   if [[ -e "$root" ]]; then
     rm -rf -- "$root" >/dev/null 2>&1 || failed=1
   fi
@@ -39,6 +56,13 @@ cleanup() {
   exit "$original_status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [[ "$live_guard" == 1 ]]; then
+  docker network create --driver bridge "$network" >/dev/null
+  network_args=(--network "$network")
+fi
 
 mkdir -m 700 "$sql_dir"
 python3 - "$root" <<'PY'
@@ -103,6 +127,7 @@ client() {
 start_target() {
   local name="$1" port_line port attempt
   docker run --detach --name "$name" \
+    "${network_args[@]}" \
     --publish '127.0.0.1::5432/tcp' \
     --env POSTGRES_PASSWORD=synthetic \
     --mount "type=bind,source=$root/init.sql,target=/docker-entrypoint-initdb.d/00-owner-synthetic.sql,readonly" \
@@ -153,6 +178,20 @@ restore_db_prefix='postgresql://supabase_admin:synthetic@127.0.0.1:'
 # Target A reproduces Stage B's complete statement order and one transaction.
 port_a="$(start_target "$container_a")"
 dsn_a="${restore_db_prefix}${port_a}/postgres"
+if [[ "$live_guard" == 1 ]]; then
+  if sudo nft list table inet owner_restore_diag >/dev/null 2>&1; then
+    printf '%s\n' 'Synthetic runner already has an owner restore firewall table.' >&2
+    exit 1
+  fi
+  guard_args=(--docker-network "$network" --psql-image "$PSQL_IMAGE")
+  guard_script="$repo_root/scripts/owner_restore_network_guard.py"
+  guard_started=1
+  sudo python3 "$guard_script" apply "${guard_args[@]}" \
+    --local-dsn "postgresql://postgres:synthetic@127.0.0.1:$port_a/postgres"
+  sudo python3 "$guard_script" verify "${guard_args[@]}" \
+    --local-dsn "postgresql://postgres:synthetic@127.0.0.1:$port_a/postgres"
+  printf '%s\n' 'synthetic-target-a-network-guard=pass'
+fi
 guard_target "$port_a" target-a
 ulimit -f 128
 if client -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
@@ -216,6 +255,11 @@ docker rm -f -v "$container_a" >/dev/null
 # prefix, then query its catalog independently of Target A's rolled-back state.
 port_b="$(start_target "$container_b")"
 dsn_b="${restore_db_prefix}${port_b}/postgres"
+if [[ "$live_guard" == 1 ]]; then
+  sudo python3 "$guard_script" verify "${guard_args[@]}" \
+    --local-dsn "postgresql://postgres:synthetic@127.0.0.1:$port_b/postgres"
+  printf '%s\n' 'synthetic-target-b-network-guard=pass'
+fi
 guard_target "$port_b" target-b
 python3 - "$root/target-a-before.json" "$root/target-b-before.json" <<'PY'
 import json
