@@ -78,10 +78,10 @@ PUBLIC_PREFIX = b"".join(
 )
 
 
-def observed_location(case, stderr):
+def observed_location(case, stderr, *, prefix=PREFIX):
     """Check a diagnostic against one known fixture layout."""
     sql, expected = CASES[case]
-    first = PREFIX.count("\n") + 1
+    first = prefix.count("\n") + 1
     last = first + sql.count("\n") - 1
     if expected == "ambiguous":
         records = (
@@ -116,6 +116,11 @@ def check_replay(case, root):
     if b"SYNTHETIC_276_PRIVATE_REACHED" not in stdout or b"SYNTHETIC_276_PRIVATE_UNREACHED" in stdout:
         raise SystemExit(f"Synthetic 42P01 case {case}: unexpected execution boundary")
 
+    check_public_output(case, root, location)
+    print(f"Synthetic 42P01 case {case}: location={location} exit=3 public-output=pass")
+
+
+def check_public_output(case, root, location):
     component, category = ("unknown", "unknown") if location == "ambiguous" else ("data.sql", "undefined-table")
     expected = PUBLIC_PREFIX + (
         f"::error::Restore diagnostic: phase=restore category=sql-script exit_code=3 "
@@ -124,8 +129,6 @@ def check_replay(case, root):
     ).encode("ascii")
     if (root / "step.out").read_bytes() != expected or (root / "step.err").read_bytes():
         raise SystemExit(f"Synthetic 42P01 case {case}: public output differed from the fixed allowlist")
-    print(f"Synthetic 42P01 case {case}: location={location} exit=3 public-output=pass")
-
 
 class FailureLocationOracleTests(unittest.TestCase):
     def test_copy_data_and_terminator_are_both_in_the_row_failure_region(self):

@@ -668,17 +668,8 @@ CREATE TRIGGER check_row BEFORE INSERT ON phase276.copy_target
 ALTER TABLE phase276.copy_target ENABLE ALWAYS TRIGGER check_row;
 SQL
 
-location_test="$script_dir/test_database_restore_failure_locations.py"
-for case_name in missing-copy-target copy-header-expression row-dependency-short \
-    row-dependency-streamed unsupported-sql ambiguous-record missing-sequence; do
-  python3 "$location_test" write "$case_name" "$root"
-  status=0
-  run_restore_step admin-restore || status=$?
-  if [[ "$status" != 3 ]]; then
-    printf '::error::Synthetic 42P01 case %s expected exit 3; received %d\n' "$case_name" "$status"
-    exit 1
-  fi
-  python3 "$location_test" check "$case_name" "$root"
+require_phase276_rollback() {
+  local case_name="$1" expected_sequence state
   require_clean_restore
   expected_sequence='11|f'
   [[ "$case_name" != missing-sequence ]] || expected_sequence='23|t'
@@ -689,6 +680,78 @@ for case_name in missing-copy-target copy-header-expression row-dependency-short
     printf '::error::Synthetic 42P01 case %s rollback or sequence-state check failed\n' "$case_name"
     exit 1
   fi
+}
+
+location_test="$script_dir/test_database_restore_failure_locations.py"
+phase276_cases=(missing-copy-target copy-header-expression row-dependency-short
+    row-dependency-streamed unsupported-sql ambiguous-record missing-sequence)
+for case_name in "${phase276_cases[@]}"; do
+  python3 "$location_test" write "$case_name" "$root"
+  status=0
+  run_restore_step admin-restore || status=$?
+  if [[ "$status" != 3 ]]; then
+    printf '::error::Synthetic 42P01 case %s expected exit 3; received %d\n' "$case_name" "$status"
+    exit 1
+  fi
+  python3 "$location_test" check "$case_name" "$root"
+  require_phase276_rollback "$case_name"
+done
+
+# Phase 1B: retain Phase 1A controls and replay the same failures with a
+# supported dump prefix. Capture all catalog replay output under the same trap.
+if ! principal_query "$admin_db" \
+    "SELECT pg_catalog.setval('phase276_baseline.seq', 11, false)" > "$root/phase276-reset.out"; then
+  echo '::error::Synthetic Phase 1B sequence reset failed'
+  exit 1
+fi
+
+phase276_catalog_probe() {
+  # Rebuild only the preceding schema components in a fresh transaction.
+  # ON_ERROR_STOP closes the session on errors, causing a rollback.
+  "${client[@]}" psql -X -qAt --no-password -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate \
+    -c 'BEGIN' \
+    -c "DO \$guard\$ BEGIN
+          IF current_user <> 'supabase_admin' OR session_user <> 'supabase_admin'
+              OR NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = current_user AND rolsuper)
+          THEN RAISE insufficient_privilege;
+          END IF;
+        END \$guard\$;" \
+    -f /backup/roles.sql -f /backup/schema.sql -f /backup/history-schema.sql \
+    -c 'SET session_replication_role = replica' -f /backup/phase276-catalog.sql \
+    -c 'ROLLBACK' -d "$admin_db" > "$root/phase276-catalog.out" 2> "$root/phase276-catalog.err"
+}
+
+attribution_test="$script_dir/test_database_restore_data_failure.py"
+for case_name in "${phase276_cases[@]}"; do
+  python3 "$attribution_test" write "$case_name" "$root"
+  status=0
+  run_restore_step admin-restore || status=$?
+  if [[ "$status" != 3 ]]; then
+    printf '::error::Synthetic Phase 1B case %s expected exit 3; received %d\n' "$case_name" "$status"
+    exit 1
+  fi
+  catalog_expected="$(python3 "$attribution_test" check "$case_name" "$root")"
+  case "$catalog_expected" in
+    candidate-absent|candidate-present)
+      if ! phase276_catalog_probe ||
+          ! printf 'SYNTHETIC_ADMIN_FILES_REACHED\n%s\n' "$catalog_expected" |
+                cmp -s - "$root/phase276-catalog.out"; then
+        echo '::error::Synthetic Phase 1B catalog corroboration failed'
+        exit 1
+      fi
+      rm -f "$fixture/phase276-catalog.sql"
+      ;;
+    not-probed)
+      [[ ! -e "$fixture/phase276-catalog.sql" ]]
+      ;;
+    *)
+      echo '::error::Synthetic Phase 1B unexpected catalog label'
+      exit 1
+      ;;
+  esac
+  require_phase276_rollback "$case_name"
+  printf 'Synthetic Phase 1B case %s: attribution=pass catalog=%s rollback=pass\n' \
+    "$case_name" "$catalog_expected"
 done
 if ! principal_query "$admin_db" \
     'DROP TABLE phase276_baseline.rows; DROP SEQUENCE phase276_baseline.seq; DROP SCHEMA phase276_baseline;' \
