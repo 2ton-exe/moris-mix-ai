@@ -279,8 +279,11 @@ it('keeps observing readiness when navigation replaces the live spread during co
   advance()
   const outgoingSpread = document.querySelector<HTMLElement>('.mm-journal-spread')
   expect(outgoingSpread).not.toBeNull()
-  // Hold acknowledgement so the commit remains mounted while navigation swaps the spread.
-  outgoingSpread!.setAttribute('data-journal-ready', 'false')
+  // Hold acknowledgement with a descendant readiness marker; the production check
+  // intentionally queries markers inside the live spread, not attributes on the spread itself.
+  const outgoingReadiness = document.createElement('span')
+  outgoingReadiness.setAttribute('data-journal-ready', 'false')
+  outgoingSpread!.appendChild(outgoingReadiness)
   sample(1)
   expect(commit).toHaveBeenCalledTimes(1)
   expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('committing')
