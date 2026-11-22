@@ -35,7 +35,7 @@ it('creates empty section leaves and follows a row across grouped page boundarie
   expect(leafIndexForAnchor(narrowLeaves, `ingredient:${movedKey}`)).toBe(4)
   expect(leafAnchorForPage(leaves[2])).toBe(`ingredient:${withRows.ingredients[2].key}`)
 
-  const desktopLeaves = recipeFormLeaves(withRows, false, [], false, true)
+  const desktopLeaves = recipeFormLeaves(withRows, false, null, false, true)
   const desktopIngredientLeaves = desktopLeaves.filter(({ kind }) => kind === 'ingredients')
   expect(desktopIngredientLeaves).toHaveLength(2)
   expect(desktopIngredientLeaves[0]).toMatchObject({ rowKeys: withRows.ingredients.slice(0, 4).map(({ key }) => key) })
@@ -55,7 +55,7 @@ it('keeps long notes and instruction text intact across writing leaves', () => {
   const notes = 'Keep every line.\n'.repeat(100)
   const instruction = 'Stir gently, then wait. '.repeat(70)
   const state = editorState({ ...recipeFormFixture, notes, instructions: [{ step: 1, text: instruction }] })
-  const leaves = recipeFormLeaves(state, false, [], false, false, 300, 12, 40)
+  const leaves = recipeFormLeaves(state, false, null, false, false, 300, 12, 40)
   const noteLeaves = leaves.filter((leaf) => leaf.kind === 'notes')
   const instructionLeaves = leaves.filter((leaf) => leaf.kind === 'instructions')
   expect(noteLeaves.length).toBeGreaterThan(5)

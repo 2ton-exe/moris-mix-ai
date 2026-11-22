@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { localE2eOtherUser, localE2eUser } from './local-user.mjs'
-import { finishRecipeReview, createRecipe, navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
+import { finishRecipeReview, createRecipe, navigateToRecipeSection, signIn, waitForCollection, waitForJournalPageTurn } from './recipe-journey-helpers'
 
 async function addPantryItem(page: Page, item: string) {
   const input = page.getByRole('textbox', { name: 'Pantry ingredient' })
@@ -13,17 +13,17 @@ async function openChefPreferences(page: Page) {
   const nextPage = page.getByRole('button', { name: 'Next page' })
   while (!await preferences.isVisible()) {
     await nextPage.click()
-    await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+    await waitForJournalPageTurn(page)
   }
   return preferences
 }
 
 async function expectPantryItemAndReturnToPreferences(page: Page, item: string) {
   await page.getByRole('button', { name: 'Previous page' }).click()
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+  await waitForJournalPageTurn(page)
   await expect(page.getByRole('region', { name: /^Pantry list,/ })).toContainText(item)
   await page.getByRole('button', { name: 'Next page' }).click()
-  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0, { timeout: 15_000 })
+  await waitForJournalPageTurn(page)
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -152,7 +152,11 @@ test('AI Chef saves a reviewed recipe and only the selected parent lineage', asy
     expect(parent).toBeTruthy()
     await page.setViewportSize({ width: 1440, height: 900 })
     const inspiration = await navigateToRecipeSection(page, 'Recipe inspiration')
-    await inspiration.getByRole('checkbox', { name: new RegExp(parentTitle) }).check()
+    const chooseRecipes = inspiration.getByRole('button', { name: /^Choose journal recipes/ })
+    await chooseRecipes.click()
+    const choices = page.getByRole('dialog', { name: 'From your journal' })
+    await choices.getByRole('checkbox', { name: new RegExp(parentTitle) }).check()
+    await choices.getByRole('button', { name: 'Done' }).click()
     await finishRecipeReview(page)
     await page.getByLabel('Recipe title').fill(reviewedTitle)
     expect(recipeWrites).toHaveLength(0)

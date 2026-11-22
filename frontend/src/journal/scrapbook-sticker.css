@@ -1,0 +1,15 @@
+:root {
+  --mm-scrapbook-brush: url('../assets/stickers/review-brush.svg');
+  --mm-scrapbook-paper-edges: url('../assets/stickers/review-paper-edges.svg');
+}
+
+.mm-scrapbook-sticker { object-fit: contain; }
+.mm-scrapbook-sticker[aria-hidden='true'] { pointer-events: none; }
+.mm-scrapbook-sticker--sm { inline-size: 24px; }
+.mm-scrapbook-sticker--md { inline-size: 48px; }
+.mm-scrapbook-sticker--lg { inline-size: 88px; }
+.mm-scrapbook-sticker--die-cut {
+  filter: drop-shadow(1px 0 #fff6df) drop-shadow(-1px 0 #fff6df)
+    drop-shadow(0 2px #fff6df) drop-shadow(0 -2px #fff6df)
+    drop-shadow(0 2px 2px rgb(66 36 16 / .23));
+}
