@@ -3,6 +3,16 @@ import { MemoryRouter } from 'react-router'
 import { expect, it } from 'vitest'
 import { JournalShell } from './JournalShell'
 
+it.each(['/app/recipes/new', '/app/quick-entry/review', '/app/recipes/recipe-1'])(
+  'keeps the oak desk and stationery around %s',
+  (pathname) => {
+    const { container } = render(<MemoryRouter initialEntries={[pathname]}><JournalShell><h1>Recipe</h1></JournalShell></MemoryRouter>)
+    const desk = container.querySelector('.mm-desk')
+    expect(desk?.classList.contains('mm-surface--wood')).toBe(true)
+    expect(desk?.querySelectorAll('.mm-stationery')).toHaveLength(5)
+  },
+)
+
 it('keeps public links alongside the signed-in recipe tabs', () => {
   render(<MemoryRouter initialEntries={['/app/recipes']}><JournalShell><h1>My recipes</h1></JournalShell></MemoryRouter>)
   const recipes = screen.getByRole('navigation', { name: 'Journal sections' })
