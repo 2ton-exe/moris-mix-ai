@@ -267,6 +267,9 @@ it('keeps observing readiness when navigation replaces the live spread during co
         const spread = document.querySelector<HTMLElement>('.mm-journal-spread')
         if (!spread) throw new Error('The live journal spread is missing.')
         const replacement = spread.cloneNode(true) as HTMLElement
+        // The cloned outgoing spread carries its old readiness marker; the replacement
+        // must expose only its own readiness state.
+        replacement.querySelectorAll('[data-journal-ready="false"], [data-reading-ready="false"]').forEach((node) => node.remove())
         const readiness = document.createElement('span')
         readiness.setAttribute('data-journal-ready', 'false')
         replacement.appendChild(readiness)
