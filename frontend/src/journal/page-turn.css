@@ -79,7 +79,7 @@
 .mm-turn-leaf--backward .mm-turn-face--front::after { right: auto; left: 0; }
 .mm-turn-face--back { transform: rotateY(180deg); }
 
-.mm-page-turn-layer :is(button, input, textarea, select):disabled { opacity: 1 !important; cursor: inherit !important; }
+.mm-page-turn-layer :is(input, textarea, select):disabled { opacity: 1 !important; cursor: inherit !important; }
 
 .mm-turn-leaf {
   z-index: 2;

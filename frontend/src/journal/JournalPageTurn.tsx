@@ -177,7 +177,8 @@ function sanitizeSnapshot(clone: HTMLElement, prefix: string) {
   clone.style.pointerEvents = 'none'
   clone.style.userSelect = 'none'
 
-  clone.querySelectorAll<HTMLButtonElement>('button').forEach((button) => { button.disabled = true })
+  // Inert blocks interaction while keeping enabled buttons visually intact.
+  clone.querySelectorAll('button').forEach((button) => { button.type = 'button' })
   clone.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select').forEach((control) => { control.disabled = true })
   clone.querySelectorAll<HTMLAnchorElement>('a').forEach((anchor) => anchor.removeAttribute('href'))
   clone.querySelectorAll<HTMLFormElement>('form').forEach((form) => {
@@ -189,8 +190,16 @@ function sanitizeSnapshot(clone: HTMLElement, prefix: string) {
 }
 
 function clonePage(source: Element | null, prefix: string): HTMLElement | null {
-  if (!(source instanceof HTMLElement) || getComputedStyle(source).display === 'none') return null
+  if (!(source instanceof HTMLElement)) return null
+  const style = getComputedStyle(source)
+  if (style.display === 'none') return null
   const clone = source.cloneNode(true) as HTMLElement
+  if (source.matches('.mm-journal-page, .mm-journal-flyleaf')) {
+    // Separate leaves lose the spread selectors that choose their paper.
+    clone.style.backgroundColor = style.backgroundColor
+    clone.style.backgroundImage = style.backgroundImage
+    clone.style.backgroundSize = style.backgroundSize
+  }
   withCurrentFormValues(source, clone)
   const images = clone.querySelectorAll('img')
   source.querySelectorAll('img').forEach((image, index) => {

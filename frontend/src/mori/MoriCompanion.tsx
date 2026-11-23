@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
-import { X } from 'lucide-react'
+import { MoveDiagonal, X } from 'lucide-react'
 import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
@@ -16,6 +16,8 @@ import './mori-companion.css'
 const navigationTapSize = 48
 const navigationTapArm = -58
 const navigationTapStyle: CSSProperties & { '--mori-navigation-arm': string } = { '--mori-navigation-arm': `${navigationTapArm}deg` }
+const defaultChatSize = { width: 520, height: 560 }
+const smallChatSize = { width: 380, height: 420 }
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({
   hidden: z.boolean().default(false),
@@ -50,7 +52,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const location = useLocation()
   const [preferences, setPreferences] = useState(readPreferences)
   const [open, setOpen] = useState(false)
-  const [conversationExpanded, setConversationExpanded] = useState(false)
+  const [chatSize, setChatSize] = useState(defaultChatSize)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
@@ -69,6 +71,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const heading = useRef<HTMLHeadingElement>(null)
   const bubble = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number; moved: boolean } | null>(null)
+  const resizeDrag = useRef<{ pointerId: number; x: number; y: number; size: typeof defaultChatSize } | null>(null)
+  const resizedByDrag = useRef(false)
   const suppressClick = useRef(false)
   const focusAfterVisibilityChange = useRef(false)
   const headingId = useId()
@@ -90,7 +94,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const page = companionPage(location.pathname)
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
-  const compactChat = Boolean(userId && typeof window.matchMedia === 'function' && !singleLayout && !conversationExpanded)
+  const resizableChat = Boolean(userId && !singleLayout)
 
   useEffect(() => () => stopNavigationTravel.current?.(), [])
   useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
@@ -150,7 +154,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
   useEffect(() => {
     if (keepOpen) setOpen(true)
-    else { setOpen(false); setConversationExpanded(false) }
+    else setOpen(false)
   }, [location.pathname, keepOpen])
   useEffect(() => {
     const check = () => {
@@ -179,7 +183,6 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         element.dataset.moriSpatialTurn = ''
         setPageTurn(true)
         setOpen(false)
-        setConversationExpanded(false)
         return {
           screenFoot: { x: rect.left + rect.width / 2, y: rect.top + MORI_FOOT.y * MORI_ART_SCALE },
           setActorOpacity(opacity) { element.style.opacity = String(1 - opacity) },
@@ -203,7 +206,6 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         const turnScale = single ? .6 : 1
         setPageTurn(true)
         setOpen(false)
-        setConversationExpanded(false)
         return (frame, corner) => {
           const hand = mittAnchor(frame.armAngle)
           const target = { x: corner.x - (offset.x + (mirror ? 200 - hand.x : hand.x) * scale) * turnScale, y: corner.y - (offset.y + hand.y * scale) * turnScale }
@@ -239,9 +241,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   }, [size])
   useLayoutEffect(() => {
     if (!open) return
-    const composer = userId && !compactChat ? bubble.current?.querySelector('textarea') : null
+    const composer = userId ? bubble.current?.querySelector('textarea') : null
     ;(composer ?? heading.current)?.focus({ preventScroll: true })
-  }, [open, compactChat, userId])
+  }, [open, userId])
   useLayoutEffect(() => {
     if (!focusAfterVisibilityChange.current) return
     focusAfterVisibilityChange.current = false
@@ -256,37 +258,45 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const belowSpace = bottom - (actual.y + height) - gap
   const aboveSpace = actual.y - top - gap
   const placement = sideSpace >= Math.min(340, viewport.width - 16) ? side : belowSpace >= aboveSpace ? 'bottom' : 'top'
-  const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : bottom - top
-  const preferredWidth = userId && viewport.width >= 1100 ? compactChat ? 360 : 520 : 380
-  const preferredHeight = userId && viewport.width >= 1100 ? compactChat ? 360 : 560 : 460
+  const mouthY = actual.y + size * 0.67
+  const resizeFromSide = resizableChat && (placement === 'left' || placement === 'right')
+  const resizeBottom = Math.min(bottom, Math.max(top + defaultChatSize.height, mouthY + defaultChatSize.height / 2))
+  const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : (resizeFromSide ? resizeBottom : bottom) - top
+  const preferredWidth = resizableChat ? chatSize.width : userId && viewport.width >= 1100 ? defaultChatSize.width : 380
+  const preferredHeight = resizableChat ? chatSize.height : userId && viewport.width >= 1100 ? defaultChatSize.height : 460
   const panelWidth = placement === 'left'
     ? Math.min(preferredWidth, viewport.width - 16, leftSpace)
     : placement === 'right'
       ? Math.min(preferredWidth, viewport.width - 16, rightSpace)
       : Math.min(preferredWidth, viewport.width - 16)
   const maxPanelHeight = Math.max(0, Math.min(preferredHeight, viewport.height - 16, verticalSpace))
-  const measuredPanelHeight = userId && !compactChat ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
-  const mouthY = actual.y + size * 0.67
+  const measuredPanelHeight = userId ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
   const panelLeft = placement === 'left'
     ? actual.x - gap - panelWidth
     : placement === 'right'
       ? actual.x + width + gap
       : Math.max(left, Math.min(actual.x + width / 2 - panelWidth / 2, right - panelWidth))
   const panelTop = placement === 'left' || placement === 'right'
-    ? Math.max(top, Math.min(mouthY - measuredPanelHeight / 2, bottom - measuredPanelHeight))
+    ? resizeFromSide ? resizeBottom - measuredPanelHeight : Math.max(top, Math.min(mouthY - measuredPanelHeight / 2, bottom - measuredPanelHeight))
     : placement === 'top'
       ? Math.max(top, Math.min(actual.y - gap - measuredPanelHeight, bottom - measuredPanelHeight))
       : Math.max(top, Math.min(actual.y + height + gap, bottom - measuredPanelHeight))
   const availablePanelHeight = Math.max(0, Math.min(maxPanelHeight, bottom - panelTop))
-  const visiblePanelHeight = userId && !compactChat ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
+  const visiblePanelHeight = userId ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
   const tailOffset = placement === 'left' || placement === 'right'
     ? Math.max(14, Math.min(visiblePanelHeight - 14, mouthY - panelTop))
     : Math.max(20, Math.min(panelWidth - 20, actual.x + width / 2 - panelLeft))
+  function resizeChat(width: number, height: number) {
+    setChatSize({
+      width: Math.min(sideSpace, Math.max(smallChatSize.width, width)),
+      height: Math.min(verticalSpace, Math.max(smallChatSize.height, height)),
+    })
+  }
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open || userId) return
     const height = bubble.current?.offsetHeight ?? 0
     if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
-  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight, compactChat])
+  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight, userId])
 
   async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
     if (document.hidden) return
@@ -350,7 +360,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     return travel.arrived
   }
 
-  function close() { setOpen(false); setConversationExpanded(false); trigger.current?.focus() }
+  function close() { setOpen(false); trigger.current?.focus() }
   function show() {
     focusAfterVisibilityChange.current = true
     setPreferences((previous) => ({ ...previous, hidden: false }))
@@ -389,7 +399,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
               if (event.detail !== 0) { event.preventDefault(); return }
             }
             if (open) close()
-            else { setConversationExpanded(true); setOpen(true) }
+            else setOpen(true)
           }}
           onKeyDown={moveKey}
           onPointerDown={(event) => {
@@ -417,21 +427,50 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
           onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>
           <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
-          {!singleLayout && <span className="mori-pet-label">Talk to Mori</span>}
         </button>
       </div>
-      <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
+      <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
-        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-compact={compactChat || undefined} style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-resizable={resizeFromSide || undefined} style={{ maxHeight: availablePanelHeight, height: resizeFromSide ? availablePanelHeight : undefined }}>
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} contextLabel={page.label} greeting={companionMessage} compact={compactChat} onToggleConversation={!singleLayout ? () => setConversationExpanded((expanded) => !expanded) : undefined} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
           }}>{pageGuidance.action.label}</button>}
         </section>
+        {resizeFromSide && <button className="mori-pet-resize" type="button" aria-label="Resize Mori chat" aria-description="Drag or use the arrow keys to resize. Activate to switch between small and standard sizes." aria-controls={panelId}
+          onClick={(event) => {
+            if (event.detail > 0 && resizedByDrag.current) return
+            setChatSize(chatSize === smallChatSize ? defaultChatSize : smallChatSize)
+          }}
+          onKeyDown={(event) => {
+            const horizontal = event.key === 'ArrowLeft' ? -24 : event.key === 'ArrowRight' ? 24 : 0
+            const vertical = event.key === 'ArrowUp' ? -24 : event.key === 'ArrowDown' ? 24 : 0
+            if (!horizontal && !vertical) return
+            event.preventDefault()
+            resizeChat(panelWidth + horizontal * (placement === 'left' ? -1 : 1), availablePanelHeight - vertical)
+          }}
+          onPointerDown={(event) => {
+            if (!event.isPrimary || event.button !== 0) return
+            resizedByDrag.current = false
+            resizeDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, size: { width: panelWidth, height: availablePanelHeight } }
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerMove={(event) => {
+            const start = resizeDrag.current
+            if (start?.pointerId !== event.pointerId) return
+            const dx = event.clientX - start.x
+            const dy = event.clientY - start.y
+            if (!resizedByDrag.current && Math.hypot(dx, dy) < 4) return
+            resizedByDrag.current = true
+            resizeChat(start.size.width + dx * (placement === 'left' ? -1 : 1), start.size.height - dy)
+          }}
+          onLostPointerCapture={(event) => { if (resizeDrag.current?.pointerId === event.pointerId) resizeDrag.current = null }}>
+          <MoveDiagonal size={16} aria-hidden="true" />
+        </button>}
       </div>
     </div>
   </div>

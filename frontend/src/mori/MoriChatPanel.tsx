@@ -68,12 +68,8 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
 
 type PlayNavigationMotion = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void | boolean>
 
-export function MoriChatPanel({ userId, contextLabel, greeting, compact = false, onToggleConversation, playNavigationTap, playNavigationTravel, traveling = false }: {
+export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false }: {
   userId: string
-  contextLabel?: string
-  greeting?: string
-  compact?: boolean
-  onToggleConversation?: () => void
   playNavigationTap?: PlayNavigationMotion
   playNavigationTravel?: PlayNavigationMotion
   traveling?: boolean
@@ -102,11 +98,8 @@ export function MoriChatPanel({ userId, contextLabel, greeting, compact = false,
   const requestId = useRef(0)
   const request = useRef<{ id: number; controller: AbortController; timeout: number } | null>(null)
   const log = useRef<HTMLDivElement>(null)
-  const composerInput = useRef<HTMLTextAreaElement>(null)
   const followLatest = useRef(true)
   const composerId = useId()
-  const conversationId = useId()
-  const wasCompact = useRef(compact)
   const { completedReviewKeys } = useMoriReviewCompletion()
   const [promptSelection, setPromptSelection] = useState(0)
   const selectedPromptCaret = useRef<number | null>(null)
@@ -119,10 +112,6 @@ export function MoriChatPanel({ userId, contextLabel, greeting, compact = false,
       selectedPromptCaret.current = null
     }
   }, [composer, composerId, promptSelection])
-  useLayoutEffect(() => {
-    if (wasCompact.current && !compact) composerInput.current?.focus()
-    wasCompact.current = compact
-  }, [compact])
   useMoriActivity(pending ? { kind: 'working', message: pendingTask === 'search' ? 'I’m looking through your saved recipes…' : 'I’m putting your recipe together…' } : null)
 
   useEffect(() => {
@@ -588,7 +577,7 @@ export function MoriChatPanel({ userId, contextLabel, greeting, compact = false,
       ? 'Example: “rice, eggs; quick and spicy”'
       : ''
 
-  const shortcuts = <nav className={`mori-chat-shortcuts${compact ? ' mori-chat-shortcuts--compact' : ''}`} aria-label="Open a journal page">
+  const shortcuts = <nav className="mori-chat-shortcuts" aria-label="Open a journal page">
     <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes', 'Opening your recipe collection.', { anchor: event.currentTarget, shortcut: true })}><BookOpen size={16} aria-hidden="true" />Open recipes</button>
     <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/recipes/new', 'Opening a new recipe.', { anchor: event.currentTarget, shortcut: true })}><NotebookPen size={16} aria-hidden="true" />Open recipe editor</button>
     <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/quick-entry', 'Opening your cooking notes.', { focus: 'notes', anchor: event.currentTarget, shortcut: true })}><ChefHat size={16} aria-hidden="true" />Open cooking notes</button>
@@ -596,13 +585,7 @@ export function MoriChatPanel({ userId, contextLabel, greeting, compact = false,
   </nav>
 
   return <div className="mori-chat">
-    {compact && <div className="mori-chat-welcome">
-      {contextLabel && <p className="mori-pet-context">{contextLabel}</p>}
-      {greeting && <p className="mori-pet-message">{greeting}</p>}
-    </div>}
-    {compact && shortcuts}
-    {onToggleConversation && <button className={compact ? 'mori-chat-start' : 'mori-chat-quick-actions'} type="button" aria-controls={conversationId} aria-expanded={!compact} disabled={!compact && (pending || navigating)} onClick={onToggleConversation}>{compact ? 'Chat with Mori' : 'Show quick actions'}</button>}
-    <div id={conversationId} className="mori-chat-conversation" hidden={compact}>
+    <div className="mori-chat-conversation">
       <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
       <div ref={log} className="mori-chat-log" role="log" tabIndex={messages.length ? 0 : -1} aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
         const element = event.currentTarget
@@ -643,7 +626,7 @@ export function MoriChatPanel({ userId, contextLabel, greeting, compact = false,
       {example && <p id={`${composerId}-example`} className="mori-chat-example">{example}</p>}
       <form className="mori-chat-composer" onSubmit={(event) => { void submit(event) }}>
         <label className="mori-chat-label" htmlFor={composerId}>Message Mori</label>
-        <textarea ref={composerInput} id={composerId} rows={2} value={composer} disabled={pending || navigating} aria-describedby={example ? `${composerId}-example` : undefined} placeholder={mode === 'create' ? 'What did you cook, and how?' : mode === 'suggest' ? 'What ingredients do you have?' : 'Tell Mori what you need…'} onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
+        <textarea id={composerId} rows={2} value={composer} disabled={pending || navigating} aria-describedby={example ? `${composerId}-example` : undefined} placeholder={mode === 'create' ? 'What did you cook, and how?' : mode === 'suggest' ? 'What ingredients do you have?' : 'Tell Mori what you need…'} onChange={(event) => setComposer(event.currentTarget.value)} onKeyDown={submitOnShortcut} />
         <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
       </form>
       {shortcuts}

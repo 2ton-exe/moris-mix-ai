@@ -146,12 +146,9 @@ it('opens and focuses the composer on the first desktop activation', () => {
   const panel = screen.getByRole('region', { name: 'Mori' })
   const composer = within(panel).getByRole('textbox', { name: 'Message Mori' })
   expect(document.activeElement).toBe(composer)
-  const toggle = within(panel).getByRole('button', { name: 'Show quick actions' })
-  expect(toggle.getAttribute('aria-expanded')).toBe('true')
-
-  fireEvent.click(toggle)
-  expect(screen.queryByRole('textbox', { name: 'Message Mori' })).toBeNull()
-  expect(toggle.getAttribute('aria-expanded')).toBe('false')
+  expect(within(panel).queryByRole('button', { name: 'Show quick actions' })).toBeNull()
+  expect(within(panel).getByRole('button', { name: 'Open recipes' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Talk to Mori' }).textContent).not.toContain('Talk to Mori')
 })
 
 it('keeps the full chat visible at the single-page breakpoint', () => {
@@ -160,7 +157,7 @@ it('keeps the full chat visible at the single-page breakpoint', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
 
   expect(screen.getByRole('textbox', { name: 'Message Mori' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Chat with Mori' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Resize Mori chat' })).toBeNull()
 })
 
 it.each([

@@ -27,19 +27,10 @@
 .mori-pet-show { position: fixed; right: 12px; bottom: 12px; z-index: 45; min-height: 44px; padding: 8px 12px; border: 1px solid var(--mm-color-espresso-300); border-radius: 999px; background: var(--mm-color-parchment-50); color: var(--mm-color-ink); font: 600 13px/1.2 var(--mm-font-sans); box-shadow: 0 4px 14px rgb(47 33 26 / .18); cursor: pointer; }
 .mori-pet-root :focus-visible { outline: 3px solid var(--mm-color-burgundy-600); outline-offset: 3px; }
 .mori-pet-panel[data-chat='true'] { display: flex; flex-direction: column; height: 460px; }
-.mori-pet-panel[data-chat='true'][data-compact='true'] { height: auto; }
 .mori-pet-panel[data-chat='true'] > header { flex: 0 0 auto; }
 .mori-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; gap: 8px; }
-.mori-chat > :not(.mori-chat-conversation) { flex-shrink: 0; }
 .mori-chat-conversation { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; gap: 8px; }
-.mori-chat-conversation[hidden] { display: none; }
 .mori-chat-conversation > :not(.mori-chat-log) { flex-shrink: 0; }
-.mori-chat-welcome { padding-bottom: 12px; border-bottom: 1px solid var(--mm-border-paper); }
-.mori-pet-panel .mori-chat-welcome .mori-pet-context { margin: 0 0 4px; }
-.mori-pet-panel .mori-chat-welcome .mori-pet-message { margin: 0; }
-.mori-pet-panel .mori-chat-start { width: 100%; min-height: 44px; border-color: var(--mm-color-burgundy-700); border-radius: 8px; background: var(--mm-color-burgundy-700); color: var(--mm-color-fresh); font-weight: 650; }
-.mori-pet-panel .mori-chat-start:hover { background: var(--mm-color-burgundy-800); }
-.mori-pet-panel .mori-chat-quick-actions { align-self: flex-start; min-height: 44px; border: 0; background: transparent; color: var(--mm-color-burgundy-700); text-decoration: underline; text-underline-offset: 3px; }
 .mori-pet-panel .mori-chat-task { margin: 0 0 4px; color: var(--mm-color-burgundy-700); font-size: 12px; font-weight: 600; }
 .mori-chat-log { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow: auto; padding: 2px 3px; overscroll-behavior: contain; scrollbar-color: var(--mm-color-sage-500) transparent; scrollbar-width: thin; }
 .mori-chat-log:has(.mori-chat-message):where([aria-busy='false']) { min-block-size: 8rem; }
@@ -144,7 +135,6 @@
 .mori-chat-shortcuts svg, .mori-chat-prompts svg { flex: none; }
 @media (min-width: 1100px) {
   .mori-pet-panel[data-chat='true'] { height: 560px; padding: 16px 20px; border-radius: 24px 24px 24px 5px; }
-  .mori-pet-panel[data-chat='true'][data-compact='true'] { height: auto; }
 }
 
 .mori-chat-label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; }
@@ -197,7 +187,6 @@
   .mori-chat-recipe button { grid-column: 2; grid-row: 1 / 4; align-self: end; }
   .mori-chat-shortcuts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .mori-chat-shortcuts button { flex-direction: column; gap: 4px; padding: 6px 2px; font-size: 11px; }
-  .mori-chat-shortcuts--compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .mori-navigation-tap { position: fixed; z-index: 47; pointer-events: none; }
@@ -211,13 +200,26 @@
   color: var(--mm-color-ink);
   opacity: 1;
 }
-
-.mori-pet-label {
-  padding: 3px 7px;
-  border: 1px solid var(--mm-color-parchment-500);
-  border-radius: var(--mm-radius-paper);
-  background: var(--mm-color-fresh);
-  color: var(--mm-color-ink);
-  font: 650 12px/1.3 var(--mm-font-sans);
+.mori-pet-resize {
+  position: absolute;
+  inset-block-start: 4px;
+  display: grid;
+  inline-size: 44px;
+  block-size: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mm-color-burgundy-700);
+  cursor: nesw-resize;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.mori-pet-character:is([data-turn-direction], [data-mori-spatial-turn], [data-navigation-stage]) .mori-pet-label { visibility: hidden; }
+.mori-pet-resize:hover { background: var(--mm-color-parchment-200); }
+.mori-pet-bubble[data-placement='left'] .mori-pet-resize { inset-inline-start: 4px; cursor: nwse-resize; }
+.mori-pet-bubble[data-placement='left'] .mori-pet-resize svg { scale: -1 1; }
+.mori-pet-bubble[data-placement='right'] .mori-pet-resize { inset-inline-end: 4px; }
+.mori-pet-bubble[data-placement='left'] .mori-pet-panel[data-resizable] > header { padding-inline-start: 32px; }
+.mori-pet-bubble[data-placement='right'] .mori-pet-panel[data-resizable] > header { padding-inline-end: 32px; }

@@ -324,7 +324,15 @@ try {
   await page.getByRole('button', { name: 'Done' }).click()
 
   const readsBeforePageTurns = recipeReadRequests.length
-  await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
+  const paperTexture = await page.locator('.mm-journal-spread > .mm-journal-page').evaluate((paper) => globalThis.getComputedStyle(paper).backgroundImage)
+  const saveShadow = await page.getByRole('button', { name: 'Save recipe' }).evaluate((button) => globalThis.getComputedStyle(button).boxShadow)
+  assert.notEqual(saveShadow, 'none')
+  await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
+  const turn = page.locator('[data-journal-page-turn]')
+  const turningPaper = turn.locator('.mm-turn-face--front .mm-journal-page')
+  await expect(turningPaper).toHaveCSS('background-image', paperTexture)
+  await expect(turningPaper.locator('button').filter({ hasText: 'Save recipe' })).toHaveCSS('box-shadow', saveShadow)
+  await turn.waitFor({ state: 'detached' })
   await page.getByRole('button', { name: 'Add cooking step' }).click()
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')
   await page.getByRole('button', { name: 'Add cooking step' }).click()

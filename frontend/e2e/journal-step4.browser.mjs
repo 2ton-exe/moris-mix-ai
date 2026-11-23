@@ -356,8 +356,8 @@ try {
     const interactiveCopies = copies.flatMap((node) => [...node.querySelectorAll('a,button,input,textarea,select,[tabindex]')])
     const copiesAreInert = interactiveCopies.every((element) => {
       const tag = element.tagName
-      const nativeControl = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
-      return element.tabIndex === -1 && (!nativeControl || element.disabled) && (tag !== 'A' || !element.hasAttribute('href'))
+      const nativeControl = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
+      return element.tabIndex === -1 && (!nativeControl || element.disabled) && (tag !== 'BUTTON' || element.type === 'button') && (tag !== 'A' || !element.hasAttribute('href'))
     })
     const duplicateIds = [...globalThis.document.querySelectorAll('[id]')].map((node) => node.id).filter((id, index, all) => all.indexOf(id) !== index)
     return { copies: copies.length, interactiveCopies: interactiveCopies.length, copiesAreInert, duplicateIds, focusedInSnapshot: !!globalThis.document.activeElement?.closest('.mm-page-turn-layer') }

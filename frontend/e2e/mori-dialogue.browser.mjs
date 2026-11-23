@@ -383,11 +383,6 @@ async function assertShortcutTravel(recording, tabName, { checkSteps = false, ch
   }
 }
 
-async function expandMoriChat(panel) {
-  const toggle = panel.getByRole('button', { name: 'Chat with Mori' })
-  if (await toggle.count()) await toggle.click()
-}
-
 try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
@@ -401,13 +396,35 @@ try {
     await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
     await page.getByRole('button', { name: 'Talk to Mori' }).click()
     const chat = page.getByRole('region', { name: 'Mori', exact: true })
-    await expandMoriChat(chat)
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
     const editor = chat.getByRole('button', { name: 'Open recipe editor' })
     const tap = page.locator('.mori-navigation-tap')
 
     const character = page.getByRole('group', { name: 'Mori companion' })
     const desktop = width === 1440
+    const resize = page.getByRole('button', { name: 'Resize Mori chat' })
+    if (desktop) {
+      const initial = await chat.boundingBox()
+      const grip = await resize.boundingBox()
+      const growsLeft = grip.x < initial.x + initial.width / 2
+      await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(grip.x + grip.width / 2 + (growsLeft ? 60 : -60), grip.y + grip.height / 2 + 64, { steps: 4 })
+      await page.mouse.up()
+      const smaller = await chat.boundingBox()
+      assert.ok(smaller.width < initial.width && smaller.height < initial.height, 'Dragging resizes both dimensions')
+      await resize.focus()
+      await resize.press(growsLeft ? 'ArrowLeft' : 'ArrowRight')
+      assert.ok((await chat.boundingBox()).width > smaller.width, 'The keyboard can widen the chat')
+      await resize.click()
+      assert.ok((await chat.boundingBox()).width <= smaller.width, 'Clicking the grip selects the small preset')
+      await resize.press('Enter')
+      const restored = await chat.boundingBox()
+      assert.equal(restored.width, initial.width, 'Activating the grip again restores the standard width')
+      assert.equal(restored.height, initial.height, 'Activating the grip again restores the standard height')
+    } else {
+      await expect(resize).toHaveCount(0)
+    }
     const editorTravel = desktop ? await recordShortcutTravel(page, 'New recipe', { moveTab: true }) : null
     await editor.focus()
     await page.keyboard.press('Enter')
@@ -623,7 +640,6 @@ try {
     const chefTrigger = chefApp.page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
-    await expandMoriChat(chefPanel)
     await expect(chefPanel.locator('.mori-chat-task')).toHaveText('How can I help?')
     await chefPanel.getByRole('button', { name: 'Open cooking notes' }).click()
     await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
@@ -673,7 +689,6 @@ try {
   await quickApp.page.goto(`${origin}app/quick-entry`)
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
-  await expandMoriChat(quickPanel)
   await quickPanel.getByText('Suggested prompts', { exact: true }).click()
   await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
   await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
@@ -823,7 +838,6 @@ try {
   await searchApp.page.goto(`${origin}app/recipes`)
   await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const searchPanel = searchApp.page.getByRole('region', { name: 'Mori', exact: true })
-  await expandMoriChat(searchPanel)
   async function searchChat(prompt) {
     await searchPanel.getByRole('textbox', { name: 'Message Mori' }).fill(prompt)
     await searchPanel.getByRole('button', { name: 'Send', exact: true }).click()
@@ -872,7 +886,6 @@ try {
   await searchApp.page.getByRole('link', { name: 'Back to recipes', exact: true }).click()
   await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
   await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
-  await expandMoriChat(searchPanel)
   releaseAdobo()
   await expect(searchPanel.getByRole('group', { name: 'Matching saved recipes' }).getByRole('button', { name: /Adobo/ })).toHaveCount(2)
   await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
