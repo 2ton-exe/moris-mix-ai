@@ -49,7 +49,9 @@ test('a signed-in cook creates, edits, rates, and deletes a saved recipe', async
   await test.step('edit and rate the persisted recipe', async () => {
     await page.getByRole('link', { name: 'Edit recipe' }).click()
     await page.getByLabel('Recipe title').fill(updatedTitle)
-    await page.getByRole('group', { name: 'Rating', exact: true }).getByRole('radio', { name: '4 stars' }).press('Space')
+    const fourStars = page.getByRole('radio', { name: '4 stars', exact: true })
+    await page.getByRole('group', { name: 'Rating', exact: true }).locator('label').filter({ has: fourStars }).click()
+    await expect(fourStars).toBeChecked()
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
 
