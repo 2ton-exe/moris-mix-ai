@@ -38,6 +38,15 @@
         ],
         "createdAt": "2026-11-18T20:03:01.697Z",
         "reason": "Agent: Existing paper-journal UI uses token-colored rails to distinguish request/storage errors, recipe context, and lineage recovery state."
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "frontend/src/journal/page-compositions.css"
+        ],
+        "createdAt": "2026-11-23T03:21:13.225Z",
+        "reason": "Agent reviewed: line 21 is an intentional decorative title swash, not a rounded card; it predates this session (154422cf)."
       }
     ]
   },
