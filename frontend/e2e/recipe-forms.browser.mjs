@@ -192,9 +192,22 @@ try {
   assert.equal(await page.getByRole('form', { name: 'Create recipe' }).count(), 1)
   assert.equal(await page.locator('[id]').evaluateAll((nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length), true, 'Form controls must not duplicate IDs')
   assert.equal(await page.locator('.mm-writing-leaf').count(), 2, 'Desktop shows coordinated facing pages')
+  const createEditorStyle = await page.getByRole('heading', { name: 'New recipe' }).evaluate((heading) => {
+    const title = globalThis.document.querySelector('textarea[name="title"]')
+    const save = globalThis.document.querySelector('.recipe-form-actions .button-primary')
+    return {
+      heading: [globalThis.getComputedStyle(heading).fontFamily, globalThis.getComputedStyle(heading).fontSize],
+      title: [globalThis.getComputedStyle(title).borderRadius, globalThis.getComputedStyle(title).backgroundColor],
+      saveHeight: globalThis.getComputedStyle(save).height,
+    }
+  })
+  for (const name of ['Clear rating', 'Expand notes']) {
+    const target = await page.getByRole('button', { name }).boundingBox()
+    assert.ok(target && target.width >= 44 && target.height >= 44, `${name} must have a visible 44px target`)
+  }
   await page.screenshot({ path: path.join(outputDir, 'create-form-1440.png'), fullPage: true })
   await page.getByRole('button', { name: 'Save recipe' }).click()
-  await expect(page.getByRole('alert')).toContainText('Please check the highlighted fields')
+  await expect(page.getByRole('alert')).toContainText('Recipe title: Enter a recipe title.')
   await expect(page.getByLabel('Recipe title')).toHaveAttribute('aria-invalid', 'true')
   await expect(page.getByLabel('Recipe title')).toBeFocused()
   await assertJournalSemantics(page, 'create validation errors')
@@ -210,6 +223,12 @@ try {
     const topEdges = amountFieldBounds.map(({ y }) => y)
     assert.ok(Math.max(...topEdges) - Math.min(...topEdges) <= 1,
       `Ingredient amount inputs must align at ${width}×${height}: ${topEdges.join(', ')}`)
+    const labelGap = await page.locator('.recipe-ingredient-edit-step .recipe-ingredient-fields').evaluate((fields) => {
+      const name = fields.querySelector('.recipe-form-field:first-child input')
+      const quantityLabel = fields.querySelector('.recipe-amount-row .recipe-form-field:first-child label')
+      return quantityLabel.getBoundingClientRect().top - name.getBoundingClientRect().bottom
+    })
+    assert.ok(labelGap >= 8, `Ingredient labels must clear the name focus ring at ${width}×${height}: ${labelGap}px`)
     await page.getByRole('button', { name: 'Done' }).click({ trial: true })
     const leaves = await page.locator('.mm-writing-leaf').evaluateAll((pages) =>
       pages.map((leaf) => ({ client: leaf.clientHeight, scroll: leaf.scrollHeight })))
@@ -403,6 +422,28 @@ try {
   await expect(page).toHaveURL(editUrl(initialRecipe.id))
   await expect(page.getByLabel('Recipe title')).toHaveValue(initialRecipe.title)
   await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue(initialRecipe.notes)
+  const editEditorStyle = await page.getByRole('heading', { name: 'Edit recipe', exact: true }).evaluate((heading) => {
+    const title = globalThis.document.querySelector('textarea[name="title"]')
+    const save = globalThis.document.querySelector('.recipe-form-actions .button-primary')
+    return {
+      heading: [globalThis.getComputedStyle(heading).fontFamily, globalThis.getComputedStyle(heading).fontSize],
+      title: [globalThis.getComputedStyle(title).borderRadius, globalThis.getComputedStyle(title).backgroundColor],
+      saveHeight: globalThis.getComputedStyle(save).height,
+    }
+  })
+  assert.deepEqual(editEditorStyle, createEditorStyle, 'Create and edit share their heading, title field, and action styles')
+  const editRating = page.getByRole('group', { name: 'Rating', exact: true })
+  await expect(editRating).toBeVisible()
+  for (const name of ['Clear rating', 'Expand notes']) {
+    const target = await page.getByRole('button', { name }).boundingBox()
+    assert.ok(target && target.width >= 44 && target.height >= 44, `Edit ${name} must have a visible 44px target`)
+  }
+  await expect(page.locator('.mm-scrapbook-form__tape')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Expand notes' }).click()
+  const notesDialog = page.getByRole('dialog', { name: 'Notes' })
+  await expect(notesDialog).toBeVisible()
+  await expect(notesDialog.getByRole('textbox', { name: 'Full notes' })).toBeVisible()
+  await notesDialog.getByRole('button', { name: 'Done' }).click()
   await page.getByLabel('Recipe title').fill('A favorite revisited')
   saveFailures = 1
   await page.getByRole('button', { name: 'Save changes' }).click()

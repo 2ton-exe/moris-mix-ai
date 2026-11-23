@@ -7,9 +7,9 @@
 .mm-ai-chef__heading h1 { margin: 4px 0 8px; color: var(--mm-color-burgundy-900); font: 600 clamp(25px, 3vw, 34px)/1.12 var(--mm-font-serif); overflow-wrap: anywhere; }
 .mm-ai-chef__heading h1:focus { outline: 2px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
 .mm-ai-chef__paper { width: 100%; min-width: 0; padding: clamp(16px, 2.5vw, 24px); border: 1px solid var(--mm-color-parchment-400); border-radius: var(--mm-radius-card); box-shadow: var(--mm-shadow-paper); }
-.mm-ai-chef__form, .mm-ai-chef__form fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; }
-.mm-ai-chef__form fieldset { padding: 0; border: 0; }
-.mm-ai-chef__form legend { margin: 0 0 3px; color: var(--mm-color-burgundy-900); font: 600 20px/1.25 var(--mm-font-serif); }
+.mm-ai-chef__form, .mm-ai-chef__form fieldset, .mm-ai-chef__entry fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; }
+.mm-ai-chef__form fieldset, .mm-ai-chef__entry fieldset { padding: 0; border: 0; }
+.mm-ai-chef__form legend, .mm-ai-chef__entry legend { margin: 0 0 3px; color: var(--mm-color-burgundy-900); font: 600 20px/1.25 var(--mm-font-serif); }
 .mm-ai-chef__help { margin: -8px 0 0; color: var(--mm-color-ink-soft); font: 13px/1.55 var(--mm-font-sans); overflow-wrap: anywhere; }
 .mm-ai-chef__ingredient-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-width: 0; }
 .mm-ai-chef__ingredient-entry input { flex: 1 1 12rem; }
@@ -562,7 +562,7 @@
 [data-pantry-board] .mm-ai-chef__card-grid > li {
   grid-template-columns: clamp(23px, 2.6vw, 38px) minmax(0, 1fr);
   gap: 2px 6px;
-  min-block-size: 59px;
+  min-block-size: 70px;
   padding: 4px 6px;
   border-color: #b5937d55;
   box-shadow: 1px 2px 3px rgb(66 35 28 / .2);
@@ -676,4 +676,78 @@
   .mm-ai-chef__journey--scrapbook li { font-size: 12px; overflow-wrap: normal; }
   .mm-ai-chef__journey--scrapbook li + li::before { width: 8px; }
   .mm-ai-chef__journey--scrapbook .mm-ai-chef__journey-mark { flex-basis: 20px; width: 20px; height: 20px; }
+}
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-desk .mm-journal-flyleaf:has(.mm-facing-content--ai-chef-task) { align-items: stretch; justify-content: stretch; }
+  .mm-facing-content--ai-chef-task {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: start;
+    justify-items: center;
+    gap: 10px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 8px 4px;
+  }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__journey { flex: none; width: min(100%, 470px); padding-bottom: 22px; }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__entry-panel {
+    display: grid;
+    align-content: start;
+    box-sizing: border-box;
+    width: min(100%, 470px);
+    min-width: 0;
+    padding: 13px 15px;
+    border: 1px solid var(--mm-color-parchment-400);
+    border-radius: 12px;
+    background: var(--mm-color-fresh) var(--mm-tex-grain);
+    box-shadow: var(--mm-shadow-paper);
+  }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__entry { margin: 0; }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__entry fieldset { gap: 9px; }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__entry .mm-ai-chef__help { margin: 0; }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__entry .mm-ai-chef__storage-warning { margin-bottom: 8px; }
+  .mm-facing-content--ai-chef-task .mm-ai-chef__try button { min-block-size: 44px; }
+}
+
+.mm-ai-chef__views button { min-block-size: 44px; min-inline-size: 44px; }
+.mm-ai-chef__review-next.mm-page-column { height: auto; flex: none; }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-desk--writing .mm-facing-content--ai-chef-recovery {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    width: 100%;
+    min-height: 100%;
+    padding: 12px;
+  }
+  .mm-ai-chef__review-recovery {
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    width: min(100%, 470px);
+    padding: clamp(24px, 3vw, 36px);
+    border: 1px solid var(--mm-color-parchment-400);
+    border-radius: var(--mm-radius-card);
+    background: var(--mm-color-fresh) var(--mm-tex-grain);
+    box-shadow: var(--mm-shadow-paper);
+    text-align: center;
+  }
+  .mm-ai-chef__recovery-sticker { width: 82px; }
+  .mm-ai-chef__review-recovery .mm-recipe-editor-heading { margin: 0; }
+  .mm-ai-chef__review-recovery h1 { margin: 0; color: var(--mm-color-burgundy-900); font: 600 clamp(28px, 2.5vw, 36px)/1.1 var(--mm-font-serif); text-wrap: balance; }
+  .mm-ai-chef__review-recovery .intro { max-width: 50ch; margin: 10px auto 0; color: var(--mm-color-ink-soft); font: 15px/1.6 var(--mm-font-sans); }
+  .mm-ai-chef__review-next.mm-page-column {
+    flex: 1;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 24px;
+    text-align: center;
+  }
+  .mm-ai-chef__review-next h2 { margin: 0; color: var(--mm-color-burgundy-900); font: 600 23px/1.2 var(--mm-font-serif); }
+  .mm-ai-chef__recovery-actions { display: grid; width: min(100%, 280px); gap: 10px; }
+  .mm-ai-chef__recovery-actions .button { min-block-size: 44px; }
 }

@@ -116,6 +116,27 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-create.png`), fullPage: true })
     await assertNoOverflow(page, 'Recipe form', width)
     if (phase === 'after') await assertPaperControls(page, `${width}px recipe form`)
+    if (phase === 'after' && width === 1440) {
+      for (const [route, heading, name] of [
+        ['app/quick-entry', 'Quick AI Entry', 'quick-entry'],
+        ['app/chef', 'What’s in your pantry?', 'chef'],
+        ['home', 'Good meals deserve a page.', 'home'],
+        ['about', 'A place for the meals that become yours.', 'about'],
+      ]) {
+        await page.goto(`${origin}${route}`)
+        await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible()
+        await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), fullPage: true })
+        await assertNoOverflow(page, name, width)
+        if (name === 'quick-entry') {
+          const contained = await page.locator('.mm-quick-ai__support').evaluate((node) => {
+            const content = node.getBoundingClientRect()
+            const paper = node.closest('.mm-journal-flyleaf').getBoundingClientRect()
+            return content.left >= paper.left && content.right <= paper.right && content.top >= paper.top && content.bottom <= paper.bottom
+          })
+          assert.ok(contained, 'Quick AI support stays inside the facing paper')
+        }
+      }
+    }
     await page.evaluate(() => {
       globalThis.localStorage.clear()
       globalThis.localStorage.setItem('visual-logged-out', 'true')

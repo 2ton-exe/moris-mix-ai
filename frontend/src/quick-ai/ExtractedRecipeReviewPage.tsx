@@ -6,6 +6,8 @@ import { useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
+import { PaperCard } from '../journal/Scrapbook'
+import { useJournalMedia } from '../journal/useJournalMedia'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
@@ -230,14 +232,15 @@ function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<
 }
 
 function ReviewUnavailable({ userEmail, state, storageStatus, message }: { userEmail?: string; state: { journalReturn: string }; storageStatus: QuickAiDraftReadStatus; message?: string }) {
+  const desktopSpread = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const storageMessage = storageStatus === 'unavailable'
     ? 'Your browser could not access session storage, so this extraction could not be restored. Return to Quick AI Entry and keep your notes open while you work.'
     : storageStatus === 'read-failed'
       ? 'Your browser could not read the saved session draft. Return to Quick AI Entry and recover or re-enter your source notes before leaving.'
       : undefined
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{userEmail}</span></div>} pageClassName="mm-journal-editor">
-    <JournalFacingPage className="mm-facing-content--editor">
-      <nav className="mm-recipe-detail__back" aria-label="Sheet navigation"><Link to="/app/quick-entry" state={state}>← Back to Mori notes</Link></nav>
+    <JournalFacingPage className={`mm-facing-content--editor${desktopSpread ? ' mm-facing-content--quick-ai-recovery' : ''}`}>
+      {!desktopSpread && <nav className="mm-recipe-detail__back" aria-label="Sheet navigation"><Link to="/app/quick-entry" state={state}>← Back to Mori notes</Link></nav>}
       <header className="mm-recipe-editor-heading">
         <div>
           <p className="mm-recipe-index__eyebrow">AI recipe preview</p>
@@ -245,8 +248,21 @@ function ReviewUnavailable({ userEmail, state, storageStatus, message }: { userE
           <p className="intro">{message ?? (storageMessage ? 'This extraction could not be restored from this browser session.' : 'This unsaved extraction is missing or could not be prepared. Return to Quick AI Entry to restore your notes or organize them again.')}</p>
         </div>
       </header>
-      {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
-      <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
+      {!desktopSpread && <>
+        {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
+        <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
+      </>}
     </JournalFacingPage>
+    {desktopSpread && <section className="mm-quick-ai__recovery-actions mm-page-column" aria-labelledby="quick-ai-recovery-actions-title">
+      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__recovery-card">
+        <h2 id="quick-ai-recovery-actions-title">Return to your notes</h2>
+        <p>Check your source notes or enter them again. Mori’s recipe drafts stay unsaved until you review them and choose Save.</p>
+        {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
+        <div className="mm-quick-ai__recovery-links">
+          <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
+          <Link className="button button-secondary" to={state.journalReturn}>Return to journal</Link>
+        </div>
+      </PaperCard>
+    </section>}
   </JournalShell>
 }

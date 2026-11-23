@@ -99,11 +99,12 @@ export default function RecipeDashboardPage() {
   const anchored = new URLSearchParams(displayParams)
   const entry = Number(displayParams.get('entry'))
   const hasAnchor = !(turnSearch !== null && !indexView && displayParams.has('leaf')) && displayParams.has('entry') && Number.isSafeInteger(entry) && entry >= 0
+  const collectionSpread = !indexView && !single
   if (hasAnchor) anchored.set('leaf', String(pagedCollection
-    ? Math.max(1, collectionStarts.filter((start) => start <= entry).length)
-    : Math.floor(entry / perPage) + 1))
-  const leaf = journalPage(anchored, pagedCollection ? collectionStarts.length : recipes?.length ?? 0, {
-    hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : perPage,
+    ? Math.max(1, collectionStarts.filter((start) => start <= entry).length - 1)
+    : Math.floor(entry / (collectionSpread ? perPage * 2 : perPage)) + 1))
+  const leaf = journalPage(anchored, pagedCollection ? Math.ceil(collectionStarts.length / 2) : recipes?.length ?? 0, {
+    hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : collectionSpread ? perPage * 2 : perPage,
   })
   const spread = Math.floor(leaf / 2)
   const pages = single ? [leaf] : spread === 0 ? [0, 1] : [spread * 2, spread * 2 + 1]
@@ -112,9 +113,12 @@ export default function RecipeDashboardPage() {
   const catalogStart = catalogStarts[catalogPage] ?? 0
   const nextCatalogStart = catalogStarts[catalogPage + 1]
   const previousCatalogStart = catalogStarts[catalogPage - 1]
-  const collectionNeeded = collectionStarts[rightPage] ?? (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
-  const needed = hasAnchor ? Math.max(entry + 1, pagedCollection ? collectionNeeded : 0)
-    : pagedCollection ? collectionNeeded : rightPage * perPage
+  const collectionNeeded = pagedCollection
+    ? collectionStarts[rightPage + 1] ?? (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
+    : (recipes?.length ?? 0) + (query.hasNextPage || query.isPending ? 1 : 0)
+  const spreadNeeded = collectionSpread ? (rightPage + 1) * perPage : rightPage * perPage
+  const needed = hasAnchor ? Math.max(entry + 1, pagedCollection ? collectionNeeded : collectionSpread ? spreadNeeded : 0)
+    : pagedCollection ? collectionNeeded : spreadNeeded
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
   const explicitView = params.get('view')
@@ -134,7 +138,7 @@ export default function RecipeDashboardPage() {
     const next = new URLSearchParams(params)
     if (pagedIndex || pagedCollection) next.delete('leaf')
     else next.set('leaf', String(page))
-    next.set('entry', String(pagedIndex ? page : pagedCollection ? collectionStarts[page - 1] ?? recipes?.length ?? 0 : (page - 1) * perPage))
+    next.set('entry', String(pagedIndex ? page : pagedCollection ? collectionStarts[page] ?? recipes?.length ?? 0 : collectionSpread ? page * perPage : (page - 1) * perPage))
     return `?${next}`
   }
   const latestPageSearch = useRef(pageSearch)
@@ -165,7 +169,7 @@ export default function RecipeDashboardPage() {
     if ((!indexView || hasAnchor) && recipes && recipes.length < needed && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError && !controls.waiting) void query.loadMore()
   }, [indexView, hasAnchor, recipes, needed, query, controls.waiting])
   const nextPage = pagedIndex ? nextCatalogStart
-    : pagedCollection ? collectionStarts[rightPage] !== undefined || query.hasNextPage ? rightPage + 1 : undefined
+    : pagedCollection ? collectionStarts[rightPage + 1] !== undefined || query.hasNextPage ? rightPage + 1 : undefined
     : (recipes?.length ?? 0) > needed || query.hasNextPage ? single ? leaf + 1 : rightPage + 1 : undefined
   const previousPage = pagedIndex ? previousCatalogStart
     : pagedCollection ? spread > 0 ? pages[0] - 1 : undefined

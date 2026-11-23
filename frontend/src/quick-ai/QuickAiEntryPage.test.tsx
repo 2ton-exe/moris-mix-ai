@@ -106,6 +106,29 @@ afterEach(() => {
 })
 
 describe('Quick AI Entry', () => {
+  it('keeps the existing single-page layout outside a desktop spread', () => {
+    renderEntry()
+
+    expect(notesField().closest('.mm-journal-page')).toBeTruthy()
+    expect(document.querySelector('.mm-journal-flyleaf .mm-quick-ai__journey')).toBeNull()
+  })
+
+  it('puts the notes task and its guidance on the matching leaves of a desktop spread', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 1100px) and (min-height: 640px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+    renderEntry()
+
+    const notesTask = document.querySelector('.mm-journal-page .mm-quick-ai')
+    const guidance = document.querySelector('.mm-journal-flyleaf .mm-quick-ai__journey')
+    expect(notesTask?.querySelector('h1')?.textContent).toBe('Quick AI Entry')
+    expect(notesTask?.querySelector('form')).toBeTruthy()
+    expect(guidance?.textContent).toContain('Review the draft and make any changes.')
+    expect(screen.getByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
+  })
+
   it('focuses and highlights the notes field when Mori sends the cook there', async () => {
     const { router } = renderEntry()
     await act(() => router.navigate('/app/quick-entry', { state: { moriFocus: 'notes' } }))

@@ -42,7 +42,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 0;
-  width: min(1000px, 100%);
+  width: min(1100px, 100%);
   min-height: calc(100dvh - 138px);
   margin: 0 auto;
   padding: 38px 0 50px;
@@ -51,9 +51,9 @@
 .mm-auth-card {
   position: relative;
   width: 100%;
-  max-width: 450px;
+  max-width: 520px;
   margin: 0 auto;
-  padding: 22px 28px 26px;
+  padding: 26px 34px 30px;
   border: 1px solid rgb(120 90 50 / .16);
   border-radius: var(--mm-radius-card);
   background-color: var(--mm-color-parchment-50);
@@ -67,15 +67,15 @@
 .mm-auth-card__heading-copy { flex: 1 1 auto; min-width: 0; }
 .mm-auth-card__heading > svg { display: block; flex: 0 0 auto; width: 62px; height: auto; margin: -10px -6px 0 0; overflow: visible; }
 .mm-auth-card__eyebrow { margin: 0 0 7px; color: var(--mm-color-burgundy-700); font: 700 11px/1.4 var(--mm-font-sans); letter-spacing: .16em; text-transform: uppercase; }
-.mm-auth-card h1 { margin: 0; color: var(--mm-color-ink); font: 600 clamp(25px, 4cqi, 31px)/1.05 var(--mm-font-serif); letter-spacing: -.025em; overflow-wrap: anywhere; }
-.mm-auth-card__description { margin-top: 12px; color: var(--mm-color-ink-soft); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.mm-auth-card h1 { margin: 0; color: var(--mm-color-ink); font: 600 clamp(28px, 3cqi, 36px)/1.08 var(--mm-font-serif); letter-spacing: -.025em; overflow-wrap: anywhere; }
+.mm-auth-card__description { margin-top: 12px; color: var(--mm-color-ink-soft); font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
 .mm-auth-card__description :where(p) { margin: 0; }
 .mm-auth-card__content { min-width: 0; padding-top: 20px; }
 .mm-auth-card .auth-form { display: grid; gap: 16px; width: 100%; margin: 0; }
 .mm-auth-card .auth-form fieldset { display: grid; gap: 16px; min-width: 0; }
 .mm-auth-card .auth-field { min-width: 0; margin: 0; }
 .mm-auth-card .auth-field label { margin-bottom: 6px; color: var(--mm-color-ink-soft); font: 700 11.5px/1.2 var(--mm-font-sans); letter-spacing: .12em; text-transform: uppercase; }
-.mm-auth-card .field-hint { color: var(--mm-color-ink-soft); }
+.mm-auth-card .field-hint { color: var(--mm-color-ink-soft); font-size: 15px; line-height: 1.55; }
 .mm-auth-card .input-row { position: relative; display: flex; align-items: center; min-width: 0; }
 .mm-auth-card .auth-field input {
   width: 100%;
@@ -115,14 +115,14 @@
 .mm-auth-card .button-secondary { justify-content: center; max-width: 100%; }
 .mm-auth-card .request-state { overflow-wrap: anywhere; }
 .mm-auth-card .request-error { color: var(--mm-color-ink); background: var(--mm-color-fresh) var(--mm-tex-grain); border-color: var(--mm-color-parchment-400); }
-.mm-auth-card .auth-links { margin: 14px 0 0; color: var(--mm-color-ink-soft); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.mm-auth-card .auth-links { margin: 14px 0 0; color: var(--mm-color-ink-soft); font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
 .mm-auth-card .auth-links a,
 .mm-auth-card .mm-auth-inline-link,
 .mm-auth-card__footer a { color: var(--mm-color-burgundy-800); font-weight: 700; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .mm-auth-card .actions { justify-content: center; margin-top: 18px; }
 .mm-auth-card .mm-auth-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; margin-top: 16px; }
 .mm-auth-card .mm-auth-links > p { margin: 0; }
-.mm-auth-card__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--mm-color-parchment-500); color: var(--mm-color-ink-soft); font-size: 14px; overflow-wrap: anywhere; }
+.mm-auth-card__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--mm-color-parchment-500); color: var(--mm-color-ink-soft); font-size: 15px; overflow-wrap: anywhere; }
 .mm-auth-card__footer .mm-stamp { flex: 0 0 auto; font-size: 10px; }
 .mm-auth-card__footer p { margin: 0; }
 .mm-auth-cover {

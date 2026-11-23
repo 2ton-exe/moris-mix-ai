@@ -166,6 +166,44 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
   })
 
+  it('uses both desktop leaves for pantry entry and review, while keeping view controls operable', () => {
+    const currentMatchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+      const media = currentMatchMedia(query)
+      Object.defineProperty(media, 'matches', {
+        configurable: true,
+        value: query.includes('(min-width: 1024px)') || query.includes('(min-width: 1100px)') || query.includes('prefers-reduced-motion'),
+      })
+      return media
+    })
+    renderChef()
+
+    const leftLeaf = document.querySelector('.mm-facing-content--ai-chef-task')
+    expect(leftLeaf).toBeTruthy()
+    expect(within(leftLeaf as HTMLElement).getByRole('form', { name: 'Pantry ingredients' })).toBeTruthy()
+    const pantryInput = within(leftLeaf as HTMLElement).getByRole('textbox', { name: 'Pantry ingredient' })
+    const rightLeaf = screen.getByRole('region', { name: /AI Chef page 1/ })
+    expect(within(rightLeaf).getByRole('region', { name: 'Pantry list, 0 items' })).toBeTruthy()
+    expect(within(rightLeaf).queryByRole('textbox', { name: 'Pantry ingredient' })).toBeNull()
+
+    fireEvent.change(pantryInput, { target: { value: 'rice' } })
+    fireEvent.keyDown(pantryInput, { key: 'Enter' })
+    expect(within(rightLeaf).getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('rice')
+    fireEvent.click(within(rightLeaf).getByRole('button', { name: 'List view' }))
+    expect(within(rightLeaf).getByRole('button', { name: 'List view' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('gives an empty chef review clear return routes', async () => {
+    const { router } = renderChef()
+    await act(() => router.navigate('/app/chef/review'))
+
+    expect(await screen.findByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
+    const actions = screen.getByRole('navigation', { name: 'AI Chef recovery' })
+    expect(within(actions).getByRole('link', { name: 'Back to AI Chef' }).getAttribute('href')).toBe('/app/chef')
+    expect(within(actions).getByRole('link', { name: 'My recipes' }).getAttribute('href')).toBe('/app/recipes')
+    expect(screen.getByText('Choose where to go next')).toBeTruthy()
+  })
+
   it('uses the shared page-aware companion and keeps recipe generation structured', () => {
     renderChef()
 

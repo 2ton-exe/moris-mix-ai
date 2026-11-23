@@ -69,6 +69,13 @@ it('keeps the identity visible while measured page boundaries are prepared', () 
   expect(live().queryByText(/Scroll this paper/)).toBeNull()
 })
 
+it('keeps missing-step repair links out of non-editable reading', () => {
+  measured.pages = [['instructions-empty']]
+  render(<MemoryRouter initialEntries={['/demo-recipe?read=instructions-empty']}><RouteView data={{ ...recipe, instructions: [] }} /></MemoryRouter>)
+  expect(live().getByText('No cooking steps listed.')).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Add cooking steps' })).toBeNull()
+})
+
 it('restores an exact content anchor without matching a longer entry prefix', () => {
   measured.pages = [['ingredient-10-part-1'], ['ingredient-1']]
   render(<MemoryRouter initialEntries={['/app/recipes/reading-test?read=ingredient-1']}><RouteView /></MemoryRouter>)

@@ -1,10 +1,11 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
-import { useLocation, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalReadingTurns } from '../journal/JournalReadingTurns'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperClip, Tape } from '../journal/Scrapbook'
+import { journalReturnTo } from '../journal/indexNavigation'
 import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import { RecipeIdentity } from './RecipeIdentity'
 import { RecipeMetadata } from './RecipeCard'
@@ -15,7 +16,7 @@ import type { RecipeDetail } from './types'
 
 interface ReadingUnit { id: string; section: string; heading: string; count?: string; content: ReactNode }
 
-function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: number): ReadingUnit[] {
+function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: number, editable: boolean, journalReturn: string): ReadingUnit[] {
   const units: ReadingUnit[] = recipe.ingredients.map((ingredient, index) => {
     const amount = ingredient.quantityText ?? [ingredient.quantity, ingredient.unit].filter((part) => part !== null).join(' ')
     const text = amount ? `${amount} ${ingredient.name}` : ingredient.name
@@ -29,7 +30,7 @@ function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: n
     id: part ? `instruction-${index}-part-${part}` : `instruction-${index}`, section: 'method', heading: methodHeading,
     content: <ol start={instruction.step}><li value={instruction.step}><span className="mm-step-number" aria-hidden="true">{instruction.step}</span><p>{part > 0 && <span className="visually-hidden">Step {instruction.step}, continued: </span>}{text}</p></li></ol>,
   }))))
-  if (!instructions.length) units.push({ id: 'instructions-empty', section: 'method', heading: methodHeading, content: <p>No cooking steps listed.</p> })
+  if (!instructions.length) units.push({ id: 'instructions-empty', section: 'method', heading: methodHeading, content: <p>No cooking steps listed.{editable && !publicDemo && <> <Link to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Add cooking steps</Link>.</>}</p> })
   // Delimiters stay attached: concatenating note segments preserves the source.
   const paragraphs = readingParagraphs(recipe.notes ?? '')
   if (paragraphs.length) units.push(...paragraphs.flatMap((paragraph, index) => splitReadingText(paragraph, textChunkSize).map((text, part) => ({
@@ -63,17 +64,18 @@ function ReadingUnits({ units, prefix, measured = false, width }: {
 }
 
 /** Shared physical reading leaves. Backend cursors never enter this component. */
-export function RecipeReading({ recipe, titleRef, folio, back, actions, status, artwork, publicDemo = false }: {
+export function RecipeReading({ recipe, titleRef, folio, back, actions, status, artwork, publicDemo = false, editable = false }: {
   recipe: RecipeDetail; titleRef?: Ref<HTMLHeadingElement>; folio?: number
-  back: ReactNode; actions?: ReactNode; status?: ReactNode; artwork?: ReactNode; publicDemo?: boolean
+  back: ReactNode; actions?: ReactNode; status?: ReactNode; artwork?: ReactNode; publicDemo?: boolean; editable?: boolean
 }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const journalReturn = journalReturnTo(location.state)
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const contentKey = useMemo(() => JSON.stringify(recipe), [recipe])
   const { bodyRef, leftRef, bankRef, measurable, ready, textChunkSize, layout } = useReadingPagination(contentKey, single)
-  const units = useMemo(() => recipeUnits(recipe, publicDemo, textChunkSize), [recipe, publicDemo, textChunkSize])
+  const units = useMemo(() => recipeUnits(recipe, publicDemo, textChunkSize, editable, journalReturn), [recipe, publicDemo, textChunkSize, editable, journalReturn])
   const pages = layout?.pages ?? []
   const spreads = readingSpreads(pages, single)
   const anchor = new URLSearchParams(location.search).get('read') ?? 'identity'

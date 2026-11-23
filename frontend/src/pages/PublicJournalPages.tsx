@@ -17,7 +17,13 @@ function PublicPage({ title, children }: { title: string; children: ReactNode })
 export function HomePage() {
   return <PublicPage title="Good meals deserve a page.">
     <p className="intro">Keep the recipes you return to, the changes you make, and the little notes that make a meal yours.</p>
-    <div className="mm-public-note"><p className="mm-handwriting">A little inspiration.<br />A few ingredients.<br />Something worth keeping.</p></div>
+    {/* shortcut: excerpt mirrors the approved demo fixture, update it when that sample changes. */}
+    <section className="mm-public-note mm-public-preview" aria-label="Demonstration recipe excerpt">
+      <h2>Classic Tomato Scraps Pasta</h2>
+      <p>200 g spaghetti, 2 tbsp tomato paste, 2 cloves garlic, and fresh basil.</p>
+      <p><strong>First step:</strong> Boil pasta in salted water.</p>
+      <Link to="/demo-recipe">Read the demonstration recipe</Link>
+    </section>
     <div className="actions">
       <Link className="button button-primary" to="/app">Your cooking journal</Link>
       <Link className="button button-secondary" to="/demo-recipe">Demonstration recipe</Link>
@@ -29,7 +35,15 @@ export function HomePage() {
 export function AboutPage() {
   return <PublicPage title="A place for the meals that become yours.">
     <p className="intro">MORI'S MIX is your personal cooking journal. Save ingredients and steps, rate a dish, and leave a note for next time.</p>
-    <div className="mm-public-note"><p>Browse your journal a page at a time. Open a recipe on a roomy sheet when it’s time to cook or write.</p><p className="mm-handwriting">Every favorite starts somewhere.</p></div>
+    <section className="mm-public-note mm-public-workflow" aria-labelledby="public-workflow-heading">
+      <h2 id="public-workflow-heading">Keep the notes that help next time.</h2>
+      <ol>
+        <li>Save the ingredients and cooking steps.</li>
+        <li>Rate the dish and add a note about what you’d change.</li>
+        <li>Open the recipe again when you cook it next time.</li>
+      </ol>
+      <p className="mm-handwriting">Every favorite starts somewhere.</p>
+    </section>
     <div className="actions"><Link className="button button-primary" to="/app">Open your journal</Link><Link className="button button-secondary" to="/home">Back home</Link></div>
   </PublicPage>
 }

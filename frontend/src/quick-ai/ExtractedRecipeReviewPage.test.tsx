@@ -295,6 +295,21 @@ it('shows a recoverable state for a missing handoff and never renders an empty r
   expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
 })
 
+it('uses both leaves for desktop missing-draft recovery and keeps the return actions clear', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(min-width: 1100px) and (min-height: 640px)',
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }))
+  sessionStorage.clear()
+  renderReview()
+
+  expect(document.querySelector('.mm-facing-content--quick-ai-recovery')).toBeTruthy()
+  expect(document.querySelector('.mm-journal-page .mm-quick-ai__recovery-actions')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Return to journal' })).toBeTruthy()
+})
+
 it('explains when storage read failure prevents restoring the extraction', () => {
   const getItem = Storage.prototype.getItem
   vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {

@@ -1,4 +1,4 @@
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-link {
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-link {
   min-block-size: 28px;
   padding: 2px 3px;
   border: 0;
@@ -12,9 +12,9 @@
   cursor: pointer;
 }
 
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-link:hover { background-color: var(--mm-color-parchment-200); }
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-link:hover { background-color: var(--mm-color-parchment-200); }
 
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog {
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog {
   box-sizing: border-box;
   inline-size: min(34rem, calc(100% - 2rem));
   max-block-size: calc(100dvh - 2rem);
@@ -30,10 +30,10 @@
   font: .9375rem/1.5 var(--mm-font-sans);
 }
 
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog[open] { display: grid; gap: 12px; }
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog[open] { display: grid; gap: 12px; }
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
 
-:is(.mm-chef-review, .mm-new-recipe) .mm-desk--writing .mm-review-detail-dialog h2 {
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-desk--writing .mm-review-detail-dialog h2 {
   position: static;
   inline-size: auto;
   block-size: auto;
@@ -45,7 +45,7 @@
   font: 600 1.5rem/1.2 var(--mm-font-serif);
 }
 
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog textarea {
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog textarea {
   width: 100%;
   min-height: 7rem;
   padding: 8px 10px;
@@ -57,5 +57,5 @@
   resize: vertical;
 }
 
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog > .button { justify-self: end; width: auto; }
-:is(.mm-chef-review, .mm-new-recipe) .mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog > .button { justify-self: end; width: auto; }
+:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }

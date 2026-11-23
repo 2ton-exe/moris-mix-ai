@@ -50,6 +50,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const location = useLocation()
   const [preferences, setPreferences] = useState(readPreferences)
   const [open, setOpen] = useState(false)
+  const [conversationExpanded, setConversationExpanded] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
@@ -89,6 +90,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const page = companionPage(location.pathname)
   const pageGuidance = page.area === 'recipes' || page.area === 'chef' ? guidance : null
   const companionMessage = activity.kind === 'idle' ? pageGuidance?.message ?? page.message : activity.message
+  const compactChat = Boolean(userId && typeof window.matchMedia === 'function' && !singleLayout && !conversationExpanded)
 
   useEffect(() => () => stopNavigationTravel.current?.(), [])
   useEffect(() => { if (!singleLayout && !reducedMotion) preloadMoriSprites() }, [singleLayout, reducedMotion])
@@ -146,7 +148,10 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     }
   }, [location.pathname, singleLayout, size, width])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
-  useEffect(() => { if (keepOpen) setOpen(true); else setOpen(false) }, [location.pathname, keepOpen])
+  useEffect(() => {
+    if (keepOpen) setOpen(true)
+    else { setOpen(false); setConversationExpanded(false) }
+  }, [location.pathname, keepOpen])
   useEffect(() => {
     const check = () => {
       setSuspended(Boolean(document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')))
@@ -174,6 +179,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         element.dataset.moriSpatialTurn = ''
         setPageTurn(true)
         setOpen(false)
+        setConversationExpanded(false)
         return {
           screenFoot: { x: rect.left + rect.width / 2, y: rect.top + MORI_FOOT.y * MORI_ART_SCALE },
           setActorOpacity(opacity) { element.style.opacity = String(1 - opacity) },
@@ -197,6 +203,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         const turnScale = single ? .6 : 1
         setPageTurn(true)
         setOpen(false)
+        setConversationExpanded(false)
         return (frame, corner) => {
           const hand = mittAnchor(frame.armAngle)
           const target = { x: corner.x - (offset.x + (mirror ? 200 - hand.x : hand.x) * scale) * turnScale, y: corner.y - (offset.y + hand.y * scale) * turnScale }
@@ -246,15 +253,15 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const aboveSpace = actual.y - top - gap
   const placement = sideSpace >= Math.min(340, viewport.width - 16) ? side : belowSpace >= aboveSpace ? 'bottom' : 'top'
   const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : bottom - top
-  const preferredWidth = userId && viewport.width >= 1100 ? 520 : 380
-  const preferredHeight = userId && viewport.width >= 1100 ? 560 : 460
+  const preferredWidth = userId && viewport.width >= 1100 ? compactChat ? 360 : 520 : 380
+  const preferredHeight = userId && viewport.width >= 1100 ? compactChat ? 360 : 560 : 460
   const panelWidth = placement === 'left'
     ? Math.min(preferredWidth, viewport.width - 16, leftSpace)
     : placement === 'right'
       ? Math.min(preferredWidth, viewport.width - 16, rightSpace)
       : Math.min(preferredWidth, viewport.width - 16)
   const maxPanelHeight = Math.max(0, Math.min(preferredHeight, viewport.height - 16, verticalSpace))
-  const measuredPanelHeight = userId ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
+  const measuredPanelHeight = userId && !compactChat ? maxPanelHeight : Math.min(bubbleHeight, maxPanelHeight)
   const mouthY = actual.y + size * 0.67
   const panelLeft = placement === 'left'
     ? actual.x - gap - panelWidth
@@ -267,7 +274,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       ? Math.max(top, Math.min(actual.y - gap - measuredPanelHeight, bottom - measuredPanelHeight))
       : Math.max(top, Math.min(actual.y + height + gap, bottom - measuredPanelHeight))
   const availablePanelHeight = Math.max(0, Math.min(maxPanelHeight, bottom - panelTop))
-  const visiblePanelHeight = userId ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
+  const visiblePanelHeight = userId && !compactChat ? availablePanelHeight : Math.min(bubbleHeight, availablePanelHeight)
   const tailOffset = placement === 'left' || placement === 'right'
     ? Math.max(14, Math.min(visiblePanelHeight - 14, mouthY - panelTop))
     : Math.max(20, Math.min(panelWidth - 20, actual.x + width / 2 - panelLeft))
@@ -275,7 +282,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (!open) return
     const height = bubble.current?.offsetHeight ?? 0
     if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
-  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight])
+  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight, compactChat])
 
   async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
     if (document.hidden) return
@@ -339,7 +346,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     return travel.arrived
   }
 
-  function close() { setOpen(false); trigger.current?.focus() }
+  function close() { setOpen(false); setConversationExpanded(false); trigger.current?.focus() }
   function show() {
     focusAfterVisibilityChange.current = true
     setPreferences((previous) => ({ ...previous, hidden: false }))
@@ -410,11 +417,11 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       </div>
       <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>
         <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
-        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-compact={compactChat || undefined} style={{ maxHeight: availablePanelHeight }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} contextLabel={page.label} greeting={companionMessage} compact={compactChat} onToggleConversation={!singleLayout ? () => setConversationExpanded((expanded) => !expanded) : undefined} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)

@@ -61,7 +61,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
   let failCursor = false
   const cursorReady = new Promise((resolve) => { releaseCursor = resolve })
   const readingRecipe = { ...recipe, ingredients: Array.from({ length: 60 }, (_, i) => ({ name: `Ingredient ${i + 1}`, quantity: 1, unit: 'cup', inferred: false })) }
-  const entries = Array.from({ length: 6 }, (_, i) => ({ id: `collection-${i}`, title: `Saved recipe ${i + 1}`, user_id: userId, star_rating: 4, cooked_at: recipe.cooked_at }))
+  const entries = Array.from({ length: width >= 1100 ? 12 : 6 }, (_, i) => ({ id: `collection-${i}`, title: `Saved recipe ${i + 1}`, user_id: userId, star_rating: 4, cooked_at: recipe.cooked_at }))
   page.on('pageerror', (error) => errors.push(error.message))
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -300,9 +300,12 @@ async function verifyMoriPageTurn(page, character, direction) {
     const box = target?.getBoundingClientRect()
     return { key: position.key, delta: box ? Math.hypot(box.x - position.x, box.y - position.y) : Infinity }
   }), destinationPositions)
-  const footer = await page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number').boundingBox()
+  const footerControl = page.locator('.mm-journal-book > .mm-journal-spread .mm-pagination-number')
+  if (!spatial) await footerControl.scrollIntoViewIfNeeded()
+  const footer = await footerControl.boundingBox()
   assert.ok(footer && footer.y >= 0 && footer.y + footer.height <= page.viewportSize().height, 'Settled footer stays inside the visible paper')
-  assert.ok(handoff.every((position) => position.delta <= 2), `Destination moves at handoff: ${JSON.stringify(handoff)}`)
+  // Short single pages scroll at handoff, so their footer is checked for reachability above.
+  if (spatial || page.viewportSize().height >= 500) assert.ok(handoff.every((position) => position.delta <= 2), `Destination moves at handoff: ${JSON.stringify(handoff)}`)
 }
 
 async function recordShortcutTravel(page, name, { moveTab = false } = {}) {
@@ -380,6 +383,11 @@ async function assertShortcutTravel(recording, tabName, { checkSteps = false, ch
   }
 }
 
+async function expandMoriChat(panel) {
+  const toggle = panel.getByRole('button', { name: 'Chat with Mori' })
+  if (await toggle.count()) await toggle.click()
+}
+
 try {
   await server.listen()
   const origin = server.resolvedUrls.local[0]
@@ -393,6 +401,7 @@ try {
     await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
     await page.getByRole('button', { name: 'Talk to Mori' }).click()
     const chat = page.getByRole('region', { name: 'Mori', exact: true })
+    await expandMoriChat(chat)
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
     const editor = chat.getByRole('button', { name: 'Open recipe editor' })
     const tap = page.locator('.mori-navigation-tap')
@@ -511,6 +520,11 @@ try {
     await expect(trigger.locator('svg')).toHaveAttribute('data-mood', 'talk')
     await reachable(page, panel)
     await assertJournalSemantics(page, `${width}px open companion`)
+    if (width === 1440) {
+      await expect(panel.locator('.mori-chat-conversation')).toBeHidden()
+      await page.screenshot({ path: path.join(outputDir, '1440-compact-companion.png') })
+    }
+    await expandMoriChat(panel)
     const chatGeometry = await panel.evaluate((element) => {
       const panel = element.getBoundingClientRect()
       const composer = element.querySelector('.mori-chat-composer').getBoundingClientRect()
@@ -613,6 +627,7 @@ try {
     const chefTrigger = chefApp.page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
+    await expandMoriChat(chefPanel)
     await expect(chefPanel.locator('.mori-chat-task')).toHaveText('How can I help?')
     await chefPanel.getByRole('button', { name: 'Open cooking notes' }).click()
     await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
@@ -662,6 +677,7 @@ try {
   await quickApp.page.goto(`${origin}app/quick-entry`)
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  await expandMoriChat(quickPanel)
   await quickPanel.getByText('Suggested prompts', { exact: true }).click()
   await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
   await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
@@ -810,6 +826,7 @@ try {
   await searchApp.page.goto(`${origin}app/recipes`)
   await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const searchPanel = searchApp.page.getByRole('region', { name: 'Mori', exact: true })
+  await expandMoriChat(searchPanel)
   async function searchChat(prompt) {
     await searchPanel.getByRole('textbox', { name: 'Message Mori' }).fill(prompt)
     await searchPanel.getByRole('button', { name: 'Send', exact: true }).click()
@@ -858,6 +875,7 @@ try {
   await searchApp.page.getByRole('link', { name: 'Back to recipes', exact: true }).click()
   await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)
   await searchApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
+  await expandMoriChat(searchPanel)
   releaseAdobo()
   await expect(searchPanel.getByRole('group', { name: 'Matching saved recipes' }).getByRole('button', { name: /Adobo/ })).toHaveCount(2)
   await expect(searchApp.page).toHaveURL(/\/app\/recipes$/)

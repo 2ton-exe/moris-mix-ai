@@ -2,6 +2,8 @@ import { JournalPagination } from '../journal/JournalPagination'
 import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
+import { MoriEmblem } from '../journal/Mori'
+import { PaperCard } from '../journal/Scrapbook'
 import { RecipeCard, RecipeCollectionCardMeasure, RecipeIndexCardContent } from './RecipeCard'
 import { paginateReading } from './readingPagination'
 import type { RecipeSummary } from './types'
@@ -89,25 +91,31 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     </div></JournalPageFooter>
   </>
   const [left, right] = pages.length === 2 ? pages : [0, pages[0]]
+  const pageOffset = pages.length === 2 ? 1 : 0
+  const rightStart = collection ? collection.starts[right] ?? recipes?.length ?? 0 : pages.length === 2 ? right * perPage : (right - 1) * perPage
+  const showFrontMatterSpread = pages.length === 2 && left === 0 && !!recipes?.length
   const first = right === 1
   return <>
-    {left > 0 && <JournalFacingPage className="mm-facing-content--collection mm-page-column">
-      <div className="mm-collection-heading-space" style={{ height: headingHeight }} aria-hidden="true" />
-      <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>
-      <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left}`} tabIndex={0}>{entries(left)}</div>
-
+    {(left > 0 || showFrontMatterSpread) && <JournalFacingPage className="mm-facing-content--collection mm-page-column">
+      {left === 0 ? <PaperCard surface="fresh" className="mm-collection-front-matter">
+        <MoriEmblem size={30} />
+        <span className="mm-collection-front-matter__label">Cooking journal</span>
+        <span className="mm-collection-front-matter__owner">{ownerName}</span>
+      </PaperCard> : <div className="mm-collection-heading-space" style={{ height: headingHeight }} aria-hidden="true" />}
+      {left > 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
+      <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left + pageOffset}`} tabIndex={0}>{entries(left + pageOffset)}</div>
     </JournalFacingPage>}
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
       {/* Keep desktop page capacity independent of the selected spread. */}
       {first || pages.length === 2 ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
       {!first && left === 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
       <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes <span>({recipes?.length ?? 0})</span></h2>
-      <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}>
+      <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right + pageOffset}`} tabIndex={0}>
         {status}
         {recipes?.length ? <>
-          {entries(right)}
-          {hasMore && recipes.length <= (collection?.starts[right - 1] ?? (right - 1) * perPage) && <p role="status">Opening this collection page…</p>}
-          {!hasMore && recipes.length <= (collection?.starts[right - 1] ?? (right - 1) * perPage) && <Link to="/app/recipes/new" className="mm-empty-slot">+ Add a recipe</Link>}
+          {entries(right + pageOffset)}
+          {hasMore && recipes.length <= rightStart && <p role="status">Opening this collection page…</p>}
+          {!hasMore && recipes.length <= rightStart && <Link to="/app/recipes/new" className="mm-empty-slot">+ Add a recipe</Link>}
         </> : empty}
         {endOfResults}
       </div>
@@ -116,8 +124,8 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       {recipes.map((recipe, itemIndex) => <RecipeCollectionCardMeasure key={recipe.id} recipe={recipe} folio={itemIndex + 1} />)}
     </ul>}
     <JournalPageFooter><div className="mm-collection-footer">
-      <span className="visually-hidden" aria-live="polite" aria-atomic="true">{left > 0 ? `Collection pages ${left} and ${right}` : `Collection page ${right}`}</span>
-      <JournalPagination label="Collection pages" previous={previous} next={next} rightNumber={left > 0 ? `Pages ${left}–${right}` : `Page ${right}`} />
+      <span className="visually-hidden" aria-live="polite" aria-atomic="true">{left > 0 || showFrontMatterSpread ? `Collection pages ${left + pageOffset} and ${right + pageOffset}` : `Collection page ${right}`}</span>
+      <JournalPagination label="Collection pages" previous={previous} next={next} rightNumber={left > 0 || showFrontMatterSpread ? `Pages ${left + pageOffset}–${right + pageOffset}` : `Page ${right}`} />
       {pagination}
     </div></JournalPageFooter>
   </>

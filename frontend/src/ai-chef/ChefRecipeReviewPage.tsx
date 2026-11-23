@@ -606,15 +606,21 @@ function ReviewUnavailable({ userEmail, status }: { userEmail?: string; status: 
     ? 'This browser could not restore the saved preview. The recipe remains unsaved; return to AI Chef to make a new suggestion.'
     : 'There is no AI Chef recipe waiting for review. Ask Mori for a suggestion first.'
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{userEmail}</span></div>} pageClassName="mm-journal-editor">
-    <JournalFacingPage className="mm-facing-content--editor">
-      <nav className="mm-recipe-detail__back" aria-label="Sheet navigation"><Link to="/app/chef">← Back to AI Chef</Link></nav>
-      <header className="mm-recipe-editor-heading">
-        <div>
+    <JournalFacingPage className="mm-facing-content--editor mm-facing-content--ai-chef-recovery">
+      <section className="mm-ai-chef__review-recovery">
+        <ScrapbookSticker decorative className="mm-ai-chef__recovery-sticker" name="mixing-bowl" />
+        <header className="mm-recipe-editor-heading">
           <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
           <p className="intro">{storageMessage}</p>
-        </div>
-      </header>
-      <Link className="button button-primary" to="/app/chef">Open AI Chef</Link>
+        </header>
+      </section>
     </JournalFacingPage>
+    <section className="mm-ai-chef__review-next mm-page-column" aria-labelledby="ai-chef-recovery-next">
+      <h2 id="ai-chef-recovery-next">Choose where to go next</h2>
+      <nav className="mm-ai-chef__recovery-actions" aria-label="AI Chef recovery">
+        <Link className="button button-primary" to="/app/chef">Back to AI Chef</Link>
+        <Link className="button button-secondary" to="/app/recipes">My recipes</Link>
+      </nav>
+    </section>
   </JournalShell>
 }

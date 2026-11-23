@@ -34,6 +34,7 @@
 .mm-desk .mm-reading-turns .button:disabled { opacity: .5; cursor: default; }
 .mm-reading-footer:empty { display: none; }
 .mm-reading-end { color: var(--mm-color-ink-soft); font: italic 18px/1.6 var(--mm-font-serif); }
+.mm-reading-method a { color: var(--mm-color-burgundy-700); font-weight: 650; text-underline-offset: 3px; }
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-desk .mm-journal-spread:has(.mm-continuation) { display: flex; flex-direction: column; }
   .mm-desk .mm-journal-flyleaf:has(.mm-continuation-facing) { display: none; }

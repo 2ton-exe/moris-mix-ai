@@ -10,6 +10,7 @@ import { useMoriFieldFocus } from '../mori/routeState'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalPagination } from '../journal/JournalPagination'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
+import { useJournalMedia } from '../journal/useJournalMedia'
 import { PaperCard, ScrapLabel } from '../journal/Scrapbook'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { journalReturnTo } from '../journal/indexNavigation'
@@ -132,6 +133,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
   extract: ExtractRecipe
   onExtracted?: (handoff: QuickAiEntryHandoff) => void
 }) {
+  const desktopSpread = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const location = useLocation()
   const navigate = useNavigate()
@@ -448,20 +450,39 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       message="Your browser couldn't save these notes. Leaving now may lose them. Copy your notes before leaving, or choose Keep Editing."
       discardLabel={logoutPending ? 'Leaving…' : 'Leave Anyway'}
     />}
-    <JournalFacingPage className="mm-facing-content--quick-ai">
-      <header className="mm-quick-ai-intro">
-        <div>
-          <h1 tabIndex={-1}>Quick AI Entry</h1>
-          <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
-        </div>
-      </header>
-      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
-        <h2>Example cooking notes</h2>
-        <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
-      </PaperCard>
+    <JournalFacingPage className={`mm-facing-content--quick-ai${desktopSpread ? ' mm-facing-content--quick-ai-task' : ''}`}>
+      {desktopSpread ? <section className="mm-quick-ai__support" aria-labelledby="quick-ai-support-title">
+        <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__journey">
+          <h2 id="quick-ai-support-title">From notes to recipe</h2>
+          <ol className="mm-quick-ai__steps">
+            <li><span><strong>Write</strong> the ingredients and steps you remember.</span></li>
+            <li><span><strong>Review</strong> the draft and make any changes.</span></li>
+            <li><span><strong>Choose</strong> when to save it to your journal.</span></li>
+          </ol>
+        </PaperCard>
+        <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
+          <h2>Example cooking notes</h2>
+          <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
+        </PaperCard>
+      </section> : <>
+        <header className="mm-quick-ai-intro">
+          <div>
+            <h1 tabIndex={-1}>Quick AI Entry</h1>
+            <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
+          </div>
+        </header>
+        <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
+          <h2>Example cooking notes</h2>
+          <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
+        </PaperCard>
+      </>}
     </JournalFacingPage>
 
     <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes">
+      {desktopSpread && <header className="mm-quick-ai-intro mm-quick-ai-intro--task">
+        <h1 tabIndex={-1}>Quick AI Entry</h1>
+        <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
+      </header>}
       <nav className="mm-quick-ai__back" aria-label="Sheet navigation">
         <Link to={journalReturnTo(location.state)}><span aria-hidden="true">←</span> Back to journal</Link>
       </nav>

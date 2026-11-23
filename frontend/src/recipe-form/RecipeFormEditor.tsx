@@ -20,6 +20,7 @@ import { ScrapbookSticker } from '../journal/ScrapbookSticker'
 import { Tape } from '../journal/Scrapbook'
 import { ReviewDetailDialog } from './ReviewDetailDialog'
 import { IngredientEmoji } from './IngredientEmojiView'
+import './newRecipeScrapbook.css'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
@@ -66,7 +67,8 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
   const ingredientDrag = useIngredientDrag(`${single}:${compact}:${isTurning}:${pageAnchor}:${pending}`)
   const desktopReview = !single && reviewPage !== undefined
   const desktopCreate = !single && newRecipeScrapbook
-  const expandedNotes = desktopReview || (desktopCreate && notesSupported)
+  const desktopRecipeEditor = !single && desktop && !desktopReview
+  const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const leaves = useMemo(() => {
     const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, expandedNotes)
     if (supplement && desktop && !single) pages.push({ key: 'supplement', kind: 'supplement' })
@@ -289,6 +291,25 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     return Boolean(instruction && Number(instruction[1]) < state.instructions.length)
   }
 
+  function fieldLabel(path: string) {
+    if (path === 'title') return 'Recipe title'
+    if (path === 'cooked_at') return 'Cooked date'
+    if (path === 'star_rating') return 'Rating'
+    if (path === 'notes') return 'Notes'
+    const ingredient = /^ingredients\.(\d+)\.(name|quantity|unit|quantityText)$/.exec(path)
+    if (ingredient) return `Ingredient ${Number(ingredient[1]) + 1} ${ingredient[2] === 'quantityText' ? 'amount description' : ingredient[2]}`
+    const instruction = /^instructions\.(\d+)\.text$/.exec(path)
+    return instruction ? `Step ${Number(instruction[1]) + 1} description` : 'Recipe field'
+  }
+
+  function validationSummary(next: Record<string, string>) {
+    const fields = Object.entries(next).filter(([path]) => fieldPathExists(path))
+    if (!fields.length) return 'Please check the highlighted fields.'
+    const visible = fields.slice(0, 3).map(([path, error]) => `${fieldLabel(path)}: ${error}`)
+    const remaining = fields.length - visible.length
+    return `Please check ${visible.join('; ')}${remaining ? `; and ${remaining} more ${remaining === 1 ? 'field' : 'fields'}` : ''}.`
+  }
+
   function showValidationErrors(next: Record<string, string>, firstPath?: string) {
     const first = firstPath ?? Object.keys(next)[0]
     const focusInvalidField = () => {
@@ -401,7 +422,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
       }
       const first = result.error.issues.map((issue) => issue.path.join('.')).find(fieldPathExists)
       showValidationErrors(next, first)
-      setMessage('Please check the highlighted fields.')
+      setMessage(validationSummary(next))
       return
     }
     const startedAt = lifetime.current
@@ -428,8 +449,10 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
           if (fieldPathExists(issue.path)) next[issue.path] = issue.code === 'too-long' ? 'This value is too long. Please shorten it.' : issue.code === 'required' ? 'Enter a value for this field.' : 'Check this value.'
         }
         showValidationErrors(next)
+        setMessage(Object.keys(next).length ? validationSummary(next) : submissionMessage(error))
+      } else {
+        setMessage(submissionMessage(error))
       }
-      setMessage(submissionMessage(error))
     } finally {
       if (lifetime.current === startedAt) {
         submitting.current = false
@@ -511,7 +534,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
             <RecipeFormField id={field('cooked_at').id} label="Cooked date" error={errors.cooked_at}>
               <input {...field('cooked_at')} type="date" value={state.cookedDate} onChange={(event) => change({ ...state, cookedDate: event.target.value })} />
             </RecipeFormField>
-            {desktopCreate ? <RecipeStarRating
+            {desktopRecipeEditor ? <RecipeStarRating
               field={field('star_rating')}
               value={state.rating}
               error={errors.star_rating}
@@ -523,7 +546,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
             </RecipeFormField>}
           </div>
           {expandedNotes ? <div className="mm-scrapbook-form__notes">
-            <RecipeFormField id={field('notes').id} label={<><ScrapbookSticker decorative name="clipboard" />Notes</>} error={errors.notes}>
+            <RecipeFormField id={field('notes').id} label={<>{desktopCreate && <ScrapbookSticker decorative name="clipboard" />}Notes</>} error={errors.notes}>
               <textarea {...field('notes', false, 'notes:0')} data-form-page-anchor="notes:0" maxLength={20_000} rows={4} value={state.notes} onChange={(event) => changeNotes(event.target.value)} />
             </RecipeFormField>
             <ReviewDetailDialog title="Notes" action="Expand notes">
@@ -789,7 +812,7 @@ export function RecipeFormEditor({ mode, initialValues, initialEditorState, init
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>
 
-  return <form className={'recipe-form' + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (desktopCreate ? ' mm-new-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
+  return <form className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (desktopCreate ? ' mm-new-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
     onSubmit={(event) => { void submit(event) }} onKeyDown={handlePageKeys}
     onFocusCapture={(event) => {
       const target = event.target

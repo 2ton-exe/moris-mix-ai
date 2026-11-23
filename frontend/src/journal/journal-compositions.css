@@ -33,6 +33,11 @@
 .mm-public-page .actions { margin-top: 12px; gap: 12px; }
 .mm-public-note { margin: 12px 0; padding: 14px 18px; border-block: 1px dashed var(--mm-border-paper); }
 .mm-public-note p { margin: 8px 0; }
+.mm-public-note h2 { margin: 0; font-size: 21px; line-height: 1.2; }
+.mm-public-note a { display: inline-block; margin-top: 4px; color: var(--mm-color-burgundy-800); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.mm-public-workflow ol { margin: 10px 0 0; padding-inline-start: 24px; }
+.mm-public-workflow li { padding-inline-start: 4px; }
+.mm-public-workflow li + li { margin-top: 6px; }
 .mm-public-note .mm-handwriting { font: 500 24px/1.4 var(--mm-font-hand); color: var(--mm-color-burgundy-700); }
 @media (max-width: 540px) {
   .mm-public-page .actions { align-items: stretch; flex-direction: column; }

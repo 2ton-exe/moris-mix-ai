@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { ScrapbookSticker } from '../journal/ScrapbookSticker'
-import '../recipe-form/newRecipeScrapbook.css'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { useLocation, useNavigate } from 'react-router'
 import { RecipeForm } from '../recipe-form/RecipeForm'

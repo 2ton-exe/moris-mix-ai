@@ -122,7 +122,7 @@ it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }])('preserves collection re
   }
 })
 
-it('opens the collection against the inside cover, then fills both pages through server cursors', async () => {
+it('keeps the bookplate as front matter and browses both leaves through server cursors', async () => {
   const entries = Array.from({ length: 6 }, (_, i) => ({ ...previewRecipes[i % 2], id: `entry-${i}`, title: `Saved recipe ${i + 1}` }))
   const fetchPage = vi.fn().mockImplementation(({ continuation }) => Promise.resolve(continuation === null
     ? { recipes: entries.slice(0, 2), nextPage: 'opaque-next' }
@@ -131,26 +131,28 @@ it('opens the collection against the inside cover, then fills both pages through
   source.detail = vi.fn().mockImplementation((id) => Promise.resolve(entries.find((recipe) => recipe.id === id)))
   render(tree('/app/recipes'))
   const first = await screen.findByRole('link', { name: 'Open recipe Saved recipe 1' })
-  expect(first.closest('.mm-journal-page')).toBeTruthy()
-  expect(document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')).toHaveLength(0)
-  expect(document.querySelector('.mm-bookplate')?.textContent).toContain('This journal belongs to')
-  expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
-  fireEvent.click(screen.getByRole('link', { name: 'Next page →' }))
-  await screen.findByRole('link', { name: 'Open recipe Saved recipe 6' })
-  expect(fetchPage.mock.calls.at(-1)![0].continuation).toBe('opaque-next')
-  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes')
-  expect(document.querySelector('.mm-journal-spread')?.hasAttribute('inert')).toBe(true)
-  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
-  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-page [data-recipe-id]')).toHaveLength(2)
-  await finishPageTurn()
-  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
-  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?leaf=2&entry=2')
+  expect(first.closest('.mm-journal-flyleaf')).toBeTruthy()
+  expect(document.querySelector('.mm-collection-front-matter')?.textContent).toContain('Cooking journal')
+  await screen.findByRole('link', { name: 'Open recipe Saved recipe 3' })
+  expect(document.querySelectorAll('.mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
+  expect(document.querySelectorAll('.mm-journal-page [data-recipe-id]')).toHaveLength(2)
+  expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(2)
   const selected = screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })
   fireEvent.click(selected)
   await screen.findByRole('heading', { name: 'Saved recipe 4', level: 1 })
   fireEvent.click(screen.getByRole('link', { name: 'Back to recipes' }))
   await screen.findByRole('link', { name: 'Open recipe Saved recipe 4' })
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('link', { name: 'Open recipe Saved recipe 4' })))
+  fireEvent.click(screen.getByRole('link', { name: 'Next page →' }))
+  await screen.findByRole('link', { name: 'Open recipe Saved recipe 6' })
+  expect(fetchPage.mock.calls.at(-1)![0].continuation).toBe('opaque-next')
+  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?entry=3')
+  expect(document.querySelector('.mm-journal-spread')?.hasAttribute('inert')).toBe(true)
+  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-flyleaf [data-recipe-id]')).toHaveLength(2)
+  expect(document.querySelectorAll('.mm-journal-spread .mm-journal-page [data-recipe-id]')).toHaveLength(0)
+  await finishPageTurn()
+  await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')).toBeNull())
+  expect(screen.getByTestId('test-location').textContent).toBe('/app/recipes?entry=4&leaf=2')
   expect(fetchPage.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(2)
 })
 
@@ -244,7 +246,7 @@ it.each([
   vi.mocked(source.detail).mockResolvedValue(data as unknown as RecipeDetail)
   render(tree(`/app/recipes/${previewRecipes[0].id}`))
   expect((await screen.findByRole('alert')).textContent).toContain('Could not load this recipe')
-  expect(screen.getByRole('link', { name: /Back to recipes/ })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Browse your recipes' })).toBeTruthy()
 })
 
 it.each([401, 403])('does not retry a collection HTTP %s or show cached recipes after access is denied', async (status) => {
@@ -305,7 +307,8 @@ it('shows a detail loading state and handles missing metadata and empty content'
   await act(async () => request.resolve({ id: 'minimal', title: 'A recipe to finish later', ingredients: [], instructions: [] }))
   await screen.findByRole('heading', { name: 'A recipe to finish later' })
   expect(screen.getByText('No ingredients listed.')).toBeTruthy()
-  expect(screen.getByText('No cooking steps listed.')).toBeTruthy()
+  expect(screen.getByText(/No cooking steps listed\./)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Add cooking steps' }).getAttribute('href')).toBe('/app/recipes/minimal/edit')
   expect(screen.queryByText('Rating')).toBeNull()
   expect(screen.queryByText('Cooked')).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Flavor notes' })).toBeNull()
@@ -319,7 +322,9 @@ it.each([
   expect((await screen.findByRole('alert')).textContent).toContain(message)
   expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
   expect(document.body.textContent).not.toContain('private detail')
-  expect(screen.getByRole('link', { name: /Back to recipes/ })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Browse your recipes' }).getAttribute('href')).toBe('/app/recipes')
+  expect(screen.getByRole('link', { name: 'Create a recipe' }).getAttribute('href')).toBe('/app/recipes/new')
+  expect(screen.getByRole('navigation', { name: 'Recipe recovery' })).toBeTruthy()
 })
 
 it('recovers a failed detail request with retry', async () => {

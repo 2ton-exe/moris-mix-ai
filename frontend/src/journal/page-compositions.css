@@ -48,6 +48,10 @@
 .mm-desk .mm-recipe-empty__card { padding: 24px 16px; }
 .mm-desk .mm-recipe-empty__card h2 { font-size: 28px; }
 .mm-collection-owner { display: none; }
+.mm-desk .mm-collection-front-matter { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 2px 10px; width: min(100%, 300px); margin: 4px auto 14px; padding: 10px 14px; text-align: left; transform: rotate(-.5deg); }
+.mm-collection-front-matter > svg { grid-row: span 2; color: var(--mm-color-burgundy-700); }
+.mm-collection-front-matter__label { color: var(--mm-color-burgundy-700); font: 700 10px/1.2 var(--mm-font-sans); letter-spacing: .16em; text-transform: uppercase; }
+.mm-collection-front-matter__owner { color: var(--mm-color-ink); font: italic 600 20px/1.1 var(--mm-font-serif); overflow-wrap: anywhere; }
 .mm-desk .mm-bookplate { padding: 22px 18px 18px; border: 0; border-radius: 4px; outline: 1.5px solid rgb(98 32 49 / .55); outline-offset: -8px; background: #fbf6ea var(--mm-tex-grain); box-shadow: inset 0 0 0 11px #fbf6ea, inset 0 0 0 12px rgb(98 32 49 / .25), 0 2px 3px rgb(40 24 10 / .25), 0 8px 18px -8px rgb(40 24 10 / .4); transform: rotate(-1.2deg); }
 .mm-desk .mm-bookplate__ex-libris { margin-top: 8px; font-size: 10.5px; }
 .mm-desk .mm-bookplate p { margin: 8px 0 0; font-size: 12.5px; }
@@ -90,6 +94,10 @@
 
 /* Reading hierarchy shared with the public demonstration endpoint. */
 .mm-desk .mm-recipe-detail { height: 100%; min-height: 0; }
+.mm-recipe-recovery { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px 8px; text-align: center; }
+.mm-desk .mm-recipe-recovery h1 { max-width: 18ch; margin: 0; color: var(--mm-color-ink); font: 600 clamp(28px, 3vw, 42px)/1.08 var(--mm-font-serif); }
+.mm-recipe-recovery .request-state { width: min(100%, 480px); margin: 0; text-align: left; }
+.mm-recipe-recovery__actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .mm-desk .mm-recipe-detail__back { flex: none; margin: 0 0 14px; }
 .mm-back-clip { position: relative; display: inline-flex; }
 .mm-back-clip > .mm-paperclip { position: absolute; z-index: 1; left: 9px; top: -15px; }
