@@ -9,8 +9,12 @@ on:
 
 jobs:
   e2e-browser:
-    name: Playwright E2E (${{ inputs.browser }})
+    name: Playwright E2E (${{ inputs.browser }}, shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # WebKit installs additional system packages before the browser journeys run.
     timeout-minutes: ${{ inputs.browser == 'webkit' && 35 || 20 }}
     permissions:
@@ -70,10 +74,10 @@ jobs:
       - name: Run Playwright E2E against local Supabase
         if: steps.frontend.outputs.exists == 'true'
         working-directory: frontend
-        run: pnpm run test:e2e:local -- --browser ${{ inputs.browser }}
+        run: pnpm run test:e2e:local -- --browser ${{ inputs.browser }} --shard ${{ matrix.shard }}/3
 
       - name: Run private-image browser journey
-        if: steps.frontend.outputs.exists == 'true'
+        if: steps.frontend.outputs.exists == 'true' && matrix.shard == 1
         working-directory: frontend
         run: pnpm run test:e2e:qa04:images
         env:
@@ -83,7 +87,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fs-03-playwright-failure-artifacts-${{ inputs.browser }}
+          name: fs-03-playwright-failure-artifacts-${{ inputs.browser }}-${{ matrix.shard }}
           path: frontend/test-results/
           if-no-files-found: ignore
           retention-days: 7
