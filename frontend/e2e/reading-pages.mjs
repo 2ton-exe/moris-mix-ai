@@ -21,7 +21,8 @@ export async function readAllRecipePages(page) {
     result.push(...await page.locator('.mm-continuation-body [data-unit]').evaluateAll((nodes) => nodes.map((node) => ({
       id: node.dataset.unit,
       text: node.querySelector('.mm-unit-content').textContent,
-      listItems: node.querySelectorAll('.mm-unit-content > :is(ul, ol) > li').length,
+      ingredients: node.querySelectorAll('.mm-unit-content > ul > li').length,
+      steps: Array.from(node.querySelectorAll('.mm-unit-content > ol > li'), (item) => item.value),
     }))))
     const next = page.getByRole('button', { name: 'Next Page', exact: true })
     if (!(await next.count()) || await next.isDisabled()) return result
