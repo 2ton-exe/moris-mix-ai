@@ -77,7 +77,7 @@ jobs:
         run: pnpm run test:e2e:local -- --browser ${{ inputs.browser }} --shard ${{ matrix.shard }}/3
 
       - name: Run private-image browser journey
-        if: steps.frontend.outputs.exists == 'true' && matrix.shard == 1
+        if: steps.frontend.outputs.exists == 'true' && matrix.shard == 2
         working-directory: frontend
         run: pnpm run test:e2e:qa04:images
         env:
