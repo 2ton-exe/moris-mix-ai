@@ -102,9 +102,9 @@ export default function RecipeDashboardPage() {
   const collectionSpread = !indexView && !single
   if (hasAnchor) anchored.set('leaf', String(pagedCollection
     ? Math.max(1, collectionStarts.filter((start) => start <= entry).length - 1)
-    : Math.floor(entry / (collectionSpread ? perPage * 2 : perPage)) + 1))
-  const leaf = journalPage(anchored, pagedCollection ? Math.ceil(collectionStarts.length / 2) : recipes?.length ?? 0, {
-    hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : collectionSpread ? perPage * 2 : perPage,
+    : collectionSpread ? Math.max(1, Math.floor(entry / (perPage * 2)) * 2) : Math.floor(entry / perPage) + 1))
+  const leaf = journalPage(anchored, pagedCollection ? collectionStarts.length : recipes?.length ?? 0, {
+    hasMore: query.hasNextPage || query.isPending, perPage: pagedCollection ? 1 : perPage,
   })
   const spread = Math.floor(leaf / 2)
   const pages = single ? [leaf] : spread === 0 ? [0, 1] : [spread * 2, spread * 2 + 1]

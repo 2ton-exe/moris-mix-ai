@@ -102,10 +102,10 @@ it('reserves a card grid while loading, then renders collection metadata and det
   expect(within(other).queryByText('Rating')).toBeNull()
 })
 
-it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }])('preserves collection return parameters and entry $entry without URLSearchParams.size', async ({ leaf, entry }) => {
+it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }, { leaf: 4, entry: 8 }])('preserves collection return parameters and entry $entry without URLSearchParams.size', async ({ leaf, entry }) => {
   const size = vi.spyOn(URLSearchParams.prototype, 'size', 'get').mockReturnValue(undefined as unknown as number)
   try {
-    const entries = Array.from({ length: 6 }, (_, index) => ({ ...previewRecipes[0], id: `compat-${index}`, title: `Compatible recipe ${index + 1}` }))
+    const entries = Array.from({ length: 10 }, (_, index) => ({ ...previewRecipes[0], id: `compat-${index}`, title: `Compatible recipe ${index + 1}` }))
     vi.mocked(source.list).mockResolvedValue(entries)
     vi.mocked(source.detail).mockImplementation(async (id) => entries.find((recipe) => recipe.id === id)!)
     const search = `view=collection&leaf=${leaf}&entry=${entry}&keep=one&keep=two`
