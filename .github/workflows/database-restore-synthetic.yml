@@ -7,9 +7,16 @@ on:
       - .github/workflows/database-restore-synthetic.yml
       - .github/workflows/database-restore-stage-b.yml
       - .github/workflows/database-restore-role-diagnostic.yml
+      - scripts/owner_restore_diagnostic.py
+      - scripts/owner_restore_network_guard.py
+      - scripts/verify_restore_archive.py
       - scripts/restore_role_probe.py
       - scripts/test_restore_role_probe.py
       - scripts/test_database_restore_synthetic.sh
+      - scripts/test_database_restore_owner_reconstruction.sh
+      - scripts/test_database_restore_archive_verifier.py
+      - scripts/test_database_restore_owner_diagnostic.py
+      - scripts/test_database_restore_network_guard.py
       - scripts/test_database_restore_failure_locations.py
       - scripts/test_database_restore_data_failure.py
       - scripts/restore_data_failure.py
@@ -48,8 +55,18 @@ jobs:
 
       - name: Check synthetic shell syntax (offline)
         shell: bash
-        run: bash -n scripts/test_database_restore_synthetic.sh
+        run: |
+          bash -n scripts/test_database_restore_synthetic.sh
+          bash -n scripts/test_database_restore_owner_reconstruction.sh
 
       - name: Exercise synthetic transactional restore and rollback
         shell: bash
         run: bash scripts/test_database_restore_synthetic.sh
+
+      - name: Exercise owner diagnostic reconstruction and cleanup
+        shell: bash
+        env:
+          OWNER_RESTORE_LIVE_GUARD: "1"
+        run: |
+          command -v nft >/dev/null || sudo apt-get install -y nftables
+          timeout --kill-after=20s 3m bash scripts/test_database_restore_owner_reconstruction.sh

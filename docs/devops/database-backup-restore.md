@@ -289,3 +289,20 @@ grammar. Success and unattributed, unsupported, or ambiguous statements use
 `other-or-unknown`. The label reveals no parameter names, role identifiers,
 or SQL. It describes syntax only and leaves the required privileges and
 permission root cause unverified.
+
+## Owner-run private restore inspection (not recovery proof)
+
+Issue #280 adds a separate owner-controlled local procedure for bounded
+`data.sql` failure inspection. It replays the exact Stage B single transaction
+on one disposable PostgreSQL 17 target, then uses a separate fresh target for
+the committed pre-data reconstruction and catalog query. Before private SQL,
+it requires a second owner’s approval, provider-level ingress and egress
+denial, and verified host/container firewall probes. Follow the
+[owner restore diagnostic runbook](owner-restore-diagnostic.md) on a temporary
+isolated Linux VM. Its standard-library verifier reuses the protected
+workflow's archive identity and component-checksum checks; its local helper
+keeps the exact statement and catalog snapshot private and emits only a fixed
+investigative label. This path does not use GitHub logs or artifacts, does not
+authorize a production dispatch, and does not establish restore or production
+recovery. The host network guard uses the system `nftables` and `iproute2`
+tools; no Python or Node package is added.
