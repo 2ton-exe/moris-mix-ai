@@ -49,13 +49,18 @@ COPY_HEADER = re.compile(
     + rb")?)\s*(?:\((?P<columns>[^;]*)\))?\s+FROM\s+stdin\s*;\s*\Z",
     re.IGNORECASE,
 )
+DECIMAL_INTEGER = rb"[+-]?[0-9]+"
 ALTER_SEQUENCE = re.compile(
     rb"\s*ALTER\s+SEQUENCE\s+(?P<relation>" + IDENTIFIER
-    + rb"(?:\s*\.\s*" + IDENTIFIER + rb")?)(?:\s|;)", re.IGNORECASE,
+    + rb"\s*\.\s*" + IDENTIFIER + rb")\s+RESTART"
+    + rb"(?:\s+WITH\s+" + DECIMAL_INTEGER + rb")?\s*;\s*",
+    re.IGNORECASE,
 )
 SETVAL = re.compile(
-    rb"\s*SELECT\s+(?:(?:pg_catalog)\s*\.\s*)?setval\s*\(\s*"
-    rb"'(?P<relation>(?:[^']|'')*)'\s*,", re.IGNORECASE,
+    rb"\s*SELECT\s+pg_catalog\s*\.\s*setval\s*\(\s*"
+    rb"'(?P<relation>(?:[^'\\\r\n]|'')+)'\s*,\s*"
+    + DECIMAL_INTEGER + rb"\s*,\s*(?:true|false)\s*\)\s*;\s*",
+    re.IGNORECASE,
 )
 RESTRICT_COMMAND = re.compile(rb"\\(?:un)?restrict [A-Za-z0-9]+")
 
@@ -278,19 +283,18 @@ def _copy_candidate(statement):
 
 
 def _sequence_candidate(statement):
-    match = SETVAL.match(statement.strip())
+    match = SETVAL.fullmatch(statement)
     if match is not None:
         relation_bytes = match.group("relation").replace(b"''", b"'")
-        relation = _qualified_name(relation_bytes)
-        if relation is not None:
-            return {"kind": "sequence", "relation": relation, "columns": []}
+    else:
+        match = ALTER_SEQUENCE.fullmatch(statement)
+        if match is None:
+            return None
+        relation_bytes = match.group("relation")
+    relation = _qualified_name(relation_bytes)
+    if relation is None or relation["schema"] is None:
         return None
-    match = ALTER_SEQUENCE.match(statement)
-    if match is not None:
-        relation = _qualified_name(match.group("relation"))
-        if relation is not None:
-            return {"kind": "sequence", "relation": relation, "columns": []}
-    return None
+    return {"kind": "sequence", "relation": relation, "columns": []}
 
 
 def parse_error(stderr):
@@ -511,7 +515,7 @@ def _statement_at_error(sql, error_line):
             else:
                 statement.extend(b"\n")
         if line_number == error_line:
-            if completed_on_line > 1:
+            if completed_on_line > 1 or statement_start is not None:
                 return None
             if matching_statement is not None:
                 try:
@@ -519,8 +523,6 @@ def _statement_at_error(sql, error_line):
                 except UnicodeDecodeError:
                     return None
                 return matching_statement
-            if statement_start is not None and statement_start <= error_line:
-                return None
             if copy_candidate is not None and error_line > copy_candidate["header_end"]:
                 # The branch above handles COPY data/terminator lines.
                 return None
@@ -541,12 +543,12 @@ def _catalog_query(candidate):
         "         current_database() AS database_name,\n"
         "         (SELECT system_identifier::text FROM pg_catalog.pg_control_system()) AS system_identifier,\n"
         "         pg_catalog.to_regclass('auth.users') IS NOT NULL AS auth_users_present\n"
-        "),\n"
+        ")"
     )
     if candidate.get("kind") not in ("copy", "sequence"):
         return (
             base
-            + "SELECT pg_catalog.json_build_object(\n"
+            + "\nSELECT pg_catalog.json_build_object(\n"
             "  'server_version_num', target.server_version_num,\n"
             "  'database', target.database_name,\n"
             "  'system_identifier', target.system_identifier,\n"
@@ -560,7 +562,7 @@ def _catalog_query(candidate):
     columns = candidate.get("columns", [])
     column_sql = ", ".join(_sql_literal(column) for column in columns)
     base += (
-        "candidate AS (SELECT pg_catalog.to_regclass(" + relation + ") AS oid),\n"
+        ",\ncandidate AS (SELECT pg_catalog.to_regclass(" + relation + ") AS oid),\n"
         "object_state AS (\n"
         "  SELECT candidate.oid, relation.relkind, namespace.nspname, relation.relname,\n"
         "         ARRAY(\n"
@@ -803,15 +805,16 @@ def _classify(candidate, after):
             return "copy-stream-or-terminator"
         return "other/unknown"
 
-    if parsed.get("kind") == "sequence" and location == "statement":
-        if target.get("relation_present") is False and target.get("sequence_present") is None:
-            return "sequence"
-        if (
-            target.get("relation_present") is True
-            and target.get("sequence_present") is True
-            and target.get("relkind") == "S"
-        ):
-            return "sequence"
+    if (
+        parsed.get("kind") == "sequence"
+        and location == "statement"
+        and state == "42P01"
+        and target["relation_present"] is False
+        and target.get("sequence_present") is None
+        and target.get("relkind") is None
+        and target["missing_columns"] == []
+    ):
+        return "sequence"
     return "other/unknown"
 
 

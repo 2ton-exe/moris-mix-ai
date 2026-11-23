@@ -64,7 +64,6 @@ if [[ "$live_guard" == 1 ]]; then
   network_args=(--network "$network")
 fi
 
-mkdir -m 700 "$sql_dir"
 python3 - "$root" <<'PY'
 import hashlib
 import json
@@ -73,11 +72,11 @@ from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
-sql = root / "restore-verified-sql"
 components = {
     "roles.sql": b"CREATE ROLE owner_diag_synthetic NOLOGIN;\n",
     "schema.sql": (
         b"CREATE TABLE public.owner_diag_present (id integer PRIMARY KEY);\n"
+        b"CREATE SEQUENCE public.owner_diag_seq;\n"
     ),
     "history-schema.sql": (
         b"CREATE SCHEMA owner_diag_history;\n"
@@ -89,22 +88,36 @@ components = {
     ),
     "history-data.sql": b"SELECT 1;\n",
 }
-hashes = {}
-for name, content in components.items():
-    path = sql / name
-    path.write_bytes(content)
-    os.chmod(path, 0o600)
-    hashes[name] = hashlib.sha256(content).hexdigest()
-manifest = "".join(f"{hashes[name]}  {name}\n" for name in components)
-(sql / "component-checksums.sha256").write_text(manifest, encoding="ascii")
-os.chmod(sql / "component-checksums.sha256", 0o600)
-receipt = {
-    "archive_sha256": "a" * 64,
-    "archive_size_bytes": 1234,
-    "data_sha256": hashes["data.sql"],
-}
-(root / "verified.json").write_text(json.dumps(receipt) + "\n", encoding="ascii")
-os.chmod(root / "verified.json", 0o600)
+
+
+def write_fixture(evidence_root, data_sql):
+    sql = evidence_root / "restore-verified-sql"
+    sql.mkdir(mode=0o700, parents=True)
+    fixture = {**components, "data.sql": data_sql}
+    hashes = {}
+    for name, content in fixture.items():
+        (sql / name).write_bytes(content)
+        hashes[name] = hashlib.sha256(content).hexdigest()
+    manifest = "".join(f"{hashes[name]}  {name}\n" for name in fixture)
+    (sql / "component-checksums.sha256").write_text(manifest, encoding="ascii")
+    receipt = {
+        "archive_sha256": "a" * 64,
+        "archive_size_bytes": 1234,
+        "data_sha256": hashes["data.sql"],
+    }
+    (evidence_root / "verified.json").write_text(json.dumps(receipt) + "\n", encoding="ascii")
+
+
+write_fixture(root, components["data.sql"])
+write_fixture(
+    root / "missing-sequence",
+    b"SELECT pg_catalog.setval('public.owner_diag_absent_seq', 7, true);\n",
+)
+write_fixture(
+    root / "unrelated-missing-relation",
+    b"SELECT pg_catalog.setval('public.owner_diag_seq', 7, true) "
+    b"FROM public.owner_diag_absent;\n",
+)
 init_sql = (
     "CREATE ROLE supabase_admin WITH LOGIN SUPERUSER PASSWORD 'synthetic';\n"
     "CREATE SCHEMA auth;\n"
@@ -244,7 +257,7 @@ print("synthetic-owner-copy-attribution=pass")
 PY
 rollback_state="$(client -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
   -d "postgresql://postgres:synthetic@127.0.0.1:$port_a/postgres" \
-  -c "SELECT concat((pg_catalog.to_regclass('public.owner_diag_present') IS NULL)::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='owner_diag_history'))::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname='owner_diag_synthetic'))::int)")"
+  -c "SELECT concat((pg_catalog.to_regclass('public.owner_diag_present') IS NULL AND pg_catalog.to_regclass('public.owner_diag_seq') IS NULL)::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='owner_diag_history'))::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname='owner_diag_synthetic'))::int)")"
 if [[ "$rollback_state" != '1|1|1' ]]; then
   printf '%s\n' 'Synthetic Stage B rollback state did not match.' >&2
   exit 1
@@ -322,12 +335,47 @@ fi
 printf '%s\n' 'synthetic-stage-b-rollback=pass'
 printf '%s\n' 'synthetic-separate-catalog-reconstruction=pass'
 
+# Run both negative SQL fixtures on the reconstructed target. The existing
+# sequence must not turn the unrelated missing FROM relation into a hint.
+admin_sequence_kind="$(client -X -q -A -t --no-password -v ON_ERROR_STOP=1 -d "$dsn_b" \
+  -c "SELECT relkind FROM pg_catalog.pg_class WHERE oid = 'public.owner_diag_seq'::regclass" \
+  2> "$root/sequence-check.stderr")"
+[[ "$admin_sequence_kind" == 'S' ]]
+check_sequence_case() (
+  local parent="$root" expected_label="$2" status=0
+  local root="$parent/$1" sql_dir="$parent/$1/restore-verified-sql"
+  cp "$parent/target-b-before.json" "$root/target-b-before.json"
+  client -X -q --no-password --single-transaction -v ON_ERROR_STOP=1 \
+    -v VERBOSITY=sqlstate -c "$require_admin" -f /backup/data.sql -d "$dsn_b" \
+    > "$root/replay.stdout" 2> "$root/replay.stderr" || status=$?
+  if [[ "$status" != 3 ]] || ! grep -Eq '^psql:/backup/data\.sql:1: ERROR:  42P01(: .*)?$' "$root/replay.stderr"; then
+    printf '%s\n' 'Synthetic sequence fixture did not produce the expected error.' >&2
+    exit 1
+  fi
+  python3 "$repo_root/scripts/owner_restore_diagnostic.py" prepare \
+    --private-dir "$root" --sql-dir "$sql_dir" --stderr "$root/replay.stderr"
+  client -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
+    -f /private/catalog-after.sql -d "$dsn_b" \
+    > "$root/catalog-after.json" 2> "$root/catalog-after.stderr"
+  local label
+  label="$(python3 "$repo_root/scripts/owner_restore_diagnostic.py" finalize \
+    --private-dir "$root" --target-before "$root/target-b-before.json" \
+    --catalog-after "$root/catalog-after.json")"
+  if [[ "$label" != "$expected_label" ]]; then
+    printf '%s\n' 'Synthetic sequence fixture returned an unexpected label.' >&2
+    exit 1
+  fi
+  printf 'synthetic-%s=%s\n' "$1" "$expected_label"
+)
+check_sequence_case missing-sequence sequence
+check_sequence_case unrelated-missing-relation other/unknown
+
 # Prove the reconstructed objects are disposable before container teardown.
 client -X -q --no-password -v ON_ERROR_STOP=1 -d "$dsn_b" \
-  -c 'DROP TABLE IF EXISTS public.owner_diag_present CASCADE; DROP SCHEMA IF EXISTS owner_diag_history CASCADE; DROP ROLE IF EXISTS owner_diag_synthetic;' \
+  -c 'DROP SEQUENCE public.owner_diag_seq; DROP TABLE IF EXISTS public.owner_diag_present CASCADE; DROP SCHEMA IF EXISTS owner_diag_history CASCADE; DROP ROLE IF EXISTS owner_diag_synthetic;' \
   > "$root/object-cleanup.stdout" 2> "$root/object-cleanup.stderr"
 clean_state="$(client -X -q -A -t --no-password -v ON_ERROR_STOP=1 -d "$dsn_b" \
-  -c "SELECT concat((pg_catalog.to_regclass('public.owner_diag_present') IS NULL)::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='owner_diag_history'))::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname='owner_diag_synthetic'))::int)")"
+  -c "SELECT concat((pg_catalog.to_regclass('public.owner_diag_present') IS NULL AND pg_catalog.to_regclass('public.owner_diag_seq') IS NULL)::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_namespace WHERE nspname='owner_diag_history'))::int, '|', (NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname='owner_diag_synthetic'))::int)")"
 if [[ "$clean_state" != '1|1|1' ]]; then
   printf '%s\n' 'Synthetic reconstruction cleanup state did not match.' >&2
   exit 1

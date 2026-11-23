@@ -13,6 +13,8 @@ from owner_restore_diagnostic import (
     COMPONENTS,
     _catalog_query,
     _private_root,
+    _sequence_candidate,
+    _statement_at_error,
     main,
     prepare,
     target_guard_query,
@@ -215,6 +217,58 @@ class OwnerRestoreDiagnosticTests(unittest.TestCase):
             self._finish(candidate, relation_present=True, relkind="r", sequence_present=False),
             "other/unknown\n",
         )
+        self.assertEqual(
+            self._finish(candidate, relation_present=True, relkind="S", sequence_present=True),
+            "other/unknown\n",
+        )
+
+    def test_setval_with_unrelated_missing_relation_stays_unknown(self):
+        candidate = self._prepare_case(
+            b"CREATE SEQUENCE public.synthetic_seq;\n"
+            b"SELECT pg_catalog.setval('public.synthetic_seq', 7, true) "
+            b"FROM public.synthetic_missing;\n",
+            2,
+            "42P01",
+        )
+        self.assertEqual(
+            self._finish(candidate, relation_present=True, relkind="S", sequence_present=True),
+            "other/unknown\n",
+        )
+        self.assertEqual(candidate["context"]["candidate"], {"kind": "other"})
+
+    def test_absent_sequence_without_undefined_table_error_stays_unknown(self):
+        candidate = self._prepare_case(
+            b"ALTER SEQUENCE public.synthetic_seq RESTART WITH 7;\n", 1, "42501"
+        )
+        self.assertEqual(self._finish(candidate, relation_present=False), "other/unknown\n")
+
+    def test_sequence_parser_accepts_only_complete_supported_forms(self):
+        for statement in (
+            b"SELECT pg_catalog.setval('public.synthetic_seq', -7, false);",
+            b'ALTER SEQUENCE "Some Schema"."Some Sequence" RESTART WITH -7;',
+            b"ALTER SEQUENCE public.synthetic_seq RESTART;",
+        ):
+            with self.subTest(statement=statement):
+                self.assertEqual(_sequence_candidate(statement)["kind"], "sequence")
+        for statement in (
+            b"SELECT setval('public.synthetic_seq', 7, true);",
+            b"SELECT pg_catalog.setval('public.synthetic_seq', (SELECT n FROM public.input), true);",
+            b"SELECT pg_catalog.setval('public.synthetic_seq', 7, true), another_function();",
+            b"SELECT pg_catalog.setval('public.synthetic_seq', 7, true) WHERE false;",
+            b"SELECT pg_catalog.setval('public.synthetic_seq', 7, true); SELECT 1;",
+            b"ALTER SEQUENCE public.synthetic_seq;",
+            b"ALTER SEQUENCE public.synthetic_seq RESTART WITH 7 OWNED BY public.input.id;",
+            b"ALTER SEQUENCE public.synthetic_seq OWNED BY public.input.id;",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIsNone(_sequence_candidate(statement))
+
+    def test_statement_attribution_rejects_a_second_statement_on_the_error_line(self):
+        sql = (
+            b"SELECT pg_catalog.setval('public.synthetic_seq', 7, true); "
+            b"SELECT *\nFROM public.synthetic_missing;\n"
+        )
+        self.assertIsNone(_statement_at_error(sql, 1))
 
     def test_ambiguous_error_records_and_unsupported_sql_stay_unknown(self):
         data = b"SELECT payload FROM public.synthetic_table;\n"

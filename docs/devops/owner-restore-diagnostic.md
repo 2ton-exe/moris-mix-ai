@@ -6,6 +6,12 @@ the protected GitHub workflow and does not establish production recovery. The
 helper supports attributable `data.sql` failures only. Unsupported, malformed,
 or ambiguous evidence remains `other/unknown`.
 
+Sequence attribution supports standalone `SELECT pg_catalog.setval` with a
+schema-qualified sequence name, a decimal integer, and a boolean literal, and
+standalone `ALTER SEQUENCE ... RESTART [WITH integer]` on a schema-qualified
+name. The helper emits `sequence` only for SQLSTATE `42P01` when the reconstructed
+catalog confirms the named relation is absent.
+
 The procedure intentionally uses two disposable PostgreSQL targets. Target A
 replays the complete Stage B command in its original single transaction. A
 failure rolls back the schema changes, so Target B is a fresh cluster used for
