@@ -169,11 +169,9 @@
   .mm-page-turn-layer { perspective-origin: var(--mm-ring-zone) var(--mm-overhang); }
 }
 .mm-turn-ground-shadow { position: absolute; inset: var(--mm-overhang); background: linear-gradient(90deg, transparent 15%, #271808 49%, #271808 51%, transparent 85%); opacity: var(--mm-turn-shadow, 0); }
-/* A footer belongs to one visible surface until the sheet crosses the spine. */
+/* The turning sheet covers the frozen footers as it crosses the spine. */
 .mm-journal-book[data-page-turning] > .mm-journal-spread :is(.mm-journal-page-footer, .mm-pagination-slot--left) { visibility: hidden; }
-.mm-turn-under--reveal :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-under-footer-opacity, 0); }
 .mm-turn-under--single .mm-journal-page-footer { visibility: hidden; }
-.mm-turn-under--retained :is(.mm-journal-page-footer, .mm-pagination-slot--left) { opacity: var(--mm-old-footer-opacity, 1); }
 
 .mm-mori-paper-actor {
   position: absolute;

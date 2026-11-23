@@ -332,6 +332,29 @@ try {
   const turningPaper = turn.locator('.mm-turn-face--front .mm-journal-page')
   await expect(turningPaper).toHaveCSS('background-image', paperTexture)
   await expect(turningPaper.locator('button').filter({ hasText: 'Save recipe' })).toHaveCSS('box-shadow', saveShadow)
+  const midpoint = await turn.evaluate((layer) => {
+    const sample = (progress) => layer.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
+    let start = 0
+    let end = 1
+    for (let i = 0; i < 12; i++) {
+      const progress = (start + end) / 2
+      sample(progress)
+      if (Number(layer.dataset.travel) < .5) start = progress
+      else end = progress
+    }
+    const revealedPage = layer.querySelector('.mm-turn-under--right .mm-journal-page')
+    const footer = revealedPage.querySelector('.mm-journal-page-footer')
+    return {
+      paper: globalThis.getComputedStyle(revealedPage).backgroundImage,
+      opacity: globalThis.getComputedStyle(footer).opacity,
+      hasSave: [...footer.querySelectorAll('button')].some((button) => button.textContent.includes('Save recipe')),
+    }
+  })
+  assert.equal(midpoint.opacity, '1', 'The exposed recipe footer stays visible as the sheet crosses the spine')
+  assert.ok(midpoint.hasSave, 'The revealed footer contains its controls')
+  assert.equal(midpoint.paper, paperTexture, 'The cooking-method spread keeps the recipe paper during the turn')
+  await page.screenshot({ path: path.join(outputDir, 'new-recipe-mid-turn.png') })
+  await turn.evaluate((layer) => layer.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
   await turn.waitFor({ state: 'detached' })
   await page.getByRole('button', { name: 'Add cooking step' }).click()
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')

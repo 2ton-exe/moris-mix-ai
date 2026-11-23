@@ -195,7 +195,9 @@ function clonePage(source: Element | null, prefix: string): HTMLElement | null {
   if (style.display === 'none') return null
   const clone = source.cloneNode(true) as HTMLElement
   if (source.matches('.mm-journal-page, .mm-journal-flyleaf')) {
-    // Separate leaves lose the spread selectors that choose their paper.
+    // Freeze spread-dependent paper, including the tokens used by bookmarks and seams.
+    clone.style.setProperty('--mm-journal-paper-color', style.getPropertyValue('--mm-journal-paper-color'))
+    clone.style.setProperty('--mm-journal-paper-image', style.getPropertyValue('--mm-journal-paper-image'))
     clone.style.backgroundColor = style.backgroundColor
     clone.style.backgroundImage = style.backgroundImage
     clone.style.backgroundSize = style.backgroundSize
@@ -276,8 +278,8 @@ export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
   }, [old, next, singleUnder, singleLeaf, forward])
   if (!turn) return null
   return <div className="mm-page-turn-layer" style={{ perspective: TURN_PERSPECTIVE }} data-journal-page-turn="true" data-turn-id={turn.id} data-direction={turn.direction} data-layout={turn.layout} data-duration={TURN_DURATION} data-phase={turn.phase} aria-hidden="true" inert>
-    <div ref={left} className={`mm-turn-under mm-turn-under--left${next ? (!forward ? ' mm-turn-under--reveal' : ' mm-turn-under--retained') : ''}`} />
-    <div ref={right} className={`mm-turn-under mm-turn-under--right${next ? (forward ? ' mm-turn-under--reveal' : ' mm-turn-under--retained') : ''}`} />
+    <div ref={left} className="mm-turn-under mm-turn-under--left" />
+    <div ref={right} className="mm-turn-under mm-turn-under--right" />
     {turn.layout === 'single' && <div ref={single} className="mm-turn-under mm-turn-under--single" />}
     {next && <div className="mm-turn-ground-shadow" />}
     {next && <div className={`mm-turn-leaf mm-turn-leaf--${turn.direction}`} data-direction={turn.direction} data-layout={turn.layout}>
@@ -439,8 +441,6 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
       leaf.style.transform = `rotateY(${value.angle}deg)`
       shades.forEach((shade) => { shade.style.opacity = String(value.shade) })
       layer.style.setProperty('--mm-turn-shadow', String(value.shade))
-      layer.style.setProperty('--mm-under-footer-opacity', String(smooth((value.travel - .5) * 2)))
-      layer.style.setProperty('--mm-old-footer-opacity', String(1 - smooth((value.travel - .3) * 5)))
       if (motionLayout === 'single') {
         front.style.visibility = value.travel < .5 ? 'visible' : 'hidden'
         back.style.visibility = value.travel < .5 ? 'hidden' : 'visible'
