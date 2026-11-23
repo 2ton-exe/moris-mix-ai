@@ -233,8 +233,8 @@ export default function RecipeDashboardPage() {
       collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className="button button-secondary mm-button--small" to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
-        {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
+        <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
+        {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
       status={<>

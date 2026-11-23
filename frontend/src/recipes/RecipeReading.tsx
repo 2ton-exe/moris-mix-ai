@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { JournalReadingTurns } from '../journal/JournalReadingTurns'
@@ -14,23 +14,23 @@ import { readingParagraphs, readingSpreads, splitReadingText } from './readingPa
 import { useReadingPagination } from './useReadingPagination'
 import type { RecipeDetail } from './types'
 
-interface ReadingUnit { id: string; section: string; heading: string; count?: string; content: ReactNode }
+interface ReadingUnit { id: string; section: string; heading: string; count?: string; list?: 'ul' | 'ol'; step?: number; content: ReactNode }
 
-function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: number, editable: boolean, journalReturn: string): ReadingUnit[] {
+function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: number, editable: boolean, journalReturn: string, folio?: number): ReadingUnit[] {
   const units: ReadingUnit[] = recipe.ingredients.map((ingredient, index) => {
     const amount = ingredient.quantityText ?? [ingredient.quantity, ingredient.unit].filter((part) => part !== null).join(' ')
     const text = amount ? `${amount} ${ingredient.name}` : ingredient.name
-    return splitReadingText(text, textChunkSize).map((partText, part) => ({ id: part ? `ingredient-${index}-part-${part}` : `ingredient-${index}`, section: 'ingredients', heading: 'Ingredients',
-      content: <ul><li>{part === 0 && <IngredientEmoji name={ingredient.name} />}{partText}</li></ul> }))
+    return splitReadingText(text, textChunkSize).map<ReadingUnit>((partText, part) => ({ id: part ? `ingredient-${index}-part-${part}` : `ingredient-${index}`, section: 'ingredients', heading: 'Ingredients',
+      list: 'ul', content: <li>{part === 0 && <IngredientEmoji name={ingredient.name} />}{partText}</li> }))
   }).flat()
   if (!units.length) units.push({ id: 'ingredients-empty', section: 'ingredients', heading: 'Ingredients', content: <p>No ingredients listed.</p> })
   const methodHeading = publicDemo ? 'Instructions' : 'In the kitchen'
   const instructions = [...recipe.instructions].sort((a, b) => a.step - b.step)
-  units.push(...instructions.flatMap((instruction, index) => splitReadingText(instruction.text, textChunkSize).map((text, part) => ({
+  units.push(...instructions.flatMap((instruction, index) => splitReadingText(instruction.text, textChunkSize).map<ReadingUnit>((text, part) => ({
     id: part ? `instruction-${index}-part-${part}` : `instruction-${index}`, section: 'method', heading: methodHeading,
-    content: <ol start={instruction.step}><li value={instruction.step}><span className="mm-step-number" aria-hidden="true">{instruction.step}</span><p>{part > 0 && <span className="visually-hidden">Step {instruction.step}, continued: </span>}{text}</p></li></ol>,
+    list: 'ol', step: instruction.step, content: <li value={instruction.step}><span className="mm-step-number" aria-hidden="true">{instruction.step}</span><p>{part > 0 && <span className="visually-hidden">Step {instruction.step}, continued: </span>}{text}</p></li>,
   }))))
-  if (!instructions.length) units.push({ id: 'instructions-empty', section: 'method', heading: methodHeading, content: <p>No cooking steps listed.{editable && !publicDemo && <> <Link to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Add cooking steps</Link>.</>}</p> })
+  if (!instructions.length) units.push({ id: 'instructions-empty', section: 'method', heading: methodHeading, content: <p>No cooking steps listed.{editable && !publicDemo && <> <Link to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit?section=method`} state={{ journalReturn, recipeFolio: folio }}>Add cooking steps</Link>.</>}</p> })
   // Delimiters stay attached: concatenating note segments preserves the source.
   const paragraphs = readingParagraphs(recipe.notes ?? '')
   if (paragraphs.length) units.push(...paragraphs.flatMap((paragraph, index) => splitReadingText(paragraph, textChunkSize).map((text, part) => ({
@@ -39,28 +39,36 @@ function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: n
   else units.push({ id: 'notes-empty', section: 'notes', heading: 'Personal notes', content: <p className="mm-reading-notes__empty">{publicDemo ? 'No personal notes are included in this demonstration.' : 'No personal notes yet. Add some when you edit this recipe.'}</p> })
   if (recipe.flavor_scores) units.push({ id: 'flavors', section: 'flavors', heading: publicDemo ? 'Flavor scores' : 'Flavor notes', content:
     <dl className="flavor-scores">{Object.entries(recipe.flavor_scores).map(([name, score]) => <div key={name}><dt>{name}</dt><dd>{score} / 5</dd></div>)}</dl> })
+  if (publicDemo) units.push({ id: 'demo-end', section: 'demo-end', heading: 'Start your cooking journal', content:
+    <Link className="button button-primary" to="/login">Log in to your journal</Link> })
   return units.map((unit) => ({ ...unit, count: unit.section === 'ingredients' ? `${recipe.ingredients.length} items` : unit.section === 'method' ? `${recipe.instructions.length} steps` : undefined }))
 }
 
 function ReadingUnits({ units, prefix, measured = false, width }: {
   units: ReadingUnit[]; prefix: string; measured?: boolean; width?: number
 }) {
-  const groups: { heading: string; nodes: ReactNode[] }[] = []
-  const nodes = units.map((unit, index) => {
-    const showHeading = measured || index === 0 || units[index - 1].section !== unit.section
-    const label = `${prefix}-${unit.id}`
-    const node = <div key={unit.id} data-unit={unit.id} data-section={unit.section} className={`mm-reading-unit mm-reading-${unit.section}`}>
-      {unit.section === 'notes' && showHeading && <Tape variant="masking" />}
-      {showHeading && <div className="mm-section-heading mm-unit-heading"><h2 id={label}>{unit.heading}{(measured || index === 0) && !['ingredient-0', 'ingredients-empty', 'instruction-0', 'instructions-empty', 'note-0', 'notes-empty', 'flavors'].includes(unit.id) && <span className="mm-continued"> · continued</span>}</h2>{unit.count && <span>{unit.count}</span>}</div>}
-      <div className="mm-unit-content">
-        {unit.content}
+  const groups: ReadingUnit[][] = []
+  for (const unit of units) {
+    const group = groups.at(-1)
+    if (!measured && group?.[0].section === unit.section) group.push(unit)
+    else groups.push([unit])
+  }
+  const nodes = groups.map(([first, ...rest]) => {
+    const label = `${prefix}-${first.id}`
+    const continued = !['ingredient-0', 'ingredients-empty', 'instruction-0', 'instructions-empty', 'note-0', 'notes-empty', 'flavors', 'demo-end'].includes(first.id)
+    const List = first.list
+    const content = [first, ...rest].map(({ id, content }) => <Fragment key={id}>{content}</Fragment>)
+    const Section = measured ? 'div' : 'section'
+    return <Section key={first.id} data-unit={first.id} data-section={first.section} className={`mm-reading-unit mm-reading-${first.section}`} aria-labelledby={measured ? undefined : label}>
+      {first.section === 'notes' && <Tape variant="masking" />}
+      <div className="mm-section-heading mm-unit-heading">
+        <h2 id={label}>{first.heading}{continued && <span className="mm-continued"> · continued</span>}</h2>
+        {first.count && <span>{first.count}</span>}
       </div>
-    </div>
-    if (showHeading) groups.push({ heading: unit.heading, nodes: [] })
-    groups[groups.length - 1].nodes.push(node)
-    return node
+      <div className="mm-unit-content">{List ? <List role="list" start={first.step}>{content}</List> : content}</div>
+    </Section>
   })
-  return <>{measured ? nodes : <div className="mm-reading-page-content" style={{ maxWidth: width }}>{groups.map((group, index) => <section className="mm-unit-group" aria-label={group.heading} key={index}>{group.nodes}</section>)}</div>}</>
+  return measured ? nodes : <div className="mm-reading-page-content" style={{ maxWidth: width }}>{nodes}</div>
 }
 
 /** Shared physical reading leaves. Backend cursors never enter this component. */
@@ -75,7 +83,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const contentKey = useMemo(() => JSON.stringify(recipe), [recipe])
   const { bodyRef, leftRef, bankRef, measurable, ready, textChunkSize, layout } = useReadingPagination(contentKey, single)
-  const units = useMemo(() => recipeUnits(recipe, publicDemo, textChunkSize, editable, journalReturn), [recipe, publicDemo, textChunkSize, editable, journalReturn])
+  const units = useMemo(() => recipeUnits(recipe, publicDemo, textChunkSize, editable, journalReturn, folio), [recipe, publicDemo, textChunkSize, editable, journalReturn, folio])
   const pages = layout?.pages ?? []
   const spreads = readingSpreads(pages, single)
   const anchor = new URLSearchParams(location.search).get('read') ?? 'identity'

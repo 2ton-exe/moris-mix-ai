@@ -21,9 +21,11 @@ export function RecipeMetadata({ recipe, showCookedAt = true }: { recipe: Recipe
   )
 }
 
-export function RecipeIndexCardContent({ recipe }: { recipe?: RecipeSummary }) {
+export function RecipeIndexCardContent({ recipe, folio }: { recipe?: RecipeSummary; folio?: number }) {
   return <>
-    <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
+    {folio === undefined
+      ? <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
+      : <span className="mm-index-card__number">No. {String(folio).padStart(2, '0')}</span>}
     <div className="mm-recipe-card__copy">
       <h2>{recipe ? recipe.title : <span className="mm-skeleton-line" />}</h2>
       {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
@@ -37,7 +39,7 @@ export function RecipeCollectionCardContent({ recipe, folio, image }: { recipe?:
     <RecipeScrapArtwork title={recipe?.title ?? ''} cookedAt={recipe?.cooked_at} loading={!recipe} image={image} />
     <div className="mm-recipe-card__copy">
       <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
-      <h2>{recipe ? recipe.title : <span className="mm-skeleton-line" />}</h2>
+      <p className="mm-collection-entry__title">{recipe ? recipe.title : <span className="mm-skeleton-line" />}</p>
       {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
     </div>
   </>
@@ -99,12 +101,12 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
 
   return (
     <li className="mm-recipe-card-slot">
-      <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}`} onClick={(event) => {
+      <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}${indexCard ? `, entry ${folio}` : ''}`} onClick={(event) => {
         if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {indexCard ? <RecipeIndexCardContent recipe={recipe} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio}
+        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio}
           image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
       </Link>
     </li>

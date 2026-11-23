@@ -2,12 +2,14 @@ import { JournalPagination } from '../journal/JournalPagination'
 import type { ReactNode } from 'react'
 import { useJournalPageTurn } from '../journal/JournalPageTurn'
 
-export function RecipeWritingTurns({ page, total, text, single, onTurn, review }: {
+export function RecipeWritingTurns({ page, total, text, single, onTurn, review, nextSection, prioritizeNext = true }: {
   page: number
   total: number
   text: string
   single: boolean
   onTurn: (page: number) => void
+  nextSection?: string
+  prioritizeNext?: boolean
   review?: { current: string; next?: string; previous?: string; save: ReactNode; exit: ReactNode }
 }) {
   const { isTurning } = useJournalPageTurn()
@@ -23,5 +25,5 @@ export function RecipeWritingTurns({ page, total, text, single, onTurn, review }
   const pageNoun = single ? 'Page' : 'Pages'
   return <JournalPagination label="Recipe writing pages" rightNumber={text}
     previous={page > 0 && <button type="button" className="button mm-button--page-turn" aria-label={`Previous ${pageNoun}`} disabled={isTurning} onClick={() => onTurn(page - 1)}>← Previous</button>}
-    next={page < total - 1 && <button type="button" className="button mm-button--page-turn" aria-label={`Next ${pageNoun}`} disabled={isTurning} onClick={() => onTurn(page + 1)}>Next →</button>} />
+    next={page < total - 1 && <button type="button" className={nextSection && prioritizeNext && page === 0 ? 'button button-primary' : 'button mm-button--page-turn'} aria-label={nextSection ? `Next: ${nextSection}` : `Next ${pageNoun}`} disabled={isTurning} onClick={() => onTurn(page + 1)}>{nextSection ? `Next: ${nextSection}` : 'Next'} →</button>} />
 }

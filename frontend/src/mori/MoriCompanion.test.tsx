@@ -139,22 +139,14 @@ it('keeps guidance open after a same-route action', () => {
   expect(screen.getByRole('region', { name: 'Mori' })).toBeTruthy()
 })
 
-it('opens compact, contextual desktop actions and focuses the chat when expanded', () => {
+it('opens and focuses the composer on the first desktop activation', () => {
   vi.stubGlobal('matchMedia', vi.fn((media: string) => ({ matches: false, media, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   render(<Companion userId="desktop-user" />)
   fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
-
   const panel = screen.getByRole('region', { name: 'Mori' })
-  expect(within(panel).getByText('Your recipe collection is open. Choose a scrap to revisit it.')).toBeTruthy()
-  expect(within(panel).getByRole('button', { name: 'Open recipes' })).toBeTruthy()
-  expect(within(panel).getByRole('button', { name: 'Open cooking notes' })).toBeTruthy()
-  expect(screen.queryByRole('textbox', { name: 'Message Mori' })).toBeNull()
-
-  const toggle = within(panel).getByRole('button', { name: 'Chat with Mori' })
-  expect(toggle.getAttribute('aria-expanded')).toBe('false')
-  fireEvent.click(toggle)
-  const composer = screen.getByRole('textbox', { name: 'Message Mori' })
+  const composer = within(panel).getByRole('textbox', { name: 'Message Mori' })
   expect(document.activeElement).toBe(composer)
+  const toggle = within(panel).getByRole('button', { name: 'Show quick actions' })
   expect(toggle.getAttribute('aria-expanded')).toBe('true')
 
   fireEvent.click(toggle)

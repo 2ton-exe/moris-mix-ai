@@ -197,11 +197,10 @@ describe('AI Chef pantry and review workflow', () => {
     const { router } = renderChef()
     await act(() => router.navigate('/app/chef/review'))
 
-    expect(await screen.findByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'No AI Chef recipe idea to review' })).toBeTruthy()
     const actions = screen.getByRole('navigation', { name: 'AI Chef recovery' })
     expect(within(actions).getByRole('link', { name: 'Back to AI Chef' }).getAttribute('href')).toBe('/app/chef')
     expect(within(actions).getByRole('link', { name: 'My recipes' }).getAttribute('href')).toBe('/app/recipes')
-    expect(screen.getByText('Choose where to go next')).toBeTruthy()
   })
 
   it('uses the shared page-aware companion and keeps recipe generation structured', () => {
@@ -292,8 +291,8 @@ describe('AI Chef pantry and review workflow', () => {
     expect(substitutions.getByText('bell pepper')).toBeTruthy()
     fireEvent.click(substitutions.getByRole('button', { name: 'Done' }))
     expect(details.getByText('Garden rice')).toBeTruthy()
-    expect(details.getByText(/Only selected recipes will be linked when you save/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Next Pages' }))
+    expect(screen.getByRole('region', { name: 'Before you save' }).textContent).toContain('selected recipe links')
+    fireEvent.click(screen.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
     expect((screen.getByLabelText('Ingredient 1 amount description (optional)') as HTMLInputElement).value).toBe('leftover')
     expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('')
     expect((screen.getByLabelText('Ingredient 2 quantity') as HTMLInputElement).value).toBe('2')
@@ -374,13 +373,13 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
     expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
 
-    expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
     fireEvent.submit(document.querySelector('.mm-ai-chef__form')!)
     expect(generate).toHaveBeenCalledOnce()
     const realNow = Date.now.bind(Date)
     vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 61_000)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(false), { timeout: 2000 })
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry recipe suggestion' }).hasAttribute('disabled')).toBe(false), { timeout: 2000 })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recipe suggestion' }))
     expect(await screen.findByRole('heading', { name: "Review Mori's recipe." }, { timeout: 5000 })).toBeTruthy()
     expect(generate).toHaveBeenCalledTimes(2)
     expect(generate.mock.calls[1]?.[0]).toEqual(['rice'])
@@ -398,7 +397,7 @@ describe('AI Chef pantry and review workflow', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('shared AI capacity')
     expect(alert.textContent).toContain('25 hours')
-    expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('rice')
     expect(generate).toHaveBeenCalledOnce()
   })
@@ -456,7 +455,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.change(expanded.getByRole('textbox', { name: 'Full notes' }), { target: { value: notes } })
     fireEvent.click(expanded.getByRole('button', { name: 'Done' }))
     expect(screen.getByRole('heading', { name: 'Recipe inspiration' })).toBeTruthy()
-    expect(screen.getByLabelText('Notes')).toHaveProperty('value', notes)
+    expect(screen.getByLabelText(/^Notes(?: \(optional\))?$/)).toHaveProperty('value', notes)
 
     fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
     await screen.findByText('Recipe saved.')
@@ -726,7 +725,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(progress.lineageStatus).toBe('pending')
     expect(save).toHaveBeenCalledOnce()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Check and retry parent links' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recipe links' }))
 
     await screen.findByText('Recipe and selected parent links saved.')
     expect(getLineage).toHaveBeenCalledTimes(2)
@@ -748,7 +747,7 @@ describe('AI Chef pantry and review workflow', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('authorization for its parent links expired')
     expect(screen.getByText('Recipe saved. Parent links still need attention.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Check and retry parent links' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry recipe links' })).toBeNull()
     expect(save).toHaveBeenCalledOnce()
     expect(saveLineage).toHaveBeenCalledOnce()
     expect(getLineage).not.toHaveBeenCalled()
@@ -810,7 +809,7 @@ describe('AI Chef pantry and review workflow', () => {
     await screen.findByRole('heading', { name: "Review Mori's recipe." })
     fireEvent.click(screen.getByRole('checkbox', { name: /Garden rice/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
-    await screen.findByRole('button', { name: 'Check and retry parent links' })
+    await screen.findByRole('button', { name: 'Retry recipe links' })
 
     await act(async () => router.navigate('/app/chef'))
     fireEvent.click(await screen.findByRole('button', { name: 'Forget saved recovery' }))
@@ -840,7 +839,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Return to recipe review' }))
 
     expect(await screen.findByText('Your recipe is safe, but Mori could not confirm the selected parent links. The links remain unchanged.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Check and retry parent links' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry recipe links' })).toBeNull()
   })
 
   it('reconciles a lost lineage response with GET and does not post twice', async () => {

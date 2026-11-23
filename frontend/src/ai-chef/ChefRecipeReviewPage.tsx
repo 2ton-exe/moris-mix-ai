@@ -436,7 +436,11 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
         ? <span className="visually-hidden">Review Mori's recipe.</span>
         : "Review Mori's recipe."}
       titleEditor={titleEditor}
-      facingPageContent={<ChefProgress stage={saved ? 'saved' : 'review'} />}
+      facingPageContent={saved ? <ChefProgress stage="saved" /> : <section className="mm-chef-review__save-context" aria-label="Before you save">
+          <h2>What will be saved</h2>
+          <p>Your edited recipe and any selected recipe links.</p>
+          {handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
+        </section>}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 
@@ -551,7 +555,7 @@ function ChefGenerationNotice({
     </section>
     <section aria-label="Suggested parent recipes" className="mm-ai-chef__suggestions">
       <h3>{compact && <ScrapbookSticker decorative name="recipe-book" />}From your journal</h3>
-      {!saved && parents.length > 0 && <p>Only selected recipes will be linked when you save.</p>}
+
       {parents.length > 0 ? <>
         {showAllParents ? parentChoices : <ReviewDetailDialog title="From your journal" action={`Choose journal recipes (${parents.length})`}>
           <p>{selectedParentIds.length} selected. You can link up to 10 recipes.</p>
@@ -568,7 +572,7 @@ function ChefGenerationNotice({
           type="button"
           disabled={lineageBusy || storageUnavailable}
           onClick={onRetryLineage}
-        >{lineageBusy ? 'Working on parent links…' : 'Check and retry parent links'}</button>}
+        >{lineageBusy ? 'Working on parent links…' : 'Retry recipe links'}</button>}
         {handoff.savedRecipeId && <Link className="button button-secondary mm-button--small" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved recipe</Link>}
       </div>}
     </section>
@@ -576,7 +580,7 @@ function ChefGenerationNotice({
       <section className="mm-chef-review__request">
         <h3><ScrapbookSticker decorative name="chat-bubble" />Your request</h3>
         {showFullRequest ? requestContent : <>
-          <p>{request.pantryItems.length} {request.pantryItems.length === 1 ? 'ingredient' : 'ingredients'}{request.preferences ? ' and preferences' : ''}</p>
+          <p>{request.pantryItems.length} {request.pantryItems.length === 1 ? 'ingredient' : 'ingredients'}</p>
           <ReviewDetailDialog title="Your request" action="Full request">{requestContent}</ReviewDetailDialog>
         </>}
       </section>
@@ -610,17 +614,14 @@ function ReviewUnavailable({ userEmail, status }: { userEmail?: string; status: 
       <section className="mm-ai-chef__review-recovery">
         <ScrapbookSticker decorative className="mm-ai-chef__recovery-sticker" name="mixing-bowl" />
         <header className="mm-recipe-editor-heading">
-          <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
+          <h1 tabIndex={-1}>No AI Chef recipe idea to review</h1>
           <p className="intro">{storageMessage}</p>
         </header>
+        <nav className="mm-ai-chef__recovery-actions" aria-label="AI Chef recovery">
+          <Link className="button button-primary" to="/app/chef">Back to AI Chef</Link>
+          <Link className="button button-secondary" to="/app/recipes">My recipes</Link>
+        </nav>
       </section>
     </JournalFacingPage>
-    <section className="mm-ai-chef__review-next mm-page-column" aria-labelledby="ai-chef-recovery-next">
-      <h2 id="ai-chef-recovery-next">Choose where to go next</h2>
-      <nav className="mm-ai-chef__recovery-actions" aria-label="AI Chef recovery">
-        <Link className="button button-primary" to="/app/chef">Back to AI Chef</Link>
-        <Link className="button button-secondary" to="/app/recipes">My recipes</Link>
-      </nav>
-    </section>
   </JournalShell>
 }

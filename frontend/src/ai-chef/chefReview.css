@@ -263,3 +263,14 @@
 @media (forced-colors: active) {
   .mm-chef-review__inspiration > section { border-color: CanvasText; }
 }
+
+.mm-chef-review__save-context { margin-block-end: 12px; overflow-wrap: anywhere; color: var(--mm-color-ink); }
+.mm-chef-review__save-context h2 { margin: 0 0 4px; font: 600 18px/1.2 var(--mm-font-serif); }
+.mm-chef-review__save-context p { margin: 4px 0; font: 400 14px/1.35 var(--mm-font-sans); }
+
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
+  .mm-chef-review__save-context { margin-block-end: 8px; }
+  .mm-chef-review .mm-scrapbook-form__notes textarea[name='notes'] { block-size: 51px; }
+  .mm-chef-review .mm-chef-review__identity .recipe-form-field label { letter-spacing: .02em; }
+  .mm-chef-review .mm-chef-review__identity .mm-scrapbook-form__garnish { display: none; }
+}

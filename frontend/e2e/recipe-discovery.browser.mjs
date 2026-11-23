@@ -45,7 +45,7 @@ try {
     page.on('pageerror', (error) => pageErrors.push(error.message))
     const recipes = Array.from({ length: 25 }, (_, index) => ({
       id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`,
-      user_id: userId, title: index === 9 ? 'A long title for the cookbook index '.repeat(5).trim() : `Browser test recipe ${index + 1}`,
+      user_id: userId, title: index === 0 || index === 24 ? 'Family tomato rice' : index === 9 ? 'A long title for the cookbook index '.repeat(5).trim() : `Browser test recipe ${index + 1}`,
       star_rating: 4, cooked_at: '2026-10-25',
     }))
     await context.route('**/*', async (route) => {
@@ -107,14 +107,13 @@ try {
     const indexResults = page.getByRole('region', { name: 'Recipe index results' })
     const cards = indexResults.getByRole('link', { name: /^Open recipe/ })
     const desktop = width === 1440
+    assert.ok(await cards.count() < 24)
     if (desktop) {
-      assert.ok(await cards.count() < 24)
       assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 2), 'The index fits the desktop viewport')
     }
-    else assert.equal(await cards.count(), 24)
     await page.keyboard.press('Enter')
     await page.getByRole('heading', { name: 'Saved recipes (25)' }).waitFor()
-    if (desktop) {
+    {
       const next = page.getByRole('link', { name: 'Next page' })
       const previous = page.getByRole('link', { name: 'Previous page' })
       const layer = page.locator('[data-journal-page-turn="true"]')
@@ -127,11 +126,14 @@ try {
         await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
         await expect(layer).toHaveCount(0)
       }
-      await next.click()
-      await sampleTurn('forward')
-      await previous.click()
-      await sampleTurn('backward')
+      if (desktop) {
+        await next.click()
+        await sampleTurn('forward')
+        await previous.click()
+        await sampleTurn('backward')
+      }
       const seen = new Set()
+      const matchingNames = []
       while (true) {
         const dimensions = await indexResults.evaluate((element) => ({ used: element.scrollHeight, size: element.clientHeight }))
         assert.ok(dimensions.used <= dimensions.size + 2, `Index leaf overflows: ${JSON.stringify(dimensions)}`)
@@ -139,6 +141,7 @@ try {
           assert.ok(!seen.has(href), `Repeated card ${href}`)
           seen.add(href)
         }
+        matchingNames.push(...await cards.filter({ hasText: 'Family tomato rice' }).evaluateAll((links) => links.map((link) => link.getAttribute('aria-label'))))
         if (!await next.count()) break
         const target = await next.getAttribute('href')
         await next.click()
@@ -147,14 +150,13 @@ try {
       }
       await page.getByText('End of results.', { exact: true }).waitFor()
       assert.equal(seen.size, 25)
-      await page.goBack()
-      await expect(next).toBeVisible()
-      await page.goForward()
-      await expect(page.getByText('End of results.')).toBeVisible()
-    } else {
-      await page.getByText('End of results.', { exact: true }).waitFor()
-      assert.equal(await page.getByText('End of results.').evaluate((element) => element === globalThis.document.activeElement), true)
-      assert.equal(await cards.count(), 25)
+      assert.deepEqual(matchingNames, ['Open recipe Family tomato rice, entry 1', 'Open recipe Family tomato rice, entry 25'])
+      if (desktop) {
+        await page.goBack()
+        await expect(next).toBeVisible()
+        await page.goForward()
+        await expect(page.getByText('End of results.')).toBeVisible()
+      }
     }
     assert.equal(await page.getByRole('button', { name: 'Load more' }).count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)

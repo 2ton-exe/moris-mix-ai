@@ -236,6 +236,7 @@
   font-size: 14px;
 }
 .mm-extraction-notes p { margin: 0; }
+.mm-extraction-notes h2 { margin: 0 0 6px; font: 600 20px/1.2 var(--mm-font-serif); }
 .mm-extraction-notes summary {
   padding-block: 8px;
   color: var(--mm-color-sage-900);
@@ -244,6 +245,15 @@
 }
 .mm-extraction-notes summary:hover { text-decoration: underline; }
 .mm-extraction-notes blockquote { margin: 4px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mm-extraction-notes details blockquote { max-block-size: 7rem; overflow: auto; }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-desk--writing .mm-journal-spread:has(.mm-extraction-notes) .mm-form-identity {
+    overflow: auto;
+    scrollbar-gutter: stable;
+    scroll-padding-block: 12px;
+  }
+}
 
 .mm-extraction-notes dl {
   display: grid;

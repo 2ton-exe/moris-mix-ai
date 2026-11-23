@@ -29,9 +29,9 @@ it('keeps the loading announcement outside busy content and hides inert paginati
 it('shares title and metadata hierarchy between real and placeholder card content', () => {
   const recipe = { id: 'one', title: 'Tomato rice', star_rating: 4 }
   const { container, rerender } = render(<RecipeCollectionCardContent folio={1} />)
-  expect(container.querySelector('h2 .mm-skeleton-line')).toBeTruthy()
+  expect(container.querySelector('.mm-collection-entry__title .mm-skeleton-line')).toBeTruthy()
   rerender(<RecipeCollectionCardContent recipe={recipe} folio={1} />)
-  expect(screen.getByRole('heading', { name: 'Tomato rice' })).toBeTruthy()
+  expect(screen.getByText('Tomato rice')).toBeTruthy()
   rerender(<RecipeIndexCardContent />)
   expect(container.querySelector('h2 .mm-skeleton-line')).toBeTruthy()
   rerender(<RecipeIndexCardContent recipe={recipe} />)

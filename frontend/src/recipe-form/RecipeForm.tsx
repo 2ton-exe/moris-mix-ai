@@ -5,9 +5,11 @@ import { recipeDraftSchema, recipeEditorStateSchema } from './draft'
 import type { RecipeSaveConfirmation } from './submission'
 import { confirmedSave } from './submission'
 import { RecipeFormEditor } from './RecipeFormEditor'
+import { ErrorState } from '../components/ErrorState'
 
 export type RecipeFormProps = {
   mode: 'create' | 'edit'
+  initialSection?: 'method'
   initialValues?: RecipeDraftInput
   initialEditorState?: RecipeEditorState
   initialValuesAreUnsaved?: boolean
@@ -42,7 +44,8 @@ export function RecipeForm(props: RecipeFormProps) {
     (props.initialSaveConfirmation !== undefined && !confirmedSave(props.initialSaveConfirmation)) ||
     (props.initialValues !== undefined && props.initialEditorState !== undefined) ||
     (props.mode === 'edit' && props.initialValues === undefined)) {
-    return <p className="field-error" role="alert">This recipe could not be prepared for editing. Please reload it before making changes.</p>
+    const error = <ErrorState message="This recipe could not be prepared for editing. Reload to try again." onRetry={() => window.location.reload()} />
+    return props.renderFrame ? props.renderFrame(error) : error
   }
   return <RecipeFormEditor {...props}
     initialValues={initial?.success ? initial.data : undefined}

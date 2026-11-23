@@ -114,7 +114,6 @@
 .mm-auth-card .button.button-primary { justify-content: center; width: 100%; }
 .mm-auth-card .button-secondary { justify-content: center; max-width: 100%; }
 .mm-auth-card .request-state { overflow-wrap: anywhere; }
-.mm-auth-card .request-error { color: var(--mm-color-ink); background: var(--mm-color-fresh) var(--mm-tex-grain); border-color: var(--mm-color-parchment-400); }
 .mm-auth-card .auth-links { margin: 14px 0 0; color: var(--mm-color-ink-soft); font-size: 15px; line-height: 1.55; overflow-wrap: anywhere; }
 .mm-auth-card .auth-links a,
 .mm-auth-card .mm-auth-inline-link,

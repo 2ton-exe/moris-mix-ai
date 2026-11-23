@@ -182,7 +182,7 @@ describe('Quick AI Entry', () => {
     renderEntry()
 
     expect(screen.getByRole('alert').textContent).toContain('couldn\'t access session storage')
-    expect(screen.getByText(/Your notes stay available in this app while it is open/)).toBeTruthy()
+    expect(screen.getByText(/Your notes stay available while this app is open/)).toBeTruthy()
     expect(screen.queryByText(/saved in this browser session as you type/)).toBeNull()
 
     enterNotes('new notes remain editable in React state')
@@ -572,10 +572,8 @@ describe('Quick AI Entry', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('Mori could not organize those notes just now')
     expect(screen.queryByText('provider internals')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Edit Notes' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Organize my notes' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Retry extraction' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Notes' }))
-    expect(document.activeElement).toBe(notesField())
     expect(notesField().value).toBe('slow-cooked beans')
   })
 

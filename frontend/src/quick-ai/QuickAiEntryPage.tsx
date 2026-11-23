@@ -515,35 +515,31 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             </div>}
             <div className="mm-quick-ai__field-meta">
               <p className="mm-quick-ai__helper" id={helpId}>{persistenceFailed
-                ? `Your notes stay available in this app while it is open. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`
-                : `Your notes are saved in this browser session as you type. Maximum ${MAX_EXTRACTION_INPUT_CHARS.toLocaleString()} characters.`}</p>
+                ? 'Your notes stay available while this app is open.'
+                : 'Your notes are kept in this tab as you type.'}</p>
               <p className="mm-quick-ai__count" id={countId} aria-live="off">{draft.notes.length.toLocaleString()} / {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()}</p>
             </div>
             {validationMessage && <p className="mm-quick-ai__validation" id={validationId} role="alert">{validationMessage}</p>}
           </div>
 
-          <div className="mm-quick-ai__actions">
+          {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite">Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
+          {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
+            {draft.blockedReason === 'quota'
+              ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
+              : draft.blockedReason === 'auth-service-rate-limit'
+                ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
+                : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
+          </p>}
+          {error && <div className="mm-quick-ai__error">
+            <p role="alert">{error.message}</p>
+            {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
+          </div>}
+          {error?.code !== 'UNAUTHORIZED' && <div className="mm-quick-ai__actions">
             <button className="button button-primary" type="submit" disabled={loading || retryWait > 0}>
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
             </button>
-          </div>
+          </div>}
         </form>
-
-        {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite">Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
-        {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
-          {draft.blockedReason === 'quota'
-            ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
-            : draft.blockedReason === 'auth-service-rate-limit'
-              ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
-              : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
-        </p>}
-        {error && <div className="mm-quick-ai__error">
-          <p role="alert">{error.message}</p>
-          <div className="mm-quick-ai__error-actions">
-            <button className="button button-secondary mm-button--small" type="button" onClick={() => notesRef.current?.focus()}>Edit Notes</button>
-            {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
-          </div>
-        </div>}
       </PaperCard>}
 
       {handoff && page === noteParts.length && <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet mm-quick-ai__preview-page" role="region" aria-label={`Recipe preview, page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>

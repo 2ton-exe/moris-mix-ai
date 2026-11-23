@@ -20,10 +20,9 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
     catch { finish(false) }
     return () => { active = false }
   }, [callback])
-  const [email, setEmail] = useState(() => {
-    const state: unknown = location.state
-    return typeof state === 'object' && state !== null && 'email' in state && typeof state.email === 'string' ? state.email : ''
-  })
+  const verificationState: unknown = location.state
+  const signupEmail = typeof verificationState === 'object' && verificationState !== null && 'email' in verificationState && typeof verificationState.email === 'string' ? verificationState.email : ''
+  const [email, setEmail] = useState(signupEmail)
   const [pending, setPending] = useState(false)
   const submitting = useRef(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,21 +46,26 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
   }
 
   const checking = isLoading || (callback && callbackResult === 'checking')
+  const inboxGuidance = sent || Boolean(signupEmail)
   const title = initializationError ? 'The kitchen needs a moment.'
     : checking ? 'Setting the table'
-      : verified ? 'Email verified' : callback ? 'Check your verification link' : 'Check your email'
-  const description = initializationError ? undefined : checking ? undefined : verified
+      : verified ? 'Email verified' : inboxGuidance ? 'Check your email' : callback ? 'Verification link unavailable' : 'Verify your email'
+  const description = initializationError || checking ? undefined : verified
     ? 'Your email is confirmed and you are logged in.'
-    : callback
-      ? 'We could not confirm this link. It may be expired, invalid, or already used. Try logging in, or request a new verification email below.'
-      : 'If your account needs confirmation, open the verification link in your email to finish signing up. You are not logged in yet. Check your spam folder if it has not arrived.'
+    : sent
+      ? 'If this address has an unconfirmed account, a new link will arrive shortly. Check your inbox and spam folder.'
+      : inboxGuidance
+      ? 'If this address has an unconfirmed account, open the verification link in your inbox to finish signing up. You are not logged in yet. Check your spam folder if it hasn’t arrived.'
+      : callback
+        ? 'This link may be expired, invalid, or already used. Enter your email to request a new verification link.'
+        : 'Enter your email address to request a verification link.'
 
   return <JournalAuthScene>
     <main className="mm-auth-main">
       <JournalAuthCard
         eyebrow={callback ? 'A note from the post' : 'Almost there'}
         title={title}
-        description={initializationError ? undefined : description && <p role="status">{description}</p>}
+        description={description && <p role="status">{description}</p>}
         mood={initializationError || callbackResult === 'invalid' ? 'worried' : verified ? 'cheer' : 'happy'}
       >
         {initializationError ? <>
@@ -78,7 +82,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
                   aria-describedby={error ? 'verification-error' : undefined} />
               </div>
               {error && <p id="verification-error" className="field-error" role="alert">{error}</p>}
-              {sent && <p role="status">If this address has an unconfirmed account, a new link will arrive shortly. Please check your inbox.</p>}
+
               <button className="button button-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send verification link'}</button>
             </form>
             <p className="auth-links"><Link to="/login" state={location.state}>Back to login</Link></p>

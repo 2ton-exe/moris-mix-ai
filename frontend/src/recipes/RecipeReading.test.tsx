@@ -34,6 +34,15 @@ function RouteView({ data = recipe }: { data?: RecipeDetail }) {
 
 const live = () => within(document.querySelector<HTMLElement>('.mm-journal-book > .mm-journal-spread')!)
 
+it('uses one semantic list per visible section and preserves the original step numbers', () => {
+  measured.pages = [['ingredient-0', 'ingredient-1', 'instruction-0', 'instruction-1']]
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView /></MemoryRouter>)
+  const ingredients = within(live().getByRole('region', { name: /Ingredients/ })).getByRole('list')
+  const method = within(live().getByRole('region', { name: /In the kitchen/ })).getByRole('list')
+  expect(within(ingredients).getAllByRole('listitem')).toHaveLength(2)
+  expect(within(method).getAllByRole('listitem').map((item) => item.getAttribute('value'))).toEqual(['2', '5'])
+})
+
 beforeEach(() => {
   measured.single = false
   measured.ready = true

@@ -10,7 +10,7 @@ const readingPages = vi.hoisted(() => [[
   ...Array.from({ length: 20 }, (_, index) => `ingredient-${index}`),
   ...Array.from({ length: 20 }, (_, index) => `instruction-${index}`),
   ...Array.from({ length: 20 }, (_, index) => `note-${index}`),
-  'ingredients-empty', 'instructions-empty', 'notes-empty', 'flavors',
+  'ingredients-empty', 'instructions-empty', 'notes-empty', 'flavors', 'demo-end',
 ]])
 
 vi.mock('../recipes/useReadingPagination', () => ({
@@ -41,7 +41,7 @@ it('shows loading then renders the validated recipe from the API', async () => {
   expect(screen.getByRole('status').textContent).toContain('Loading demonstration recipe')
   await waitFor(() => expect(mockedGetDemoRecipe).toHaveBeenCalledOnce())
   resolveRequest(parseDemoRecipeResponse(fixture).recipe)
-  await screen.findByRole('heading', { name: fixture.recipe.title })
+  await screen.findByRole('heading', { name: fixture.recipe.title, level: 1 })
   expect(screen.getByText('200 g spaghetti')).toBeTruthy()
   expect(screen.getByText('Boil pasta in salted water.')).toBeTruthy()
   const identity = screen.getByRole('region', { name: 'Recipe identity and details' })
@@ -51,6 +51,7 @@ it('shows loading then renders the validated recipe from the API', async () => {
   expect(within(screen.getByRole('region', { name: 'Flavor scores' })).getByText('4 / 5')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Back home' }).getAttribute('href')).toBe('/home')
+  expect(screen.getByRole('link', { name: 'Log in to your journal' }).getAttribute('href')).toBe('/login')
   const pages = screen.getByRole('navigation', { name: 'Recipe reading pages' })
   expect(pages.closest('.mm-pagination-band')?.closest('.mm-journal-page-footer')).toBeTruthy()
   expect(screen.queryByRole('navigation', { name: 'Recipe actions' })).toBeNull()

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { journalReturnTo } from '../journal/indexNavigation'
 import { useLocation, useNavigate, useParams } from 'react-router'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
@@ -50,10 +49,11 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const available = activeRecord && activeRecord.id === recipeId && activeRecord.userId === user?.id
   const accessDenied = activeError instanceof HttpError && [401, 403, 404].includes(activeError.status ?? 0)
   const canEdit = available && !accessDenied
-  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}`} mode="edit" initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} onCancel={() => navigate(journalReturnTo(location.state, '/app'))}
+  const initialSection = new URLSearchParams(location.search).get('section') === 'method' ? 'method' : undefined
+  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}:${initialSection ?? 'start'}`} mode="edit" initialSection={initialSection} initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} cancelLabel="Back to recipe" onCancel={() => navigate(`/app/recipes/${encodeURIComponent(recipeId)}`, { state: location.state })}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && <RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
-    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
+    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} focusHeading={!initialSection} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
   return <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>
     {activeLoading && <LoadingState message="Loading recipe for editing…" />}
     {activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}

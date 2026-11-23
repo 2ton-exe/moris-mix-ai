@@ -100,9 +100,9 @@ it('opens the review workflow with extraction fields and original notes kept sep
   expect(screen.getByText('1 to review')).toBeTruthy()
   expect(document.activeElement).toBe(screen.getByLabelText('Ingredient 2 name'))
   expect(readQuickAiEntryDraft('cook-a').reviewDraft?.ingredients[1].inferred).toBe(false)
-  expect((screen.getByLabelText('Rating') as HTMLSelectElement).value).toBe('')
-  expect((screen.getByLabelText('Cooked date') as HTMLInputElement).value).toBe('')
-  expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('')
+  expect((screen.getByLabelText(/^Rating(?: \(optional\))?$/) as HTMLSelectElement).value).toBe('')
+  expect((screen.getByLabelText(/^Cooked date(?: \(optional\))?$/) as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText(/^Notes(?: \(optional\))?$/) as HTMLTextAreaElement).value).toBe('')
   const details = within(screen.getByRole('region', { name: "Mori's extraction notes" }))
   expect(details.getByText(sourceNotes)).toBeTruthy()
   expect(details.getByText(/preview only/)).toBeTruthy()
@@ -133,6 +133,20 @@ it('reloads a new Mori handoff when navigation stays on the review route', async
   }))
 
   expect((await screen.findByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
+})
+
+it('keeps the full original notes available after shortening the review excerpt', () => {
+  const notes = 'Garlic and rice.\n'.repeat(24) + 'Season after cooking.'
+  writeQuickAiEntryDraft('cook-a', {
+    notes, blockedUntil: null, blockedReason: null, handoff: { ...handoff, sourceNotes: notes }, reviewDraft: null,
+  })
+  renderReview()
+  const evidence = screen.getByRole('region', { name: "Mori's extraction notes" })
+  const [excerpt, fullText] = evidence.querySelectorAll('blockquote')
+  expect(excerpt.textContent?.trimEnd().endsWith('…')).toBe(true)
+  expect(excerpt.textContent).not.toContain('Season after cooking.')
+  expect(fullText.closest('details')?.open).toBe(false)
+  expect(fullText.textContent).toBe(notes)
 })
 
 it('persists corrected and temporarily invalid fields across remounts without saving', () => {
@@ -290,12 +304,12 @@ it('blocks leaving even before the user edits AI-prefilled values and keeps note
 it('shows a recoverable state for a missing handoff and never renders an empty recipe form', () => {
   sessionStorage.clear()
   renderReview()
-  expect(screen.getByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'No recipe draft to review' })).toBeTruthy()
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
   expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
 })
 
-it('uses both leaves for desktop missing-draft recovery and keeps the return actions clear', () => {
+it('gives desktop missing-draft recovery one action beside its heading', () => {
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: query === '(min-width: 1100px) and (min-height: 640px)',
     addEventListener: vi.fn(),
@@ -304,10 +318,9 @@ it('uses both leaves for desktop missing-draft recovery and keeps the return act
   sessionStorage.clear()
   renderReview()
 
-  expect(document.querySelector('.mm-facing-content--quick-ai-recovery')).toBeTruthy()
-  expect(document.querySelector('.mm-journal-page .mm-quick-ai__recovery-actions')).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Return to journal' })).toBeTruthy()
+  const recovery = screen.getByRole('heading', { name: 'No recipe draft to review' }).closest('header')
+  expect(recovery).not.toBeNull()
+  expect(within(recovery!).getAllByRole('link').map((link) => link.textContent)).toEqual(['Open Quick AI Entry'])
 })
 
 it('explains when storage read failure prevents restoring the extraction', () => {
@@ -317,14 +330,14 @@ it('explains when storage read failure prevents restoring the extraction', () =>
     return getItem.call(this, key)
   })
   renderReview()
-  expect(screen.getByRole('alert').textContent).toContain('could not read the saved session draft')
+  expect(screen.getByRole('alert').textContent).toContain('could not restore the saved draft')
   expect(screen.queryByLabelText('Recipe title')).toBeNull()
   expect(screen.getByRole('link', { name: 'Open Quick AI Entry' })).toBeTruthy()
 })
 
 it('does not expose another account’s extraction after an account change', () => {
   renderReview({ userId: 'cook-b' })
-  expect(screen.getByRole('heading', { name: 'Nothing is waiting to be reviewed' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'No recipe draft to review' })).toBeTruthy()
   expect(screen.queryByText(sourceNotes)).toBeNull()
   expect(screen.queryByDisplayValue('Garlic soy rice')).toBeNull()
 })

@@ -357,8 +357,7 @@ try {
   await expect(turningSheet.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
   await expect(turningSheet).toHaveCount(0)
   await expect(page.locator('textarea[name="instructions.0.text"]:not([disabled])')).toHaveValue('Boil the chicken with garlic.')
-  await expect(page.getByText(/different wording: chicken/)).toBeVisible()
-  await page.getByText('Original cooking notes').click()
+  await expect(page.getByRole('heading', { name: 'Original cooking notes' })).toBeVisible()
   await expect(page.locator('blockquote')).toHaveText(sourceNotes)
   await page.getByText("Flavor estimates", { exact: true }).click()
   await expect(page.getByText(/preview only/)).toBeVisible()
@@ -451,6 +450,18 @@ try {
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText("Mori couldn't validate the recipe")
   await expect(notes).toHaveValue('notes that receive a malformed result')
+  for (const [width, height] of [[1440, 900], [1280, 720]]) {
+    await page.setViewportSize({ width, height })
+    const error = page.getByRole('alert')
+    const retry = page.getByRole('button', { name: 'Retry extraction' })
+    await expect(error).toBeInViewport({ ratio: 1 })
+    await expect(retry).toBeInViewport({ ratio: 1 })
+    const messageBox = await error.boundingBox()
+    const buttonBox = await retry.boundingBox()
+    assert.ok(messageBox.y + messageBox.height <= buttonBox.y, `Error and retry must fit in reading order at ${width}×${height}`)
+    await retry.click({ trial: true })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toHaveCount(0)
 
   extractionMode = 'quota'

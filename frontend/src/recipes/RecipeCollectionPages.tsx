@@ -56,7 +56,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     return () => observer.disconnect()
   }, [measureCatalog, recipes, index])
   const heading = <header ref={headingRef} className="mm-collection-heading">
-    {!index && <p className="mm-recipe-index__eyebrow">{`${recipes?.length ?? 0} ${recipes?.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
+    {!index && recipes && <p className="mm-recipe-index__eyebrow">{`${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
     {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}.</p>}
@@ -75,14 +75,14 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       <div className="mm-page-body" role="region" aria-label="Recipe search controls" tabIndex={0}>{controls}{catalog && pagination}</div>
     </JournalFacingPage>
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
-      <h2 id="collection-heading" className="collection-heading" tabIndex={-1}>Saved recipes <span>({recipes?.length ?? 0})</span></h2>
+      <h2 id="collection-heading" className="collection-heading" tabIndex={-1}>Saved recipes{recipes && <span> ({recipes.length})</span>}</h2>
       <div ref={results} className="mm-page-body mm-index-results" role="region" aria-label="Recipe index results" tabIndex={0}>
         {status}
         {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.slice(catalog?.start ?? 0, catalog?.end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={(catalog?.start ?? 0) + i + 1} indexCard />)}</ul> : empty}
         {endOfResults}
       </div>
       {catalog && !!recipes?.length && <ul ref={bank} className="recipe-grid mm-index-entries mm-pagination-measure" aria-hidden="true" inert>
-        {recipes.map((recipe) => <li className="mm-recipe-card-slot" key={recipe.id}><div className="mm-index-card"><RecipeIndexCardContent recipe={recipe} /></div></li>)}
+        {recipes.map((recipe, offset) => <li className="mm-recipe-card-slot" key={recipe.id}><div className="mm-index-card"><RecipeIndexCardContent recipe={recipe} folio={offset + 1} /></div></li>)}
       </ul>}
     </section>
     <JournalPageFooter><div className="mm-collection-footer">
@@ -109,7 +109,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       {/* Keep desktop page capacity independent of the selected spread. */}
       {first || pages.length === 2 ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
       {!first && left === 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
-      <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes <span>({recipes?.length ?? 0})</span></h2>
+      <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes{recipes && <span> ({recipes.length})</span>}</h2>
       <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right + pageOffset}`} tabIndex={0}>
         {status}
         {recipes?.length ? <>

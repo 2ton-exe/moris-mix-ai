@@ -387,7 +387,7 @@ try {
   await expect(appPage).toHaveURL(/\/app\/recipes\/new$/)
   await expect(appPage.getByLabel('Recipe title')).toHaveValue('A persistent animated draft')
 
-  await appPage.getByRole('button', { name: 'Next Pages' }).click()
+  await appPage.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
   await expect(appPage.locator('[data-journal-page-turn]')).toBeVisible()
   const formLayer = appPage.locator('[data-journal-page-turn]')
   assert.ok(await appPage.locator('form').count() > 1, 'The turn snapshot and one live form are present together')
@@ -400,7 +400,7 @@ try {
   await appPage.getByRole('button', { name: 'Previous Pages' }).click()
   await finishTurn(appPage)
   await expect(appPage.getByLabel('Recipe title')).toHaveValue('A persistent animated draft')
-  await appPage.getByRole('button', { name: 'Next Pages' }).click()
+  await appPage.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
   await finishTurn(appPage)
   await expect(appPage.getByRole('button', { name: 'Save recipe' })).toBeEnabled()
   await appPage.getByRole('button', { name: 'Save recipe' }).click()

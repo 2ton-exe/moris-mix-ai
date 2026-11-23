@@ -43,9 +43,10 @@ function JournalNavigation() {
   const quickEntry = /^\/app\/quick-entry(?:\/|$)/.test(path)
   const chef = /^\/app\/chef(?:\/|$)/.test(path)
   const collection = path === '/app' || path === '/app/recipes'
+  const recipe = !creating && /^\/app\/recipes\/[^/]+(?:\/edit)?$/.test(path)
   const returnState = collection ? { journalReturn: pathname + search + hash } : undefined
   return <nav className="mm-bookmarks mm-bookmarks--journal" aria-label="Journal sections">
-    <Link className="mm-bookmark" to="/app/recipes" aria-current={!creating && !quickEntry && !chef ? 'page' : undefined}>My recipes</Link>
+    <Link className="mm-bookmark" to="/app/recipes" aria-current={collection || recipe ? 'page' : undefined}>My recipes</Link>
     <Link className="mm-bookmark mm-bookmark--mustard" to="/app/recipes/new" state={creating ? state : returnState} aria-current={creating ? 'page' : undefined}>New recipe</Link>
     <Link className="mm-bookmark mm-bookmark--rose" to="/app/quick-entry" state={path === '/app/quick-entry' ? state : returnState} aria-current={quickEntry ? 'page' : undefined}>Quick AI Entry</Link>
     <Link className="mm-bookmark mm-bookmark--lilac" to="/app/chef" aria-current={chef ? 'page' : undefined}>AI Chef</Link>

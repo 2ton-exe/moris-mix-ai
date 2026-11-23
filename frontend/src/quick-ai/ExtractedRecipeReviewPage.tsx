@@ -6,7 +6,7 @@ import { useMoriReviewCompletion } from '../mori/MoriCompanionContext'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import { JournalShell } from '../journal/JournalShell'
-import { PaperCard } from '../journal/Scrapbook'
+import { JOURNAL_SINGLE_LAYOUT_QUERY } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
@@ -42,6 +42,7 @@ export function ExtractedRecipeReviewPage({ save }: { save?: SaveRecipeDraft }) 
 function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?: SaveRecipeDraft }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const single = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
   const { markReviewCompleted } = useMoriReviewCompletion()
   const { user, logout } = useAuth()
   const registerLogoutGuard = useContext(JournalLogoutGuardContext)
@@ -159,6 +160,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
   const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
   const editorIntro = consumed ? undefined : "Check Mori's suggestions and fill in missing details before saving."
+  const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} />
   const pageNotice = <>
     {storageNotice}
     {logoutError && <p className="field-error" role="alert">{logoutError}</p>}
@@ -190,9 +192,10 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       cancelLabel="Back to Mori notes"
       onCancel={() => navigate('/app/quick-entry', { state: returnState })}
       notice={pageNotice}
-      supplement={<ExtractionNotice handoff={handoff} saved={consumed} />}
+      supplement={single ? extractionNotice : undefined}
       renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
         headingTitle={editorTitle} headingIntro={editorIntro}
+        facingPageContent={!single && extractionNotice}
         navigationConfirmation={{ ...navigationConfirmation, discardChanges: discardAndLeave }}>{content}</RecipeEditorFrame>} />
   </>
 }
@@ -211,18 +214,22 @@ function ReviewStorageWarning({ issue, saved, onRetry }: { issue: ReviewStorageI
   </div>
 }
 
-function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; saved: boolean }) {
+function ExtractionNotice({ handoff }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']> }) {
   const flavorScores = handoff.recipe.flavor_scores
   const words = (value: string) => value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
   const source = ` ${words(handoff.sourceNotes)} `
   const ingredientsToCompare = [...new Set(handoff.recipe.ingredients.map(({ name }) => name))]
     .filter((name) => words(name) && !source.includes(` ${words(name)} `))
+  const excerpt = handoff.sourceNotes.split('\n', 5).join('\n').slice(0, 240).trimEnd()
+  const hasMore = excerpt.length < handoff.sourceNotes.trimEnd().length
   return <section className="mm-extraction-notes" aria-label="Mori's extraction notes">
-    {!saved && ingredientsToCompare.length > 0 && <p><strong>Check against your notes</strong><br />These ingredient names use different wording: {ingredientsToCompare.join(', ')}.</p>}
-    <details>
-      <summary>Original cooking notes</summary>
-      <blockquote>{handoff.sourceNotes}</blockquote>
-    </details>
+    <h2>Original cooking notes</h2>
+    {ingredientsToCompare.length > 0 && <p>Check Mori’s wording for <strong>{ingredientsToCompare[0]}</strong> against your notes.</p>}
+    <blockquote>{excerpt}{hasMore && '…'}</blockquote>
+    {hasMore && <details>
+      <summary>Read full cooking notes</summary>
+      <blockquote tabIndex={0}>{handoff.sourceNotes}</blockquote>
+    </details>}
     {flavorScores && <details>
       <summary>Flavor estimates</summary>
       <p>Flavor estimates are preview only.</p>
@@ -232,37 +239,18 @@ function ExtractionNotice({ handoff, saved }: { handoff: NonNullable<ReturnType<
 }
 
 function ReviewUnavailable({ userEmail, state, storageStatus, message }: { userEmail?: string; state: { journalReturn: string }; storageStatus: QuickAiDraftReadStatus; message?: string }) {
-  const desktopSpread = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
-  const storageMessage = storageStatus === 'unavailable'
-    ? 'Your browser could not access session storage, so this extraction could not be restored. Return to Quick AI Entry and keep your notes open while you work.'
-    : storageStatus === 'read-failed'
-      ? 'Your browser could not read the saved session draft. Return to Quick AI Entry and recover or re-enter your source notes before leaving.'
-      : undefined
+  const storageMessage = storageStatus === 'unavailable' || storageStatus === 'read-failed'
+    ? 'This browser could not restore the saved draft. Open Quick AI Entry to check your notes.'
+    : undefined
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{userEmail}</span></div>} pageClassName="mm-journal-editor">
-    <JournalFacingPage className={`mm-facing-content--editor${desktopSpread ? ' mm-facing-content--quick-ai-recovery' : ''}`}>
-      {!desktopSpread && <nav className="mm-recipe-detail__back" aria-label="Sheet navigation"><Link to="/app/quick-entry" state={state}>← Back to Mori notes</Link></nav>}
+    <JournalFacingPage className="mm-facing-content--editor">
       <header className="mm-recipe-editor-heading">
-        <div>
-          <p className="mm-recipe-index__eyebrow">AI recipe preview</p>
-          <h1 tabIndex={-1}>Nothing is waiting to be reviewed</h1>
-          <p className="intro">{message ?? (storageMessage ? 'This extraction could not be restored from this browser session.' : 'This unsaved extraction is missing or could not be prepared. Return to Quick AI Entry to restore your notes or organize them again.')}</p>
-        </div>
-      </header>
-      {!desktopSpread && <>
-        {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
+        <h1 tabIndex={-1}>No recipe draft to review</h1>
+        {storageMessage
+          ? <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>
+          : <p className="intro">{message ?? 'Organize your notes in Quick AI Entry to create a draft.'}</p>}
         <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
-      </>}
+      </header>
     </JournalFacingPage>
-    {desktopSpread && <section className="mm-quick-ai__recovery-actions mm-page-column" aria-labelledby="quick-ai-recovery-actions-title">
-      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__recovery-card">
-        <h2 id="quick-ai-recovery-actions-title">Return to your notes</h2>
-        <p>Check your source notes or enter them again. Mori’s recipe drafts stay unsaved until you review them and choose Save.</p>
-        {storageMessage && <p role="alert" className="mm-quick-ai__storage-warning">{storageMessage}</p>}
-        <div className="mm-quick-ai__recovery-links">
-          <Link className="button button-primary" to="/app/quick-entry" state={state}>Open Quick AI Entry</Link>
-          <Link className="button button-secondary" to={state.journalReturn}>Return to journal</Link>
-        </div>
-      </PaperCard>
-    </section>}
   </JournalShell>
 }

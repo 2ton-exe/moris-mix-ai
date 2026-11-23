@@ -194,7 +194,7 @@ try {
   assert.equal(await page.locator('.mm-writing-leaf').count(), 2, 'Desktop shows coordinated facing pages')
   const createEditorStyle = await page.getByRole('heading', { name: 'New recipe' }).evaluate((heading) => {
     const title = globalThis.document.querySelector('textarea[name="title"]')
-    const save = globalThis.document.querySelector('.recipe-form-actions .button-primary')
+    const save = globalThis.document.querySelector('.recipe-form-actions [type="submit"]')
     return {
       heading: [globalThis.getComputedStyle(heading).fontFamily, globalThis.getComputedStyle(heading).fontSize],
       title: [globalThis.getComputedStyle(title).borderRadius, globalThis.getComputedStyle(title).backgroundColor],
@@ -324,7 +324,7 @@ try {
   await page.getByRole('button', { name: 'Done' }).click()
 
   const readsBeforePageTurns = recipeReadRequests.length
-  await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   await page.getByRole('button', { name: 'Add cooking step' }).click()
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')
   await page.getByRole('button', { name: 'Add cooking step' }).click()
@@ -359,7 +359,7 @@ try {
   await expect(page.getByRole('heading', { name: 'Ingredients', exact: true })).toBeInViewport()
   await notes.fill('A little olive oil made the edges sweet.')
   await page.screenshot({ path: path.join(outputDir, 'create-draft-first-spread-1440.png'), fullPage: true })
-  await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   saveFailures = 1
   saveGate = gate()
   await page.getByRole('button', { name: 'Save recipe' }).click()
@@ -424,7 +424,7 @@ try {
   await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue(initialRecipe.notes)
   const editEditorStyle = await page.getByRole('heading', { name: 'Edit recipe', exact: true }).evaluate((heading) => {
     const title = globalThis.document.querySelector('textarea[name="title"]')
-    const save = globalThis.document.querySelector('.recipe-form-actions .button-primary')
+    const save = globalThis.document.querySelector('.recipe-form-actions [type="submit"]')
     return {
       heading: [globalThis.getComputedStyle(heading).fontFamily, globalThis.getComputedStyle(heading).fontSize],
       title: [globalThis.getComputedStyle(title).borderRadius, globalThis.getComputedStyle(title).backgroundColor],
@@ -461,9 +461,25 @@ try {
   await page.goto(detailUrl(initialRecipe.id))
   await expect(page.getByRole('heading', { name: 'A favorite revisited', level: 1 })).toBeVisible()
   await page.getByRole('link', { name: 'Edit recipe' }).click()
-  await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
-  await expect(page).toHaveURL(new URL('app/recipes', origin).toString())
+  await page.getByRole('button', { name: 'Back to recipe', exact: true }).click()
+  await expect(page).toHaveURL(detailUrl(initialRecipe.id))
   process.stdout.write('Edit: existing values, PATCH failure/retry/success, and detail-to-edit route behavior passed.\n')
+
+  const methodless = { ...initialRecipe, id: 'methodless-recipe', title: 'Recipe without a method', instructions: [] }
+  recipes.set(methodless.id, methodless)
+  await page.goto(detailUrl(methodless.id) + '?read=instructions-empty')
+  const addCookingSteps = page.getByRole('link', { name: 'Add cooking steps' })
+  await addCookingSteps.click()
+  await expect(page).toHaveURL(editUrl(methodless.id) + '?section=method')
+  const addStep = page.getByRole('button', { name: 'Add cooking step' })
+  await expect(addStep).toBeFocused()
+  await addStep.press('Enter')
+  await page.getByRole('textbox', { name: 'Step 1 description' }).fill('Cook until golden.')
+  await page.getByRole('button', { name: 'Back to recipe' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Discard Changes' }).click()
+  await expect(page).toHaveURL(detailUrl(methodless.id))
+  recipes.delete(methodless.id)
 
   // Long writing data continues across physical leaves without dropping rows.
   await page.goto(editUrl(longRecipe.id))
@@ -489,7 +505,7 @@ try {
       if (turns.length === 1) await page.screenshot({ path: path.join(outputDir, 'ingredient-pages-1440.png') })
       visible.ingredients.forEach((label) => ingredients.add(label))
       visible.steps.forEach((label) => steps.add(label))
-      const next = page.getByRole('button', { name: /^Next Pages?$/ })
+      const next = page.getByRole('button', { name: /^Next(?::| Pages?$)/ })
       if (!(await next.count()) || !(await next.isEnabled())) break
       await turnPage(page, next)
     }
@@ -510,7 +526,7 @@ try {
   while (Number(await page.locator('.mm-writing-pages').getAttribute('data-form-page')) > 0) {
     await turnPage(page, page.getByRole('button', { name: 'Previous Pages' }))
   }
-  while (await page.locator('[data-ingredient-slot]').count() < 2) await turnPage(page, page.getByRole('button', { name: 'Next Pages' }))
+  while (await page.locator('[data-ingredient-slot]').count() < 2) await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   const [sourceNumber, targetNumber] = await page.locator('[data-ingredient-slot]').evaluateAll(nodes => nodes.slice(0, 2).map(node => Number(node.dataset.ingredientSlot) + 1))
   const dragPage = await page.locator('.mm-writing-pages').getAttribute('data-form-page')
   const thirdGrip = await page.getByRole('button', { name: new RegExp(`^Move ingredient ${sourceNumber}:`) }).boundingBox()
@@ -581,7 +597,7 @@ try {
   await page.getByRole('button', { name: 'Done' }).click()
   const stepFourDescription = page.getByLabel('Step 4 description')
   while (!(await stepFourDescription.isVisible())) {
-    const nextPage = page.getByRole('button', { name: 'Next Pages' })
+    const nextPage = page.getByRole('button', { name: /^Next(?::| Pages?$)/ })
     assert(await nextPage.isEnabled(), 'Step 4 must remain reachable after ingredients continue across leaves')
     await turnPage(page, nextPage)
   }
@@ -661,8 +677,8 @@ try {
   await waitForKeyboardTurn(page, 0)
   await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
 
-  while (await page.getByRole('button', { name: /^Next Pages?$/ }).count()) {
-    await turnPage(page, page.getByRole('button', { name: /^Next Pages?$/ }))
+  while (await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).count()) {
+    await turnPage(page, page.getByRole('button', { name: /^Next(?::| Pages?$)/ }))
   }
   const finalPage = await page.locator('.mm-writing-pages').first().getAttribute('data-form-page')
   await page.locator('.mm-writing-leaf').last().focus()
@@ -698,7 +714,7 @@ try {
   await settleJournalLayout(page)
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   for (;;) {
-    const next = page.getByRole('button', { name: /^Next Pages?$/ })
+    const next = page.getByRole('button', { name: /^Next(?::| Pages?$)/ })
     if (!(await next.count()) || !(await next.isEnabled())) break
     await turnPage(page, next)
   }

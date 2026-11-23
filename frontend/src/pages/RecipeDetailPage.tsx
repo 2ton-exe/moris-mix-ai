@@ -67,7 +67,7 @@ export default function RecipeDetailPage() {
       </>}
       editable={source.mode === 'live'}
       actions={<>
-        {source.mode === 'live' && <Link className="button button-primary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn }}>Edit recipe</Link>}
+        {source.mode === 'live' && <Link className="button button-primary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn, recipeFolio: folio }}>Edit recipe</Link>}
         <RecipeDeletionControl recipeId={recipe.id} recipeTitle={recipe.title} />
       </>}
     />}

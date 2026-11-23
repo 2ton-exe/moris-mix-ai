@@ -155,7 +155,7 @@ try {
 
   const verificationFailure = await newAuthContext(390)
   await verificationFailure.page.goto(`${origin}auth/callback#error=access_denied&error_code=otp_expired`)
-  await expect(verificationFailure.page.getByRole('heading', { name: 'Check your verification link' })).toBeVisible()
+  await expect(verificationFailure.page.getByRole('heading', { name: 'Verification link unavailable' })).toBeVisible()
   await assertJournalSemantics(verificationFailure.page, 'invalid verification link')
   await expect(verificationFailure.page.getByRole('status')).toContainText('expired, invalid, or already used')
   assert.equal(await verificationFailure.page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)

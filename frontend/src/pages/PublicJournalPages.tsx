@@ -22,11 +22,10 @@ export function HomePage() {
       <h2>Classic Tomato Scraps Pasta</h2>
       <p>200 g spaghetti, 2 tbsp tomato paste, 2 cloves garlic, and fresh basil.</p>
       <p><strong>First step:</strong> Boil pasta in salted water.</p>
-      <Link to="/demo-recipe">Read the demonstration recipe</Link>
+      <Link className="button button-primary" to="/demo-recipe">Read the demonstration recipe</Link>
     </section>
     <div className="actions">
-      <Link className="button button-primary" to="/app">Your cooking journal</Link>
-      <Link className="button button-secondary" to="/demo-recipe">Demonstration recipe</Link>
+      <Link className="button button-secondary" to="/login">Log in to your journal</Link>
       <Link className="button button-secondary" to="/about">About Mori’s Mix</Link>
     </div>
   </PublicPage>
@@ -42,16 +41,29 @@ export function AboutPage() {
         <li>Rate the dish and add a note about what you’d change.</li>
         <li>Open the recipe again when you cook it next time.</li>
       </ol>
-      <p className="mm-handwriting">Every favorite starts somewhere.</p>
+      <h3>From a rough note to a recipe draft</h3>
+      <p><strong>Your note:</strong> “Fried two eggs with garlic, then added leftover rice and soy sauce.”</p>
+      <p><strong>Mori’s draft:</strong> Garlic egg fried rice · 2 eggs, garlic, cooked rice, soy sauce. Fry the eggs with garlic, then stir in the rice and soy sauce. Check the amounts and edit the draft before saving.</p>
     </section>
     <div className="actions"><Link className="button button-primary" to="/app">Open your journal</Link><Link className="button button-secondary" to="/home">Back home</Link></div>
   </PublicPage>
 }
 
-export function NotFoundPage() {
-  return <PublicPage title="This page is still unwritten.">
-    <p className="mm-recipe-index__eyebrow">404 · Page not found</p>
-    <p className="intro">We couldn’t find that page. Your next recipe is a good place to start again.</p>
-    <div className="actions"><Link className="button button-primary" to="/home">Return home</Link><Link className="button button-secondary" to="/app/recipes">Open your journal</Link></div>
+export function NotFoundPage({ journal = false }: { journal?: boolean }) {
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { if (journal) heading.current?.focus() }, [journal])
+  const recovery = <>
+    <p className="intro">We couldn’t find that page.</p>
+    <div className="actions">
+      <Link className="button button-primary" to={journal ? '/app/recipes' : '/home'}>{journal ? 'My recipes' : 'Return home'}</Link>
+      {!journal && <Link className="button button-secondary" to="/demo-recipe">View demo recipe</Link>}
+    </div>
+  </>
+  if (journal) return <section className="mm-public-page" aria-labelledby="missing-journal-page">
+    <h1 ref={heading} tabIndex={-1} id="missing-journal-page">Page not found</h1>
+    {recovery}
+  </section>
+  return <PublicPage title="Page not found">
+    {recovery}
   </PublicPage>
 }

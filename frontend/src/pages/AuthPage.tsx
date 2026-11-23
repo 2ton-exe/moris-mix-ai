@@ -71,7 +71,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
         description={isSignup ? 'Start your cooking journal. We may ask you to verify your email before logging in.' : 'Log in to your cooking journal.'}
         mood={isSignup ? 'wave' : 'happy'}
       >
-        {logoutNotice && <div className="request-state request-error">
+        {logoutNotice && <div className="request-state request-warning">
           <p role="alert">{logoutNotice}</p>
           <button className="button button-secondary" type="button" onClick={dismissLogoutNotice}>Dismiss notice</button>
         </div>}
@@ -80,7 +80,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             <legend className="visually-hidden">{isSignup ? 'Signup details' : 'Login details'}</legend>
             <AuthField name="email" label="Email" type="email" autoComplete="email" error={errors.email} />
             <AuthField name="password" label="Password" type="password" autoComplete={isSignup ? 'new-password' : 'current-password'}
-              error={errors.password} hint={isSignup ? 'Use at least 6 characters. Additional account password requirements may apply.' : undefined} />
+              error={errors.password} hint={isSignup ? 'At least 6 characters.' : undefined} />
             {isSignup && <AuthField name="confirm-password" label="Confirm password" type="password" autoComplete="new-password" error={errors['confirm-password']} />}
             {Object.keys(errors).length > 0 && <p role="alert" className="field-error">Please check the highlighted fields.</p>}
             {message && <p role="alert" className="field-error">{message}</p>}

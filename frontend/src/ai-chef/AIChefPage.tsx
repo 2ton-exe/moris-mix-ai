@@ -89,7 +89,8 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryInputRef = useRef<HTMLInputElement>(null)
   const moriFocusPantry = useMoriFieldFocus('pantry', pantryInputRef, setGuidedPantry)
   const pageRef = useRef<HTMLElement>(null)
-  const pendingFocus = useRef<'heading' | 'pantry' | null>(null)
+  const preferencesRef = useRef<HTMLTextAreaElement>(null)
+  const pendingFocus = useRef<'heading' | 'pantry' | 'preferences' | null>(null)
   const lastPageFocus = useRef<HTMLElement | null>(null)
   const measuredEnds = usePantryPageEnds({ pageRef, entries: orderedEntries, cards, single, board, view, firstLeaf: (previewLeaf ?? chefLeaf).kind === 'first', turning: isTurning, handoff: handoff !== null })
   const pantryEnds = useMemo(() => board ? [pantryEntries.length] : measuredEnds, [board, pantryEntries.length, measuredEnds])
@@ -149,6 +150,12 @@ function AIChefSession({ userId }: { userId: string }) {
     if (pendingFocus.current === 'pantry' && page === 0) {
       pendingFocus.current = null
       pantryInputRef.current?.focus({ preventScroll: true })
+      return
+    }
+
+    if (pendingFocus.current === 'preferences' && preferencesRef.current) {
+      pendingFocus.current = null
+      preferencesRef.current.focus()
       return
     }
 
@@ -270,7 +277,7 @@ function AIChefSession({ userId }: { userId: string }) {
     clearRequestError()
   }
 
-  function turnPage(next: number, focus: 'heading' | 'pantry' = 'heading') {
+  function turnPage(next: number, focus: 'heading' | 'pantry' | 'preferences' = 'heading') {
     if (next < 0 || next >= pageCount || next === page || isTurning) return false
     const index = pantryEnds[next - 1] ?? 0
     const destination: ChefLeaf = next === 0 ? { kind: 'first' }
@@ -293,8 +300,8 @@ function AIChefSession({ userId }: { userId: string }) {
     if (direction && turnPage(page + direction)) event.preventDefault()
   }
 
-  async function requestSuggestion(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault()
+  async function requestSuggestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     if (inFlight.current || handoff || Date.now() < retryAt) return
     clearRequestError()
     setEntryError(null)
@@ -520,6 +527,7 @@ function AIChefSession({ userId }: { userId: string }) {
         {page >= preferencesStartPage && <fieldset disabled={pending} aria-label="Cooking preferences">
         <h2 className="mm-ai-chef__pane-title" tabIndex={-1}><label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label></h2>
         <textarea
+          ref={preferencesRef}
           id="ai-chef-preferences"
           value={preferencePart}
           maxLength={preferencePartLimit}
@@ -539,7 +547,7 @@ function AIChefSession({ userId }: { userId: string }) {
       </>}
 
       <div className="mm-ai-chef__notices" hidden={!requestError && !retryBlocked && !pending}>
-      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p><button className="button button-secondary mm-button--small" type="button" disabled={pending || retryBlocked} onClick={() => { void requestSuggestion() }}>Try again</button></div>}
+      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p></div>}
       {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
       {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your ingredients; this can take a little while.</p>}
       </div>
@@ -548,7 +556,8 @@ function AIChefSession({ userId }: { userId: string }) {
     </PaperCard>
     <JournalPageFooter>
       {!handoff && <div className="mm-ai-chef__footer-actions">
-        <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked}>{board && <Sparkles size={17} aria-hidden="true" />}{pending ? 'Mori is thinking…' : 'Ask Mori for a recipe'}</button>
+        <button className="button button-primary" type="submit" form="ai-chef-form" disabled={pending || retryBlocked}>{board && <Sparkles size={17} aria-hidden="true" />}{pending ? 'Mori is thinking…' : retryBlocked ? 'Please wait to retry' : requestError && !requestErrorForPantry ? 'Retry recipe suggestion' : 'Ask Mori for a recipe'}</button>
+        {!single && page < preferencesStartPage && <button type="button" className="button button-secondary" disabled={pending || isTurning} onClick={() => turnPage(preferencesStartPage, 'preferences')}>Cooking preferences</button>}
         <p className="mm-ai-chef__save-note">Nothing is saved until you choose Save recipe.</p>
       </div>}
       <JournalPagination label="AI Chef pages" rightNumber={`Page ${page + 1} of ${pageCount}`}

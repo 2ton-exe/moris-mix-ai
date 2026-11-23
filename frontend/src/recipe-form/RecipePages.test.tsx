@@ -106,6 +106,17 @@ function tree(options: Partial<PageOptions> = {}) {
 function click(name: string) { fireEvent.click(screen.getByRole('button', { name })) }
 function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value } }) }
 
+it.each([true, false])('opens the method directly and focuses its first control (has steps: %s)', (hasSteps) => {
+  const initial = record()
+  render(tree({ path: '/app/recipes/recipe-a/edit?section=method', initial: {
+    ...initial, values: { ...draft, instructions: hasSteps ? draft.instructions : [] },
+  } }))
+  const control = hasSteps
+    ? screen.getByRole('textbox', { name: 'Step 1 description' })
+    : screen.getByRole('button', { name: 'Add cooking step' })
+  expect(document.activeElement).toBe(control)
+})
+
 it.each([
   ['/app/recipes/new', '/app/recipes/new'],
   ['/app/quick-entry/review', '/app/quick-entry/review'],
@@ -157,7 +168,7 @@ it('keeps fields on both facing pages in one native form and submits them togeth
   const form = screen.getByRole('form', { name: 'Edit recipe' }) as HTMLFormElement
   expect(document.querySelectorAll('form')).toHaveLength(1)
   for (const label of ['Recipe title', 'Cooked date', 'Rating', 'Notes']) {
-    const field = screen.getByLabelText(label) as HTMLInputElement
+    const field = screen.getByLabelText(new RegExp('^' + label + '(?: \\(optional\\))?$')) as HTMLInputElement
     expect(field.closest('.mm-journal-flyleaf')).toBeTruthy()
     expect(field.form).toBe(form)
     expect(form.elements.namedItem(field.name)).toBe(field)
@@ -355,7 +366,7 @@ it('submits edited values and a nullable rating only after the adapter confirms 
   queryClient.setQueryData(recipeDetail, {})
   render(tree({ path: '/app/recipes/recipe-a/edit', initial: record(), save }))
   title('Updated rice')
-  fireEvent.change(screen.getByLabelText('Rating'), { target: { value: '' } })
+  fireEvent.change(screen.getByLabelText(/^Rating(?: \(optional\))?$/), { target: { value: '' } })
   click('Save changes')
   await screen.findByText('Recipe saved.')
   expect(save.mock.calls[0][0]).toMatchObject({ title: 'Updated rice', star_rating: null })

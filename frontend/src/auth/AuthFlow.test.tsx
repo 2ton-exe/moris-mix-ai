@@ -163,6 +163,15 @@ it('shows verification instructions after signup without assuming a session', as
   expect(screen.queryByRole('heading', { name: 'Your cooking journal' })).toBeNull()
 })
 
+it('keeps journal recovery behind the auth gate for unknown journal URLs', async () => {
+  auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
+  open('/app/missing')
+  const recovery = await screen.findByRole('region', { name: 'Page not found' })
+  expect(recovery.querySelector('a')?.getAttribute('href')).toBe('/app/recipes')
+  expect(screen.getByRole('navigation', { name: 'Journal sections' })).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Return home' })).toBeNull()
+})
+
 it('allows signup to continue when confirmation is disabled and Supabase returns a session', async () => {
   auth.signUp.mockResolvedValue({ data: { session: session() }, error: null })
   open('/signup'); await screen.findByRole('heading', { name: 'Create your account' })
@@ -358,13 +367,13 @@ it.each(['login', 'signup'] as const)('does not redirect after leaving a pending
   if (mode === 'signup') fill('Confirm password', 'password')
   submit(mode === 'login' ? 'Log in' : 'Create account')
   fireEvent.click(screen.getByRole('link', { name: 'View demonstration recipe' }))
-  await screen.findByRole('heading', { name: 'Demonstration recipe' })
+  await screen.findByRole('heading', { name: fixture.recipe.title })
   await act(async () => request.resolve({ data: { session: session() }, error: null }))
   expect(screen.getByLabelText('Current route').textContent).toBe('/demo-recipe')
   // Supabase's valid session remains available when the user chooses to return.
   auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
   fireEvent.click(screen.getByRole('link', { name: 'Back home' }))
-  fireEvent.click(await screen.findByRole('link', { name: 'Your cooking journal' }, { timeout: 5000 }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Log in to your journal' }, { timeout: 5000 }))
   await screen.findByRole('heading', { name: 'Your cooking journal' })
 })
 
@@ -375,7 +384,7 @@ it('does not redirect to verification instructions after abandoning a pending si
   fill('Email', 'cook@example.test'); fill('Password', 'password'); fill('Confirm password', 'password')
   submit('Create account')
   fireEvent.click(screen.getByRole('link', { name: 'View demonstration recipe' }))
-  await screen.findByRole('heading', { name: 'Demonstration recipe' })
+  await screen.findByRole('heading', { name: fixture.recipe.title })
   await act(async () => request.resolve({ data: { session: null }, error: null }))
   expect(screen.getByLabelText('Current route').textContent).toBe('/demo-recipe')
 })
@@ -433,14 +442,14 @@ it('keeps a remote logout warning after the SDK signs out locally and after swit
 
 it.each(['/auth/callback', '/auth/callback#error=access_denied&error_code=otp_expired&error_description=private-detail', '/auth/callback?code=unsupported-code'])('provides recovery for a missing, expired or unsupported callback: %s', async (path) => {
   open(path)
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Verification link unavailable' })
   expect(screen.getByRole('status').textContent).toContain('expired, invalid, or already used')
   expect(screen.queryByText('private-detail')).toBeNull()
   expect(screen.getByRole('link', { name: 'Back to login' })).toBeTruthy()
 })
 
 it('resends a verification link and displays safe rate-limit feedback', async () => {
-  open('/verify-email'); await screen.findByRole('heading', { name: 'Check your email' })
+  open('/verify-email'); await screen.findByRole('heading', { name: 'Verify your email' })
   submit('Send verification link')
   expect(screen.getByRole('alert').textContent).toContain('valid email')
   fill('Email', 'cook@example.test')
@@ -455,7 +464,7 @@ it('resends a verification link and displays safe rate-limit feedback', async ()
 it('does not claim a missing callback verified an already signed-in user', async () => {
   auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
   open('/auth/callback')
-  await screen.findByRole('heading', { name: 'Check your verification link' })
+  await screen.findByRole('heading', { name: 'Verification link unavailable' })
   expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
 })
 
@@ -466,7 +475,7 @@ it('reports unconfirmed login accounts with verification recovery guidance', asy
   submit('Log in')
   expect((await screen.findByRole('alert')).textContent).toContain('verify your email')
   fireEvent.click(screen.getByRole('link', { name: 'Need a verification link?' }))
-  await screen.findByRole('heading', { name: 'Check your email' })
+  await screen.findByRole('heading', { name: 'Verify your email' })
 })
 
 it('keeps signup failures safe and allows retry', async () => {

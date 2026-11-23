@@ -114,7 +114,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       let dockPosition: Position | null = null
       if (next && rect && paper) {
         const x = next.x - size / 2
-        const artHeight = size * 1.2
+        const artHeight = size * 1.2 + 24
         const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable]'), (control) => control.getBoundingClientRect())
           .filter((control) => control.width && control.height && control.left < x + size && control.right > x)
         let y = next.y - MORI_FOOT.y * MORI_ART_SCALE
@@ -237,7 +237,11 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       },
     })
   }, [size])
-  useLayoutEffect(() => { if (open) heading.current?.focus({ preventScroll: true }) }, [open])
+  useLayoutEffect(() => {
+    if (!open) return
+    const composer = userId && !compactChat ? bubble.current?.querySelector('textarea') : null
+    ;(composer ?? heading.current)?.focus({ preventScroll: true })
+  }, [open, compactChat, userId])
   useLayoutEffect(() => {
     if (!focusAfterVisibilityChange.current) return
     focusAfterVisibilityChange.current = false
@@ -385,7 +389,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
               if (event.detail !== 0) { event.preventDefault(); return }
             }
             if (open) close()
-            else setOpen(true)
+            else { setConversationExpanded(true); setOpen(true) }
           }}
           onKeyDown={moveKey}
           onPointerDown={(event) => {
@@ -413,6 +417,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           onPointerCancel={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}
           onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }}>
           <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
+          {!singleLayout && <span className="mori-pet-label">Talk to Mori</span>}
         </button>
       </div>
       <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }}>

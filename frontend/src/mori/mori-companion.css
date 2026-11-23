@@ -211,3 +211,13 @@
   color: var(--mm-color-ink);
   opacity: 1;
 }
+
+.mori-pet-label {
+  padding: 3px 7px;
+  border: 1px solid var(--mm-color-parchment-500);
+  border-radius: var(--mm-radius-paper);
+  background: var(--mm-color-fresh);
+  color: var(--mm-color-ink);
+  font: 650 12px/1.3 var(--mm-font-sans);
+}
+.mori-pet-character:is([data-turn-direction], [data-mori-spatial-turn], [data-navigation-stage]) .mori-pet-label { visibility: hidden; }

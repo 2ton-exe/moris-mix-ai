@@ -515,16 +515,12 @@ try {
     const panel = page.getByRole('region', { name: 'Mori', exact: true })
     await expect(panel).toBeVisible()
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
-    await expect(panel.getByRole('heading', { name: 'Mori', exact: true })).toBeFocused()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeFocused()
     await expect(panel.getByRole('button', { name: 'Close Mori', exact: true })).toBeVisible()
     await expect(trigger.locator('svg')).toHaveAttribute('data-mood', 'talk')
     await reachable(page, panel)
     await assertJournalSemantics(page, `${width}px open companion`)
-    if (width === 1440) {
-      await expect(panel.locator('.mori-chat-conversation')).toBeHidden()
-      await page.screenshot({ path: path.join(outputDir, '1440-compact-companion.png') })
-    }
-    await expandMoriChat(panel)
+    await expect(panel.locator('.mori-chat-conversation')).toBeVisible()
     const chatGeometry = await panel.evaluate((element) => {
       const panel = element.getBoundingClientRect()
       const composer = element.querySelector('.mori-chat-composer').getBoundingClientRect()
@@ -599,7 +595,7 @@ try {
     await expect(preferencesPanel.getByRole('button', { name: 'Reset position' })).toHaveCount(0)
     await expect(preferencesPanel.getByRole('button', { name: 'Hide Mori' })).toHaveCount(0)
     await expect(panel).toBeVisible()
-    await expect(panel.getByRole('heading', { name: 'Mori', exact: true })).toBeFocused()
+    await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeFocused()
     await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 320, height: 480 })
     await settleJournalLayout(page)
@@ -612,7 +608,7 @@ try {
     await page.goto(`${origin}app/recipes/new`)
     await expect(page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
     await expect(trigger).toBeVisible()
-    await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+    await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
     await verifyMoriPageTurn(page, character, 'forward')
     await page.getByRole('button', { name: /^Previous Pages?$/ }).click()
     await verifyMoriPageTurn(page, character, 'backward')
@@ -769,6 +765,7 @@ try {
       const loading = app.page.locator('.mm-reading-skeleton')
       await loading.waitFor()
       await app.page.evaluate(() => globalThis.document.fonts.ready)
+      await settleJournalLayout(app.page)
       const identity = () => app.page.locator(width < 1100 ? '.mm-journal-page .mm-reading-identity' : '.mm-journal-flyleaf .mm-reading-identity').first()
       const loadingArt = await identity().locator('.mm-recipe-artwork').boundingBox()
       const loadingHeading = await identity().locator('.mm-recipe-detail__summary').boundingBox()
@@ -1004,7 +1001,7 @@ try {
     await expect(recording.page.getByRole('heading', { name: 'New recipe', exact: true })).toBeVisible()
     await recording.page.getByLabel('Recipe title').fill('Persistent cookbook draft')
     await recording.page.evaluate(() => { globalThis.__moriSampleTurns = false })
-    for (const name of [/^Next Pages?$/, /^Previous Pages?$/]) {
+    for (const name of [/^Next(?::| Pages?$)/, /^Previous Pages?$/]) {
       await recording.page.getByRole('button', { name }).click()
       await recording.page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
     }
@@ -1057,7 +1054,7 @@ try {
   await reachable(page, panel)
   await page.screenshot({ path: path.join(outputDir, 'reduced-motion-reflow.png') })
   await page.goto(`${origin}app/recipes/new`)
-  await page.getByRole('button', { name: /^Next Pages?$/ }).click()
+  await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
   await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await expect(page.locator('.mori-pet-character')).not.toHaveAttribute('data-turn-direction', 'forward')
   assert.deepEqual(errors, [])

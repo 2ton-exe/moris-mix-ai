@@ -149,7 +149,7 @@ try {
         const imagePanel = page.getByRole('region', { name: 'Recipe image', exact: true })
         if (width >= 1100) {
           while (!await imagePanel.isVisible()) {
-            await page.getByRole('button', { name: 'Next Pages' }).click()
+            await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
             await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
           }
         }
@@ -178,6 +178,8 @@ try {
         assert.deepEqual(pageErrors, [], `Browser page errors at ${width}px in ${browserName}`)
         assert.equal(putAttempts, 2)
         await page.goto(`${appOrigin}/app/recipes/${recipeId}`)
+        const identity = page.getByRole('region', { name: 'Recipe identity and details' })
+        await expect(identity).toBeVisible()
         const bookmarks = page.getByRole('navigation', { name: 'Public pages' })
         await expect(bookmarks).toBeVisible()
         for (const name of ['Home', 'About', 'Demo recipe']) {
@@ -192,7 +194,6 @@ try {
             return element.contains(globalThis.document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
           }), true, 'Public links must be clickable above the journal')
         }
-        const identity = page.getByRole('region', { name: 'Recipe identity and details' })
         const frame = identity.locator('figure.mm-recipe-artwork--detail')
         const photo = frame.getByRole('img', { name: 'Ginger rice photo' })
         await expect(photo).toHaveAttribute('src', newImageUrl)
