@@ -164,7 +164,7 @@
 
 @media (min-width: 1100px) and (min-height: 640px) {
   .mm-quick-ai__back { margin-bottom: 10px; }
-  .mm-quick-ai__sheet { padding: clamp(12px, 2vw, 20px); }
+  .mm-quick-ai__sheet { overflow-y: auto; padding: clamp(12px, 2vw, 20px); }
   .mm-quick-ai__actions { margin-bottom: 0; }
   .mm-quick-ai__example { margin-top: 24px; max-width: 24rem; }
   .mm-desk .mm-journal-flyleaf:has(.mm-facing-content--quick-ai-task) { display: flex; align-items: center; justify-content: center; }
@@ -179,6 +179,11 @@
   .mm-quick-ai__support .mm-quick-ai__example { width: min(100%, 30rem); margin: 0; }
   .mm-quick-ai-intro--task { flex: none; margin: 0 0 12px; }
   .mm-quick-ai-intro--task h1 { margin-bottom: 8px; font-size: clamp(25px, 3vw, 34px); }
+}
+
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
+  .mm-quick-ai__sheet { padding: 12px; }
+  .mm-quick-ai__textarea { min-height: 5rem; max-height: 5rem; }
 }
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
