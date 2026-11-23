@@ -306,7 +306,7 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     const providerFailureResponse = await providerFailureResponsePromise
     expect(providerFailureResponse.status()).toBe(503)
     await expect(page.getByRole('alert')).toContainText('The AI service is temporarily unavailable.', { timeout: 30_000 })
-    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Retry recipe suggestion' })).toBeEnabled()
     await expectPantryItemAndReturnToPreferences(page, 'rice')
     await expect(preferences).toHaveValue('qa03:provider-failure')
     expect(generationRequests).toHaveLength(2)

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { localE2eUser } from './local-user.mjs'
-import { finishRecipeReview, navigateToRecipeSection, signIn, waitForCollection } from './recipe-journey-helpers'
+import { finishRecipeReview, navigateToRecipeSection, signIn, waitForCollection, waitForJournalPageTurn } from './recipe-journey-helpers'
 
 async function expectRecipeAbsentInCollection(page, ...titles) {
   const collectionResponse = page.waitForResponse((response) =>
@@ -103,7 +103,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     while (!await page.getByLabel('Step 1 description').isVisible()) {
       await expect(previous).toBeEnabled()
       await previous.click()
-      await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+      await waitForJournalPageTurn(page)
     }
     await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
     const pagePosition = page.locator('.mm-review-progress')
@@ -112,7 +112,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
       await expect(previous).toBeEnabled()
       const currentPosition = await pagePosition.innerText()
       await previous.click()
-      await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
+      await waitForJournalPageTurn(page)
       await expect(pagePosition).not.toHaveText(currentPosition)
     }
     await expect(title).toHaveValue(reviewedTitle)
