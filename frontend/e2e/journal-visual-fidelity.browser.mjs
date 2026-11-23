@@ -144,6 +144,9 @@ try {
             assert.ok(actionFits, 'Quick AI submit fits inside the notes sheet')
             await submit.click()
             await expect(page.getByRole('alert')).toContainText('Add a few cooking notes')
+            const notes = page.getByRole('textbox', { name: 'Cooking notes' })
+            await notes.fill('QA03_MALFORMED\nrough cooking notes')
+            await expect(notes).toHaveValue('QA03_MALFORMED\nrough cooking notes')
           }
         }
       }
