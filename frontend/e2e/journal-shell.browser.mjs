@@ -131,7 +131,7 @@ try {
     await expect(bookmarks.getByRole('link', { name: 'AI Chef' })).toHaveAttribute('aria-current', 'page')
     await checkShell('chef')
     await page.goto(`${origin}app`)
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
     if (width === 1440) {
       const devtools = await context.newCDPSession(page)
       for (const type of ['protanopia', 'deuteranopia', 'tritanopia']) {
@@ -217,7 +217,7 @@ try {
     await expect(page).toHaveURL(`${origin}app/recipes`)
     // Start a fresh history segment for the existing dashboard/detail Back/Forward assertions.
     await page.goto(`${origin}app`)
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
     await page.getByRole('link', { name: 'Open recipe ' + recipe.title }).click()
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     // Physical layers and containment must not trap a fixed confirmation dialog.
@@ -232,7 +232,7 @@ try {
     await expect(deleteDialog).toHaveCount(0)
     await expect(deleteButton).toBeFocused()
     await page.goBack()
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
     await page.goForward()
     await expect(page.getByRole('heading', { name: recipe.title, exact: true })).toBeVisible()
     await page.reload()
@@ -278,7 +278,7 @@ try {
     await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
     await checkShell('error')
     await bookmarks.getByRole('link', { name: 'My recipes' }).click()
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
     await page.evaluate(async () => {
       await Promise.all(['Figtree', 'Fraunces', 'Caveat'].map((font) => globalThis.document.fonts.load(`16px ${font}`)))
       await globalThis.document.fonts.ready
@@ -299,7 +299,7 @@ try {
       await page.evaluate(() => globalThis.localStorage.removeItem('moris-mix:mori-companion'))
       await page.reload()
       await page.setViewportSize({ width: 720, height: 450 })
-      await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
       await settleJournalLayout(page)
       await page.evaluate(() => new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))))
       await expect(page.getByRole('complementary', { name: 'Journal bookplate' })).toBeHidden()

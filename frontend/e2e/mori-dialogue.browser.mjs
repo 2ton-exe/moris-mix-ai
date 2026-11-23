@@ -473,7 +473,7 @@ try {
     await expect(page).toHaveURL(`${origin}app/recipes`)
     await expect(character).not.toHaveAttribute('data-navigation-stage')
     await expect(chat).toBeVisible()
-    const collectionHeading = page.getByRole('heading', { name: 'Your cooking journal', exact: true })
+    const collectionHeading = page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i, exact: true })
     await expect(collectionHeading).toBeFocused()
     await collection.press('Enter')
     await expect(collectionHeading).toBeFocused()

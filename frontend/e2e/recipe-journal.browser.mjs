@@ -79,7 +79,7 @@ async function newJournalContext(width, { empty = false, holdList = false } = {}
         listFailures--
         return route.fulfill({ status: 503, json: { error: { code: 'TEST_UNAVAILABLE', message: 'private list detail' } } })
       }
-      const list = empty || activeUserId !== userId ? [] : recipes.map(({ id, title, user_id, star_rating, cooked_at }) => ({ id, title, user_id, star_rating, cooked_at }))
+      const list = empty || activeUserId !== userId ? [] : recipes.map(({ id, title, user_id, star_rating, cooked_at, notes }) => ({ id, title, user_id, star_rating, cooked_at, notes }))
       return route.fulfill({ json: { recipes: list, has_more: false, next_cursor: null } })
     }
     const detailPrefix = '/functions/v1/recipes/'
@@ -140,12 +140,18 @@ try {
     }
     await expect(page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
     await assertJournalSemantics(page, `${width}px dashboard`)
-    await expect(page.locator('.recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
+    await expect(page.locator('.mm-journal-spread .mm-collection-body > .recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
     const firstCard = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
     await expect(firstCard).toBeVisible()
     await expect(firstCard.getByRole('img', { name: /no recipe photo is available/ })).toBeVisible()
     await expect(firstCard.getByText('Oct 13, 2026')).toBeVisible()
     await expect(firstCard.getByText('4 / 5')).toBeVisible()
+    if (width >= 1100) {
+      await expect(page.getByRole('heading', { name: 'My scraps', exact: true })).toBeVisible()
+      await expect(page.locator('.mm-journal-flyleaf .mm-bookplate')).toBeVisible()
+      await expect(page.locator('.mm-journal-flyleaf [data-recipe-id]')).toHaveCount(0)
+      await expect(firstCard.getByText(/Toast the garlic gently/)).toBeVisible()
+    }
     assert.equal(await firstCard.locator('img').count(), 0)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Dashboard overflow at ${width}px`)
     await page.screenshot({ path: path.join(outputDir, `${width}-dashboard.png`), fullPage: true })
@@ -187,7 +193,7 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-detail.png`), fullPage: true })
 
     await page.goBack()
-    await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
     await expect(firstCard).toBeFocused()
     await page.goForward()
     await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeFocused()
@@ -200,8 +206,8 @@ try {
     await page.goto(`${origin}app/recipes/${longRecipe.id}`)
     await expect(page.getByRole('heading', { name: longRecipe.title, level: 1 })).toBeVisible()
     const longUnits = await readAllRecipePages(page)
-    assert.equal(longUnits.filter((unit) => unit.id.startsWith('ingredient-')).length, 34)
-    assert.equal(longUnits.filter((unit) => unit.id.startsWith('instruction-')).length, 22)
+    assert.equal(longUnits.filter((unit) => unit.id.startsWith('ingredient-')).reduce((sum, unit) => sum + unit.listItems, 0), 34)
+    assert.equal(longUnits.filter((unit) => unit.id.startsWith('instruction-')).reduce((sum, unit) => sum + unit.listItems, 0), 22)
     assert.ok(longUnits.some((unit) => unit.text.includes('long personal note from the margin')))
     assert.ok(longUnits.some((unit) => unit.text.includes('unbrokennote')))
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Long detail overflow at ${width}px`)
@@ -221,7 +227,7 @@ try {
 
       await settleJournalLayout(page)
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      const reducedCardMotion = await page.locator('.mm-collection-entry').first().evaluate((element) => {
+      const reducedCardMotion = await firstCard.evaluate((element) => {
         const style = globalThis.getComputedStyle(element)
         return { transition: style.transitionProperty, transform: style.transform }
       })

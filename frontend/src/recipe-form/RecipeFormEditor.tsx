@@ -77,12 +77,13 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const desktopReview = !single && reviewPage !== undefined
   const desktopCreate = !single && newRecipeScrapbook
   const desktopRecipeEditor = !single && desktop && !desktopReview
+  const desktopEdit = desktopRecipeEditor && mode === 'edit'
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const leaves = useMemo(() => {
     const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, expandedNotes)
-    if (supplement && desktop && !single) pages.push({ key: 'supplement', kind: 'supplement' })
+    if (supplement && desktop && !single && !desktopEdit) pages.push({ key: 'supplement', kind: 'supplement' })
     return pages
-  }, [supplement, state, single, desktopReview, reviewPage, compact, desktop, textPageLength, textPageRows, textPageColumns, expandedNotes])
+  }, [supplement, state, single, desktopReview, reviewPage, compact, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
@@ -538,7 +539,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           {(desktopReview || desktopCreate) && <Tape variant="sage" className="mm-scrapbook-form__tape" />}
           {desktopCreate && <ScrapbookSticker name="clipboard" variant="die-cut" className="mm-new-recipe__title-clipboard" decorative />}
           {!desktopReview && <div>{titleField}</div>}
-          <h3>{(desktopReview || desktopCreate) && <ScrapbookSticker decorative name="cooking-pot" />}Cooking information</h3>
+          {!desktopEdit && <h3>{(desktopReview || desktopCreate) && <ScrapbookSticker decorative name="cooking-pot" />}Cooking information</h3>}
           <div className="recipe-amount-row">
             <RecipeFormField id={field('cooked_at').id} label={<>Cooked date <small aria-hidden="true">(optional)</small></>} error={errors.cooked_at}>
               <input {...field('cooked_at')} type="date" value={state.cookedDate} onChange={(event) => change({ ...state, cookedDate: event.target.value })} />
@@ -554,6 +555,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
               </select>
             </RecipeFormField>}
           </div>
+          {desktopEdit && supplement && <div ref={supplementSlot} data-supplement-slot />}
           {expandedNotes ? <div className="mm-scrapbook-form__notes">
             <RecipeFormField id={field('notes').id} label={<>{desktopCreate && <ScrapbookSticker decorative name="clipboard" />}Notes <small aria-hidden="true">(optional)</small></>} error={errors.notes}>
               <textarea {...field('notes', false, 'notes:0')} data-form-page-anchor="notes:0" maxLength={20_000} rows={4} value={state.notes} onChange={(event) => changeNotes(event.target.value)} />
@@ -828,7 +830,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>
 
-  return <form className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (desktopCreate ? ' mm-new-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
+  return <form className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (desktopCreate ? ' mm-new-recipe' : '') + (desktopEdit ? ' mm-edit-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
     onSubmit={(event) => { void submit(event) }} onKeyDown={handlePageKeys}
     onFocusCapture={(event) => {
       const target = event.target

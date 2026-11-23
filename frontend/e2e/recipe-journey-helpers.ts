@@ -17,7 +17,7 @@ export async function signIn(page: Page, user: E2eUser) {
   await page.getByRole('textbox', { name: 'Password' }).fill(user.password)
   await page.getByRole('button', { name: 'Log in' }).click()
   await expect(page).toHaveURL(/\/app\/?$/)
-  await expect(page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
 }
 
 export async function waitForCollection(page: Page) {

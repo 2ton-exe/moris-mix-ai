@@ -171,7 +171,7 @@ try {
     globalThis.localStorage.setItem('sb-auth-ui-auth-token', JSON.stringify(session))
   }, { session })
   await restored.page.goto(`${origin}app`)
-  await expect(restored.page.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(restored.page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
   await assertJournalSemantics(restored.page, 'restored authenticated journal')
   await expect(restored.page.getByText('cook@example.test')).toBeVisible()
   assert.equal(await restored.page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)

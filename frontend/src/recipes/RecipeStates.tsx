@@ -84,7 +84,7 @@ export function RecipeSkeleton({ index = false }: { index?: boolean }) {
 export function RecipeReadingSkeleton({ back, publicDemo = false }: { back: ReactNode; publicDemo?: boolean }) {
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   return <><span className="visually-hidden" role="status">{publicDemo ? 'Loading demonstration recipe…' : 'Loading recipe…'}</span><article className="journal-recipe mm-recipe-detail__article mm-page-column mm-continuation mm-reading-skeleton" aria-busy="true">
-    <JournalFacingPage className="mm-facing-content--recipe mm-page-column mm-continuation-facing">
+    <JournalFacingPage className={`mm-facing-content--recipe mm-page-column mm-continuation-facing${publicDemo ? '' : ' mm-scrap-detail'}`}>
       <nav className="recipe-back mm-recipe-detail__back" aria-label="Recipe navigation"><span className="mm-back-clip"><PaperClip />{back}</span></nav>
       <div className="mm-continuation-body mm-continuation-left">
         <RecipeIdentitySkeleton publicDemo={publicDemo} />

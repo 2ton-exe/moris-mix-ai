@@ -308,6 +308,7 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
       : currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
     {previewUrl && <img className="recipe-image" src={previewUrl} alt="Selected recipe image preview" />}
     {!loading && !currentDownload && !downloadError && (allowUpload || showEmpty) && <p role="status">No recipe photo has been added yet.</p>}
+    {allowUpload && currentDownload && !downloadError && <p className="mm-edit-photo__attached">Attached privately</p>}
     {downloadError && <div className="recipe-image-error">
       <p aria-live="polite">Could not load this recipe image.</p>
       <button type="button" className="button button-secondary" onClick={() => { refreshAttempted.current = false; void loadImage(undefined, true, true) }}>Refresh photo</button>

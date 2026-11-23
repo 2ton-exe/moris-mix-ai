@@ -199,7 +199,7 @@ try {
   appPage.setDefaultTimeout(12_000)
   referencePage.setDefaultTimeout(12_000)
   await Promise.all([appPage.goto(`${origin}app/recipes`), referencePage.goto(`${referenceOrigin}journal/scraps`)])
-  await expect(appPage.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(appPage.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
   await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
   await expect(appPage.locator('.mm-journal-book .mm-mori')).toHaveCount(0)
   await expect(referencePage.locator('.book')).toHaveAttribute('data-cover', 'open')
@@ -278,7 +278,7 @@ try {
 
   // Walk the real collection pagination to both bounds, then return to the first spread.
   await appPage.goto(`${origin}app/recipes`)
-  await expect(appPage.getByRole('heading', { name: 'Your cooking journal' })).toBeVisible()
+  await expect(appPage.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
   const previousAtStart = appPage.getByRole('link', { name: /Previous page/ })
   await expect(previousAtStart).toHaveCount(0)
   const nextPage = appPage.getByRole('link', { name: /Next page/ })

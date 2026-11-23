@@ -159,8 +159,8 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     artwork={artwork ?? <RecipeScrapArtwork title={recipe.title} cookedAt={recipe.cooked_at} size="detail" />}
     metadata={<><RecipeMetadata recipe={recipe} />{recipe.star_rating == null && <p className="mm-recipe-unrated">Not rated</p>}</>} />
 
-  return <article data-reading-ready={ready} data-reading-capacity={layout?.capacity} data-reading-width={layout?.width} className={`journal-recipe mm-recipe-detail__article mm-page-column mm-continuation ${layout ? 'is-measured' : 'is-pending'}`}>
-    <JournalFacingPage className="mm-facing-content--recipe mm-page-column mm-continuation-facing">
+  return <article data-reading-ready={ready} data-reading-capacity={layout?.capacity} data-reading-width={layout?.width} className={`journal-recipe mm-recipe-detail__article mm-page-column mm-continuation ${layout ? 'is-measured' : 'is-pending'}${publicDemo ? '' : ' mm-scrap-detail'}`}>
+    <JournalFacingPage className={`mm-facing-content--recipe mm-page-column mm-continuation-facing${publicDemo ? '' : ' mm-scrap-detail'}`}>
       <nav className="recipe-back mm-recipe-detail__back" aria-label="Recipe navigation">
         <span className="mm-back-clip"><PaperClip />{back}</span>
         {folio && <span className="mm-recipe-page-number" aria-label={`Scrap number ${folio}`}>No. {folio}</span>}

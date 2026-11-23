@@ -8,13 +8,13 @@ export interface RecipeSummary {
   title: string
   star_rating?: number | null
   cooked_at?: string | null
+  notes?: string | null
 }
 
 export interface RecipeDetail extends RecipeSummary {
   ingredients: Ingredient[]
   instructions: Instruction[]
   flavor_scores?: FlavorScores | null
-  notes?: string | null
 }
 
 export interface RecipeRequest {

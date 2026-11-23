@@ -148,14 +148,15 @@ try {
         await expect(page.getByLabel('Recipe title')).toHaveValue('Ginger rice')
         const imagePanel = page.getByRole('region', { name: 'Recipe image', exact: true })
         if (width >= 1100) {
-          while (!await imagePanel.isVisible()) {
-            await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
-            await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
-          }
+          await expect(page.locator('.mm-form-identity').getByRole('region', { name: 'Recipe image', exact: true })).toBeVisible()
         }
         await imagePanel.scrollIntoViewIfNeeded()
         await expect(imagePanel.getByRole('img', { name: 'Ginger rice photo' })).toBeVisible()
         await expect(imagePanel.getByLabel('Choose recipe image')).toBeVisible()
+        if (width >= 1100) {
+          await mkdir(path.join(root, 'test-results'), { recursive: true })
+          await page.screenshot({ path: path.join(root, 'test-results', `recipe-edit-${browserName}-${width}.png`) })
+        }
         const image = Buffer.from(await page.evaluate(() => {
           const canvas = globalThis.document.createElement('canvas')
           canvas.width = canvas.height = 1
@@ -206,6 +207,10 @@ try {
         const photoBox = await photo.boundingBox()
         assert.ok(photoBox && photoBox.width > 100 && Math.abs(photoBox.width - photoBox.height) < 2, 'Photo must fill the square placeholder')
         assert.ok(photoBox.x >= 0 && photoBox.x + photoBox.width <= width, 'Framed photo must stay inside the viewport')
+        if (width >= 1100) {
+          const titleBox = await identity.getByRole('heading', { name: 'Ginger rice' }).boundingBox()
+          assert.ok(titleBox && photoBox.y + photoBox.height < titleBox.y, 'Desktop recipe title sits below the photo')
+        }
         assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
         await mkdir(path.join(root, 'test-results'), { recursive: true })
         await page.screenshot({ path: path.join(root, 'test-results', `recipe-image-frame-${browserName}-${width}.png`) })

@@ -7,16 +7,16 @@ import { recipeImageApi } from './imageApi'
 import { RecipeScrapArtwork } from './RecipeScrapArtwork'
 import { formatCookedDate } from './recipePresentation'
 
-export function RecipeMetadata({ recipe, showCookedAt = true }: { recipe: RecipeSummary; showCookedAt?: boolean }) {
+export function RecipeMetadata({ recipe, showCookedAt = true, compact = false }: { recipe: RecipeSummary; showCookedAt?: boolean; compact?: boolean }) {
   return (
     <dl className="recipe-metadata mm-recipe-metadata">
-      {recipe.star_rating != null && <div><dt>Rating</dt><dd>
+      {recipe.star_rating != null && <div><dt className={compact ? 'visually-hidden' : undefined}>Rating</dt><dd>
         <span className="mm-recipe-rating" role="img" aria-label={`${recipe.star_rating} out of 5 stars`}>
           <span aria-hidden="true">{'★'.repeat(recipe.star_rating)}{'☆'.repeat(5 - recipe.star_rating)}</span>
         </span>
         <span className="mm-recipe-rating__value" aria-hidden="true">{recipe.star_rating} / 5</span>
       </dd></div>}
-      {showCookedAt && recipe.cooked_at && <div><dt>Cooked</dt><dd><time dateTime={recipe.cooked_at}>{formatCookedDate(recipe.cooked_at)}</time></dd></div>}
+      {showCookedAt && recipe.cooked_at && <div><dt className={compact ? 'visually-hidden' : undefined}>Cooked</dt><dd><time dateTime={recipe.cooked_at}>{formatCookedDate(recipe.cooked_at)}</time></dd></div>}
     </dl>
   )
 }
@@ -34,26 +34,29 @@ export function RecipeIndexCardContent({ recipe, folio }: { recipe?: RecipeSumma
   </>
 }
 
-export function RecipeCollectionCardContent({ recipe, folio, image }: { recipe?: RecipeSummary; folio: number; image?: ReactNode }) {
+export function RecipeCollectionCardContent({ recipe, folio, image, editorial = false }: { recipe?: RecipeSummary; folio: number; image?: ReactNode; editorial?: boolean }) {
+  const notes = editorial && recipe?.notes?.trim()
   return <>
     <RecipeScrapArtwork title={recipe?.title ?? ''} cookedAt={recipe?.cooked_at} loading={!recipe} image={image} />
     <div className="mm-recipe-card__copy">
       <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
       <p className="mm-collection-entry__title">{recipe ? recipe.title : <span className="mm-skeleton-line" />}</p>
-      {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
+      {recipe ? <RecipeMetadata recipe={recipe} compact={editorial} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
+      {notes && <p className="mm-collection-entry__notes">{notes.length > 128 ? `${notes.slice(0, 128).trimEnd()}…` : notes}</p>}
+      {editorial && <span className="mm-collection-entry__open" aria-hidden="true">Open scrap <ArrowRight size={16} /></span>}
     </div>
   </>
 }
 
-export function RecipeCollectionCardMeasure({ recipe, folio }: { recipe: RecipeSummary; folio: number }) {
+export function RecipeCollectionCardMeasure({ recipe, folio, editorial }: { recipe: RecipeSummary; folio: number; editorial: boolean }) {
   return <li className="mm-recipe-card-slot">
     <div className={`mm-collection-entry${folio % 2 === 0 ? ' is-flipped' : ''}`}>
-      <RecipeCollectionCardContent recipe={recipe} folio={folio} />
+      <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial} />
     </div>
   </li>
 }
 
-export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean }) {
+export function RecipeCard({ recipe, folio, indexCard = false, editorial = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean; editorial?: boolean }) {
   const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -106,7 +109,7 @@ export function RecipeCard({ recipe, folio, indexCard = false }: { recipe: Recip
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio}
+        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial}
           image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
       </Link>
     </li>

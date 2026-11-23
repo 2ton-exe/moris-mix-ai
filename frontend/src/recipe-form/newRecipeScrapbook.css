@@ -4,7 +4,7 @@
     --mm-new-heading: clamp(1.55rem, 3.7vh, 2.45rem);
   }
 
-  :is(.mm-new-recipe .mm-journal-spread, .mm-recipe-form-editor .mm-journal-spread:has(.recipe-form-section--ingredients)) :is(.mm-journal-page, .mm-journal-flyleaf) {
+  .mm-new-recipe .mm-journal-spread :is(.mm-journal-page, .mm-journal-flyleaf) {
     --mm-journal-paper-color: #faf3e3;
     --mm-journal-paper-image: var(--mm-page-curve), var(--mm-scrapbook-paper-edges), var(--mm-tex-grain), var(--mm-tex-mottle);
     background-size: auto, auto, 100% 100%, auto, auto;
