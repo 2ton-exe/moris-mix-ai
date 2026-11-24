@@ -120,6 +120,10 @@ export const GeneratedRecipeSchema = z.object({
   });
 });
 
+export const GeneratedRevisionSchema = GeneratedRecipeSchema.safeExtend({
+  revisionReason: nullToUndefined(z.string().trim().min(1).max(400).optional()),
+});
+
 /**
  * AI-06: the brain-dump input cap. Extraction rejects anything longer before
  * the provider call, so a single request can never fan out into an unbounded
@@ -535,6 +539,32 @@ export const GenerateRecipeRequestSchema = z.object({
   preferences: z.string().trim().max(1000).optional(),
 });
 
+const RevisionNoteExcerptSchema = z.string().max(1200).refine(
+  (note) => note.trim().length > 0,
+  "Select an excerpt from Personal Notes.",
+);
+
+export const RecipeRevisionRequestSchema = z.object({
+  sourceRecipeId: RecipeIdParamSchema,
+  noteExcerpt: RevisionNoteExcerptSchema,
+}).strict();
+
+const RecipeRevisionAmountSchema = z.object({
+  quantity: z.number().nonnegative(),
+  unit: z.string().nullable(),
+});
+
+export const RecipeRevisionSummarySchema = z.object({
+  noteExcerpt: RevisionNoteExcerptSchema,
+  ingredient: z.string().min(1),
+  before: RecipeRevisionAmountSchema,
+  after: RecipeRevisionAmountSchema,
+  reason: z.string().min(1).max(400),
+});
+
+export type RecipeRevisionRequest = z.infer<typeof RecipeRevisionRequestSchema>;
+export type RecipeRevisionSummary = z.infer<typeof RecipeRevisionSummarySchema>;
+
 /** A proposed lineage parent, resolved from the retrieved candidate set. */
 export const SuggestedParentSchema = z.object({
   id: z.guid(),
@@ -573,6 +603,7 @@ export const GenerateRecipeResponseSchema = z.object({
    */
   candidate_token: z.string().min(1).nullable(),
   context: GenerateRecipeContextSummarySchema,
+  revision: RecipeRevisionSummarySchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.parents.length > 0 && value.candidate_token === null) {
     ctx.addIssue({
