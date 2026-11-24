@@ -449,11 +449,14 @@ it('keeps a remote logout warning after the SDK signs out locally and after swit
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-it.each(['/auth/callback', '/auth/callback#error=access_denied&error_code=otp_expired&error_description=private-detail', '/auth/callback?code=unsupported-code'])('provides recovery for a missing, expired or unsupported callback: %s', async (path) => {
+it.each(['/auth/callback', '/auth/callback?flow=recovery#error=access_denied&error_code=otp_expired', '/auth/callback#error=access_denied&error_code=otp_expired&error_description=private-detail', '/auth/callback?code=unsupported-code'])('provides recovery for a missing, expired or unsupported callback: %s', async (path) => {
   open(path)
   await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.getByRole('status').textContent).toContain('expired, invalid, or already used')
   expect(screen.queryByText('private-detail')).toBeNull()
+  expect(screen.getByRole('link', { name: 'Request a new password reset link' }).getAttribute('href')).toBe('/login?flow=recovery')
+  expect(screen.getByRole('link', { name: 'Request a new email verification link' }).getAttribute('href')).toBe('/verify-email')
+  expect(screen.queryByRole('button', { name: 'Send verification link' })).toBeNull()
   expect(screen.getByRole('link', { name: 'Back to login' })).toBeTruthy()
 })
 

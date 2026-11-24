@@ -432,7 +432,7 @@ function AIChefSession({ userId }: { userId: string }) {
       {storageWarning}
       <fieldset disabled={pending || !splitPantry && page !== 0}>
         <legend id="pantry-entry-heading">Pantry ingredients</legend>
-        <p className="mm-ai-chef__help" id="pantry-help">Press Enter to add one ingredient. Paste a list separated by commas or line breaks. You can add up to {MAX_PANTRY_ITEMS} ingredients. Preferences are optional.</p>
+        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Press Enter to add one or paste a list separated by commas or line breaks. Cooking preferences are optional.</p>
         <div className="mm-ai-chef__ingredient-entry">
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
           <input
@@ -459,7 +459,7 @@ function AIChefSession({ userId }: { userId: string }) {
               addIngredients(pasted, 'paste')
             }}
           />
-          <button className={`button ${board ? 'button-primary' : 'button-secondary'}`} type={splitPantry ? 'submit' : 'button'} onClick={splitPantry ? undefined : () => addIngredients(pantryInput, 'input')}>{board && <Plus size={17} aria-hidden="true" />}Add ingredient</button>
+          <button className="button button-secondary" type={splitPantry ? 'submit' : 'button'} onClick={splitPantry ? undefined : () => addIngredients(pantryInput, 'input')}>{board && <Plus size={17} aria-hidden="true" />}Add ingredient</button>
         </div>
         {board && <details className="mm-ai-chef__quick-add">
           <summary>Quick add common ingredients</summary>

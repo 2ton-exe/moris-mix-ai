@@ -215,6 +215,18 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-long-detail.png`), fullPage: true })
 
     if (width === 1440) {
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.goto(`${origin}app/recipes/${longRecipe.id}`)
+      const methodJump = page.getByRole('navigation', { name: 'Jump to recipe section' }).getByRole('button', { name: 'In the kitchen' })
+      await expect(methodJump).toBeInViewport()
+      await methodJump.click()
+      await expect(page).toHaveURL(/read=instruction-0/)
+      await expect(methodJump).toHaveAttribute('aria-current', 'location')
+      await page.getByRole('link', { name: 'Edit cooking steps' }).first().click()
+      await expect(page).toHaveURL(/edit\?section=method/)
+      await expect(page.getByRole('textbox', { name: 'Step 1 description' })).toBeFocused()
+      await page.setViewportSize({ width, height: 900 })
+
       await page.goto(`${origin}app/recipes`)
       // Half-size CSS viewport verifies reflow; the native zoom suite verifies
       // real browser zoom instead of scaling the document with CSS.

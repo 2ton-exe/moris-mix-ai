@@ -383,6 +383,10 @@
   .recipe-ingredient-summary { display: flex; align-items: center; min-width: 0; gap: 8px; }
   .recipe-ingredient-summary__amount { flex: none; color: var(--mm-color-espresso-800); font: 700 14px/1.3 var(--mm-font-sans); white-space: nowrap; }
   .recipe-ingredient-summary__name { min-width: 0; color: var(--mm-color-ink); font: 500 14px/1.35 var(--mm-font-sans); overflow-wrap: anywhere; }
+  .recipe-ingredient-summary:has(.recipe-ingredient-review) { flex-wrap: wrap; gap: 4px 8px; }
+  .recipe-ingredient-summary:has(.recipe-ingredient-review) .recipe-ingredient-summary__name { flex: 1 1 7ch; }
+  .recipe-ingredient-summary:has(.recipe-ingredient-review) .recipe-ingredient-summary__amount { max-inline-size: 100%; white-space: normal; }
+  .recipe-ingredient-summary__amount:empty { display: none; }
   .recipe-ingredient-summary__name.is-empty { color: var(--mm-color-ink-soft); font-style: italic; }
   .recipe-ingredient-compact__actions { display: flex; align-items: center; gap: 1px; }
   .recipe-ingredient-compact__actions .recipe-ingredient-control { width: 38px; height: 40px; }
@@ -488,6 +492,7 @@ html[data-ingredient-dragging] * { cursor: grabbing !important; }
 
 @media (min-width: 1100px) and (min-height: 640px) {
   .mm-journal-editor .mm-form-footer .recipe-form-actions { gap: 12px; padding: 12px 0 8px; margin: 0; border: 0; background: none; box-shadow: none; }
+  .mm-form-footer .recipe-form-actions .recipe-edit-status { margin: 0; margin-inline-end: auto; align-self: center; }
   .mm-desk .recipe-form-section .button.mm-row-add { justify-self: start; width: auto; min-height: 44px; margin-block-start: 8px; padding-inline: 16px; background: var(--mm-color-sage-100); border-radius: var(--mm-radius-control); box-shadow: inset 0 0 0 1px var(--mm-color-sage-500); }
 }
 

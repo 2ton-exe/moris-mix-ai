@@ -612,6 +612,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           {reviewWorkflow && estimateCount === 0 && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('ingredients') ? 'Check fields' : 'Ready'}</span>}
         </div>
         <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
+        {desktopEdit && items.length > 0 && !editing && <p className="field-hint">Use the pencil to edit an ingredient.{state.ingredients.length > 1 && ' Drag a handle to reorder, or select it to choose a position.'}</p>}
         {showExtractionHints && estimateCount > 0 && <p className="field-hint" role="note">Mori’s ingredient suggestions stay editable. Check the names and amounts, then mark them reviewed if they look right; you can still save with a review flag left on.</p>}
         <div className="recipe-ingredient-list" hidden={desktop && Boolean(editing)}>
           {!items.length && <p className="editor-empty">No ingredients yet.</p>}
@@ -789,7 +790,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const methodJump = desktopRecipeEditor && !reviewWorkflow && position.page === 0 && methodPage > 1
     && <button type="button" className="button button-primary" disabled={pending || isTurning}
       onClick={() => turnToPage(methodPage, methodIndex)}>Cooking method</button>
-  const saveButton = <button key="save" className={`button ${desktopRecipeEditor && !reviewWorkflow && position.page === 0 ? 'button-secondary' : 'button-primary'}`} type="submit" disabled={pending || saved}>
+  const showEditStatus = desktopEdit && !saved && !pending
+  const saveButton = <button key="save" className={`button ${desktopRecipeEditor && !reviewWorkflow && position.page === 0 ? 'button-secondary' : 'button-primary'}`} type="submit" disabled={pending || saved}
+    aria-describedby={showEditStatus ? `${prefix}-save-status` : undefined}>
     {desktopReview && !pending && <ScrapbookSticker decorative name="sparkle" />}
     {pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? 'Save recipe' : 'Save changes'}
   </button>
@@ -825,9 +828,12 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           save: saveButton,
           exit: exitButton,
         } : undefined} />
-      {!reviewWorkflow && <div className="actions recipe-form-actions">{desktopReview || desktopCreate ? <>{exitButton}{saveButton}</> : <>{saveButton}{exitButton}</>}{methodJump}</div>}
+      {!reviewWorkflow && <div className="actions recipe-form-actions">
+        {showEditStatus && <p className="field-hint recipe-edit-status" id={`${prefix}-save-status`} role="status">{dirty ? 'Unsaved changes' : 'No unsaved changes'}</p>}
+        {desktopReview || desktopCreate ? <>{exitButton}{saveButton}</> : <>{saveButton}{exitButton}</>}{methodJump}
+      </div>}
       {reviewWorkflow && finalPage && estimateCount > 0 && <p className="field-hint">{estimateCount} ingredient {estimateCount === 1 ? 'estimate still needs' : 'estimates still need'} review.</p>}
-      {dirty && (hasConfirmedSave || !desktopReview || draftKeptInSession || reviewLeafIndex < 0 || !visibleIndices.includes(reviewLeafIndex)) && <p className="field-hint">{draftKeptInSession ? "Draft kept in this tab" : "Unsaved changes"}</p>}
+      {!desktopEdit && dirty && (hasConfirmedSave || !desktopReview || draftKeptInSession || reviewLeafIndex < 0 || !visibleIndices.includes(reviewLeafIndex)) && <p className="field-hint">{draftKeptInSession ? "Draft kept in this tab" : "Unsaved changes"}</p>}
     </div></JournalPageFooter>
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>

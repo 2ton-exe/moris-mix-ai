@@ -9,6 +9,23 @@
 .mm-desk .mm-reading-identity .mm-recipe-detail__summary h1 { font-size: clamp(27px, 2.5vw, 38px); }
 .mm-desk .mm-reading-left-folio { flex: none; padding-top: 8px; border-top: 1.5px dashed rgb(120 92 60 / .3); }
 .mm-reading-running-head { flex: none; min-height: 42px; margin-bottom: 12px; display: flex; align-items: center; color: var(--mm-color-ink-soft); font: 500 18px/1.2 var(--mm-font-hand); }
+@media (min-width: 1100px) and (min-height: 640px) {
+  /* Keep the header height stable while the reader remeasures its pages. */
+  .mm-reading-running-head:not(.mm-reading-running-head--demo) { min-height: 44px; }
+  .mm-reading-section-nav { display: flex; flex: 1 1 100%; gap: 4px; }
+  .mm-desk .mm-reading-section-nav .button {
+    flex: 1 1 0;
+    min-inline-size: 0;
+    min-height: 44px;
+    padding-inline: 4px;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    font-size: 13px;
+    line-height: 1.2;
+  }
+  .mm-desk .mm-reading-section-nav .button[aria-current='location'] { color: var(--mm-color-burgundy-700); opacity: 1; text-decoration: underline; text-underline-offset: 3px; }
+}
 .mm-reading-request-status { flex: none; }
 .mm-reading-request-status:empty { display: none; }
 .mm-desk .mm-reading-unit { margin: 0; padding: 0; transform: none; box-shadow: none; background: none; }

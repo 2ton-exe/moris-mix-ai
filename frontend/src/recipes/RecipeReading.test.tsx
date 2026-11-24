@@ -95,6 +95,7 @@ it('offers contextual repair links for empty saved recipe sections and preserves
 
   expect(screen.getByText(/No ingredients listed\./)).toBeTruthy()
   expect(screen.getByText(/No cooking steps listed\./)).toBeTruthy()
+  expect(screen.queryByRole('navigation', { name: 'Jump to recipe section' })).toBeNull()
   const editLinks = screen.getAllByRole('link', { name: 'Edit this recipe' })
   expect(editLinks).toHaveLength(2)
   expect(editLinks[0].getAttribute('href')).toBe('/app/recipes/reading-test/edit')
@@ -112,6 +113,7 @@ it('keeps empty demonstration recipe sections read-only', () => {
   render(<MemoryRouter initialEntries={['/demo-recipe?read=ingredients-empty']}><RouteView data={{ ...recipe, ingredients: [], instructions: [], notes: '' }} editable publicDemo /></MemoryRouter>)
   expect(screen.getByText(/No ingredients listed\./)).toBeTruthy()
   expect(screen.getByText('No cooking steps listed.')).toBeTruthy()
+  expect(screen.queryByRole('navigation', { name: 'Jump to recipe section' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Edit this recipe' })).toBeNull()
   expect(screen.queryByRole('link', { name: 'Add cooking steps' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Personal notes' })).toBeNull()
@@ -167,6 +169,44 @@ it('turns through facing leaves with live announcements and preserves route retu
   await screen.findByRole('heading', { name: recipe.title })
   fireEvent.click(screen.getByRole('button', { name: 'Browser forward' }))
   await live().findByText('Salt')
+})
+
+it('jumps from a long instruction to its start through a page turn and keeps the edit action contextual', async () => {
+  measured.pages = [
+    ['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1'],
+    ['instruction-1-part-1', 'instruction-1-part-2'], ['instruction-1-part-3', 'instruction-1-part-4', 'instruction-1-part-5', 'instruction-1-part-6'],
+    ['note-0'], ['note-1', 'flavors'],
+  ]
+  render(<MemoryRouter initialEntries={[{ pathname: '/app/recipes/reading-test', search: '?read=instruction-1-part-1', state: { journalReturn: '/app/recipes?entry=6&leaf=4', recipeFolio: 8 } }]}>
+    <RouteView editable folio={8} />
+  </MemoryRouter>)
+
+  const jumpToInstructions = screen.getByRole('button', { name: 'In the kitchen' }) as HTMLButtonElement
+  expect(jumpToInstructions.disabled).toBe(false)
+  expect(live().getByRole('navigation', { name: 'Jump to recipe section' }).querySelectorAll('[aria-current="location"]')).toHaveLength(1)
+  expect(live().getAllByRole('link', { name: 'Edit cooking steps' })[0].getAttribute('href')).toBe('/app/recipes/reading-test/edit?section=method')
+  fireEvent.click(jumpToInstructions)
+  await live().findByText('Cook gently.')
+  await finishPageTurn()
+  expect(screen.getByTestId('location').textContent).toContain('?read=instruction-0')
+  expect(screen.getByTestId('location').textContent).toContain('"journalReturn":"/app/recipes?entry=6&leaf=4"')
+
+  fireEvent.click(live().getAllByRole('link', { name: 'Edit cooking steps' }).at(-1)!)
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes/reading-test/edit?section=method')
+  expect(screen.getByTestId('location').textContent).toContain('"recipeFolio":8')
+})
+
+it('keeps single-page reading on its existing page controls', () => {
+  measured.single = true
+  measured.pages = [
+    ['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1'],
+    ['instruction-1-part-1', 'instruction-1-part-2'], ['instruction-1-part-3', 'instruction-1-part-4', 'instruction-1-part-5', 'instruction-1-part-6'],
+    ['note-0'], ['note-1', 'flavors'],
+  ]
+  render(<MemoryRouter initialEntries={[{ pathname: '/app/recipes/reading-test', search: '?read=ingredient-2', state: { journalReturn: '/app/recipes?entry=6&leaf=4' } }]}><RouteView editable /></MemoryRouter>)
+  expect(screen.queryByRole('navigation', { name: 'Jump to recipe section' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Edit cooking steps' })).toBeNull()
+  expect(live().getAllByRole('link', { name: /Back to recipes/ }).length).toBeGreaterThan(0)
 })
 
 it('restores a direct content anchor and keeps that item through reflow and data updates', async () => {

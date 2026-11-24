@@ -14,9 +14,9 @@ import { readingParagraphs, readingSpreads, splitReadingText } from './readingPa
 import { useReadingPagination } from './useReadingPagination'
 import type { RecipeDetail } from './types'
 
-interface ReadingUnit { id: string; section: string; heading: string; count?: string; list?: 'ul' | 'ol'; step?: number; content: ReactNode }
+interface ReadingUnit { id: string; section: string; heading: string; count?: string; action?: ReactNode; list?: 'ul' | 'ol'; step?: number; content: ReactNode }
 
-function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: number, editable: boolean, journalReturn: string, folio?: number): ReadingUnit[] {
+function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, single: boolean, textChunkSize: number, editable: boolean, journalReturn: string, folio?: number): ReadingUnit[] {
   const editRecipePath = `/app/recipes/${encodeURIComponent(recipe.id)}/edit`
   const editRecipeState = { journalReturn, recipeFolio: folio }
   const units: ReadingUnit[] = recipe.ingredients.map((ingredient, index) => {
@@ -30,6 +30,7 @@ function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, textChunkSize: n
   const instructions = [...recipe.instructions].sort((a, b) => a.step - b.step)
   units.push(...instructions.flatMap((instruction, index) => splitReadingText(instruction.text, textChunkSize).map<ReadingUnit>((text, part) => ({
     id: part ? `instruction-${index}-part-${part}` : `instruction-${index}`, section: 'method', heading: methodHeading,
+    action: editable && !publicDemo && !single && <Link className="button mm-button--ghost" to={`${editRecipePath}?section=method`} state={editRecipeState}>Edit cooking steps</Link>,
     list: 'ol', step: instruction.step, content: <li value={instruction.step}><span className="mm-step-number" aria-hidden="true">{instruction.step}</span><p>{part > 0 && <span className="visually-hidden">Step {instruction.step}, continued: </span>}{text}</p></li>,
   }))))
   if (!instructions.length) units.push({ id: 'instructions-empty', section: 'method', heading: methodHeading, content: <p>No cooking steps listed.{editable && !publicDemo && <> <Link to={`${editRecipePath}?section=method`} state={editRecipeState}>Add cooking steps</Link>.</>}</p> })
@@ -63,6 +64,7 @@ function ReadingUnits({ units, prefix, measured = false, width }: {
       {first.section === 'notes' && <Tape variant="masking" />}
       <div className="mm-section-heading mm-unit-heading">
         <h2 id={label}>{first.heading}{continued && <span className="mm-continued"> · continued</span>}</h2>
+        {first.action}
         {first.count && <span>{first.count}</span>}
       </div>
       <div className="mm-unit-content">{List ? <List role="list" start={first.step}>{content}</List> : content}</div>
@@ -83,14 +85,26 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const contentKey = useMemo(() => JSON.stringify(recipe), [recipe])
   const { bodyRef, leftRef, bankRef, measurable, ready, textChunkSize, layout } = useReadingPagination(contentKey, single)
-  const units = useMemo(() => recipeUnits(recipe, publicDemo, textChunkSize, editable, journalReturn, folio), [recipe, publicDemo, textChunkSize, editable, journalReturn, folio])
+  const units = useMemo(() => recipeUnits(recipe, publicDemo, single, textChunkSize, editable, journalReturn, folio), [recipe, publicDemo, single, textChunkSize, editable, journalReturn, folio])
   const pages = layout?.pages ?? []
   const spreads = readingSpreads(pages, single)
+  const sectionTargets = Array.from(units.reduce((targets, unit) => {
+    if (!targets.has(unit.section)) targets.set(unit.section, { id: unit.id, label: unit.heading })
+    return targets
+  }, new Map<string, { id: string; label: string }>())).map(([section, target]) => ({
+    section, ...target,
+    page: spreads.findIndex((spread) => spread.some((leaf) => leaf.includes(target.id))),
+  })).filter((target) => target.page >= 0)
+  const showSectionNav = !single && !publicDemo && new Set(sectionTargets.map((target) => target.page)).size > 1
   const anchor = new URLSearchParams(location.search).get('read') ?? 'identity'
   const found = spreads.findIndex((spread) => spread.some((leaf) => leaf.some((unit) => unit === anchor || unit.startsWith(`${anchor}-part-`))))
   const committedPage = Math.max(0, found)
   const [previewPage, setPreviewPage] = useState<number | null>(null)
   const current = previewPage ?? committedPage
+  const spread = spreads[current]
+  const anchoredUnit = units.find((unit) => unit.id === anchor || unit.id.startsWith(`${anchor}-part-`))
+  const currentUnit = anchoredUnit && spread.some((leaf) => leaf.includes(anchoredUnit.id))
+    ? anchoredUnit : units.find((unit) => spread.some((leaf) => leaf.includes(unit.id)))
   // Router transitions may commit after a second key event. Keep rapid turns
   // relative to the last requested page instead of a stale rendered closure.
   const focusAfterTurn = useRef(false)
@@ -103,16 +117,15 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     }
   }, [isTurning, single, bodyRef, leftRef])
   useLayoutEffect(() => { requestedPage.current = committedPage }, [committedPage, location.key])
-  const spread = spreads[current]
   const firstLeaf = (single ? current : current * 2) + 1
   const leafCount = pages.length + 1
   const indicator = spread.length === 1 ? `Page ${firstLeaf} of ${leafCount}` : `Pages ${firstLeaf}–${firstLeaf + 1} of ${leafCount}`
   const identityVisible = !layout || spread[0]?.[0] === 'identity'
   const selectUnits = (ids: string[] = []) => units.filter((unit) => ids.includes(unit.id))
-  const turn = (index: number) => {
+  const turn = (index: number, targetAnchor?: string) => {
     if (index < 0 || index >= spreads.length || isTurning) return
     const params = new URLSearchParams(location.search)
-    const nextAnchor = spreads[index][0][0]
+    const nextAnchor = targetAnchor ?? spreads[index][0][0]
     if (nextAnchor === 'identity') params.delete('read')
     else params.set('read', nextAnchor)
     const nextSearch = params.toString()
@@ -172,7 +185,14 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
     </JournalFacingPage>
     <div className={`mm-reading-running-head${publicDemo ? ' mm-reading-running-head--demo' : ''}`}>
       {single && <span className="mm-reading-return">{back}</span>}
-      {!single && !publicDemo && <span>{current ? 'Recipe continued' : 'From your journal'}</span>}
+      {!single && !publicDemo && !showSectionNav && <span>{currentUnit?.heading ?? (current ? 'Recipe continued' : 'From your journal')}</span>}
+      {showSectionNav && <nav className="mm-reading-section-nav" aria-label="Jump to recipe section">
+        {sectionTargets.filter((target) => target.page !== current || target.section === currentUnit?.section).map(({ section, label, id, page }) => {
+          const currentSection = currentUnit?.section === section
+          return <button key={section} type="button" className="button mm-button--ghost"
+            aria-current={currentSection ? 'location' : undefined} disabled={isTurning || current === page} onClick={() => turn(page, id)}>{label}</button>
+        })}
+      </nav>}
     </div>
     <div className="mm-reading-request-status">{status}</div>
     <div ref={bodyRef} className="mm-continuation-body mm-recipe-reading-body" tabIndex={0} role="region" aria-label="Recipe ingredients, instructions and notes">

@@ -50,6 +50,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
 
   const checking = isLoading || (callback && callbackResult === 'checking')
   const recovery = callback && callbackResult !== 'checking' && callbackResult.kind === 'recovery' ? callbackResult : null
+  const callbackUnavailable = callback && callbackResult !== 'checking' && callbackResult.kind === 'invalid'
   const resetLinkUnavailable = Boolean(recovery)
   if (recovery && !initializationError && !checking && session?.access_token === recovery.accessToken) {
     return <VerifiedPasswordReset accessToken={recovery.accessToken} />
@@ -66,6 +67,8 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
       ? 'If this address has an unconfirmed account, a new link will arrive shortly. Check spam and open the link in this browser.'
       : inboxGuidance
       ? 'Open the verification link in this browser to finish signing up. You are not logged in yet. Check spam if the message hasn’t arrived.'
+      : callbackUnavailable
+        ? 'This link may be expired, invalid, or already used. Choose a new password reset or verification link below, then open it in the same browser where you requested it.'
       : callback
         ? 'This link may be expired, invalid, or already used. Enter your email to request a new verification link.'
         : 'Enter your email address to request a verification link.'
@@ -87,6 +90,13 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
             <Link className="button button-primary" to="/login?flow=recovery">Request a new reset link</Link>
             <Link className="button button-secondary" to="/login">Back to login</Link>
           </div>
+          : callbackUnavailable ? <>
+            <div className="actions">
+              <Link className="button button-secondary" to="/login?flow=recovery" state={location.state}>Request a new password reset link</Link>
+              <Link className="button button-secondary" to="/verify-email" state={location.state}>Request a new email verification link</Link>
+            </div>
+            <p className="auth-links"><Link to="/login" state={location.state}>Back to login</Link></p>
+          </>
           : <>
             <form className="auth-form" method="post" noValidate onSubmit={(event) => { void resend(event) }} aria-busy={pending}>
               <div className="auth-field">

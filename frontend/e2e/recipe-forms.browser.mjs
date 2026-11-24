@@ -453,6 +453,9 @@ try {
   await expect(page).toHaveURL(editUrl(initialRecipe.id))
   await expect(page.getByLabel('Recipe title')).toHaveValue(initialRecipe.title)
   await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue(initialRecipe.notes)
+  const editSave = page.getByRole('button', { name: 'Save changes' })
+  await expect(editSave).toHaveAccessibleDescription('No unsaved changes')
+  await expect(page.getByText('Use the pencil to edit an ingredient.', { exact: false })).toBeVisible()
   const editEditorStyle = await page.getByRole('heading', { name: 'Edit recipe', exact: true }).evaluate((heading) => {
     const title = globalThis.document.querySelector('textarea[name="title"]')
     const save = globalThis.document.querySelector('.recipe-form-actions [type="submit"]')
@@ -476,6 +479,7 @@ try {
   await expect(notesDialog.getByRole('textbox', { name: 'Full notes' })).toBeVisible()
   await notesDialog.getByRole('button', { name: 'Done' }).click()
   await page.getByLabel('Recipe title').fill('A favorite revisited')
+  await expect(editSave).toHaveAccessibleDescription('Unsaved changes')
   saveFailures = 1
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByRole('alert')).toContainText('Could not confirm whether your recipe was saved')
