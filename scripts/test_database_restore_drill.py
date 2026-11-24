@@ -135,6 +135,78 @@ class StageBOfflineTests(unittest.TestCase):
         ):
             self.assertNotIn(private_field, summary)
 
+    def test_synthetic_startup_probe_emits_only_allowlisted_runtime_states(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_probe() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_probe() {\n" + probe + "\n}\n"
+        docker = """#!/usr/bin/env bash
+case "$1" in
+  ps)
+    if [[ " $* " == *"label=com.supabase.cli.project=$RESTORE_PROJECT_ID"* &&
+          " $* " == *"name=^/supabase_db_$RESTORE_PROJECT_ID$"* ]]; then
+      printf '%s\\n' "${DB_CONTAINERS:-}"
+    else
+      printf '%s\\n' "${PROJECT_CONTAINERS:-}"
+    fi ;;
+  inspect) printf '%s\\n' "${DB_STATE:-running}" ;;
+  exec*)
+    if [[ "${PG_READY:-yes}" != yes ]]; then
+      printf '%s\\n' 'SYNTHETIC_PRIVATE_EXEC_ERROR' >&2
+      exit 93
+    fi ;;
+  *) printf '%s\\n' 'SYNTHETIC_PRIVATE_DOCKER_ERROR' >&2; exit 92 ;;
+esac
+"""
+        with tempfile.TemporaryDirectory() as td:
+            docker_path = Path(td) / "docker"
+            docker_path.write_text(docker, encoding="utf-8")
+            docker_path.chmod(0o755)
+            env = dict(
+                os.environ,
+                PATH=f"{td}{os.pathsep}{os.environ['PATH']}",
+                RESTORE_PROJECT_ID="synthetic-project",
+                RESTORE_DOCKER_NETWORK="synthetic-network",
+                PROJECT_CONTAINERS="111111111111\n222222222222",
+                DB_CONTAINERS="0123456789ab",
+            )
+            ready = subprocess.run(["bash", "-c", function + "synthetic_startup_probe"],
+                                   env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(ready.returncode, 0, ready.stderr)
+            self.assertEqual(
+                ready.stdout,
+                "synthetic-startup-probe container=one state=running pg_ready=verified\n",
+            )
+            self.assertEqual(ready.stderr, "")
+            env.update(DB_CONTAINERS="SYNTHETIC_PRIVATE_CONTAINER_ID")
+            ambiguous = subprocess.run(["bash", "-c", function + "synthetic_startup_probe"],
+                                       env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(ambiguous.returncode, 0, ambiguous.stderr)
+            self.assertEqual(
+                ambiguous.stdout,
+                "synthetic-startup-probe container=ambiguous state=unknown pg_ready=unverified\n",
+            )
+            self.assertEqual(ambiguous.stderr, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_", ambiguous.stdout + ambiguous.stderr)
+            env.update(DB_CONTAINERS="0123456789ab", DB_STATE="SYNTHETIC_PRIVATE_STATE",
+                       PG_READY="no")
+            private_state = subprocess.run(
+                ["bash", "-c", function + "synthetic_startup_probe"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(private_state.returncode, 0, private_state.stderr)
+            self.assertEqual(
+                private_state.stdout,
+                "synthetic-startup-probe container=one state=unknown pg_ready=unverified\n",
+            )
+            self.assertEqual(private_state.stderr, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_", private_state.stdout + private_state.stderr)
+
     def test_runner_host_guard_precedes_restore_and_cleanup_fails_closed(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         firewall_setup = workflow.index("Prepare temporary runner input firewall")

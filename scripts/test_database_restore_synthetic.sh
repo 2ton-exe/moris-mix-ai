@@ -85,6 +85,31 @@ for workflow, step, output in (
         textwrap.dedent(body.split("\n      - name:", 1)[0]), encoding="utf-8"
     )
 PY
+synthetic_startup_probe() {
+  local ids="" container=unknown state=unknown ready=unverified raw_state=""
+  if ids="$(docker ps -a --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" \
+      --filter "name=^/supabase_db_${RESTORE_PROJECT_ID}$" \
+      --format '{{.ID}}' 2>/dev/null)"; then
+    if [[ -z "$ids" ]]; then
+      container=none
+    elif [[ "$ids" =~ ^[0-9a-f]{12,64}$ ]]; then
+      container=one
+      if raw_state="$(docker inspect --format '{{.State.Status}}' "$ids" 2>/dev/null)"; then
+        case "$raw_state" in
+          created|running|restarting|paused|exited|dead) state="$raw_state" ;;
+        esac
+      fi
+      if docker exec "$ids" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+        ready=verified
+      fi
+    else
+      container=ambiguous
+    fi
+  fi
+  printf 'synthetic-startup-probe container=%s state=%s pg_ready=%s\n' \
+    "$container" "$state" "$ready"
+}
+
 if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
   :
 else
@@ -127,6 +152,7 @@ else
   elif grep -Fq 'Restore database network permits outbound connectivity' "$root/start.out" "$root/start.err"; then
     failure_class=database-egress
   fi
+  synthetic_startup_probe
   printf '::error::Synthetic protected target setup failed; class=%s\n' "$failure_class"
   exit "$start_status"
 fi
