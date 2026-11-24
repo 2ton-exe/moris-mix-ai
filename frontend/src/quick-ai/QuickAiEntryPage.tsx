@@ -533,18 +533,16 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
           {error && <div className="mm-quick-ai__error">
             <p role="alert">{error.message}</p>
             {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
-            {error.code !== 'UNAUTHORIZED' && draft.notes.trim() && <div className="mm-quick-ai__error-actions">
-              <p>Your original notes will carry over to the manual recipe form.</p>
-              <Link className="button button-secondary mm-button--small" to="/app/recipes/new"
-                state={{ manualRecipe: { userId, source: 'quick-entry', notes: draft.notes } }}>
-                Write this recipe manually
-              </Link>
-            </div>}
           </div>}
           {error?.code !== 'UNAUTHORIZED' && <div className="mm-quick-ai__actions">
             <button className="button button-primary" type="submit" disabled={loading || retryWait > 0}>
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
             </button>
+            {error && draft.notes.trim() && <Link className="button button-secondary mm-button--small" to="/app/recipes/new"
+              aria-label="Write this recipe manually using your original notes"
+              state={{ manualRecipe: { userId, source: 'quick-entry', notes: draft.notes } }}>
+              Write manually with these notes
+            </Link>}
           </div>}
         </form>
       </PaperCard>}

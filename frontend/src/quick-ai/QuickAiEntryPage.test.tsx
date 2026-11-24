@@ -593,7 +593,8 @@ describe('Quick AI Entry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
 
     expect((await screen.findByRole('alert')).textContent).toContain('AI organizing is temporarily unavailable')
-    const link = screen.getByRole('link', { name: 'Write this recipe manually' })
+    const link = screen.getByRole('link', { name: 'Write this recipe manually using your original notes' })
+    expect(link.textContent).toContain('Write manually with these notes')
     expect(link).toBeTruthy()
     fireEvent.click(link)
     await waitFor(() => expect(router.state.location.pathname).toBe('/app/recipes/new'))

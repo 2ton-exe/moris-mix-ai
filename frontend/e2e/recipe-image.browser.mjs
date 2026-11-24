@@ -224,7 +224,10 @@ try {
         await pages.scrollIntoViewIfNeeded()
         await expect(page.getByRole('link', { name: 'Home', exact: true })).toHaveCount(1)
         await expect(page.getByRole('link', { name: 'Home →' })).toHaveCount(0)
-        await expect(page.getByRole('navigation', { name: 'Recipe actions' })).toHaveCount(0)
+        const actions = page.getByRole('navigation', { name: 'Recipe actions' })
+        await expect(actions.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
+        await expect(actions.getByRole('link', { name: 'Edit recipe' })).toHaveCount(0)
+        await expect(actions.getByRole('button', { name: /Delete/ })).toHaveCount(0)
         assert.equal(await pages.evaluate((element) => {
           const footer = element.parentElement
           const rect = element.getBoundingClientRect()

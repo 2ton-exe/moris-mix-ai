@@ -308,8 +308,11 @@ try {
   await expect(page.getByText('Unsaved preview')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review recipe draft' })).toBeVisible()
   await page.getByRole('button', { name: 'Previous page' }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await expect(notes).toHaveValue(sourceNotes)
+  await expect(page.getByRole('button', { name: 'Next page' })).toBeVisible()
   await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.locator('[data-journal-page-turn]')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toBeFocused()
   assert.ok(requests.some((request) => request.path === '/functions/v1/extract-recipe' && request.authorization === 'Bearer quick-ai-test-access'))
   assert.deepEqual(requests.find((request) => request.path === '/functions/v1/extract-recipe' && request.body?.notes === sourceNotes)?.body, { notes: sourceNotes })
@@ -415,6 +418,20 @@ try {
   await expect(page.getByRole('alert')).toContainText('Mori could not reach the kitchen')
   await expect(notes).toHaveValue('beans, cumin, lemon, a splash of water')
   extractionMode = 'success'
+  await settleJournalLayout(page)
+  const retryLayout = await page.evaluate(() => {
+    const retry = globalThis.document.querySelector('.mm-quick-ai__actions button')
+    const footer = globalThis.document.querySelector('.mm-journal-page-footer')
+    return {
+      retryBottom: retry.getBoundingClientRect().bottom,
+      cardBottom: globalThis.document.querySelector('.mm-quick-ai__sheet').getBoundingClientRect().bottom,
+      footerTop: footer.getBoundingClientRect().top,
+    }
+  })
+  assert.ok(retryLayout.retryBottom <= retryLayout.cardBottom + 1,
+    `Retry action must stay inside its paper at a short viewport: ${JSON.stringify(retryLayout)}`)
+  assert.ok(retryLayout.retryBottom <= retryLayout.footerTop + 1,
+    `Retry action must stay above the page controls at a short viewport: ${JSON.stringify(retryLayout)}`)
   await page.getByRole('button', { name: 'Retry extraction' }).click()
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(requests.filter((request) => request.path === '/functions/v1/extract-recipe').slice(-2).map((request) => request.body), [
@@ -443,7 +460,7 @@ try {
   assert.ok(providerWait > 30 && providerWait <= 60, `Expected the exposed 60-second provider cooldown, got ${providerWait}`)
   await expect(providerNotes).toHaveValue('keep these notes while the provider cools down')
   await expect(providerPage.getByText('private provider detail')).toHaveCount(0)
-  await providerPage.getByRole('link', { name: 'Write this recipe manually' }).click()
+  await providerPage.getByRole('link', { name: 'Write this recipe manually using your original notes' }).click()
   await expect(providerPage).toHaveURL(`${origin}app/recipes/new`)
   await expect(providerPage.getByRole('textbox', { name: 'Notes' })).toHaveValue('keep these notes while the provider cools down')
   await expect(providerPage.getByRole('button', { name: 'Back to cooking notes' })).toBeVisible()
@@ -456,6 +473,7 @@ try {
   await expect(notes).toHaveValue('notes that receive a malformed result')
   for (const [width, height] of [[1440, 900], [1280, 720]]) {
     await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
     const error = page.getByRole('alert')
     const retry = page.getByRole('button', { name: 'Retry extraction' })
     await expect(error).toBeInViewport({ ratio: 1 })
