@@ -86,7 +86,11 @@ test('restricted backup metadata is masked before use and remains available with
   const archiveDigest = bundle.run.indexOf('mask_workflow_value "$archive_sha256"');
   assert.ok(archiveDigest > bundle.run.indexOf('archive_sha256="$(sha256sum'));
   assert.ok(archiveDigest < bundle.run.indexOf('>> "$GITHUB_OUTPUT"'));
-  assert.doesNotMatch(bundle.run, /mask_workflow_value "\$(?:short_sha|archive_size_bytes)"/);
+  const archiveSize = bundle.run.indexOf('archive_size_bytes="$(stat -c');
+  const archiveSizeMask = bundle.run.indexOf('mask_workflow_value "$archive_size_bytes"');
+  assert.ok(archiveSizeMask > archiveSize, 'archive size must be masked after calculation');
+  assert.ok(archiveSizeMask < bundle.run.indexOf('>> "$GITHUB_OUTPUT"'), 'archive size must be masked before becoming a step output');
+  assert.doesNotMatch(bundle.run, /mask_workflow_value "\$short_sha"/);
 
   const verificationPathMask = verify.run.indexOf('mask_workflow_value "$verify_copy"');
   const verificationMaskHelper = verify.run.indexOf('mask_workflow_value() {');
@@ -96,6 +100,9 @@ test('restricted backup metadata is masked before use and remains available with
   const remoteDigestMask = verify.run.indexOf('mask_workflow_value "$remote_sha256"');
   assert.ok(remoteDigestMask > verify.run.indexOf('remote_sha256="$(sha256sum'));
   assert.ok(remoteDigestMask < verify.run.indexOf('if [[ "$remote_sha256"'));
+  const remoteSizeMask = verify.run.indexOf('mask_workflow_value "$remote_size"');
+  assert.ok(remoteSizeMask > verify.run.indexOf('if ! remote_size="$(aws s3api head-object'));
+  assert.ok(remoteSizeMask < verify.run.indexOf('if [[ "$remote_size"'));
 
   const frontend = workflow('reusable-frontend').jobs.frontend;
   const registerProbe = step(frontend, 'Register a synthetic Actions mask and output');

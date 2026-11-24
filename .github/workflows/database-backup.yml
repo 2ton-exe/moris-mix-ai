@@ -269,6 +269,7 @@ jobs:
           archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
           mask_workflow_value "$archive_sha256"
           archive_size_bytes="$(stat -c '%s' "$archive")"
+          mask_workflow_value "$archive_size_bytes"
 
           cat > "$evidence" <<EOF
           {
@@ -357,6 +358,7 @@ jobs:
             echo "::error::Private R2 archive metadata verification failed."
             exit 1
           fi
+          mask_workflow_value "$remote_size"
 
           if [[ "$remote_size" != "$EXPECTED_SIZE" ]]; then
             echo "::error::Uploaded backup size does not match the local archive size."
