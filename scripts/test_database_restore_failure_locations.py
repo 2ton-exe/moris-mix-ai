@@ -216,7 +216,10 @@ supabase() {
   esac
   [[ "$1" == --debug ]] || return 98
   shift
-  [[ "$1" == db ]] && return 73
+  if [[ "$1" == db ]]; then
+    printf 'Image pull progress for synthetic project\n'
+    return 73
+  fi
   return 99
 }
 export -f supabase

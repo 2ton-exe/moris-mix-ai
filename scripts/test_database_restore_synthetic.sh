@@ -109,8 +109,6 @@ else
       failure_class=database-start-network
     elif grep -Eiq '(port is already allocated|address already in use|bind:|listen)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-port
-    elif grep -Eiq '(image|pull|manifest)' "$root/private-db-start.log" 2>/dev/null; then
-      failure_class=database-start-image-other
     elif grep -Eiq '(auth|migration|baseline)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-baseline
     else

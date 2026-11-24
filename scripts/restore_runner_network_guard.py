@@ -88,8 +88,9 @@ def _server_version_supported():
     if version is None:
         raise GuardError("docker-version-unverified")
     major, minor, patch = (int(part) for part in version.groups())
-    # Moby fixed external DNS forwarding from internal-only networks in 25.0.5.
-    if (major, minor, patch) < (25, 0, 5):
+    # Docker fixed localhost-published port access from same-L2 peers in 28.0.0;
+    # this also includes Moby's internal-network DNS fix from 25.0.5.
+    if (major, minor, patch) < (28, 0, 0):
         raise GuardError("docker-version-unsupported")
 
 

@@ -24,8 +24,11 @@ table inet {guard.TABLE} {{
 
 
 class RestoreRunnerNetworkGuardTests(unittest.TestCase):
-    def test_internal_dns_fix_version_floor(self):
-        for version, expected in (("25.0.4", False), ("25.0.5", True), ("26.0.0", True), ("29.9.3", True)):
+    def test_loopback_publish_and_internal_dns_version_floor(self):
+        for version, expected in (
+            ("25.0.4", False), ("25.0.5", False), ("27.9.9", False),
+            ("28.0.0", True), ("29.9.3", True),
+        ):
             with self.subTest(version=version), patch.object(
                 guard, "_run", return_value=subprocess.CompletedProcess([], 0, version + "\n", "")
             ):

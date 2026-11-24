@@ -146,11 +146,13 @@ class StageBOfflineTests(unittest.TestCase):
         )[1].split("      - name: Restore SQL transactionally", 1)[0]
         self.assertIn("supabase --debug db start", start)
         self.assertLess(start.index("supabase --debug db start"), start.index("restore_runner_network_guard.py apply"))
+        self.assertLess(start.index("docker network create"), start.index('> "$RUNNER_TEMP/restore-network-owned"'))
         cleanup = workflow.split(
             "      - name: Stop isolated database and delete private files", 1
         )[1]
         self.assertIn("if: always()", cleanup)
         self.assertLess(cleanup.index("docker network rm"), cleanup.index("restore_runner_network_guard.py remove"))
+        self.assertIn('[[ "$(cat "$RUNNER_TEMP/restore-network-owned")" == "$RESTORE_DOCKER_NETWORK" ]]', cleanup)
         self.assertIn('failure" -eq 0 && -e "$RUNNER_TEMP/restore-runner-network-guard.json"', cleanup)
         self.assertIn("runner teardown will recycle the VM", cleanup)
 
@@ -1020,14 +1022,15 @@ python3() {
 
     def test_actual_cleanup_fails_closed_and_attempts_independent_obligations(self):
         cases = (
-            ("network-present", 0, 0, 0, 0, 0, 1, True),
-            ("network-absent", 0, 0, 0, 0, 0, 0, False),
-            ("docker-list-fails", 1, 0, 0, 0, 1, 0, False),
-            ("network-remove-fails", 0, 1, 0, 0, 1, 1, True),
-            ("database-stop-fails", 0, 0, 72, 0, 1, 1, True),
-            ("private-file-remove-fails", 0, 0, 0, 1, 1, 1, True),
+            ("network-present", 0, 0, 0, 0, 0, 1, True, True),
+            ("network-absent", 0, 0, 0, 0, 0, 0, False, True),
+            ("docker-list-fails", 1, 0, 0, 0, 1, 0, False, True),
+            ("network-remove-fails", 0, 1, 0, 0, 1, 1, True, True),
+            ("database-stop-fails", 0, 0, 72, 0, 1, 1, True, True),
+            ("private-file-remove-fails", 0, 0, 0, 1, 1, 1, True, True),
+            ("unowned-network", 0, 0, 0, 0, 1, 0, True, False),
         )
-        for name, list_status, remove_status, stop_status, rm_status, expected, remove_calls, present in cases:
+        for name, list_status, remove_status, stop_status, rm_status, expected, remove_calls, present, owned in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 workdir = root / "moris-restore-local"
@@ -1046,6 +1049,8 @@ python3() {
                         (path / "synthetic.txt").write_text("SYNTHETIC_PRIVATE_SENTINEL")
                     else:
                         path.write_text("SYNTHETIC_PRIVATE_SENTINEL")
+                if owned:
+                    (root / "restore-network-owned").write_text("restore-synthetic-cleanup\n")
                 stub = r'''\
 supabase() {
   [[ "$1" == stop ]] || return 99
@@ -1100,8 +1105,12 @@ rm() {
                 if expected == 0:
                     self.assertFalse((root / "restore-selected.tar.gz").exists())
                     self.assertFalse(workdir.exists())
+                    self.assertFalse((root / "restore-network-owned").exists())
                 elif rm_status == 0:
                     self.assertFalse((root / "restore-selected.tar.gz").exists())
+                if name == "unowned-network":
+                    self.assertFalse((root / "restore-network-owned").exists())
+                    self.assertNotIn("network-rm", actions)
 
     def test_missing_mounted_file_stops_before_connection_or_restore(self):
         result, calls = self.run_diagnostic(missing_file=True)
