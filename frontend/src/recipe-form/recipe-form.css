@@ -519,11 +519,6 @@ html[data-ingredient-dragging] * { cursor: grabbing !important; }
     background: none;
     box-shadow: none;
   }
-  .mm-edit-recipe .recipe-ingredient-emoji { display: none; }
-  .mm-edit-recipe .mm-journal-editor .recipe-form-section--ingredients .recipe-ingredient-compact {
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding-inline-start: 10px;
-  }
   :is(.mm-edit-recipe, .mm-new-recipe) .mm-form-identity .recipe-form-field :is(input[type='date'], textarea[name='title']) {
     border: 0;
     border-block-end: 1px solid var(--mm-color-parchment-500);
