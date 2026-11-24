@@ -48,6 +48,13 @@ provider console or serial console for the whole session. Configure the
 provider firewall to deny all external inbound and outbound traffic before
 replay; do not leave an external management path open to the VM.
 
+Before minting credentials, verify that the private mount is actually backed by
+an encrypted ephemeral volume and that Docker's effective data root, PostgreSQL
+volumes, container logs, and any other storage that may hold private data are
+also on encrypted disposable storage. Prevent unencrypted swap, snapshots and
+persistent backups of this VM. Record only the sanitized pass/fail result in
+the restricted preflight record. If any storage boundary is unverified, stop.
+
 Install or verify the dependencies before handling the backup:
 
 - Supabase CLI `2.122.0`, Docker Engine and Compose support, AWS CLI v2, Python
@@ -152,7 +159,16 @@ Cloudflare documents a maximum TTL of seven days, path scoping through
 the parent R2 S3 API token is revoked. There is no documented per-child revoke
 operation, so the parent must be dedicated to this run and revoked after the
 two downloads. The 900-second TTL is the backstop. If it expires early, stop
-and get a new approval and credential; do not extend it silently. See
+and get a new approval and credential; do not extend it silently.
+
+Before minting the dedicated parent token, assign the trusted control-plane
+operator responsibility for revocation on every exit path, including a failed
+mint or handoff, interrupted download, timeout, VM loss, or aborted run. The VM
+cleanup trap only removes local credentials; it cannot revoke the parent.
+If either download fails, stop and have the control-plane operator revoke the
+parent immediately and confirm revocation in the restricted record. Do not
+retry using the same credential or rely on TTL alone. Rehearse the abort and
+cleanup procedure without Backup #4 before requesting real access. See
 Cloudflare's [temporary credentials guide](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/)
 and [create credentials API](https://developers.cloudflare.com/api/resources/r2/subresources/temporary_credentials/methods/create/).
 
@@ -175,6 +191,8 @@ evidence. Set `BACKUP_SHA256`, `BACKUP_SIZE`, `BACKUP_RUN_ID`,
 `BACKUP_PREFIX`, `ARCHIVE_NAME`, and `EVIDENCE_NAME`, then set:
 
 ```bash
+export BACKUP_SHA256 BACKUP_SIZE BACKUP_RUN_ID BACKUP_ATTEMPT
+export BACKUP_SOURCE_SHA BACKUP_SOURCE_PROJECT BACKUP_PREFIX ARCHIVE_NAME
 export GITHUB_REPOSITORY=2ton-exe/moris-mix-ai
 R2_BUCKET=moris-mix-db-backups-prod
 ```
@@ -467,8 +485,9 @@ mount. The cleanup trap installed during initial setup does this on shell exit.
 If shutdown or deletion fails, destroy the VM and encrypted volume from the
 provider console.
 
-Reconfirm the dedicated parent token is revoked, the child credential is
-expired, the private mount and VM are destroyed, and any dedicated ephemeral
+Reconfirm on every exit path that the dedicated parent token is revoked, the
+child credential is invalidated and its TTL has elapsed, the private mount,
+Docker storage and VM are destroyed, and any dedicated ephemeral
 encryption key is disabled or destroyed. Keep only the sanitized fixed label
 and the non-sensitive approval/cleanup record.
 
