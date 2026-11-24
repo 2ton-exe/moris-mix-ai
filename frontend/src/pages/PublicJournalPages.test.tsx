@@ -26,14 +26,15 @@ it('shows a compact editable-recipe example and a direct signup action', () => {
   expect(workflow.textContent).toContain('Eggs, garlic, leftover rice, soy sauce.')
   expect(workflow.textContent).toContain('Garlic egg fried rice')
   expect(workflow.textContent).toContain('Review and edit before saving.')
+  expect(screen.getByRole('link', { name: 'Read a sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
   expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
-  expect(screen.getByRole('link', { name: 'Log in to your journal' }).getAttribute('href')).toBe('/login')
+  expect(screen.getByRole('link', { name: /^Log in$/ }).getAttribute('href')).toBe('/login')
 })
 
 it('offers concise public recovery routes for a missing page', () => {
   render(<MemoryRouter><NotFoundPage /></MemoryRouter>)
 
-  expect(screen.getByText('Try the home page or sample recipe.')).toBeTruthy()
+  expect(screen.getByText(/read a sample recipe without an account/)).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Go to home page' }).getAttribute('href')).toBe('/home')
   expect(screen.getByRole('link', { name: 'View sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
 })
@@ -41,7 +42,8 @@ it('offers concise public recovery routes for a missing page', () => {
 it('explains journal recovery and keeps My recipes as the primary route', () => {
   render(<MemoryRouter><NotFoundPage journal /></MemoryRouter>)
 
-  expect(screen.getByText('That address doesn’t match a recipe page. Browse or search your saved recipes from My recipes.')).toBeTruthy()
+  expect(screen.getByText(/search your saved recipes by title/)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Search my recipes' }).getAttribute('href')).toBe('/app/recipes?view=index')
   expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('href')).toBe('/app/recipes')
   expect(screen.queryByRole('link', { name: 'View sample recipe' })).toBeNull()
 })

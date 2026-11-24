@@ -66,6 +66,8 @@ export default function RecipeDashboardPage() {
   const firstPageRetryButton = useRef<HTMLButtonElement>(null)
   const restoreFirstPageFocus = useRef(false)
   const collectionTitle = useRef<HTMLHeadingElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const focusSearchAfterIndex = useRef(false)
   const restoredLocation = useRef<string | null>(null)
   useEffect(() => {
     if (query.isFetchingNextPage || !restorePaginationFocus.current) return
@@ -123,6 +125,13 @@ export default function RecipeDashboardPage() {
   const returnFocusId = typeof location.state?.focusRecipe === 'string' ? location.state.focusRecipe
     : hasAnchor ? recipes?.[entry]?.id : undefined
   const explicitView = params.get('view')
+  useEffect(() => {
+    if (!focusSearchAfterIndex.current || !indexView) return
+    focusSearchAfterIndex.current = false
+    const target = searchInput.current
+    if (target && !target.disabled) target.focus()
+    else collectionTitle.current?.focus()
+  }, [explicitView, facingPage, indexView])
   const restoreKey = `${location.key}:${indexView}:${single}:${perPage}:${pagedCollection ? collectionStarts.join(',') : ''}:${returnFocusId ?? ''}`
   useEffect(() => {
     if (returnFocusId) {
@@ -184,6 +193,7 @@ export default function RecipeDashboardPage() {
     if (!isTurning && params.has('leaf') && !returnFocusId) document.getElementById('collection-heading')?.focus()
   }, [isTurning, leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
+  const searchResultsKnownEmpty = hasSearch && !controls.waiting && !query.isPending && !query.isFetching && !query.error && recipes?.length === 0
   const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
   const resetIndexSearch = () => {
     restoreFirstPageFocus.current = true
@@ -201,7 +211,8 @@ export default function RecipeDashboardPage() {
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
             <h2 id="no-results-heading" tabIndex={-1}>No recipes match your search.</h2>
-            <p>Try another title or ingredient, or use the search controls to clear search and filters.</p>
+            <p>Try a different search, or reset your search options to see your full collection.</p>
+            {searchResultsKnownEmpty && <button className="button button-secondary" type="button" onClick={resetIndexSearch}>Show all recipes</button>}
           </section>
         ) : (
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
@@ -237,10 +248,17 @@ export default function RecipeDashboardPage() {
       collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
+        <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={(event) => {
+          if (indexView) return
+          const unmodifiedPrimaryClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+          if (unmodifiedPrimaryClick) {
+            focusSearchAfterIndex.current = true
+            restoreIndexFocus.current = false
+          }
+        }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
-      controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} />}
+      controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} searchInputRef={searchInput} hideReset={searchResultsKnownEmpty} />}
       status={<>
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
       {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton index={indexView} />}

@@ -103,7 +103,7 @@ async function finishJournalTurn(target: () => boolean) {
 async function nextChefPage() {
   const current = screen.getByRole('region', { name: /AI Chef page (\d+)/ }).getAttribute('aria-label')!
   const nextPage = Number(/AI Chef page (\d+)/.exec(current)?.[1]) + 1
-  fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+  fireEvent.click(screen.getByRole('button', { name: /^Next page/ }))
   await finishJournalTurn(() => Boolean(screen.queryByRole('region', { name: new RegExp(`AI Chef page ${nextPage}`) })))
 }
 
@@ -223,10 +223,23 @@ describe('AI Chef pantry and review workflow', () => {
     const rightLeaf = screen.getByRole('region', { name: /AI Chef page 1/ })
     expect(within(rightLeaf).getByRole('region', { name: 'Pantry list, 0 items' })).toBeTruthy()
     expect(within(rightLeaf).queryByRole('textbox', { name: 'Pantry ingredient' })).toBeNull()
+    const pantryHelp = within(leftLeaf as HTMLElement).getByText(/Press Enter to add one ingredient/)
+    expect(pantryHelp.textContent).toContain('Paste a list separated by commas or line breaks.')
+    const quickAdd = within(leftLeaf as HTMLElement).getByText('Quick add common ingredients').closest('details')
+    expect(quickAdd?.open).toBe(false)
+    expect(within(rightLeaf).queryByRole('combobox', { name: 'Sort pantry ingredients' })).toBeNull()
+    expect(within(rightLeaf).queryByRole('group', { name: 'Pantry view' })).toBeNull()
+    expect(within(rightLeaf).queryByText(/unlock sorting|Views appear/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Next page: Cooking preferences' }).textContent).toContain('Cooking preferences')
 
     fireEvent.change(pantryInput, { target: { value: 'rice' } })
     fireEvent.keyDown(pantryInput, { key: 'Enter' })
     expect(within(rightLeaf).getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('rice')
+    addIngredient('eggs')
+    expect(within(rightLeaf).getByRole('combobox', { name: 'Sort pantry ingredients' })).toBeTruthy()
+    expect(within(rightLeaf).queryByRole('group', { name: 'Pantry view' })).toBeNull()
+    addIngredient('tomatoes')
+    expect(within(rightLeaf).getByRole('group', { name: 'Pantry view' })).toBeTruthy()
     fireEvent.click(within(rightLeaf).getByRole('button', { name: 'List view' }))
     expect(within(rightLeaf).getByRole('button', { name: 'List view' }).getAttribute('aria-pressed')).toBe('true')
   })
@@ -285,7 +298,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: preferences } })
     expect(screen.getByText('This request only · 950 / 1000 characters')).toBeTruthy()
     const preferenceParts = [(screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value]
-    while (screen.queryByRole('button', { name: 'Next page' })) {
+    while (screen.queryByRole('button', { name: /^Next page/ })) {
       await nextChefPage()
       const nextPart = screen.queryByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement | null
       if (!nextPart) break
@@ -316,6 +329,9 @@ describe('AI Chef pantry and review workflow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect(await screen.findByRole('heading', { name: "Review Mori's recipe." })).toBeTruthy()
+    const saveContext = screen.getByRole('region', { name: 'Before you save' })
+    expect(saveContext.textContent).toContain('Next and Previous name each section.')
+    expect(saveContext.textContent).toContain('Save follows the cooking steps on the final page.')
     await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating'))
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
     expect(document.querySelector('.mori-pet-message')?.textContent).toBe('Your recipe idea is ready for review.')
@@ -414,7 +430,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('today’s AI Chef limit')
     await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('confused'))
     expect((screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value).toBe('spicy')
-    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Previous page/ }))
     expect((screen.getByRole('textbox', { name: 'Pantry ingredient' }) as HTMLInputElement).value).toBe('')
 
     expect(screen.getByRole('button', { name: 'Please wait to retry' }).hasAttribute('disabled')).toBe(true)

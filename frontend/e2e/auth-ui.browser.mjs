@@ -167,6 +167,15 @@ try {
   assert.deepEqual(verificationFailure.errors, [])
   await verificationFailure.context.close()
 
+  const verificationRequest = await newAuthContext(1280, { viewport: { width: 1280, height: 720 } })
+  await verificationRequest.page.goto(`${origin}login`)
+  await verificationRequest.page.getByLabel('Email').fill(user.email)
+  await verificationRequest.page.getByRole('link', { name: 'Need a verification link?' }).click()
+  await expect(verificationRequest.page.getByRole('heading', { name: 'Verify your email' })).toBeVisible()
+  await expect(verificationRequest.page.getByLabel('Email')).toHaveValue(user.email)
+  assert.equal(verificationRequest.authRequests.filter(({ path }) => path === '/auth/v1/resend').length, 0)
+  await verificationRequest.context.close()
+
   const recovery = await newAuthContext(1280, { viewport: { width: 1280, height: 720 } })
   await recovery.page.goto(`${origin}login`)
   await recovery.page.getByLabel('Email').fill(user.email)

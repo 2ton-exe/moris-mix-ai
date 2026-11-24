@@ -2,7 +2,6 @@ import { useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { KeyboardEvent } from 'react'
 import { Mori } from '../journal/Mori'
-import { Tape } from '../journal/Scrapbook'
 
 interface DeleteRecipeDialogProps {
   recipeTitle: string
@@ -86,8 +85,6 @@ export function DeleteRecipeDialog({ recipeTitle, isPending, errorMessage, canRe
         ref={dialogRef}
         onKeyDown={handleKeyDown}
       >
-        <Tape variant="burgundy" className="mm-delete-dialog__tape" />
-        <span className="recipe-card-label mm-delete-dialog__label">A note from your journal</span>
         <div className="mm-delete-dialog__heading">
           <Mori mood="worried" size={62} label="Mori is worried about deleting this recipe" />
           <h2 id={titleId}>Delete “{recipeTitle}”?</h2>

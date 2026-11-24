@@ -227,7 +227,7 @@ try {
       await searchInput.fill('missing')
       await page.getByRole('heading', { name: 'No recipes match your search.' }).waitFor()
       await assertJournalSemantics(page, 'discovery empty results')
-      await page.getByRole('button', { name: 'Reset search and filters' }).click()
+      await page.getByRole('button', { name: 'Show all recipes' }).click()
       await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
 
       await searchInput.fill('retry')

@@ -5,10 +5,10 @@ export type ChefProgressStage = 'pantry' | 'generating' | 'review' | 'saved'
 
 const steps = ['Pantry', 'Review idea', 'Your journal']
 
-export function ChefProgress({ stage, scrapbook = false }: { stage: ChefProgressStage; scrapbook?: boolean }) {
+export function ChefProgress({ stage, scrapbook = false, compact = false }: { stage: ChefProgressStage; scrapbook?: boolean; compact?: boolean }) {
   const current = stage === 'review' ? 1 : stage === 'saved' ? 2 : 0
 
-  return <PaperCard className={`mm-ai-chef__journey${scrapbook ? ' mm-ai-chef__journey--scrapbook' : ''}`} surface="fresh" tape="sage">
+  return <PaperCard className={`mm-ai-chef__journey${scrapbook ? ' mm-ai-chef__journey--scrapbook' : ''}${compact ? ' mm-ai-chef__journey--compact' : ''}`} surface="fresh" tape="sage">
     {scrapbook && <ScrapbookSticker decorative className="mm-ai-chef__mixing-sticker" name="mixing-bowl" />}
     <h2>From pantry to plate{scrapbook && <ScrapbookSticker decorative name="scrapbook-hearts" />}</h2>
     <ol aria-label="AI Chef progress">

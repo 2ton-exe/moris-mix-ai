@@ -22,8 +22,9 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
     return () => { active = false }
   }, [callback])
   const verificationState: unknown = location.state
-  const signupEmail = typeof verificationState === 'object' && verificationState !== null && 'email' in verificationState && typeof verificationState.email === 'string' ? verificationState.email : ''
-  const [email, setEmail] = useState(signupEmail)
+  const suggestedEmail = typeof verificationState === 'object' && verificationState !== null && 'email' in verificationState && typeof verificationState.email === 'string' ? verificationState.email : ''
+  const signupEmail = typeof verificationState === 'object' && verificationState !== null && 'afterSignup' in verificationState && verificationState.afterSignup === true ? suggestedEmail : ''
+  const [email, setEmail] = useState(suggestedEmail)
   const [pending, setPending] = useState(false)
   const submitting = useRef(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,9 +63,9 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
     ? 'Your email is confirmed and you are logged in.'
     : resetLinkUnavailable ? 'This link may have expired or already been used. Request a new link and open it in the browser where you requested it.'
     : sent
-      ? 'If this address has an unconfirmed account, a new link will arrive shortly. Check your inbox and spam folder.'
+      ? 'If this address has an unconfirmed account, a new link will arrive shortly. Check spam and open the link in this browser.'
       : inboxGuidance
-      ? 'Open the verification link in your inbox to finish signing up. You are not logged in yet. Check spam if the message hasn’t arrived.'
+      ? 'Open the verification link in this browser to finish signing up. You are not logged in yet. Check spam if the message hasn’t arrived.'
       : callback
         ? 'This link may be expired, invalid, or already used. Enter your email to request a new verification link.'
         : 'Enter your email address to request a verification link.'

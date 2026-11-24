@@ -75,7 +75,7 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
         const result = await signup(email, password)
         if (lifetime.current !== requestLifetime) return
         if (result === 'verification-required') {
-          navigate('/verify-email', { replace: true, state: { email, from: intendedDestination(location.state) } })
+          navigate('/verify-email', { replace: true, state: { email, afterSignup: true, from: intendedDestination(location.state) } })
           return
         }
       } else await login(email, password)
@@ -137,7 +137,7 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
         </JournalAuthFooter> : <JournalAuthFooter>
           <p>New to MORI'S MIX? <Link to="/signup" state={linkState}>Sign up</Link></p>
           <p><Link to="/login?flow=recovery" state={linkState}>Forgot your password?</Link></p>
-          <p><Link to="/verify-email" state={location.state}>Need a verification link?</Link></p>
+          <p><Link to="/verify-email" state={linkState}>Need a verification link?</Link></p>
         </JournalAuthFooter>}
         {!isRecovery && <div className="actions"><Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link></div>}
       </JournalAuthCard>

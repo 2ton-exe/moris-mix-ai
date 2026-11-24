@@ -160,8 +160,8 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
   const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
   const editorIntro = consumed ? undefined : storageIssue === null
-    ? "Mori's suggestions stay editable. This unsaved draft is kept in this tab until you save it."
-    : "Mori's suggestions stay editable. Keep this page open while you review and save the draft."
+    ? 'Review each named section. Save from the final page. Your draft stays in this tab.'
+    : 'Review each named section, then save from the final page. Keep this page open while you review.'
   const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} />
   const pageNotice = <>
     {storageNotice}

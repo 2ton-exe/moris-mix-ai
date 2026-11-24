@@ -424,7 +424,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     reviewWorkflow
     draftKeptInSession={!saved && storageIssue === null}
     editorTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
-    editorIntro={saved ? undefined : 'Review the title, ingredients, and cooking steps before saving. Parent links are optional.'}
+    editorIntro={saved ? undefined : 'Review each named section, including ingredients and cooking steps. Save from the final page; parent links are optional.'}
     notesSupported
     onSubmit={submit}
     onDirtyChange={setDirty}
@@ -441,7 +441,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       titleEditor={titleEditor}
       facingPageContent={saved ? <ChefProgress stage="saved" /> : <section className="mm-chef-review__save-context" aria-label="Before you save">
           <h2>What will be saved</h2>
-          <p>Review the title, ingredients, and cooking steps before saving. Only checked parent recipes will be linked.</p>
+          <p>Next and Previous name each section. Save follows the cooking steps on the final page. Only checked parent recipes will be linked.</p>
           {handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
         </section>}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />

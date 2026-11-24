@@ -107,6 +107,7 @@ it('opens the review workflow with extraction fields and original notes kept sep
   expect(details.getByText(sourceNotes)).toBeTruthy()
   expect(details.getByText(/preview only/)).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'Review your recipe' })).toBeTruthy()
+  expect(screen.getByText(/Review each named section\. Save from the final page/)).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Save recipe' })).toBeNull()
   fireEvent.submit(screen.getByRole('form', { name: 'Create recipe' }))
   expect(within(screen.getByRole('group', { name: 'Ingredient 2' })).queryByText('Quantity and unit not specified.')).toBeNull()

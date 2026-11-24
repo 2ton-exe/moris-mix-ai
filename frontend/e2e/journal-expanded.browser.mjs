@@ -191,7 +191,7 @@ try {
       await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
       if (name === 'about') {
         await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
-        await expect(page.getByRole('link', { name: 'Log in to your journal' })).toHaveAttribute('href', '/login')
+        await expect(page.getByRole('link', { name: 'Log in', exact: true })).toHaveAttribute('href', '/login')
       }
       if (name === 'demo-sheet') await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
       if (name === 'fallback') {

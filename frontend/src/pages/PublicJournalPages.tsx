@@ -14,6 +14,10 @@ function PublicPage({ title, children }: { title: string; children: ReactNode })
 export function HomePage() {
   return <PublicPage title="Good meals deserve a page.">
     <p className="intro">Keep the recipes you return to, the changes you make, and the little notes that make a meal yours.</p>
+    <div className="actions">
+      <Link className="button button-primary" to="/signup">Start a private journal</Link>
+      <Link className="button button-secondary" to="/login">Log in to your journal</Link>
+    </div>
     {/* shortcut: excerpt mirrors the approved demo fixture, update it when that sample changes. */}
     <section className="mm-public-note mm-public-preview" aria-label="Demonstration recipe excerpt">
       <h2>Classic Tomato Scraps Pasta</h2>
@@ -21,10 +25,6 @@ export function HomePage() {
       <p><strong>First step:</strong> Boil pasta in salted water.</p>
       <Link className="button button-secondary" to="/demo-recipe">Read the sample recipe</Link>
     </section>
-    <div className="actions">
-      <Link className="button button-primary" to="/signup">Start a private journal</Link>
-      <Link className="button button-secondary" to="/login">Log in to your journal</Link>
-    </div>
   </PublicPage>
 }
 
@@ -38,9 +38,9 @@ export function AboutPage() {
         <p><strong>Rough note</strong><br />“Eggs, garlic, leftover rice, soy sauce.”</p>
         <p><strong>Mori’s draft</strong><br />Garlic egg fried rice: 2 eggs, garlic, rice, soy sauce. Fry eggs, then stir in rice.</p>
       </div>
-      <p className="mm-public-workflow__hint">Review and edit before saving.</p>
+      <p className="mm-public-workflow__hint">Review and edit before saving. <Link to="/demo-recipe">Read a sample recipe</Link>.</p>
     </section>
-    <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in to your journal</Link></div>
+    <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in</Link></div>
   </PublicPage>
 }
 
@@ -48,10 +48,11 @@ export function NotFoundPage({ journal = false }: { journal?: boolean }) {
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { if (journal) heading.current?.focus() }, [journal])
   const recovery = <>
-    <p className="intro">{journal ? 'That address doesn’t match a recipe page. Browse or search your saved recipes from My recipes.' : 'Try the home page or sample recipe.'}</p>
+    <p className="intro">{journal ? 'If you followed an old recipe link, search your saved recipes by title.' : 'If you followed an old link, start from the home page. You can also read a sample recipe without an account.'}</p>
     <div className="actions">
       <Link className="button button-primary" to={journal ? '/app/recipes' : '/home'}>{journal ? 'My recipes' : 'Go to home page'}</Link>
-      {!journal && <Link className="button button-secondary" to="/demo-recipe">View sample recipe</Link>}
+      {journal ? <Link className="button button-secondary" to="/app/recipes?view=index">Search my recipes</Link>
+        : <Link className="button button-secondary" to="/demo-recipe">View sample recipe</Link>}
     </div>
   </>
   if (journal) return <section className="mm-public-page" aria-labelledby="missing-journal-page">

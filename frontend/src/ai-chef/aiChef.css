@@ -154,6 +154,16 @@
 .mm-ai-chef__journey li[aria-current='step'] { color: var(--mm-color-ink); background: var(--mm-color-lilac-100); box-shadow: inset 3px 0 var(--mm-color-burgundy-700); font-weight: 700; }
 .mm-ai-chef__journey li.is-complete { color: var(--mm-color-ink); }
 .mm-ai-chef__journey-mark { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--mm-color-sage-700); border-radius: 50%; color: var(--mm-color-sage-900); font: 650 12px/1 var(--mm-font-sans); }
+.mm-ai-chef__journey--compact {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+}
+.mm-ai-chef__journey--compact h2 { margin-bottom: 8px; font-size: 16px; }
+.mm-ai-chef__journey--compact ol { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.mm-ai-chef__journey--compact li { grid-template-columns: 20px minmax(0, 1fr); gap: 5px; min-height: 30px; padding: 2px 3px; font-size: 12px; line-height: 1.2; }
+.mm-ai-chef__journey--compact .mm-ai-chef__journey-mark { width: 18px; height: 18px; font-size: 10px; }
+.mm-ai-chef__journey--compact > .mm-scrapbook-sticker { display: none; }
 .mm-ai-chef__lineage-recovery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; border-left: 3px solid var(--mm-color-burgundy-700); background: var(--mm-color-rose-100, #f5e2dc); }
 .mm-ai-chef__lineage-recovery p { flex: 1 1 100%; margin: 0; color: var(--mm-color-ink); line-height: 1.5; overflow-wrap: anywhere; }
 .mm-ai-chef__lineage-recovery .button { max-width: 100%; white-space: normal; }
@@ -513,6 +523,19 @@
   cursor: pointer;
 }
 .mm-ai-chef__try button { border-radius: 999px; }
+.mm-ai-chef__quick-add { margin: 0; }
+.mm-ai-chef__quick-add summary {
+  display: list-item;
+  list-style-position: inside;
+  min-height: 40px;
+  padding: 9px 4px;
+  color: var(--mm-color-burgundy-800);
+  font: 600 13px/1.3 var(--mm-font-sans);
+  cursor: pointer;
+}
+.mm-ai-chef__quick-add summary:hover { text-decoration: underline; text-underline-offset: .2em; }
+.mm-ai-chef__quick-add summary:focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 2px; }
+.mm-ai-chef__quick-add .mm-ai-chef__try { padding-block: 4px 8px; }
 .mm-ai-chef__try button img { inline-size: 16px; block-size: 16px; }
 .mm-ai-chef__try button:disabled, .mm-ai-chef__board-pages button[aria-disabled='true'] {
   opacity: .62;
