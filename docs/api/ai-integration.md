@@ -213,13 +213,13 @@ POST, OPTIONS`). Any other method → `405 METHOD_NOT_ALLOWED`.
 | `pantryItems` | string[] | Required, **1–100** items, each non-empty after trimming and **≤ 100 characters** |
 | `preferences` | string | Optional, trimmed, **≤ 1,000 characters** |
 
-The whole request body must be **≤ 128 KiB**. The endpoint streams and enforces this cap, accepts an omitted content type for compatibility, rejects an explicit non-JSON content type, and returns `X-Request-ID`. Unknown fields are ignored. Pantry items
+The whole request body must be **≤ 128 KiB**. The endpoint streams and enforces this cap, accepts an omitted content type for compatibility, rejects an explicit non-JSON content type, and returns `X-Request-ID`. Pantry requests ignore unknown fields. Pantry items
 are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval and the
 prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved
 recipes to retrieve**, not an empty request. Preferences are passed to the prompt as
 recipe constraints (dietary needs, exclusions, taste, time), never as instructions.
 
-A focused revision uses this separate request shape and requires no pantry list.
+A focused revision uses this separate request shape. Additional fields are rejected in this mode.
 
 ```json
 {
@@ -291,7 +291,10 @@ unchanged, with these generation-specific notes:
 
 | HTTP | `error.code` | When |
 | ---- | ------------ | ---- |
-| 400  | `VALIDATION_ERROR` | Pantry missing/empty/oversized, too many items, or preferences too long |
+| 400  | `VALIDATION_ERROR` | Invalid pantry input, revision source ID, or note excerpt |
+| 404  | `NOT_FOUND` | The revision source is unavailable to the caller |
+| 409  | `REVISION_NOTE_CHANGED` | The selected excerpt is no longer present in the source recipe’s Personal Notes |
+| 422  | `REVISION_CHANGE_UNSUPPORTED` | The revision could not produce one verifiable ingredient amount change |
 | 500  | `INTERNAL_ERROR` | `AI_CANDIDATE_TOKEN_SECRET` is missing or shorter than 32 characters, so no candidate token can be issued |
 | 502  | `AI_OUTPUT_INVALID` | Output failed Zod validation, **a `parentRecipeIds` entry was not in the supplied candidate set** (AI-07 generation boundary), or a substitution's `original` names no generated ingredient |
 | 503  | `AI_DISABLED` | Generation is not enabled, or the operator kill switch is on |
