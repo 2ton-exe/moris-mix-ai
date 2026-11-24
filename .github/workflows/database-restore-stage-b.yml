@@ -269,7 +269,7 @@ jobs:
               -f /backup/history-data.sql -d "$restore_db"
           echo 'Transactional isolated SQL restore passed.'
 
-      - name: Validate restored application counts and migration versions
+      - name: Validate restored application counts, migration versions and foreign keys
         shell: bash
         run: |
           set -euo pipefail
@@ -344,6 +344,26 @@ jobs:
               raise SystemExit('Restored migration version set does not match backup')
           print('Five application table counts and the migration version set match the backup.')
           PY
+          if ! integrity_query="$(cat scripts/verify_restore_foreign_keys.sql 2>/dev/null)" ||
+              [[ -z "$integrity_query" ]]; then
+            echo "::error::Application foreign-key verification query is unavailable"
+            exit 1
+          fi
+          if ! integrity_result="$(docker run --rm --network host \
+              --user "$(id -u):$(id -g)" --cap-drop ALL \
+              --security-opt no-new-privileges --read-only \
+              "$PSQL_IMAGE" \
+                psql -X -q -A -t -v ON_ERROR_STOP=1 -c "$integrity_query" \
+                -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+              2>/dev/null)"; then
+            echo "::error::Application foreign-key verification query failed"
+            exit 1
+          fi
+          if [[ "$integrity_result" != "1" ]]; then
+            echo "::error::Application foreign-key integrity verification failed"
+            exit 1
+          fi
+          echo 'Seven application foreign-key mappings and references verified.'
           echo 'Managed-schema, Storage object and provider-settings recovery are not claimed.'
 
       - name: Record safe restore result
@@ -357,6 +377,7 @@ jobs:
             echo '- R2 byte-integrity, metadata, component checksums: passed'
             echo '- Transactional SQL restore: passed'
             echo '- Application counts and migration history: passed'
+            echo '- Application foreign-key integrity: passed'
             echo '- Excluded: Storage object bytes, platform secrets/settings, unverified managed schemas'
           } >> "$GITHUB_STEP_SUMMARY"
 
