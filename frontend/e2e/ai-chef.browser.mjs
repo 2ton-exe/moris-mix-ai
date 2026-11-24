@@ -524,7 +524,7 @@ try {
   await advanceChefReviewToSave(page)
   const initialMethod = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
   await expect(initialMethod).toHaveValue('Warm the rice, then fold in the eggs.')
-  const cookingMethod = page.getByRole('region', { name: 'Cooking method', exact: true })
+  const cookingMethod = page.getByRole('region', { name: 'Instructions', exact: true })
   const readyBox = await cookingMethod.getByText('Ready', { exact: true }).boundingBox()
   const addStepBox = await cookingMethod.getByRole('button', { name: 'Add cooking step' }).boundingBox()
   assert.ok(readyBox && addStepBox && readyBox.x + readyBox.width <= addStepBox.x,
