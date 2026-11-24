@@ -127,6 +127,7 @@
     scrollbar-color: var(--mm-color-espresso-300) transparent;
   }
   .mm-collection-body > .mm-recipe-empty { flex: none; }
+  .mm-recipe-empty__card > .button + .button { margin-block-start: 10px; }
   .mm-desk .recipe-grid.mm-collection-entries { gap: 14px; padding-block: 8px; }
   .mm-collection-heading-space { flex: none; }
   .mm-collection-entry { grid-template-columns: minmax(0, min(31%, 144px)) minmax(0, 1fr); }
