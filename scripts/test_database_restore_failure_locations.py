@@ -251,7 +251,7 @@ bash scripts/test_database_restore_synthetic.sh
                 shutdown = ("synthetic-database-shutdown=pass" if stop_status == 0 else
                             "::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.")
                 self.assertEqual(run.stdout.splitlines(), [
-                    "::error::Synthetic protected target setup failed", shutdown,
+                    "::error::Synthetic protected target setup failed; class=database-start", shutdown,
                     "synthetic-network-cleanup=pass", "synthetic-fixture-cleanup=pass"
                 ])
                 self.assertEqual({p.name for p in Path(tmp).iterdir()}, {"stop-called"})

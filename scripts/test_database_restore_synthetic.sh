@@ -70,7 +70,23 @@ if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
   :
 else
   start_status=$?
-  echo '::error::Synthetic protected target setup failed'
+  failure_class=unknown
+  if grep -Fq 'Disposable Supabase startup failed' "$root/start.out" "$root/start.err"; then
+    failure_class=database-start
+  elif grep -Fq 'Disposable restore network isolation failed' "$root/start.out" "$root/start.err"; then
+    failure_class=network-isolation
+  elif grep -Fq 'Disposable PostgreSQL host binding is not loopback-only' "$root/start.out" "$root/start.err"; then
+    failure_class=loopback-binding
+  elif grep -Fq 'Unexpected PostgreSQL server version' "$root/start.out" "$root/start.err"; then
+    failure_class=server-version
+  elif grep -Fq 'Target is not a clean Supabase baseline' "$root/start.out" "$root/start.err"; then
+    failure_class=clean-baseline
+  elif grep -Fq 'Restore client network permits outbound connectivity' "$root/start.out" "$root/start.err"; then
+    failure_class=client-egress
+  elif grep -Fq 'Restore database network permits outbound connectivity' "$root/start.out" "$root/start.err"; then
+    failure_class=database-egress
+  fi
+  printf '::error::Synthetic protected target setup failed; class=%s\n' "$failure_class"
   exit "$start_status"
 fi
 if [[ -s "$root/start.err" ]] || \
