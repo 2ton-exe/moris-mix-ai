@@ -96,15 +96,24 @@
   @container (min-width: 20rem) {
     .recipe-ingredient-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
     .recipe-ingredient-fields > :first-child { grid-column: 1 / -1; }
-    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) .recipe-section-heading {
+    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      column-gap: 8px;
+    }
+    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) > :not(.recipe-section-heading, .mm-row-add) {
+      grid-column: 1 / -1;
+    }
+    .mm-desk--writing .recipe-form-section:has(> .mm-row-add) > .recipe-section-heading {
       min-height: 46px;
-      padding-inline-end: 170px;
+      grid-row: 1;
+      grid-column: 1;
       margin-bottom: 4px;
     }
     .mm-desk--writing .recipe-form-section > .mm-row-add {
-      position: absolute;
-      inset-block-start: 0;
-      inset-inline-end: 0;
+      grid-row: 1;
+      grid-column: 2;
+      align-self: start;
     }
   }
   .mm-journal-editor .mm-writing-leaf textarea[name^='instructions.'] { min-height: 4lh; }
