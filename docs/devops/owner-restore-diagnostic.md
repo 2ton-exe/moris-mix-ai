@@ -27,10 +27,20 @@ go/no-go in the restricted owner-controlled change record:
 
 - The database owner is the operator. A second authorized backend/database or
   security owner independently approves the exact reviewed repository commit,
-  selected backup identity, two R2 object paths, 15-minute credential TTL and
-  parent-token revocation, VM image, the bounded egress window for the two
-  object downloads, provider egress closure and verification immediately after
-  revocation, replay plan, and cleanup.
+  selected backup identity, two R2 object paths, 15-minute credential TTL, VM
+  image, replay plan, and cleanup. The approval record specifies the temporary
+  egress window's exact start and end in UTC, a maximum duration of 15 minutes,
+  its actual network scope, the control-plane operator, and how closure will be
+  confirmed. The R2 object list restricts credential access, not network
+  destinations. Claim destination-level network restriction only when the
+  provider supports and enforces it; otherwise record the broader VM egress
+  scope and obtain explicit approval for it.
+- Name a trusted control-plane operator with out-of-band provider access. This
+  operator owns both parent-token revocation and opening, closing, and
+  confirming closure of the provider egress window. They must remain available
+  throughout the window and every abort path. Egress closure is a separate
+  control-plane action and must not wait for successful credential revocation
+  or depend on the VM cleanup trap.
 - The approver confirms provider ingress and egress denial plus verified local
   host and Docker egress denial before any private SQL runs, and that the
   operator has an out-of-band provider console before applying the host
@@ -49,9 +59,12 @@ encrypted ephemeral volume mounted at `/mnt/encrypted-ephemeral`. Keep external
 inbound access denied throughout the session and use the provider console or
 serial console for out-of-band management. Install dependencies and pull both
 pinned images before any private backup bytes arrive. After those pulls, deny
-outbound traffic. Reopen it only for the separately approved, short transfer of
-the two exact R2 objects in Section 3. Do not inspect the archive or open SQL
-during that transfer window.
+outbound traffic. Reopen it only for the separately approved transfer window
+and the two exact R2 objects in Section 3. The named control-plane operator
+opens the window only after confirming the approved start time, end time, and
+network scope, then closes it at successful transfer completion, the approved
+deadline, or any abort. Do not inspect the archive or open SQL during the
+transfer window.
 
 Before minting credentials, verify that the private mount is actually backed by
 an encrypted ephemeral volume and that Docker's effective data root, PostgreSQL
@@ -166,15 +179,51 @@ operation, so the parent must be dedicated to this run and revoked after the
 two downloads. The 900-second TTL is the backstop. If it expires early, stop
 and get a new approval and credential; do not extend it silently.
 
-Before minting the dedicated parent token, assign the trusted control-plane
-operator responsibility for revocation on every exit path, including a failed
-mint or handoff, interrupted download, timeout, VM loss, or aborted run. The VM
-cleanup trap only removes local credentials; it cannot revoke the parent.
-If either download fails, stop and have the control-plane operator revoke the
-parent immediately and confirm revocation in the restricted record. Do not
-retry using the same credential or rely on TTL alone. Rehearse the abort and
-cleanup procedure without Backup #4 before requesting real access. See
-Cloudflare's [temporary credentials guide](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/)
+Before opening the transfer window or minting the dedicated parent token, the
+trusted control-plane operator must be present on a separate provider session,
+have working out-of-band access, and know the expected completion signal and
+approved deadline. If that operator or control-plane access is unavailable, do
+not open the window or mint credentials. The provider window must have the
+explicitly approved UTC start/end and network scope recorded in Section 1; if
+destination-level filtering is unavailable, do not describe the broader VM
+egress rule as destination-restricted.
+
+On successful completion of both downloads, close the provider egress window
+immediately through the control plane, then independently revoke the dedicated
+parent R2 token. Confirm both closure and revocation in the restricted record
+before archive verification. Closing egress must not wait for revocation to
+succeed. Unsetting the child credential variables is not revocation.
+
+On any failure or interruption, the control-plane operator closes provider
+egress immediately, independently of the credential-revocation result, then
+revokes the dedicated parent token. This applies to a failed or partial
+download, transfer timeout or approved deadline, manual abort, failed or
+delayed revocation, and VM or session loss. Do not retry with the same
+credential, rely on TTL alone, inspect partial downloads, verify the archive,
+start a target, or run SQL. If egress closure cannot be confirmed, stop and
+follow the approved provider-side VM destruction and cleanup procedure in
+Section 7. Apply the same stop procedure if parent-token revocation cannot be
+confirmed; egress closure must not wait for that revocation.
+
+Before any real access, complete a credential-free abort rehearsal with the
+database owner, control-plane operator, and independent approver. Walk each
+failure below and confirm the stated stop behavior; do not create credentials,
+open provider egress, or use backup data during this rehearsal:
+
+| Rehearsed failure | Required control-plane action and pass condition |
+| --- | --- |
+| Both approved downloads succeed | Close egress immediately, independently revoke the parent, and confirm both before archive verification. |
+| Credential mint or private handoff fails | If the window is open, close it immediately; revoke any minted parent independently and do not retry or inspect objects. |
+| Archive or evidence download fails or is partial | Close egress immediately, independently revoke the parent, and do not inspect either object. |
+| Transfer reaches its approved deadline or times out | Close egress at the deadline regardless of the VM command state; revoke independently and do not retry with the same credential. |
+| Operator aborts or the VM/session is lost | Close egress from the separate provider session and revoke the parent without relying on the VM trap. |
+| Parent-token revocation fails or is delayed | Close egress without waiting for revocation; keep all archive and SQL work stopped until closure and revocation are confirmed. |
+| Egress closure cannot be confirmed | Stop and execute the approved provider-side VM and encrypted-volume destruction procedure; do not continue diagnostics. |
+
+The rehearsal verifies operator sequencing only. It does not prove provider
+firewall behavior, credential revocation, or VM destruction; those controls
+must still be independently verified before the real run. See Cloudflare's
+[temporary credentials guide](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/)
 and [create credentials API](https://developers.cloudflare.com/api/resources/r2/subresources/temporary_credentials/methods/create/).
 
 From the VM, enter the child credentials without echo or shell-history entry:
@@ -214,18 +263,16 @@ aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${EVIDENCE_NAME}" \
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN R2_RESTORE_ENDPOINT
 ```
 
-Immediately revoke the dedicated parent R2 token on the trusted control-plane
-machine. Confirm the revocation in the restricted record. This invalidates the
-child credentials; unsetting the environment variables alone is not
-revocation. Do not proceed if the parent cannot be revoked or the credential
-was derived from a shared parent that cannot be safely revoked.
-
-Immediately after the revocation is confirmed, use the provider console or
-serial console to deny all external egress and confirm the policy is active.
-Keep inbound access denied as well. Do this before archive verification,
-extraction, target startup, or SQL access, and keep the deny in place for the
-rest of the run. If the policy cannot be applied and independently confirmed,
-stop without inspecting the archive; destroy the VM and encrypted volume.
+The control-plane operator must close the approved transfer window and
+independently revoke the dedicated parent R2 token. Confirm both actions in the
+restricted record; unsetting the environment variables alone is not
+revocation. Do not proceed if either action cannot be confirmed or if the
+parent is shared and cannot be safely revoked. Keep inbound access denied and
+use the provider console or serial console to confirm all external egress is
+denied before archive verification, extraction, target startup, or SQL access.
+If closure cannot be applied and independently confirmed, stop without
+inspecting the archive and follow the approved VM destruction and cleanup
+procedure in Section 7.
 
 Verify the downloaded archive and extract only the checksummed SQL components:
 
@@ -492,17 +539,24 @@ chats, Actions logs, artifacts, or shared storage.
 
 ## 7. Cleanup
 
-Stop both local stacks, even if one was never started, then remove the private
-root only after validating the resolved path is directly under the encrypted
-mount. The cleanup trap installed during initial setup does this on shell exit.
-If shutdown or deletion fails, destroy the VM and encrypted volume from the
-provider console.
+The local EXIT trap stops both local stacks and removes the private root after
+validating its path under the encrypted mount. It is best-effort local cleanup;
+it cannot close provider egress, revoke the parent token, or destroy a lost VM.
 
-Reconfirm on every exit path that the dedicated parent token is revoked, the
-child credential is invalidated and its TTL has elapsed, the private mount,
-Docker storage and VM are destroyed, and any dedicated ephemeral
+On normal completion and every abort, the control-plane operator must confirm
+provider egress closure and parent-token revocation, then use the provider
+console to destroy the temporary VM, encrypted volume, and any snapshots.
+Reconfirm that the child credential is invalidated and its TTL has elapsed,
+the private mount and Docker storage are removed, and any dedicated ephemeral
 encryption key is disabled or destroyed. Keep only the sanitized fixed label
 and the non-sensitive approval/cleanup record.
+
+If egress closure cannot be confirmed—including after revocation failure or
+VM/session loss—or provider cleanup cannot be completed, stop all diagnostic
+work and follow the separately approved provider-side abort procedure to
+isolate and destroy the VM, encrypted volume, and snapshots. Confirm closure
+and destruction in the restricted record; do not resume or inspect private
+data while any of these controls remains uncertain.
 
 ## Synthetic coverage
 
@@ -512,4 +566,7 @@ rule validation, host and Docker egress probes, and local database reachability.
 The PostgreSQL synthetic integration replays the Stage B command against a
 synthetic failure, proves its transaction rolls back, reconstructs catalog
 state on a separate target, checks the fixed label, and removes both targets
-and private files. These checks do not access R2 or use the production backup.
+and private files. The credential-free abort rehearsal above covers transfer
+and control-plane failure decisions without testing a provider firewall,
+credential revocation, or VM destruction. These checks do not access R2 or use
+the production backup.
