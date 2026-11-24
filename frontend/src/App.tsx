@@ -25,6 +25,7 @@ const AuthPage = lazy(() => import('./pages/AuthPage'))
 const EmailVerificationPage = lazy(() => import('./pages/EmailVerificationPage'))
 const JournalPage = lazy(() => import('./pages/JournalPage'))
 const DemoRecipePage = lazy(() => import('./pages/DemoRecipePage'))
+const RecipeRevisionSamplePage = lazy(() => import('./pages/RecipeRevisionSamplePage'))
 const CreateRecipePage = lazy(() => import('./pages/CreateRecipePage'))
 const EditRecipePage = lazy(() => import('./pages/EditRecipePage'))
 const RecipeDashboardPage = lazy(() => import('./pages/RecipeDashboardPage'))
@@ -68,6 +69,7 @@ export const createAppRouteElements = () => (
       <Route path="/home" element={routeElement(<HomePage />, 'Opening Mori’s Mix…', 'public')} />
       <Route path="/about" element={routeElement(<AboutPage />, 'Loading About Mori’s Mix…', 'public')} />
       <Route path="/demo-recipe" element={routeElement(<DemoRecipePage />, 'Loading demonstration recipe…', 'public')} />
+      <Route path="/demo-recipe/try-a-revision" element={routeElement(<RecipeRevisionSamplePage />, 'Opening the recipe revision sample…', 'public')} />
       <Route element={<AuthProvider><Outlet /></AuthProvider>}>
         <Route path="/auth/callback" element={routeElement(<EmailVerificationPage callback />, 'Opening your verification link…', 'auth')} />
         <Route element={<AuthReady />}>
