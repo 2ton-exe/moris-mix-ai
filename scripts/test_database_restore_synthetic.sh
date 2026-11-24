@@ -828,6 +828,25 @@ if ! run_restore_step aggregates ||
 fi
 echo 'synthetic-postgres-aggregates=pass'
 
+# Require exact public output and no stderr for every FK failure path. This
+# catches unexpected notices or diagnostics that broad sentinel matching misses.
+assert_fk_failure_output() {
+  local expected_error="$1"
+  local aggregate_pass="$2"
+  local expected_output="$root/fk-expected-output"
+  if [[ "$aggregate_pass" == yes ]]; then
+    printf '%s\n%s\n' \
+      'Five application table counts and the migration version set match the backup.' \
+      "$expected_error" > "$expected_output"
+  else
+    printf '%s\n' "$expected_error" > "$expected_output"
+  fi
+  if ! cmp -s "$expected_output" "$root/step.out" || [[ -s "$root/step.err" ]]; then
+    echo '::error::Synthetic foreign-key failure output was not fixed and stderr-free'
+    exit 1
+  fi
+}
+
 # The verifier must catch both a same-count orphan inserted while FK triggers
 # are suppressed and a missing expected mapping, while publishing fixed labels.
 fk_counts_before="$(principal_query "$admin_db" \
@@ -858,13 +877,11 @@ fk_counts_orphan="$(principal_query "$admin_db" \
 }
 status=0
 run_restore_step aggregates || status=$?
-if [[ "$status" != 1 || "$fk_counts_orphan" != "$fk_counts_before" ]] ||
-    ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out" ||
-    ! grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out" ||
-    grep -Eq '00000000-0000-|psql:/backup/|SQLSTATE|ERROR:' "$root/step.out" "$root/step.err"; then
+if [[ "$status" != 1 || "$fk_counts_orphan" != "$fk_counts_before" ]]; then
   echo '::error::Synthetic same-count orphan was not rejected with fixed output'
   exit 1
 fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
 if ! principal_query "$admin_db" \
     "UPDATE public.ai_quota_reservations
      SET user_id = '00000000-0000-0000-0000-000000000001';" \
@@ -882,12 +899,11 @@ if ! principal_query "$admin_db" \
 fi
 status=0
 run_restore_step aggregates || status=$?
-if [[ "$status" != 1 ]] ||
-    ! grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out" ||
-    grep -Eq '00000000-0000-|psql:/backup/|SQLSTATE|ERROR:' "$root/step.out" "$root/step.err"; then
+if [[ "$status" != 1 ]]; then
   echo '::error::Synthetic missing foreign-key mapping was not rejected with fixed output'
   exit 1
 fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
 if ! principal_query "$admin_db" \
     'ALTER TABLE public.ai_quota_reservations
        ADD CONSTRAINT ai_quota_reservations_user_id_fkey
@@ -919,16 +935,40 @@ if [[ "$status" == 0 || -s "$root/fk-missing-table.stdout" ]]; then
 fi
 status=0
 run_restore_step aggregates || status=$?
-if [[ "$status" != 1 ]] ||
-    ! grep -Fxq '::error::Database aggregate verification query failed' "$root/step.out" ||
-    grep -Eq 'devops_fk_profiles_missing|SQLSTATE|ERROR:' "$root/step.out" "$root/step.err"; then
+if [[ "$status" != 1 ]]; then
   echo '::error::Synthetic missing-table validation leaked diagnostics or passed unexpectedly'
   exit 1
 fi
+assert_fk_failure_output '::error::Database aggregate verification query failed' no
 if ! principal_query "$admin_db" \
     'ALTER TABLE public.devops_fk_profiles_missing RENAME TO profiles;' \
     > "$root/fk-missing-table-repair.out"; then
   echo '::error::Synthetic missing-table fixture repair failed'
+  exit 1
+fi
+
+# Keep row-count and migration verification valid while making the FK query
+# itself fail on a missing catalog column. Stage B must emit its fixed query
+# failure label and keep both database stderr and all unexpected stdout hidden.
+if ! principal_query "$admin_db" \
+    'ALTER TABLE auth.users RENAME COLUMN id TO devops_fk_users_id;' \
+    > "$root/fk-missing-column-setup.out"; then
+  echo '::error::Synthetic missing-column fixture setup failed'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]]; then
+  echo '::error::Synthetic foreign-key query error was not rejected'
+  exit 1
+fi
+assert_fk_failure_output '::error::Application foreign-key verification query failed' yes
+if ! principal_query "$admin_db" \
+    'ALTER TABLE auth.users RENAME COLUMN devops_fk_users_id TO id;' \
+    > "$root/fk-missing-column-repair.out" ||
+    ! run_restore_step aggregates ||
+    ! grep -Fq 'Seven application foreign-key mappings and references verified.' "$root/step.out"; then
+  echo '::error::Synthetic missing-column fixture repair or positive verification failed'
   exit 1
 fi
 
@@ -945,13 +985,11 @@ if ! principal_query "$admin_db" \
 fi
 status=0
 run_restore_step aggregates || status=$?
-if [[ "$status" != 1 ]] ||
-    ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out" ||
-    ! grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out" ||
-    grep -Eq 'devops_fk_profiles_base|SQLSTATE|ERROR:' "$root/step.out" "$root/step.err"; then
+if [[ "$status" != 1 ]]; then
   echo '::error::Synthetic wrong-kind relation was not rejected with fixed output'
   exit 1
 fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
 if ! principal_query "$admin_db" \
     'DROP VIEW public.profiles;
      ALTER TABLE public.devops_fk_profiles_base RENAME TO profiles;' \
@@ -979,13 +1017,11 @@ if ! principal_query "$admin_db" \
 fi
 status=0
 run_restore_step aggregates || status=$?
-if [[ "$status" != 1 ]] ||
-    ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out" ||
-    ! grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out" ||
-    grep -Eq 'devops_restore_fk_decoy|SQLSTATE|ERROR:' "$root/step.out" "$root/step.err"; then
+if [[ "$status" != 1 ]]; then
   echo '::error::Synthetic wrong-target FK was not rejected with fixed output'
   exit 1
 fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
 if ! principal_query "$admin_db" \
     'ALTER TABLE public.ai_quota_reservations
        DROP CONSTRAINT ai_quota_reservations_user_id_fkey;
@@ -999,7 +1035,7 @@ if ! principal_query "$admin_db" \
   echo '::error::Synthetic wrong-target repair or positive verification failed'
   exit 1
 fi
-echo 'synthetic-application-foreign-keys=pass valid=pass same-count-orphan=fail-closed missing-mapping=fail-closed missing-table=fail-closed wrong-kind=fail-closed wrong-target=fail-closed output-suppressed=pass'
+echo 'synthetic-application-foreign-keys=pass valid=pass same-count-orphan=fail-closed missing-mapping=fail-closed missing-table=fail-closed missing-column=fail-closed wrong-kind=fail-closed wrong-target=fail-closed output-suppressed=pass'
 
 # Supabase can give postgres read access through predefined roles and default
 # grants. Remove those paths in this throwaway fixture and verify the effective ACL.
