@@ -293,16 +293,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          aws s3 cp "$ARCHIVE_PATH" "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" \
-            --endpoint-url "$R2_BACKUP_ENDPOINT" \
-            --only-show-errors \
-            --no-progress
+          if ! aws s3 cp "$ARCHIVE_PATH" "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" \
+              --endpoint-url "$R2_BACKUP_ENDPOINT" \
+              --only-show-errors \
+              --no-progress >/dev/null 2>&1; then
+            echo "::error::Private R2 archive upload failed."
+            exit 1
+          fi
 
-          aws s3 cp "$EVIDENCE_PATH" "s3://${R2_BACKUP_BUCKET}/${EVIDENCE_KEY}" \
-            --endpoint-url "$R2_BACKUP_ENDPOINT" \
-            --content-type application/json \
-            --only-show-errors \
-            --no-progress
+          if ! aws s3 cp "$EVIDENCE_PATH" "s3://${R2_BACKUP_BUCKET}/${EVIDENCE_KEY}" \
+              --endpoint-url "$R2_BACKUP_ENDPOINT" \
+              --content-type application/json \
+              --only-show-errors \
+              --no-progress >/dev/null 2>&1; then
+            echo "::error::Private R2 evidence upload failed."
+            exit 1
+          fi
 
       - name: Verify uploaded backup objects
         id: verify
@@ -319,12 +325,15 @@ jobs:
           set -euo pipefail
           umask 077
 
-          remote_size="$(aws s3api head-object \
-            --bucket "$R2_BACKUP_BUCKET" \
-            --key "$OBJECT_KEY" \
-            --endpoint-url "$R2_BACKUP_ENDPOINT" \
-            --query ContentLength \
-            --output text)"
+          if ! remote_size="$(aws s3api head-object \
+              --bucket "$R2_BACKUP_BUCKET" \
+              --key "$OBJECT_KEY" \
+              --endpoint-url "$R2_BACKUP_ENDPOINT" \
+              --query ContentLength \
+              --output text 2>/dev/null)"; then
+            echo "::error::Private R2 archive metadata verification failed."
+            exit 1
+          fi
 
           if [[ "$remote_size" != "$EXPECTED_SIZE" ]]; then
             echo "::error::Uploaded backup size does not match the local archive size."
@@ -332,10 +341,13 @@ jobs:
           fi
 
           verify_copy="$RUNNER_TEMP/moris-mix-postgres-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz"
-          aws s3 cp "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" "$verify_copy" \
-            --endpoint-url "$R2_BACKUP_ENDPOINT" \
-            --only-show-errors \
-            --no-progress
+          if ! aws s3 cp "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" "$verify_copy" \
+              --endpoint-url "$R2_BACKUP_ENDPOINT" \
+              --only-show-errors \
+              --no-progress >/dev/null 2>&1; then
+            echo "::error::Private R2 archive download for verification failed."
+            exit 1
+          fi
 
           remote_sha256="$(sha256sum "$verify_copy" | awk '{print $1}')"
           if [[ "$remote_sha256" != "$EXPECTED_SHA256" ]]; then
@@ -343,13 +355,16 @@ jobs:
             exit 1
           fi
 
-          aws s3api head-object \
-            --bucket "$R2_BACKUP_BUCKET" \
-            --key "$EVIDENCE_KEY" \
-            --endpoint-url "$R2_BACKUP_ENDPOINT" \
-            --query ContentLength \
-            --output text \
-            >/dev/null
+          if ! aws s3api head-object \
+              --bucket "$R2_BACKUP_BUCKET" \
+              --key "$EVIDENCE_KEY" \
+              --endpoint-url "$R2_BACKUP_ENDPOINT" \
+              --query ContentLength \
+              --output text \
+              >/dev/null 2>&1; then
+            echo "::error::Private R2 evidence object verification failed."
+            exit 1
+          fi
 
       - name: Record backup evidence
         if: always()

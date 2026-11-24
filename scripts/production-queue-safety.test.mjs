@@ -72,6 +72,86 @@ test('public backup summary contains only fixed outcomes and no backup identifie
   assert.match(summary.run, /Remote size\/checksum verification: \$\{VERIFY_OUTCOME\}/);
 });
 
+test('private R2 CLI failures publish only fixed labels', () => {
+  const upload = step(backup, 'Upload backup bundle to private R2');
+  const verify = step(backup, 'Verify uploaded backup objects');
+  assert.ok(upload, 'private R2 upload step must exist');
+  assert.ok(verify, 'private R2 verification step must exist');
+
+  const syntheticFailure = (run, failAction) => {
+    const syntheticEnv = {
+      FAIL_AWS_ACTION: failAction,
+      R2_BACKUP_BUCKET: 'synthetic-bucket-sentinel',
+      R2_BACKUP_ENDPOINT: 'https://synthetic-endpoint.invalid',
+      AWS_ACCESS_KEY_ID: 'synthetic-access-key-sentinel',
+      AWS_SECRET_ACCESS_KEY: 'synthetic-secret-key-sentinel',
+      ARCHIVE_PATH: '/synthetic/archive-sentinel.tar.gz',
+      EVIDENCE_PATH: '/synthetic/evidence-sentinel.json',
+      OBJECT_KEY: 'synthetic-object-key-sentinel',
+      EVIDENCE_KEY: 'synthetic-evidence-key-sentinel',
+      EXPECTED_SIZE: '123',
+      EXPECTED_SHA256: 'synthetic-checksum-sentinel',
+      RUNNER_TEMP: '/synthetic-runner-temp',
+      GITHUB_RUN_ID: 'synthetic-run-id',
+      GITHUB_RUN_ATTEMPT: '1',
+    };
+    const harness = [
+      ...Object.entries(syntheticEnv).map(([name, value]) => `export ${name}='${value}'`),
+      'aws() {',
+      '  local aws_action=unknown',
+      '  if [[ "$1" == s3 && "$2" == cp ]]; then',
+      '    if [[ "$3" == "$ARCHIVE_PATH" ]]; then aws_action=archive-upload; fi',
+      '    if [[ "$3" == "$EVIDENCE_PATH" ]]; then aws_action=evidence-upload; fi',
+      '    if [[ "$3" == "s3://${R2_BACKUP_BUCKET}/${OBJECT_KEY}" ]]; then aws_action=archive-download; fi',
+      '  elif [[ "$1" == s3api && "$2" == head-object ]]; then',
+      '    if [[ "$6" == "$OBJECT_KEY" ]]; then aws_action=archive-head; fi',
+      '    if [[ "$6" == "$EVIDENCE_KEY" ]]; then aws_action=evidence-head; fi',
+      '  fi',
+      '  if [[ "$aws_action" == "$FAIL_AWS_ACTION" ]]; then',
+      '    printf "%s\\n" "SYNTHETIC_AWS_SENTINEL $* $AWS_SECRET_ACCESS_KEY"',
+      '    printf "%s\\n" "SYNTHETIC_AWS_STDERR_SENTINEL $* $AWS_ACCESS_KEY_ID" >&2',
+      '    return 41',
+      '  fi',
+      '  if [[ "$aws_action" == archive-head ]]; then',
+      '    printf "%s\\n" "$EXPECTED_SIZE"',
+      '  fi',
+      '  return 0',
+      '}',
+      'sha256sum() { printf "%s  %s\\n" "$EXPECTED_SHA256" "${1:-}"; }',
+      run,
+    ].join('\n');
+
+    const shell = process.platform === 'win32' ? 'wsl.exe' : 'bash';
+    const shellArgs = process.platform === 'win32'
+      ? ['-d', 'Ubuntu', '--', 'bash', '-e', '-u', '-o', 'pipefail', '-s']
+      : ['--noprofile', '--norc', '-e', '-u', '-o', 'pipefail', '-s'];
+    return spawnSync(shell, shellArgs, {
+      input: harness,
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+      },
+    });
+  };
+
+  const cases = [
+    { run: upload.run, failAction: 'archive-upload', message: '::error::Private R2 archive upload failed.' },
+    { run: upload.run, failAction: 'evidence-upload', message: '::error::Private R2 evidence upload failed.' },
+    { run: verify.run, failAction: 'archive-head', message: '::error::Private R2 archive metadata verification failed.' },
+    { run: verify.run, failAction: 'archive-download', message: '::error::Private R2 archive download for verification failed.' },
+    { run: verify.run, failAction: 'evidence-head', message: '::error::Private R2 evidence object verification failed.' },
+  ];
+
+  for (const scenario of cases) {
+    const result = syntheticFailure(scenario.run, scenario.failAction);
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stdout, `${scenario.message}\n`);
+    assert.equal(result.stderr, '');
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /SYNTHETIC_|synthetic-(?:bucket|endpoint|access-key|secret-key|archive|evidence|object-key|checksum|run-id)/i);
+  }
+});
+
 test('backup migration-ledger comparison ignores COPY row order but detects content changes', () => {
   const bundle = step(backup, 'Create Supabase logical backup bundle');
   assert.ok(bundle, 'backup bundle step must exist');
