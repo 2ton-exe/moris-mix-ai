@@ -7,17 +7,31 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 classifier="$script_dir/classify_restore_component.py"
 umask 077
 root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/moris-restore-synthetic.XXXXXX")"
-workdir="$root/local"
+workdir="$root/moris-restore-local"
 fixture="$root/restore-verified-sql"
+restore_network="restore-synthetic-$$"
+export RUNNER_TEMP="$root"
+export RESTORE_PROJECT_ID="mori276-synthetic"
+export RESTORE_DOCKER_NETWORK="$restore_network"
+export GITHUB_STEP_SUMMARY="$root/synthetic-summary.md"
 
 cleanup() {
   local original_status=$?
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
-    if supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
+    if supabase stop --workdir "$workdir" --no-backup \
+      --network-id "$RESTORE_DOCKER_NETWORK" > /dev/null 2>&1; then
       printf '%s\n' 'synthetic-database-shutdown=pass'
     else
       printf '%s\n' '::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.'
+      if (( original_status == 0 )); then original_status=1; fi
+    fi
+  fi
+  if docker network inspect "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
+    if docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
+      printf '%s\n' 'synthetic-network-cleanup=pass'
+    else
+      printf '%s\n' 'synthetic-network-cleanup=fail' >&2
       if (( original_status == 0 )); then original_status=1; fi
     fi
   fi
@@ -33,33 +47,46 @@ trap cleanup EXIT
 mkdir -p "$fixture"
 
 # Generate an independent local Supabase project. Never load repository or hosted config.
-supabase init --workdir "$workdir"
-python3 - "$workdir/supabase/config.toml" <<'PY'
+python3 - "$script_dir/../.github/workflows" "$root" <<'PY'
 from pathlib import Path
-import re
 import sys
-import tomllib
+import textwrap
 
-p = Path(sys.argv[1])
-updated, replacements = re.subn(
-    r'(?m)^([ \t]*major_version[ \t]*=[ \t]*)(?:"[0-9]+"|[0-9]+)([ \t]*(?:#.*)?)$',
-    r'\g<1>17\2',
-    p.read_text(encoding='utf-8'),
-)
-if replacements != 1 or tomllib.loads(updated)['db']['major_version'] != 17:
-    raise SystemExit('Disposable PostgreSQL 17 configuration failed')
-p.write_text(updated, encoding='utf-8')
+workflows, target = map(Path, sys.argv[1:])
+for workflow, step, output in (
+    ("stage-b", "Start clean, isolated Supabase PostgreSQL 17", "start"),
+    ("stage-b", "Restore SQL transactionally using patched PostgreSQL 17 client", "admin-restore"),
+    ("stage-b", "Validate restored application counts and migration versions", "aggregates"),
+    ("role-diagnostic", "Record bounded role patterns and replay diagnostics", "role-replay"),
+):
+    source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
+    prefix = f"      - name: {step}\n        shell: bash\n        run: |\n"
+    _, body = source.split(prefix, 1)
+    (target / f"{output}.sh").write_text(
+        textwrap.dedent(body.split("\n      - name:", 1)[0]), encoding="utf-8"
+    )
 PY
-supabase db start --workdir "$workdir"
-
-local_db='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
+  :
+else
+  start_status=$?
+  echo '::error::Synthetic protected target setup failed'
+  exit "$start_status"
+fi
+if [[ -s "$root/start.err" ]] || \
+   ! grep -Fq 'container-egress-isolated' "$root/start.out"; then
+  echo '::error::Synthetic protected target isolation evidence was incomplete'
+  exit 1
+fi
+local_db='postgresql://postgres:postgres@db:5432/postgres'
 # The pinned CLI currently selects this server image. Fail if it drifts.
-if ! docker ps --format '{{.Image}}' | grep -Eq '(^|/)supabase/postgres:17[.]11[.]0[.]006$'; then
+if ! docker ps --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" \
+    --format '{{.Image}}' | grep -Eq '(^|/)supabase/postgres:17[.]11[.]0[.]006$'; then
   echo '::error::The expected Supabase PostgreSQL server image is not running'
   exit 1
 fi
 
-client=(docker run --rm --network host \
+client=(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
   --user "$(id -u):$(id -g)" --cap-drop ALL \
   --security-opt no-new-privileges --read-only \
   --mount "type=bind,source=$fixture,target=/backup,readonly" \
@@ -481,25 +508,6 @@ if (( failed )); then
   exit 1
 fi
 echo 'synthetic-principal-comparison=pass'
-
-# Run the actual protected replay and verification commands against synthetic
-# files only. No archive, Environment, or workflow dispatch is involved.
-python3 - "$script_dir/../.github/workflows" "$root" <<'PY'
-from pathlib import Path
-import sys
-import textwrap
-
-workflows, target = map(Path, sys.argv[1:])
-for workflow, step, output in (
-    ("stage-b", "Restore SQL transactionally using patched PostgreSQL 17 client", "admin-restore"),
-    ("stage-b", "Validate restored application counts and migration versions", "aggregates"),
-    ("role-diagnostic", "Record bounded role patterns and replay diagnostics", "role-replay"),
-):
-    source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
-    _, body = source.split(f"      - name: {step}\n        shell: bash\n        run: |\n")
-    (target / f"{output}.sh").write_text(textwrap.dedent(body.split("\n      - name:", 1)[0]),
-                                       encoding="utf-8")
-PY
 
 run_restore_step() (
   cd "$script_dir/.." || exit 1

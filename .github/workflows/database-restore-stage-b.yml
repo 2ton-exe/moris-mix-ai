@@ -3,6 +3,14 @@ name: Database Restore Drill (Stage B)
 # No PR, push, or scheduled access to the selected production backup.
 on:
   workflow_dispatch:
+    inputs:
+      candidate:
+        description: Approved recovery candidate
+        required: true
+        type: choice
+        options:
+          - backup-4
+          - backup-7
 
 permissions:
   contents: read
@@ -21,16 +29,9 @@ jobs:
       # Official postgres:17.11-alpine multi-platform index (Docker Library).
       # Immutable client code is important because this container reads private SQL.
       PSQL_IMAGE: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
-      R2_BUCKET: moris-mix-db-backups-prod
-      BACKUP_PREFIX: postgres/2026/11/06/20261106T134224Z-f051d52f8c7b-42227611036-1
-      ARCHIVE_NAME: moris-mix-postgres-20261106T134224Z-f051d52f8c7b-42227611036-1.tar.gz
-      EVIDENCE_NAME: moris-mix-postgres-20261106T134224Z-f051d52f8c7b-42227611036-1.json
-      BACKUP_SHA256: 7e62664f44c13dccc1a8c924712ff7baadaeb8e58b5e4a6563d41e2ed5e45a3f
-      BACKUP_SIZE: "16814"
-      BACKUP_RUN_ID: "42227611036"
-      BACKUP_ATTEMPT: "1"
-      BACKUP_SOURCE_SHA: f051d52f8c7b19a4f837794b1d26720dc78219ae
-      BACKUP_SOURCE_PROJECT: gtbwblxskctpsqhbpebg
+      RESTORE_CANDIDATE: ${{ inputs.candidate }}
+      RESTORE_PROJECT_ID: moris-restore-local
+      RESTORE_DOCKER_NETWORK: moris-restore-${{ github.run_id }}-${{ github.run_attempt }}
       AWS_DEFAULT_REGION: auto
       AWS_EC2_METADATA_DISABLED: "true"
 
@@ -51,6 +52,8 @@ jobs:
           R2_RESTORE_ENDPOINT: ${{ secrets.R2_RESTORE_ENDPOINT }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_RESTORE_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_RESTORE_SECRET_ACCESS_KEY }}
+          RESTORE_CANDIDATES_JSON: ${{ secrets.RESTORE_CANDIDATES_JSON }}
+          R2_BUCKET: moris-mix-db-backups-prod
         run: |
           set -euo pipefail
           umask 077
@@ -64,18 +67,41 @@ jobs:
             echo "::error::Invalid R2 restore endpoint"
             exit 1
           fi
-          aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${ARCHIVE_NAME}" \
+          python3 scripts/restore_candidate_manifest.py \
+            "$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"
+          source "$RUNNER_TEMP/restore-candidate.env"
+          for value in "$BACKUP_PREFIX" "$ARCHIVE_NAME" "$EVIDENCE_NAME" \
+                       "$BACKUP_SHA256" "$BACKUP_SIZE" "$BACKUP_RUN_ID" \
+                       "$BACKUP_ATTEMPT" "$BACKUP_SOURCE_SHA" "$BACKUP_SOURCE_PROJECT"; do
+            printf '::add-mask::%s\n' "$value"
+          done
+          if aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${ARCHIVE_NAME}" \
             "$RUNNER_TEMP/restore-selected.tar.gz" \
-            --endpoint-url "$R2_RESTORE_ENDPOINT" --only-show-errors --no-progress
-          aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${EVIDENCE_NAME}" \
+            --endpoint-url "$R2_RESTORE_ENDPOINT" --only-show-errors --no-progress \
+            > "$RUNNER_TEMP/restore-download-archive.log" 2>&1; then
+            :
+          else
+            rc=$?
+            echo "::error::Private archive download failed"
+            exit "$rc"
+          fi
+          if aws s3 cp "s3://${R2_BUCKET}/${BACKUP_PREFIX}/${EVIDENCE_NAME}" \
             "$RUNNER_TEMP/restore-selected.json" \
-            --endpoint-url "$R2_RESTORE_ENDPOINT" --only-show-errors --no-progress
+            --endpoint-url "$R2_RESTORE_ENDPOINT" --only-show-errors --no-progress \
+            > "$RUNNER_TEMP/restore-download-evidence.log" 2>&1; then
+            :
+          else
+            rc=$?
+            echo "::error::Private evidence download failed"
+            exit "$rc"
+          fi
 
       - name: Verify selected archive, source identity, and component checksums
         shell: bash
         run: |
           set -euo pipefail
           umask 077
+          source "$RUNNER_TEMP/restore-candidate.env"
           python3 - "$RUNNER_TEMP/restore-selected.tar.gz" \
             "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/restore-verified-sql" <<'PY'
           import hashlib, json, os, pathlib, re, sys, tarfile
@@ -145,32 +171,144 @@ jobs:
           set -euo pipefail
           workdir="$RUNNER_TEMP/moris-restore-local"
           supabase init --workdir "$workdir"
-          python3 - "$workdir/supabase/config.toml" <<'PY'
+          python3 - "$workdir/supabase/config.toml" "$RESTORE_PROJECT_ID" <<'PY'
           from pathlib import Path
           import re, sys, tomllib
           path=Path(sys.argv[1])
+          project_id=sys.argv[2]
           original=path.read_text(encoding='utf-8')
           updated,count=re.subn(
               r'(?m)^([ \t]*major_version[ \t]*=[ \t]*)(?:"[0-9]+"|[0-9]+)([ \t]*(?:#.*)?)$',
               r'\g<1>17\2',original)
           if count!=1 or tomllib.loads(updated)['db']['major_version']!=17:
               raise SystemExit('Disposable PostgreSQL 17 configuration failed')
+          updated,count=re.subn(
+              r'(?m)^project_id[ \t]*=[ \t]*"[^"]+"[ \t]*$',
+              f'project_id = "{project_id}"',updated)
+          if count!=1 or tomllib.loads(updated)['project_id']!=project_id:
+              raise SystemExit('Disposable restore project configuration failed')
           path.write_text(updated,encoding='utf-8')
           PY
-          supabase db start --workdir "$workdir"
-          local_db='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-          major="$(psql "$local_db" -X -v ON_ERROR_STOP=1 -Atqc \
-            "SELECT current_setting('server_version_num')::integer / 10000")"
-          [[ "$major" == "17" ]] || { echo "::error::Unexpected PostgreSQL version"; exit 1; }
-          fresh="$(psql "$local_db" -X -v ON_ERROR_STOP=1 -Atqc \
-            "SELECT (to_regclass('public.recipes') IS NULL AND to_regclass('public.profiles') IS NULL AND to_regclass('auth.users') IS NOT NULL)::int")"
+          if docker network inspect "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
+            echo "::error::Disposable restore network already exists"
+            exit 1
+          fi
+          docker network create --driver bridge --internal --ipv6=false \
+            --opt com.docker.network.bridge.host_binding_ipv4=127.0.0.1 \
+            --label "com.supabase.cli.project=$RESTORE_PROJECT_ID" \
+            --label "com.docker.compose.project=$RESTORE_PROJECT_ID" \
+            "$RESTORE_DOCKER_NETWORK" >/dev/null
+          network_info="$(docker network inspect --format \
+            '{{.Driver}}|{{.Internal}}|{{.EnableIPv6}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.supabase.cli.project"}}|{{index .Labels "com.docker.compose.project"}}' \
+            "$RESTORE_DOCKER_NETWORK")"
+          if [[ "$network_info" != "bridge|true|false|127.0.0.1|$RESTORE_PROJECT_ID|$RESTORE_PROJECT_ID" ]]; then
+            echo "::error::Disposable restore network isolation failed"
+            exit 1
+          fi
+          if supabase db start --workdir "$workdir" --network-id "$RESTORE_DOCKER_NETWORK" \
+            > "$RUNNER_TEMP/private-db-start.log" 2>&1; then
+            :
+          else
+            rc=$?
+            echo "::error::Disposable Supabase startup failed"
+            exit "$rc"
+          fi
+          mapfile -t db_ids < <(docker ps --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" --format '{{.ID}}')
+          if [[ "${#db_ids[@]}" != "1" ]]; then
+            echo "::error::Expected one disposable PostgreSQL container"
+            exit 1
+          fi
+          db_id="${db_ids[0]}"
+          image="$(docker inspect --format '{{.Config.Image}}' "$db_id")"
+          if [[ ! "$image" =~ (^|/)supabase/postgres:17\.11\.0\.006$ ]]; then
+            echo "::error::Expected Supabase PostgreSQL 17.11.0.006"
+            exit 1
+          fi
+          network_info="$(docker network inspect --format \
+            '{{.Driver}}|{{.Internal}}|{{.EnableIPv6}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.supabase.cli.project"}}|{{index .Labels "com.docker.compose.project"}}' \
+            "$RESTORE_DOCKER_NETWORK")"
+          if [[ "$network_info" != "bridge|true|false|127.0.0.1|$RESTORE_PROJECT_ID|$RESTORE_PROJECT_ID" ]]; then
+            echo "::error::Disposable restore network isolation changed"
+            exit 1
+          fi
+          binding_json="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$db_id")"
+          python3 - "$binding_json" <<'PY'
+          import json, sys
+          try:
+              bindings=json.loads(sys.argv[1])
+              ports=bindings['5432/tcp']
+              valid=(set(bindings)=={'5432/tcp'} and len(ports)==1 and
+                     ports[0].get('HostIp')=='127.0.0.1' and ports[0].get('HostPort')=='54322')
+          except (KeyError, TypeError, ValueError):
+              valid=False
+          if not valid:
+              raise SystemExit('Disposable PostgreSQL host binding is not loopback-only')
+          PY
+          network_client=(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
+            --user "$(id -u):$(id -g)" --cap-drop ALL \
+            --security-opt no-new-privileges --read-only "$PSQL_IMAGE")
+          server_version="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
+            -c 'SHOW server_version' -d 'postgresql://postgres:postgres@db:5432/postgres')"
+          if [[ ! "$server_version" =~ ^17\.11([.[:space:]]|$) ]]; then
+            echo "::error::Unexpected PostgreSQL server version"
+            exit 1
+          fi
+          fresh="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
+            -c "SELECT (to_regclass('public.recipes') IS NULL AND to_regclass('public.profiles') IS NULL AND to_regclass('auth.users') IS NOT NULL)::int" \
+            -d 'postgresql://postgres:postgres@db:5432/postgres')"
           [[ "$fresh" == "1" ]] || { echo "::error::Target is not a clean Supabase baseline"; exit 1; }
+          local_db='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          loopback="$(psql "$local_db" -X -q -A -t --no-password -v ON_ERROR_STOP=1 -c 'SELECT 1')"
+          [[ "$loopback" == "1" ]] || { echo "::error::Restore target loopback check failed"; exit 1; }
+          runner_ipv4="$(ip -o -4 addr show scope global | awk 'NR == 1 {split($4, a, "/"); print a[1]}')"
+          if [[ -z "$runner_ipv4" ]]; then
+            echo "::error::Restore runner address check failed"
+            exit 1
+          fi
+          python3 - "$runner_ipv4" <<'PY'
+          import socket, sys
+          try:
+              socket.create_connection((sys.argv[1], 54322), timeout=2).close()
+          except OSError:
+              pass
+          else:
+              raise SystemExit('Restore port is reachable on a non-loopback interface')
+          try:
+              socket.create_connection(('::1', 54322), timeout=2).close()
+          except OSError:
+              pass
+          else:
+              raise SystemExit('Restore port is reachable over IPv6')
+          PY
+          "${network_client[@]}" sh -c 'command -v nc >/dev/null'
+          if "${network_client[@]}" sh -c 'nc -z -w 4 1.1.1.1 443' >/dev/null 2>&1 || \
+             "${network_client[@]}" sh -c 'nc -z -w 4 2606:4700:4700::1111 443' >/dev/null 2>&1; then
+            echo "::error::Restore client network permits outbound connectivity"
+            exit 1
+          fi
+          server_probe=(docker run --rm --network "container:$db_id" --entrypoint sh "$PSQL_IMAGE")
+          if "${server_probe[@]}" -c 'nc -z -w 4 1.1.1.1 443' >/dev/null 2>&1 || \
+             "${server_probe[@]}" -c 'nc -z -w 4 2606:4700:4700::1111 443' >/dev/null 2>&1; then
+            echo "::error::Restore database network permits outbound connectivity"
+            exit 1
+          fi
+          echo 'Disposable PostgreSQL 17 target is loopback-published and container-egress-isolated.'
 
       - name: Restore SQL transactionally using patched PostgreSQL 17 client
         shell: bash
         run: |
           set -euo pipefail
           umask 077
+          network_info="$(docker network inspect --format \
+            '{{.Driver}}|{{.Internal}}|{{.EnableIPv6}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.supabase.cli.project"}}|{{index .Labels "com.docker.compose.project"}}' \
+            "$RESTORE_DOCKER_NETWORK")"
+          db_id="$(docker ps --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" --format '{{.ID}}')"
+          attached_networks="$(docker inspect --format '{{range $name, $cfg := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' "$db_id")"
+          if [[ "$network_info" != "bridge|true|false|127.0.0.1|$RESTORE_PROJECT_ID|$RESTORE_PROJECT_ID" || \
+                "$attached_networks" != "$RESTORE_DOCKER_NETWORK" ]]; then
+            echo "::error::Restore target network isolation check failed"
+            exit 1
+          fi
           # Ubuntu's psql may be version 16. A patched 17.11 client understands
           # the source dump's restrict/unrestrict guards without stripping them.
           # The container does not receive any R2 or production credentials.
@@ -234,7 +372,7 @@ jobs:
           }
           # Keep the same container identity, hardening, mount and local target
           # for every probe and the restore. No R2 credentials enter the client.
-          client=(docker run --rm --network host \
+          client=(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
             --user "$(id -u):$(id -g)" --cap-drop ALL \
             --security-opt no-new-privileges --read-only \
             --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
@@ -243,7 +381,7 @@ jobs:
           checked files "${client[@]}" sh -c \
             'for file in /backup/roles.sql /backup/schema.sql /backup/history-schema.sql /backup/data.sql /backup/history-data.sql; do test -f "$file" && test -r "$file" || exit 1; done'
           # Validate the local login inside the same transaction before any private SQL.
-          restore_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+          restore_db='postgresql://supabase_admin:postgres@db:5432/postgres'
           require_admin="$(cat <<'SQL'
           DO $restore_identity$
           BEGIN
@@ -274,6 +412,16 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          network_info="$(docker network inspect --format \
+            '{{.Driver}}|{{.Internal}}|{{.EnableIPv6}}|{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}|{{index .Labels "com.supabase.cli.project"}}|{{index .Labels "com.docker.compose.project"}}' \
+            "$RESTORE_DOCKER_NETWORK")"
+          db_id="$(docker ps --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" --format '{{.ID}}')"
+          attached_networks="$(docker inspect --format '{{range $name, $cfg := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' "$db_id")"
+          if [[ "$network_info" != "bridge|true|false|127.0.0.1|$RESTORE_PROJECT_ID|$RESTORE_PROJECT_ID" || \
+                "$attached_networks" != "$RESTORE_DOCKER_NETWORK" ]]; then
+            echo "::error::Restore target network isolation check failed"
+            exit 1
+          fi
           query="SELECT (SELECT count(*) FROM public.profiles),
             (SELECT count(*) FROM public.recipes),
             (SELECT count(*) FROM public.recipe_lineage),
@@ -282,12 +430,12 @@ jobs:
             (SELECT count(*) FROM supabase_migrations.schema_migrations),
             (SELECT md5(string_agg(version::text, ',' ORDER BY version::text))
               FROM supabase_migrations.schema_migrations);"
-          if ! aggregates="$(docker run --rm --network host \
+          if ! aggregates="$(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
               --user "$(id -u):$(id -g)" --cap-drop ALL \
               --security-opt no-new-privileges --read-only \
               "$PSQL_IMAGE" \
                 psql -X -A -t -F '|' -v ON_ERROR_STOP=1 -c "$query" \
-                -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+                -d 'postgresql://postgres:postgres@db:5432/postgres' \
               2> "$RUNNER_TEMP/private-verify-result.log")"; then
             echo "::error::Database aggregate verification query failed"
             exit 1
@@ -351,9 +499,9 @@ jobs:
         run: |
           {
             echo '### Database Restore Drill — Stage B'
-            echo "- Selected backup workflow run: ${BACKUP_RUN_ID}"
-            echo "- Backup source revision: ${BACKUP_SOURCE_SHA}"
-            echo '- Target: isolated PostgreSQL 17 on a temporary GitHub runner'
+            echo '- Approved recovery candidate identity: withheld from public output'
+            echo '- Target: disposable PostgreSQL 17; restore containers use an internal network and loopback-only publish'
+            echo '- Runner-host egress and R2 key permissions: not restricted or verified by this workflow'
             echo '- R2 byte-integrity, metadata, component checksums: passed'
             echo '- Transactional SQL restore: passed'
             echo '- Application counts and migration history: passed'
@@ -369,14 +517,33 @@ jobs:
           workdir="$RUNNER_TEMP/moris-restore-local"
           if [[ -f "$workdir/supabase/config.toml" ]]; then
             supabase stop --workdir "$workdir" --no-backup \
+              --network-id "$RESTORE_DOCKER_NETWORK" \
               > /dev/null 2>&1 || failure=1
           fi
-          rm -rf "$RUNNER_TEMP/restore-verified-sql" "$RUNNER_TEMP/restore-selected.tar.gz" \
+          if ! rm -rf "$RUNNER_TEMP/restore-verified-sql" "$RUNNER_TEMP/restore-selected.tar.gz" \
             "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/private-restore-result.log" \
             "$RUNNER_TEMP/private-restore-stderr.log" \
-            "$RUNNER_TEMP/private-verify-result.log" "$workdir"
+            "$RUNNER_TEMP/private-verify-result.log" "$RUNNER_TEMP/private-db-start.log" \
+            "$RUNNER_TEMP/restore-download-archive.log" "$RUNNER_TEMP/restore-download-evidence.log" \
+            "$RUNNER_TEMP/restore-candidate.env" "$workdir"; then
+            failure=1
+          fi
+          if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
+            network_exists=0
+            while IFS= read -r network_name; do
+              if [[ "$network_name" == "$RESTORE_DOCKER_NETWORK" ]]; then
+                network_exists=1
+                break
+              fi
+            done <<< "$network_list"
+            if [[ "$network_exists" == 1 ]]; then
+              docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1 || failure=1
+            fi
+          else
+            failure=1
+          fi
           if [[ "$failure" -ne 0 ]]; then
-            echo '::error::Local database shutdown failed; runner teardown will recycle the VM'
+            echo '::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM'
             exit 1
           fi
           echo 'Isolated database stopped; private runner files deleted.'

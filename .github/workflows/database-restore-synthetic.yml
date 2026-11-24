@@ -19,6 +19,8 @@ on:
       - scripts/test_database_restore_network_guard.py
       - scripts/test_database_restore_failure_locations.py
       - scripts/test_database_restore_data_failure.py
+      - scripts/restore_candidate_manifest.py
+      - scripts/test_database_restore_candidate_manifest.py
       - scripts/restore_data_failure.py
       - scripts/test_database_restore_drill.py
       - scripts/classify_restore_component.py

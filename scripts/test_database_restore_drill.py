@@ -30,6 +30,18 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/database-res
 SQL = ("roles.sql", "schema.sql", "data.sql", "history-schema.sql", "history-data.sql")
 
 
+def bash_path(path):
+    """Return a temporary path in the namespace used by Windows Bash."""
+    resolved = Path(path).resolve()
+    if os.name != "nt":
+        return resolved.as_posix()
+    drive = resolved.drive[:1].lower()
+    tail = resolved.as_posix()[2:]
+    bash_exe = (shutil.which("bash") or "").replace("\\", "/").lower()
+    mount = "/mnt" if "/windowsapps/" in bash_exe else ""
+    return f"{mount}/{drive}{tail}"
+
+
 def programs():
     """Compile Python heredocs from the workflow, not duplicated test-side logic."""
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
@@ -50,8 +62,8 @@ def programs():
             compile(source, str(WORKFLOW), "exec")
             collected.append(source)
         index += 1
-    if len(collected) != 3:
-        raise AssertionError(f"Expected three embedded Python programs, got {len(collected)}")
+    if len(collected) != 5:
+        raise AssertionError(f"Expected five embedded Python programs, got {len(collected)}")
     return collected
 
 
@@ -100,7 +112,55 @@ class StageBOfflineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Compile the actual workflow's Python rather than a test duplicate."""
-        cls.verify_archive, cls.configure_db, cls.verify_counts = programs()
+        (cls.verify_archive, cls.configure_db, cls.verify_port_binding,
+         cls.verify_runner_ingress, cls.verify_counts) = programs()
+
+    def run_embedded_python(self, source, *args):
+        return subprocess.run([sys.executable, "-", *map(str, args)], input=source,
+                              text=True, capture_output=True, check=False)
+
+    def test_public_summary_names_host_egress_limit_without_candidate_identifiers(self):
+        summary = WORKFLOW.read_text(encoding="utf-8").split(
+            "      - name: Record safe restore result", 1)[1]
+        self.assertIn(
+            "Approved recovery candidate identity: withheld from public output", summary
+        )
+        self.assertIn(
+            "Runner-host egress and R2 key permissions: not restricted or verified by this workflow",
+            summary,
+        )
+        for private_field in (
+            "BACKUP_PREFIX", "ARCHIVE_NAME", "EVIDENCE_NAME", "BACKUP_SHA256",
+            "BACKUP_RUN_ID", "BACKUP_SOURCE_SHA", "BACKUP_SOURCE_PROJECT", "object_key",
+        ):
+            self.assertNotIn(private_field, summary)
+
+    def test_database_config_is_pinned_to_postgres_17_and_unique_project(self):
+        import tomllib
+
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "config.toml"
+            config.write_text('project_id = "supabase"\n[db]\nmajor_version = 15\n')
+            result = self.run_embedded_python(self.configure_db, config, "mori276-test")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            parsed = tomllib.loads(config.read_text())
+            self.assertEqual(parsed["project_id"], "mori276-test")
+            self.assertEqual(parsed["db"]["major_version"], 17)
+
+    def test_database_port_binding_requires_ipv4_loopback_only(self):
+        allowed = json.dumps({"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "54322"}]})
+        denied = (
+            json.dumps({"5432/tcp": [{"HostIp": "0.0.0.0", "HostPort": "54322"}]}),
+            json.dumps({"5432/tcp": [{"HostIp": "::", "HostPort": "54322"}]}),
+            json.dumps({"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "54322"}],
+                        "8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]}),
+        )
+        self.assertEqual(self.run_embedded_python(self.verify_port_binding, allowed).returncode, 0)
+        for value in denied:
+            with self.subTest(binding=value):
+                result = self.run_embedded_python(self.verify_port_binding, value)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn(value, result.stderr)
 
     def run_archive_check(self, archive, evidence, env, dest):
         """Run the verifier with a disposable synthetic archive."""
@@ -626,6 +686,9 @@ class RestoreDiagnosticTests(unittest.TestCase):
         step = workflow.split("      - name: Restore SQL transactionally", 1)[1]
         body = step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
         cls.script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
+        cleanup = workflow.split("      - name: Stop isolated database and delete private files", 1)[1]
+        body = cleanup.split("        run: |\n", 1)[1]
+        cls.cleanup_script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
 
     def run_diagnostic(self, phase="none", code=0, missing_file=False,
                        temp_prefix="tmp", stderr=None, helper_mode="normal",
@@ -634,6 +697,19 @@ class RestoreDiagnosticTests(unittest.TestCase):
         # contain synthetic private markers, including annotation-like content.
         stub = r'''
 docker() {
+  if [[ "${1:-}" == network && "${2:-}" == inspect ]]; then
+    printf 'bridge|true|false|127.0.0.1|%s|%s\n' \
+      "$RESTORE_PROJECT_ID" "$RESTORE_PROJECT_ID"
+    return 0
+  fi
+  if [[ "${1:-}" == ps ]]; then
+    printf 'synthetic-db-id\n'
+    return 0
+  fi
+  if [[ "${1:-}" == inspect ]]; then
+    printf '%s\n' "$RESTORE_DOCKER_NETWORK"
+    return 0
+  fi
   local phase=restore arg
   for arg in "$@"; do
     case "$arg" in
@@ -676,17 +752,24 @@ python3() {
                         path.write_bytes(roles_sql)
                     else:
                         path.write_text("SYNTHETIC_PRIVATE_DUMP")
-            env = dict(os.environ, RUNNER_TEMP=root.as_posix(),
+            env = dict(os.environ, RUNNER_TEMP=bash_path(root),
                        PSQL_IMAGE="synthetic-pinned-image", FAIL_PHASE=phase,
                        FAIL_CODE=str(code), TEST_PYTHON=sys.executable,
+                       RESTORE_DOCKER_NETWORK="synthetic-restore-network",
+                       RESTORE_PROJECT_ID="moris-restore-local",
                        HELPER_MODE=helper_mode, HELPER_OUTPUT=helper_output or "",
                        DIAG_STDERR=stderr if stderr is not None
                        else "::error::SYNTHETIC_PRIVATE_STDERR SELECT secret FROM synthetic;\n")
             result = subprocess.run([self.bash, "--noprofile", "--norc"],
-                                    input=stub + self.script, text=True,
+                                    input=(stub + self.script).encode("utf-8"),
                                     capture_output=True, env=env, check=False)
+            result.stdout = result.stdout.decode("utf-8", errors="replace")
+            result.stderr = result.stderr.decode("utf-8", errors="replace")
             private_log = root / "private-restore-result.log"
             private_stderr = root / "private-restore-stderr.log"
+            self.assertTrue(private_log.is_file(),
+                            f"restore step exited {result.returncode}; "
+                            f"stdout={result.stdout!r}; stderr={result.stderr!r}")
             self.assertIn("SYNTHETIC_PRIVATE_SQL", private_log.read_text())
             self.assertNotIn("SYNTHETIC_PRIVATE_STDERR", private_log.read_text())
             self.assertEqual(private_stderr.read_text(), env["DIAG_STDERR"])
@@ -716,14 +799,15 @@ python3() {
             for phase in ("client", "files", "connection", "restore")) +
             "Transactional isolated SQL restore passed.\n")
         for call in calls:
-            self.assertEqual(call[1:5], ["run", "--rm", "--network", "host"])
+            self.assertEqual(call[1:5],
+                             ["run", "--rm", "--network", "synthetic-restore-network"])
             self.assertIn("--read-only", call)
             self.assertIn("no-new-privileges", call)
             self.assertIn("ALL", call)
             self.assertIn("synthetic-pinned-image", call)
             self.assertTrue(any(arg.endswith("target=/backup,readonly") for arg in call))
         restore = calls[-1]
-        admin_db = "postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres"
+        admin_db = "postgresql://supabase_admin:postgres@db:5432/postgres"
         self.assertEqual(calls[-2][-2:], ["-d", admin_db])
         command = restore[restore.index("psql"):]
         guard = command[command.index("-c") + 1]
@@ -743,9 +827,10 @@ python3() {
 
     def test_bash_syntax(self):
         result = subprocess.run([self.bash, "--noprofile", "--norc", "-n"],
-                                input=self.script, text=True, capture_output=True,
+                                input=self.script.encode("utf-8"), capture_output=True,
                                 check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0,
+                         result.stderr.decode("utf-8", errors="replace"))
 
     def test_failure_categories_and_actual_exit_codes(self):
         cases = [("client", 1, "container-client"),
@@ -905,6 +990,91 @@ python3() {
         self.assertIn("if: always()", cleanup)
         self.assertIn('"$RUNNER_TEMP/private-restore-result.log"', cleanup)
         self.assertIn('"$RUNNER_TEMP/private-restore-stderr.log"', cleanup)
+
+    def test_actual_cleanup_fails_closed_and_attempts_independent_obligations(self):
+        cases = (
+            ("network-present", 0, 0, 0, 0, 0, 1, True),
+            ("network-absent", 0, 0, 0, 0, 0, 0, False),
+            ("docker-list-fails", 1, 0, 0, 0, 1, 0, False),
+            ("network-remove-fails", 0, 1, 0, 0, 1, 1, True),
+            ("database-stop-fails", 0, 0, 72, 0, 1, 1, True),
+            ("private-file-remove-fails", 0, 0, 0, 1, 1, 1, True),
+        )
+        for name, list_status, remove_status, stop_status, rm_status, expected, remove_calls, present in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                workdir = root / "moris-restore-local"
+                (workdir / "supabase").mkdir(parents=True)
+                (workdir / "supabase/config.toml").write_text("synthetic\n")
+                for filename in (
+                    "restore-verified-sql", "restore-selected.tar.gz", "restore-selected.json",
+                    "private-restore-result.log", "private-restore-stderr.log",
+                    "private-verify-result.log", "private-db-start.log",
+                    "restore-download-archive.log", "restore-download-evidence.log",
+                    "restore-candidate.env",
+                ):
+                    path = root / filename
+                    if filename == "restore-verified-sql":
+                        path.mkdir()
+                        (path / "synthetic.txt").write_text("SYNTHETIC_PRIVATE_SENTINEL")
+                    else:
+                        path.write_text("SYNTHETIC_PRIVATE_SENTINEL")
+                stub = r'''\
+supabase() {
+  [[ "$1" == stop ]] || return 99
+  printf 'stop\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+  return "$SYNTHETIC_STOP_STATUS"
+}
+docker() {
+  if [[ "$1" == network && "$2" == ls ]]; then
+    [[ "$SYNTHETIC_DOCKER_LIST_STATUS" == 0 ]] || return "$SYNTHETIC_DOCKER_LIST_STATUS"
+    printf '%s\n' "$SYNTHETIC_DOCKER_NETWORK_LIST"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == rm ]]; then
+    printf 'network-rm\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    return "$SYNTHETIC_DOCKER_REMOVE_STATUS"
+  fi
+  return 99
+}
+rm() {
+  [[ "$SYNTHETIC_RM_STATUS" == 0 ]] || return "$SYNTHETIC_RM_STATUS"
+  command rm "$@"
+}
+'''
+                network_list = "restore-synthetic-cleanup" if present else "restore-synthetic-cleanup-other"
+                env = dict(os.environ, RUNNER_TEMP=bash_path(root),
+                           RESTORE_DOCKER_NETWORK="restore-synthetic-cleanup",
+                           SYNTHETIC_TEST_LOG_DIR=bash_path(root),
+                           SYNTHETIC_DOCKER_NETWORK_LIST=network_list,
+                           SYNTHETIC_DOCKER_LIST_STATUS=str(list_status),
+                           SYNTHETIC_DOCKER_REMOVE_STATUS=str(remove_status),
+                           SYNTHETIC_STOP_STATUS=str(stop_status),
+                           SYNTHETIC_RM_STATUS=str(rm_status))
+                result = subprocess.run(
+                    [self.bash, "--noprofile", "--norc"],
+                    input=(stub + self.cleanup_script).encode("utf-8"),
+                    capture_output=True, env=env, check=False,
+                )
+                stdout = result.stdout.decode("utf-8", errors="replace")
+                stderr = result.stderr.decode("utf-8", errors="replace")
+                self.assertEqual(result.returncode, expected, f"stdout={stdout!r}; stderr={stderr!r}")
+                self.assertEqual(stderr, "")
+                expected_output = (
+                    "Isolated database stopped; private runner files deleted.\n"
+                    if expected == 0 else
+                    "::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM\n"
+                )
+                self.assertEqual(stdout, expected_output)
+                self.assertNotIn("SYNTHETIC_PRIVATE", stdout + stderr)
+                actions = (root / "actions").read_text().splitlines() if (root / "actions").exists() else []
+                self.assertIn("stop", actions)
+                self.assertEqual(actions.count("network-rm"), remove_calls)
+                if expected == 0:
+                    self.assertFalse((root / "restore-selected.tar.gz").exists())
+                    self.assertFalse(workdir.exists())
+                elif rm_status == 0:
+                    self.assertFalse((root / "restore-selected.tar.gz").exists())
 
     def test_missing_mounted_file_stops_before_connection_or_restore(self):
         result, calls = self.run_diagnostic(missing_file=True)
