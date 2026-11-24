@@ -14,6 +14,7 @@ export interface RecipeSummary {
 export interface RecipeDetail extends RecipeSummary {
   ingredients: Ingredient[]
   instructions: Instruction[]
+  updated_at?: string
   flavor_scores?: FlavorScores | null
 }
 

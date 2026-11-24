@@ -31,6 +31,7 @@ export type RecipeFormProps = {
   notice?: ReactNode
   reviewPage?: { title: string; content: ReactNode }
   reviewStatus?: ReactNode
+  identitySupplement?: ReactNode
   supplement?: ReactNode
 }
 

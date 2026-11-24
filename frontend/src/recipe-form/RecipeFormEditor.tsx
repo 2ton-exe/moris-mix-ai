@@ -29,7 +29,7 @@ function resizeTextarea(target: EventTarget | null) {
   target.style.height = `${target.scrollHeight}px`
 }
 
-export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, identitySupplement, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
@@ -587,6 +587,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
             <ScrapbookSticker decorative name="rice-bowl" />
           </div>}
         </section>
+        {identitySupplement}
         {(!desktop || single) && supplement && <div ref={supplementSlot} data-supplement-slot /> }
       </>
     } else if (leaf.kind === 'supplement') {

@@ -86,6 +86,21 @@ describe('AI Chef request and response contract', () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain('/recipes')
   })
 
+  it('requests a revision from an exact excerpt and requires evidence for that request', async () => {
+    const noteExcerpt = 'Too salty. Keep the tang.'
+    const revision = {
+      noteExcerpt, ingredient: 'tomatoes', reason: 'Use less this time.',
+      before: { quantity: 4, unit: null }, after: { quantity: 2, unit: null },
+    }
+    const send = vi.fn().mockResolvedValue({ ...generated, revision })
+    const api = createGenerateRecipeApi({ postAuthenticatedJson: send })
+    const sourceRecipeId = generated.parents[0].id
+
+    await expect(api.revise(sourceRecipeId, noteExcerpt, request)).resolves.toEqual({ ...generated, revision })
+    expect(send).toHaveBeenCalledWith(GENERATE_RECIPE_PATH, { sourceRecipeId, noteExcerpt }, request)
+    await expect(api.revise(sourceRecipeId, 'A different note.', request)).rejects.toBeInstanceOf(InvalidGeneratedRecipeResponse)
+  })
+
   it('rejects malformed success responses without accepting partial recipe data', async () => {
     const api = createGenerateRecipeApi({
       postAuthenticatedJson: vi.fn().mockResolvedValue({ ...generated, recipe: { title: 'incomplete' } }),
