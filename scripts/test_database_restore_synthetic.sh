@@ -97,11 +97,13 @@ else
       failure_class=database-start-image-pull
     elif grep -Eiq '(unauthorized|authentication required|forbidden|status code 401|status code 403|failed to fetch anonymous token)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-image-auth
+    elif grep -Eiq '(error response from daemon|docker api[^[:cntrl:]]*(error|failed)|failed to (create|start) docker container)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-daemon-api
     elif grep -Eiq '(TLS handshake timeout|i/o timeout|connection reset|no such host|network is unreachable|temporary failure in name resolution|context deadline exceeded)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-image-network
     elif grep -Eiq '(image[^[:cntrl:]]*(not found|does not exist)|manifest[^[:cntrl:]]*(unknown|not found)|repository[^[:cntrl:]]*not found)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-image-missing
-    elif grep -Eiq '(connection refused|health check|healthcheck|unhealthy)' "$root/private-db-start.log" 2>/dev/null; then
+    elif grep -Eiq '(connection refused|health check|healthcheck|unhealthy|failed to start|container[^[:cntrl:]]*(exited|failed))' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-health
     elif grep -Eiq '(network.*(not found|invalid)|failed to.*network|gateway)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-network

@@ -208,14 +208,16 @@ supabase() {
     init)
       mkdir -p "$3/supabase"
       printf 'project_id = "supabase"\n[db]\nmajor_version = 15\n' > "$3/supabase/config.toml"
+      return 0
       ;;
-    db) return 73 ;;
     stop)
       touch "$SYNTHETIC_TEST_LOG_DIR/stop-called"
       return "$SYNTHETIC_STOP_STATUS"
-      ;;
-    *) return 99 ;;
   esac
+  [[ "$1" == --debug ]] || return 98
+  shift
+  [[ "$1" == db ]] && return 73
+  return 99
 }
 export -f supabase
 docker() {

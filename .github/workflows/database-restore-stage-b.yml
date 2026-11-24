@@ -209,7 +209,7 @@ jobs:
             echo "::error::Disposable restore network isolation failed"
             exit 1
           fi
-          if supabase db start --workdir "$workdir" --network-id "$RESTORE_DOCKER_NETWORK" \
+          if supabase --debug db start --workdir "$workdir" --network-id "$RESTORE_DOCKER_NETWORK" \
             > "$RUNNER_TEMP/private-db-start.log" 2>&1; then
             :
           else

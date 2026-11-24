@@ -144,7 +144,8 @@ class StageBOfflineTests(unittest.TestCase):
         start = workflow.split(
             "      - name: Start clean, isolated Supabase PostgreSQL 17", 1
         )[1].split("      - name: Restore SQL transactionally", 1)[0]
-        self.assertLess(start.index("supabase db start"), start.index("restore_runner_network_guard.py apply"))
+        self.assertIn("supabase --debug db start", start)
+        self.assertLess(start.index("supabase --debug db start"), start.index("restore_runner_network_guard.py apply"))
         cleanup = workflow.split(
             "      - name: Stop isolated database and delete private files", 1
         )[1]
