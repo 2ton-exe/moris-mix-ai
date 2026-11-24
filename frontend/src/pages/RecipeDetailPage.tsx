@@ -50,12 +50,16 @@ export default function RecipeDetailPage() {
     {!recipe && query.isError && (single ? <>
       <h1 ref={titleRef} tabIndex={-1}>Recipe unavailable</h1>
       <RecipeError detail error={query.error} onRetry={retry} />
+      {source.mode === 'unavailable' && <nav className="mm-recipe-recovery__actions" aria-label="Recipe recovery">
+        <Link className="button button-primary" to="/demo-recipe">Explore the sample recipe</Link>
+      </nav>}
     </> : <section className="mm-recipe-recovery" aria-labelledby="recipe-unavailable-heading">
       <h1 id="recipe-unavailable-heading" ref={titleRef} tabIndex={-1}>Recipe unavailable</h1>
       <RecipeError detail error={query.error} onRetry={retry} />
       <nav className="mm-recipe-recovery__actions" aria-label="Recipe recovery">
         <Link className="button button-primary" to={journalReturn} state={{ focusRecipe: recipeId }}>Browse your recipes</Link>
         {source.mode === 'live' && <Link className="button button-secondary" to="/app/recipes/new" state={{ journalReturn }}>Create a recipe</Link>}
+        {source.mode === 'unavailable' && <Link className="button button-secondary" to="/demo-recipe">Explore the sample recipe</Link>}
       </nav>
     </section>)}
     {recipe && <RecipeReading recipe={recipe} titleRef={titleRef} folio={folio}

@@ -72,6 +72,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const [pending, setPending] = useState(false)
   const [requestError, setRequestError] = useState<string | null>(null)
   const [requestErrorForPantry, setRequestErrorForPantry] = useState(false)
+  const [manualFallbackAvailable, setManualFallbackAvailable] = useState(false)
   const [retryAt, setRetryAt] = useState(0)
   const [now, setNow] = useState(Date.now)
   const retryBlocked = retryAt > now
@@ -214,6 +215,7 @@ function AIChefSession({ userId }: { userId: string }) {
   function clearRequestError() {
     setRequestError(null)
     setRequestErrorForPantry(false)
+    setManualFallbackAvailable(false)
   }
 
   function retryDraftStorage() {
@@ -360,6 +362,7 @@ function AIChefSession({ userId }: { userId: string }) {
         setRetryAt(currentTime + wait * 1000)
       }
       setRequestError(generateRecipeErrorMessage(error, timedOut))
+      setManualFallbackAvailable(pantryItems.length > 0)
     } finally {
       window.clearTimeout(timeoutId)
       inFlight.current = false
@@ -427,7 +430,7 @@ function AIChefSession({ userId }: { userId: string }) {
       {storageWarning}
       <fieldset disabled={pending || !splitPantry && page !== 0}>
         <legend id="pantry-entry-heading">Pantry ingredients</legend>
-        <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Separate pasted items with commas or new lines.</p>
+        <p className="mm-ai-chef__help" id="pantry-help">Start with one ingredient. Add up to {MAX_PANTRY_ITEMS} ingredients or paste a list separated by commas or line breaks. Cooking preferences are optional.</p>
         <div className="mm-ai-chef__ingredient-entry">
           <label className="visually-hidden" htmlFor="ai-chef-pantry-item">Pantry ingredient</label>
           <input
@@ -547,7 +550,16 @@ function AIChefSession({ userId }: { userId: string }) {
       </>}
 
       <div className="mm-ai-chef__notices" hidden={!requestError && !retryBlocked && !pending}>
-      {requestError && <div className="mm-ai-chef__request-error" role="alert"><p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p></div>}
+      {requestError && <div className="mm-ai-chef__request-error" role="alert">
+        <p id={requestErrorForPantry ? 'ai-chef-request-error' : undefined}>{requestError}</p>
+        {manualFallbackAvailable && pantryItems.length > 0 && <div className="mm-ai-chef__manual-fallback">
+          <p>Your pantry list will carry over if you continue by hand.</p>
+          <Link className="button button-secondary mm-button--small" to="/app/recipes/new"
+            state={{ manualRecipe: { userId, source: 'chef', ingredients: pantryItems } }}>
+            Write recipe manually
+          </Link>
+        </div>}
+      </div>}
       {retryBlocked && <p role="status">The service asked you to wait before retrying. Your pantry and preferences remain available.</p>}
       {pending && <p className="mm-ai-chef__pending" role="status">Mori is checking your ingredients; this can take a little while.</p>}
       </div>

@@ -21,14 +21,14 @@ const recipe: RecipeDetail = {
   flavor_scores: { sweet: 0, salty: 1, sour: 2, bitter: 3, umami: 4, spicy: 5 },
 }
 
-function RouteView({ data = recipe }: { data?: RecipeDetail }) {
+function RouteView({ data = recipe, editable = false, publicDemo = false, folio }: { data?: RecipeDetail; editable?: boolean; publicDemo?: boolean; folio?: number }) {
   const location = useLocation()
   const navigate = useNavigate()
   return <>
     <output data-testid="location">{location.pathname}{location.search}|{JSON.stringify(location.state)}</output>
     <button onClick={() => void navigate(-1)}>Browser back</button>
     <button onClick={() => void navigate(1)}>Browser forward</button>
-    <JournalShell><RecipeReading recipe={data} back={<Link to="/app/recipes?entry=6">Back to recipes</Link>} /></JournalShell>
+    <JournalShell><RecipeReading recipe={data} editable={editable} publicDemo={publicDemo} folio={folio} back={<Link to="/app/recipes?entry=6">Back to recipes</Link>} /></JournalShell>
   </>
 }
 
@@ -83,6 +83,40 @@ it('keeps missing-step repair links out of non-editable reading', () => {
   render(<MemoryRouter initialEntries={['/demo-recipe?read=instructions-empty']}><RouteView data={{ ...recipe, instructions: [] }} /></MemoryRouter>)
   expect(live().getByText('No cooking steps listed.')).toBeTruthy()
   expect(screen.queryByRole('link', { name: 'Add cooking steps' })).toBeNull()
+})
+
+it('offers contextual repair links for empty saved recipe sections and preserves the journal return state', () => {
+  measured.single = true
+  measured.pages = [['ingredients-empty', 'instructions-empty', 'notes-empty']]
+  const emptyRecipe = { ...recipe, ingredients: [], instructions: [], notes: '' }
+  render(<MemoryRouter initialEntries={[{ pathname: '/app/recipes/reading-test', search: '?read=ingredients-empty', state: { journalReturn: '/app/recipes?entry=4&leaf=3', recipeFolio: 5 } }]}>
+    <RouteView data={emptyRecipe} editable folio={5} />
+  </MemoryRouter>)
+
+  expect(screen.getByText(/No ingredients listed\./)).toBeTruthy()
+  expect(screen.getByText(/No cooking steps listed\./)).toBeTruthy()
+  const editLinks = screen.getAllByRole('link', { name: 'Edit this recipe' })
+  expect(editLinks).toHaveLength(2)
+  expect(editLinks[0].getAttribute('href')).toBe('/app/recipes/reading-test/edit')
+  expect(screen.getByRole('link', { name: 'Add cooking steps' }).getAttribute('href')).toBe('/app/recipes/reading-test/edit?section=method')
+
+  fireEvent.click(editLinks[0])
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes/reading-test/edit')
+  expect(screen.getByTestId('location').textContent).toContain('"journalReturn":"/app/recipes?entry=4&leaf=3"')
+  expect(screen.getByTestId('location').textContent).toContain('"recipeFolio":5')
+})
+
+it('keeps empty demonstration recipe sections read-only', () => {
+  measured.single = true
+  measured.pages = [['ingredients-empty', 'instructions-empty', 'notes-empty']]
+  render(<MemoryRouter initialEntries={['/demo-recipe?read=ingredients-empty']}><RouteView data={{ ...recipe, ingredients: [], instructions: [], notes: '' }} editable publicDemo /></MemoryRouter>)
+  expect(screen.getByText(/No ingredients listed\./)).toBeTruthy()
+  expect(screen.getByText('No cooking steps listed.')).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Edit this recipe' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Add cooking steps' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Personal notes' })).toBeNull()
+  expect(screen.queryByText(/personal notes are included in this demonstration/i)).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Log in to your journal' })).toBeNull()
 })
 
 it('restores an exact content anchor without matching a longer entry prefix', () => {

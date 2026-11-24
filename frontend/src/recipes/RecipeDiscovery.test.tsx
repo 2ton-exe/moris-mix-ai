@@ -16,6 +16,7 @@ import { initialDiscoveryCriteria } from './discoveryTypes'
 import type { RecipeDiscoveryPage, RecipeDiscoverySource } from './discoveryTypes'
 import type { RecipeSource } from './types'
 import { createRecipeSource } from './apiSource'
+import { RecipeIntegrationUnavailable } from './source'
 
 const rice = { id: 'rice', title: 'Garlic rice' }
 const salad = { id: 'salad', title: 'Lemon salad' }
@@ -63,8 +64,28 @@ it('labels search, scope, filter and sort controls and advertises no production-
   expect(screen.getByRole('combobox', { name: 'Search in' })).toBeTruthy()
   expect(screen.getByRole('combobox', { name: 'Test filter' })).toBeTruthy()
   expect(screen.getByRole('combobox', { name: 'Sort recipes' })).toBeTruthy()
+  expect(screen.getByText('Search titles or ingredients, then choose how to sort.')).toBeTruthy()
   expect(source.list).not.toHaveBeenCalled()
   expect(page.mock.calls.filter(([request]) => !request.signal.aborted)).toHaveLength(1)
+})
+
+it('keeps unique recipe labels and adds date, entry, and notes for repeated titles', async () => {
+  page.mockResolvedValue({ recipes: [
+    { id: 'supper-one', title: 'Family supper', cooked_at: '2026-10-13', notes: 'Added extra basil.' },
+    { id: 'supper-two', title: 'Family supper', cooked_at: '2026-10-13', notes: 'Used the last of the tomatoes.' },
+    { id: 'unique-rice', title: 'Garlic rice' },
+  ], nextPage: null })
+  const index = render(tree())
+  const firstResult = await screen.findByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 1' })
+  const secondResult = screen.getByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 2' })
+  expect(firstResult.textContent).toContain('Note: Added extra basil.')
+  expect(secondResult.textContent).toContain('Note: Used the last of the tomatoes.')
+  expect(screen.getByRole('link', { name: 'Open recipe Garlic rice, entry 3' })).toBeTruthy()
+
+  index.unmount()
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  expect(await screen.findByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 1' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 2' })).toBeTruthy()
 })
 
 it('keeps focus in search when editing a restored index anchor', async () => {
@@ -126,9 +147,13 @@ it('distinguishes an empty journal from no search matches and clears the search'
   await enterSearch('missing')
   await screen.findByRole('heading', { name: 'No recipes match your search.' })
   expect(screen.queryByText(/fresh page/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Show all recipes' }))
+  expect(screen.getByText(/use the search controls to clear search and filters/i)).toBeTruthy()
+  const reset = screen.getByRole('button', { name: 'Reset search and filters' })
+  reset.focus()
+  fireEvent.click(reset)
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved recipes (0)' })))
 })
 
 it('updates companion guidance when clearing a search while preserving the open panel', async () => {
@@ -161,6 +186,17 @@ it('renders a safe first-page failure with retry', async () => {
   page.mockResolvedValue({ recipes: [rice], nextPage: null })
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
   await ready()
+})
+
+it('offers a sample recipe when the signed-in journal is unavailable', async () => {
+  source = {
+    mode: 'unavailable',
+    list: vi.fn().mockRejectedValue(new RecipeIntegrationUnavailable()),
+    detail: vi.fn(),
+  }
+  render(tree('cook-a', '/app/recipes'))
+  await screen.findByText(/Your recipe journal is not connected yet/)
+  expect(screen.getByRole('link', { name: 'Explore the sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
 })
 
 it('moves focus from a successful first-page retry to the loaded collection', async () => {
@@ -372,7 +408,7 @@ it('enables confirmed live search and sorting while omitting unsupported filters
   await ready()
   expect((screen.getByRole('searchbox') as HTMLInputElement).disabled).toBe(false)
   expect((screen.getByRole('combobox', { name: 'Search in' }) as HTMLSelectElement).disabled).toBe(false)
-  expect((screen.getByRole('option', { name: 'Rating' }) as HTMLOptionElement).disabled).toBe(false)
+  expect((screen.getByRole('option', { name: 'Highest rated' }) as HTMLOptionElement).disabled).toBe(false)
   expect(screen.queryByRole('combobox', { name: 'Filters' })).toBeNull()
 })
 

@@ -5,7 +5,7 @@ import { mkdtemp } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath, URL } from 'node:url'
+import { fileURLToPath, URL, URLSearchParams } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
@@ -55,6 +55,8 @@ try {
       const body = method === 'GET' || method === 'HEAD' ? null : request.postDataJSON()
       authRequests.push({ method, path: url.pathname, search: url.search, body })
       if (url.pathname === '/auth/v1/user' && method === 'GET') return route.fulfill({ json: user })
+      if (url.pathname === '/auth/v1/user' && method === 'PUT') return route.fulfill({ json: user })
+      if (url.pathname === '/auth/v1/recover' && method === 'POST') return route.fulfill({ json: {} })
       if (url.pathname === '/auth/v1/token') {
         if (url.searchParams.get('grant_type') === 'pkce') return route.fulfill({ json: session })
         if (url.searchParams.get('grant_type') === 'password') {
@@ -155,7 +157,7 @@ try {
 
   const verificationFailure = await newAuthContext(390)
   await verificationFailure.page.goto(`${origin}auth/callback#error=access_denied&error_code=otp_expired`)
-  await expect(verificationFailure.page.getByRole('heading', { name: 'Verification link unavailable' })).toBeVisible()
+  await expect(verificationFailure.page.getByRole('heading', { name: 'Email link unavailable' })).toBeVisible()
   await assertJournalSemantics(verificationFailure.page, 'invalid verification link')
   await expect(verificationFailure.page.getByRole('status')).toContainText('expired, invalid, or already used')
   assert.equal(await verificationFailure.page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
@@ -165,13 +167,47 @@ try {
   assert.deepEqual(verificationFailure.errors, [])
   await verificationFailure.context.close()
 
+  const recovery = await newAuthContext(1280, { viewport: { width: 1280, height: 720 } })
+  await recovery.page.goto(`${origin}login`)
+  await recovery.page.getByLabel('Email').fill(user.email)
+  await recovery.page.getByRole('link', { name: 'Forgot your password?' }).click()
+  await expect(recovery.page.getByRole('heading', { name: 'Reset your password' })).toBeFocused()
+  await expect(recovery.page.getByLabel('Email')).toHaveValue(user.email)
+  await recovery.page.getByRole('button', { name: 'Send password reset link' }).click()
+  await expect(recovery.page.getByRole('status')).toContainText('If there’s an account')
+  const resetRequest = recovery.authRequests.find((request) => request.path === '/auth/v1/recover')
+  assert.equal(resetRequest?.body.email, user.email)
+  const resetCallback = new URL(new URLSearchParams(resetRequest.search).get('redirect_to'))
+  assert.equal(resetCallback.pathname, '/auth/callback')
+  assert.equal(resetCallback.search, '')
+  resetCallback.searchParams.set('code', 'auth-ui-reset-pkce-code')
+  await recovery.page.goto(resetCallback.href)
+  await expect(recovery.page.getByRole('heading', { name: 'Choose a new password' })).toBeFocused()
+  await recovery.page.getByLabel('New password', { exact: true }).fill('example-new-password')
+  await recovery.page.getByLabel('Confirm new password', { exact: true }).fill('mismatch')
+  await recovery.page.getByRole('button', { name: 'Update password' }).click()
+  await expect(recovery.page.getByText('Passwords do not match.')).toBeVisible()
+  await expect(recovery.page.getByLabel('Confirm new password', { exact: true })).toBeFocused()
+  assert.equal(recovery.authRequests.filter(({ method }) => method === 'PUT').length, 0)
+  await recovery.page.getByLabel('Confirm new password', { exact: true }).fill('example-new-password')
+  await recovery.page.getByRole('button', { name: 'Update password' }).click()
+  await expect(recovery.page.getByRole('heading', { name: 'Password updated' })).toBeFocused()
+  assert.equal(recovery.authRequests.find(({ method }) => method === 'PUT')?.body.password, 'example-new-password')
+  await recovery.page.getByRole('link', { name: 'Continue to your journal' }).click()
+  await expect(recovery.page).toHaveURL(`${origin}app`)
+  await recovery.page.goto(resetCallback.href)
+  await expect(recovery.page.getByRole('heading', { name: 'Email link unavailable' })).toBeVisible()
+  await expect(recovery.page.getByRole('button', { name: 'Update password' })).toHaveCount(0)
+  assert.deepEqual(recovery.errors, [])
+  await recovery.context.close()
+
   // Session restoration, protected content, and logout retain the single SDK session.
   const restored = await newAuthContext(390)
   await restored.page.addInitScript(({ session }) => {
     globalThis.localStorage.setItem('sb-auth-ui-auth-token', JSON.stringify(session))
   }, { session })
   await restored.page.goto(`${origin}app`)
-  await expect(restored.page.getByRole('heading', { name: /^(My scraps|Your cooking journal)$/i })).toBeVisible()
+  await expect(restored.page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i })).toBeVisible()
   await assertJournalSemantics(restored.page, 'restored authenticated journal')
   await expect(restored.page.getByText('cook@example.test')).toBeVisible()
   assert.equal(await restored.page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
@@ -216,7 +252,7 @@ try {
   await longError.context.close()
   assert.deepEqual(longError.errors, [])
 
-  process.stdout.write(`Login, signup, verification pending/success/expired, resend, protected return, session restoration, logout, keyboard/focus, mobile, long-error reflow, reduced motion and 200% zoom passed. Screenshots: ${outputDir}\n`)
+  process.stdout.write(`Login, signup, verification pending/success/expired, resend, password recovery, protected return, session restoration, logout, keyboard/focus, mobile, long-error reflow, reduced motion and 200% zoom passed. Screenshots: ${outputDir}\n`)
 } finally {
   await browser?.close()
   await server.close()

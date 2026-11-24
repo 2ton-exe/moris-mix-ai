@@ -1,9 +1,11 @@
-import { useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { ErrorState } from '../components/ErrorState'
 import { LoadingState } from '../components/LoadingState'
+import { journalReturnTo } from '../journal/indexNavigation'
+import { JournalShell } from '../journal/JournalShell'
 import { RecipeForm } from '../recipe-form/RecipeForm'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import type { RecipeEditorRecord, SaveRecipeDraft } from '../recipe-form/submission'
@@ -39,6 +41,8 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const activeRecord = record ?? loadedRecord
   const activeLoading = isLoading || (!record && !loadError && query.isLoading)
   const activeError = loadError ?? (!record ? query.error : undefined)
+  const recoveryHeading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { recoveryHeading.current?.focus() }, [activeError, activeLoading, recipeId])
   const retry = onRetry ?? (() => { void query.refetch() })
   let message = 'Could not load this recipe. Please try again.'
   let canRetry = true
@@ -53,10 +57,20 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}:${initialSection ?? 'start'}`} mode="edit" initialSection={initialSection} initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} cancelLabel="Back to recipe" onCancel={() => navigate(`/app/recipes/${encodeURIComponent(recipeId)}`, { state: location.state })}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && <RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
-    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} focusHeading={!initialSection} navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
-  return <RecipeEditorFrame mode="edit" connected navigationConfirmation={navigationConfirmation}>
-    {activeLoading && <LoadingState message="Loading recipe for editing…" />}
-    {activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
-    {!activeLoading && !activeError && <p className="request-state" role="status">This recipe is not available for editing yet. Please return when your journal is connected.</p>}
+    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} focusHeading={!initialSection}
+      headingIntro="Your journal keeps the last saved version while you edit."
+      navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
+  if (activeLoading && !activeError) return <RecipeEditorFrame mode="edit" connected>
+    <LoadingState message="Loading recipe for editing…" />
   </RecipeEditorFrame>
+  return <JournalShell mode="writing" account={<div className="journal-account"><span>{user?.email}</span></div>}>
+    <section className="mm-recipe-recovery" aria-labelledby="edit-unavailable-heading">
+      <h1 id="edit-unavailable-heading" ref={recoveryHeading} tabIndex={-1}>Recipe unavailable</h1>
+      {activeError ? <ErrorState message={message} onRetry={canRetry ? retry : undefined} />
+        : <p className="request-state" role="status">This recipe is unavailable. Open a recipe from your journal to edit it.</p>}
+      <div className="mm-recipe-recovery__actions">
+        <Link className={`button ${activeError && canRetry ? 'button-secondary' : 'button-primary'}`} to={journalReturnTo(location.state)}>Browse your recipes</Link>
+      </div>
+    </section>
+  </JournalShell>
 }

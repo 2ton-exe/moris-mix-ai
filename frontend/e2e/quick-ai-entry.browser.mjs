@@ -443,6 +443,10 @@ try {
   assert.ok(providerWait > 30 && providerWait <= 60, `Expected the exposed 60-second provider cooldown, got ${providerWait}`)
   await expect(providerNotes).toHaveValue('keep these notes while the provider cools down')
   await expect(providerPage.getByText('private provider detail')).toHaveCount(0)
+  await providerPage.getByRole('link', { name: 'Write this recipe manually' }).click()
+  await expect(providerPage).toHaveURL(`${origin}app/recipes/new`)
+  await expect(providerPage.getByRole('textbox', { name: 'Notes' })).toHaveValue('keep these notes while the provider cools down')
+  await expect(providerPage.getByRole('button', { name: 'Back to cooking notes' })).toBeVisible()
   await providerPage.close()
 
   extractionMode = 'invalid'

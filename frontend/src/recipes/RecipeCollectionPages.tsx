@@ -1,5 +1,5 @@
 import { JournalPagination } from '../journal/JournalPagination'
-import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { useJournalMedia } from '../journal/useJournalMedia'
@@ -15,6 +15,14 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
 }) {
+  const duplicateRecipeIds = useMemo(() => {
+    const titleKeys = (recipes ?? []).map((recipe) => [recipe.id, recipe.title.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()] as const)
+    const counts = new Map<string, number>()
+    for (const [, titleKey] of titleKeys) {
+      counts.set(titleKey, (counts.get(titleKey) ?? 0) + 1)
+    }
+    return new Set(titleKeys.filter(([, titleKey]) => (counts.get(titleKey) ?? 0) > 1).map(([id]) => id))
+  }, [recipes])
   const headingRef = useRef<HTMLElement>(null)
   const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const [headingHeight, setHeadingHeight] = useState(0)
@@ -56,8 +64,8 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     return () => observer.disconnect()
   }, [measureCatalog, recipes, index, desktop])
   const heading = <header ref={headingRef} className="mm-collection-heading">
-    {!index && recipes && <p className="mm-recipe-index__eyebrow">{`${recipes.length} ${desktop ? recipes.length === 1 ? 'scrap' : 'scraps' : recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'rating order' : 'newest first'}`}</p>}
-    <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : desktop ? 'My scraps' : 'Your cooking journal'}</h1>
+    {!index && recipes && <p className="mm-recipe-index__eyebrow">{`${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'highest rated first' : 'newest first'}`}</p>}
+    <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : desktop ? 'My recipes' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
     {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}.</p>}
     {header}
@@ -66,7 +74,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     const offset = collection ? collection.starts[page] ?? recipes?.length ?? 0 : (page - 1) * perPage
     const end = collection ? collection.starts[page + 1] ?? recipes?.length ?? offset : offset + perPage
     return <ul className="recipe-grid mm-collection-entries" aria-label={`Recipes on page ${page}`}>
-      {recipes?.slice(offset, end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={offset + i + 1} editorial={desktop} />)}
+      {recipes?.slice(offset, end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={offset + i + 1} editorial={desktop} duplicateTitle={duplicateRecipeIds.has(recipe.id)} />)}
     </ul>
   }
   if (index) return <>
@@ -78,11 +86,11 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       <h2 id="collection-heading" className="collection-heading" tabIndex={-1}>Saved recipes{recipes && <span> ({recipes.length})</span>}</h2>
       <div ref={results} className="mm-page-body mm-index-results" role="region" aria-label="Recipe index results" tabIndex={0}>
         {status}
-        {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.slice(catalog?.start ?? 0, catalog?.end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={(catalog?.start ?? 0) + i + 1} indexCard />)}</ul> : empty}
+        {recipes?.length ? <ul className="recipe-grid mm-index-entries">{recipes.slice(catalog?.start ?? 0, catalog?.end).map((recipe, i) => <RecipeCard key={recipe.id} recipe={recipe} folio={(catalog?.start ?? 0) + i + 1} indexCard duplicateTitle={duplicateRecipeIds.has(recipe.id)} />)}</ul> : empty}
         {endOfResults}
       </div>
       {catalog && !!recipes?.length && <ul ref={bank} className="recipe-grid mm-index-entries mm-pagination-measure" aria-hidden="true" inert>
-        {recipes.map((recipe, offset) => <li className="mm-recipe-card-slot" key={recipe.id}><div className="mm-index-card"><RecipeIndexCardContent recipe={recipe} folio={offset + 1} /></div></li>)}
+        {recipes.map((recipe, offset) => <li className="mm-recipe-card-slot" key={recipe.id}><div className="mm-index-card"><RecipeIndexCardContent recipe={recipe} folio={offset + 1} duplicateTitle={duplicateRecipeIds.has(recipe.id)} /></div></li>)}
       </ul>}
     </section>
     <JournalPageFooter><div className="mm-collection-footer">
@@ -106,7 +114,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes{recipes && <span> ({recipes.length})</span>}</h2>
       <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}>
         {status}
-        {recipes?.length ? <>
+          {recipes?.length ? <>
           {entries(right)}
           {hasMore && recipes.length <= rightStart && <p role="status">Opening this collection page…</p>}
           {!hasMore && recipes.length <= rightStart && <Link to="/app/recipes/new" className="mm-empty-slot">+ Add a recipe</Link>}
@@ -115,7 +123,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       </div>
     </section>
     {collection && !!recipes?.length && <ul ref={bank} className="recipe-grid mm-collection-entries mm-pagination-measure" aria-hidden="true" inert>
-      {recipes.map((recipe, itemIndex) => <RecipeCollectionCardMeasure key={recipe.id} recipe={recipe} folio={itemIndex + 1} editorial={desktop} />)}
+      {recipes.map((recipe, itemIndex) => <RecipeCollectionCardMeasure key={recipe.id} recipe={recipe} folio={itemIndex + 1} editorial={desktop} duplicateTitle={duplicateRecipeIds.has(recipe.id)} />)}
     </ul>}
     <JournalPageFooter><div className="mm-collection-footer">
       <span className="visually-hidden" aria-live="polite" aria-atomic="true">{pageOffset ? `Collection pages ${left + pageOffset} and ${right + pageOffset}` : `Collection page ${right}`}</span>

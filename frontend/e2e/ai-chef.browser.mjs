@@ -226,9 +226,51 @@ async function beginScenario(page, origin, name) {
   await pantry.press('Enter')
   await page.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
   await expect(page.getByRole('heading', { name: "Review Mori's recipe." })).toBeVisible()
+  await advanceChefReviewToSave(page)
   const generation = requests.find((request) => request.path === '/functions/v1/generate-recipe')
   assert.ok(generation, 'AI Chef did not call the authenticated generation endpoint in ' + name)
   assert.equal(generation.authorization, 'Bearer ' + session.access_token)
+}
+
+async function advanceChefReviewToSave(page) {
+  const next = page.getByRole('button', { name: /^Next:/ })
+  const progress = page.locator('.mm-review-progress')
+  const save = page.getByRole('button', { name: 'Save recipe', exact: true })
+  const method = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  let sawMethod = await method.isVisible()
+  while (await next.isVisible()) {
+    await expect(save).toHaveCount(0)
+    const current = await progress.innerText()
+    await next.click()
+    await expect(progress).not.toHaveText(current)
+    sawMethod ||= await method.isVisible()
+  }
+  assert.ok(sawMethod, 'The cooking method was not presented before the final Save action')
+  await expect(save).toBeVisible()
+}
+
+async function returnChefReviewToTitle(page) {
+  const title = page.getByRole('textbox', { name: 'Recipe title', exact: true })
+  const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
+    .getByRole('button', { name: /^Previous:/ })
+  while (!await title.isVisible()) {
+    const current = await page.locator('.mm-review-progress').innerText()
+    await previous.click()
+    await expect(page.locator('.mm-review-progress')).not.toHaveText(current)
+  }
+  return title
+}
+
+async function returnChefReviewToMethod(page) {
+  const method = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
+    .getByRole('button', { name: /^Previous:/ })
+  while (!await method.isVisible()) {
+    const current = await page.locator('.mm-review-progress').innerText()
+    await previous.click()
+    await expect(page.locator('.mm-review-progress')).not.toHaveText(current)
+  }
+  return method
 }
 
 async function continueLocalRequest(route) {
@@ -463,21 +505,25 @@ try {
   assert.equal(generation.authorization, `Bearer ${session.access_token}`)
   assert.deepEqual(generation.body, { pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
   assert.equal(recipeWrites.length, 0, 'Generation saved a recipe before review')
-  const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
   const recipeTitle = page.getByRole('textbox', { name: 'Recipe title', exact: true })
   const save = page.getByRole('button', { name: 'Save recipe', exact: true })
+  await expect(recipeTitle).toBeVisible()
+  await expect(save).toHaveCount(0)
+  await advanceChefReviewToSave(page)
+  const initialMethod = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  await expect(initialMethod).toHaveValue('Warm the rice, then fold in the eggs.')
+  await expect(save).toBeVisible()
+  const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
   const back = page.getByRole('button', { name: 'Back to AI Chef' })
   const reviewPages = page.locator('.mm-writing-leaf')
   for (const [width, height] of [[1280, 720], [1366, 768], [1440, 900], [1536, 864], [1920, 1080]]) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
-    await expect(recipeTitle).toBeInViewport({ ratio: 1 })
-    const titleBounds = await recipeTitle.boundingBox()
-    const progressTop = (await page.getByRole('heading', { name: 'What will be saved' }).boundingBox()).y
-    assert.ok(titleBounds.y + titleBounds.height <= progressTop, 'The editable recipe title should sit above the save summary')
     await expect(save).toBeInViewport({ ratio: 1 })
     await expect(back).toBeInViewport({ ratio: 1 })
-    await expect(reviewLeaf.getByRole('heading', { name: 'Mori’s optional flavor estimates' })).toBeInViewport({ ratio: 1 })
+    await expect(page.locator('textarea[name="instructions.0.text"]:not([disabled])')).toHaveValue('Warm the rice, then fold in the eggs.')
+    await expect(page.getByRole('heading', { name: 'What will be saved' })).toBeVisible()
+    await expect(reviewLeaf.locator('summary').first()).toBeInViewport({ ratio: 1 })
     const bounds = await reviewPages.evaluateAll((leaves) => leaves.map((leaf) => ({
       height: leaf.clientHeight,
       scrollHeight: leaf.scrollHeight,
@@ -496,23 +542,23 @@ try {
   await expect(reviewLeaf.getByRole('textbox')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Ingredients in this suggestion' })).toContainText('rice')
   await expect(reviewLeaf.getByText('2.5 out of 5', { exact: true })).toHaveCount(1)
-
-  const substitutions = reviewLeaf.getByRole('button', { name: 'Suggested substitutions' })
-  await substitutions.press('Enter')
-  const substitutionDialog = page.getByRole('dialog', { name: 'Suggested substitutions' })
-  await expect(substitutionDialog).toContainText('firm tofu')
-  await page.keyboard.press('Escape')
-  await expect(substitutionDialog).toBeHidden()
-  await expect(substitutions).toBeFocused()
-
-  await reviewLeaf.getByRole('button', { name: 'Full request' }).click()
-  const requestDialog = page.getByRole('dialog', { name: 'Your request' })
-  await expect(requestDialog.getByRole('listitem')).toHaveText(['rice', 'eggs'])
-  await expect(requestDialog).toContainText('quick, no frying')
-  await requestDialog.getByRole('button', { name: 'Done' }).click()
+  const optionalDetails = reviewLeaf.getByText('Optional details from Mori')
+  if (await optionalDetails.isVisible()) {
+    await optionalDetails.click()
+  } else {
+    for (const label of ['Your request', 'Suggested substitutions', 'Mori’s optional flavor estimates']) {
+      const detail = reviewLeaf.locator('summary').filter({ hasText: label })
+      if (await detail.isVisible()) await detail.click()
+    }
+  }
+  await expect(reviewLeaf.getByRole('region', { name: 'Suggested substitutions' })).toContainText('firm tofu')
+  const request = reviewLeaf.getByRole('region', { name: 'Your request' })
+  await expect(request.getByRole('listitem')).toHaveText(['rice', 'eggs'])
+  await expect(request).toContainText('quick, no frying')
 
   const longTitle = 'Crispy egg and rice skillet with garlic, summer tomatoes, toasted sesame seeds, and fresh spring onions'
   const longNotes = 'Chill the rice overnight.\nFold the eggs in after the pan is hot.\n'.repeat(10)
+  await returnChefReviewToTitle(page)
   await page.getByRole('button', { name: 'Expand recipe title' }).click()
   const titleDialog = page.getByRole('dialog', { name: 'Recipe title' })
   await titleDialog.getByRole('textbox', { name: 'Full recipe title' }).fill(longTitle)
@@ -526,6 +572,7 @@ try {
   await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue(longNotes)
   await page.getByLabel('Cooked date').fill('2026-10-19')
   await page.getByRole('combobox', { name: 'Rating' }).selectOption('4')
+  await advanceChefReviewToSave(page)
   await expect(reviewLeaf.getByRole('heading', { name: 'Recipe inspiration' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('Sunday fried rice')
   const firstParent = page.getByRole('checkbox', { name: /Sunday fried rice/ })
@@ -547,15 +594,16 @@ try {
   assert.equal(draft.handoff.response.candidate_token, generated.candidate_token)
   assert.deepEqual(draft.handoff.selectedParentIds, [generated.parents[0].id])
 
-  await page.getByRole('button', { name: /^Next(?::| Pages?$)/ }).click()
-  const instruction = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  const instruction = await returnChefReviewToMethod(page)
   await expect(instruction).toHaveValue('Warm the rice, then fold in the eggs.')
+  await expect(save).toHaveCount(0)
   await instruction.fill('Warm the rice first, then fold in the eggs.')
   assert.equal(recipeWrites.length, 0, 'Editing the review saved a recipe before explicit confirmation')
   assert.equal(lineageWrites.length, 0, 'Editing the review saved lineage before explicit confirmation')
+  await advanceChefReviewToSave(page)
 
-  for (const width of [1440, 768, 375, 320, 720]) {
-    await page.setViewportSize({ width, height: width === 720 ? 450 : 900 })
+  for (const [width, height] of [[1280, 720], [1440, 900], [768, 1024], [390, 844], [375, 800], [320, 900]]) {
+    await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     const layout = await page.evaluate(() => ({
       viewport: globalThis.innerWidth,
@@ -635,7 +683,9 @@ try {
   const retriedClearAttempts = await page.evaluate(() => globalThis.__getChefClearAttempts())
   assert.ok(retriedClearAttempts > failedClearAttempts, 'Retry did not make a real session storage write')
 
+  await returnChefReviewToTitle(page)
   await page.getByLabel('Recipe title').fill('Edited after storage recovered')
+  await advanceChefReviewToSave(page)
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Editing after cleanup retry created another recipe')
@@ -660,7 +710,9 @@ try {
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Reload recovery created a second recipe')
+  await returnChefReviewToTitle(page)
   await page.getByLabel('Recipe title').fill('Edited after recovery')
+  await advanceChefReviewToSave(page)
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
   assert.equal(recipeUpdates.length, 1, 'Editing a recovered recipe did not use its existing ID')
@@ -732,6 +784,28 @@ try {
   assert.deepEqual(attempts[0].body, attempts[1].body)
   assert.equal(recipeWrites.length, 0)
   process.stdout.write('FE-13 generation failure: server cooldown, retained inputs, same-request retry and unsaved preview passed.\n')
+  resetScenario('generation-failure')
+  const fallbackPage = await context.newPage()
+  fallbackPage.on('pageerror', (error) => errors.push(error.message))
+  await fallbackPage.goto(`${origin}app/chef`)
+  const fallbackPantry = fallbackPage.getByRole('textbox', { name: 'Pantry ingredient' })
+  await fallbackPantry.fill('rice')
+  await fallbackPantry.press('Enter')
+  await fallbackPage.getByRole('button', { name: 'Ask Mori for a recipe' }).click()
+  await expect(fallbackPage.getByRole('alert')).toContainText('rate-limited')
+  await fallbackPage.getByRole('link', { name: 'Write recipe manually' }).click()
+  await expect(fallbackPage).toHaveURL(`${origin}app/recipes/new`)
+  const pantryPrefill = fallbackPage.getByText('rice', { exact: true })
+  for (let index = 0; index < 5 && !await pantryPrefill.isVisible(); index++) {
+    const nextManualPage = fallbackPage.getByRole('button', { name: /^Next/ })
+    if (!await nextManualPage.isVisible()) break
+    await nextManualPage.click()
+  }
+  await expect(pantryPrefill).toBeVisible()
+  await expect(fallbackPage.getByRole('button', { name: 'Back to AI Chef' })).toBeVisible()
+  assert.equal(recipeWrites.length, 0, 'Continuing manually saved a recipe without confirmation')
+  await fallbackPage.close()
+  process.stdout.write('AI Chef recovery passed: manual continuation carried pantry items into the editable recipe form.\n')
   await page.setViewportSize({ width: 1366, height: 768 })
   await beginScenario(page, origin, 'expanded-review')
   const allIngredients = page.getByRole('button', { name: 'All suggested ingredients (7)' })

@@ -94,7 +94,7 @@ try {
     await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
     await assertJournalSemantics(page, `${width}px discovery`)
     assert.equal(await page.getByRole('searchbox', { name: 'Search recipes' }).isDisabled(), false)
-    assert.equal(await page.getByRole('option', { name: 'Rating' }).evaluate((element) => element.disabled), false)
+    assert.equal(await page.getByRole('option', { name: 'Highest rated' }).evaluate((element) => element.disabled), false)
     await page.getByRole('combobox', { name: 'Sort recipes' }).focus()
     assert.equal(await page.getByRole('combobox', { name: 'Sort recipes' }).evaluate((element) => element === globalThis.document.activeElement), true)
     assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, `Overflow at ${width}px`)
@@ -150,7 +150,10 @@ try {
       }
       await page.getByText('End of results.', { exact: true }).waitFor()
       assert.equal(seen.size, 25)
-      assert.deepEqual(matchingNames, ['Open recipe Family tomato rice, entry 1', 'Open recipe Family tomato rice, entry 25'])
+      assert.deepEqual(matchingNames, [
+        'Open recipe Family tomato rice, cooked Oct 25, 2026, entry 1',
+        'Open recipe Family tomato rice, cooked Oct 25, 2026, entry 25',
+      ])
       if (desktop) {
         await page.goBack()
         await expect(next).toBeVisible()
@@ -224,7 +227,7 @@ try {
       await searchInput.fill('missing')
       await page.getByRole('heading', { name: 'No recipes match your search.' }).waitFor()
       await assertJournalSemantics(page, 'discovery empty results')
-      await page.getByRole('button', { name: 'Show all recipes' }).click()
+      await page.getByRole('button', { name: 'Reset search and filters' }).click()
       await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
 
       await searchInput.fill('retry')

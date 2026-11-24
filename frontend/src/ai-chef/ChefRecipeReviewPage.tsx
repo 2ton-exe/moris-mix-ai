@@ -421,7 +421,10 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     initialSaveConfirmation={handoff.savedRecipeId ? { id: handoff.savedRecipeId, statusMessage: completionMessage } : undefined}
     saveSuccessMessage={completionMessage}
     showExtractionHints
+    reviewWorkflow
+    draftKeptInSession={!saved && storageIssue === null}
     editorTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
+    editorIntro={saved ? undefined : 'Review the title, ingredients, and cooking steps before saving. Parent links are optional.'}
     notesSupported
     onSubmit={submit}
     onDirtyChange={setDirty}
@@ -438,7 +441,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       titleEditor={titleEditor}
       facingPageContent={saved ? <ChefProgress stage="saved" /> : <section className="mm-chef-review__save-context" aria-label="Before you save">
           <h2>What will be saved</h2>
-          <p>Your edited recipe and any selected recipe links.</p>
+          <p>Review the title, ingredients, and cooking steps before saving. Only checked parent recipes will be linked.</p>
           {handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
         </section>}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
@@ -481,9 +484,6 @@ function ChefGenerationNotice({
     && ingredients.every((name) => name.length <= 22) && ingredients.join('').length <= (smallSpread ? 34 : 68))
   const showAllParents = !compact || (parents.length <= (smallSpread ? 1 : 2)
     && parents.every((parent) => parent.title.length <= (smallSpread ? 26 : 40)))
-  const showFullRequest = !compact || (!request.preferences && request.pantryItems.length <= (smallSpread ? 5 : 6)
-    && request.pantryItems.every((item) => item.length <= (smallSpread ? 12 : 18)))
-
   const ingredientList = <ul role="list">{ingredients.map((name) => <li key={name}>
     <IngredientEmoji name={name} />
     <span>{name}</span>
@@ -562,6 +562,7 @@ function ChefGenerationNotice({
           {parentChoices}
         </ReviewDetailDialog>}
         <p className="mm-ai-chef__selection-count">{selectedParentIds.length} of 10 parent recipes selected.</p>
+        <p className="mm-chef-review__selection-help">Only checked recipes are linked when you save. Leave them unchecked to save without parent links.</p>
       </> : <p>{response.context.status === 'NO_SAVED_RECIPES'
         ? 'There are no saved recipes to suggest yet.'
         : 'Mori did not suggest any journal recipes for this idea.'}</p>}
@@ -577,26 +578,23 @@ function ChefGenerationNotice({
       </div>}
     </section>
     {compact ? <>
-      <section className="mm-chef-review__request">
-        <h3><ScrapbookSticker decorative name="chat-bubble" />Your request</h3>
-        {showFullRequest ? requestContent : <>
-          <p>{request.pantryItems.length} {request.pantryItems.length === 1 ? 'ingredient' : 'ingredients'}</p>
-          <ReviewDetailDialog title="Your request" action="Full request">{requestContent}</ReviewDetailDialog>
-        </>}
-      </section>
-      {flavorContent && <section className="mm-chef-review__flavor-card">
-        <h3><ScrapbookSticker decorative name="flask" />Mori’s optional flavor estimates</h3>
-        {flavorContent}
-      </section>}
-      <div className="mm-chef-review__margin">
-        {stateMessage}
-        {response.substitutions.length > 0 && <ReviewDetailDialog title="Suggested substitutions" action="Suggested substitutions">
-          {substitutions}
-        </ReviewDetailDialog>}
-        <span className="mm-chef-review__margin-sticker" aria-hidden="true">
-          <ScrapbookSticker decorative name="garlic" /><ScrapbookSticker decorative name="tomato" />
-        </span>
-      </div>
+      <div className="mm-chef-review__margin">{stateMessage}</div>
+      <details className="mm-chef-review__optional-details">
+        <summary>Optional details from Mori</summary>
+        <div className="mm-chef-review__optional-content">
+          <section className="mm-chef-review__request" aria-label="Your request">
+            <h3><ScrapbookSticker decorative name="chat-bubble" />Your request</h3>
+            {requestContent}
+          </section>
+          {response.substitutions.length > 0 && <section aria-label="Suggested substitutions">
+            <h3>Suggested substitutions</h3>{substitutions}
+          </section>}
+          {flavorContent && <section className="mm-chef-review__flavor-card" aria-label="Mori’s optional flavor estimates">
+            <h3><ScrapbookSticker decorative name="flask" />Mori’s optional flavor estimates</h3>
+            {flavorContent}
+          </section>}
+        </div>
+      </details>
     </> : <>
       <details><summary>Your request</summary>{requestContent}</details>
       {response.substitutions.length > 0 && <details><summary>Suggested substitutions</summary>{substitutions}</details>}

@@ -185,6 +185,10 @@ export default function RecipeDashboardPage() {
   }, [isTurning, leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
   const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
+  const resetIndexSearch = () => {
+    restoreFirstPageFocus.current = true
+    controls.reset()
+  }
   useMoriGuidance(!guidanceAvailable || recipes?.length !== 0 ? null : {
     message: hasSearch
       ? 'No recipe cards match this search yet. Try another title or ingredient, or clear the search to see your full collection.'
@@ -197,8 +201,7 @@ export default function RecipeDashboardPage() {
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
             <h2 id="no-results-heading" tabIndex={-1}>No recipes match your search.</h2>
-            <p>Try another search or reset your filters.</p>
-            <button className="button button-secondary" type="button" onClick={controls.reset}>Show all recipes</button>
+            <p>Try another title or ingredient, or use the search controls to clear search and filters.</p>
           </section>
         ) : (
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">
@@ -237,15 +240,18 @@ export default function RecipeDashboardPage() {
         <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={() => { if (!indexView) restoreIndexFocus.current = true }}>{indexView ? 'Browse journal' : 'Search & index'}</Link>
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
-      controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={controls.reset} />}
+      controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} />}
       status={<>
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
       {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton index={indexView} />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
-      {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
-        restoreFirstPageFocus.current = true
-        void query.refetch()
-      }} />}
+      {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <>
+        <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
+          restoreFirstPageFocus.current = true
+          void query.refetch()
+        }} />
+        {source.mode === 'unavailable' && <Link className="button button-secondary mm-button--small" to="/demo-recipe">Explore the sample recipe</Link>}
+      </>}
       {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update" role="status">Updating your collection…</p>}
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}

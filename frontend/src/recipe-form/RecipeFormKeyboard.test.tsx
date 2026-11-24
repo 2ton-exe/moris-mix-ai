@@ -45,7 +45,7 @@ function renderForm({ single = false, reducedMotion = true, renderFrame }: {
   </MemoryRouter>)
 }
 
-it('shares desktop rating and note controls across create and edit while keeping stickers on new recipes', () => {
+it('shares desktop rating and note controls across create and edit', () => {
   mockMatchMedia(false, true, true)
   const { rerender } = render(<MemoryRouter><JournalShell mode="writing">
     <RecipeForm key="edit" mode="edit" initialValues={manyRows} notesSupported />
@@ -55,13 +55,13 @@ it('shares desktop rating and note controls across create and edit while keeping
   expect(screen.getByRole('group', { name: 'Rating' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Clear rating' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Expand notes' })).toBeTruthy()
-  expect(document.querySelector('.mm-scrapbook-form__tape')).toBeNull()
 
   rerender(<MemoryRouter><JournalShell mode="writing">
     <RecipeForm key="create" mode="create" newRecipeScrapbook notesSupported />
   </JournalShell></MemoryRouter>)
-  expect(document.querySelector('.mm-new-recipe')).toBeTruthy()
-  expect(document.querySelector('.mm-scrapbook-form__tape')).toBeTruthy()
+  expect(screen.getByRole('group', { name: 'Rating' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Clear rating' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Expand notes' })).toBeTruthy()
 })
 
 function pageIndex() {

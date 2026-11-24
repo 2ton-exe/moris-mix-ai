@@ -1,12 +1,17 @@
 import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { authErrorMessage } from './errors'
 
 export const AUTH_INITIALIZATION_TIMEOUT_MS = 15_000
 
 let client: SupabaseClient | undefined
-let verificationResult: Promise<boolean> | undefined
+export type AuthCallbackResult = { kind: 'invalid' } | { kind: 'verified' } | { kind: 'recovery'; accessToken: string }
+
+const invalidCallback: AuthCallbackResult = { kind: 'invalid' }
+let verificationResult: Promise<AuthCallbackResult> | undefined
 let verificationFinished = false
 let verificationAttempt: { controller: AbortController; expiresAt: number } | undefined
+let passwordUpdateAccessToken: string | undefined
 const callbackParams = ['access_token', 'refresh_token', 'provider_token', 'provider_refresh_token',
   'expires_at', 'expires_in', 'token_type', 'type', 'code', 'token', 'token_hash', 'sb_flow_id',
   'error', 'error_code', 'error_description']
@@ -41,7 +46,7 @@ function clearUnboundAuthUrlCredentials() {
 }
 
 /** Reads a code only from the callback route and rejects error or token-hash links. */
-function getSignupCallbackCode() {
+function getCallbackCode() {
   const url = new URL(window.location.href)
   const hash = new URLSearchParams(url.hash.slice(1))
   const hasError = ['error', 'error_code', 'error_description', 'token_hash']
@@ -66,6 +71,10 @@ export function getAuthClient() {
       global: {
         /** Rejects expired callback responses before the SDK can persist a session or emit auth events. */
         fetch: async (input, init) => {
+          if (passwordUpdateAccessToken && init?.method === 'PUT' && String(input) === `${origin.origin}/auth/v1/user`
+            && new Headers(init.headers).get('authorization') !== `Bearer ${passwordUpdateAccessToken}`) {
+            throw new Error('The recovery session changed before the password update.')
+          }
           const attempt = verificationAttempt
           if (!attempt || String(input) !== `${origin.origin}/auth/v1/token?grant_type=pkce`) return fetch(input, init)
           /** Enforces the deadline even when the browser has delayed the timeout task. */
@@ -87,30 +96,34 @@ export function getAuthClient() {
 }
 
 /** Shares one bounded code exchange per document and rejects reuse or completion after its deadline. */
-export function getVerificationCallbackResult() {
+export function getAuthCallbackResult(): Promise<AuthCallbackResult> {
   const auth = getAuthClient()
   if (verificationFinished) {
     clearAuthCallbackUrl()
-    return Promise.resolve(false)
+    return Promise.resolve(invalidCallback)
   }
   if (verificationResult) return verificationResult
-  const code = getSignupCallbackCode()
+  const code = getCallbackCode()
   if (!code) {
     clearAuthCallbackUrl()
-    return Promise.resolve(false)
+    return Promise.resolve(invalidCallback)
   }
   const attempt = { controller: new AbortController(), expiresAt: Date.now() + AUTH_INITIALIZATION_TIMEOUT_MS }
   verificationAttempt = attempt
-  const initialization = auth.initialize().then(async ({ error }) => {
-    if (error || attempt.controller.signal.aborted || Date.now() >= attempt.expiresAt) return false
+  const initialization = auth.initialize().then(async ({ error }): Promise<AuthCallbackResult> => {
+    if (error || attempt.controller.signal.aborted || Date.now() >= attempt.expiresAt) return invalidCallback
     const { data, error: exchangeError } = await auth.exchangeCodeForSession(code)
-    return !exchangeError && Boolean(data.session)
-  }).catch(() => false)
+    if (exchangeError || !data.session) return invalidCallback
+    // The SDK reads redirectType from the browser's PKCE verifier, never from the callback URL.
+    return 'redirectType' in data && data.redirectType === 'recovery'
+      ? { kind: 'recovery', accessToken: data.session.access_token }
+      : { kind: 'verified' }
+  }).catch(() => invalidCallback)
   let timer: number | undefined
-  const deadline = new Promise<boolean>((resolve) => {
+  const deadline = new Promise<AuthCallbackResult>((resolve) => {
     timer = window.setTimeout(() => {
       attempt.controller.abort()
-      resolve(false)
+      resolve(invalidCallback)
     }, AUTH_INITIALIZATION_TIMEOUT_MS)
   })
   verificationResult = Promise.race([initialization, deadline]).finally(() => {
@@ -120,4 +133,28 @@ export function getVerificationCallbackResult() {
     clearAuthCallbackUrl()
   })
   return verificationResult
+}
+
+export async function requestPasswordReset(email: string) {
+  try {
+    const redirectTo = new URL('/auth/callback', window.location.origin).href
+    const { error } = await getAuthClient().resetPasswordForEmail(email, { redirectTo })
+    if (error && error.code !== 'user_not_found') throw error
+  } catch (error) {
+    throw new Error(authErrorMessage(error, 'Could not send a password reset link. Check your connection and try again.'))
+  }
+}
+
+export async function updateRecoveredPassword(password: string, accessToken: string) {
+  if (passwordUpdateAccessToken) throw new Error('A password update is already in progress.')
+  const auth = getAuthClient()
+  passwordUpdateAccessToken = accessToken
+  try {
+    const { data } = await auth.getSession()
+    if (data.session?.access_token !== accessToken) throw new Error('Your reset session ended. Request a new password reset link.')
+    const { error } = await auth.updateUser({ password })
+    if (error) throw new Error(authErrorMessage(error, 'Could not update your password. Check your connection and try again.'))
+  } finally {
+    passwordUpdateAccessToken = undefined
+  }
 }

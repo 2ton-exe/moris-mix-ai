@@ -106,6 +106,8 @@
 }
 .mm-quick-ai__error p { margin: 0; }
 .mm-quick-ai__error .button { justify-self: start; }
+.mm-quick-ai__error-actions { display: grid; justify-items: start; gap: 7px; }
+.mm-quick-ai__error-actions p { color: var(--mm-color-ink); font-size: 13px; }
 .mm-quick-ai__cooldown {
   margin: 14px 0 0;
   padding: 10px 12px;

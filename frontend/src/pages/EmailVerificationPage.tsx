@@ -5,19 +5,20 @@ import { useAuth } from '../auth/context'
 import { intendedDestination } from '../auth/navigation'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
-import { getVerificationCallbackResult } from '../auth/client'
+import { AuthField } from '../components/AuthField'
+import { getAuthCallbackResult, updateRecoveredPassword, type AuthCallbackResult } from '../auth/client'
 import { JournalAuthCard, JournalAuthScene } from '../journal/JournalAuth'
 
 export default function EmailVerificationPage({ callback = false }: { callback?: boolean }) {
   const { session, isLoading, error: initializationError, retryInitialization, resendVerification } = useAuth()
   const location = useLocation()
-  const [callbackResult, setCallbackResult] = useState<'checking' | 'verified' | 'invalid'>('checking')
+  const [callbackResult, setCallbackResult] = useState<AuthCallbackResult | 'checking'>('checking')
   useEffect(() => {
     if (!callback) return
     let active = true
-    const finish = (success: boolean) => { if (active) setCallbackResult(success ? 'verified' : 'invalid') }
-    try { void getVerificationCallbackResult().then(finish).catch(() => finish(false)) }
-    catch { finish(false) }
+    const finish = (result: AuthCallbackResult) => { if (active) setCallbackResult(result) }
+    try { void getAuthCallbackResult().then(finish).catch(() => finish({ kind: 'invalid' })) }
+    catch { finish({ kind: 'invalid' }) }
     return () => { active = false }
   }, [callback])
   const verificationState: unknown = location.state
@@ -27,7 +28,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
   const submitting = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
-  const verified = callback && callbackResult === 'verified' && session?.user.email_confirmed_at
+  const verified = callback && callbackResult !== 'checking' && callbackResult.kind === 'verified' && session?.user.email_confirmed_at
 
   async function resend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -36,6 +37,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
     setSent(false)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError('Enter a valid email address.')
+      event.currentTarget.querySelector('input')?.focus()
       return
     }
     submitting.current = true
@@ -46,16 +48,23 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
   }
 
   const checking = isLoading || (callback && callbackResult === 'checking')
+  const recovery = callback && callbackResult !== 'checking' && callbackResult.kind === 'recovery' ? callbackResult : null
+  const resetLinkUnavailable = Boolean(recovery)
+  if (recovery && !initializationError && !checking && session?.access_token === recovery.accessToken) {
+    return <VerifiedPasswordReset accessToken={recovery.accessToken} />
+  }
   const inboxGuidance = sent || Boolean(signupEmail)
   const title = initializationError ? 'The kitchen needs a moment.'
-    : checking ? 'Setting the table'
-      : verified ? 'Email verified' : inboxGuidance ? 'Check your email' : callback ? 'Verification link unavailable' : 'Verify your email'
+    : checking ? 'Checking your link'
+      : verified ? 'Email verified' : resetLinkUnavailable ? 'Password reset link unavailable'
+        : inboxGuidance ? 'Check your email' : callback ? 'Email link unavailable' : 'Verify your email'
   const description = initializationError || checking ? undefined : verified
     ? 'Your email is confirmed and you are logged in.'
+    : resetLinkUnavailable ? 'This link may have expired or already been used. Request a new link and open it in the browser where you requested it.'
     : sent
       ? 'If this address has an unconfirmed account, a new link will arrive shortly. Check your inbox and spam folder.'
       : inboxGuidance
-      ? 'If this address has an unconfirmed account, open the verification link in your inbox to finish signing up. You are not logged in yet. Check your spam folder if it hasn’t arrived.'
+      ? 'Open the verification link in your inbox to finish signing up. You are not logged in yet. Check spam if the message hasn’t arrived.'
       : callback
         ? 'This link may be expired, invalid, or already used. Enter your email to request a new verification link.'
         : 'Enter your email address to request a verification link.'
@@ -63,22 +72,26 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
   return <JournalAuthScene>
     <main className="mm-auth-main">
       <JournalAuthCard
-        eyebrow={callback ? 'A note from the post' : 'Almost there'}
         title={title}
+        focusHeading
         description={description && <p role="status">{description}</p>}
-        mood={initializationError || callbackResult === 'invalid' ? 'worried' : verified ? 'cheer' : 'happy'}
+        mood={initializationError || (callbackResult !== 'checking' && callbackResult.kind === 'invalid') ? 'worried' : verified ? 'cheer' : 'happy'}
       >
         {initializationError ? <>
           <ErrorState message={initializationError} onRetry={retryInitialization} />
           <Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link>
         </> : checking ? <LoadingState message="Checking your verification link…" /> : verified
           ? <div className="actions"><Link className="button button-primary mm-button--large" to={intendedDestination(location.state)}>Continue to your journal</Link></div>
+          : resetLinkUnavailable ? <div className="actions">
+            <Link className="button button-primary" to="/login?flow=recovery">Request a new reset link</Link>
+            <Link className="button button-secondary" to="/login">Back to login</Link>
+          </div>
           : <>
-            <form className="auth-form" noValidate onSubmit={(event) => { void resend(event) }} aria-busy={pending}>
+            <form className="auth-form" method="post" noValidate onSubmit={(event) => { void resend(event) }} aria-busy={pending}>
               <div className="auth-field">
                 <label htmlFor="verification-email">Email</label>
                 <input id="verification-email" name="email" type="email" autoComplete="email" required value={email}
-                  onChange={(event) => setEmail(event.target.value)} disabled={pending} aria-invalid={Boolean(error)}
+                  onChange={(event) => { setEmail(event.target.value); if (error) setError(null) }} disabled={pending} aria-invalid={Boolean(error)}
                   aria-describedby={error ? 'verification-error' : undefined} />
               </div>
               {error && <p id="verification-error" className="field-error" role="alert">{error}</p>}
@@ -86,9 +99,64 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
               <button className="button button-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send verification link'}</button>
             </form>
             <p className="auth-links"><Link to="/login" state={location.state}>Back to login</Link></p>
-            <p className="auth-links"><Link to="/signup" state={location.state}>Use another email</Link></p>
+            {callback && <p className="auth-links"><Link to="/login?flow=recovery" state={location.state}>Request a password reset link</Link></p>}
+            {signupEmail && <p className="auth-links"><Link to="/signup" state={location.state}>Start again with another email</Link></p>}
           </>}
       </JournalAuthCard>
     </main>
   </JournalAuthScene>
+}
+
+function VerifiedPasswordReset({ accessToken }: { accessToken: string }) {
+  const [errors, setErrors] = useState<{ password?: string; confirm?: string; request?: string }>({})
+  const [pending, setPending] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const submitting = useRef(false)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (submitting.current) return
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const password = String(data.get('reset-password') ?? '')
+    const confirm = String(data.get('reset-password-confirm') ?? '')
+    if (password.length < 6) {
+      setErrors({ password: 'Use at least 6 characters.' })
+      form.querySelector<HTMLInputElement>('#reset-password')?.focus()
+      return
+    }
+    if (password !== confirm) {
+      setErrors({ confirm: 'Passwords do not match.' })
+      form.querySelector<HTMLInputElement>('#reset-password-confirm')?.focus()
+      return
+    }
+    setErrors({})
+    submitting.current = true
+    setPending(true)
+    try {
+      await updateRecoveredPassword(password, accessToken)
+      setSaved(true)
+    } catch (error) {
+      setErrors({ request: error instanceof Error ? error.message : 'Could not update your password. Try again.' })
+    } finally {
+      submitting.current = false
+      setPending(false)
+    }
+  }
+
+  return <JournalAuthScene><main className="mm-auth-main"><JournalAuthCard
+    title={saved ? 'Password updated' : 'Choose a new password'}
+    description={saved ? 'You can now use your new password to log in.' : 'Use at least 6 characters. Choose a password you don’t use anywhere else.'}
+    mood={saved ? 'cheer' : 'think'} focusHeading>
+    {saved ? <Link className="button button-primary mm-button--large" to="/app">Continue to your journal</Link>
+      : <form className="auth-form" method="post" noValidate aria-busy={pending} onSubmit={(event) => { void submit(event) }}>
+        <fieldset disabled={pending}>
+          <legend className="visually-hidden">New password details</legend>
+          <AuthField name="reset-password" label="New password" type="password" autoComplete="new-password" error={errors.password} />
+          <AuthField name="reset-password-confirm" label="Confirm new password" type="password" autoComplete="new-password" error={errors.confirm} />
+          {errors.request && <p className="field-error" role="alert">{errors.request}</p>}
+          <button type="submit" className="button button-primary">{pending ? 'Updating password…' : 'Update password'}</button>
+        </fieldset>
+      </form>}
+  </JournalAuthCard></main></JournalAuthScene>
 }

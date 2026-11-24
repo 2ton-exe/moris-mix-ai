@@ -21,7 +21,7 @@ export function RecipeMetadata({ recipe, showCookedAt = true, compact = false }:
   )
 }
 
-export function RecipeIndexCardContent({ recipe, folio }: { recipe?: RecipeSummary; folio?: number }) {
+export function RecipeIndexCardContent({ recipe, folio, duplicateTitle = false }: { recipe?: RecipeSummary; folio?: number; duplicateTitle?: boolean }) {
   return <>
     {folio === undefined
       ? <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
@@ -29,34 +29,35 @@ export function RecipeIndexCardContent({ recipe, folio }: { recipe?: RecipeSumma
     <div className="mm-recipe-card__copy">
       <h2>{recipe ? recipe.title : <span className="mm-skeleton-line" />}</h2>
       {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
+      {duplicateTitle && recipe?.notes?.trim() && <p className="mm-recipe-card__disambiguator">Note: {recipe.notes.trim().length > 128 ? `${recipe.notes.trim().slice(0, 128).trimEnd()}…` : recipe.notes.trim()}</p>}
     </div>
     <ArrowRight className="mm-index-card__arrow" size={16} aria-hidden="true" />
   </>
 }
 
-export function RecipeCollectionCardContent({ recipe, folio, image, editorial = false }: { recipe?: RecipeSummary; folio: number; image?: ReactNode; editorial?: boolean }) {
-  const notes = editorial && recipe?.notes?.trim()
+export function RecipeCollectionCardContent({ recipe, folio, image, editorial = false, duplicateTitle = false }: { recipe?: RecipeSummary; folio: number; image?: ReactNode; editorial?: boolean; duplicateTitle?: boolean }) {
+  const notes = (editorial || duplicateTitle) && recipe?.notes?.trim()
   return <>
     <RecipeScrapArtwork title={recipe?.title ?? ''} cookedAt={recipe?.cooked_at} loading={!recipe} image={image} />
     <div className="mm-recipe-card__copy">
       <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
       <p className="mm-collection-entry__title">{recipe ? recipe.title : <span className="mm-skeleton-line" />}</p>
       {recipe ? <RecipeMetadata recipe={recipe} compact={editorial} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
-      {notes && <p className="mm-collection-entry__notes">{notes.length > 128 ? `${notes.slice(0, 128).trimEnd()}…` : notes}</p>}
-      {editorial && <span className="mm-collection-entry__open" aria-hidden="true">Open scrap <ArrowRight size={16} /></span>}
+      {notes && <p className={`mm-collection-entry__notes${duplicateTitle ? ' mm-recipe-card__disambiguator' : ''}`}>{notes.length > 128 ? `${notes.slice(0, 128).trimEnd()}…` : notes}</p>}
+      {editorial && <span className="mm-collection-entry__open" aria-hidden="true">Open recipe <ArrowRight size={16} /></span>}
     </div>
   </>
 }
 
-export function RecipeCollectionCardMeasure({ recipe, folio, editorial }: { recipe: RecipeSummary; folio: number; editorial: boolean }) {
+export function RecipeCollectionCardMeasure({ recipe, folio, editorial, duplicateTitle = false }: { recipe: RecipeSummary; folio: number; editorial: boolean; duplicateTitle?: boolean }) {
   return <li className="mm-recipe-card-slot">
     <div className={`mm-collection-entry${folio % 2 === 0 ? ' is-flipped' : ''}`}>
-      <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial} />
+      <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial} duplicateTitle={duplicateTitle} />
     </div>
   </li>
 }
 
-export function RecipeCard({ recipe, folio, indexCard = false, editorial = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean; editorial?: boolean }) {
+export function RecipeCard({ recipe, folio, indexCard = false, editorial = false, duplicateTitle = false }: { recipe: RecipeSummary; folio: number; indexCard?: boolean; editorial?: boolean; duplicateTitle?: boolean }) {
   const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
@@ -68,6 +69,9 @@ export function RecipeCard({ recipe, folio, indexCard = false, editorial = false
   if (indexCard || folio > 1 || returnParams.has('entry')) returnParams.set('entry', String(folio - 1))
   const returnSearch = returnParams.toString()
   const journalReturn = location.pathname + (returnSearch ? `?${returnSearch}` : '')
+  const duplicateContext = duplicateTitle
+    ? `${recipe.cooked_at ? `, cooked ${formatCookedDate(recipe.cooked_at)}` : ''}, entry ${folio}`
+    : indexCard ? `, entry ${folio}` : ''
 
   useEffect(() => {
     setPhotoUrl(null)
@@ -104,12 +108,12 @@ export function RecipeCard({ recipe, folio, indexCard = false, editorial = false
 
   return (
     <li className="mm-recipe-card-slot">
-      <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}${indexCard ? `, entry ${folio}` : ''}`} onClick={(event) => {
+      <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}${duplicateContext}`} onClick={(event) => {
         if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
           navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
         }
       }}>
-        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial}
+        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} duplicateTitle={duplicateTitle} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial} duplicateTitle={duplicateTitle}
           image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
       </Link>
     </li>

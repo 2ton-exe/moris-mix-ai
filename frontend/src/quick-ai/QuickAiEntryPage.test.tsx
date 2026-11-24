@@ -45,6 +45,11 @@ function JournalIndex() {
   </section>
 }
 
+function ManualRecipeRoute() {
+  const location = useLocation()
+  return <output data-testid="manual-recipe-state">{JSON.stringify(location.state)}</output>
+}
+
 function renderEntry({
   extract = vi.fn<Extract>().mockResolvedValue(recipe),
   onExtracted,
@@ -61,6 +66,7 @@ function renderEntry({
       element: <JournalLayout />,
       children: [
         { path: '/app/quick-entry', element: <QuickAiEntryPage extract={extract} onExtracted={onExtracted} /> },
+        { path: '/app/recipes/new', element: <ManualRecipeRoute /> },
         { path: '/app/recipes', element: <JournalIndex /> },
       ],
     },
@@ -575,6 +581,25 @@ describe('Quick AI Entry', () => {
     expect(screen.queryByRole('button', { name: 'Organize my notes' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Retry extraction' })).toBeTruthy()
     expect(notesField().value).toBe('slow-cooked beans')
+  })
+
+  it('carries original notes into a manual recipe after AI is disabled', async () => {
+    const sourceNotes = 'garlic, chicken, and a splash of soy sauce'
+    const extract = vi.fn<Extract>().mockRejectedValue(new HttpError('http', 'private service response', 503, {
+      error: { code: 'AI_DISABLED' },
+    }))
+    const { router } = renderEntry({ extract })
+    enterNotes(sourceNotes)
+    fireEvent.click(screen.getByRole('button', { name: 'Organize my notes' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('AI organizing is temporarily unavailable')
+    const link = screen.getByRole('link', { name: 'Write this recipe manually' })
+    expect(link).toBeTruthy()
+    fireEvent.click(link)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/app/recipes/new'))
+    expect(JSON.parse(screen.getByTestId('manual-recipe-state').textContent ?? 'null')).toEqual({
+      manualRecipe: { userId: 'cook-a', source: 'quick-entry', notes: sourceNotes },
+    })
   })
 
   it('blocks immediate retries after QUOTA_EXCEEDED and keeps the draft', async () => {

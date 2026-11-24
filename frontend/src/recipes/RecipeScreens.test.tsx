@@ -304,7 +304,7 @@ it('shows a detail loading state and handles missing metadata and empty content'
   expect(screen.getByRole('status').textContent).toContain('Loading recipe')
   await act(async () => request.resolve({ id: 'minimal', title: 'A recipe to finish later', ingredients: [], instructions: [] }))
   await screen.findByRole('heading', { name: 'A recipe to finish later' })
-  expect(screen.getByText('No ingredients listed.')).toBeTruthy()
+  expect(screen.getByText(/No ingredients listed\./)).toBeTruthy()
   expect(screen.getByText(/No cooking steps listed\./)).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Add cooking steps' }).getAttribute('href')).toBe('/app/recipes/minimal/edit?section=method')
   expect(screen.queryByText('Rating')).toBeNull()

@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { expect, it } from 'vitest'
 import fixture from '../../../fixtures/demo-recipe.json'
-import { AboutPage, HomePage } from './PublicJournalPages'
+import { AboutPage, HomePage, NotFoundPage } from './PublicJournalPages'
 
 it('previews the approved demo recipe and links to its full page', () => {
   render(<MemoryRouter><HomePage /></MemoryRouter>)
@@ -14,16 +14,34 @@ it('previews the approved demo recipe and links to its full page', () => {
     expect(preview.textContent?.toLowerCase()).toContain(`${amount}${ingredient.name}`.toLowerCase())
   }
   expect(preview.textContent).toContain(fixture.recipe.instructions[0].text)
-  expect(within(preview).getByRole('link', { name: 'Read the demonstration recipe' }).getAttribute('href')).toBe('/demo-recipe')
+  expect(within(preview).getByRole('link', { name: 'Read the sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
+  expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
+  expect(screen.getByRole('link', { name: 'Log in to your journal' }).getAttribute('href')).toBe('/login')
 })
 
-it('shows the real recipe-keeping workflow on the about page', () => {
+it('shows a compact editable-recipe example and a direct signup action', () => {
   render(<MemoryRouter><AboutPage /></MemoryRouter>)
 
-  const workflow = screen.getByRole('region', { name: 'Keep the notes that help next time.' })
-  expect(within(workflow).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-    'Save the ingredients and cooking steps.',
-    'Rate the dish and add a note about what you’d change.',
-    'Open the recipe again when you cook it next time.',
-  ])
+  const workflow = screen.getByRole('region', { name: 'From note to recipe' })
+  expect(workflow.textContent).toContain('Eggs, garlic, leftover rice, soy sauce.')
+  expect(workflow.textContent).toContain('Garlic egg fried rice')
+  expect(workflow.textContent).toContain('Review and edit before saving.')
+  expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
+  expect(screen.getByRole('link', { name: 'Log in to your journal' }).getAttribute('href')).toBe('/login')
+})
+
+it('offers concise public recovery routes for a missing page', () => {
+  render(<MemoryRouter><NotFoundPage /></MemoryRouter>)
+
+  expect(screen.getByText('Try the home page or sample recipe.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Go to home page' }).getAttribute('href')).toBe('/home')
+  expect(screen.getByRole('link', { name: 'View sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
+})
+
+it('explains journal recovery and keeps My recipes as the primary route', () => {
+  render(<MemoryRouter><NotFoundPage journal /></MemoryRouter>)
+
+  expect(screen.getByText('That address doesn’t match a recipe page. Browse or search your saved recipes from My recipes.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'My recipes' }).getAttribute('href')).toBe('/app/recipes')
+  expect(screen.queryByRole('link', { name: 'View sample recipe' })).toBeNull()
 })

@@ -45,9 +45,11 @@ export async function holdSpatialPaperGrip(layer) {
 }
 
 /** Check journal proportions, page layers, and the exposed bookmark controls. */
-export async function assertJournalGeometry(page, label) {
+export async function assertJournalGeometry(page, label, { hasCurrentTab = true } = {}) {
   await settleJournalLayout(page)
   await page.evaluate(() => globalThis.scrollTo({ top: 0, behavior: 'instant' }))
+  await page.locator('.mm-bookmarks .mm-bookmark').evaluateAll((tabs) =>
+    Promise.allSettled(tabs.flatMap((tab) => tab.getAnimations().map((animation) => animation.finished))))
   const geometry = await page.evaluate(() => {
     const rect = (element) => element.getBoundingClientRect().toJSON()
     const book = globalThis.document.querySelector('.mm-journal-book')
@@ -114,11 +116,13 @@ export async function assertJournalGeometry(page, label) {
   assert.ok(tabs.length >= 3, `${label}: journal tabs missing`)
   assert.ok(tabs.every((tab) => tab.right <= geometry.paper.right - geometry.pageRadius + 1), `${label}: tabs clear the rounded top-right paper corner`)
   const activeTabs = tabs.filter((tab) => tab.current)
-  assert.equal(activeTabs.length, 1, `${label}: exactly one route-derived tab is current`)
-  assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
-  assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
-  assert.equal(activeTabs[0].backgroundImage.includes('data:image/svg+xml'), geometry.paperBackgroundImage.includes('data:image/svg+xml'), `${label}: active tab uses the page paper texture`)
-  assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
+  assert.equal(activeTabs.length, hasCurrentTab ? 1 : 0, `${label}: expected current route tabs`)
+  if (hasCurrentTab) {
+    assert.ok(Math.abs(activeTabs[0].bottom - right.y) <= 1, `${label}: active tab detaches from the right paper sheet`)
+    assert.equal(activeTabs[0].backgroundColor, geometry.paperBackgroundColor, `${label}: active tab uses the page paper color`)
+    assert.equal(activeTabs[0].backgroundImage.includes('data:image/svg+xml'), geometry.paperBackgroundImage.includes('data:image/svg+xml'), `${label}: active tab uses the page paper texture`)
+    assert.equal(activeTabs[0].zIndex, '2', `${label}: active tab layers above the sheet edge`)
+  }
   for (const tab of tabs) {
     assert.ok(tab.bottom <= right.bottom + 1 && tab.left >= right.left && tab.right <= right.right, `${label}: tab overhangs the right page: ${tab.label}`)
     assert.ok(tab.x >= 0 && tab.right <= viewport.width && tab.y >= 0, `${label}: tab clipped: ${tab.label}`)

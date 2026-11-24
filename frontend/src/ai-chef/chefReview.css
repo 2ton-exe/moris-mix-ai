@@ -199,6 +199,12 @@
 .mm-chef-review__inspiration > :is(.mm-ai-chef__draft-ingredients, .mm-chef-review__flavor-card, .mm-chef-review__margin) { grid-column: 1 / -1; }
 .mm-chef-review__inspiration > .mm-ai-chef__suggestions { background-color: #faebde; border-color: #e5c1a9; }
 .mm-chef-review__inspiration > .mm-chef-review__request { background-color: #eee4ed; border-color: #ddc9dc; }
+.mm-chef-review__inspiration > .mm-chef-review__optional-details { grid-column: 1 / -1; margin: 0; padding-inline: var(--mm-review-card-padding); border-block: 1px solid #e5cc9f; }
+.mm-chef-review__optional-details > summary { min-block-size: 44px; display: flex; align-items: center; color: var(--mm-color-burgundy-800); font-weight: 650; }
+.mm-chef-review__optional-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--mm-review-gap); padding-block-end: var(--mm-review-card-padding); }
+.mm-chef-review__optional-content > section { min-inline-size: 0; }
+.mm-chef-review__optional-content h3 { margin-block: 0 4px; }
+.mm-chef-review__selection-help { margin-block: 3px 0; color: var(--mm-color-ink-soft); font-size: .8rem; line-height: 1.25; }
 
 .mm-chef-review__inspiration h3 {
   display: flex;
@@ -239,10 +245,6 @@
 
 .mm-chef-review__margin { display: flex; align-items: center; gap: 4px 10px; min-height: 28px; }
 .mm-chef-review__inspiration .mm-chef-review__margin .mm-ai-chef__review-state { margin: 0; }
-.mm-chef-review__margin-sticker { display: flex; gap: 0; margin-inline-start: auto; }
-.mm-chef-review__margin-sticker .mm-scrapbook-sticker { inline-size: clamp(18px, 3.35vh, 33px); }
-.mm-chef-review__margin-sticker .mm-scrapbook-sticker:first-child { transform: rotate(-11deg); }
-.mm-chef-review__margin-sticker .mm-scrapbook-sticker:last-child { margin-inline-start: -3px; transform: rotate(8deg); }
 
 .mm-chef-review .mm-desk--writing .mm-form-footer .recipe-form-actions { flex-direction: row; justify-content: flex-start; gap: 10px; padding-top: 0; }
 .mm-chef-review .mm-form-footer .recipe-form-actions .button :is(svg, img) { inline-size: 18px; block-size: 18px; flex: none; }

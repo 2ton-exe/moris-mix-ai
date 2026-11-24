@@ -121,7 +121,7 @@ try {
         ['app/quick-entry', 'Quick AI Entry', 'quick-entry'],
         ['app/chef', 'What’s in your pantry?', 'chef'],
         ['home', 'Good meals deserve a page.', 'home'],
-        ['about', 'A place for the meals that become yours.', 'about'],
+        ['about', 'Keep your recipes close.', 'about'],
       ]) {
         await page.goto(`${origin}${route}`)
         await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible()

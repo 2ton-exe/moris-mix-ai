@@ -18,8 +18,8 @@ export function RecipeWritingTurns({ page, total, text, single, onTurn, review, 
       <p className="mm-review-progress" role="status">{review.current}</p>
       <nav className="mm-review-controls" aria-label="Recipe review actions">{review.exit}{!review.next && review.save}</nav>
       <JournalPagination label="Recipe writing pages" rightNumber={text}
-        previous={review.previous && <button type="button" className="button mm-button--page-turn" disabled={isTurning} aria-label={`Previous: ${review.previous}`} onClick={() => onTurn(page - 1)}>← Previous</button>}
-        next={review.next && <button type="button" className="button mm-button--page-turn" disabled={isTurning} aria-label={`Next: ${review.next}`} onClick={() => onTurn(page + 1)}>Next →</button>} />
+        previous={review.previous && <button type="button" className="button mm-button--page-turn" disabled={isTurning} aria-label={`Previous: ${review.previous}`} onClick={() => onTurn(page - 1)}>← {review.previous}</button>}
+        next={review.next && <button type="button" className="button mm-button--page-turn" disabled={isTurning} aria-label={`Next: ${review.next}`} onClick={() => onTurn(page + 1)}>Next: {review.next} →</button>} />
     </div>
   }
   const pageNoun = single ? 'Page' : 'Pages'

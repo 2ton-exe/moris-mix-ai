@@ -47,7 +47,10 @@ async function checkFlow(page, label) {
       if (style.display === 'none') continue
       if (element.matches('.mm-journal-page:has(.mm-writing-pages)')) {
         const leaf = element.querySelector('.mm-writing-leaf')
-        if (!leaf || ['auto', 'scroll'].includes(globalThis.getComputedStyle(leaf).overflowY)) problems.push('recipe writing leaf must use page navigation')
+        const single = globalThis.matchMedia('(max-width: 1099.98px), (max-height: 639.98px)').matches
+        if (!leaf || (single ? ['auto', 'scroll'].includes(globalThis.getComputedStyle(leaf).overflowY) : leaf.scrollHeight > leaf.clientHeight + 1)) {
+          problems.push('recipe writing content exceeds its leaf')
+        }
       } else if (['hidden', 'clip'].includes(style.overflowY)) {
         problems.push(`clipped paper: ${element.className}`)
       }
@@ -67,7 +70,7 @@ async function capture(page, width, name) {
   await checkFlow(page, `${width}px ${name}`)
   if (await page.locator('.mm-journal-book').count()) {
     await page.evaluate(() => globalThis.scrollTo(0, 0))
-    measurements.push({ name, ...await assertJournalGeometry(page, `${width} ${name}`) })
+    measurements.push({ name, ...await assertJournalGeometry(page, `${width} ${name}`, { hasCurrentTab: name !== 'fallback' }) })
   }
   await page.screenshot({ path: path.join(output, `${width}-${name}.png`), fullPage: true })
   captures.push({ width, name })
@@ -149,7 +152,8 @@ try {
     await page.getByRole('link', { name: 'Edit recipe' }).click()
     await expect(page.getByLabel('Recipe title')).toHaveValue(recipe.title)
     await capture(page, width, 'edit-sheet')
-    await page.getByRole('button', { name: 'Back to journal', exact: true }).click()
+    await page.getByRole('button', { name: 'Back to recipe', exact: true }).click()
+    await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeVisible()
 
     await page.getByRole('link', { name: 'New recipe' }).click()
     await expect(page.getByRole('heading', { name: 'New recipe' })).toBeFocused()
@@ -175,17 +179,25 @@ try {
     await page.evaluate(() => { globalThis.localStorage.clear(); globalThis.localStorage.setItem('acceptance-public', 'true') })
     for (const [route, name, heading] of [
       ['home', 'home', 'Good meals deserve a page.'],
-      ['about', 'about', 'A place for the meals that become yours.'],
-      ['demo-recipe', 'demo-sheet', 'Demonstration recipe'],
-      ['unwritten-route', 'fallback', 'This page is still unwritten.'],
+      ['about', 'about', 'Keep your recipes close.'],
+      ['demo-recipe', 'demo-sheet', fixture.title],
+      ['unwritten-route', 'fallback', 'Page not found'],
       ['login', 'login', 'Welcome back'],
       ['signup', 'signup', 'Create your account'],
-      ['verify-email', 'verification', 'Check your email'],
-      ['auth/callback', 'callback', 'Check your verification link'],
+      ['verify-email', 'verification', 'Verify your email'],
+      ['auth/callback', 'callback', 'Email link unavailable'],
     ]) {
       await page.goto(`${origin}${route}`)
       await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
-      if (name === 'demo-sheet') await expect(page.getByRole('heading', { name: fixture.title })).toBeVisible()
+      if (name === 'about') {
+        await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
+        await expect(page.getByRole('link', { name: 'Log in to your journal' })).toHaveAttribute('href', '/login')
+      }
+      if (name === 'demo-sheet') await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
+      if (name === 'fallback') {
+        await expect(page.getByRole('link', { name: 'Go to home page' })).toHaveAttribute('href', '/home')
+        await expect(page.getByRole('link', { name: 'View sample recipe' })).toHaveAttribute('href', '/demo-recipe')
+      }
       await capture(page, width, name)
       assert.equal(await page.locator('.starter-card').count(), 0)
     }
@@ -193,6 +205,7 @@ try {
     if (width === 1440) {
       demoGate = new Promise((resolve) => { releaseDemo = resolve })
       await page.goto(`${origin}demo-recipe`)
+      await expect(page.locator('.mm-reading-skeleton')).toBeVisible()
       await expect(page.getByRole('status')).toContainText('Loading demonstration recipe')
       await capture(page, width, 'demo-loading')
       demoFailure = true
@@ -211,28 +224,28 @@ try {
       await expect(page.locator('[data-recipe-id]')).toHaveCount(2)
       await page.getByRole('link', { name: /Next page/ }).click()
       await expect(page.getByRole('heading', { name: 'Saved recipes (5)' })).toBeVisible()
-      await expect(page.getByRole('heading', { name: testEntries[4].title })).toBeVisible()
+      await expect(page.getByRole('link', { name: `Open recipe ${testEntries[4].title}` })).toBeVisible()
       assert.ok(requests.some((query) => new URLSearchParams(query).get('cursor') === 'server-owned-cursor'))
       await page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` }).click()
       await page.getByRole('link', { name: 'Back to recipes' }).click()
-      await expect(page).toHaveURL(/view=collection&q=test&sort=rating&leaf=2&entry=2$/)
+      await expect(page).toHaveURL(/view=collection&q=test&sort=rating&entry=2$/)
       await expect(page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` })).toBeFocused()
       await page.getByRole('link', { name: 'Search & index' }).click()
       await expect(page.getByRole('searchbox')).toHaveValue('test')
       await expect(page.getByRole('combobox', { name: 'Sort recipes' })).toHaveValue('rating')
       await page.goBack()
-      await expect(page.getByRole('heading', { name: testEntries[2].title })).toBeVisible()
+      await expect(page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` })).toBeVisible()
       await page.goForward()
       await expect(page.getByRole('heading', { name: 'Recipe index' })).toBeVisible()
       // Stress the preview composition without importing synthetic entries into
       // product screenshots. Full titles remain available in expanded sheets.
       await page.goBack()
-      await page.locator(':is(.mm-collection-entry, .mm-index-card) h2').evaluateAll((headings) => {
-        for (const heading of headings) heading.textContent = 'An exceptionally long family recipe title kept for every gathering and every season of the year'
+      await page.locator('.mm-collection-entry__title, .mm-index-card h2').evaluateAll((titles) => {
+        for (const title of titles) title.textContent = 'An exceptionally long family recipe title kept for every gathering and every season of the year'
       })
       await checkFlow(page, 'two long preview titles')
       await page.reload()
-      await expect(page.getByRole('heading', { name: testEntries[2].title })).toBeVisible()
+      await expect(page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` })).toBeVisible()
       await page.emulateMedia({ reducedMotion: 'reduce' })
       await expect(page.locator(':is(.mm-collection-entry, .mm-index-card)').first()).toHaveCSS('transition-property', 'none')
       await page.setViewportSize({ width: 720, height: 450 })

@@ -12,11 +12,11 @@ import { useAuth } from './context'
 const auth = vi.hoisted(() => ({
   getSession: vi.fn(), onAuthStateChange: vi.fn(), signInWithPassword: vi.fn(),
   signUp: vi.fn(), signOut: vi.fn(), resend: vi.fn(),
-  getVerificationCallbackResult: vi.fn(), clearAuthCallbackUrl: vi.fn(),
+  getAuthCallbackResult: vi.fn(), clearAuthCallbackUrl: vi.fn(),
 }))
 vi.mock('./client', () => ({ getAuthClient: () => auth,
   AUTH_INITIALIZATION_TIMEOUT_MS: 15_000,
-  getVerificationCallbackResult: auth.getVerificationCallbackResult, clearAuthCallbackUrl: auth.clearAuthCallbackUrl,
+  getAuthCallbackResult: auth.getAuthCallbackResult, clearAuthCallbackUrl: auth.clearAuthCallbackUrl,
 }))
 vi.mock('../api/demoRecipe', async (importOriginal) => {
   const original = await importOriginal<typeof import('../api/demoRecipe')>()
@@ -80,7 +80,7 @@ beforeEach(() => {
   auth.signUp.mockResolvedValue({ data: { user: session().user, session: null }, error: null })
   auth.signOut.mockResolvedValue({ error: null })
   auth.resend.mockResolvedValue({ error: null })
-  auth.getVerificationCallbackResult.mockResolvedValue(false)
+  auth.getAuthCallbackResult.mockResolvedValue({ kind: 'invalid' })
   vi.mocked(getDemoRecipe).mockResolvedValue(parseDemoRecipeResponse(fixture).recipe)
 })
 afterEach(() => { vi.useRealTimers() })
@@ -309,12 +309,21 @@ it.each(['resolve', 'reject'])('ignores a late initialization %s after a newer a
 
 it('reports a successful verification callback once Supabase restores a confirmed session', async () => {
   auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
-  auth.getVerificationCallbackResult.mockResolvedValue(true)
+  auth.getAuthCallbackResult.mockResolvedValue({ kind: 'verified' })
   open('/auth/callback#access_token=not-displayed&refresh_token=test-refresh&type=signup')
   await screen.findByRole('heading', { name: 'Email verified' })
   expect(screen.getByRole('status').textContent).toContain('confirmed')
   fireEvent.click(screen.getByRole('link', { name: 'Continue to your journal' }))
   await screen.findByRole('heading', { name: 'Your cooking journal' })
+})
+
+it('requires the session returned by a password recovery exchange before showing the update form', async () => {
+  auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
+  auth.getAuthCallbackResult.mockResolvedValue({ kind: 'recovery', accessToken: 'different-session' })
+  open('/auth/callback?flow=recovery')
+  await screen.findByRole('heading', { name: 'Password reset link unavailable' })
+  expect(screen.queryByRole('button', { name: 'Update password' })).toBeNull()
+  expect(screen.getByRole('link', { name: 'Request a new reset link' }).getAttribute('href')).toBe('/login?flow=recovery')
 })
 
 it('surfaces restoration errors after INITIAL_SESSION(null) instead of treating the event as a newer login', async () => {
@@ -442,7 +451,7 @@ it('keeps a remote logout warning after the SDK signs out locally and after swit
 
 it.each(['/auth/callback', '/auth/callback#error=access_denied&error_code=otp_expired&error_description=private-detail', '/auth/callback?code=unsupported-code'])('provides recovery for a missing, expired or unsupported callback: %s', async (path) => {
   open(path)
-  await screen.findByRole('heading', { name: 'Verification link unavailable' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.getByRole('status').textContent).toContain('expired, invalid, or already used')
   expect(screen.queryByText('private-detail')).toBeNull()
   expect(screen.getByRole('link', { name: 'Back to login' })).toBeTruthy()
@@ -464,7 +473,7 @@ it('resends a verification link and displays safe rate-limit feedback', async ()
 it('does not claim a missing callback verified an already signed-in user', async () => {
   auth.getSession.mockResolvedValue({ data: { session: session() }, error: null })
   open('/auth/callback')
-  await screen.findByRole('heading', { name: 'Verification link unavailable' })
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
 })
 

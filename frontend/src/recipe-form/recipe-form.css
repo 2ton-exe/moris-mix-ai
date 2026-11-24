@@ -545,7 +545,7 @@ html[data-ingredient-dragging] * { cursor: grabbing !important; }
     grid-template-columns: minmax(0, 1fr) auto;
     padding-inline-start: 10px;
   }
-  .mm-edit-recipe .mm-form-identity .recipe-form-field :is(input[type='date'], textarea[name='title']) {
+  :is(.mm-edit-recipe, .mm-new-recipe) .mm-form-identity .recipe-form-field :is(input[type='date'], textarea[name='title']) {
     border: 0;
     border-block-end: 1px solid var(--mm-color-parchment-500);
     border-radius: 0;

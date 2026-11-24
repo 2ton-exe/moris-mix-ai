@@ -33,7 +33,7 @@ afterEach(() => { queryClient.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks
 type PageOptions = {
   path: string; state: AuthState; save?: SaveRecipeDraft; initial?: RecipeEditorRecord
   isLoading?: boolean; loadError?: Error; loadMatchingRecordOnRouteChange?: boolean
-  history?: string[]; initialIndex?: number; source?: RecipeSource
+  history?: (string | { pathname: string; state: unknown })[]; initialIndex?: number; source?: RecipeSource
 }
 const PageOptionsContext = createContext<PageOptions | null>(null)
 
@@ -153,6 +153,25 @@ it('gates the create page using FE-03 protected routes without invoking the save
   const save = vi.fn()
   render(tree({ state: authState(null), save }))
   expect(screen.getByRole('heading', { name: 'Login required' })).toBeTruthy()
+  expect(save).not.toHaveBeenCalled()
+})
+
+it.each(['cook-a', 'cook-b'])('uses manual notes only when the signed-in cook owns the handoff (%s)', (userId) => {
+  const save = vi.fn()
+  render(tree({ save, history: ['/app', {
+    pathname: '/app/recipes/new', state: { manualRecipe: { userId, source: 'quick-entry', notes: 'Toast the garlic gently.' } },
+  }] }))
+  expect(screen.getByRole('textbox', { name: 'Notes' })).toHaveProperty('value', userId === 'cook-a' ? 'Toast the garlic gently.' : '')
+  expect(save).not.toHaveBeenCalled()
+})
+
+it('carries pantry items into the editor without saving them', () => {
+  const save = vi.fn()
+  render(tree({ save, history: ['/app', {
+    pathname: '/app/recipes/new', state: { manualRecipe: { userId: 'cook-a', source: 'chef', ingredients: ['rice', 'eggs'] } },
+  }] }))
+  expect(screen.getByDisplayValue('rice')).toBeTruthy()
+  expect(screen.getByDisplayValue('eggs')).toBeTruthy()
   expect(save).not.toHaveBeenCalled()
 })
 
