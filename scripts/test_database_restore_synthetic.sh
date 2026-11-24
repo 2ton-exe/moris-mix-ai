@@ -17,6 +17,7 @@ export GITHUB_STEP_SUMMARY="$root/synthetic-summary.md"
 
 cleanup() {
   local original_status=$?
+  local network_cleanup_ok=1 network_list network_name
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
     if supabase stop --workdir "$workdir" --no-backup \
@@ -27,13 +28,31 @@ cleanup() {
       if (( original_status == 0 )); then original_status=1; fi
     fi
   fi
-  if docker network inspect "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
-    if docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
-      printf '%s\n' 'synthetic-network-cleanup=pass'
-    else
-      printf '%s\n' 'synthetic-network-cleanup=fail' >&2
-      if (( original_status == 0 )); then original_status=1; fi
+  if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
+    while IFS= read -r network_name; do
+      if [[ "$network_name" == "$RESTORE_DOCKER_NETWORK" ]]; then
+        if ! docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
+          network_cleanup_ok=0
+        fi
+        break
+      fi
+    done <<< "$network_list"
+  else
+    network_cleanup_ok=0
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]]; then
+    if [[ -e "$RUNNER_TEMP/restore-runner-network-guard.json" ]] && \
+       ! sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 "$script_dir/restore_runner_network_guard.py" remove \
+          --docker-network "$RESTORE_DOCKER_NETWORK" \
+          --marker "$RUNNER_TEMP/restore-runner-network-guard.json"; then
+        network_cleanup_ok=0
     fi
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]]; then
+    printf '%s\n' 'synthetic-network-cleanup=pass'
+  else
+    printf '%s\n' 'synthetic-network-cleanup=fail' >&2
+    if (( original_status == 0 )); then original_status=1; fi
   fi
   if rm -rf "$root" > /dev/null 2>&1 && [[ ! -e "$root" ]]; then
     printf '%s\n' 'synthetic-fixture-cleanup=pass'
@@ -74,14 +93,22 @@ else
   if grep -Fq 'Disposable Supabase startup failed' "$root/start.out" "$root/start.err"; then
     if grep -Eiq '(docker daemon|docker socket|cannot connect to docker)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-daemon
-    elif grep -Eiq '(health check|healthcheck|failed to start container)' "$root/private-db-start.log" 2>/dev/null; then
-      failure_class=database-start-container
-    elif grep -Eiq '(network|gateway)' "$root/private-db-start.log" 2>/dev/null; then
+    elif grep -Eiq '(pull access denied|manifest unknown|no matching manifest|failed to pull|toomanyrequests|too many requests|rate limit|http 429|status code 429)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-pull
+    elif grep -Eiq '(unauthorized|authentication required|forbidden|status code 401|status code 403|failed to fetch anonymous token)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-auth
+    elif grep -Eiq '(TLS handshake timeout|i/o timeout|connection reset|no such host|network is unreachable|temporary failure in name resolution|context deadline exceeded)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-network
+    elif grep -Eiq '(image[^[:cntrl:]]*(not found|does not exist)|manifest[^[:cntrl:]]*(unknown|not found)|repository[^[:cntrl:]]*not found)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-missing
+    elif grep -Eiq '(connection refused|health check|healthcheck|unhealthy)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-health
+    elif grep -Eiq '(network.*(not found|invalid)|failed to.*network|gateway)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-network
-    elif grep -Eiq '(port|bind|listen)' "$root/private-db-start.log" 2>/dev/null; then
+    elif grep -Eiq '(port is already allocated|address already in use|bind:|listen)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-port
     elif grep -Eiq '(image|pull|manifest)' "$root/private-db-start.log" 2>/dev/null; then
-      failure_class=database-start-image
+      failure_class=database-start-image-other
     elif grep -Eiq '(auth|migration|baseline)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-baseline
     else

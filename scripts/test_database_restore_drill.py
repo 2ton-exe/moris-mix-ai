@@ -135,6 +135,32 @@ class StageBOfflineTests(unittest.TestCase):
         ):
             self.assertNotIn(private_field, summary)
 
+    def test_runner_host_guard_precedes_restore_and_cleanup_fails_closed(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        firewall_setup = workflow.index("Prepare temporary runner input firewall")
+        private_download = workflow.index("Download selected private R2 backup and evidence")
+        self.assertLess(firewall_setup, private_download)
+        self.assertIn("command -v nft >/dev/null || sudo apt-get install -y nftables", workflow)
+        start = workflow.split(
+            "      - name: Start clean, isolated Supabase PostgreSQL 17", 1
+        )[1].split("      - name: Restore SQL transactionally", 1)[0]
+        self.assertLess(start.index("supabase db start"), start.index("restore_runner_network_guard.py apply"))
+        cleanup = workflow.split(
+            "      - name: Stop isolated database and delete private files", 1
+        )[1]
+        self.assertIn("if: always()", cleanup)
+        self.assertLess(cleanup.index("docker network rm"), cleanup.index("restore_runner_network_guard.py remove"))
+        self.assertIn('failure" -eq 0 && -e "$RUNNER_TEMP/restore-runner-network-guard.json"', cleanup)
+        self.assertIn("runner teardown will recycle the VM", cleanup)
+
+    def test_synthetic_workflow_runs_runner_guard_offline_and_live_start_tests(self):
+        synthetic = (WORKFLOW.parent / "database-restore-synthetic.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/restore_runner_network_guard.py", synthetic)
+        self.assertIn("scripts/test_database_restore_runner_network_guard.py", synthetic)
+        self.assertIn("Prepare temporary runner input firewall", synthetic)
+        self.assertIn("python3 -m unittest discover -s scripts -p 'test_database_restore_*.py'", synthetic)
+        self.assertIn("bash scripts/test_database_restore_synthetic.sh", synthetic)
+
     def test_database_config_is_pinned_to_postgres_17_and_unique_project(self):
         import tomllib
 

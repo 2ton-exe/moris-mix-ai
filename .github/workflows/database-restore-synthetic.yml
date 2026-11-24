@@ -21,6 +21,8 @@ on:
       - scripts/test_database_restore_data_failure.py
       - scripts/restore_candidate_manifest.py
       - scripts/test_database_restore_candidate_manifest.py
+      - scripts/restore_runner_network_guard.py
+      - scripts/test_database_restore_runner_network_guard.py
       - scripts/restore_data_failure.py
       - scripts/test_database_restore_drill.py
       - scripts/classify_restore_component.py
@@ -46,6 +48,10 @@ jobs:
         uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
         with:
           version: 2.122.0
+
+      - name: Prepare temporary runner input firewall
+        shell: bash
+        run: command -v nft >/dev/null || sudo apt-get install -y nftables
 
       - name: Test role-only diagnostic output safety (offline)
         shell: bash

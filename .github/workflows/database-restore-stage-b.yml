@@ -46,6 +46,10 @@ jobs:
         with:
           version: 2.122.0
 
+      - name: Prepare temporary runner input firewall
+        shell: bash
+        run: command -v nft >/dev/null || sudo apt-get install -y nftables
+
       - name: Download selected private R2 backup and evidence
         shell: bash
         env:
@@ -292,6 +296,15 @@ jobs:
             echo "::error::Restore database network permits outbound connectivity"
             exit 1
           fi
+          # --internal blocks routed container egress but does not block access
+          # to host services on the bridge. The guard also requires a Moby
+          # release that does not forward DNS queries from internal networks.
+          sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py apply \
+            --docker-network "$RESTORE_DOCKER_NETWORK" \
+            --database-container "$db_id" \
+            --project-id "$RESTORE_PROJECT_ID" \
+            --psql-image "$PSQL_IMAGE" \
+            --marker "$RUNNER_TEMP/restore-runner-network-guard.json"
           echo 'Disposable PostgreSQL 17 target is loopback-published and container-egress-isolated.'
 
       - name: Restore SQL transactionally using patched PostgreSQL 17 client
@@ -541,6 +554,11 @@ jobs:
             fi
           else
             failure=1
+          fi
+          if [[ "$failure" -eq 0 && -e "$RUNNER_TEMP/restore-runner-network-guard.json" ]]; then
+            sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py remove \
+              --docker-network "$RESTORE_DOCKER_NETWORK" \
+              --marker "$RUNNER_TEMP/restore-runner-network-guard.json" || failure=1
           fi
           if [[ "$failure" -ne 0 ]]; then
             echo '::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM'

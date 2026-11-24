@@ -219,6 +219,12 @@ supabase() {
 }
 export -f supabase
 docker() {
+  if [[ "$1" == network && "$2" == ls ]]; then
+    if [[ -e "$RUNNER_TEMP/network-created" ]]; then
+      printf '%s\n' 'restore-synthetic-test'
+    fi
+    return 0
+  fi
   if [[ "$1" == network && "$2" == inspect ]]; then
     if [[ ! -e "$RUNNER_TEMP/network-created" ]]; then return 1; fi
     if [[ "$#" == 3 ]]; then return 0; fi
