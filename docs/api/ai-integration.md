@@ -185,8 +185,10 @@ Neither switch is read from the client request. A quota reservation failure stil
 
 ## `POST /generate-recipe`
 
-Turn pantry items and preferences into a validated, unsaved recipe preview, using the
-caller's own top-ranked saved recipes (BE-10 retrieval/ranking) as inspiration.
+Turn pantry items and preferences into a validated, unsaved recipe preview using
+the caller's top-ranked saved recipes as inspiration. A focused revision instead
+starts from one saved recipe and one explicitly selected line or excerpt from
+that recipe's Personal Notes.
 
 ### Authentication
 
@@ -216,6 +218,20 @@ are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval an
 prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved
 recipes to retrieve**, not an empty request. Preferences are passed to the prompt as
 recipe constraints (dietary needs, exclusions, taste, time), never as instructions.
+
+A focused revision uses this separate request shape and requires no pantry list.
+
+```json
+{
+  "sourceRecipeId": "123e4567-e89b-12d3-a456-426614174000",
+  "noteExcerpt": "Too salty with ¼ cup soy sauce. Loved the extra vinegar."
+}
+```
+
+The source must be owned by the caller. The excerpt must contain non-whitespace
+text, be at most 1,200 characters, and occur exactly in the saved Personal Notes.
+The server preserves the excerpt verbatim and sends only that excerpt, the
+source title and ID, ingredient amounts, and directions to the model.
 
 ### Success response — `200 OK`
 
@@ -259,6 +275,14 @@ recipe constraints (dietary needs, exclusions, taste, time), never as instructio
 - **No recipe or lineage row is created; the quota reservation and daily usage counter
   are recorded.** Saving the preview and its proposed lineage is a separate, explicit
   call owned by BE-11 (#101).
+
+A focused revision also returns `revision` with the cook's exact `noteExcerpt`,
+the source `ingredient` name, `before` and `after` numeric amounts each with a
+nullable `unit`, and Mori's short `reason`. Only one explicit ingredient amount
+may change, and all other ingredient amounts must match the source. The original
+recipe is the single signed parent. Context shows `MATCHED` with both counts
+set to `1`. The focused revision stays an unsaved preview until the user
+confirms a separate save.
 
 ### Error responses
 
