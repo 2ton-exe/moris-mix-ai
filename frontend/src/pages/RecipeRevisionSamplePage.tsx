@@ -21,7 +21,7 @@ const examples = [
     changed: 'vinegar',
     reason: 'Add a tablespoon of vinegar for more tang and keep the soy sauce amount.',
   },
-]
+] as const
 
 export default function RecipeRevisionSamplePage() {
   const heading = useRef<HTMLHeadingElement>(null)
@@ -48,9 +48,10 @@ export default function RecipeRevisionSamplePage() {
     </JournalFacingPage>
     <div className="mm-revision-sample">
       <header>
-        <h2>What would you change?</h2>
+        <h2>Try a revision</h2>
         <p>Sample walkthrough</p>
       </header>
+      <p>Pick a note to see Mori’s change.</p>
       <div className="mm-revision-sample__choices" role="group" aria-label="Choose a cooking note">
         {examples.map((example) => <button key={example.note} type="button" className="button button-secondary"
           aria-pressed={selected === example} onClick={() => select(example)}>{example.note}</button>)}
@@ -58,14 +59,16 @@ export default function RecipeRevisionSamplePage() {
       <section className="mm-revision-sample__draft" aria-labelledby="sample-draft" aria-live="polite" aria-atomic="true">
         <h3 id="sample-draft">Sample draft</h3>
         {selected ? <>
-          <ul className="mm-revision-sample__ingredients">
-            <li>{selected.changed === 'soySauce' ? <strong>{selected.soySauce}</strong> : selected.soySauce}</li>
-            <li>{selected.changed === 'vinegar' ? <strong>{selected.vinegar}</strong> : selected.vinegar}</li>
-          </ul>
+          <dl className="mm-revision-sample__comparison">
+            <div><dt>Original</dt><dd>{original[selected.changed]}</dd></div>
+            <div><dt>Next time</dt><dd><strong>{selected[selected.changed]}</strong></dd></div>
+          </dl>
+          <p>Keep <strong>{selected.changed === 'soySauce' ? selected.vinegar : selected.soySauce}</strong>.</p>
           <p>{selected.reason}</p>
           <p className="mm-revision-sample__evidence">From the cook’s note <q>{selected.note}</q></p>
-        </> : <p>Choose a cooking note to reveal the suggested change.</p>}
+        </> : <p>Mori’s change and the note behind it will appear here.</p>}
       </section>
+      {selected && <Link className="button button-secondary mm-revision-sample__start" to="/signup">Try this with your own recipes</Link>}
     </div>
   </JournalShell>
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { moriReviewKeyFromState } from '../mori/routeState'
@@ -21,6 +21,7 @@ import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
 import { readChefDraftResult, writeChefDraft } from './draft'
 import { ChefDraftComparison, ChefSourceRecipe } from './ChefRecipeComparison'
+import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import { ChefProgress } from './ChefProgress'
 import type { ChefDraftReadStatus, ChefDraftWriteResult, ChefReviewHandoff } from './draft'
 import { LineageApiError, lineageApi, lineageFailureMessage, lineageMatchesSelection } from './lineage'
@@ -412,7 +413,27 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     : saved ? 'Recipe saved. Parent links still need attention.' : undefined
 
   const revision = 'sourceRecipeId' in handoff.request
-  const comparison = compare && !saved && <ChefDraftComparison handoff={handoff} source={parentRecipe} edited={editedDraft} />
+  const saveContext = <section className="mm-chef-review__save-context" aria-label="Before you save">
+    <h2>What will be saved</h2>
+    <p>{revision ? 'This draft saves as a new version linked to the original.'
+      : 'Save recipe adds this draft to My recipes.'}</p>
+    <details>
+      <summary>What are recipe links?</summary>
+      <p>{revision ? 'The link records which recipe you revised.' : 'Choose recipes from your journal to link as inspiration. The links show where the idea came from, and the original recipes stay as they are. You can save without links.'}</p>
+    </details>
+    {'pantryItems' in handoff.request && handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
+  </section>
+  const comparison = compare && !saved ? (editAmount?: ReactNode) => {
+    const draftComparison = <ChefDraftComparison handoff={handoff} source={parentRecipe} edited={editedDraft} editAmount={editAmount} />
+    return <div className="mm-chef-review__comparison">
+      {parentId ? <ChefSourceRecipe parents={parents} parentId={parentId} setParentId={setChosenParent}
+        source={parentRecipe} unavailable={parentQuery.isError && !parentRecipe} pending={parentQuery.isPending}>
+        {draftComparison}
+      </ChefSourceRecipe> : draftComparison}
+      {saveContext}
+      {parentRecipe && <RecipeImagePanel recipeId={parentRecipe.id} recipeTitle={parentRecipe.title} cookedAt={parentRecipe.cooked_at} framed />}
+    </div>
+  } : undefined
   const generationNotice = (compact = false) => <ChefGenerationNotice
     compact={compact}
     handoff={handoff}
@@ -434,6 +455,9 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     initialValuesAreUnsaved={!handoff.savedRecipeId}
     initialSaveConfirmation={handoff.savedRecipeId ? { id: handoff.savedRecipeId, statusMessage: completionMessage } : undefined}
     saveSuccessMessage={completionMessage}
+    createSubmitLabel={revision ? 'Save new version' : undefined}
+    savedAction={revision && handoff.savedRecipeId && <Link className="button button-primary"
+      to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved version</Link>}
     showExtractionHints
     reviewWorkflow
     draftKeptInSession={!saved && storageIssue === null}
@@ -443,31 +467,18 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     onSubmit={submit}
     onDirtyChange={setDirty}
     onEditorStateChange={storeReviewDraft}
-    cancelLabel={revision && !saved ? 'Back to original recipe'
+    cancelLabel={revision ? saved ? 'Back to AI Chef' : 'Back to original recipe'
       : saved && !dirty && lineageStatus === 'confirmed' && storageIssue === null ? 'Use this pantry again' : 'Back to AI Chef'}
     onCancel={() => navigate('sourceRecipeId' in handoff.request && !saved
       ? '/app/recipes/' + encodeURIComponent(handoff.request.sourceRecipeId) : '/app/chef')}
-    identitySupplement={comparison}
+    reviewComparison={comparison}
+    comparisonIngredient={handoff.response.revision?.ingredient}
     notice={<>{generationNotice()}{storageNotice}</>}
     reviewPage={{ title: 'Recipe inspiration', content: <>{generationNotice(true)}{storageNotice}</> }}
     reviewStatus={storageNotice}
-    renderFrame={(content, titleEditor) => <RecipeEditorFrame mode="create" connected showBack={false}
-      headingTitle={saved ? 'Your recipe is saved.' : titleEditor
-        ? <span className="visually-hidden">Review Mori's recipe.</span>
-        : "Review Mori's recipe."}
-      titleEditor={titleEditor}
-      facingPageContent={saved ? <ChefProgress stage="saved" /> : <section className="mm-chef-review__save-context" aria-label="Before you save">
-          {compare && parentId && <ChefSourceRecipe parents={parents} parentId={parentId} setParentId={setChosenParent}
-            source={parentRecipe} unavailable={parentQuery.isError && !parentRecipe} pending={parentQuery.isPending} />}
-          {revision && <p>This draft saves as a new version linked to the original.</p>}
-          <h2>What will be saved</h2>
-          <p>On the final page, choose Save recipe to add your edited recipe to My recipes.</p>
-          <details>
-            <summary>What are recipe links?</summary>
-            <p>{revision ? 'The link records which recipe you revised.' : 'Choose recipes from your journal to link as inspiration. The links show where the idea came from, and the original recipes stay as they are. You can save without links.'}</p>
-          </details>
-          {'pantryItems' in handoff.request && handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
-        </section>}
+    renderFrame={(content, initialDesktopSpread) => <RecipeEditorFrame mode="create" connected showBack={false}
+      headingTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
+      facingPageContent={saved ? revision ? undefined : <ChefProgress stage="saved" /> : initialDesktopSpread && comparison ? undefined : saveContext}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 

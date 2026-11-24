@@ -1,7 +1,6 @@
-import { useId } from 'react'
+import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { Ingredient } from '../api/demoRecipe'
-import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import type { RecipeDetail } from '../recipes/types'
 import type { RecipeEditorState } from '../recipe-form/draft'
 import type { ChefReviewHandoff } from './draft'
@@ -12,19 +11,20 @@ function amount(quantity: number | string | null, unit: string | null) {
   return [quantity, unit].filter((part) => part !== null && part !== '').join(' ')
 }
 
-export function ChefSourceRecipe({ parents, parentId, setParentId, source, unavailable, pending }: {
+export function ChefSourceRecipe({ parents, parentId, setParentId, source, unavailable, pending, children }: {
   parents: ChefReviewHandoff['response']['parents']
   parentId: string
   setParentId: (id: string) => void
   source: RecipeDetail | undefined
   unavailable: boolean
   pending: boolean
+  children: ReactNode
 }) {
   const id = useId()
   const parent = parents.find((entry) => entry.id === parentId)
   if (!parent) return null
   return <section className="mm-chef-review__source" aria-labelledby={id}>
-    <h2 id={id}>Original recipe</h2>
+    <h2 id={id} tabIndex={-1}>Original recipe</h2>
     {parents.length > 1 && <>
       <label htmlFor={id + '-choose'}>Recipe to compare</label>
       <select id={id + '-choose'} value={parentId} onChange={(event) => setParentId(event.target.value)}>
@@ -32,9 +32,9 @@ export function ChefSourceRecipe({ parents, parentId, setParentId, source, unava
       </select>
     </>}
     <h3>{source?.title ?? parent.title}</h3>
-    {source && <RecipeImagePanel recipeId={source.id} recipeTitle={source.title} cookedAt={source.cooked_at} framed />}
     {pending && <p role="status">Loading the original…</p>}
     {unavailable && <p>The original recipe is unavailable. You can still review this draft.</p>}
+    {children}
     {source && <Link to={'/app/recipes/' + encodeURIComponent(source.id)} target="_blank" rel="noopener">Open original in a new tab</Link>}
   </section>
 }
@@ -43,10 +43,11 @@ function sameAmount(left: Ingredient, right: Ingredient) {
   return left.quantity === right.quantity && left.unit === right.unit && left.quantityText === right.quantityText
 }
 
-export function ChefDraftComparison({ handoff, source, edited }: {
+export function ChefDraftComparison({ handoff, source, edited, editAmount }: {
   handoff: ChefReviewHandoff
   source: RecipeDetail | undefined
   edited: RecipeEditorState | null
+  editAmount?: ReactNode
 }) {
   const id = useId()
   const { request, response } = handoff
@@ -58,11 +59,16 @@ export function ChefDraftComparison({ handoff, source, edited }: {
     const changed = edited && currentAmount !== proposedAmount
     return <section className="mm-chef-review__change" aria-labelledby={id}>
       <h3 id={id}>Mori’s proposed change</h3>
-      <p><strong>{revision.ingredient}</strong> · {amount(revision.before.quantity, revision.before.unit)} → {proposedAmount}</p>
+      <p className="mm-chef-review__changed-ingredient">{revision.ingredient}</p>
+      <dl className="mm-chef-review__amounts">
+        <div><dt>Original amount</dt><dd>{amount(revision.before.quantity, revision.before.unit)}</dd></div>
+        <div><dt>Mori’s suggestion</dt><dd>{proposedAmount}</dd></div>
+      </dl>
       {changed && <p>Current draft · {currentAmount}</p>}
       <p>{revision.reason}</p>
       <p className="mm-chef-review__note-label">Your Personal Note</p>
       <blockquote>{revision.noteExcerpt}</blockquote>
+      {editAmount}
     </section>
   }
 
@@ -83,7 +89,7 @@ export function ChefDraftComparison({ handoff, source, edited }: {
   const changedDirections = source && (source.instructions.length !== response.recipe.instructions.length ||
     source.instructions.some((step, index) => step.text !== response.recipe.instructions[index]?.text))
   return <section className="mm-chef-review__change" aria-labelledby={id}>
-    <h3 id={id}>{response.parents.length ? 'What changed in Mori’s draft' : 'From your pantry'}</h3>
+    <h2 id={id} tabIndex={-1}>{response.parents.length ? 'What changed in Mori’s draft' : 'From your pantry'}</h2>
     {matches.length > 0 && <p><strong>Uses from your pantry</strong> · {matches.join(', ')}</p>}
     {source && added && <p><strong>Added</strong> · {added.name}</p>}
     {source && !added && removed && <p><strong>Omitted</strong> · {removed.name}</p>}

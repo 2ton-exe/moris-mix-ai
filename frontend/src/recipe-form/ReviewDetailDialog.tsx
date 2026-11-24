@@ -1,7 +1,9 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import './detail-dialog.css'
 
-export function ReviewDetailDialog({ title, action, children }: { title: string; action: string; children: ReactNode }) {
+export function ReviewDetailDialog({ title, action, closeLabel = 'Done', children }: {
+  title: string; action: string; closeLabel?: string; children: ReactNode
+}) {
   const headingId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const [open, setOpen] = useState(false)
@@ -16,7 +18,7 @@ export function ReviewDetailDialog({ title, action, children }: { title: string;
       {open && <>
         <h2 id={headingId}>{title}</h2>
         {children}
-        <button type="button" className="button button-secondary" onClick={() => dialog.current?.close()}>Done</button>
+        <button type="button" className="button button-secondary" onClick={() => dialog.current?.close()}>{closeLabel}</button>
       </>}
     </dialog>
   </>

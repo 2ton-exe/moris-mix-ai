@@ -21,17 +21,17 @@ export function RecipeRevisionTools({ recipe, userId, onReload }: {
   userId: string
   onReload: () => void
 }) {
-  return <>
-    <ReviewDetailDialog title="Make a version for next time" action="Revise with Mori">
+  return <div className="mm-cook-actions" role="group" aria-label="Cook this recipe again">
+    <ReviewDetailDialog title="Make a version for next time" action="Revise with Mori" closeLabel="Cancel">
       <RevisionRequest recipe={recipe} userId={userId} onReload={onReload} />
     </ReviewDetailDialog>
-    <ReviewDetailDialog title="Record this cook" action="Record cooking">
+    <ReviewDetailDialog title="Record this cook" action="Record cooking" closeLabel="Back to recipe">
       <CookingRecord recipe={recipe} userId={userId} />
     </ReviewDetailDialog>
     <ReviewDetailDialog title="Linked recipes" action="Linked recipes">
       <LinkedRecipes childId={recipe.id} userId={userId} />
     </ReviewDetailDialog>
-  </>
+  </div>
 }
 
 function RevisionRequest({ recipe, userId, onReload }: {
@@ -52,6 +52,14 @@ function RevisionRequest({ recipe, userId, onReload }: {
   const draft = readChefDraftResult(userId).draft
   const replaceDraft = Boolean(draft.handoff)
   const validExcerpt = excerpt.trim().length > 0 && excerpt.length <= revisionNoteLimit && notes.includes(excerpt)
+  const noteLines = [...new Set(notes.split(/\r\n?|\n/).filter((line) => line.trim()))]
+  const quickChoices = noteLines.length <= 3 && noteLines.every((line) => line.length <= 160) ? noteLines : []
+
+  function chooseExcerpt(text: string) {
+    setExcerpt(text)
+    setNotesChanged(false)
+    setError('')
+  }
 
   async function revise() {
     if (!validExcerpt || inFlight.current || (replaceDraft && !replace) || draft.handoff?.savedRecipeId) return
@@ -96,15 +104,21 @@ function RevisionRequest({ recipe, userId, onReload }: {
   </>
 
   return <div className="mm-revision-tools" role="group" aria-labelledby={id + '-select'}>
+    <p>Choose a whole note or highlight part of one to revise <strong>{recipe.title}</strong>. Only the excerpt you preview will be shared from your Personal Notes.</p>
+    {quickChoices.length > 0 && <div className="mm-revision-tools__choices" role="group" aria-label="Choose a whole note">
+      {quickChoices.map((line) => <button className="button button-secondary" type="button" key={line}
+        aria-pressed={line === excerpt} disabled={pending} onClick={() => chooseExcerpt(line)}>{line}</button>)}
+    </div>}
     <label id={id + '-select'} htmlFor={id + '-notes'}>Select text from your Personal Notes</label>
-    <textarea id={id + '-notes'} value={notes} rows={5} readOnly onSelect={(event) => {
+    <textarea id={id + '-notes'} value={notes} rows={3} readOnly disabled={pending} onSelect={(event) => {
       const field = event.currentTarget
-      setExcerpt(field.value.slice(field.selectionStart, field.selectionEnd))
-      setNotesChanged(false)
-      setError('')
+      chooseExcerpt(field.value.slice(field.selectionStart, field.selectionEnd))
     }} />
-    {excerpt && <><p>Note to share with Mori</p><blockquote>{excerpt}</blockquote></>}
+    {excerpt && <section className="mm-revision-tools__preview" aria-label="Note to share with Mori">
+      <h3>Note to share with Mori</h3><blockquote>{excerpt}</blockquote>
+    </section>}
     {excerpt.length > revisionNoteLimit && <p role="status">Select up to {revisionNoteLimit} characters.</p>}
+    {pending && <p role="status">Mori is reviewing your note…</p>}
     {error && <p role="alert">{error}</p>}
     {notesChanged && <button type="button" className="button button-secondary" onClick={() => {
       setExcerpt('')
@@ -136,10 +150,12 @@ function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: strin
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const noteField = useRef<HTMLTextAreaElement>(null)
+  const stageHeading = useRef<HTMLHeadingElement>(null)
   const expectedNotes = useRef(recipe.notes ?? null)
   const expectedUpdatedAt = useRef(recipe.updated_at)
   useEffect(() => {
     if (stage === 'note') noteField.current?.focus()
+    if (stage === 'review' || stage === 'saved') stageHeading.current?.focus()
   }, [stage])
 
   async function update(changes: Parameters<typeof recipeFormApi.updateCookingDetails>[1]) {
@@ -209,6 +225,7 @@ function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: strin
     }
   }}>
     {stage === 'date' && <>
+      <p>Log when you made <strong>{recipe.title}</strong>. You can leave a note for the next cook.</p>
       <label htmlFor={id + '-date'}>Date cooked</label>
       <input id={id + '-date'} type="date" value={date} required max={maxDate} onChange={(event) => setDate(event.target.value)} />
       <button type="submit" className="button button-primary" disabled={pending}>{pending ? 'Recording…' : 'Record cooked date'}</button>
@@ -218,18 +235,20 @@ function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: strin
     {stage === 'note' && <>
       <p role="status">Cooked date recorded. A note is optional.</p>
       <label htmlFor={id + '-note'}>A note for next time</label>
-      <textarea id={id + '-note'} ref={noteField} rows={4} value={note} maxLength={20_000} onChange={(event) => setNote(event.target.value)} />
+      <textarea id={id + '-note'} ref={noteField} rows={4} value={note} maxLength={20_000}
+        placeholder="What would you keep or change next time?" onChange={(event) => setNote(event.target.value)} />
       {nextNotes.length > 20_000 && <p role="status">Shorten your note to fit in Personal Notes.</p>}
       <button type="submit" className="button button-primary" disabled={!note.trim() || nextNotes.length > 20_000}>Review cooking note</button>
     </>}
     {stage === 'review' && <>
-      <p>Append this observation to Personal Notes?</p>
+      <h3 ref={stageHeading} tabIndex={-1}>Review your cooking note</h3>
+      <p>This will be added to Personal Notes on this recipe.</p>
       {expectedNotes.current && <details><summary>Current Personal Notes</summary><blockquote>{expectedNotes.current}</blockquote></details>}
       <blockquote>{note.trim()}</blockquote>
       <button type="submit" className="button button-primary" disabled={pending}>{pending ? 'Saving…' : 'Save cooking note'}</button>
       <button type="button" className="button button-secondary" disabled={pending} onClick={() => setStage('note')}>Keep editing</button>
     </>}
-    {stage === 'saved' && <p role="status">Saved to Personal Notes.</p>}
+    {stage === 'saved' && <h3 role="status" ref={stageHeading} tabIndex={-1}>Saved to Personal Notes.</h3>}
     {error && <p role="alert">{error}</p>}
   </form>
 }

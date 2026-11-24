@@ -120,10 +120,10 @@ async function nextChefReviewPage() {
   await finishJournalTurn(() => document.querySelector<HTMLElement>('.mm-review-progress')?.textContent !== current)
 }
 
-async function advanceChefReviewToSave() {
+async function advanceChefReviewToSave(saveLabel = 'Save recipe') {
   await waitFor(() => expect(screen.queryByRole('heading', { name: /Review Mori's recipe|Your recipe is saved\./ })).toBeTruthy())
   for (let index = 0; index < 20; index += 1) {
-    if (screen.queryByRole('button', { name: 'Save recipe' }) || screen.queryByRole('button', { name: 'Save changes' })) return
+    if (screen.queryByRole('button', { name: saveLabel }) || screen.queryByRole('button', { name: 'Save changes' })) return
     await nextChefReviewPage()
   }
   throw new Error('AI Chef review never reached its final save spread')
@@ -221,13 +221,13 @@ describe('AI Chef pantry and review workflow', () => {
     expect(revise).toHaveBeenCalledWith(original.id, excerpt, expect.objectContaining({ userId: 'chef-cook' }))
     expect(await screen.findByRole('link', { name: 'Open original in a new tab' })).toBeTruthy()
     const proposal = screen.getByRole('region', { name: 'Mori’s proposed change' })
-    expect(proposal.textContent).toContain('4 → 2')
+    expect(within(proposal).getByText('Original amount').nextElementSibling?.textContent).toBe('4')
+    expect(within(proposal).getByText('Mori’s suggestion').nextElementSibling?.textContent).toBe('2')
     expect(proposal.textContent).toContain(excerpt)
     expect(proposal.textContent).not.toContain('Keep this other note private.')
 
-    const editIngredient = { name: /Edit ingredient 2/ }
-    if (!screen.queryByRole('button', editIngredient)) await nextChefReviewPage()
-    fireEvent.click(screen.getByRole('button', editIngredient))
+    fireEvent.click(within(proposal).getByRole('button', { name: 'Edit proposed amount' }))
+    await finishJournalTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Ingredient 2 quantity' })))
     fireEvent.change(screen.getByRole('textbox', { name: 'Ingredient 2 quantity' }), { target: { value: '3' } })
     fireEvent.click(screen.getByRole('button', { name: 'Back to ingredients' }))
     await returnChefReviewToStart()
@@ -235,12 +235,13 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByText('This draft saves as a new version linked to the original.')).toBeTruthy()
     expect(save).not.toHaveBeenCalled()
 
-    await advanceChefReviewToSave()
-    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await advanceChefReviewToSave('Save new version')
+    fireEvent.click(screen.getByRole('button', { name: 'Save new version' }))
     await waitFor(() => expect(saveLineage).toHaveBeenCalledOnce())
     expect(saveLineage).toHaveBeenCalledWith(savedRecipeId, response.parents.map((parent) => parent.id), [original.id], response.candidate_token, expect.objectContaining({ userId: 'chef-cook' }))
     expect(save.mock.calls[0]?.[0].ingredients[1]?.quantity).toBe(3)
     expect(save).toHaveBeenCalledOnce()
+    expect((await screen.findByRole('link', { name: 'Open saved version' })).getAttribute('href')).toBe('/app/recipes/' + savedRecipeId)
   })
 
   it('keeps a cooking observation through a conflicting notes edit and asks to review again', async () => {
@@ -438,7 +439,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect(await screen.findByRole('heading', { name: "Review Mori's recipe." })).toBeTruthy()
     const saveContext = screen.getByRole('region', { name: 'Before you save' })
-    expect(saveContext.textContent).toContain('On the final page, choose Save recipe to add your edited recipe to My recipes.')
+    expect(saveContext.textContent).toContain('Save recipe adds this draft to My recipes.')
     await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating'))
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
     expect(document.querySelector('.mori-pet-message')?.textContent).toBe('Your recipe idea is ready for review.')
