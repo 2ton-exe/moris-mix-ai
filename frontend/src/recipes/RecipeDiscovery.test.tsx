@@ -108,6 +108,47 @@ it('moves focus to search when opening the index from the collection', async () 
   await waitFor(() => expect(document.activeElement).toBe(heading))
 })
 
+it('opens saved recipe search with / and keeps the current query and sort', async () => {
+  render(tree('cook-a', '/app/recipes?view=collection&q=garlic&sort=rating'))
+  await screen.findByRole('link', { name: 'Open recipe Garlic rice' })
+  const collection = screen.getByRole('region', { name: 'Recipe collection page 1' })
+  expect(collection.getAttribute('aria-keyshortcuts')).toBe('/')
+  fireEvent.keyDown(document.body, { key: '/' })
+  expect(screen.queryByRole('searchbox', { name: 'Search recipes' })).toBeNull()
+  collection.focus()
+  fireEvent.keyDown(collection, { key: '/' })
+  const search = await screen.findByRole('searchbox', { name: 'Search recipes' })
+  expect((search as HTMLInputElement).value).toBe('garlic')
+  expect((screen.getByRole('combobox', { name: 'Sort recipes' }) as HTMLSelectElement).value).toBe('rating')
+  await waitFor(() => expect(document.activeElement).toBe(search))
+  expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: 'garlic', sort: 'rating' }) }))
+})
+
+it('does not activate the collection search shortcut while a native dialog is open', async () => {
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  await screen.findByRole('link', { name: 'Open recipe Garlic rice' })
+  const collection = screen.getByRole('region', { name: 'Recipe collection page 1' })
+  const dialog = document.createElement('dialog')
+  dialog.setAttribute('open', '')
+  document.body.append(dialog)
+  try {
+    collection.focus()
+    fireEvent.keyDown(collection, { key: '/' })
+    expect(screen.queryByRole('searchbox', { name: 'Search recipes' })).toBeNull()
+  } finally {
+    dialog.remove()
+  }
+})
+
+it('omits the shortcut when the discovery source cannot search', async () => {
+  source.discovery = { searchModes: [], sorts: ['newest'], filters: [], page }
+  render(tree('cook-a', '/app/recipes?view=collection'))
+  await screen.findByRole('link', { name: 'Open recipe Garlic rice' })
+  const collection = screen.getByRole('region', { name: 'Recipe collection page 1' })
+  expect(collection.getAttribute('aria-keyshortcuts')).toBeNull()
+  expect(screen.queryByText(/Focus the recipe list and press/)).toBeNull()
+})
+
 it('debounces search, hides stale cards immediately, aborts old requests and preserves pending input', async () => {
   vi.useFakeTimers()
   const old = deferred<RecipeDiscoveryPage>()

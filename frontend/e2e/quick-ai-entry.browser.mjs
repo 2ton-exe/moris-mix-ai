@@ -430,14 +430,37 @@ try {
   const consumedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), accountDraftKey)
   assert.equal(consumedDraft.handoff, null, 'Successful Save did not consume the unsaved handoff')
   assert.equal(consumedDraft.notes, sourceNotes, 'Successful Save cleared the original cooking notes')
-  await page.getByRole('button', { name: 'Back to Mori notes' }).click()
-  await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue(sourceNotes)
+  const repeatNotes = page.getByRole('button', { name: 'Use these notes again', exact: true })
+  for (const [width, height] of [[1280, 720], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await repeatNotes.scrollIntoViewIfNeeded()
+    await expect(repeatNotes).toBeVisible()
+    await expect(repeatNotes).toBeInViewport({ ratio: 1 })
+    const buttonLayout = await repeatNotes.evaluate((button) => ({
+      right: button.getBoundingClientRect().right,
+      scrollWidth: button.scrollWidth,
+      clientWidth: button.clientWidth,
+      scrollHeight: button.scrollHeight,
+      clientHeight: button.clientHeight,
+    }))
+    assert.ok(buttonLayout.right <= width + 1 && buttonLayout.scrollWidth <= buttonLayout.clientWidth && buttonLayout.scrollHeight <= buttonLayout.clientHeight,
+      `Repeat-notes action must fit at ${width}×${height}: ${JSON.stringify(buttonLayout)}`)
+    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true,
+      `Recipe review horizontal overflow after save at ${width}px`)
+    await page.screenshot({ path: path.join(outputDir, `saved-review-repeat-notes-${width}.png`) })
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await settleJournalLayout(page)
+  await repeatNotes.click()
+  const returnedNotes = page.getByRole('textbox', { name: 'Cooking notes' })
+  await expect(returnedNotes).toHaveValue(sourceNotes)
 
   extractionMode = 'network'
-  await notes.fill('beans, cumin, lemon, a splash of water')
+  await returnedNotes.fill('beans, cumin, lemon, a splash of water')
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText('Mori could not reach the kitchen')
-  await expect(notes).toHaveValue('beans, cumin, lemon, a splash of water')
+  await expect(returnedNotes).toHaveValue('beans, cumin, lemon, a splash of water')
   extractionMode = 'success'
   await settleJournalLayout(page)
   const retryLayout = await page.evaluate(() => {

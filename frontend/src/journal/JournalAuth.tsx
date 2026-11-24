@@ -12,6 +12,10 @@ export function JournalAuthScene({ children }: { children: ReactNode }) {
       <Link className="mm-auth-brand" to="/demo-recipe" aria-label="MORI'S MIX, view a demonstration recipe">
         <BrandMark />
       </Link>
+      <nav className="mm-auth-toolbar__links" aria-label="Explore Mori’s Mix">
+        <Link to="/about">How the journal works</Link>
+        <Link to="/demo-recipe">Read a sample recipe</Link>
+      </nav>
     </header>
     <div className="mm-auth-stage">
       {children}

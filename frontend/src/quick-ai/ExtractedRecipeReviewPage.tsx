@@ -191,7 +191,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       onSubmit={submit}
       onDirtyChange={setDirty}
       onEditorStateChange={updateStoredReviewDraft}
-      cancelLabel="Back to Mori notes"
+      cancelLabel={consumed && !dirty && storageIssue === null ? 'Use these notes again' : 'Back to Mori notes'}
       onCancel={() => navigate('/app/quick-entry', { state: returnState })}
       notice={pageNotice}
       supplement={single ? extractionNotice : undefined}

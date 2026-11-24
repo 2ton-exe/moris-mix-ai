@@ -22,6 +22,8 @@
 .mm-title-swash { display: block; width: 140px; height: 7px; margin: 4px 0 8px; border-top: 3px solid #a85464; border-radius: 50%; transform: rotate(-1deg); }
 .mm-collection-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; }
 .mm-desk .mm-collection-tools .button { padding-inline: 10px; }
+.mm-search-shortcut { padding: 1px 4px; border: 1px solid currentColor; border-radius: 3px; font: 600 11px/1 var(--mm-font-sans); }
+.mm-search-shortcut-hint { color: var(--mm-color-ink-soft); font-size: 12px; }
 .mm-desk .recipe-grid.mm-collection-entries { display: flex; flex-direction: column; gap: 20px; margin: 0; padding: 12px 6px; min-height: 0; }
 .mm-collection-body { display: flex; flex-direction: column; }
 .mm-collection-entry { display: grid; grid-template-columns: minmax(0, 41%) minmax(0, 1fr); align-items: center; gap: clamp(12px, 2vw, 24px); position: relative; padding: 12px; border: 1px solid var(--mm-border-paper); border-radius: var(--mm-radius-card); text-decoration: none; color: inherit; background: var(--mm-color-fresh) var(--mm-tex-grain); }

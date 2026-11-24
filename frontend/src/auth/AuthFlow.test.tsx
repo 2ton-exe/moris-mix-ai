@@ -120,6 +120,9 @@ it('validates signup required fields, minimum length, and password mismatch', as
 
 it('logs in and preserves a protected destination including search and hash', async () => {
   open('/app/recipes?sort=recent#saved'); await loginForm()
+  expect(screen.getByText('After you log in, we’ll return you to the page you asked to open.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'How the journal works' }).getAttribute('href')).toBe('/about')
+  expect(screen.getByRole('link', { name: 'Read a sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
   fill('Email', ' cook@example.test '); fill('Password', 'password')
   submit('Log in')
   await screen.findByRole('heading', { name: 'Your cooking journal' })
@@ -373,7 +376,7 @@ it('bounds a request that never settles, allows retry, and ignores late events f
   expect(screen.getByRole('alert').textContent).toContain('taking too long')
   expect(screen.queryByRole('heading')).toBeNull()
   expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'View demonstration recipe' }).getAttribute('href')).toBe('/demo-recipe')
+  expect(screen.getByRole('link', { name: 'Read a sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
   const abandonedListener = [...listeners][0]
   // A late SDK event cannot reopen the timed-out attempt.
   emit(session())
@@ -400,7 +403,7 @@ it.each(['login', 'signup'] as const)('does not redirect after leaving a pending
   fill('Email', 'cook@example.test'); fill('Password', 'password')
   if (mode === 'signup') fill('Confirm password', 'password')
   submit(mode === 'login' ? 'Log in' : 'Create account')
-  fireEvent.click(screen.getByRole('link', { name: 'View demonstration recipe' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Read a sample recipe' }))
   await screen.findByRole('heading', { name: fixture.recipe.title })
   await act(async () => request.resolve({ data: { session: session() }, error: null }))
   expect(screen.getByLabelText('Current route').textContent).toBe('/demo-recipe')
@@ -417,7 +420,7 @@ it('does not redirect to verification instructions after abandoning a pending si
   open('/signup'); await screen.findByRole('heading', { name: 'Create your account' })
   fill('Email', 'cook@example.test'); fill('Password', 'password'); fill('Confirm password', 'password')
   submit('Create account')
-  fireEvent.click(screen.getByRole('link', { name: 'View demonstration recipe' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Read a sample recipe' }))
   await screen.findByRole('heading', { name: fixture.recipe.title })
   await act(async () => request.resolve({ data: { session: null }, error: null }))
   expect(screen.getByLabelText('Current route').textContent).toBe('/demo-recipe')
@@ -432,7 +435,7 @@ it.each(['login', 'signup'] as const)('ignores a failed %s request after leaving
   fill('Email', 'cook@example.test'); fill('Password', 'password')
   if (mode === 'signup') fill('Confirm password', 'password')
   submit(mode === 'login' ? 'Log in' : 'Create account')
-  fireEvent.click(screen.getByRole('link', { name: 'View demonstration recipe' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Read a sample recipe' }))
   await screen.findByRole('heading', { name: fixture.recipe.title })
   await act(async () => request.reject(new Error('private request failure')))
   expect(screen.getByLabelText('Current route').textContent).toBe('/demo-recipe')

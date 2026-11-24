@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
@@ -39,6 +39,7 @@ export default function RecipeDashboardPage() {
   const restoreIndexFocus = useRef(true)
   const { user } = useAuth()
   const source = useContext(RecipeSourceContext)
+  const canSearch = Boolean(source.discovery?.searchModes.length)
   const facingPage = useContext(JournalFacingPageContext)
   const [params, setParams] = useSearchParams()
   const otherAccount = location.state?.journalAccount !== undefined && location.state.journalAccount !== user?.id
@@ -172,6 +173,22 @@ export default function RecipeDashboardPage() {
     next.delete('leaf')
     return `?${next}`
   }
+  const indexLink = viewLink('index')
+  const prepareViewChange = (view: 'collection' | 'index') => {
+    focusSearchAfterIndex.current = view === 'index'
+    restoreIndexFocus.current = view === 'collection'
+  }
+  const searchShortcutAvailable = canSearch && source.mode !== 'unavailable' && !isRecipeAccessError(query.error) &&
+    !indexView && !isTurning && !single
+  const openSearchWithShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!searchShortcutAvailable || event.key !== '/' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey ||
+      document.querySelector('dialog[open]') ||
+      (target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select')))) return
+    event.preventDefault()
+    prepareViewChange('index')
+    void navigate(indexLink, { state: { journalAccount: user?.id }, preventScrollReset: true })
+  }
   // A spread is a window over server results, never an assertion of their total.
   // Continue the opaque cursor to fill a spread or restore a saved index anchor,
   // including when the inactive account-scoped query has expired or on reload.
@@ -255,15 +272,15 @@ export default function RecipeDashboardPage() {
     <RecipeCollectionPages recipes={recipes} pages={pages} perPage={perPage} index={indexView} titleRef={collectionTitle} sort={controls.criteria.sort}
       catalog={pagedIndex ? { start: catalogStart, end: nextCatalogStart ?? recipes?.length ?? 0, indicator: `Page ${catalogPage + 1}`, measure: measureCatalog } : undefined}
       collection={pagedCollection ? { starts: collectionStarts, measure: measureCollection } : undefined}
+      onSearchShortcut={searchShortcutAvailable ? openSearchWithShortcut : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }} onClick={(event) => {
+        <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}
+          onClick={(event) => {
           const unmodifiedPrimaryClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
-          if (unmodifiedPrimaryClick) {
-            focusSearchAfterIndex.current = !indexView
-            restoreIndexFocus.current = indexView
-          }
+          if (unmodifiedPrimaryClick) prepareViewChange(indexView ? 'collection' : 'index')
         }}>{indexView ? 'Browse saved recipes' : 'Search saved recipes'}</Link>
+        {searchShortcutAvailable && <span className="mm-search-shortcut-hint">Focus the recipe list and press <kbd className="mm-search-shortcut">/</kbd> to search</span>}
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} searchInputRef={searchInput} hideReset={searchResultsKnownEmpty} />}

@@ -1,15 +1,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Session, User } from '@supabase/supabase-js'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { createMemoryRouter, createRoutesFromElements, Link, Outlet, Route, RouterProvider } from 'react-router'
+import { createMemoryRouter, createRoutesFromElements, Outlet, Route, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import type { JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
+import { JournalShell } from '../journal/JournalShell'
+import { MoriCompanion } from '../mori/MoriCompanion'
+import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { readQuickAiEntryDraft, writeQuickAiEntryDraft } from './draft'
 import { ExtractedRecipeReviewPage } from './ExtractedRecipeReviewPage'
+import { QuickAiEntryPage } from './QuickAiEntryPage'
 
 const NativeRequest = globalThis.Request
 const sourceNotes = 'rice, eggs, garlic and soy sauce; fry the eggs first'
@@ -46,6 +50,10 @@ function seed(userId = 'cook-a') {
   })
 }
 
+function QuickAiEntryRoute() {
+  return <MoriCompanionProvider><JournalShell><QuickAiEntryPage /></JournalShell><MoriCompanion /></MoriCompanionProvider>
+}
+
 function renderReview({ userId = 'cook-a', save = vi.fn<SaveRecipeDraft>().mockResolvedValue({ id: 'saved-recipe' }), path = '/app/quick-entry/review' }: {
   userId?: string; save?: SaveRecipeDraft; path?: string
 } = {}) {
@@ -58,7 +66,7 @@ function renderReview({ userId = 'cook-a', save = vi.fn<SaveRecipeDraft>().mockR
   }
   const routes = createRoutesFromElements(<Route element={<AuthContext.Provider value={auth}><JournalLogoutGuardContext.Provider value={registerLogoutGuard}><Outlet /></JournalLogoutGuardContext.Provider></AuthContext.Provider>}>
     <Route path="/app/quick-entry/review" element={<ExtractedRecipeReviewPage save={save} />} />
-    <Route path="/app/quick-entry" element={<><h1>Quick AI Entry</h1><Link to="/app/quick-entry/review">Review again</Link></>} />
+    <Route path="/app/quick-entry" element={<QuickAiEntryRoute />} />
   </Route>)
   const router = createMemoryRouter(routes, { initialEntries: [{ pathname: path, state: { journalReturn: '/app/quick-entry', sourceJournalReturn: '/app/recipes' } }] })
   const view = render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>)
@@ -275,6 +283,9 @@ it('uses the authenticated existing save hook only on explicit Save and consumes
   expect(readQuickAiEntryDraft('cook-a').handoff).toBeNull()
   expect(readQuickAiEntryDraft('cook-a').reviewDraft).toBeUndefined()
   expect(readQuickAiEntryDraft('cook-a').notes).toBe(sourceNotes)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Use these notes again' }))
+  expect((await screen.findByRole('textbox', { name: 'Cooking notes' }) as HTMLTextAreaElement).value).toBe(sourceNotes)
 })
 
 it('confirms logout when the saved recipe has newer unsaved edits', async () => {

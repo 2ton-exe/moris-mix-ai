@@ -1,5 +1,5 @@
 import { JournalPagination } from '../journal/JournalPagination'
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { useJournalMedia } from '../journal/useJournalMedia'
@@ -7,10 +7,11 @@ import { RecipeCard, RecipeCollectionCardMeasure, RecipeIndexCardContent } from 
 import { paginateReading } from './readingPagination'
 import type { RecipeSummary } from './types'
 
-export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog, collection, header, controls, status, endOfResults, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
+export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog, collection, onSearchShortcut, header, controls, status, endOfResults, pagination, previous, next, titleRef, empty, hasMore, ownerName, sort }: {
   recipes?: RecipeSummary[]; pages: number[]; perPage: number; index: boolean
   catalog?: { start: number; end: number; indicator: string; measure: (starts: number[]) => void }
   collection?: { starts: number[]; measure: (starts: number[]) => void }
+  onSearchShortcut?: KeyboardEventHandler<HTMLDivElement>
   header: ReactNode; controls: ReactNode; status: ReactNode; endOfResults: ReactNode; pagination: ReactNode; previous: ReactNode; next: ReactNode
   titleRef: Ref<HTMLHeadingElement>; empty: ReactNode
   hasMore: boolean; ownerName: string; sort: 'newest' | 'rating'
@@ -105,14 +106,16 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
   return <>
     {left > 0 && <JournalFacingPage className="mm-facing-content--collection mm-page-column">
       <div className="mm-collection-heading-space" style={{ height: headingHeight }} aria-hidden="true" />
-      <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left}`} tabIndex={0}>{entries(left)}</div>
+      <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left}`} tabIndex={0}
+        aria-keyshortcuts={onSearchShortcut ? '/' : undefined} onKeyDown={onSearchShortcut}>{entries(left)}</div>
     </JournalFacingPage>}
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
       {/* Keep desktop page capacity independent of the selected spread. */}
       {first || pages.length === 2 ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
       {!first && left === 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
       <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes{recipes && <span> ({recipes.length})</span>}</h2>
-      <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}>
+      <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}
+        aria-keyshortcuts={onSearchShortcut ? '/' : undefined} onKeyDown={onSearchShortcut}>
         {status}
           {recipes?.length ? <>
           {entries(right)}

@@ -187,6 +187,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       {single && <span className="mm-reading-return">{back}</span>}
       {!single && !publicDemo && !showSectionNav && <span>{currentUnit?.heading ?? (current ? 'Recipe continued' : 'From your journal')}</span>}
       {showSectionNav && <nav className="mm-reading-section-nav" aria-label="Jump to recipe section">
+        {current > 0 && <button type="button" className="button mm-button--ghost" disabled={isTurning} onClick={() => turn(0)}>Recipe overview</button>}
         {sectionTargets.filter((target) => target.page !== current || target.section === currentUnit?.section).map(({ section, label, id, page }) => {
           const currentSection = currentUnit?.section === section
           return <button key={section} type="button" className="button mm-button--ghost"

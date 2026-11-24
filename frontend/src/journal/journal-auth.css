@@ -20,6 +20,8 @@
   width: min(1100px, 100%);
   margin: 0 auto;
 }
+.mm-auth-toolbar__links { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px 20px; }
+.mm-auth-toolbar__links a { display: inline-flex; min-height: 44px; align-items: center; color: var(--mm-color-burgundy-800); font: 650 14px/1.35 var(--mm-font-sans); text-decoration: underline; text-underline-offset: 3px; }
 .mm-auth-brand {
   display: inline-flex;
   min-height: 48px;
@@ -64,6 +66,7 @@
 .mm-auth-card h1 { margin: 0; color: var(--mm-color-ink); font: 600 clamp(28px, 3cqi, 36px)/1.08 var(--mm-font-serif); letter-spacing: -.025em; overflow-wrap: anywhere; }
 .mm-auth-card__description { margin-top: 12px; color: var(--mm-color-ink-soft); font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
 .mm-auth-card__description :where(p) { margin: 0; }
+.mm-auth-card__description p + p { margin-top: 8px; }
 .mm-auth-card__content { min-width: 0; padding-top: 20px; }
 .mm-auth-card .auth-form { display: grid; gap: 16px; width: 100%; margin: 0; }
 .mm-auth-card .auth-form fieldset { display: grid; gap: 16px; min-width: 0; }
@@ -160,6 +163,7 @@
 }
 @container mm-auth (max-width: 700px) {
   .mm-auth-toolbar { align-items: flex-start; }
+  .mm-auth-toolbar__links { gap: 0 12px; }
   .mm-auth-stage { padding: 34px 0 28px; }
   .mm-auth-main { grid-row: 1; }
   .mm-auth-card { padding: 20px 18px 22px; }

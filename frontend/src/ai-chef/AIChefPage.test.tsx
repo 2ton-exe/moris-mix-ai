@@ -558,6 +558,8 @@ describe('AI Chef pantry and review workflow', () => {
     const saveLineage = vi.spyOn(lineageApi, 'save')
     renderChef({ save })
     addIngredient('rice')
+    await openPreferences()
+    fireEvent.change(screen.getByRole('textbox', { name: /^Cooking preferences/ }), { target: { value: 'weekday lunch' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     await screen.findByRole('heading', { name: "Review Mori's recipe." })
 
@@ -565,6 +567,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
 
     expect(await screen.findByRole('heading', { name: 'Your recipe is saved.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Use this pantry again' })).toBeTruthy()
     await waitFor(() => expect(JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff).toBeNull())
     await returnChefReviewToStart()
     expect(screen.getByLabelText('Recipe title')).toBeTruthy()
@@ -573,6 +576,12 @@ describe('AI Chef pantry and review workflow', () => {
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy()
     expect(save).toHaveBeenCalledOnce()
     expect(saveLineage).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use this pantry again' }))
+    expect(await screen.findByRole('textbox', { name: 'Pantry ingredient' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('rice')
+    await openPreferences()
+    expect((screen.getByRole('textbox', { name: /^Cooking preferences/ }) as HTMLTextAreaElement).value).toBe('weekday lunch')
   })
 
   it('updates the same recipe after the cleared handoff instead of reporting a conflict', async () => {

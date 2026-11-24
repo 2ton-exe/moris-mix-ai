@@ -20,12 +20,13 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
   const navigate = useNavigate()
   const location = useLocation()
   const state: unknown = location.state
+  const destination = intendedDestination(state)
   const [emailAddress, setEmailAddress] = useState(typeof state === 'object' && state !== null && 'email' in state && typeof state.email === 'string' ? state.email : '')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
   const [sentEmail, setSentEmail] = useState('')
   const [pending, setPending] = useState(false)
-  const linkState = { from: intendedDestination(state), email: emailAddress.trim() }
+  const linkState = { from: destination, email: emailAddress.trim() }
   const submitting = useRef(false)
   const lifetime = useRef(0)
   useEffect(() => () => { lifetime.current++ }, [])
@@ -75,12 +76,12 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
         const result = await signup(email, password)
         if (lifetime.current !== requestLifetime) return
         if (result === 'verification-required') {
-          navigate('/verify-email', { replace: true, state: { email, afterSignup: true, from: intendedDestination(location.state) } })
+          navigate('/verify-email', { replace: true, state: { email, afterSignup: true, from: destination } })
           return
         }
       } else await login(email, password)
       if (lifetime.current !== requestLifetime) return
-      navigate(intendedDestination(location.state), { replace: true })
+      navigate(destination, { replace: true })
     } catch (error) {
       if (lifetime.current === requestLifetime) setMessage(error instanceof Error ? error.message : 'Something went wrong. Please try again.')
     } finally {
@@ -99,12 +100,18 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
       : 'We’ll email a reset link if there’s an account for this address. Check spam and open it in this browser.'
     : isSignup ? 'Use an email you can open to finish setting up your cooking journal.'
       : 'Log in to open your private cooking journal.'
+  const returnHint = !isRecovery && !isSignup && destination !== '/app'
+    ? 'After you log in, we’ll return you to the page you asked to open.'
+    : null
+  const pageDescription = returnHint
+    ? <>{typeof description === 'string' ? <p>{description}</p> : description}<p>{returnHint}</p></>
+    : description
 
   return <JournalAuthScene>
     <main className="mm-auth-main">
       <JournalAuthCard
         title={title}
-        description={description}
+        description={pageDescription}
         focusHeading={isRecovery}
         mood={isSignup ? 'wave' : 'happy'}
       >
@@ -141,7 +148,6 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
             <p>New to MORI'S MIX? <Link to="/signup" state={linkState}>Sign up</Link></p>
           </JournalAuthFooter>
         </>}
-        {!isRecovery && <div className="actions"><Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link></div>}
       </JournalAuthCard>
     </main>
   </JournalAuthScene>

@@ -218,6 +218,14 @@
     overflow: auto;
     padding-block: 4px 8px;
   }
+
+  .mm-new-recipe .mm-desk--writing .mm-form-identity {
+    padding-block: 2px 4px;
+    scrollbar-color: var(--mm-color-ink-soft) transparent;
+    scrollbar-width: thin;
+  }
+  .mm-new-recipe .mm-desk--writing .mm-form-identity .recipe-form-section { padding-block: 8px; }
+  .mm-new-recipe .mm-form-identity h3 { margin-block-end: 4px; }
 }
 
 @media (forced-colors: active) {

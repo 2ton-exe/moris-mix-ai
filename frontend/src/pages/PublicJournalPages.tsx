@@ -33,13 +33,12 @@ export function AboutPage() {
     <p className="intro">Your recipes stay private in your account.</p>
     <section className="mm-public-note mm-public-workflow" aria-labelledby="public-workflow-heading">
       <h2 id="public-workflow-heading">From note to recipe</h2>
-      <p className="mm-public-workflow__steps"><strong>Quick AI Entry</strong> turns rough cooking notes into a draft you can edit.</p>
       <div className="mm-public-example">
         <p><strong>Rough note</strong><br />“Eggs, garlic, leftover rice, soy sauce.”</p>
-        <p><strong>Mori’s draft</strong><br />Garlic egg fried rice: 2 eggs, garlic, rice, soy sauce. Fry eggs, then stir in rice.</p>
+        <p><strong>Mori’s draft</strong><br />Garlic egg fried rice: fry the eggs, then stir in rice.</p>
       </div>
-      <p className="mm-public-workflow__hint">Review and edit before saving. <Link to="/demo-recipe">Read a sample recipe</Link>.</p>
-      <p className="mm-public-workflow__steps">After you finish signing up, choose <strong>New recipe</strong> to write, <strong>Quick AI Entry</strong> to shape notes, or <strong>AI Chef</strong> for a pantry idea.</p>
+      <p className="mm-public-workflow__hint">Review the draft, then choose <strong>Save recipe</strong> to add it to <strong>My recipes</strong>. <Link to="/demo-recipe">Read a sample recipe</Link>.</p>
+      <p className="mm-public-workflow__steps">After signup: <strong>New recipe</strong> to write, <strong>Quick AI Entry</strong> for notes, or <strong>AI Chef</strong> for pantry ideas.</p>
     </section>
     <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in to your journal</Link></div>
   </PublicPage>

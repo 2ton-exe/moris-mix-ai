@@ -666,6 +666,37 @@ try {
   ])
   const clearedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)
   assert.equal(clearedDraft.handoff, null, 'A confirmed save did not clear the unsaved review handoff')
+  const repeatPantry = page.getByRole('button', { name: 'Use this pantry again', exact: true })
+  for (const [width, height] of [[1280, 720], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    await settleJournalLayout(page)
+    await repeatPantry.scrollIntoViewIfNeeded()
+    await expect(repeatPantry).toBeVisible()
+    await expect(repeatPantry).toBeInViewport({ ratio: 1 })
+    const buttonLayout = await repeatPantry.evaluate((button) => ({
+      right: button.getBoundingClientRect().right,
+      scrollWidth: button.scrollWidth,
+      clientWidth: button.clientWidth,
+      scrollHeight: button.scrollHeight,
+      clientHeight: button.clientHeight,
+    }))
+    assert.ok(buttonLayout.right <= width + 1 && buttonLayout.scrollWidth <= buttonLayout.clientWidth && buttonLayout.scrollHeight <= buttonLayout.clientHeight,
+      `Repeat-pantry action must fit at ${width}×${height}: ${JSON.stringify(buttonLayout)}`)
+    assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true,
+      `AI Chef review horizontal overflow after save at ${width}px`)
+    await page.screenshot({ path: path.join(os.tmpdir(), `moris-fe10-saved-review-repeat-pantry-${width}.png`) })
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await settleJournalLayout(page)
+  await repeatPantry.click()
+  await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
+  const reusedPantry = page.getByRole('region', { name: 'Pantry list, 2 items' })
+  await expect(reusedPantry).toContainText('rice')
+  await expect(reusedPantry).toContainText('eggs')
+  await page.getByRole('button', { name: 'Next page: Cooking preferences' }).click()
+  await expect(page.getByRole('textbox', { name: /^Cooking preferences/ })).toHaveValue('quick, no frying')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await settleJournalLayout(page)
   process.stdout.write('AI Chef browser acceptance Scenario A passed: keyboard-selected parents, recipe-first save, and confirmed lineage completion.\n')
   await beginScenario(page, origin, 'no-parents')
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('There are no saved recipes to suggest yet.')

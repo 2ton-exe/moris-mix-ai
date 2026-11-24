@@ -118,6 +118,31 @@ try {
   await context.close()
   assert.deepEqual(errors, [])
 
+  for (const width of [390, 320]) {
+    for (const [route, action] of [['login', 'Log in'], ['signup', 'Create account']]) {
+      const narrow = await newAuthContext(width)
+      await narrow.page.goto(`${origin}${route}`)
+      await expect(narrow.page.getByRole('link', { name: 'How the journal works' })).toBeInViewport()
+      await expect(narrow.page.getByRole('link', { name: 'Read a sample recipe' })).toBeInViewport()
+      await expect(narrow.page.getByRole('button', { name: action })).toBeInViewport()
+      const layout = await narrow.page.evaluate(() => {
+        const elements = [...globalThis.document.querySelectorAll('.mm-auth-toolbar__links a, .mm-auth-card .button-primary')]
+        return {
+          overflow: globalThis.document.documentElement.scrollWidth > globalThis.innerWidth,
+          elements: elements.map((element) => {
+            const rect = element.getBoundingClientRect()
+            const target = globalThis.document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+            return rect.left >= 0 && rect.right <= globalThis.innerWidth && rect.top >= 0 && rect.bottom <= globalThis.innerHeight && Boolean(target && element.contains(target))
+          }),
+        }
+      })
+      assert.equal(layout.overflow, false, `${width}px ${route} has no horizontal overflow`)
+      assert.deepEqual(layout.elements, [true, true, true], `${width}px ${route} navigation and primary action are pointer reachable`)
+      await narrow.context.close()
+      assert.deepEqual(narrow.errors, [])
+    }
+  }
+
   // Signup rules, password toggles and a safe email verification resend.
   const signup = await newAuthContext(390)
   await signup.page.goto(`${origin}signup`)
@@ -261,7 +286,7 @@ try {
   await longError.context.close()
   assert.deepEqual(longError.errors, [])
 
-  process.stdout.write(`Login, signup, verification pending/success/expired, resend, password recovery, protected return, session restoration, logout, keyboard/focus, mobile, long-error reflow, reduced motion and 200% zoom passed. Screenshots: ${outputDir}\n`)
+  process.stdout.write(`Login, signup, verification pending/success/expired, resend, password recovery, protected return, session restoration, logout, keyboard/focus, 390px and 320px login/signup reachability, long-error reflow, reduced motion and 200% zoom passed. Screenshots: ${outputDir}\n`)
 } finally {
   await browser?.close()
   await server.close()

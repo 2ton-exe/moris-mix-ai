@@ -83,7 +83,6 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
       >
         {initializationError ? <>
           <ErrorState message={initializationError} onRetry={retryInitialization} />
-          <Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link>
         </> : checking ? <LoadingState message="Checking your verification link…" /> : verified
           ? <div className="actions"><Link className="button button-primary mm-button--large" to={intendedDestination(location.state)}>Continue to your journal</Link></div>
           : resetLinkUnavailable ? <div className="actions">

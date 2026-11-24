@@ -158,6 +158,15 @@ try {
     await page.getByRole('link', { name: 'New recipe' }).click()
     await expect(page.getByRole('heading', { name: 'New recipe' })).toBeFocused()
     await capture(page, width, 'create-sheet')
+    if (width === 1280) {
+      const identity = page.locator('.mm-writing-leaf.mm-form-identity')
+      const fitsLeaf = () => identity.evaluate((leaf) => leaf.scrollHeight <= leaf.clientHeight + 1)
+      assert.ok(await fitsLeaf(), 'New recipe fields fit on the opening leaf')
+      await page.getByText('4 stars', { exact: true }).locator('..').click()
+      await expect(page.getByRole('radio', { name: '4 stars' })).toBeChecked()
+      assert.ok(await fitsLeaf(), 'New recipe fields fit after setting a rating')
+      await page.getByRole('button', { name: 'Clear rating' }).click()
+    }
     const title = page.getByLabel('Recipe title')
     await title.fill('Keep this draft through layout changes')
     await page.setViewportSize({ width: width === 320 ? 1280 : 320, height })
@@ -196,6 +205,11 @@ try {
       if (name === 'about') {
         await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
         await expect(page.getByRole('link', { name: 'Log in to your journal', exact: true })).toHaveAttribute('href', '/login')
+        if (width === 1280) {
+          await expect(page.getByRole('link', { name: 'Read a sample recipe', exact: true })).toBeInViewport({ ratio: 0.99 })
+          await expect(page.getByRole('link', { name: 'Start a private journal' })).toBeInViewport({ ratio: 0.99 })
+          await expect(page.getByRole('link', { name: 'Log in to your journal', exact: true })).toBeInViewport({ ratio: 0.99 })
+        }
       }
       if (name === 'demo-sheet') await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
       if (name === 'fallback') {

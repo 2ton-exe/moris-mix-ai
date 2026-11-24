@@ -429,7 +429,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     onSubmit={submit}
     onDirtyChange={setDirty}
     onEditorStateChange={storeReviewDraft}
-    cancelLabel="Back to AI Chef"
+    cancelLabel={saved && !dirty && lineageStatus === 'confirmed' && storageIssue === null ? 'Use this pantry again' : 'Back to AI Chef'}
     onCancel={() => navigate('/app/chef')}
     notice={<>{generationNotice()}{storageNotice}</>}
     reviewPage={{ title: 'Recipe inspiration', content: <>{generationNotice(true)}{storageNotice}</> }}

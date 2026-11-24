@@ -93,6 +93,15 @@ try {
     await page.goto(`${origin}app?view=index`)
     await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
     await assertJournalSemantics(page, `${width}px discovery`)
+    if (width < 1100) {
+      await page.getByRole('link', { name: 'Browse saved recipes' }).click()
+      const collection = page.getByRole('region', { name: 'Recipe collection page 1' })
+      await expect(collection).toBeVisible()
+      assert.equal(await collection.getAttribute('aria-keyshortcuts'), null, `No slash shortcut at ${width}px`)
+      await expect(page.locator('.mm-search-shortcut-hint')).toHaveCount(0)
+      await page.getByRole('link', { name: 'Search saved recipes' }).click()
+      await expect(page.getByRole('searchbox', { name: 'Search recipes' })).toBeFocused()
+    }
     assert.equal(await page.getByRole('searchbox', { name: 'Search recipes' }).isDisabled(), false)
     assert.equal(await page.getByRole('option', { name: 'Highest rated' }).evaluate((element) => element.disabled), false)
     await page.getByRole('combobox', { name: 'Sort recipes' }).focus()
@@ -252,6 +261,24 @@ try {
 
       await searchInput.fill('')
       await page.getByRole('heading', { name: 'Saved recipes (24)' }).waitFor()
+    }
+    if (width === 1440) {
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.getByRole('link', { name: 'Browse saved recipes' }).click()
+      const collection = page.getByRole('region', { name: 'Recipe collection page 1' })
+      await expect(collection).toBeVisible()
+      assert.equal(await collection.getAttribute('aria-keyshortcuts'), '/')
+      const hint = page.getByText('Focus the recipe list and press / to search', { exact: true })
+      await expect(hint).toBeVisible()
+      const hintBox = await hint.boundingBox()
+      assert.ok(hintBox && hintBox.y >= 0 && hintBox.y + hintBox.height <= 720, 'Shortcut guidance fits at 1280×720')
+      await collection.focus()
+      await page.keyboard.press('/')
+      await expect(page.getByRole('searchbox', { name: 'Search recipes' })).toBeFocused()
+      await expect(page).toHaveURL(/view=index/)
+      assert.equal(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true, 'No horizontal overflow at 1280×720')
+      await page.screenshot({ path: path.join(outputDir, '1280x720-collection-search-shortcut.png') })
+      await page.setViewportSize({ width: 1440, height: 900 })
     }
     const mori = page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await mori.click()
