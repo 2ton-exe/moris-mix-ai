@@ -539,6 +539,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
         say('assistant', 'There’s already an AI Chef draft in progress, so I left it untouched. Open the pantry page to review it first.')
         return false
       }
+      if (!('pantryItems' in draft.handoff.request)) return false
       if (write && !sameSuggestion) writeChefDraft(userId, {
         input: { pantryItems: draft.handoff.request.pantryItems, pantryInput: '', preferences: draft.handoff.request.preferences ?? '' },
         handoff: draft.handoff,

@@ -11,12 +11,16 @@ import { MoriCompanion } from '../mori/MoriCompanion'
 import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import { JournalShell } from '../journal/JournalShell'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
+import { recipeFormApi } from '../recipe-form/api'
 import { lineageApi, LineageApiError } from './lineage'
 import type { GenerateRecipeResponse } from './generateRecipe'
 import { generateRecipeApi } from './generateRecipe'
 import { writeChefDraft } from './draft'
 import { AIChefPage } from './AIChefPage'
 import { ChefRecipeReviewPage } from './ChefRecipeReviewPage'
+import RecipeDetailPage from '../pages/RecipeDetailPage'
+import { defaultRecipeSource, RecipeSourceContext } from '../recipes/source'
+import type { RecipeSource } from '../recipes/types'
 
 const response: GenerateRecipeResponse = {
   recipe: {
@@ -64,17 +68,17 @@ class RouterTestRequest extends NativeRequest {
 
 let matchMediaDescriptor: PropertyDescriptor | undefined
 
-function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })) } = {}) {
+function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })), source = defaultRecipeSource }: { userId?: string; save?: SaveRecipeDraft; source?: RecipeSource } = {}) {
   const state = authState(userId)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
     { path: '/app', element: <WorkspaceLayout />, children: [
-      { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }] },
+      { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }, { path: 'recipes/:recipeId', element: <RecipeDetailPage /> }] },
       { path: 'chef/review', element: <ChefRecipeReviewPage save={save} /> },
       { path: 'recipes/new', element: <ManualRecipeRoute /> },
     ] },
   ], { initialEntries: ['/app/chef'] })
-  const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RouterProvider router={router} /></AuthContext.Provider></QueryClientProvider>)
+  const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RecipeSourceContext.Provider value={source}><RouterProvider router={router} /></RecipeSourceContext.Provider></AuthContext.Provider></QueryClientProvider>)
   return { ...view, router, save }
 }
 
@@ -176,6 +180,107 @@ afterEach(() => {
 })
 
 describe('AI Chef pantry and review workflow', () => {
+  it('shares only the selected note and keeps Mori’s advice distinct from an edited revision', async () => {
+    const currentMatchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+      const media = currentMatchMedia(query)
+      Object.defineProperty(media, 'matches', { value: media.matches || query.includes('min-width: 1100px') || query.includes('pointer: fine') })
+      return media
+    })
+    const original = response.parents[0]
+    const excerpt = 'Too salty this time.'
+    const recipe = {
+      ...response.recipe, id: original.id, title: original.title, notes: excerpt + '\nKeep this other note private.',
+      ingredients: response.recipe.ingredients.map((ingredient) => ingredient.name === 'tomatoes' ? { ...ingredient, quantity: 4 } : ingredient),
+    }
+    const revise = vi.spyOn(generateRecipeApi, 'revise').mockResolvedValue({
+      ...response,
+      revision: {
+        noteExcerpt: excerpt, ingredient: 'tomatoes', reason: 'Use fewer salted tomatoes.',
+        before: { quantity: 4, unit: null }, after: { quantity: 2, unit: null },
+      },
+    })
+    const save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId }))
+    const saveLineage = vi.spyOn(lineageApi, 'save').mockResolvedValue({ lineage: [{
+      id: '66666666-6666-4666-8666-666666666666',
+      parent_recipe_id: original.id, child_recipe_id: savedRecipeId, created_at: '2026-11-07T00:00:00.000Z',
+    }] })
+    const { router } = renderChef({
+      save, source: { mode: 'live', list: async () => [recipe], detail: async () => recipe },
+    })
+    await act(() => router.navigate('/app/recipes/' + original.id))
+    await screen.findByRole('button', { name: 'Revise with Mori' })
+    const dialog = openReviewDetail('Revise with Mori', 'Make a version for next time')
+    const notes = dialog.getByRole('textbox', { name: 'Select text from your Personal Notes' })
+    if (!(notes instanceof HTMLTextAreaElement)) throw new Error('Personal Notes textarea is missing')
+    notes.setSelectionRange(0, excerpt.length)
+    fireEvent.select(notes)
+    fireEvent.click(dialog.getByRole('button', { name: 'Ask Mori for a revision' }))
+
+    await screen.findByRole('heading', { name: 'Original recipe' })
+    expect(revise).toHaveBeenCalledWith(original.id, excerpt, expect.objectContaining({ userId: 'chef-cook' }))
+    expect(await screen.findByRole('link', { name: 'Open original in a new tab' })).toBeTruthy()
+    const proposal = screen.getByRole('region', { name: 'Mori’s proposed change' })
+    expect(proposal.textContent).toContain('4 → 2')
+    expect(proposal.textContent).toContain(excerpt)
+    expect(proposal.textContent).not.toContain('Keep this other note private.')
+
+    const editIngredient = { name: /Edit ingredient 2/ }
+    if (!screen.queryByRole('button', editIngredient)) await nextChefReviewPage()
+    fireEvent.click(screen.getByRole('button', editIngredient))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ingredient 2 quantity' }), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Back to ingredients' }))
+    await returnChefReviewToStart()
+    expect(screen.getByRole('region', { name: 'Mori’s proposed change' }).textContent).toContain('Current draft · 3')
+    expect(screen.getByText('This draft saves as a new version linked to the original.')).toBeTruthy()
+    expect(save).not.toHaveBeenCalled()
+
+    await advanceChefReviewToSave()
+    fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+    await waitFor(() => expect(saveLineage).toHaveBeenCalledOnce())
+    expect(saveLineage).toHaveBeenCalledWith(savedRecipeId, response.parents.map((parent) => parent.id), [original.id], response.candidate_token, expect.objectContaining({ userId: 'chef-cook' }))
+    expect(save.mock.calls[0]?.[0].ingredients[1]?.quantity).toBe(3)
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a cooking observation through a conflicting notes edit and asks to review again', async () => {
+    const currentMatchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+      const media = currentMatchMedia(query)
+      Object.defineProperty(media, 'matches', { value: media.matches || query.includes('pointer: fine') })
+      return media
+    })
+    const recipe = { ...response.recipe, id: response.parents[0].id, notes: 'First cook.',
+      updated_at: '2026-11-01T00:00:00.000Z', cooked_at: '2026-11-01' }
+    const concurrent = { ...recipe, notes: 'First cook. Another note.', updated_at: '2026-11-02T00:00:00.000Z' }
+    const saved = { ...concurrent, notes: concurrent.notes + '\n\nAdd more garlic.', updated_at: '2026-11-03T00:00:00.000Z' }
+    let current = recipe
+    const update = vi.spyOn(recipeFormApi, 'updateCookingDetails')
+      .mockImplementationOnce(async () => {
+        current = concurrent
+        throw new HttpError('http', 'Expected version conflict.', 409)
+      })
+      .mockImplementationOnce(async () => { current = saved; return saved })
+    const { router } = renderChef({ source: { mode: 'live', list: async () => [current], detail: async () => current } })
+    await act(() => router.navigate('/app/recipes/' + recipe.id))
+    await screen.findByRole('button', { name: 'Record cooking' })
+    const dialog = openReviewDetail('Record cooking', 'Record this cook')
+    fireEvent.click(dialog.getByRole('button', { name: 'Keep recorded date and add a note' }))
+    fireEvent.change(dialog.getByRole('textbox', { name: 'A note for next time' }), { target: { value: 'Add more garlic.' } })
+    fireEvent.click(dialog.getByRole('button', { name: 'Review cooking note' }))
+    fireEvent.click(dialog.getByRole('button', { name: 'Save cooking note' }))
+    expect((await dialog.findByRole('alert')).textContent).toContain('Personal Notes changed')
+    expect(dialog.getByRole('textbox', { name: 'A note for next time' })).toHaveProperty('value', 'Add more garlic.')
+    expect(update).toHaveBeenCalledOnce()
+    fireEvent.click(dialog.getByRole('button', { name: 'Review cooking note' }))
+    fireEvent.click(dialog.getByRole('button', { name: 'Save cooking note' }))
+    expect(await dialog.findByText('Saved to Personal Notes.')).toBeTruthy()
+    expect(update.mock.calls.map((call) => call[1])).toEqual([
+      { notes: 'First cook.\n\nAdd more garlic.', expected_updated_at: recipe.updated_at },
+      { notes: saved.notes, expected_updated_at: concurrent.updated_at },
+    ])
+  })
+
   it('focuses and highlights the pantry field when Mori sends the cook there', async () => {
     const { router } = renderChef()
     await act(() => router.navigate('/app/chef', { state: { moriFocus: 'pantry' } }))

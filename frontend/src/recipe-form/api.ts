@@ -18,6 +18,14 @@ function parseRecipeResponse(value: unknown, userId: string, expectedId?: string
 
 export function createRecipeFormApi(client: typeof apiClient = apiClient) {
   return {
+    async updateCookingDetails(id: string, changes: { cooked_at: string } | { notes: string; expected_updated_at: string }, request: RecipeRequest) {
+      const response = await client.patchAuthenticatedJson(`${recipesPath}/${encodeURIComponent(id)}`, changes, request)
+      const recipe = parseRecipeResponse(response, request.userId, id)
+      if ('notes' in changes ? recipe.notes !== changes.notes : recipe.cooked_at !== changes.cooked_at) {
+        throw new InvalidRecipeData()
+      }
+      return recipe
+    },
     async save(draft: RecipeDraft, request: RecipeRequest, id?: string): Promise<RecipeSaveConfirmation> {
       const body = {
         title: draft.title,

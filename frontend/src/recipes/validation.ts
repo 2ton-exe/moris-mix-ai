@@ -62,7 +62,8 @@ export function validateRecipeDetail(value: unknown, expectedId: string): Recipe
   if (!isRecord(value) || !isSummary(value) || value.id !== expectedId ||
     !Array.isArray(value.ingredients) || !value.ingredients.every(isIngredient) ||
     !Array.isArray(value.instructions) || !value.instructions.every(isInstruction) ||
-    !(value.flavor_scores == null || isFlavors(value.flavor_scores))) {
+    !(value.flavor_scores == null || isFlavors(value.flavor_scores)) ||
+    (value.updated_at !== undefined && (typeof value.updated_at !== 'string' || !Number.isFinite(Date.parse(value.updated_at))))) {
     throw new InvalidRecipeData()
   }
   // Preserve extra properties (including future related/lineage data) intact.
