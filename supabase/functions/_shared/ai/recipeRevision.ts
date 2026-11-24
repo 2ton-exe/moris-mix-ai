@@ -127,11 +127,20 @@ export function explainRecipeRevision(
     change = { ingredient: original.name, before, after };
   }
 
-  return change
-    ? {
-      ...change,
-      noteExcerpt,
-      reason: generated.revisionReason,
-    }
-    : null;
+  if (!change) return null;
+  const ingredient = normalizeIngredientName(change.ingredient);
+  const keepsUnrelatedSteps = source.instructions.every(({ text }, index) => {
+    const draftText = generated.recipe.instructions[index].text;
+    return text === draftText ||
+      [text, draftText].every((step) =>
+        normalizeIngredientName(step).includes(ingredient)
+      );
+  });
+  if (!keepsUnrelatedSteps) return null;
+
+  return {
+    ...change,
+    noteExcerpt,
+    reason: generated.revisionReason,
+  };
 }

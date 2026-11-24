@@ -3174,6 +3174,7 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
   let rows: unknown[] = [source];
   let changedIngredient = 0;
   let explainChange = true;
+  let instructions = source.instructions;
   const explanations = [
     "Less soy sauce is intended to reduce the saltiness you noticed.",
     "An extra tablespoon of vinegar is intended to bring more tang.",
@@ -3207,7 +3208,7 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
               ? { ...ingredient, quantity: index === 0 ? 2 : 4, unit: "tbsp" }
               : ingredient
           ),
-          instructions: source.instructions,
+          instructions,
         },
         parentRecipeIds: [PARENT_ID],
         substitutions: [],
@@ -3279,6 +3280,11 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
   );
 
   changedIngredient = 0;
+  instructions = [{ step: 1, text: "Roast the chicken for an hour." }];
+  const unrelatedRewrite = await revise(salty);
+  assertEquals(unrelatedRewrite.status, 422);
+  instructions = source.instructions;
+
   explainChange = false;
   const missingExplanation = await revise(salty);
   assertEquals(missingExplanation.status, 422);
@@ -3291,6 +3297,6 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
   assertEquals((await revise(salty)).status, 404);
   rows = [];
   assertEquals((await revise(salty)).status, 404);
-  assertEquals(observedContexts.length, 4);
+  assertEquals(observedContexts.length, 5);
   assertNoDatabaseWrites(requests);
 });
