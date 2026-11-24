@@ -121,6 +121,12 @@
     font-size: clamp(1.85rem, calc(var(--mm-page-width) * .078), 3rem);
   }
   .mm-desk .mm-collection-body { padding-block-end: 8px; }
+  .mm-desk .mm-page-body:has(> .mm-recipe-empty) {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--mm-color-espresso-300) transparent;
+  }
+  .mm-collection-body > .mm-recipe-empty { flex: none; }
   .mm-desk .recipe-grid.mm-collection-entries { gap: 14px; padding-block: 8px; }
   .mm-collection-heading-space { flex: none; }
   .mm-collection-entry { grid-template-columns: minmax(0, min(31%, 144px)) minmax(0, 1fr); }
@@ -216,6 +222,17 @@
 .mm-reading-footer { justify-content: space-between; }
 .mm-reading-footer .recipe-delete-control { margin: 0; }
 
+
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
+  .mm-desk .mm-recipe-empty { padding-block: 12px 8px; }
+  .mm-desk .mm-recipe-empty__card { padding-block: 10px; }
+  .mm-desk .mm-recipe-empty__card h2 { font-size: 24px; }
+  .mm-desk .mm-recipe-empty__card > p:not(.mm-recipe-index__eyebrow) {
+    margin-block: 6px 8px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+}
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   /* Keep the reading order complete on each physical leaf. */

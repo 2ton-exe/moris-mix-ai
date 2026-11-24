@@ -129,6 +129,22 @@ try {
   const origin = server.resolvedUrls.local[0]
   appOrigin = new URL(origin).origin
   browser = await chromium.launch({ channel: 'chrome', headless: true })
+  for (const [width, height] of [[1280, 720], [390, 844]]) {
+    const empty = await newJournalContext(width, { empty: true })
+    await empty.page.setViewportSize({ width, height })
+    await empty.page.goto(`${origin}app/recipes`)
+    await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
+    await expect(empty.page.locator('.recipe-grid > li')).toHaveCount(0)
+    const add = empty.page.getByRole('link', { name: 'Add your first recipe' })
+    await expect(add).toHaveAttribute('href', '/app/recipes/new')
+    await add.click({ timeout: 5000 })
+    await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
+    await expect(empty.page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
+    assert.deepEqual(empty.pageErrors, [])
+    await empty.context.close()
+  }
+  process.stdout.write('Empty journal to create route passed on short desktop and phone.\n')
+
   for (const width of [1440, 768, 375, 320]) {
     const app = await newJournalContext(width, { holdList: width === 1440 })
     const { context, page } = app
@@ -305,19 +321,6 @@ try {
   assert.deepEqual(failed.pageErrors, [])
   await failed.context.close()
   process.stdout.write('FE-13 initial-list failure and cached-refresh recovery passed.\n')
-
-  const empty = await newJournalContext(390, { empty: true })
-  await empty.page.goto(`${origin}app/recipes`)
-  await expect(empty.page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
-  await expect(empty.page.locator('.recipe-grid > li')).toHaveCount(0)
-  const add = empty.page.getByRole('link', { name: 'Add your first recipe' })
-  await expect(add).toHaveAttribute('href', '/app/recipes/new')
-  await add.click()
-  await expect(empty.page).toHaveURL(`${origin}app/recipes/new`)
-  await expect(empty.page.getByRole('heading', { name: 'New recipe' })).toBeVisible()
-  assert.deepEqual(empty.pageErrors, [])
-  await empty.context.close()
-  process.stdout.write(`Empty journal to create route passed. Screenshots: ${outputDir}\n`)
 } finally {
   await browser?.close()
   await server.close()
