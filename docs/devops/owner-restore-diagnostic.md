@@ -28,7 +28,9 @@ go/no-go in the restricted owner-controlled change record:
 - The database owner is the operator. A second authorized backend/database or
   security owner independently approves the exact reviewed repository commit,
   selected backup identity, two R2 object paths, 15-minute credential TTL and
-  parent-token revocation, VM image, network controls, replay plan, and cleanup.
+  parent-token revocation, VM image, the bounded egress window for the two
+  object downloads, provider egress closure and verification immediately after
+  revocation, replay plan, and cleanup.
 - The approver confirms provider ingress and egress denial plus verified local
   host and Docker egress denial before any private SQL runs, and that the
   operator has an out-of-band provider console before applying the host
@@ -43,10 +45,13 @@ go/no-go in the restricted owner-controlled change record:
 ## 2. Prepare the temporary Linux VM
 
 Use a temporary Ubuntu 24.04 VM controlled by the database owner, with an
-encrypted ephemeral volume mounted at `/mnt/encrypted-ephemeral`. Use the
-provider console or serial console for the whole session. Configure the
-provider firewall to deny all external inbound and outbound traffic before
-replay; do not leave an external management path open to the VM.
+encrypted ephemeral volume mounted at `/mnt/encrypted-ephemeral`. Keep external
+inbound access denied throughout the session and use the provider console or
+serial console for out-of-band management. Install dependencies and pull both
+pinned images before any private backup bytes arrive. After those pulls, deny
+outbound traffic. Reopen it only for the separately approved, short transfer of
+the two exact R2 objects in Section 3. Do not inspect the archive or open SQL
+during that transfer window.
 
 Before minting credentials, verify that the private mount is actually backed by
 an encrypted ephemeral volume and that Docker's effective data root, PostgreSQL
@@ -65,8 +70,8 @@ Install or verify the dependencies before handling the backup:
   `supabase/postgres:17.11.0.006`.
 
 The Python tools use only the standard library; no Python or Node package is
-added. Docker and the pinned images must be available before network isolation
-is applied.
+added. Docker and the pinned images must be available before outbound egress is
+denied.
 
 Use a clean checkout of the independently approved repository commit and run
 the commands below from its root. Verify the checkout matches the approved
@@ -215,6 +220,13 @@ child credentials; unsetting the environment variables alone is not
 revocation. Do not proceed if the parent cannot be revoked or the credential
 was derived from a shared parent that cannot be safely revoked.
 
+Immediately after the revocation is confirmed, use the provider console or
+serial console to deny all external egress and confirm the policy is active.
+Keep inbound access denied as well. Do this before archive verification,
+extraction, target startup, or SQL access, and keep the deny in place for the
+rest of the run. If the policy cannot be applied and independently confirmed,
+stop without inspecting the archive; destroy the VM and encrypted volume.
+
 Verify the downloaded archive and extract only the checksummed SQL components:
 
 ```bash
@@ -277,10 +289,11 @@ DB_NETWORK="${db_networks[0]}"
 docker ps --format '{{.Image}}' | grep -Eq '(^|/)supabase/postgres:17[.]11[.]0[.]006$'
 ```
 
-Before any private SQL, confirm the provider firewall denies all external
-inbound and outbound IPv4 and IPv6 traffic. Use the provider console because
-this policy removes network management access. Then install and verify the
-local host and Docker firewall rules. The helper drops host egress except
+The provider-level deny-all policy must already be active after the object
+transfer and credential revocation. Before any private SQL, reconfirm through
+the provider console that external inbound and outbound IPv4 and IPv6 traffic
+are denied. Then install and verify the local host and Docker firewall rules.
+The helper drops host egress except
 loopback and traffic to local Docker bridges, drops forwarded container egress
 while allowing container-to-container forwarding, probes four fixed external
 IP endpoints from both host and the selected Supabase bridge, and verifies the
