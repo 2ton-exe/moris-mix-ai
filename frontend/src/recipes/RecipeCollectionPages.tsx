@@ -65,7 +65,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
   }, [measureCatalog, recipes, index, desktop])
   const heading = <header ref={headingRef} className="mm-collection-heading">
     {!index && recipes && <p className="mm-recipe-index__eyebrow">{`${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'highest rated first' : 'newest first'}`}</p>}
-    <h1 ref={titleRef} tabIndex={-1}>{index ? 'Recipe index' : desktop ? 'My recipes' : 'Your cooking journal'}</h1>
+    <h1 ref={titleRef} tabIndex={-1}>{index ? 'Search saved recipes' : desktop ? 'My recipes' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
     {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}.</p>}
     {header}

@@ -107,7 +107,8 @@ try {
       const recovery = page.getByRole('region', { name: 'Page not found' })
       await expect(recovery.getByRole('heading', { name: 'Page not found' })).toBeVisible({ timeout: 15_000 })
       await expect(bookmarks).toBeVisible()
-      await expect(recovery.getByRole('link', { name: 'My recipes' })).toHaveAttribute('href', '/app/recipes')
+      await expect(recovery.getByRole('link', { name: 'Browse saved recipes', exact: true })).toHaveAttribute('href', '/app/recipes')
+      await expect(recovery.getByRole('link', { name: 'Search saved recipes', exact: true })).toHaveAttribute('href', '/app/recipes?view=index')
       await expect(recovery.getByRole('link', { name: 'Return home' })).toHaveCount(0)
     }
 
@@ -141,7 +142,7 @@ try {
       await devtools.send('Emulation.setEmulatedVisionDeficiency', { type: 'none' })
       await devtools.detach()
     }
-    await page.getByRole('link', { name: 'Search & index' }).click()
+    await page.getByRole('link', { name: 'Search saved recipes' }).click()
     const results = page.getByRole('region', { name: 'Recipe index results' })
     await expect(results.getByText('End of results.')).toBeVisible()
     assert.ok(await results.getByRole('link', { name: `Open recipe ${recipe.title}, entry 1` }).evaluate((link) => {
@@ -157,7 +158,7 @@ try {
     await quickTab.click()
     await backToIndex.click()
     await expect(page).toHaveURL(indexUrl)
-    await page.getByRole('link', { name: 'Browse journal' }).click()
+    await page.getByRole('link', { name: 'Browse saved recipes' }).click()
     const companion = page.getByRole('group', { name: 'Mori companion' })
     const model = await moriBookmark.boundingBox()
     assert.ok(model, 'Mori has a visible draggable character')

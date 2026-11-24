@@ -68,7 +68,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
       : inboxGuidance
       ? 'Open the verification link in this browser to finish signing up. You are not logged in yet. Check spam if the message hasn’t arrived.'
       : callbackUnavailable
-        ? 'This link may be expired, invalid, or already used. Choose a new password reset or verification link below, then open it in the same browser where you requested it.'
+        ? 'This link may be expired, invalid, or already used. Choose what you were trying to do, then open your new link in this browser.'
       : callback
         ? 'This link may be expired, invalid, or already used. Enter your email to request a new verification link.'
         : 'If this email belongs to an unconfirmed account, we’ll send a link. Check spam and open it in this browser.'
@@ -92,8 +92,8 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
           </div>
           : callbackUnavailable ? <>
             <div className="actions">
-              <Link className="button button-secondary" to="/login?flow=recovery" state={location.state}>Request a new password reset link</Link>
-              <Link className="button button-secondary" to="/verify-email" state={location.state}>Request a new email verification link</Link>
+              <Link className="button button-secondary" to="/login?flow=recovery" state={location.state}>Reset my password</Link>
+              <Link className="button button-secondary" to="/verify-email" state={location.state}>Confirm my email address</Link>
             </div>
             <p className="auth-links"><Link to="/login" state={location.state}>Back to login</Link></p>
           </>

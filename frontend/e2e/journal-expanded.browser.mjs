@@ -191,7 +191,7 @@ try {
       await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
       if (name === 'about') {
         await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
-        await expect(page.getByRole('link', { name: 'Log in', exact: true })).toHaveAttribute('href', '/login')
+        await expect(page.getByRole('link', { name: 'Log in to your journal', exact: true })).toHaveAttribute('href', '/login')
       }
       if (name === 'demo-sheet') await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
       if (name === 'fallback') {
@@ -230,13 +230,13 @@ try {
       await page.getByRole('link', { name: 'Back to recipes' }).click()
       await expect(page).toHaveURL(/view=collection&q=test&sort=rating&entry=2$/)
       await expect(page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` })).toBeFocused()
-      await page.getByRole('link', { name: 'Search & index' }).click()
+      await page.getByRole('link', { name: 'Search saved recipes' }).click()
       await expect(page.getByRole('searchbox')).toHaveValue('test')
       await expect(page.getByRole('combobox', { name: 'Sort recipes' })).toHaveValue('rating')
       await page.goBack()
       await expect(page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` })).toBeVisible()
       await page.goForward()
-      await expect(page.getByRole('heading', { name: 'Recipe index' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Search saved recipes' })).toBeVisible()
       // Stress the preview composition without importing synthetic entries into
       // product screenshots. Full titles remain available in expanded sheets.
       await page.goBack()

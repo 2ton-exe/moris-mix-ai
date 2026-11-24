@@ -479,10 +479,22 @@ it.each(['/auth/callback', '/auth/callback?flow=recovery#error=access_denied&err
   await screen.findByRole('heading', { name: 'Email link unavailable' })
   expect(screen.getByRole('status').textContent).toContain('expired, invalid, or already used')
   expect(screen.queryByText('private-detail')).toBeNull()
-  expect(screen.getByRole('link', { name: 'Request a new password reset link' }).getAttribute('href')).toBe('/login?flow=recovery')
-  expect(screen.getByRole('link', { name: 'Request a new email verification link' }).getAttribute('href')).toBe('/verify-email')
+  expect(screen.getByRole('status').textContent).toContain('Choose what you were trying to do')
+  expect(screen.getByRole('link', { name: 'Reset my password' }).getAttribute('href')).toBe('/login?flow=recovery')
+  expect(screen.getByRole('link', { name: 'Confirm my email address' }).getAttribute('href')).toBe('/verify-email')
   expect(screen.queryByRole('button', { name: 'Send verification link' })).toBeNull()
   expect(screen.getByRole('link', { name: 'Back to login' })).toBeTruthy()
+})
+
+it.each([
+  ['Reset my password', '/login?flow=recovery', 'Reset your password'],
+  ['Confirm my email address', '/verify-email', 'Verify your email'],
+] as const)('routes the expired callback choice %s to its matching form', async (choice, route, heading) => {
+  open('/auth/callback')
+  await screen.findByRole('heading', { name: 'Email link unavailable' })
+  fireEvent.click(screen.getByRole('link', { name: choice }))
+  await screen.findByRole('heading', { name: heading })
+  expect(screen.getByLabelText('Current route').textContent).toBe(route)
 })
 
 it('resends a verification link and displays safe rate-limit feedback', async () => {

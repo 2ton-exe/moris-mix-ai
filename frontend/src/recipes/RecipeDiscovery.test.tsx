@@ -100,9 +100,12 @@ it('keeps focus in search when editing a restored index anchor', async () => {
 
 it('moves focus to search when opening the index from the collection', async () => {
   render(tree('cook-a', '/app/recipes?view=collection'))
-  fireEvent.click(await screen.findByRole('link', { name: 'Search & index' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Search saved recipes' }))
   const search = await screen.findByRole('searchbox', { name: 'Search recipes' })
   await waitFor(() => expect(document.activeElement).toBe(search))
+  fireEvent.click(screen.getByRole('link', { name: 'Browse saved recipes' }))
+  const heading = await screen.findByRole('heading', { name: 'Your cooking journal' })
+  await waitFor(() => expect(document.activeElement).toBe(heading))
 })
 
 it('debounces search, hides stale cards immediately, aborts old requests and preserves pending input', async () => {

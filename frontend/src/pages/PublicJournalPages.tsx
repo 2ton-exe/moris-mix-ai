@@ -13,7 +13,7 @@ function PublicPage({ title, children }: { title: string; children: ReactNode })
 
 export function HomePage() {
   return <PublicPage title="Good meals deserve a page.">
-    <p className="intro">Keep the recipes you return to and the notes that make them yours. <Link to="/about">See how the journal works</Link>.</p>
+    <p className="intro">Keep favorite recipes and cooking notes in one private journal. Use Quick AI Entry to turn rough notes into editable drafts you review before saving. <Link to="/about">See how the journal works</Link>.</p>
     <div className="actions">
       <Link className="button button-primary" to="/signup">Start a private journal</Link>
       <Link className="button button-secondary" to="/login">Log in to your journal</Link>
@@ -23,6 +23,7 @@ export function HomePage() {
       <h2>Classic Tomato Scraps Pasta</h2>
       <p>200 g spaghetti, 2 tbsp tomato paste, 2 cloves garlic, and fresh basil.</p>
       <p><strong>First step:</strong> Boil pasta in salted water.</p>
+      <p className="mm-public-preview__hint">Read the full recipe without an account.</p>
       <Link className="button button-secondary" to="/demo-recipe">Read the sample recipe</Link>
     </section>
   </PublicPage>
@@ -39,9 +40,9 @@ export function AboutPage() {
         <p><strong>Mori’s draft</strong><br />Garlic egg fried rice: 2 eggs, garlic, rice, soy sauce. Fry eggs, then stir in rice.</p>
       </div>
       <p className="mm-public-workflow__hint">Review and edit before saving. <Link to="/demo-recipe">Read a sample recipe</Link>.</p>
-      <p className="mm-public-workflow__steps"><strong>New recipe</strong> lets you write it yourself. <strong>AI Chef</strong> suggests what to cook with the ingredients you have.</p>
+      <p className="mm-public-workflow__steps">After you finish signing up, choose <strong>New recipe</strong> to write, <strong>Quick AI Entry</strong> to shape notes, or <strong>AI Chef</strong> for a pantry idea.</p>
     </section>
-    <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in</Link></div>
+    <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in to your journal</Link></div>
   </PublicPage>
 }
 
@@ -49,10 +50,10 @@ export function NotFoundPage({ journal = false }: { journal?: boolean }) {
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { if (journal) heading.current?.focus() }, [journal])
   const recovery = <>
-    <p className="intro">{journal ? 'If you followed an old recipe link, search your saved recipes by title.' : 'If you followed an old link, start from the home page. You can also read a sample recipe without an account.'}</p>
+    <p className="intro">{journal ? 'If you followed an old recipe link, search saved recipes by title.' : 'Start at Home, or read a sample recipe without an account.'}</p>
     <div className="actions">
-      <Link className="button button-primary" to={journal ? '/app/recipes' : '/home'}>{journal ? 'My recipes' : 'Go to home page'}</Link>
-      {journal ? <Link className="button button-secondary" to="/app/recipes?view=index">Search my recipes</Link>
+      <Link className="button button-primary" to={journal ? '/app/recipes' : '/home'}>{journal ? 'Browse saved recipes' : 'Go to home page'}</Link>
+      {journal ? <Link className="button button-secondary" to="/app/recipes?view=index">Search saved recipes</Link>
         : <Link className="button button-secondary" to="/demo-recipe">View sample recipe</Link>}
     </div>
   </>
