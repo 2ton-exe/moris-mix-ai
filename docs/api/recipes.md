@@ -310,6 +310,7 @@ All fields are optional, but at least one valid field must be provided. An empty
 | `title` | `string`, trimmed, min 1 char | If provided, cannot be empty or null |
 | `raw_input` | `string | null` | Sets `raw_input` column; explicit `null` clears column |
 | `notes` | `string | null` | Sets `notes` column; explicit `null` clears column |
+| `expected_updated_at` | ISO 8601 timestamp, including its time zone | Optional precondition for a `notes` update. Pass the exact `updated_at` from the owned recipe read |
 | `ingredients` | `Ingredient[]` | Replaces ingredients array; cannot be null |
 | `instructions` | `Instruction[]` | Replaces instructions array; cannot be null |
 | `flavor_scores` | `FlavorScores | null` | Updates flavor scores; explicit `null` clears column |
@@ -317,6 +318,16 @@ All fields are optional, but at least one valid field must be provided. An empty
 | `cooked_at` | calendar date `YYYY-MM-DD` or `null` | Updates cooked date; explicit `null` clears column |
 
 Personal recipe notes (`notes`) are stored in dedicated nullable column `public.recipes.notes` introduced in migration `20261023000002_add_notes_to_recipes.sql`. `notes` is completely independent of `raw_input` (which stores the original AI prompt or generation input). Modifying or nullifying `notes` never alters `raw_input`, and modifying or nullifying `raw_input` never alters `notes`.
+
+### Conditional Personal Notes update
+
+When appending a cooking note, send the combined `notes` and
+`expected_updated_at` from the recipe version used to prepare that text. The
+server updates the notes only if the stored version still matches. An owned
+recipe with a different version returns `409 RECIPE_CHANGED`. Reload the
+current recipe, keep the pending note, and review the revised text before saving
+again. Unavailable recipes return `404 NOT_FOUND`. Omitting the precondition
+uses the ordinary PATCH behavior.
 
 ### Empty PATCH semantics
 
@@ -491,6 +502,7 @@ All error responses use `Content-Type: application/json`, `Cache-Control: no-sto
 | `404 Not Found` | `NOT_FOUND` | `Route not found.` | Request targets an unsupported sub-path under `/recipes`. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, POST, and OPTIONS methods are supported.` | Unsupported method on collection route (`/recipes`) or lineage route (`/recipes/:id/lineage`). Includes `Allow: GET, POST, OPTIONS`. |
 | `405 Method Not Allowed` | `METHOD_NOT_ALLOWED` | `Only GET, PATCH, DELETE, and OPTIONS methods are supported.` | Unsupported method on member route (`/recipes/:id`). Includes `Allow: GET, PATCH, DELETE, OPTIONS`. |
+| `409 Conflict` | `RECIPE_CHANGED` | `The recipe changed. Reload it before saving your notes.` | A conditional Personal Notes update no longer matches the owned recipe version. |
 | `409 Conflict` | `CONFLICT` | `Recipe lineage relationship already exists.` | Database unique constraint `unique_parent_child_pair` (`23505`) is violated. |
 | `503 Service Unavailable` | `AUTH_SERVICE_RATE_LIMITED` | `Authentication service is temporarily unavailable. Please try again later.` | Upstream Supabase Auth returns `429 Too Many Requests`. Propagates `Retry-After` header when present. |
 | `500 Internal Server Error` | `INTERNAL_ERROR` | `Internal server error.` | Server configuration error, database query failure, RLS denial, or schema mismatch. Never leaks secrets or SQL details. |

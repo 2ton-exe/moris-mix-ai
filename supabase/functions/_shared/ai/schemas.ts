@@ -247,6 +247,7 @@ export const UpdateRecipeRequestSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   raw_input: z.string().max(20_000).nullable().optional(),
   notes: z.string().max(20_000).nullable().optional(),
+  expected_updated_at: z.string().max(40).datetime({ offset: true }).optional(),
   ingredients: z.array(IngredientSchema.extend({
     name: z.string().min(1).max(200),
     unit: z.string().max(100).nullable().default(null),
@@ -262,6 +263,12 @@ export const UpdateRecipeRequestSchema = z.object({
 }).strict().refine(
   (data) => Object.keys(data).length > 0,
   { message: "At least one field must be provided for update." },
+).refine(
+  (data) => data.expected_updated_at === undefined || data.notes !== undefined,
+  {
+    path: ["expected_updated_at"],
+    message: "A recipe version requires a notes update.",
+  },
 );
 
 export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;

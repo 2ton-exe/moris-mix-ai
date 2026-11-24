@@ -2160,14 +2160,16 @@ async function handleRequest(
         updatePayload.cooked_at = validated.cooked_at;
       }
 
-      const { data, error } = await supabase
-        .from("recipes")
+      const update = supabase.from("recipes")
         .update(updatePayload)
         .eq("id", recipeId)
-        .eq("user_id", user.id)
-        .select(
-          "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
-        )
+        .eq("user_id", user.id);
+      if (validated.expected_updated_at !== undefined) {
+        update.eq("updated_at", validated.expected_updated_at);
+      }
+      const { data, error } = await update.select(
+        "id, user_id, title, raw_input, notes, ingredients, instructions, flavor_scores, star_rating, cooked_at, image_url, created_at, updated_at",
+      )
         .maybeSingle();
 
       if (error) {
@@ -2185,6 +2187,27 @@ async function handleRequest(
 
       const record = normalizeRecord(data);
       if (!record) {
+        if (validated.expected_updated_at !== undefined) {
+          const { data: existing, error: lookupError } = await supabase
+            .from("recipes")
+            .select("id")
+            .eq("id", recipeId)
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (lookupError) throw new Error("Recipe version lookup failed.");
+          if (normalizeRecord(existing)?.id === recipeId) {
+            return recipesJsonResponse(
+              {
+                error: {
+                  code: "RECIPE_CHANGED",
+                  message:
+                    "The recipe changed. Reload it before saving your notes.",
+                },
+              },
+              { status: 409 },
+            );
+          }
+        }
         return recipesJsonResponse(
           {
             error: {
