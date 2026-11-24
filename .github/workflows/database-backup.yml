@@ -358,28 +358,12 @@ jobs:
           BUNDLE_OUTCOME: ${{ steps.bundle.outcome }}
           UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          GENERATED_AT: ${{ steps.bundle.outputs.generated_at }}
-          OBJECT_KEY: ${{ steps.bundle.outputs.object_key }}
-          ARCHIVE_SIZE: ${{ steps.bundle.outputs.archive_size_bytes }}
-          ARCHIVE_SHA256: ${{ steps.bundle.outputs.archive_sha256 }}
         run: |
           {
             echo "### Production database backup"
-            echo "- Source revision: ${GITHUB_SHA}"
-            echo "- Source project ref: ${SUPABASE_PROJECT_REF}"
-            echo "- Generated at (UTC): ${GENERATED_AT:-not-created}"
             echo "- Bundle creation and consistency gate: ${BUNDLE_OUTCOME}"
             echo "- Private R2 upload: ${UPLOAD_OUTCOME}"
             echo "- Remote size/checksum verification: ${VERIFY_OUTCOME}"
-            if [[ -n "${OBJECT_KEY:-}" ]]; then
-              echo "- R2 object key: \`${OBJECT_KEY}\`"
-            fi
-            if [[ -n "${ARCHIVE_SIZE:-}" ]]; then
-              echo "- Archive size: ${ARCHIVE_SIZE} bytes"
-            fi
-            if [[ -n "${ARCHIVE_SHA256:-}" ]]; then
-              echo "- SHA-256: \`${ARCHIVE_SHA256}\`"
-            fi
             echo "- Scope: Supabase-filtered PostgreSQL logical backup. Storage object bytes and full managed-schema recovery are not claimed by this run."
           } >> "$GITHUB_STEP_SUMMARY"
 

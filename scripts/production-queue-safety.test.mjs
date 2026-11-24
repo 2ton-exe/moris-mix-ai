@@ -58,6 +58,20 @@ test('backup queue preserves unique run attempts and private local verification 
   assert.match(verify.run, /umask 077/);
 });
 
+test('public backup summary contains only fixed outcomes and no backup identifiers', () => {
+  const summary = step(backup, 'Record backup evidence');
+  assert.ok(summary, 'backup evidence summary step must exist');
+
+  for (const name of ['GENERATED_AT', 'OBJECT_KEY', 'ARCHIVE_SIZE', 'ARCHIVE_SHA256']) {
+    assert.equal(Object.hasOwn(summary.env ?? {}, name), false, `${name} must stay out of the public summary`);
+  }
+  assert.doesNotMatch(JSON.stringify(summary.env), /SUPABASE_PROJECT_REF|GITHUB_SHA|OBJECT_KEY|ARCHIVE_SIZE|ARCHIVE_SHA256/i);
+  assert.doesNotMatch(summary.run, /source revision|project ref|generated at|R2 object key|archive size|SHA-256|run id|GITHUB_SHA|GITHUB_RUN_ID|SUPABASE_PROJECT_REF|GENERATED_AT|backup_id|object_key|evidence_key|OBJECT_KEY|ARCHIVE_SIZE|ARCHIVE_SHA256/i);
+  assert.match(summary.run, /Bundle creation and consistency gate: \$\{BUNDLE_OUTCOME\}/);
+  assert.match(summary.run, /Private R2 upload: \$\{UPLOAD_OUTCOME\}/);
+  assert.match(summary.run, /Remote size\/checksum verification: \$\{VERIFY_OUTCOME\}/);
+});
+
 test('backup migration-ledger comparison ignores COPY row order but detects content changes', () => {
   const bundle = step(backup, 'Create Supabase logical backup bundle');
   assert.ok(bundle, 'backup bundle step must exist');
