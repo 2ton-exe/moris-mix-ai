@@ -14,9 +14,8 @@ it('previews the approved demo recipe and links to its full page', () => {
     expect(preview.textContent?.toLowerCase()).toContain(`${amount}${ingredient.name}`.toLowerCase())
   }
   expect(preview.textContent).toContain(fixture.recipe.instructions[0].text)
-  expect(within(preview).getByText('Read the full recipe without an account.')).toBeTruthy()
-  expect(within(preview).getByRole('link', { name: 'Read the sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
-  expect(screen.getByText(/Keep favorite recipes and cooking notes in one private journal\. Use Quick AI Entry/)).toBeTruthy()
+  expect(within(preview).getByRole('link', { name: 'Read the full sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
+  expect(screen.getByText(/Keep recipes and notes in one private journal\. Quick AI Entry turns rough notes into editable drafts\./)).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
   expect(screen.getByRole('link', { name: 'Log in to your journal' }).getAttribute('href')).toBe('/login')
   expect(screen.getByRole('link', { name: 'See how the journal works' }).getAttribute('href')).toBe('/about')

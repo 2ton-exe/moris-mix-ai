@@ -34,7 +34,6 @@
 .mm-public-note p { margin: 8px 0; }
 .mm-public-note h2 { margin: 0; font-size: 21px; line-height: 1.2; }
 .mm-public-note a { display: inline-block; margin-top: 4px; color: var(--mm-color-burgundy-800); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
-.mm-public-preview__hint { color: var(--mm-color-ink-soft); font-size: 14px; }
 .mm-public-workflow > p { margin: 6px 0; }
 .mm-public-workflow__steps, .mm-public-example { font-size: 15px; line-height: 1.5; }
 .mm-public-example { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin-top: 8px; }

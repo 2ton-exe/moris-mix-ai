@@ -189,6 +189,10 @@ try {
     ]) {
       await page.goto(`${origin}${route}`)
       await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+      if (name === 'home' && width >= 1280) {
+        await page.evaluate(() => globalThis.document.fonts.ready.then(() => undefined))
+        await expect(page.getByRole('link', { name: 'Read the full sample recipe', exact: true })).toBeInViewport({ ratio: 0.99 })
+      }
       if (name === 'about') {
         await expect(page.getByRole('link', { name: 'Start a private journal' })).toHaveAttribute('href', '/signup')
         await expect(page.getByRole('link', { name: 'Log in to your journal', exact: true })).toHaveAttribute('href', '/login')

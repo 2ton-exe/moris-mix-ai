@@ -13,7 +13,7 @@ function PublicPage({ title, children }: { title: string; children: ReactNode })
 
 export function HomePage() {
   return <PublicPage title="Good meals deserve a page.">
-    <p className="intro">Keep favorite recipes and cooking notes in one private journal. Use Quick AI Entry to turn rough notes into editable drafts you review before saving. <Link to="/about">See how the journal works</Link>.</p>
+    <p className="intro">Keep recipes and notes in one private journal. Quick AI Entry turns rough notes into editable drafts. <Link to="/about">See how the journal works</Link>.</p>
     <div className="actions">
       <Link className="button button-primary" to="/signup">Start a private journal</Link>
       <Link className="button button-secondary" to="/login">Log in to your journal</Link>
@@ -23,8 +23,7 @@ export function HomePage() {
       <h2>Classic Tomato Scraps Pasta</h2>
       <p>200 g spaghetti, 2 tbsp tomato paste, 2 cloves garlic, and fresh basil.</p>
       <p><strong>First step:</strong> Boil pasta in salted water.</p>
-      <p className="mm-public-preview__hint">Read the full recipe without an account.</p>
-      <Link className="button button-secondary" to="/demo-recipe">Read the sample recipe</Link>
+      <Link className="button button-secondary" to="/demo-recipe">Read the full sample recipe</Link>
     </section>
   </PublicPage>
 }
