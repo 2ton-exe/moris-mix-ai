@@ -295,6 +295,7 @@
 
 .mm-chef-review__source {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: start;
   gap: var(--mm-space-1);
 }
@@ -303,7 +304,7 @@
 .mm-chef-review__change :is(h2, h3, p, blockquote) { margin: 0; }
 .mm-chef-review__source h2 { color: var(--mm-color-ink-soft); font: 650 .8rem/1.25 var(--mm-font-sans); }
 .mm-chef-review__source h3 { color: var(--mm-color-burgundy-900); font: 600 1.5rem/1.15 var(--mm-font-serif); }
-.mm-chef-review__source select { min-block-size: 44px; max-inline-size: 100%; }
+.mm-chef-review__source select { min-block-size: 44px; min-inline-size: 0; max-inline-size: 100%; }
 .mm-chef-review__comparison .mm-recipe-artwork { box-sizing: border-box; inline-size: min(100%, 8.5rem); margin: 8px 3px 4px; justify-self: start; }
 .mm-chef-review__source a { min-block-size: 44px; align-content: center; color: var(--mm-color-burgundy-800); text-decoration: underline; text-underline-offset: 3px; }
 .mm-chef-review__source .mm-chef-review__change { justify-self: stretch; }
