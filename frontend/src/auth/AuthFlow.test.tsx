@@ -137,6 +137,31 @@ it('shows a safe invalid-credentials message', async () => {
   expect(screen.queryByRole('heading', { name: 'Your cooking journal' })).toBeNull()
 })
 
+it('puts password reset and verification help beside the login form', async () => {
+  open('/login'); await loginForm()
+  fill('Email', 'cook@example.test')
+  fireEvent.click(screen.getByRole('link', { name: 'Reset your password' }))
+  await screen.findByRole('heading', { name: 'Reset your password' })
+  expect(screen.getByText(/we’ll email a reset link if there’s an account for this address/i)).toBeTruthy()
+  fireEvent.click(screen.getByRole('link', { name: 'Back to login' }))
+  await loginForm()
+  fireEvent.click(screen.getByRole('link', { name: /request a verification link/i }))
+  await screen.findByRole('heading', { name: 'Verify your email' })
+  expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('cook@example.test')
+  expect(screen.getByText(/if this email belongs to an unconfirmed account/i)).toBeTruthy()
+  expect(auth.resend).not.toHaveBeenCalled()
+})
+
+it('offers signup email verification help and carries the entered email', async () => {
+  open('/signup'); await screen.findByRole('heading', { name: 'Create your account' })
+  fill('Email', 'cook@example.test')
+  fireEvent.click(screen.getByRole('link', { name: 'Request a verification link' }))
+  await screen.findByRole('heading', { name: 'Verify your email' })
+  expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('cook@example.test')
+  expect(screen.getByText(/if this email belongs to an unconfirmed account/i)).toBeTruthy()
+  expect(auth.resend).not.toHaveBeenCalled()
+})
+
 it('prevents duplicate login submissions while pending and handles a network rejection', async () => {
   const request = deferred<never>()
   auth.signInWithPassword.mockReturnValue(request.promise)
@@ -486,7 +511,7 @@ it('reports unconfirmed login accounts with verification recovery guidance', asy
   fill('Email', 'cook@example.test'); fill('Password', 'password')
   submit('Log in')
   expect((await screen.findByRole('alert')).textContent).toContain('verify your email')
-  fireEvent.click(screen.getByRole('link', { name: 'Need a verification link?' }))
+  fireEvent.click(screen.getByRole('link', { name: /request a verification link/i }))
   await screen.findByRole('heading', { name: 'Verify your email' })
 })
 

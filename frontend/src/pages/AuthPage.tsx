@@ -96,7 +96,7 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
   const submitLabel = isRecovery ? 'Send password reset link' : isSignup ? 'Create account' : 'Log in'
   const description = isRecovery
     ? sentEmail ? <p role="status">If there’s an account for <strong>{sentEmail}</strong>, a reset link will arrive soon. Check spam and open the link in this browser.</p>
-      : 'Enter the email you use for your journal. Open the reset link in this browser.'
+      : 'We’ll email a reset link if there’s an account for this address. Check spam and open it in this browser.'
     : isSignup ? 'Use an email you can open to finish setting up your cooking journal.'
       : 'Log in to open your private cooking journal.'
 
@@ -134,11 +134,13 @@ function AuthFormPage({ mode }: { mode: 'login' | 'signup' | 'recovery' }) {
         {pending && <span className="visually-hidden" role="status">{pendingLabel}</span>}
         {isRecovery ? !sentEmail && <p className="auth-links"><Link to="/login" state={linkState}>Back to login</Link></p> : isSignup ? <JournalAuthFooter>
           <p>Already have an account? <Link to="/login" state={linkState}>Log in</Link></p>
-        </JournalAuthFooter> : <JournalAuthFooter>
-          <p>New to MORI'S MIX? <Link to="/signup" state={linkState}>Sign up</Link></p>
-          <p><Link to="/login?flow=recovery" state={linkState}>Forgot your password?</Link></p>
-          <p><Link to="/verify-email" state={linkState}>Need a verification link?</Link></p>
-        </JournalAuthFooter>}
+          <p>Already signed up? <Link to="/verify-email" state={linkState}>Request a verification link</Link></p>
+        </JournalAuthFooter> : <>
+          <p className="auth-links">Having trouble signing in? <Link to="/login?flow=recovery" state={linkState}>Reset your password</Link> or <Link to="/verify-email" state={linkState}>request a verification link</Link>.</p>
+          <JournalAuthFooter>
+            <p>New to MORI'S MIX? <Link to="/signup" state={linkState}>Sign up</Link></p>
+          </JournalAuthFooter>
+        </>}
         {!isRecovery && <div className="actions"><Link className="button button-secondary" to="/demo-recipe">View demonstration recipe</Link></div>}
       </JournalAuthCard>
     </main>

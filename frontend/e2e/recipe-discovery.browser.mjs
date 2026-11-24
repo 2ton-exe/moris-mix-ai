@@ -68,7 +68,7 @@ try {
       const searchMode = url.searchParams.get('searchMode') ?? 'both'
       if (search) {
         if (search === 'slow') await new Promise((resolve) => globalThis.setTimeout(resolve, 650))
-        if (search === 'missing') return route.fulfill({ json: { recipes: [], has_more: false, next_cursor: null } })
+        if (search === 'missing' || (search === 'basil' && searchMode === 'title')) return route.fulfill({ json: { recipes: [], has_more: false, next_cursor: null } })
         if (search === 'retry') {
           const attempts = searchFailures.get(search) ?? 0
           searchFailures.set(search, attempts + 1)
@@ -223,6 +223,15 @@ try {
       await page.getByRole('status').filter({ hasText: 'Loading your recipes' }).waitFor()
       await assertJournalSemantics(page, 'discovery pending search')
       await page.getByRole('heading', { name: 'Combined match: slow' }).waitFor()
+
+      await searchScope.selectOption('title')
+      await searchInput.fill('basil')
+      await expect(page.getByText('You searched recipe titles. Try both with the same search.')).toBeVisible()
+      const broaden = page.getByRole('button', { name: 'Search titles and ingredients', exact: true })
+      await broaden.press('Enter')
+      await page.getByRole('heading', { name: 'Combined match: basil' }).waitFor()
+      await expect(searchInput).toHaveValue('basil')
+      await expect(sort).toHaveValue('rating')
 
       await searchInput.fill('missing')
       await page.getByRole('heading', { name: 'No recipes match your search.' }).waitFor()

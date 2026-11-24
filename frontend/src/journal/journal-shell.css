@@ -290,7 +290,7 @@
   .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']::after { bottom: calc(-2px - var(--mm-journal-tab-pop)); height: calc(3px + var(--mm-journal-tab-pop)); }
   .mm-journal-page > .mm-bookmarks .mm-bookmark[aria-current='page']:hover { box-shadow: 0 -1px 3px -1px rgb(40 24 10 / .12); }
 }
-.mm-desk :where(a, button, input, textarea, select, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
+.mm-desk :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: 4px; }
 .mm-desk h1[tabindex='-1']:focus-visible { border-radius: var(--mm-radius-paper); outline-width: 2px; }
 .mm-desk-toolbar :is(.mm-desk-brand, .mm-bookmark):focus-visible { outline-color: var(--mm-color-parchment-50); }
 .mm-bookmarks .mm-bookmark:focus-visible { outline-offset: 2px; }

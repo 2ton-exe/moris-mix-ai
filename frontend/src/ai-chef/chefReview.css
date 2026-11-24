@@ -269,6 +269,7 @@
 .mm-chef-review__save-context { margin-block-end: 12px; overflow-wrap: anywhere; color: var(--mm-color-ink); }
 .mm-chef-review__save-context h2 { margin: 0 0 4px; font: 600 18px/1.2 var(--mm-font-serif); }
 .mm-chef-review__save-context p { margin: 4px 0; font: 400 14px/1.35 var(--mm-font-sans); }
+.mm-chef-review__save-context summary { width: fit-content; min-height: 44px; padding-block: 12px; box-sizing: border-box; color: var(--mm-color-burgundy-800); font-weight: 650; cursor: pointer; }
 
 @media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
   .mm-chef-review__save-context { margin-block-end: 8px; }

@@ -194,6 +194,7 @@ export default function RecipeDashboardPage() {
   }, [isTurning, leaf, params, returnFocusId])
   const hasSearch = Boolean(controls.criteria.search) || Object.keys(controls.criteria.filters).length > 0
   const searchResultsKnownEmpty = hasSearch && !controls.waiting && !query.isPending && !query.isFetching && !query.error && recipes?.length === 0
+  const canBroadenSearch = Boolean(controls.criteria.search) && controls.criteria.searchMode !== 'both' && source.discovery?.searchModes.includes('both')
   const guidanceAvailable = source.mode !== 'unavailable' && !isRecipeAccessError(query.error)
   const resetIndexSearch = () => {
     restoreFirstPageFocus.current = true
@@ -211,8 +212,16 @@ export default function RecipeDashboardPage() {
   const empty = controls.criteria.search || Object.keys(controls.criteria.filters).length > 0 ? (
           <section className="journal-empty" aria-labelledby="no-results-heading">
             <h2 id="no-results-heading" tabIndex={-1}>No recipes match your search.</h2>
-            <p>Try a different search, or reset your search options to see your full collection.</p>
-            {searchResultsKnownEmpty && <button className="button button-secondary" type="button" onClick={resetIndexSearch}>Show all recipes</button>}
+            <p>{canBroadenSearch
+              ? `You searched ${controls.criteria.searchMode === 'title' ? 'recipe titles' : 'ingredient names'}. Try both with the same search.`
+              : 'Try a different search, or reset your search options to see your full collection.'}</p>
+            {searchResultsKnownEmpty && <div className="actions">
+              {canBroadenSearch && <button className="button button-primary" type="button" onClick={() => {
+                restoreFirstPageFocus.current = true
+                controls.change({ ...controls.draft, searchMode: 'both' })
+              }}>Search titles and ingredients</button>}
+              <button className="button button-secondary" type="button" onClick={resetIndexSearch}>Show all recipes</button>
+            </div>}
           </section>
         ) : (
           <section className="journal-empty mm-recipe-empty" aria-labelledby="empty-heading">

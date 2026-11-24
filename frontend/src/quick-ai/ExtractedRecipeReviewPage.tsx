@@ -160,9 +160,9 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
   const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
   const editorIntro = consumed ? undefined : storageIssue === null
-    ? 'Review each named section. Save from the final page. Your draft stays in this tab.'
+    ? 'Review each named section. Save from the final page.'
     : 'Review each named section, then save from the final page. Keep this page open while you review.'
-  const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} />
+  const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} draftKeptInTab={storageIssue === null} />
   const pageNotice = <>
     {storageNotice}
     {logoutError && <p className="field-error" role="alert">{logoutError}</p>}
@@ -216,7 +216,7 @@ function ReviewStorageWarning({ issue, saved, onRetry }: { issue: ReviewStorageI
   </div>
 }
 
-function ExtractionNotice({ handoff }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']> }) {
+function ExtractionNotice({ handoff, draftKeptInTab }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; draftKeptInTab: boolean }) {
   const flavorScores = handoff.recipe.flavor_scores
   const words = (value: string) => value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
   const source = ` ${words(handoff.sourceNotes)} `
@@ -232,6 +232,10 @@ function ExtractionNotice({ handoff }: { handoff: NonNullable<ReturnType<typeof 
       <summary>Read full cooking notes</summary>
       <blockquote tabIndex={0}>{handoff.sourceNotes}</blockquote>
     </details>}
+    <details>
+      <summary>Where is my draft kept?</summary>
+      <p>{draftKeptInTab ? 'Return to this tab with the same account to keep reviewing.' : 'Keep this page open while you review. Reloading or closing it may erase recent edits.'} If the draft is missing, open Quick AI Entry and organize your notes again. Save recipe adds the reviewed recipe to My recipes.</p>
+    </details>
     {flavorScores && <details>
       <summary>Flavor estimates</summary>
       <p>Flavor estimates are preview only.</p>

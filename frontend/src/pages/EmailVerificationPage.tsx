@@ -71,7 +71,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
         ? 'This link may be expired, invalid, or already used. Choose a new password reset or verification link below, then open it in the same browser where you requested it.'
       : callback
         ? 'This link may be expired, invalid, or already used. Enter your email to request a new verification link.'
-        : 'Enter your email address to request a verification link.'
+        : 'If this email belongs to an unconfirmed account, we’ll send a link. Check spam and open it in this browser.'
 
   return <JournalAuthScene>
     <main className="mm-auth-main">

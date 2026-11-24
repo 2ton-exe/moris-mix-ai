@@ -40,6 +40,25 @@ it('creates empty section leaves and follows a row across grouped page boundarie
   expect(desktopIngredientLeaves).toHaveLength(2)
   expect(desktopIngredientLeaves[0]).toMatchObject({ rowKeys: withRows.ingredients.slice(0, 4).map(({ key }) => key) })
   expect(desktopIngredientLeaves[1]).toMatchObject({ rowKeys: withRows.ingredients.slice(4).map(({ key }) => key) })
+
+  const shortDesktop = recipeFormLeaves(withRows, false, null, true, true, undefined, undefined, undefined, { compactIngredientRows: 2 })
+  expect(shortDesktop.filter(({ kind }) => kind === 'ingredients')).toMatchObject([
+    { rowKeys: withRows.ingredients.slice(0, 2).map(({ key }) => key) },
+    { rowKeys: withRows.ingredients.slice(2, 4).map(({ key }) => key) },
+    { rowKeys: withRows.ingredients.slice(4).map(({ key }) => key) },
+  ])
+  expect(shortDesktop.filter(({ kind }) => kind === 'instructions')).toMatchObject(
+    withRows.instructions.map(({ key }) => ({ rowKeys: [key] })),
+  )
+  expect(leafIndexForAnchor(shortDesktop, `ingredient:${movedKey}`)).toBe(2)
+
+  const withLongName = { ...withRows, ingredients: withRows.ingredients.map((row, index) => index === 2 ? { ...row, name: 'Long'.repeat(50) } : row) }
+  expect(recipeFormLeaves(withLongName, false, null, true, true, undefined, undefined, undefined, { compactIngredientRows: 2 })
+    .filter(({ kind }) => kind === 'ingredients')).toMatchObject([
+    { rowKeys: withRows.ingredients.slice(0, 2).map(({ key }) => key) },
+    { rowKeys: [withRows.ingredients[2].key] },
+    { rowKeys: withRows.ingredients.slice(3).map(({ key }) => key) },
+  ])
 })
 
 it('groups facing leaves on desktop and exposes one numbered leaf on narrow layouts', () => {

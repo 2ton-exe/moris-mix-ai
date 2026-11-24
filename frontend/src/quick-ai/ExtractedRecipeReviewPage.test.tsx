@@ -106,6 +106,9 @@ it('opens the review workflow with extraction fields and original notes kept sep
   const details = within(screen.getByRole('region', { name: "Mori's extraction notes" }))
   expect(details.getByText(sourceNotes)).toBeTruthy()
   expect(details.getByText(/preview only/)).toBeTruthy()
+  const draftHelp = details.getByText('Where is my draft kept?').closest('details')!
+  expect(draftHelp.open).toBe(false)
+  expect(draftHelp.textContent).toContain('Return to this tab with the same account')
   expect(screen.getByRole('heading', { name: 'Review your recipe' })).toBeTruthy()
   expect(screen.getByText(/Review each named section\. Save from the final page/)).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Save recipe' })).toBeNull()

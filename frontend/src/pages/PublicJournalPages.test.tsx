@@ -17,6 +17,7 @@ it('previews the approved demo recipe and links to its full page', () => {
   expect(within(preview).getByRole('link', { name: 'Read the sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
   expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
   expect(screen.getByRole('link', { name: 'Log in to your journal' }).getAttribute('href')).toBe('/login')
+  expect(screen.getByRole('link', { name: 'See how the journal works' }).getAttribute('href')).toBe('/about')
 })
 
 it('shows a compact editable-recipe example and a direct signup action', () => {
@@ -26,6 +27,8 @@ it('shows a compact editable-recipe example and a direct signup action', () => {
   expect(workflow.textContent).toContain('Eggs, garlic, leftover rice, soy sauce.')
   expect(workflow.textContent).toContain('Garlic egg fried rice')
   expect(workflow.textContent).toContain('Review and edit before saving.')
+  expect(workflow.textContent).toContain('Quick AI Entry turns rough cooking notes into a draft you can edit.')
+  expect(workflow.textContent).toContain('New recipe lets you write it yourself. AI Chef suggests what to cook with the ingredients you have.')
   expect(screen.getByRole('link', { name: 'Read a sample recipe' }).getAttribute('href')).toBe('/demo-recipe')
   expect(screen.getByRole('link', { name: 'Start a private journal' }).getAttribute('href')).toBe('/signup')
   expect(screen.getByRole('link', { name: /^Log in$/ }).getAttribute('href')).toBe('/login')

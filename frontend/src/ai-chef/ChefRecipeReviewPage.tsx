@@ -424,7 +424,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     reviewWorkflow
     draftKeptInSession={!saved && storageIssue === null}
     editorTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
-    editorIntro={saved ? undefined : 'Review each named section, including ingredients and cooking steps. Save from the final page; parent links are optional.'}
+    editorIntro={saved ? undefined : 'Review your ingredients and cooking steps, then save from the final page.'}
     notesSupported
     onSubmit={submit}
     onDirtyChange={setDirty}
@@ -441,7 +441,11 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       titleEditor={titleEditor}
       facingPageContent={saved ? <ChefProgress stage="saved" /> : <section className="mm-chef-review__save-context" aria-label="Before you save">
           <h2>What will be saved</h2>
-          <p>Next and Previous name each section. Save follows the cooking steps on the final page. Only checked parent recipes will be linked.</p>
+          <p>On the final page, choose Save recipe to add your edited recipe to My recipes.</p>
+          <details>
+            <summary>What are recipe links?</summary>
+            <p>Choose recipes from your journal to link as inspiration. The links show where the idea came from, and the original recipes stay as they are. You can save without links.</p>
+          </details>
           {handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
         </section>}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
@@ -562,7 +566,7 @@ function ChefGenerationNotice({
           {parentChoices}
         </ReviewDetailDialog>}
         <p className="mm-ai-chef__selection-count">{selectedParentIds.length} of 10 parent recipes selected.</p>
-        <p className="mm-chef-review__selection-help">Only checked recipes are linked when you save. Leave them unchecked to save without parent links.</p>
+        <p className="mm-chef-review__selection-help">Check the recipes you want to link as inspiration. You can leave them all unchecked.</p>
       </> : <p>{response.context.status === 'NO_SAVED_RECIPES'
         ? 'There are no saved recipes to suggest yet.'
         : 'Mori did not suggest any journal recipes for this idea.'}</p>}

@@ -1,4 +1,4 @@
-import type { RecipeEditorState } from './draft'
+import type { IngredientRow, RecipeEditorState } from './draft'
 
 export const FORM_ROWS_PER_LEAF = 2
 export const DEFAULT_FORM_TEXT_CHARS_PER_LEAF = 600
@@ -81,18 +81,27 @@ export type RecipeFormLeaf =
   | { key: 'instructions-empty'; kind: 'instructions-empty'; rowKeys: [] }
   | { key: `instructions:${number}`; kind: 'instructions'; rowKeys: string[]; textParts: { rowKey: string; part: number }[] }
 
-function ingredientLeaves(rows: { key: string }[], groupSize: number): RecipeFormLeaf[] {
+function shortIngredientSummary(row: IngredientRow) {
+  const amount = row.quantityText.trim() || `${row.quantity} ${row.unit}`.trim()
+  // The amount stays on one line and reduces the width available to every line of the name.
+  return Array.from(row.name).length + 3 * Array.from(amount).length <= 44
+}
+
+function ingredientLeaves(rows: IngredientRow[], groupSize: number, compactPairs: boolean): RecipeFormLeaf[] {
   if (!rows.length) return [{ key: 'ingredients-empty', kind: 'ingredients-empty', rowKeys: [] }]
-  return Array.from({ length: Math.ceil(rows.length / groupSize) }, (_, page) => ({
-    key: `ingredients:${page}` as const,
-    kind: 'ingredients' as const,
-    rowKeys: rows.slice(page * groupSize, (page + 1) * groupSize).map((row) => row.key),
-  }))
+  const leaves: RecipeFormLeaf[] = []
+  for (let index = 0; index < rows.length;) {
+    const next = rows[index + 1]
+    const count = compactPairs && (!next || !shortIngredientSummary(rows[index]) || !shortIngredientSummary(next)) ? 1 : groupSize
+    leaves.push({ key: `ingredients:${leaves.length}`, kind: 'ingredients', rowKeys: rows.slice(index, index + count).map(({ key }) => key) })
+    index += count
+  }
+  return leaves
 }
 
 /** Keep identity fixed and group rows only when the paper can fit them. */
-export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, expandedNotes = false): RecipeFormLeaf[] {
-  const groupSize = single || compact ? 1 : desktop ? FORM_ROWS_PER_LEAF * 2 : FORM_ROWS_PER_LEAF
+export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, { expandedNotes = false, compactIngredientRows = 1 } = {}): RecipeFormLeaf[] {
+  const groupSize = single ? 1 : compact ? compactIngredientRows : desktop ? FORM_ROWS_PER_LEAF * 2 : FORM_ROWS_PER_LEAF
   const instructionGroupSize = single || compact ? 1 : FORM_ROWS_PER_LEAF
   const instructionTextRows = Math.max(1, textPageRows - instructionGroupSize * 4)
   const noteParts = reviewTitle === null && !expandedNotes ? splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns) : []
@@ -117,7 +126,7 @@ export function recipeFormLeaves(state: RecipeEditorState, single = false, revie
       return { key: `notes:${part}`, kind: 'notes', part }
     }),
     ...(reviewTitle === null ? [] : [{ key: 'review:0', kind: 'review', title: reviewTitle } satisfies RecipeFormLeaf]),
-    ...ingredientLeaves(state.ingredients, groupSize),
+    ...ingredientLeaves(state.ingredients, groupSize, compact && groupSize === 2),
     ...instructionPages,
   ]
 }

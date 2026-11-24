@@ -66,20 +66,22 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const [textPageLength, setTextPageLength] = useState(DEFAULT_FORM_TEXT_CHARS_PER_LEAF)
   const [textPageRows, setTextPageRows] = useState(12)
   const [textPageColumns, setTextPageColumns] = useState(56)
+  const [roomForTwoIngredientRows, setRoomForTwoIngredientRows] = useState(false)
   const requestedStart = useRef(0)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const desktop = useJournalMedia('(min-width: 1100px)')
   const moveDialog = useRef<HTMLDialogElement>(null)
   const movePosition = useRef<HTMLInputElement>(null)
   const movingIngredient = useRef<string | null>(null)
-  const ingredientDrag = useIngredientDrag(`${single}:${compact}:${isTurning}:${pageAnchor}:${pending}`)
   const desktopReview = !single && reviewPage !== undefined
   const desktopCreate = !single && newRecipeScrapbook
   const desktopRecipeEditor = !single && desktop && !desktopReview
   const desktopEdit = desktopRecipeEditor && mode === 'edit'
+  const compactIngredientRows = compact && desktopEdit && roomForTwoIngredientRows ? 2 : 1
+  const ingredientDrag = useIngredientDrag(`${single}:${compact}:${compactIngredientRows}:${isTurning}:${pageAnchor}:${pending}`)
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const leaves = useMemo(() => {
-    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, expandedNotes)
+    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows })
     if (reviewWorkflow && reviewPage) {
       const reviewIndex = pages.findIndex((leaf) => leaf.kind === 'review')
       if (reviewIndex >= 0) {
@@ -89,7 +91,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     }
     if (supplement && desktop && !single && !desktopEdit) pages.push({ key: 'supplement', kind: 'supplement' })
     return pages
-  }, [supplement, state, single, desktopReview, reviewPage, reviewWorkflow, compact, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes])
+  }, [supplement, state, single, desktopReview, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
@@ -142,7 +144,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const book = formRef.current?.querySelector('.mm-journal-book')
     if (!book || single || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
-      // Smaller books reserve a whole leaf for each row so controls stay reachable.
+      // Short spreads give each cooking step a full leaf so its controls stay reachable.
       const next = entry.contentRect.height < 740
       if (next === compact) return
       rememberFocus(document.activeElement)
@@ -165,6 +167,8 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       setTextPageLength((current) => current === next ? current : next)
       setTextPageRows((current) => current === nextRows ? current : nextRows)
       setTextPageColumns((current) => current === nextColumns ? current : nextColumns)
+      // shortcut: use a 350px budget for two summaries until rows are measured individually.
+      setRoomForTwoIngredientRows(desktopEdit && leaf.clientHeight >= 350)
     }
     const book = form.querySelector<HTMLElement>('.mm-journal-book')
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
@@ -173,7 +177,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     window.addEventListener('resize', measure, true)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
-  }, [single, compact, leaves.length, visibleIndicesKey, rememberFocus])
+  }, [single, compact, desktopEdit, leaves.length, visibleIndicesKey, rememberFocus])
 
   useLayoutEffect(() => {
     formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
@@ -181,7 +185,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   // One controlled draft owns every value. Only current leaves are mounted.
   useLayoutEffect(() => {
-    const layout = single ? 'single' : compact ? 'compact' : 'spread'
+    const layout = single ? 'single' : compact ? `compact:${compactIngredientRows}:${compactIngredientRows === 2 ? currentLeafIndex : ''}` : 'spread'
     const modeChanged = previousLayout.current !== '' && previousLayout.current !== layout
     previousLayout.current = layout
     const request = focusRequest.current
@@ -216,7 +220,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       target = named instanceof HTMLElement ? named : formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
     target?.focus()
-  }, [state, errors, pending, isTurning, pageAnchor, single, compact, desktop, editingIngredientKey, leaves])
+  }, [state, errors, pending, isTurning, pageAnchor, single, compact, compactIngredientRows, currentLeafIndex, desktop, editingIngredientKey, leaves])
 
   useLayoutEffect(() => {
     requestedStart.current = single ? currentLeafIndex : Math.floor(currentLeafIndex / 2) * 2
@@ -603,6 +607,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         return rowIndex >= 0 ? { item: state.ingredients[rowIndex], rowIndex } : null
       }).filter((entry): entry is { item: RecipeEditorState['ingredients'][number]; rowIndex: number } => entry !== null)
       const containsLast = items.some(({ item }) => item.key === state.ingredients.at(-1)?.key)
+      const canAddHere = desktopEdit
+        ? !visibleIndices.some((visibleIndex) => visibleIndex > index && leaves[visibleIndex]?.kind === 'ingredients')
+        : !items.length || containsLast
       const editing = items.find(({ item }) => item.key === editingIngredientKey)
       pageContent = <section className="recipe-form-section recipe-form-section--ingredients" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
@@ -698,7 +705,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
             return desktop || !single ? <div className="recipe-ingredient-slot" data-ingredient-slot={rowIndex} key={item.key}>{card}</div>
               : <Fragment key={item.key}>{card}</Fragment>
           })}
-          {(!items.length || containsLast) && <button className="button mm-row-add" type="button" name="add-ingredient" data-form-focus-key="add-ingredient" onClick={addIngredient} disabled={state.ingredients.length >= 100}><Plus size={16} aria-hidden="true" /> Add ingredient</button>}
+          {canAddHere && <button className="button mm-row-add" type="button" name="add-ingredient" data-form-focus-key="add-ingredient" onClick={addIngredient} disabled={state.ingredients.length >= 100}><Plus size={16} aria-hidden="true" /> Add ingredient</button>}
         </div>
         {desktop && editing && <div className="recipe-ingredient-edit-step" aria-labelledby={prefix + '-ingredient-edit-title'}>
           <div className="recipe-ingredient-edit-step__navigation">
@@ -749,10 +756,13 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         return rowIndex >= 0 ? { item: state.instructions[rowIndex], rowIndex, part } : null
       }).filter((entry): entry is { item: RecipeEditorState['instructions'][number]; rowIndex: number; part: number } => entry !== null) : []
       const containsLast = items.some(({ item }) => item.key === state.instructions.at(-1)?.key)
+      const isLastMethodLeafOnSpread = !visibleIndices.some((visibleIndex) => visibleIndex > index && leaves[visibleIndex]?.kind === 'instructions')
+      const addStepButton = <button className="button mm-row-add" type="button" name="add-step" ref={!items.length ? focusInitialMethod : undefined} data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> Add cooking step</button>
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
           <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
           {reviewWorkflow && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('instructions') ? 'Check fields' : 'Ready'}</span>}
+          {desktopEdit && isLastMethodLeafOnSpread && addStepButton}
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
         {items.map(({ item, rowIndex, part }) => {
@@ -771,7 +781,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           </div>}
         </fieldset>
         })}
-        {(!items.length || containsLast) && <button className="button mm-row-add" type="button" name="add-step" ref={!items.length ? focusInitialMethod : undefined} data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> Add cooking step</button>}
+        {!desktopEdit && (!items.length || containsLast) && addStepButton}
       </section>
     }
 

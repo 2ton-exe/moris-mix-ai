@@ -333,8 +333,7 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
     expect(await screen.findByRole('heading', { name: "Review Mori's recipe." })).toBeTruthy()
     const saveContext = screen.getByRole('region', { name: 'Before you save' })
-    expect(saveContext.textContent).toContain('Next and Previous name each section.')
-    expect(saveContext.textContent).toContain('Save follows the cooking steps on the final page.')
+    expect(saveContext.textContent).toContain('On the final page, choose Save recipe to add your edited recipe to My recipes.')
     await waitFor(() => expect(screen.getByRole('group', { name: 'Mori companion' }).getAttribute('data-activity')).toBe('celebrating'))
     fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
     expect(document.querySelector('.mori-pet-message')?.textContent).toBe('Your recipe idea is ready for review.')
@@ -358,7 +357,11 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByText('Optional details from Mori'))
     expect(details.getByText('bell pepper')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save recipe' })).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Before you save' }).textContent).toContain('Only checked parent recipes will be linked')
+    const saveHelp = within(screen.getByRole('region', { name: 'Before you save' }))
+    const linksHelp = saveHelp.getByText('What are recipe links?').closest('details')!
+    expect(linksHelp.open).toBe(false)
+    expect(linksHelp.textContent).toContain('link as inspiration')
+    expect(linksHelp.textContent).toContain('You can save without links.')
   })
 
   it('distinguishes the generated ingredients from the request and describes flavor estimates accessibly', async () => {

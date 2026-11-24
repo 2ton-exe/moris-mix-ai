@@ -154,7 +154,7 @@ it('distinguishes an empty journal from no search matches and clears the search'
   await enterSearch('missing')
   await screen.findByRole('heading', { name: 'No recipes match your search.' })
   expect(screen.queryByText(/fresh page/)).toBeNull()
-  expect(screen.getByText(/reset your search options to see your full collection/i)).toBeTruthy()
+  expect(screen.getByText('You searched recipe titles. Try both with the same search.')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Show all recipes' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Reset search, sort, and filters' })).toBeNull()
   const reset = screen.getByRole('button', { name: 'Show all recipes' })
@@ -163,6 +163,17 @@ it('distinguishes an empty journal from no search matches and clears the search'
   await screen.findByRole('heading', { name: 'A fresh page for your next favorite.' })
   expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved recipes (0)' })))
+})
+
+it('broadens an empty title search without clearing the query or sort', async () => {
+  page.mockImplementation(async ({ criteria }) => ({ recipes: criteria.searchMode === 'both' ? [rice] : [], nextPage: null }))
+  render(tree('cook-a', '/app/recipes?view=index&q=rice&sort=rating'))
+  const broaden = await screen.findByRole('button', { name: 'Search titles and ingredients' })
+  broaden.focus()
+  fireEvent.click(broaden)
+  await ready()
+  expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ criteria: expect.objectContaining({ search: 'rice', sort: 'rating', searchMode: 'both' }) }))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved recipes (1)' })))
 })
 
 it('updates companion guidance when clearing a search while preserving the open panel', async () => {

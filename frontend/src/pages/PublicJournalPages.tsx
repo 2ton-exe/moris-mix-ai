@@ -13,7 +13,7 @@ function PublicPage({ title, children }: { title: string; children: ReactNode })
 
 export function HomePage() {
   return <PublicPage title="Good meals deserve a page.">
-    <p className="intro">Keep the recipes you return to, the changes you make, and the little notes that make a meal yours.</p>
+    <p className="intro">Keep the recipes you return to and the notes that make them yours. <Link to="/about">See how the journal works</Link>.</p>
     <div className="actions">
       <Link className="button button-primary" to="/signup">Start a private journal</Link>
       <Link className="button button-secondary" to="/login">Log in to your journal</Link>
@@ -33,12 +33,13 @@ export function AboutPage() {
     <p className="intro">Your recipes stay private in your account.</p>
     <section className="mm-public-note mm-public-workflow" aria-labelledby="public-workflow-heading">
       <h2 id="public-workflow-heading">From note to recipe</h2>
-      <p className="mm-public-workflow__steps">Save ingredients and steps, then rate and note each dish.</p>
+      <p className="mm-public-workflow__steps"><strong>Quick AI Entry</strong> turns rough cooking notes into a draft you can edit.</p>
       <div className="mm-public-example">
         <p><strong>Rough note</strong><br />“Eggs, garlic, leftover rice, soy sauce.”</p>
         <p><strong>Mori’s draft</strong><br />Garlic egg fried rice: 2 eggs, garlic, rice, soy sauce. Fry eggs, then stir in rice.</p>
       </div>
       <p className="mm-public-workflow__hint">Review and edit before saving. <Link to="/demo-recipe">Read a sample recipe</Link>.</p>
+      <p className="mm-public-workflow__steps"><strong>New recipe</strong> lets you write it yourself. <strong>AI Chef</strong> suggests what to cook with the ingredients you have.</p>
     </section>
     <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in</Link></div>
   </PublicPage>
