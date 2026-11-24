@@ -83,6 +83,26 @@ jobs:
       - name: Test production workflow safety (offline)
         run: node --test scripts/production-workflow.test.mjs scripts/ai-route-smoke.test.mjs
 
+      - name: Register a synthetic Actions mask and output
+        id: synthetic-mask-probe
+        shell: bash
+        run: |
+          probe_prefix='SYNTHETIC_BACKUP_METADATA'
+          probe_suffix='MASK_PROBE'
+          synthetic_value="${probe_prefix}_${probe_suffix}"
+          printf '::add-mask::%s\n' "$synthetic_value"
+          printf 'value=%s\n' "$synthetic_value" >> "$GITHUB_OUTPUT"
+
+      - name: Verify masked synthetic output propagation
+        env:
+          MASKED_SYNTHETIC_VALUE: ${{ steps.synthetic-mask-probe.outputs.value }}
+        run: |
+          probe_prefix='SYNTHETIC_BACKUP_METADATA'
+          probe_suffix='MASK_PROBE'
+          expected="${probe_prefix}_${probe_suffix}"
+          test "$MASKED_SYNTHETIC_VALUE" = "$expected"
+          printf 'Same-job synthetic output propagated under mask: %s\n' "$MASKED_SYNTHETIC_VALUE"
+
       - name: Test production queue safety (offline)
         run: node --test scripts/production-queue-safety.test.mjs
 

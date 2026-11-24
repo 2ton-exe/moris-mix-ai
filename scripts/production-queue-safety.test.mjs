@@ -58,6 +58,58 @@ test('backup queue preserves unique run attempts and private local verification 
   assert.match(verify.run, /umask 077/);
 });
 
+test('restricted backup metadata is masked before use and remains available within the job', () => {
+  const bundle = step(backup, 'Create Supabase logical backup bundle');
+  const verify = step(backup, 'Verify uploaded backup objects');
+  assert.ok(bundle, 'backup bundle step must exist');
+  assert.ok(verify, 'backup verification step must exist');
+
+  const protectedNames = [
+    'backup_id',
+    'backup_dir',
+    'consistency_dir',
+    'archive',
+    'evidence',
+    'object_prefix',
+    'object_key',
+    'evidence_key',
+    'generated_at',
+  ];
+  const initialMask = bundle.run.indexOf('for protected_value in');
+  const firstPathUse = bundle.run.indexOf('mkdir -p "$backup_dir"');
+  assert.ok(initialMask >= 0 && initialMask < firstPathUse, 'paths and identifiers must be masked before file and dump operations');
+  const maskRegistration = bundle.run.slice(initialMask, firstPathUse);
+  for (const name of protectedNames) {
+    assert.ok(maskRegistration.includes(`"$${name}"`), `${name} must be registered with add-mask`);
+  }
+
+  const archiveDigest = bundle.run.indexOf('mask_workflow_value "$archive_sha256"');
+  assert.ok(archiveDigest > bundle.run.indexOf('archive_sha256="$(sha256sum'));
+  assert.ok(archiveDigest < bundle.run.indexOf('>> "$GITHUB_OUTPUT"'));
+  assert.doesNotMatch(bundle.run, /mask_workflow_value "\$(?:short_sha|archive_size_bytes)"/);
+
+  const verificationPathMask = verify.run.indexOf('mask_workflow_value "$verify_copy"');
+  const verificationMaskHelper = verify.run.indexOf('mask_workflow_value() {');
+  assert.ok(verificationMaskHelper >= 0 && verificationMaskHelper < verificationPathMask, 'verification step must define its own mask helper');
+  assert.ok(verificationPathMask > verify.run.indexOf('verify_copy="'));
+  assert.ok(verificationPathMask < verify.run.indexOf('aws s3 cp'));
+  const remoteDigestMask = verify.run.indexOf('mask_workflow_value "$remote_sha256"');
+  assert.ok(remoteDigestMask > verify.run.indexOf('remote_sha256="$(sha256sum'));
+  assert.ok(remoteDigestMask < verify.run.indexOf('if [[ "$remote_sha256"'));
+
+  const frontend = workflow('reusable-frontend').jobs.frontend;
+  const registerProbe = step(frontend, 'Register a synthetic Actions mask and output');
+  const consumeProbe = step(frontend, 'Verify masked synthetic output propagation');
+  assert.ok(registerProbe, 'runner-level masking probe must run in existing frontend CI');
+  assert.ok(consumeProbe, 'runner-level same-job output check must run in existing frontend CI');
+  assert.ok(frontend.steps.indexOf(registerProbe) < frontend.steps.indexOf(consumeProbe));
+  assert.match(registerProbe.run, /printf '::add-mask::%s\\n'/);
+  assert.match(registerProbe.run, />> "\$GITHUB_OUTPUT"/);
+  assert.equal(consumeProbe.env.MASKED_SYNTHETIC_VALUE, '${{ steps.synthetic-mask-probe.outputs.value }}');
+  assert.match(consumeProbe.run, /test "\$MASKED_SYNTHETIC_VALUE" = "\$expected"/);
+  assert.match(consumeProbe.run, /printf 'Same-job synthetic output propagated under mask:/);
+});
+
 test('public backup summary contains only fixed outcomes and no backup identifiers', () => {
   const summary = step(backup, 'Record backup evidence');
   assert.ok(summary, 'backup evidence summary step must exist');
@@ -95,8 +147,11 @@ test('private R2 CLI failures publish only fixed labels', () => {
       GITHUB_RUN_ID: 'synthetic-run-id',
       GITHUB_RUN_ATTEMPT: '1',
     };
+    // The local shell harness has no Actions command processor; the CI probe tests real runner masking.
+    const runnerNeutralRun = run.replace(/printf '::add-mask::%s\\n' "\$value"/g, ': "$value"');
     const harness = [
       ...Object.entries(syntheticEnv).map(([name, value]) => `export ${name}='${value}'`),
+      'mask_workflow_value() { return 0; }',
       'aws() {',
       '  local aws_action=unknown',
       '  if [[ "$1" == s3 && "$2" == cp ]]; then',
@@ -118,7 +173,7 @@ test('private R2 CLI failures publish only fixed labels', () => {
       '  return 0',
       '}',
       'sha256sum() { printf "%s  %s\\n" "$EXPECTED_SHA256" "${1:-}"; }',
-      run,
+      runnerNeutralRun,
     ].join('\n');
 
     const shell = process.platform === 'win32' ? 'wsl.exe' : 'bash';
