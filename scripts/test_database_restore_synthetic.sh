@@ -72,7 +72,21 @@ else
   start_status=$?
   failure_class=unknown
   if grep -Fq 'Disposable Supabase startup failed' "$root/start.out" "$root/start.err"; then
-    failure_class=database-start
+    if grep -Eiq '(docker daemon|docker socket|cannot connect to docker)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-daemon
+    elif grep -Eiq '(health check|healthcheck|failed to start container)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-container
+    elif grep -Eiq '(network|gateway)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-network
+    elif grep -Eiq '(port|bind|listen)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-port
+    elif grep -Eiq '(image|pull|manifest)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image
+    elif grep -Eiq '(auth|migration|baseline)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-baseline
+    else
+      failure_class=database-start-other
+    fi
   elif grep -Fq 'Disposable restore network isolation failed' "$root/start.out" "$root/start.err"; then
     failure_class=network-isolation
   elif grep -Fq 'Disposable PostgreSQL host binding is not loopback-only' "$root/start.out" "$root/start.err"; then
