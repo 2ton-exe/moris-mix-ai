@@ -1572,6 +1572,7 @@ rm() {
                 self.assertEqual(result.returncode, expected, f"stdout={stdout!r}; stderr={stderr!r}")
                 self.assertEqual(stderr, "")
                 expected_output = (
+                    "restore-runner-bootstrap-ingress-cleanup=not-installed\n"
                     "Isolated database, volumes, network guard, and private runner files cleaned.\n"
                     if expected == 0 else
                     "::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM\n"

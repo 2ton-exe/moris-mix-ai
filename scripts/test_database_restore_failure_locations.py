@@ -268,7 +268,8 @@ bash scripts/test_database_restore_synthetic.sh
                     "Synthetic startup failure stage: database-start",
                     "synthetic-startup-probe container=unknown state=unknown pg_ready=unverified",
                     "::error::Synthetic protected target setup failed; class=database-start-other", shutdown,
-                    "synthetic-project-cleanup=pass", "synthetic-network-cleanup=pass",
+                    "synthetic-project-cleanup=pass", "restore-runner-bootstrap-ingress-cleanup=pass",
+                    "synthetic-network-cleanup=pass",
                     "synthetic-fixture-cleanup=pass"
                 ])
                 self.assertEqual({p.name for p in Path(tmp).iterdir()}, {"stop-called"})
