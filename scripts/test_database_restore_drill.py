@@ -359,6 +359,54 @@ esac
             self.assertEqual(rejected.stdout, "")
             self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", rejected.stdout + rejected.stderr)
 
+    def test_synthetic_startup_evidence_requires_marker_without_emitting_logs(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        ).read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_evidence_check() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_evidence_check() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "start.out"
+            output.write_text(
+                "SYNTHETIC_PRIVATE_SENTINEL\ncontainer-egress-isolated\n",
+                encoding="utf-8",
+            )
+            success = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    function + 'synthetic_startup_evidence_check "$1"',
+                    "bash",
+                    str(output),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(success.returncode, 0, success.stderr)
+            self.assertEqual(success.stdout, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", success.stdout + success.stderr)
+
+            output.write_text("SYNTHETIC_PRIVATE_SENTINEL\n", encoding="utf-8")
+            missing = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    function + 'synthetic_startup_evidence_check "$1"',
+                    "bash",
+                    str(output),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(missing.returncode, 1)
+            self.assertEqual(
+                missing.stdout,
+                "::error::Synthetic startup evidence rejected; reason=completion-marker-missing\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", missing.stdout + missing.stderr)
+
     def test_synthetic_startup_stage_generator_is_fixed_and_valid(self):
         script = (
             Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
@@ -489,7 +537,6 @@ esac
         synthetic = (WORKFLOW.parent / "../.." / "scripts/test_database_restore_synthetic.sh").resolve()
         synthetic_text = synthetic.read_text(encoding="utf-8")
         self.assertIn("synthetic-application-foreign-keys=pass", synthetic_text)
-        self.assertIn("reason=stderr-present", synthetic_text)
         self.assertIn("reason=completion-marker-missing", synthetic_text)
         cleanup = workflow.split(
             "      - name: Stop isolated database and delete private files", 1

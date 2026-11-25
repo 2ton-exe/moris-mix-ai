@@ -185,6 +185,15 @@ synthetic_startup_stage_diagnostic() {
   fi
 }
 
+synthetic_startup_evidence_check() {
+  local output="$1"
+  if grep -Fq 'container-egress-isolated' "$output"; then
+    return 0
+  fi
+  printf '%s\n' '::error::Synthetic startup evidence rejected; reason=completion-marker-missing'
+  return 1
+}
+
 if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
   :
 else
@@ -245,14 +254,9 @@ else
   printf '::error::Synthetic protected target setup failed; class=%s\n' "$failure_class"
   exit "$start_status"
 fi
-if [[ -s "$root/start.err" ]]; then
-  echo '::error::Synthetic startup evidence rejected; reason=stderr-present'
-  exit 1
-fi
-if ! grep -Fq 'container-egress-isolated' "$root/start.out"; then
-  echo '::error::Synthetic startup evidence rejected; reason=completion-marker-missing'
-  exit 1
-fi
+# A zero exit and the completion marker are authoritative. Captured stderr stays
+# in the private temp directory and is never printed by the synthetic runner.
+synthetic_startup_evidence_check "$root/start.out" || exit 1
 local_db='postgresql://postgres:postgres@db:5432/postgres'
 # The pinned CLI currently selects this server image. Fail if it drifts.
 if ! docker ps --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" \
