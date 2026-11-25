@@ -59,7 +59,8 @@ export async function navigateToRecipeSection(page: Page, sectionName: string) {
   const pageNavigation = page.getByRole('navigation', { name: 'Recipe writing pages', exact: true })
   const nextPage = pageNavigation.getByRole('button', { name: /^Next(?: Pages?$|:)/ })
   const previousPage = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true }).getByRole('button', { name: /^Previous/ })
-  const pagePosition = pageNavigation.locator('.mm-pagination-number')
+  const reviewProgress = page.locator('.mm-review-progress')
+  const pagePosition = await reviewProgress.count() ? reviewProgress : pageNavigation.locator('.mm-pagination-number')
 
   // A responsive layout change can put the requested section behind the current leaf.
   let backwards = false
