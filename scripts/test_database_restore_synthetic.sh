@@ -1026,7 +1026,24 @@ echo 'synthetic-admin-replay=pass membership=pass parameter=pass ownership=pass'
 
 if ! run_restore_step aggregates ||
     ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
-  echo '::error::Synthetic postgres aggregate verification failed after administrative replay'
+  aggregate_stage=unclassified
+  if grep -Fxq '::error::Restore target network isolation check failed' "$root/step.out"; then
+    aggregate_stage=network-isolation
+  elif grep -Fxq '::error::Database aggregate verification query failed' "$root/step.out"; then
+    aggregate_stage=aggregate-query
+  elif grep -Fxq 'Restored row counts do not match backup' "$root/step.err" ||
+       grep -Fxq 'Restored migration version set does not match backup' "$root/step.err"; then
+    aggregate_stage=count-or-version-check
+  elif grep -Fxq '::error::Application foreign-key verification query is unavailable' "$root/step.out"; then
+    aggregate_stage=foreign-key-query-unavailable
+  elif grep -Fxq '::error::Application foreign-key verification query failed' "$root/step.out"; then
+    aggregate_stage=foreign-key-query
+  elif grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out"; then
+    aggregate_stage=foreign-key-integrity
+  elif grep -Fxq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
+    aggregate_stage=after-count-check
+  fi
+  printf '::error::Synthetic postgres aggregate verification failed; safe_stage=%s\n' "$aggregate_stage"
   exit 1
 fi
 echo 'synthetic-postgres-aggregates=pass'
