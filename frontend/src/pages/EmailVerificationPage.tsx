@@ -8,10 +8,17 @@ import { ErrorState } from '../components/ErrorState'
 import { AuthField } from '../components/AuthField'
 import { getAuthCallbackResult, updateRecoveredPassword, type AuthCallbackResult } from '../auth/client'
 import { JournalAuthCard, JournalAuthScene } from '../journal/JournalAuth'
+import { useJournalMedia } from '../journal/useJournalMedia'
 
 export default function EmailVerificationPage({ callback = false }: { callback?: boolean }) {
   const { session, isLoading, error: initializationError, retryInitialization, resendVerification } = useAuth()
   const location = useLocation()
+  const desktopRecovery = useJournalMedia('(hover: hover) and (pointer: fine)')
+  const [resetHint] = useState(() => {
+    const query = new URLSearchParams(location.search)
+    return query.get('flow') === 'recovery' || query.get('type') === 'recovery'
+      || new URLSearchParams(location.hash.slice(1)).get('type') === 'recovery'
+  })
   const [callbackResult, setCallbackResult] = useState<AuthCallbackResult | 'checking'>('checking')
   useEffect(() => {
     if (!callback) return
@@ -51,7 +58,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
   const checking = isLoading || (callback && callbackResult === 'checking')
   const recovery = callback && callbackResult !== 'checking' && callbackResult.kind === 'recovery' ? callbackResult : null
   const callbackUnavailable = callback && callbackResult !== 'checking' && callbackResult.kind === 'invalid'
-  const resetLinkUnavailable = Boolean(recovery)
+  const resetLinkUnavailable = Boolean(recovery) || (desktopRecovery && callbackUnavailable && resetHint)
   if (recovery && !initializationError && !checking && session?.access_token === recovery.accessToken) {
     return <VerifiedPasswordReset accessToken={recovery.accessToken} />
   }
@@ -86,7 +93,7 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
         </> : checking ? <LoadingState message="Checking your verification link…" /> : verified
           ? <div className="actions"><Link className="button button-primary mm-button--large" to={intendedDestination(location.state)}>Continue to your journal</Link></div>
           : resetLinkUnavailable ? <div className="actions">
-            <Link className="button button-primary" to="/login?flow=recovery">Request a new reset link</Link>
+            <Link className="button button-primary" to="/login?flow=recovery" state={location.state}>Request a new reset link</Link>
             <Link className="button button-secondary" to="/login">Back to login</Link>
           </div>
           : callbackUnavailable ? <>

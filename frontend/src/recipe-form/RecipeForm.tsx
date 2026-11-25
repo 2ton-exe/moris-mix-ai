@@ -15,6 +15,8 @@ export type RecipeFormProps = {
   initialValuesAreUnsaved?: boolean
   initialSaveConfirmation?: RecipeSaveConfirmation
   saveSuccessMessage?: string
+  createSubmitLabel?: string
+  savedAction?: ReactNode
   onSubmit?: (draft: RecipeDraft, context: { signal: AbortSignal }) => Promise<RecipeSaveConfirmation>
   onCancel?: () => void
   cancelLabel?: string
@@ -27,10 +29,14 @@ export type RecipeFormProps = {
   draftKeptInSession?: boolean
   editorTitle?: string
   notesSupported?: boolean
-  renderFrame?: (content: ReactNode, titleEditor?: ReactNode) => ReactNode
+  renderFrame?: (content: ReactNode, initialDesktopReview?: boolean, showingReceipt?: boolean) => ReactNode
   notice?: ReactNode
   reviewPage?: { title: string; content: ReactNode }
   reviewStatus?: ReactNode
+  reviewSaveContext?: ReactNode
+  reviewReceipt?: ReactNode
+  reviewComparison?: (editAmount?: ReactNode) => ReactNode
+  comparisonIngredient?: string
   supplement?: ReactNode
 }
 

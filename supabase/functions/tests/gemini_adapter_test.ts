@@ -1062,6 +1062,44 @@ Deno.test("generateRecipe uses the Chef prompt, candidate IDs and validated outp
   assertFalse(JSON.stringify(logs).includes("Egg Fried Rice"));
 });
 
+Deno.test("Recipe revision prompts send only the selected observation and exact source amounts", async () => {
+  const noteExcerpt = "Too salty with ¼ cup soy sauce. Keep the vinegar.";
+  const revisionReason =
+    "Reducing soy sauce addresses the saltiness you noted.";
+  const logs: AIOperationLog[] = [];
+  const source = {
+    id: PARENT_ID,
+    title: "Chicken Adobo",
+    ingredients: [{
+      name: "soy sauce",
+      quantity: 0.25,
+      unit: "cup",
+      inferred: false,
+    }],
+    instructions: [{ step: 1, text: "Simmer with soy sauce." }],
+    star_rating: 5,
+    notes: "Unrelated private text that must not be sent.",
+  };
+  let prompt = "";
+  const adapter = adapterWith(async (value) => {
+    prompt = value;
+    return JSON.stringify({ ...VALID_GENERATED, revisionReason });
+  }, (entry) => logs.push(entry));
+
+  const result = await adapter.generateRecipe(
+    { pantryItems: [] },
+    { source, noteExcerpt },
+  );
+
+  assertEquals(result.revisionReason, revisionReason);
+  assert(prompt.includes('"quantity":0.25,"unit":"cup"'));
+  assert(prompt.includes(noteExcerpt));
+  assertFalse(prompt.includes(source.notes));
+  assertEquals(logs[0].promptId, "recipe-revision");
+  assertFalse(JSON.stringify(logs).includes(noteExcerpt));
+  assertFalse(JSON.stringify(logs).includes(revisionReason));
+});
+
 Deno.test("generateRecipe cold start sends no candidate IDs and accepts no parents", async () => {
   let prompt = "";
   const adapter = adapterWith(async (value) => {

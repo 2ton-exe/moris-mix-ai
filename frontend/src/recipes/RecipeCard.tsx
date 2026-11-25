@@ -21,13 +21,13 @@ export function RecipeMetadata({ recipe, showCookedAt = true, compact = false }:
   )
 }
 
-export function RecipeIndexCardContent({ recipe, folio, duplicateTitle = false }: { recipe?: RecipeSummary; folio?: number; duplicateTitle?: boolean }) {
+export function RecipeIndexCardContent({ recipe, folio, linkedTitle, duplicateTitle = false }: { recipe?: RecipeSummary; folio?: number; linkedTitle?: ReactNode; duplicateTitle?: boolean }) {
   return <>
     {folio === undefined
       ? <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
       : <span className="mm-index-card__number">No. {String(folio).padStart(2, '0')}</span>}
     <div className="mm-recipe-card__copy">
-      <h2>{recipe ? recipe.title : <span className="mm-skeleton-line" />}</h2>
+      <h2 aria-label={linkedTitle ? recipe?.title : undefined}>{linkedTitle ?? recipe?.title ?? <span className="mm-skeleton-line" />}</h2>
       {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
       {duplicateTitle && recipe?.notes?.trim() && <p className="mm-recipe-card__disambiguator">Note: {recipe.notes.trim().length > 128 ? `${recipe.notes.trim().slice(0, 128).trimEnd()}…` : recipe.notes.trim()}</p>}
     </div>
@@ -35,13 +35,13 @@ export function RecipeIndexCardContent({ recipe, folio, duplicateTitle = false }
   </>
 }
 
-export function RecipeCollectionCardContent({ recipe, folio, image, editorial = false, duplicateTitle = false }: { recipe?: RecipeSummary; folio: number; image?: ReactNode; editorial?: boolean; duplicateTitle?: boolean }) {
+export function RecipeCollectionCardContent({ recipe, folio, image, linkedTitle, editorial = false, duplicateTitle = false }: { recipe?: RecipeSummary; folio: number; image?: ReactNode; linkedTitle?: ReactNode; editorial?: boolean; duplicateTitle?: boolean }) {
   const notes = (editorial || duplicateTitle) && recipe?.notes?.trim()
   return <>
     <RecipeScrapArtwork title={recipe?.title ?? ''} cookedAt={recipe?.cooked_at} loading={!recipe} image={image} />
     <div className="mm-recipe-card__copy">
       <span className="mm-recipe-card__folio" aria-hidden="true">No. {String(folio).padStart(2, '0')}</span>
-      <p className="mm-collection-entry__title">{recipe ? recipe.title : <span className="mm-skeleton-line" />}</p>
+      <p className="mm-collection-entry__title">{linkedTitle ?? recipe?.title ?? <span className="mm-skeleton-line" />}</p>
       {recipe ? <RecipeMetadata recipe={recipe} compact={editorial} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
       {notes && <p className={`mm-collection-entry__notes${duplicateTitle ? ' mm-recipe-card__disambiguator' : ''}`}>{notes.length > 128 ? `${notes.slice(0, 128).trimEnd()}…` : notes}</p>}
       {editorial && <span className="mm-collection-entry__open" aria-hidden="true">Open recipe <ArrowRight size={16} /></span>}
@@ -106,16 +106,21 @@ export function RecipeCard({ recipe, folio, indexCard = false, editorial = false
       .catch(() => { if (!controller.signal.aborted) setPhotoUrl(null) })
   }
 
+  const linkedTitle = <Link className="mm-recipe-card__link" data-recipe-id={recipe.id}
+    to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }}
+    aria-label={`Open recipe ${recipe.title}${duplicateContext}`} onClick={(event) => {
+      if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+        navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
+      }
+    }}>{recipe.title}</Link>
+
   return (
     <li className="mm-recipe-card-slot">
-      <Link className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`} data-recipe-id={recipe.id} to={`/app/recipes/${encodeURIComponent(recipe.id)}`} state={{ recipeFolio: folio, journalReturn }} aria-label={`Open recipe ${recipe.title}${duplicateContext}`} onClick={(event) => {
-        if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
-          navigate(journalReturn, { replace: true, state: { ...location.state, focusRecipe: recipe.id } })
-        }
-      }}>
-        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} duplicateTitle={duplicateTitle} /> : <RecipeCollectionCardContent recipe={recipe} folio={folio} editorial={editorial} duplicateTitle={duplicateTitle}
-          image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
-      </Link>
+      <div className={`${indexCard ? 'mm-index-card' : 'mm-collection-entry'}${folio % 2 === 0 ? ' is-flipped' : ''}`}>
+        {indexCard ? <RecipeIndexCardContent recipe={recipe} folio={folio} linkedTitle={linkedTitle} duplicateTitle={duplicateTitle} />
+          : <RecipeCollectionCardContent recipe={recipe} folio={folio} linkedTitle={linkedTitle} editorial={editorial} duplicateTitle={duplicateTitle}
+            image={photoUrl ? <img className="recipe-image" src={photoUrl} alt={`${recipe.title} photo`} onError={refreshPhoto} /> : undefined} />}
+      </div>
     </li>
   )
 }

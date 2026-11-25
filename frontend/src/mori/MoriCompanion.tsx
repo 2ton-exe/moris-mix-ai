@@ -18,6 +18,8 @@ const navigationTapArm = -58
 const navigationTapStyle: CSSProperties & { '--mori-navigation-arm': string } = { '--mori-navigation-arm': `${navigationTapArm}deg` }
 const defaultChatSize = { width: 520, height: 560 }
 const smallChatSize = { width: 380, height: 420 }
+const emptyChatSize = { width: 390, height: 336 }
+const smallEmptyChatSize = { width: 320, height: 300 }
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({
   hidden: z.boolean().default(false),
@@ -52,7 +54,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const location = useLocation()
   const [preferences, setPreferences] = useState(readPreferences)
   const [open, setOpen] = useState(false)
-  const [chatSize, setChatSize] = useState(defaultChatSize)
+  const [chatSize, setChatSize] = useState<typeof defaultChatSize | null>(null)
+  const [hasConversation, setHasConversation] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [pageTurn, setPageTurn] = useState(false)
@@ -62,6 +65,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
   const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
+  const desktopPointer = useJournalMedia('(hover: hover) and (pointer: fine)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
@@ -117,17 +121,18 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       const next = rect?.width ? moriRestFoot(rect) : null
       let dockPosition: Position | null = null
       if (next && rect && paper) {
-        const x = next.x - size / 2
+        const candidate = clamp({ x: next.x - width / 2, y: next.y - MORI_FOOT.y * MORI_ART_SCALE })
+        const x = candidate.x + (width - size) / 2
         const artHeight = size * 1.2 + 24
         const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable]'), (control) => control.getBoundingClientRect())
           .filter((control) => control.width && control.height && control.left < x + size && control.right > x)
-        let y = next.y - MORI_FOOT.y * MORI_ART_SCALE
+        let y = candidate.y
         const minimum = Math.max(rect.top + 8, 8)
         controls.sort((a, b) => b.bottom - a.bottom)
         for (const control of controls) {
           if (control.top < y + artHeight && control.bottom > y) y = control.top - artHeight - 4
         }
-        if (y >= minimum) dockPosition = { x: next.x - width / 2, y }
+        if (y >= minimum) dockPosition = { x: candidate.x, y }
       }
       setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
     }
@@ -150,7 +155,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       window.removeEventListener('scroll', place)
       window.removeEventListener('resize', place)
     }
-  }, [location.pathname, singleLayout, size, width])
+  }, [location.pathname, singleLayout, size, width, clamp])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
   useEffect(() => {
     if (keepOpen) setOpen(true)
@@ -262,8 +267,11 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const resizeFromSide = resizableChat && (placement === 'left' || placement === 'right')
   const resizeBottom = Math.min(bottom, Math.max(top + defaultChatSize.height, mouthY + defaultChatSize.height / 2))
   const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : (resizeFromSide ? resizeBottom : bottom) - top
-  const preferredWidth = resizableChat ? chatSize.width : userId && viewport.width >= 1100 ? defaultChatSize.width : 380
-  const preferredHeight = resizableChat ? chatSize.height : userId && viewport.width >= 1100 ? defaultChatSize.height : 460
+  const standardChat = hasConversation || !desktopPointer ? defaultChatSize : emptyChatSize
+  const smallChat = hasConversation || !desktopPointer ? smallChatSize : smallEmptyChatSize
+  const preferredChat = chatSize ?? standardChat
+  const preferredWidth = resizableChat ? preferredChat.width : userId && viewport.width >= 1100 ? defaultChatSize.width : 380
+  const preferredHeight = resizableChat ? preferredChat.height : userId && viewport.width >= 1100 ? defaultChatSize.height : 460
   const panelWidth = placement === 'left'
     ? Math.min(preferredWidth, viewport.width - 16, leftSpace)
     : placement === 'right'
@@ -288,8 +296,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     : Math.max(20, Math.min(panelWidth - 20, actual.x + width / 2 - panelLeft))
   function resizeChat(width: number, height: number) {
     setChatSize({
-      width: Math.min(sideSpace, Math.max(smallChatSize.width, width)),
-      height: Math.min(verticalSpace, Math.max(smallChatSize.height, height)),
+      width: Math.min(sideSpace, Math.max(smallChat.width, width)),
+      height: Math.min(verticalSpace, Math.max(smallChat.height, height)),
     })
   }
   useLayoutEffect(() => {
@@ -435,7 +443,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} onConversationChange={setHasConversation} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
@@ -444,7 +452,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
         {resizeFromSide && <button className="mori-pet-resize" type="button" aria-label="Resize Mori chat" aria-description="Drag or use the arrow keys to resize. Activate to switch between small and standard sizes." aria-controls={panelId}
           onClick={(event) => {
             if (event.detail > 0 && resizedByDrag.current) return
-            setChatSize(chatSize === smallChatSize ? defaultChatSize : smallChatSize)
+            setChatSize(chatSize === smallChat ? null : smallChat)
           }}
           onKeyDown={(event) => {
             const horizontal = event.key === 'ArrowLeft' ? -24 : event.key === 'ArrowRight' ? 24 : 0

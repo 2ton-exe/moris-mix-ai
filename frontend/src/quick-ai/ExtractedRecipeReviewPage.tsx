@@ -43,13 +43,15 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   const location = useLocation()
   const navigate = useNavigate()
   const single = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
+  const desktop = useJournalMedia('(hover: hover) and (pointer: fine)')
   const { markReviewCompleted } = useMoriReviewCompletion()
   const { user, logout } = useAuth()
   const registerLogoutGuard = useContext(JournalLogoutGuardContext)
   const [initialRead] = useState(() => readQuickAiEntryDraftResult(userId))
   const stored = initialRead.draft
   const [dirty, setDirty] = useState(false)
-  const [consumed, setConsumed] = useState(false)
+  const [savedRecipe, setSavedRecipe] = useState<{ id: string; title: string } | null>(null)
+  const consumed = savedRecipe !== null
   const [storageIssue, setStorageIssue] = useState<ReviewStorageIssue | null>(initialRead.status === 'available' ? null : initialRead.status)
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false)
   const [logoutPending, setLogoutPending] = useState(false)
@@ -146,7 +148,7 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       const reviewKey = moriReviewKeyFromState(location.state)
       if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
       consumeHandoff()
-      setConsumed(true)
+      setSavedRecipe({ id: confirmation.id, title: draft.title })
     }
     return confirmation
   }
@@ -163,6 +165,15 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
     ? 'Review each named section. Save from the final page.'
     : 'Review each named section, then save from the final page. Keep this page open while you review.'
   const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} draftKeptInTab={storageIssue === null} />
+  const repeatNotes = () => navigate('/app/quick-entry', { state: returnState })
+  const reviewReceipt = desktop && savedRecipe && storageIssue === null && !logoutError && <>
+    <h2 tabIndex={-1}>{savedRecipe.title}</h2>
+    <p role="status">Recipe saved.</p>
+    <div className="actions">
+      <Link className="button button-primary" to={'/app/recipes/' + encodeURIComponent(savedRecipe.id)}>Open saved recipe</Link>
+      <button type="button" className="button button-secondary" onClick={repeatNotes}>Use these notes again</button>
+    </div>
+  </>
   const pageNotice = <>
     {storageNotice}
     {logoutError && <p className="field-error" role="alert">{logoutError}</p>}
@@ -192,11 +203,12 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
       onDirtyChange={setDirty}
       onEditorStateChange={updateStoredReviewDraft}
       cancelLabel={consumed && !dirty && storageIssue === null ? 'Use these notes again' : 'Back to Mori notes'}
-      onCancel={() => navigate('/app/quick-entry', { state: returnState })}
+      onCancel={repeatNotes}
+      reviewReceipt={reviewReceipt}
       notice={pageNotice}
       supplement={single ? extractionNotice : undefined}
-      renderFrame={(content) => <RecipeEditorFrame mode="create" connected showBack={false}
-        headingTitle={editorTitle} headingIntro={editorIntro}
+      renderFrame={(content, _initialDesktopReview, showingReceipt) => <RecipeEditorFrame mode="create" connected showBack={false}
+        headingTitle={showingReceipt ? 'Your recipe is saved.' : editorTitle} headingIntro={editorIntro}
         facingPageContent={!single && extractionNotice}
         navigationConfirmation={{ ...navigationConfirmation, discardChanges: discardAndLeave }}>{content}</RecipeEditorFrame>} />
   </>

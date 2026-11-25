@@ -23,19 +23,32 @@ import './newRecipeScrapbook.css'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
+function reviewPageSize(form: HTMLFormElement) {
+  const page = form.querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')
+  if (!page?.parentElement) return null
+  const height = Number.parseFloat(getComputedStyle(page.parentElement).minHeight)
+  if (!height) return null
+  const style = getComputedStyle(page)
+  return {
+    height,
+    width: page.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+  }
+}
+
 function resizeTextarea(target: EventTarget | null) {
   if (!(target instanceof HTMLTextAreaElement)) return
   target.style.height = 'auto'
   target.style.height = `${target.scrollHeight}px`
 }
 
-export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
   const [hasConfirmedSave, setHasConfirmedSave] = useState(initialSaveConfirmation !== undefined)
+  const [editingFromReceipt, setEditingFromReceipt] = useState(false)
   const [confirmationMessage, setConfirmationMessage] = useState(initialSaveConfirmation?.statusMessage ?? 'Recipe saved.')
   const [pending, setPending] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
@@ -92,6 +105,8 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }, [movingRow])
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const instructionColumns = desktopRecipeEditor ? Math.max(1, textPageColumns - 18) : textPageColumns
+  const hasComparison = Boolean(reviewComparison)
+  const flowingReview = desktopReview && hasComparison
   const leaves = useMemo(() => {
     const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows, instructionColumns })
     if (reviewWorkflow && reviewPage) {
@@ -101,9 +116,10 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         if (reviewLeaf) pages.push(reviewLeaf)
       }
     }
+    if (desktopReview && hasComparison) pages.unshift({ key: 'comparison', kind: 'comparison' })
     if (supplement && desktop && !single && !desktopEdit) pages.push({ key: 'supplement', kind: 'supplement' })
     return pages
-  }, [supplement, state, single, desktopReview, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes, instructionColumns])
+  }, [supplement, state, single, desktopReview, hasComparison, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes, instructionColumns])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
@@ -121,6 +137,13 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const estimateCount = showExtractionHints ? state.ingredients.filter((ingredient) => ingredient.inferred).length : 0
   const dirty = baseline === null || JSON.stringify(state) !== baseline
   const saved = hasConfirmedSave && !dirty
+  const showReviewReceipt = Boolean(reviewReceipt && saved && !editingFromReceipt)
+  const canSaveOnThisPage = finalPage || (editingFromReceipt && dirty)
+  useLayoutEffect(() => {
+    if (showReviewReceipt || editingFromReceipt) {
+      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-recipe-review__receipt h2' : '[data-form-focus-key="title"]')?.focus()
+    }
+  }, [showReviewReceipt, editingFromReceipt])
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
   useMoriActivity(message
     ? { kind: Object.keys(errors).length ? 'attention' : 'confused', message: 'Your recipe needs a little attention. Check the form message before serving it up.' }
@@ -157,14 +180,16 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     if (!book || single || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
       // Ingredient editors need extra room on short spreads.
-      const next = entry.contentRect.height < 740
+      const fixedPage = flowingReview && formRef.current && reviewPageSize(formRef.current)
+      const overhang = fixedPage ? Number.parseFloat(getComputedStyle(book).paddingBlockStart) * 2 : 0
+      const next = (fixedPage ? fixedPage.height + overhang : entry.contentRect.height) < 740
       if (next === compact) return
       rememberFocus(document.activeElement)
       setCompact(next)
     })
     observer.observe(book)
     return () => observer.disconnect()
-  }, [single, compact, rememberFocus])
+  }, [single, compact, flowingReview, rememberFocus])
 
   useLayoutEffect(() => {
     const form = formRef.current
@@ -172,15 +197,20 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const measure = () => {
       if (document.activeElement instanceof HTMLElement) rememberFocus(document.activeElement)
       const leaf = form.querySelector<HTMLElement>('.mm-writing-leaf')
-      if (!leaf || leaf.clientWidth <= 0 || leaf.clientHeight <= 0) return
-      const next = formTextPageLimit(leaf.clientWidth, leaf.clientHeight)
-      const nextRows = formTextPageRows(leaf.clientHeight)
-      const nextColumns = formTextPageColumns(leaf.clientWidth)
+      // A flowing review grows with its content. Paginate against the journal's
+      // viewport-based page size so a rendered leaf cannot change its own capacity.
+      const fixedPage = flowingReview ? reviewPageSize(form) : null
+      const width = fixedPage?.width ?? leaf?.clientWidth ?? 0
+      const height = fixedPage?.height ?? leaf?.clientHeight ?? 0
+      if (width <= 0 || height <= 0) return
+      const next = formTextPageLimit(width, height)
+      const nextRows = formTextPageRows(height)
+      const nextColumns = formTextPageColumns(width)
       setTextPageLength((current) => current === next ? current : next)
       setTextPageRows((current) => current === nextRows ? current : nextRows)
       setTextPageColumns((current) => current === nextColumns ? current : nextColumns)
       // shortcut: use a 350px budget for two summaries until rows are measured individually.
-      setRoomForTwoIngredientRows(desktopEdit && leaf.clientHeight >= 350)
+      setRoomForTwoIngredientRows(desktopEdit && height >= 350)
     }
     const book = form.querySelector<HTMLElement>('.mm-journal-book')
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
@@ -189,7 +219,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     window.addEventListener('resize', measure, true)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
-  }, [single, compact, desktopEdit, leaves.length, visibleIndicesKey, rememberFocus])
+  }, [single, compact, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus])
 
   useLayoutEffect(() => {
     formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
@@ -293,7 +323,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     focusField(path)
   }
 
-  function turnToPage(page: number, targetIndex?: number): boolean {
+  function turnToPage(page: number, targetIndex?: number, afterTurn?: () => void): boolean {
     if (pending || isTurning || ingredientDrag.active() || instructionDrag.active() || page < 0 || page >= position.total) return false
     const firstIndex = single ? page : page * 2
     const leaf = leaves[targetIndex ?? firstIndex]
@@ -303,9 +333,19 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       setPageAnchor(leafAnchorForPage(leaf))
       setPreviewAnchor(null)
       focusRequest.current = 'leaf-heading'
+      afterTurn?.()
       if (!reviewWorkflow) setAnnouncement('Opened ' + formPagePosition(firstIndex, leaves.length, single).text + '.')
     }, undefined, () => setPreviewAnchor(null))
   }
+
+  const ingredientIndex = comparisonIngredient === undefined ? -1
+    : state.ingredients.findIndex(({ name }) => name.trim().toLowerCase() === comparisonIngredient.trim().toLowerCase())
+  const editComparedAmount = ingredientIndex >= 0 && <button type="button" className="button button-secondary mm-button--small mm-review-edit-amount"
+    disabled={pending || isTurning} onClick={() => {
+      const path = `ingredients.${ingredientIndex}.quantity`
+      const index = leafIndexForAnchor(leaves, leafKeyForFieldPath(path, state))
+      turnToPage(single ? index : Math.floor(index / 2), index, () => prepareFieldForFocus(path))
+    }}>Edit proposed amount</button>
 
   function handlePageKeys(event: KeyboardEvent<HTMLFormElement>) {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
@@ -439,7 +479,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (submitting.current || ingredientDrag.active() || instructionDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !finalPage)) return
+    if (submitting.current || ingredientDrag.active() || instructionDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !canSaveOnThisPage)) return
     setMessage(null)
     setCelebrating(false)
     const result = validateEditor(state)
@@ -468,6 +508,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       setBaseline(JSON.stringify(state))
       onDirtyChange?.(false)
       setHasConfirmedSave(true)
+      setEditingFromReceipt(false)
       setCelebrating(true)
       setConfirmationMessage(confirmation.statusMessage ?? 'Recipe saved.')
     } catch (error) {
@@ -529,15 +570,6 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       value={state.title} onChange={(event) => changeTitle(event.target.value)} />
   </RecipeFormField>
 
-  const titleEditor = desktopReview && faceIndex === 0
-    ? <fieldset className="recipe-form-controls mm-chef-review__title" disabled={pending}>
-      {titleField}
-      <ReviewDetailDialog title="Recipe title" action="Expand recipe title">
-        <textarea aria-label="Full recipe title" rows={4} maxLength={200} value={state.title} onChange={(event) => changeTitle(event.target.value)} />
-      </ReviewDetailDialog>
-    </fieldset>
-    : undefined
-
   function renderLeaf(leaf: RecipeFormLeaf, index: number) {
     const leafNumber = index + 1
     const headingId = prefix + '-leaf-' + index
@@ -547,15 +579,23 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       : leaf.kind === 'identity' ? 'Recipe identity' : leaf.kind === 'notes' ? 'Personal notes' : leaf.kind.startsWith('ingredient') ? 'Ingredients' : 'Cooking method'
     let pageContent: ReactNode
 
-    if (leaf.kind === 'identity') {
+    if (leaf.kind === 'comparison') {
+      pageContent = reviewComparison?.(editComparedAmount)
+    } else if (leaf.kind === 'identity') {
       const changeNotes = (notes: string) => change({ ...state, notes })
       pageContent = <>
+        {!desktopReview && reviewComparison?.(editComparedAmount)}
         <section className={'recipe-form-section' + (desktopReview ? ' mm-chef-review__identity' : '')} aria-labelledby={headingId}>
           <div className="recipe-section-heading">
             <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
-            {reviewWorkflow && <span className="recipe-review-count">{invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? 'Check fields' : 'Ready'}</span>}
+            {reviewWorkflow && (invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
           </div>
-          {!desktopReview && <div>{titleField}</div>}
+          {desktopReview ? <div className="mm-chef-review__title">
+            {titleField}
+            <ReviewDetailDialog title="Recipe title" action="Expand recipe title">
+              <textarea aria-label="Full recipe title" rows={4} maxLength={200} value={state.title} onChange={(event) => changeTitle(event.target.value)} />
+            </ReviewDetailDialog>
+          </div> : <div>{titleField}</div>}
           {!desktopEdit && <h3>{desktopReview && <ScrapbookSticker decorative name="cooking-pot" />}Cooking information</h3>}
           <div className="recipe-amount-row">
             <RecipeFormField id={field('cooked_at').id} label={<>Cooked date <small aria-hidden="true">(optional)</small></>} error={errors.cooked_at}>
@@ -622,7 +662,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           <h2 id={headingId} tabIndex={-1}>{desktopCreate ? <span>Ingredients</span> : 'Ingredients'}</h2>
           {desktopCreate && <ScrapbookSticker name="ingredient-basket" className="mm-new-recipe__basket" decorative />}
           {estimateCount > 0 && <span className="recipe-review-count">{estimateCount} to review</span>}
-          {reviewWorkflow && estimateCount === 0 && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('ingredients') ? 'Check fields' : 'Ready'}</span>}
+          {reviewWorkflow && estimateCount === 0 && items.length > 0 && (invalidReviewFields.includes('ingredients') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
         </div>
         <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
         {desktopEdit && items.length > 0 && !editing && <p className="field-hint">Use the pencil to edit an ingredient.{state.ingredients.length > 1 && ' Drag a handle to reorder, or select it to choose a position.'}</p>}
@@ -642,7 +682,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
                     change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, inferred: false } : row) })
                     focusStable('ingredient:' + item.key + ':edit')
                     setAnnouncement('Ingredient ' + (rowIndex + 1) + ' marked as reviewed.')
-                  }}><Check size={14} aria-hidden="true" /> Needs review</button>}
+                  }}><Check size={14} aria-hidden="true" /> Mark as reviewed</button>}
               </span>
               <span className="recipe-ingredient-compact__actions">
                 <button className="recipe-ingredient-control recipe-ingredient-handle" type="button"
@@ -767,7 +807,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
           <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
-          {reviewWorkflow && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('instructions') ? 'Check fields' : 'Ready'}</span>}
+          {reviewWorkflow && items.length > 0 && (invalidReviewFields.includes('instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
           {desktopEdit && isLastMethodLeafOnSpread && addStepButton}
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
@@ -810,7 +850,11 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         role="region" aria-label={sectionTitle + ', page ' + leafNumber} tabIndex={0}>
         {single && <h1 className="mm-writing-mobile-title" tabIndex={-1}>{editorTitle ?? (mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'New recipe' : 'Edit recipe')}</h1>}
         {single && editorIntro && leaf.kind === 'identity' && <p className="mm-review-intro">{editorIntro}</p>}
-        <div className="mm-writing-leaf__content">{(!desktopReview || (hasConfirmedSave && !visibleIndices.includes(reviewLeafIndex))) && (single || leafNumber % 2 === 0 || pageIndex === undefined || !leaves[pageIndex]) && notice}{pageContent}</div>
+        <div className="mm-writing-leaf__content">
+          {!(single && hasComparison) && (!desktopReview || (hasConfirmedSave && !visibleIndices.includes(reviewLeafIndex))) && (single || leafNumber % 2 === 0 || pageIndex === undefined || !leaves[pageIndex]) && notice}
+          {pageContent}
+          {single && hasComparison && notice}
+        </div>
       </div>
     </fieldset>
   }
@@ -822,7 +866,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const saveButton = <button key="save" className={`button ${desktopRecipeEditor && !reviewWorkflow && position.page === 0 ? 'button-secondary' : 'button-primary'}`} type="submit" disabled={pending || saved}
     aria-describedby={showEditStatus ? `${prefix}-save-status` : undefined}>
     {desktopReview && !pending && <ScrapbookSticker decorative name="sparkle" />}
-    {pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? 'Save recipe' : 'Save changes'}
+    {pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? createSubmitLabel : 'Save changes'}
   </button>
   const exitButton = onCancel && <button className={reviewWorkflow ? 'button mm-review-exit' : 'button button-secondary'} type="button" disabled={pending} onClick={onCancel}>{desktopReview && <ArrowLeft size={16} aria-hidden="true" />}{cancelLabel}</button>
 
@@ -831,7 +875,13 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     return [...new Set(leaves.slice(first, first + (single ? 1 : 2)).map(recipeFormSection))].join(' and ')
   }
 
-  const content = <>
+  const content = showReviewReceipt ? <section className="mm-recipe-review__receipt" aria-label="Saved recipe">
+    {reviewReceipt}
+    <button type="button" className="button mm-review-detail-link" onClick={() => {
+      setPageAnchor('identity')
+      setEditingFromReceipt(true)
+    }}>Edit saved recipe</button>
+  </section> : <>
     <div hidden ref={supplementParking} />
     {supplementHost && createPortal(supplement, supplementHost)}
     <JournalFacingPage className="mm-facing-content--form mm-page-column mm-journal-editor">
@@ -846,14 +896,15 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       {saved && <p className="recipe-save-success" role="status">{saveSuccessMessage ?? confirmationMessage}</p>}
       {pending && <p role="status">Saving your recipe…</p>}
       {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + (otherErrorLeafIndices.length === 1 ? ' other page has' : ' other pages have') + ' errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
+      {desktopReview && finalPage && !hasConfirmedSave && reviewSaveContext}
       <RecipeWritingTurns page={position.page} total={position.total} text={position.text} single={single} onTurn={turnToPage}
         prioritizeNext={!methodJump}
         nextSection={desktopRecipeEditor && !reviewWorkflow && !finalPage ? sectionsOnPage(position.page + 1) : undefined}
         review={reviewWorkflow ? {
-          current: `${sectionsOnPage(position.page)} · Step ${position.page + 1} of ${position.total}`,
+          current: `${desktopReview && finalPage && reviewSaveContext ? reviewPage.title : sectionsOnPage(position.page)} · Step ${position.page + 1} of ${position.total}`,
           previous: position.page > 0 ? sectionsOnPage(position.page - 1) : undefined,
           next: finalPage ? undefined : sectionsOnPage(position.page + 1),
-          save: saveButton,
+          save: canSaveOnThisPage ? saved && savedAction ? savedAction : saveButton : undefined,
           exit: exitButton,
         } : undefined} />
       {!reviewWorkflow && <div className="actions recipe-form-actions">
@@ -866,7 +917,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>
 
-  return <form className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (desktopCreate ? ' mm-new-recipe' : '') + (desktopEdit ? ' mm-edit-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
+  return <form className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (hasComparison ? ' mm-chef-comparing' : '') + (desktopCreate ? ' mm-new-recipe' : '') + (desktopEdit ? ' mm-edit-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
     onSubmit={(event) => { void submit(event) }} onKeyDown={handlePageKeys}
     onFocusCapture={(event) => {
       const target = event.target
@@ -881,7 +932,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     }}
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
-    {renderFrame ? renderFrame(content, titleEditor) : content}
+    {renderFrame ? renderFrame(content, desktopReview ? faceIndex === 0 : undefined, showReviewReceipt) : content}
     <dialog className="recipe-ingredient-move" ref={moveDialog} aria-labelledby={prefix + '-move-title'}>
       <h2 id={prefix + '-move-title'}>Move {moveKind}</h2>
       <label htmlFor={prefix + '-move-position'}>Move to position</label>

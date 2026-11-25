@@ -1,4 +1,4 @@
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-link {
+.mm-review-detail-link {
   min-block-size: 28px;
   padding: 2px 3px;
   border: 0;
@@ -12,9 +12,9 @@
   cursor: pointer;
 }
 
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-link:hover { background-color: var(--mm-color-parchment-200); }
+.mm-review-detail-link:hover { background-color: var(--mm-color-parchment-200); }
 
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog {
+.mm-review-detail-dialog {
   box-sizing: border-box;
   inline-size: min(34rem, calc(100% - 2rem));
   max-block-size: calc(100dvh - 2rem);
@@ -30,10 +30,10 @@
   font: .9375rem/1.5 var(--mm-font-sans);
 }
 
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog[open] { display: grid; gap: 12px; }
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
+.mm-review-detail-dialog[open] { display: grid; gap: 12px; }
+.mm-review-detail-dialog::backdrop { background: rgb(53 29 19 / .55); overflow: hidden; overscroll-behavior: contain; }
 
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-desk--writing .mm-review-detail-dialog h2 {
+.mm-desk .mm-review-detail-dialog h2 {
   position: static;
   inline-size: auto;
   block-size: auto;
@@ -45,7 +45,7 @@
   font: 600 1.5rem/1.2 var(--mm-font-serif);
 }
 
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog textarea {
+.mm-desk .mm-review-detail-dialog textarea {
   width: 100%;
   min-height: 7rem;
   padding: 8px 10px;
@@ -57,5 +57,88 @@
   resize: vertical;
 }
 
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog > .button { justify-self: end; width: auto; }
-:is(.mm-chef-review, .mm-new-recipe, .mm-recipe-form-editor, .mm-recipe-review) .mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }
+.mm-review-detail-dialog__content { display: contents; }
+.mm-review-detail-dialog > .button { justify-self: end; width: auto; }
+.mm-review-detail-dialog > .button[hidden] { display: none; }
+.mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }
+
+.mm-cook-actions {
+  flex: none;
+  margin-block-start: var(--mm-space-2);
+  padding: var(--mm-space-2) 0;
+  border-block-start: 1px solid var(--mm-color-parchment-500);
+}
+.mm-cook-actions h2 { margin: 0; font: 600 1.125rem/1.2 var(--mm-font-serif); }
+.mm-cook-actions p { margin: 4px 0; color: var(--mm-color-ink-soft); font-size: .875rem; line-height: 1.35; }
+.mm-cook-actions__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--mm-space-2); }
+.mm-cook-actions__controls > .mm-review-detail-link { min-block-size: 44px; font-size: .8125rem; }
+.mm-cook-actions__controls > .mm-review-detail-link:first-of-type {
+  padding-inline: var(--mm-space-2);
+  border: 1px solid var(--mm-color-sage-600);
+  border-radius: var(--mm-radius-control);
+  background: var(--mm-color-sage-100);
+  color: var(--mm-color-sage-900);
+  text-decoration: none;
+}
+.mm-cook-actions__controls > .mm-review-detail-link:first-of-type:hover { background: var(--mm-color-sage-200); }
+
+.mm-revision-tools {
+  display: grid;
+  min-inline-size: 0;
+  gap: var(--mm-space-2);
+}
+
+.mm-revision-tools :is(h3, p, blockquote) { margin: 0; }
+.mm-revision-tools label { font-weight: 650; }
+.mm-revision-tools textarea { box-sizing: border-box; min-inline-size: 0; }
+.mm-revision-tools > .button { justify-self: start; }
+.mm-revision-tools input[type='date'] {
+  justify-self: start;
+  min-block-size: 44px;
+  max-inline-size: 100%;
+  padding-inline: 10px;
+  border: 1px solid var(--mm-color-parchment-500);
+  border-radius: var(--mm-radius-control);
+  color: var(--mm-color-ink);
+  background: var(--mm-color-fresh);
+  font: inherit;
+}
+.mm-revision-tools__choices { display: grid; min-inline-size: 0; gap: var(--mm-space-1); margin: 0; padding: 0; border: 0; }
+.mm-revision-tools__choices legend { margin-block-end: var(--mm-space-1); padding: 0; font-weight: 650; }
+.mm-revision-tools__choices label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mm-space-2);
+  min-block-size: 44px;
+  box-sizing: border-box;
+  padding: var(--mm-space-2);
+  border: 1px solid var(--mm-color-parchment-500);
+  border-radius: var(--mm-radius-control);
+  cursor: pointer;
+}
+.mm-revision-tools__choices input { flex: none; margin: 0; accent-color: var(--mm-color-sage-800); }
+.mm-revision-tools__choices label:has(:checked),
+.mm-revision-tools__preview { background: var(--mm-color-sage-100); }
+.mm-revision-tools__choices label:focus-within { outline: 2px solid var(--mm-color-burgundy-800); outline-offset: 2px; }
+.mm-revision-tools__choices label:has(:disabled) { cursor: default; }
+.mm-revision-tools__excerpt { display: grid; gap: var(--mm-space-1); }
+.mm-revision-tools__excerpt-option summary { box-sizing: border-box; width: fit-content; min-block-size: 44px; padding: 10px 0; color: var(--mm-color-burgundy-800); cursor: pointer; }
+.mm-revision-tools__hint { color: var(--mm-color-ink-soft); font-size: .875rem; }
+.mm-revision-tools__preview { padding: var(--mm-space-2); }
+.mm-revision-tools__preview h3 { font-size: .875rem; }
+.mm-revision-tools__preview blockquote { margin-block-start: var(--mm-space-1); }
+.mm-revision-tools blockquote {
+  padding: var(--mm-space-2);
+  border-inline-start: 2px solid var(--mm-color-parchment-500);
+  white-space: pre-wrap;
+}
+
+.mm-review-detail-dialog__confirmation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mm-space-2);
+  padding-block-start: var(--mm-space-3);
+  border-block-start: 1px solid var(--mm-color-parchment-500);
+}
+.mm-review-detail-dialog__confirmation p { grid-column: 1 / -1; margin: 0; }
+.mm-review-detail-dialog__confirmation .button { white-space: normal; }

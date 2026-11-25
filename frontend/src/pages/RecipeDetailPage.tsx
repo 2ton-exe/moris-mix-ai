@@ -10,6 +10,8 @@ import { journalReturnTo } from '../journal/indexNavigation'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { RecipeReading } from '../recipes/RecipeReading'
 import { useMoriHeadingFocusKey } from '../mori/routeState'
+import { useAuth } from '../auth/context'
+import { RecipeRevisionTools } from '../recipes/RecipeRevisionTools'
 import { useJournalMedia } from '../journal/useJournalMedia'
 
 export default function RecipeDetailPage() {
@@ -17,6 +19,8 @@ export default function RecipeDetailPage() {
   const location = useLocation()
   const moriFocusKey = useMoriHeadingFocusKey()
   const source = useContext(RecipeSourceContext)
+  const { user } = useAuth()
+  const desktopTools = useJournalMedia('(hover: hover) and (pointer: fine)')
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const query = useRecipe(recipeId)
   const recipe = isRecipeAccessError(query.error) ? undefined : query.data
@@ -70,8 +74,9 @@ export default function RecipeDetailPage() {
         {query.isError && <><RecipeError detail error={query.error} onRetry={retry} /><p className="recipe-update" role="status">Showing the last loaded recipe. Its latest changes could not be checked.</p></>}
       </>}
       editable={source.mode === 'live'}
+      cookingActions={desktopTools && user && source.mode === 'live' && <RecipeRevisionTools key={`${user.id}:${recipe.id}`} recipe={recipe} userId={user.id} onReload={() => { void query.refetch() }} />}
       actions={<>
-        {source.mode === 'live' && <Link className="button button-primary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn, recipeFolio: folio }}>Edit recipe</Link>}
+        {source.mode === 'live' && <Link className={`button ${desktopTools ? 'button-secondary' : 'button-primary'} mm-button--small`} to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn, recipeFolio: folio }}>Edit recipe</Link>}
         <RecipeDeletionControl recipeId={recipe.id} recipeTitle={recipe.title} />
       </>}
     />}

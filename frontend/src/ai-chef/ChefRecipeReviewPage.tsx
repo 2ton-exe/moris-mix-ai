@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { moriReviewKeyFromState } from '../mori/routeState'
@@ -10,6 +10,8 @@ import { useJournalMedia } from '../journal/useJournalMedia'
 import { ReviewDetailDialog } from '../recipe-form/ReviewDetailDialog'
 import { RecipeEditorFrame } from '../recipe-form/RecipeEditorFrame'
 import { RecipeForm } from '../recipe-form/RecipeForm'
+import { isRecipeAccessError } from '../recipes/errors'
+import { useRecipe } from '../recipes/queries'
 import { IngredientEmoji } from '../recipe-form/IngredientEmojiView'
 import type { RecipeDraft, RecipeEditorState } from '../recipe-form/draft'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
@@ -18,6 +20,8 @@ import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import { useRecipeSave } from '../recipe-form/useRecipeSave'
 import { useUnsavedChangesGuard } from '../recipe-form/useUnsavedChangesGuard'
 import { readChefDraftResult, writeChefDraft } from './draft'
+import { ChefDraftComparison, ChefSourceRecipe } from './ChefRecipeComparison'
+import { RecipeImagePanel } from '../recipes/RecipeImagePanel'
 import { ChefProgress } from './ChefProgress'
 import type { ChefDraftReadStatus, ChefDraftWriteResult, ChefReviewHandoff } from './draft'
 import { LineageApiError, lineageApi, lineageFailureMessage, lineageMatchesSelection } from './lineage'
@@ -159,8 +163,17 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   useMoriActivity(generationSucceeded.current ? { kind: 'celebrating', message: 'Your recipe idea is ready for review.' } : null)
   const originalHandoff = useRef(stored.handoff)
   const [dirty, setDirty] = useState(false)
+  const desktopComparison = useJournalMedia('(hover: hover) and (pointer: fine)')
+  const [chosenParent, setChosenParent] = useState('')
+  const [editedDraft, setEditedDraft] = useState(stored.handoff?.reviewDraft ?? null)
   const [saved, setSaved] = useState(Boolean(stored.handoff?.savedRecipeId))
+  const [confirmedTitle, setConfirmedTitle] = useState<string | null>(null)
   const [handoff, setHandoff] = useState(stored.handoff)
+  const parents = handoff ? uniqueCandidateParents(handoff) : []
+  const parentId = parents.find((parent) => parent.id === chosenParent)?.id ?? parents[0]?.id ?? ''
+  const compare = Boolean(handoff?.response.revision) || desktopComparison
+  const parentQuery = useRecipe(parentId, compare && Boolean(parentId) && !saved)
+  const parentRecipe = isRecipeAccessError(parentQuery.error) ? undefined : parentQuery.data
   const [lineageStatus, setLineageStatus] = useState<LineageStatus>(stored.handoff?.lineageStatus ?? 'idle')
   const [lineageMessage, setLineageMessage] = useState(() => {
     const status = stored.handoff?.lineageStatus
@@ -221,6 +234,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   function storeReviewDraft(state: RecipeEditorState | null) {
     if (!handoff || saved || handoff.savedRecipeId) return false
     reviewDraftRef.current = state
+    setEditedDraft(state)
     const current = currentDraft()
     if (!sameHandoff(current.handoff)) {
       setStorageIssue('handoff-changed')
@@ -255,6 +269,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     if (!confirmedSave(confirmation) || !handoff) return confirmation
     const reviewKey = moriReviewKeyFromState(location.state)
     if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
+    setConfirmedTitle(draft.title)
     setSaved(true)
     if (handoff.savedRecipeId) {
       return {
@@ -332,7 +347,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   }
 
   function changeParentSelection(parentId: string, selected: boolean) {
-    if (!handoff || saved || handoff.savedRecipeId) return
+    if (!handoff || saved || handoff.savedRecipeId || handoff.response.revision) return
     const parent = uniqueCandidateParents(handoff).find((candidate) => candidate.id.toLowerCase() === parentId.toLowerCase())
     if (!parent) return
     const current = safeSelectedParentIds(handoff)
@@ -399,12 +414,36 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     ? handoff.selectedParentIds.length > 0 ? 'Recipe and selected parent links saved.' : 'Recipe saved.'
     : saved ? 'Recipe saved. Parent links still need attention.' : undefined
 
+  const revision = 'sourceRecipeId' in handoff.request
+  const sourceRecipeId = 'sourceRecipeId' in handoff.request ? handoff.request.sourceRecipeId : undefined
+  const original = parents.find((parent) => parent.id === sourceRecipeId)
+  const saveContext = <section className="mm-chef-review__save-context" aria-label="Before you save">
+    <h2>What will be saved</h2>
+    <p>{revision ? 'This draft saves as a new version linked to the original.'
+      : 'Save recipe adds this draft to My recipes.'}</p>
+    {original ? <p><strong>Original recipe</strong> · {original.title}</p> : <details>
+      <summary>What are recipe links?</summary>
+      <p>Choose recipes from your journal to link as inspiration. The links show where the idea came from, and the original recipes stay as they are. You can save without links.</p>
+    </details>}
+    {'pantryItems' in handoff.request && handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
+  </section>
+  const comparison = compare && !saved ? (editAmount?: ReactNode) => {
+    const draftComparison = <ChefDraftComparison handoff={handoff} source={parentRecipe} edited={editedDraft} editAmount={editAmount} />
+    return <div className="mm-chef-review__comparison">
+      {parentId ? <ChefSourceRecipe parents={parents} parentId={parentId} setParentId={setChosenParent}
+        source={parentRecipe} unavailable={parentQuery.isError && !parentRecipe} pending={parentQuery.isPending}>
+        {draftComparison}
+      </ChefSourceRecipe> : draftComparison}
+      {saveContext}
+      {parentRecipe && <RecipeImagePanel recipeId={parentRecipe.id} recipeTitle={parentRecipe.title} cookedAt={parentRecipe.cooked_at} framed />}
+    </div>
+  } : undefined
   const generationNotice = (compact = false) => <ChefGenerationNotice
     compact={compact}
     handoff={handoff}
     saved={saved}
     selectedParentIds={safeSelectedParentIds(handoff)}
-    selectionDisabled={saved || Boolean(handoff.savedRecipeId)}
+    selectionDisabled={saved || Boolean(handoff.savedRecipeId) || revision}
     selectionAnnouncement={selectionAnnouncement}
     lineageStatus={lineageStatus}
     lineageMessage={lineageMessage}
@@ -414,12 +453,27 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     onRetryLineage={() => { void retryLineage() }}
   />
 
+  const savedTitle = confirmedTitle ?? editedDraft?.title ?? handoff.response.recipe.title
+  const reviewReceipt = desktopComparison && handoff.savedRecipeId && lineageStatus === 'confirmed' && !storageIssue && <>
+    <h2 tabIndex={-1}>{savedTitle}</h2>
+    <p role="status">{completionMessage}</p>
+    {original && <p>Linked to <strong>{original.title}</strong>.</p>}
+    <div className="actions">
+      <Link className="button button-primary" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>{revision ? 'Open saved version' : 'Open saved recipe'}</Link>
+      {sourceRecipeId ? <Link className="button button-secondary" to={'/app/recipes/' + encodeURIComponent(sourceRecipeId)}>Open original recipe</Link>
+        : <button type="button" className="button button-secondary" onClick={() => navigate('/app/chef')}>Use this pantry again</button>}
+    </div>
+  </>
+
   return <RecipeForm key={userId} mode="create"
     initialValues={reviewDraft ? undefined : initialValues}
     initialEditorState={reviewDraft ?? undefined}
     initialValuesAreUnsaved={!handoff.savedRecipeId}
     initialSaveConfirmation={handoff.savedRecipeId ? { id: handoff.savedRecipeId, statusMessage: completionMessage } : undefined}
     saveSuccessMessage={completionMessage}
+    createSubmitLabel={revision ? 'Save new version' : undefined}
+    savedAction={handoff.savedRecipeId && (revision || desktopComparison) && <Link className="button button-primary"
+      to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>{revision ? 'Open saved version' : 'Open saved recipe'}</Link>}
     showExtractionHints
     reviewWorkflow
     draftKeptInSession={!saved && storageIssue === null}
@@ -429,25 +483,26 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     onSubmit={submit}
     onDirtyChange={setDirty}
     onEditorStateChange={storeReviewDraft}
-    cancelLabel={saved && !dirty && lineageStatus === 'confirmed' && storageIssue === null ? 'Use this pantry again' : 'Back to AI Chef'}
-    onCancel={() => navigate('/app/chef')}
+    cancelLabel={revision ? saved ? 'Back to AI Chef' : 'Back to original recipe'
+      : saved && !dirty && lineageStatus === 'confirmed' && storageIssue === null ? 'Use this pantry again' : 'Back to AI Chef'}
+    onCancel={() => navigate('sourceRecipeId' in handoff.request && !saved
+      ? '/app/recipes/' + encodeURIComponent(handoff.request.sourceRecipeId) : '/app/chef')}
+    reviewComparison={comparison}
+    comparisonIngredient={handoff.response.revision?.ingredient}
     notice={<>{generationNotice()}{storageNotice}</>}
-    reviewPage={{ title: 'Recipe inspiration', content: <>{generationNotice(true)}{storageNotice}</> }}
+    reviewPage={revision && desktopComparison && !saved ? {
+      title: 'Review the change',
+      content: <ChefDraftComparison handoff={handoff} source={parentRecipe} edited={editedDraft} />,
+    } : { title: 'Recipe inspiration', content: <>{generationNotice(true)}{storageNotice}</> }}
     reviewStatus={storageNotice}
-    renderFrame={(content, titleEditor) => <RecipeEditorFrame mode="create" connected showBack={false}
-      headingTitle={saved ? 'Your recipe is saved.' : titleEditor
-        ? <span className="visually-hidden">Review Mori's recipe.</span>
-        : "Review Mori's recipe."}
-      titleEditor={titleEditor}
-      facingPageContent={saved ? <ChefProgress stage="saved" /> : <section className="mm-chef-review__save-context" aria-label="Before you save">
-          <h2>What will be saved</h2>
-          <p>On the final page, choose Save recipe to add your edited recipe to My recipes.</p>
-          <details>
-            <summary>What are recipe links?</summary>
-            <p>Choose recipes from your journal to link as inspiration. The links show where the idea came from, and the original recipes stay as they are. You can save without links.</p>
-          </details>
-          {handoff.request.preferences && <p><strong>Cooking preferences</strong> · {handoff.request.preferences.length > 96 ? handoff.request.preferences.slice(0, 96).trimEnd() + '…' : handoff.request.preferences}</p>}
-        </section>}
+    reviewReceipt={reviewReceipt}
+    reviewSaveContext={revision && desktopComparison && saveContext}
+    renderFrame={(content, initialDesktopReview, showingReceipt) => <RecipeEditorFrame mode="create" connected showBack={false}
+      headingTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
+      facingPageContent={saved
+        ? showingReceipt ? undefined : revision || desktopComparison ? <p className="mm-chef-review__receipt-title">{savedTitle}</p> : <ChefProgress stage="saved" />
+        : (revision && desktopComparison && initialDesktopReview !== undefined) || (initialDesktopReview && comparison)
+          ? undefined : saveContext}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 
@@ -496,7 +551,7 @@ function ChefGenerationNotice({
     <ul className="mm-ai-chef__parent-choices" role="list">{parents.map((parent) => {
       const selected = selectedParentIds.some((id) => id.toLowerCase() === parent.id.toLowerCase())
       const limitReached = !selected && selectedParentIds.length >= 10
-      const parentStatus = selectionDisabled && selected
+      const parentStatus = saved && selectionDisabled && selected
         ? lineageStatus === 'confirmed' ? 'Link saved' : 'Link not confirmed'
         : null
       return <li key={parent.id} className={selected ? 'is-selected' : undefined}>
@@ -517,11 +572,11 @@ function ChefGenerationNotice({
     })}</ul>
     {selectionAnnouncement && <p className="visually-hidden" role="status">{selectionAnnouncement}</p>}
   </>
-  const requestContent = <>
+  const requestContent = 'pantryItems' in request ? <>
     <p><strong>What you entered</strong></p>
     <ul>{request.pantryItems.map((item, index) => <li key={item + '-' + index}>{item}</li>)}</ul>
     {request.preferences && <p><strong>Preferences:</strong> {request.preferences}</p>}
-  </>
+  </> : <p>This revision uses the Personal Note you selected.</p>
   const substitutions = <section aria-label="Suggested substitutions" className="mm-ai-chef__substitutions">
     <ul>{response.substitutions.map((substitution, index) => <li key={substitution.original + '-' + substitution.replacement + '-' + index}>
       <strong>{substitution.original}</strong><span aria-hidden="true"> → </span><span className="visually-hidden"> can be replaced with </span><strong>{substitution.replacement}</strong>
@@ -566,7 +621,9 @@ function ChefGenerationNotice({
           {parentChoices}
         </ReviewDetailDialog>}
         <p className="mm-ai-chef__selection-count">{selectedParentIds.length} of 10 parent recipes selected.</p>
-        <p className="mm-chef-review__selection-help">Check the recipes you want to link as inspiration. You can leave them all unchecked.</p>
+        {!saved && <p className="mm-chef-review__selection-help">{response.revision
+          ? 'This original will be linked when you save the new version.'
+          : 'Check the recipes you want to link as inspiration. You can leave them all unchecked.'}</p>}
       </> : <p>{response.context.status === 'NO_SAVED_RECIPES'
         ? 'There are no saved recipes to suggest yet.'
         : 'Mori did not suggest any journal recipes for this idea.'}</p>}
@@ -578,7 +635,7 @@ function ChefGenerationNotice({
           disabled={lineageBusy || storageUnavailable}
           onClick={onRetryLineage}
         >{lineageBusy ? 'Working on parent links…' : 'Retry recipe links'}</button>}
-        {handoff.savedRecipeId && <Link className="button button-secondary mm-button--small" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved recipe</Link>}
+        {handoff.savedRecipeId && !compact && <Link className="button button-secondary mm-button--small" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved recipe</Link>}
       </div>}
     </section>
     {compact ? <>

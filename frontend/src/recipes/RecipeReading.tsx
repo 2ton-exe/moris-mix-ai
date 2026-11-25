@@ -16,7 +16,7 @@ import type { RecipeDetail } from './types'
 
 interface ReadingUnit { id: string; section: string; heading: string; count?: string; action?: ReactNode; list?: 'ul' | 'ol'; step?: number; content: ReactNode }
 
-function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, single: boolean, textChunkSize: number, editable: boolean, journalReturn: string, folio?: number): ReadingUnit[] {
+function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, single: boolean, textChunkSize: number, editable: boolean, journalReturn: string, folio: number | undefined, hasCookingActions: boolean): ReadingUnit[] {
   const editRecipePath = `/app/recipes/${encodeURIComponent(recipe.id)}/edit`
   const editRecipeState = { journalReturn, recipeFolio: folio }
   const units: ReadingUnit[] = recipe.ingredients.map((ingredient, index) => {
@@ -39,10 +39,15 @@ function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, single: boolean,
   if (paragraphs.length) units.push(...paragraphs.flatMap((paragraph, index) => splitReadingText(paragraph, textChunkSize).map((text, part) => ({
     id: part ? `note-${index}-part-${part}` : `note-${index}`, section: 'notes', heading: 'Personal notes', content: <p>{text}</p>,
   }))))
-  else if (!publicDemo) units.push({ id: 'notes-empty', section: 'notes', heading: 'Personal notes', content: <p className="mm-reading-notes__empty">No personal notes yet.{editable && <> <Link to={editRecipePath} state={editRecipeState}>Edit this recipe</Link> to add a note.</>}</p> })
+  else if (!publicDemo) units.push({ id: 'notes-empty', section: 'notes', heading: 'Personal notes', content: <p className="mm-reading-notes__empty">No personal notes yet.{hasCookingActions ? <> Choose <strong>Record cooking</strong> below to add one.</>
+    : editable && <> <Link to={editRecipePath} state={editRecipeState}>Edit this recipe</Link> to add a note.</>}</p> })
   if (recipe.flavor_scores) units.push({ id: 'flavors', section: 'flavors', heading: publicDemo ? 'Flavor scores' : 'Flavor notes', content:
     <dl className="flavor-scores">{Object.entries(recipe.flavor_scores).map(([name, score]) => <div key={name}><dt>{name}</dt><dd>{score} / 5</dd></div>)}</dl> })
-  return units.map((unit) => ({ ...unit, count: unit.section === 'ingredients' ? `${recipe.ingredients.length} items` : unit.section === 'method' ? `${recipe.instructions.length} steps` : undefined }))
+  const ingredientCount = recipe.ingredients.length
+  const stepCount = recipe.instructions.length
+  return units.map((unit) => ({ ...unit, count: unit.section === 'ingredients'
+    ? `${ingredientCount} ${ingredientCount === 1 ? 'item' : 'items'}`
+    : unit.section === 'method' ? `${stepCount} ${stepCount === 1 ? 'step' : 'steps'}` : undefined }))
 }
 
 function ReadingUnits({ units, prefix, measured = false, width }: {
@@ -74,9 +79,9 @@ function ReadingUnits({ units, prefix, measured = false, width }: {
 }
 
 /** Shared physical reading leaves. Backend cursors never enter this component. */
-export function RecipeReading({ recipe, titleRef, folio, back, actions, status, artwork, publicDemo = false, editable = false }: {
+export function RecipeReading({ recipe, titleRef, folio, back, actions, cookingActions, status, artwork, publicDemo = false, editable = false }: {
   recipe: RecipeDetail; titleRef?: Ref<HTMLHeadingElement>; folio?: number
-  back: ReactNode; actions?: ReactNode; status?: ReactNode; artwork?: ReactNode; publicDemo?: boolean; editable?: boolean
+  back: ReactNode; actions?: ReactNode; cookingActions?: ReactNode; status?: ReactNode; artwork?: ReactNode; publicDemo?: boolean; editable?: boolean
 }) {
   const location = useLocation()
   const navigate = useNavigate()
@@ -85,7 +90,9 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const contentKey = useMemo(() => JSON.stringify(recipe), [recipe])
   const { bodyRef, leftRef, bankRef, measurable, ready, textChunkSize, layout } = useReadingPagination(contentKey, single)
-  const units = useMemo(() => recipeUnits(recipe, publicDemo, single, textChunkSize, editable, journalReturn, folio), [recipe, publicDemo, single, textChunkSize, editable, journalReturn, folio])
+  const hasCookingActions = Boolean(cookingActions)
+  const units = useMemo(() => recipeUnits(recipe, publicDemo, single, textChunkSize, editable, journalReturn, folio, hasCookingActions),
+    [recipe, publicDemo, single, textChunkSize, editable, journalReturn, folio, hasCookingActions])
   const pages = layout?.pages ?? []
   const spreads = readingSpreads(pages, single)
   const sectionTargets = Array.from(units.reduce((targets, unit) => {
@@ -201,6 +208,7 @@ export function RecipeReading({ recipe, titleRef, folio, back, actions, status, 
       {single && identityVisible ? identity : <>{single && <h1 className="mm-continuation-title" tabIndex={-1}>Recipe continued</h1>}<ReadingUnits units={selectUnits(single ? spread?.[0] : spread?.[1])} prefix="right" width={layout?.width} />{!ready && !identityVisible && <p aria-live="polite">Preparing recipe pages…</p>}</>}
       {!single && current > 0 && !spread[1] && <p className="mm-reading-end">End of this recipe.</p>}
     </div>
+    {cookingActions}
     <div ref={bankRef} className="mm-reading-measure" aria-hidden="true" inert>{measurable && <ReadingUnits units={units} prefix="measure" measured />}</div>
     <JournalPageFooter>
       {actions && <nav className="mm-reading-footer" aria-label="Recipe actions">

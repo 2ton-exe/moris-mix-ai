@@ -7,6 +7,7 @@ import { ErrorState } from '../components/ErrorState'
 import { RecipeReadingSkeleton } from '../recipes/RecipeStates'
 
 import { JournalShell } from '../journal/JournalShell'
+import { useJournalMedia } from '../journal/useJournalMedia'
 import { JournalFacingPage } from '../journal/JournalFacingPage'
 import { RecipeReading } from '../recipes/RecipeReading'
 
@@ -26,6 +27,7 @@ function errorState(error: unknown): RequestState {
 }
 
 export default function DemoRecipePage() {
+  const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const [attempt, setAttempt] = useState(0)
   const [request, setRequest] = useState<RequestState>({ status: 'loading' })
 
@@ -54,7 +56,10 @@ export default function DemoRecipePage() {
         <ErrorState message={request.message} onRetry={request.canRetry ? retry : undefined} />}
       {request.status === 'success' && <RecipeReading recipe={request.recipe} publicDemo
         back={<><Link to="/home"><span aria-hidden="true">←</span> Back home</Link><span className="mm-demo-label">Sample recipe</span></>}
-        actions={<Link className="button button-primary" to="/signup">Start a private journal</Link>}
+        actions={<>
+          <Link className="button button-primary" to="/signup">Start a private journal</Link>
+          {desktop && <Link className="button button-secondary" to="/demo-recipe/try-a-revision">Try a Chicken Adobo revision</Link>}
+        </>}
       />}
     </JournalShell>
   )

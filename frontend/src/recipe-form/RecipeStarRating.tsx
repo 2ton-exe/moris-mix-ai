@@ -28,7 +28,7 @@ export function RecipeStarRating({ field, value, error, onChange }: {
       })}
     </div>
     <button className="mm-recipe-star-rating__clear" type="button" disabled={!value}
-      aria-label="Clear rating" onClick={() => onChange('')}>{value ? 'Clear' : 'Unrated'}</button>
+      aria-label={value ? 'Clear rating' : 'Unrated'} onClick={() => onChange('')}>{value ? 'Clear' : 'Unrated'}</button>
     {error && <p className="field-error" id={field.id + '-error'}>{error}</p>}
   </fieldset>
 }

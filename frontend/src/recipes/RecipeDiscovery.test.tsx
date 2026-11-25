@@ -78,8 +78,8 @@ it('keeps unique recipe labels and adds date, entry, and notes for repeated titl
   const index = render(tree())
   const firstResult = await screen.findByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 1' })
   const secondResult = screen.getByRole('link', { name: 'Open recipe Family supper, cooked Oct 13, 2026, entry 2' })
-  expect(firstResult.textContent).toContain('Note: Added extra basil.')
-  expect(secondResult.textContent).toContain('Note: Used the last of the tomatoes.')
+  expect(firstResult.closest('li')?.textContent).toContain('Note: Added extra basil.')
+  expect(secondResult.closest('li')?.textContent).toContain('Note: Used the last of the tomatoes.')
   expect(screen.getByRole('link', { name: 'Open recipe Garlic rice, entry 3' })).toBeTruthy()
 
   index.unmount()

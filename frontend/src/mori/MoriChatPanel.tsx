@@ -68,11 +68,12 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
 
 type PlayNavigationMotion = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void | boolean>
 
-export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false }: {
+export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false, onConversationChange }: {
   userId: string
   playNavigationTap?: PlayNavigationMotion
   playNavigationTravel?: PlayNavigationMotion
   traveling?: boolean
+  onConversationChange?: (started: boolean) => void
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -84,6 +85,8 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
   const arrival = useRef<{ path: string; message: string } | null>(null)
   const [navigating, setNavigating] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
+  const hasMessages = messages.length > 0
+  useLayoutEffect(() => { onConversationChange?.(hasMessages) }, [hasMessages, onConversationChange])
   const [mode, setMode] = useState<'create' | 'suggest' | null>(null)
   const [composer, setComposer] = useState('')
   const [pendingTask, setPendingTask] = useState<'recipe' | 'search' | null>(null)
@@ -539,6 +542,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
         say('assistant', 'There’s already an AI Chef draft in progress, so I left it untouched. Open the pantry page to review it first.')
         return false
       }
+      if (!('pantryItems' in draft.handoff.request)) return false
       if (write && !sameSuggestion) writeChefDraft(userId, {
         input: { pantryItems: draft.handoff.request.pantryItems, pantryInput: '', preferences: draft.handoff.request.preferences ?? '' },
         handoff: draft.handoff,
@@ -584,7 +588,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
     <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
   </nav>
 
-  return <div className="mori-chat">
+  return <div className="mori-chat" data-empty={!hasMessages}>
     <div className="mori-chat-conversation">
       <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
       <div ref={log} className="mori-chat-log" role="log" tabIndex={messages.length ? 0 : -1} aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {

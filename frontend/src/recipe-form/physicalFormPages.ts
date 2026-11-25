@@ -73,6 +73,7 @@ export function formTextPageColumns(width: number, fontSize = 16) {
 
 export type RecipeFormLeaf =
   | { key: 'identity'; kind: 'identity' }
+  | { key: 'comparison'; kind: 'comparison' }
   | { key: 'supplement'; kind: 'supplement' }
   | { key: `notes:${number}`; kind: 'notes'; part: number }
   | { key: 'review:0'; kind: 'review'; title: string }
@@ -188,6 +189,7 @@ export function formPagePosition(pageIndex: number, leafCount: number, single: b
 }
 
 export function recipeFormSection(leaf: RecipeFormLeaf) {
+  if (leaf.kind === 'comparison') return 'Original and draft'
   if (leaf.kind === 'supplement') return 'Recipe image'
   if (leaf.kind === 'identity') return 'Recipe details'
   if (leaf.kind === 'notes') return 'Personal notes'

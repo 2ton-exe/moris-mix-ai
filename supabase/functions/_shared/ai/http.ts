@@ -25,6 +25,8 @@ export type AIEndpointErrorCode =
   | "QUOTA_EXCEEDED"
   | "QUOTA_UNAVAILABLE"
   | "AI_DISABLED"
+  | "REVISION_NOTE_CHANGED"
+  | "REVISION_CHANGE_UNSUPPORTED"
   | "AI_OUTPUT_INVALID"
   | "AI_OUTPUT_TRUNCATED"
   | "AI_PROVIDER_REJECTED"
@@ -67,6 +69,13 @@ const AI_ERROR_RESPONSES: Record<
     retryAfter: boolean;
   }
 > = {
+  revision_change_unsupported: {
+    status: 422,
+    code: "REVISION_CHANGE_UNSUPPORTED",
+    message:
+      "Mori could not verify one specific amount change. Choose a clearer note or try again.",
+    retryAfter: false,
+  },
   invalid_output: {
     status: 502,
     code: "AI_OUTPUT_INVALID",

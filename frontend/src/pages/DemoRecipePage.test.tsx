@@ -28,7 +28,10 @@ vi.mock('../api/demoRecipe', async (importOriginal) => {
 
 const mockedGetDemoRecipe = vi.mocked(getDemoRecipe)
 
-afterEach(() => mockedGetDemoRecipe.mockReset())
+afterEach(() => {
+  mockedGetDemoRecipe.mockReset()
+  vi.unstubAllGlobals()
+})
 
 function renderPage() {
   render(<MemoryRouter initialEntries={['/demo-recipe']}><App /></MemoryRouter>)
@@ -59,6 +62,22 @@ it('shows loading then renders the validated recipe from the API', async () => {
   expect(screen.getByRole('navigation', { name: 'Recipe actions' })).toBeTruthy()
   expect(screen.getAllByRole('link', { name: 'Home' })).toHaveLength(1)
   expect(screen.queryByRole('link', { name: 'Home →' })).toBeNull()
+  expect(mockedGetDemoRecipe).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('link', { name: 'Try a Chicken Adobo revision' })).toBeNull()
+})
+
+it('offers the separate revision walkthrough from the desktop demo', async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    matches: query === '(min-width: 1100px) and (min-height: 640px)',
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  })))
+  mockedGetDemoRecipe.mockResolvedValueOnce(parseDemoRecipeResponse(fixture).recipe)
+  renderPage()
+
+  const link = await screen.findByRole('link', { name: 'Try a Chicken Adobo revision' })
+  fireEvent.click(link)
+  await screen.findByRole('heading', { name: 'Chicken Adobo' })
   expect(mockedGetDemoRecipe).toHaveBeenCalledOnce()
 })
 

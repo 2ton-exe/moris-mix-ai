@@ -29,6 +29,7 @@
 .mm-demo-sheet .flavor-scores dt { color: var(--mm-color-ink-soft); }
 .mm-public-page { gap: 8px; }
 .mm-public-page h1 { margin-top: 8px; }
+.mm-journal-page.mm-public-page .intro a { text-decoration: underline; text-underline-offset: 3px; }
 .mm-public-page .actions { margin-top: 12px; gap: 12px; }
 .mm-public-note { margin: 12px 0; padding: 14px 18px; border-block: 1px dashed var(--mm-border-paper); }
 .mm-public-note p { margin: 8px 0; }
@@ -73,3 +74,22 @@
 .mm-desk--writing .recipe-amount-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .mm-journal-page > *, .mm-facing-content > * { flex-shrink: 0; }
 .mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread { scroll-behavior: auto; }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-journal-book:has(> .mm-journal-spread > .mm-journal-page:is(.mm-public-page, .mm-revision-sample-sheet)) {
+    height: auto;
+    padding-block: var(--mm-overhang);
+  }
+
+  .mm-journal-spread:has(> .mm-journal-page:is(.mm-public-page, .mm-revision-sample-sheet)) {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: var(--mm-page-height);
+    grid-template-rows: auto;
+  }
+
+  .mm-public-workflow__steps, .mm-public-example { font-size: 1rem; line-height: 1.6; }
+  .mm-public-example { gap: var(--mm-space-4); margin-block: var(--mm-space-3); }
+  .mm-public-preview > p:last-child { margin-block: var(--mm-space-2) 0; }
+}

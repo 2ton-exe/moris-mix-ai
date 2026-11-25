@@ -489,6 +489,21 @@ it.each(['/auth/callback', '/auth/callback?flow=recovery#error=access_denied&err
   expect(screen.getByRole('link', { name: 'Back to login' })).toBeTruthy()
 })
 
+it('points a desktop cook with an expired reset link straight to password recovery', async () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('pointer: fine'), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }))
+  try {
+    open('/auth/callback?type=recovery#error=access_denied&error_code=otp_expired')
+    await screen.findByRole('heading', { name: 'Password reset link unavailable' })
+    expect(screen.getByRole('link', { name: 'Request a new reset link' }).getAttribute('href')).toBe('/login?flow=recovery')
+    expect(screen.queryByRole('link', { name: 'Confirm my email address' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Choose a new password' })).toBeNull()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
 it.each([
   ['Reset my password', '/login?flow=recovery', 'Reset your password'],
   ['Confirm my email address', '/verify-email', 'Verify your email'],

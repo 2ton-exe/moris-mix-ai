@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { recipeEditorStateSchema } from '../recipe-form/draft'
 import type { RecipeEditorState } from '../recipe-form/draft'
-import { generateRecipeRequestSchema, generateRecipeResponseSchema } from './generateRecipe'
-import type { GenerateRecipeRequest, GenerateRecipeResponse } from './generateRecipe'
+import { generateRecipeRequestSchema, generateRecipeResponseSchema, revisionRequestSchema } from './generateRecipe'
+import type { GenerateRecipeRequest, GenerateRecipeResponse, RevisionRequest } from './generateRecipe'
 
 const pantryInputSchema = z.object({
   pantryItems: z.array(z.string()),
@@ -13,7 +13,7 @@ const pantryInputSchema = z.object({
 const lineageStatusSchema = z.enum(['pending', 'expired', 'blocked', 'confirmed'])
 
 const reviewHandoffSchema = z.object({
-  request: generateRecipeRequestSchema,
+  request: z.union([generateRecipeRequestSchema, revisionRequestSchema]),
   response: generateRecipeResponseSchema,
   reviewDraft: recipeEditorStateSchema.nullable().optional(),
   selectedParentIds: z.array(z.string().uuid()).max(10).default([]),
@@ -51,7 +51,7 @@ export interface ChefPantryInput {
 }
 
 export interface ChefReviewHandoff {
-  request: GenerateRecipeRequest
+  request: GenerateRecipeRequest | RevisionRequest
   response: GenerateRecipeResponse
   reviewDraft?: RecipeEditorState | null
   selectedParentIds: string[]

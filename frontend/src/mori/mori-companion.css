@@ -136,6 +136,13 @@
 @media (min-width: 1100px) {
   .mori-pet-panel[data-chat='true'] { height: 560px; padding: 16px 20px; border-radius: 24px 24px 24px 5px; }
 }
+@media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
+  .mori-chat[data-empty='true'] .mori-chat-log:empty { flex: none; padding: 0; }
+  .mori-pet-panel .mori-chat[data-empty='true'] .mori-chat-task {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+}
 
 .mori-chat-label { grid-column: 1 / -1; font-size: 12px; font-weight: 600; }
 

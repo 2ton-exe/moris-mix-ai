@@ -14,14 +14,13 @@ type NavigationConfirmation = {
   discardChanges: () => void
 }
 
-export function RecipeEditorFrame({ mode, connected, children, navigationConfirmation, showBack = true, focusHeading = true, headingTitle, headingIntro, titleEditor, facingPageContent }: {
+export function RecipeEditorFrame({ mode, connected, children, navigationConfirmation, showBack = true, focusHeading = true, headingTitle, headingIntro, facingPageContent }: {
   mode: 'create' | 'edit'; connected: boolean; children: ReactNode
   navigationConfirmation?: NavigationConfirmation
   showBack?: boolean
   focusHeading?: boolean
   headingTitle?: ReactNode
   headingIntro?: string
-  titleEditor?: ReactNode
   facingPageContent?: ReactNode
 }) {
   const { user } = useAuth()
@@ -40,7 +39,6 @@ export function RecipeEditorFrame({ mode, connected, children, navigationConfirm
     </nav>}
     <header className="mm-recipe-editor-heading">
       <h1 ref={heading} tabIndex={-1}>{headingTitle ?? (mode === 'create' ? 'New recipe' : 'Edit recipe')}</h1>
-      {titleEditor}
       {headingIntro && <p className="intro">{headingIntro}</p>}
     </header>
     {facingPageContent}

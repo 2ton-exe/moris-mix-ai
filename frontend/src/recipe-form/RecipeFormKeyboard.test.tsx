@@ -60,7 +60,7 @@ it('shares desktop rating and note controls across create and edit', () => {
     <RecipeForm key="create" mode="create" newRecipeScrapbook notesSupported />
   </JournalShell></MemoryRouter>)
   expect(screen.getByRole('group', { name: 'Rating' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Clear rating' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Unrated' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Expand notes' })).toBeTruthy()
 })
 

@@ -238,6 +238,7 @@ async function advanceChefReviewToSave(page, saveName = 'Save recipe') {
   const save = page.getByRole('button', { name: saveName, exact: true })
   const method = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
   const saveAlreadyAvailable = await save.isVisible()
+  if (saveName === 'Save changes' && saveAlreadyAvailable) return
   let sawMethod = await method.isVisible()
   while (await next.isVisible()) {
     await expect(save).toHaveCount(0)
@@ -251,6 +252,8 @@ async function advanceChefReviewToSave(page, saveName = 'Save recipe') {
 }
 
 async function returnChefReviewToTitle(page) {
+  const editSaved = page.getByRole('button', { name: 'Edit saved recipe', exact: true })
+  if (await editSaved.isVisible()) await editSaved.click()
   const title = page.getByRole('textbox', { name: 'Recipe title', exact: true })
   const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
     .getByRole('button', { name: /^Previous:/ })
@@ -522,13 +525,13 @@ try {
   await expect(recipeTitle).toHaveValue('Egg and rice skillet')
   await expect(save).toHaveCount(0)
   await advanceChefReviewToSave(page)
-  const initialMethod = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
+  const initialMethod = await returnChefReviewToMethod(page)
   await expect(initialMethod).toHaveValue('Warm the rice, then fold in the eggs.')
   const cookingMethod = page.getByRole('region', { name: 'Instructions', exact: true })
-  const readyBox = await cookingMethod.getByText('Ready', { exact: true }).boundingBox()
-  const addStepBox = await cookingMethod.getByRole('button', { name: 'Add cooking step' }).boundingBox()
-  assert.ok(readyBox && addStepBox && readyBox.x + readyBox.width <= addStepBox.x,
-    'The method status and add-step button must have separate space')
+  await expect(cookingMethod.getByText('Ready', { exact: true })).toBeHidden()
+  await expect(cookingMethod.getByRole('button', { name: 'Add cooking step' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: /Instructions.*Step/ })).toBeVisible()
+  await advanceChefReviewToSave(page)
   await expect(save).toBeVisible()
   const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
   const back = page.getByRole('button', { name: 'Back to AI Chef' })

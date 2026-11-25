@@ -245,7 +245,7 @@ export default function RecipeDashboardPage() {
             <PaperCard surface="fresh" className="mm-recipe-empty__card">
               <Tape variant="sage" className="mm-recipe-empty__tape" />
               <h2 id="empty-heading" tabIndex={-1}>A fresh page for your next favorite.</h2>
-              <p>Your journal is ready for its first scrap. Start with a dish you love and write down what makes it yours.</p>
+              <p>Pick a dish you love and get it on paper.</p>
               <Link className="button button-primary" to="/app/recipes/new">Add your first recipe</Link>
               <Link className="button button-secondary" to="/app/quick-entry" state={{ journalReturn: location.pathname + location.search }}>Organize cooking notes with Mori</Link>
             </PaperCard>
