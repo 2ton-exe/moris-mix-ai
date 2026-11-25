@@ -250,7 +250,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect((await screen.findByRole('link', { name: 'Open saved version' })).getAttribute('href')).toBe('/app/recipes/' + savedRecipeId)
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit saved recipe' }))
-    const title = screen.getByRole('textbox', { name: 'Recipe title', exact: true })
+    const title = screen.getByRole('textbox', { name: /^Recipe title$/ })
     expect(document.activeElement).toBe(title)
     fireEvent.change(title, { target: { value: 'A better next cook' } })
     expect(screen.getByRole('button', { name: /^Next:/ })).toBeTruthy()
