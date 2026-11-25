@@ -27,7 +27,7 @@ export function RecipeIndexCardContent({ recipe, folio, linkedTitle, duplicateTi
       ? <CookingPot className="mm-index-card__icon" size={32} aria-hidden="true" />
       : <span className="mm-index-card__number">No. {String(folio).padStart(2, '0')}</span>}
     <div className="mm-recipe-card__copy">
-      <h2>{linkedTitle ?? recipe?.title ?? <span className="mm-skeleton-line" />}</h2>
+      <h2 aria-label={linkedTitle ? recipe?.title : undefined}>{linkedTitle ?? recipe?.title ?? <span className="mm-skeleton-line" />}</h2>
       {recipe ? <RecipeMetadata recipe={recipe} /> : <div className="mm-recipe-metadata"><span className="mm-skeleton-line mm-skeleton-line--short" /></div>}
       {duplicateTitle && recipe?.notes?.trim() && <p className="mm-recipe-card__disambiguator">Note: {recipe.notes.trim().length > 128 ? `${recipe.notes.trim().slice(0, 128).trimEnd()}…` : recipe.notes.trim()}</p>}
     </div>
