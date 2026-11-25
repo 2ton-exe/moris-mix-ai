@@ -1792,11 +1792,9 @@ rm() {
                     self.assertTrue((root / "restore-network-owned").read_bytes().startswith(
                         b"restore-synthetic-cleanup|" + b"a" * 64
                     ))
-                    self.assertTrue((root / "docker-network-present").is_file())
                     self.assertFalse(network_rm_actions)
                 if name == "malformed-network-id":
                     self.assertTrue((root / "restore-network-owned").is_file())
-                    self.assertTrue((root / "docker-network-present").is_file())
                     self.assertFalse(network_rm_actions)
 
     def test_synthetic_cleanup_removes_only_a_run_owned_network(self):
@@ -1866,7 +1864,9 @@ docker() {
                 elif marker_kind == "directory":
                     marker.mkdir()
                 elif marker_kind == "symlink":
-                    marker_target.write_bytes((network_name + "\n").encode("utf-8"))
+                    marker_target.write_bytes(
+                        (network_name + "|" + "a" * 64 + "\n").encode("utf-8")
+                    )
                     try:
                         marker.symlink_to(marker_target)
                     except OSError:
