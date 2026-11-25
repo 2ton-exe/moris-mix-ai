@@ -688,7 +688,7 @@
   [data-pantry-front] > .mm-ai-chef__paper { padding-top: 2px; }
   [data-pantry-front] .mm-ai-chef__page,
   [data-pantry-front] .mm-ai-chef__form fieldset { gap: 6px; }
-  [data-pantry-front] .mm-ai-chef__help { font-size: 12px; line-height: 1.35; }
+  [data-pantry-front] .mm-ai-chef__help { font-size: 14px; line-height: 1.5; }
   .mm-ai-chef__try { gap: 4px; font-size: 12px; }
   .mm-ai-chef__try button { gap: 3px; padding-inline: 5px; min-height: 25px; font-size: 12px; }
   .mm-ai-chef__try button img { inline-size: 13px; block-size: 13px; }

@@ -558,7 +558,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         <section className={'recipe-form-section' + (desktopReview ? ' mm-chef-review__identity' : '')} aria-labelledby={headingId}>
           <div className="recipe-section-heading">
             <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
-            {reviewWorkflow && <span className="recipe-review-count">{invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? 'Check fields' : 'Ready'}</span>}
+            {reviewWorkflow && (invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count">Ready</span>)}
           </div>
           {desktopReview ? <div className="mm-chef-review__title">
             {titleField}
@@ -632,7 +632,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           <h2 id={headingId} tabIndex={-1}>{desktopCreate ? <span>Ingredients</span> : 'Ingredients'}</h2>
           {desktopCreate && <ScrapbookSticker name="ingredient-basket" className="mm-new-recipe__basket" decorative />}
           {estimateCount > 0 && <span className="recipe-review-count">{estimateCount} to review</span>}
-          {reviewWorkflow && estimateCount === 0 && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('ingredients') ? 'Check fields' : 'Ready'}</span>}
+          {reviewWorkflow && estimateCount === 0 && items.length > 0 && (invalidReviewFields.includes('ingredients') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count">Ready</span>)}
         </div>
         <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
         {desktopEdit && items.length > 0 && !editing && <p className="field-hint">Use the pencil to edit an ingredient.{state.ingredients.length > 1 && ' Drag a handle to reorder, or select it to choose a position.'}</p>}
@@ -777,7 +777,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
           <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
-          {reviewWorkflow && items.length > 0 && <span className="recipe-review-count">{invalidReviewFields.includes('instructions') ? 'Check fields' : 'Ready'}</span>}
+          {reviewWorkflow && items.length > 0 && (invalidReviewFields.includes('instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count">Ready</span>)}
           {desktopEdit && isLastMethodLeafOnSpread && addStepButton}
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}

@@ -64,10 +64,12 @@ export function ChefDraftComparison({ handoff, source, edited, editAmount }: {
         <div><dt>Original amount</dt><dd>{amount(revision.before.quantity, revision.before.unit)}</dd></div>
         <div><dt>Mori’s suggestion</dt><dd>{proposedAmount}</dd></div>
       </dl>
-      {changed && <p>Current draft · {currentAmount}</p>}
+      {changed && <p><strong>Your edited amount</strong> · {currentAmount}</p>}
+      <div>
+        <p className="mm-chef-review__note-label">Your Personal Note</p>
+        <blockquote>{revision.noteExcerpt}</blockquote>
+      </div>
       <p>{revision.reason}</p>
-      <p className="mm-chef-review__note-label">Your Personal Note</p>
-      <blockquote>{revision.noteExcerpt}</blockquote>
       {editAmount}
     </section>
   }

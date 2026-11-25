@@ -58,7 +58,7 @@ export default function DemoRecipePage() {
         back={<><Link to="/home"><span aria-hidden="true">←</span> Back home</Link><span className="mm-demo-label">Sample recipe</span></>}
         actions={<>
           <Link className="button button-primary" to="/signup">Start a private journal</Link>
-          {desktop && <Link className="button button-secondary" to="/demo-recipe/try-a-revision">Try a recipe revision</Link>}
+          {desktop && <Link className="button button-secondary" to="/demo-recipe/try-a-revision">Try a Chicken Adobo revision</Link>}
         </>}
       />}
     </JournalShell>

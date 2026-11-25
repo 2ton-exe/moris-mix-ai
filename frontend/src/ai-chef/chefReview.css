@@ -327,7 +327,7 @@
 .mm-chef-review__amounts dd { margin: 0; font-weight: 700; }
 .mm-chef-review__note-label { font-weight: 650; }
 .mm-chef-review__change blockquote { padding-inline-start: var(--mm-space-2); border-inline-start: 2px solid var(--mm-color-sage-500); white-space: pre-wrap; }
-.mm-chef-review__change .mm-review-edit-amount { min-block-size: 44px; justify-self: start; }
+.mm-chef-review .mm-chef-review__change .mm-review-edit-amount { min-block-size: 44px; justify-self: start; }
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-chef-comparing .mm-journal-book { height: auto; padding-block: var(--mm-overhang); }
@@ -342,4 +342,51 @@
     overflow: auto;
     scroll-padding-block: 12px;
   }
+
+  .mm-chef-review .mm-journal-book:has(.mm-chef-review__comparison) {
+    height: auto;
+    padding-block: var(--mm-overhang);
+  }
+
+  .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: var(--mm-page-height);
+    grid-template-rows: auto;
+  }
+
+  .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) :is(.mm-facing-slot, .mm-page-column, .recipe-form-content) {
+    display: block;
+    height: auto;
+  }
+
+  .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) :is(.mm-writing-page-controls, .mm-writing-leaf) {
+    display: block;
+    overflow: visible;
+  }
+
+  .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) .mm-journal-page {
+    padding-bottom: var(--mm-footer-inset);
+  }
+
+  .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) .mm-journal-page-footer {
+    position: relative;
+    inset: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: var(--mm-space-2);
+    margin-block-start: var(--mm-space-3);
+  }
+
+  .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) .mm-pagination-half--right .button {
+    white-space: normal;
+  }
+
+  .mm-chef-review__change :is(p, blockquote) { line-height: 1.5; }
+  .mm-chef-review__save-context p { line-height: 1.5; }
+  .mm-chef-review .mm-pagination-number { display: none; }
+  .mm-chef-review .mm-pagination-half--right { justify-content: flex-end; }
+  .mm-chef-review .mm-review-progress { font-size: 14px; line-height: 1.5; }
 }

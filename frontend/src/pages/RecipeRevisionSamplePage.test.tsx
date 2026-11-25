@@ -14,7 +14,7 @@ it('reveals two different sample revisions with their exact notes and no request
   const original = screen.getByRole('region', { name: 'Original recipe' })
   expect(within(original).getByText('¼ cup soy sauce')).toBeTruthy()
   expect(within(original).getByText('3 tablespoons vinegar')).toBeTruthy()
-  expect(screen.getByText('Sample walkthrough')).toBeTruthy()
+  expect(screen.getByText('Pick a cooking note to see what Mori would change.')).toBeTruthy()
 
   const salty = 'Too salty with ¼ cup soy sauce. Loved the extra vinegar.'
   fireEvent.click(screen.getByRole('button', { name: salty }))

@@ -12,14 +12,14 @@ const examples = [
     soySauce: '2 tablespoons soy sauce',
     vinegar: original.vinegar,
     changed: 'soySauce',
-    reason: 'Use less soy sauce to ease the saltiness and keep the vinegar you liked.',
+    reason: 'Less soy sauce eases the saltiness.',
   },
   {
     note: 'Needed more tang.',
     soySauce: original.soySauce,
     vinegar: '4 tablespoons vinegar',
     changed: 'vinegar',
-    reason: 'Add a tablespoon of vinegar for more tang and keep the soy sauce amount.',
+    reason: 'More vinegar adds tang.',
   },
 ] as const
 
@@ -49,9 +49,8 @@ export default function RecipeRevisionSamplePage() {
     <div className="mm-revision-sample">
       <header>
         <h2>Try a revision</h2>
-        <p>Sample walkthrough</p>
+        <p>Pick a cooking note to see what Mori would change.</p>
       </header>
-      <p>Pick a note to see Mori’s change.</p>
       <div className="mm-revision-sample__choices" role="group" aria-label="Choose a cooking note">
         {examples.map((example) => <button key={example.note} type="button" className="button button-secondary"
           aria-pressed={selected === example} onClick={() => select(example)}>{example.note}</button>)}
@@ -63,12 +62,11 @@ export default function RecipeRevisionSamplePage() {
             <div><dt>Original</dt><dd>{original[selected.changed]}</dd></div>
             <div><dt>Next time</dt><dd><strong>{selected[selected.changed]}</strong></dd></div>
           </dl>
-          <p>Keep <strong>{selected.changed === 'soySauce' ? selected.vinegar : selected.soySauce}</strong>.</p>
-          <p>{selected.reason}</p>
+          <p>{selected.reason} Keep <strong>{selected.changed === 'soySauce' ? selected.vinegar : selected.soySauce}</strong>.</p>
           <p className="mm-revision-sample__evidence">From the cook’s note <q>{selected.note}</q></p>
         </> : <p>Mori’s change and the note behind it will appear here.</p>}
       </section>
-      {selected && <Link className="button button-secondary mm-revision-sample__start" to="/signup">Try this with your own recipes</Link>}
+      {selected && <Link className="button button-primary mm-revision-sample__start" to="/signup">Try this with your own recipes</Link>}
     </div>
   </JournalShell>
 }

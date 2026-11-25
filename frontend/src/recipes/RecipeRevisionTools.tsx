@@ -21,12 +21,17 @@ export function RecipeRevisionTools({ recipe, userId, onReload }: {
   userId: string
   onReload: () => void
 }) {
+  const [note, setNote] = useState('')
+  const [recording, setRecording] = useState(false)
+
   return <div className="mm-cook-actions" role="group" aria-label="Cook this recipe again">
     <ReviewDetailDialog title="Make a version for next time" action="Revise with Mori" closeLabel="Cancel">
       <RevisionRequest recipe={recipe} userId={userId} onReload={onReload} />
     </ReviewDetailDialog>
-    <ReviewDetailDialog title="Record this cook" action="Record cooking" closeLabel="Back to recipe">
-      <CookingRecord recipe={recipe} userId={userId} />
+    <ReviewDetailDialog title="Record this cook" action="Record cooking" closeLabel="Back to recipe"
+      unsavedMessage={note.trim() ? 'The cooked date is recorded. This cooking note is still unsaved.' : undefined}
+      closeDisabled={recording} onClosed={() => setNote('')}>
+      <CookingRecord recipe={recipe} userId={userId} note={note} setNote={setNote} pending={recording} setPending={setRecording} />
     </ReviewDetailDialog>
     <ReviewDetailDialog title="Linked recipes" action="Linked recipes">
       <LinkedRecipes childId={recipe.id} userId={userId} />
@@ -134,7 +139,14 @@ function RevisionRequest({ recipe, userId, onReload }: {
   </div>
 }
 
-function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: string }) {
+function CookingRecord({ recipe, userId, note, setNote, pending, setPending }: {
+  recipe: RecipeDetail
+  userId: string
+  note: string
+  setNote: (note: string) => void
+  pending: boolean
+  setPending: (pending: boolean) => void
+}) {
   const id = useId()
   const queryClient = useQueryClient()
   const source = useContext(RecipeSourceContext)
@@ -145,9 +157,7 @@ function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: strin
     today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0'),
   ].join('-')
   const [date, setDate] = useState(maxDate)
-  const [note, setNote] = useState('')
   const [stage, setStage] = useState<'date' | 'note' | 'review' | 'saved'>('date')
-  const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const noteField = useRef<HTMLTextAreaElement>(null)
   const stageHeading = useRef<HTMLHeadingElement>(null)
@@ -199,6 +209,7 @@ function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: strin
       expectedUpdatedAt.current = updated.updated_at
       queryClient.setQueryData(key, updated)
       void queryClient.invalidateQueries({ queryKey: recipeKeys.lists(userId) })
+      if ('notes' in changes) setNote('')
       setStage('notes' in changes ? 'saved' : 'note')
     } catch {
       if (!controller.signal.aborted) setError('Could not confirm this update. Your entry is still here.')
@@ -242,7 +253,7 @@ function CookingRecord({ recipe, userId }: { recipe: RecipeDetail; userId: strin
     </>}
     {stage === 'review' && <>
       <h3 ref={stageHeading} tabIndex={-1}>Review your cooking note</h3>
-      <p>This will be added to Personal Notes on this recipe.</p>
+      <p>The cooked date is recorded. Save this note to add it to Personal Notes.</p>
       {expectedNotes.current && <details><summary>Current Personal Notes</summary><blockquote>{expectedNotes.current}</blockquote></details>}
       <blockquote>{note.trim()}</blockquote>
       <button type="submit" className="button button-primary" disabled={pending}>{pending ? 'Saving…' : 'Save cooking note'}</button>

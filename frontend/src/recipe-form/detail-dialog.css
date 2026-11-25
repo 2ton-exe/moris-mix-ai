@@ -57,7 +57,9 @@
   resize: vertical;
 }
 
+.mm-review-detail-dialog__content { display: contents; }
 .mm-review-detail-dialog > .button { justify-self: end; width: auto; }
+.mm-review-detail-dialog > .button[hidden] { display: none; }
 .mm-review-detail-dialog .mm-ai-chef__parent-choices { margin: 0; }
 
 .mm-cook-actions { display: flex; flex: 1 0 100%; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
@@ -105,3 +107,13 @@
   border-inline-start: 2px solid var(--mm-color-parchment-500);
   white-space: pre-wrap;
 }
+
+.mm-review-detail-dialog__confirmation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mm-space-2);
+  padding-block-start: var(--mm-space-3);
+  border-block-start: 1px solid var(--mm-color-parchment-500);
+}
+.mm-review-detail-dialog__confirmation p { grid-column: 1 / -1; margin: 0; }
+.mm-review-detail-dialog__confirmation .button { white-space: normal; }

@@ -63,7 +63,7 @@ it('shows loading then renders the validated recipe from the API', async () => {
   expect(screen.getAllByRole('link', { name: 'Home' })).toHaveLength(1)
   expect(screen.queryByRole('link', { name: 'Home →' })).toBeNull()
   expect(mockedGetDemoRecipe).toHaveBeenCalledOnce()
-  expect(screen.queryByRole('link', { name: 'Try a recipe revision' })).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Try a Chicken Adobo revision' })).toBeNull()
 })
 
 it('offers the separate revision walkthrough from the desktop demo', async () => {
@@ -75,7 +75,7 @@ it('offers the separate revision walkthrough from the desktop demo', async () =>
   mockedGetDemoRecipe.mockResolvedValueOnce(parseDemoRecipeResponse(fixture).recipe)
   renderPage()
 
-  const link = await screen.findByRole('link', { name: 'Try a recipe revision' })
+  const link = await screen.findByRole('link', { name: 'Try a Chicken Adobo revision' })
   fireEvent.click(link)
   await screen.findByRole('heading', { name: 'Chicken Adobo' })
   expect(mockedGetDemoRecipe).toHaveBeenCalledOnce()
