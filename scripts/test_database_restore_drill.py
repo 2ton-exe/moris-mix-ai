@@ -1599,6 +1599,116 @@ rm() {
                     self.assertFalse((root / "restore-network-owned").exists())
                     self.assertNotIn("network-rm", actions)
 
+    def test_synthetic_cleanup_removes_only_a_run_owned_network(self):
+        synthetic = Path(__file__).with_name("test_database_restore_synthetic.sh").read_text(
+            encoding="utf-8"
+        )
+        ownership_body = synthetic.split("synthetic_network_owned_by_run() {\n", 1)[1].split(
+            "\n}\n", 1
+        )[0]
+        ownership = "synthetic_network_owned_by_run() {\n" + ownership_body + "\n}\n"
+        cleanup_body = synthetic.split("cleanup() {\n", 1)[1].split(
+            "\n}\ntrap cleanup EXIT", 1
+        )[0]
+        cleanup = "cleanup() {\n" + cleanup_body + "\n}\n"
+        docker_stub = r'''\
+docker() {
+  if [[ "$1" == network && "$2" == ls ]]; then
+    if [[ " $* " == *" -q "* ]]; then return 0; fi
+    [[ ! -e "$SYNTHETIC_NETWORK_STATE" ]] || printf '%s\n' "$RESTORE_DOCKER_NETWORK"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == rm ]]; then
+    printf '%s\n' "$2" >> "$SYNTHETIC_ACTIONS"
+    rm -f -- "$SYNTHETIC_NETWORK_STATE"
+    return 0
+  fi
+  if [[ "$1" == ps && "$2" == -aq ]]; then return 0; fi
+  if [[ "$1" == volume && "$2" == ls ]]; then return 0; fi
+  return 99
+}
+'''
+        cases = (
+            ("owned", True, "owned", 0),
+            ("no-network", False, "absent", 0),
+            ("missing-marker", True, "absent", 1),
+            ("mismatched-marker", True, "mismatch", 1),
+            ("directory-marker", True, "directory", 1),
+            ("symlink-marker", True, "symlink", 1),
+        )
+        network_name = "restore-synthetic-owned-test"
+        for name, network_present, marker_kind, expected_status in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                root = base / "runner-temp"
+                root.mkdir()
+                state = base / "docker-network-present"
+                actions = base / "docker-actions"
+                if network_present:
+                    state.touch()
+                marker = root / "restore-network-owned"
+                marker_target = base / "marker-target"
+                if marker_kind == "owned":
+                    marker.write_text(network_name + "\n", encoding="utf-8")
+                elif marker_kind == "mismatch":
+                    marker.write_text("SYNTHETIC_PRIVATE_MARKER\n", encoding="utf-8")
+                elif marker_kind == "directory":
+                    marker.mkdir()
+                elif marker_kind == "symlink":
+                    marker_target.write_text(network_name + "\n", encoding="utf-8")
+                    try:
+                        marker.symlink_to(marker_target)
+                    except OSError:
+                        if os.name == "nt":
+                            continue
+                        raise
+                bootstrap_marker = root / "restore-runner-bootstrap-guard.json"
+                if network_present and marker_kind not in ("owned",):
+                    bootstrap_marker.write_text("SYNTHETIC_FIREWALL_MARKER", encoding="utf-8")
+
+                script = (
+                    docker_stub + ownership + cleanup + ":\ncleanup\n"
+                )
+                env = dict(
+                    os.environ,
+                    RUNNER_TEMP=bash_path(root),
+                    root=bash_path(root),
+                    workdir=bash_path(root / "moris-restore-local"),
+                    RESTORE_PROJECT_ID="mori276-synthetic",
+                    RESTORE_DOCKER_NETWORK=network_name,
+                    SYNTHETIC_NETWORK_STATE=bash_path(state),
+                    SYNTHETIC_ACTIONS=bash_path(actions),
+                )
+                result = subprocess.run(
+                    [self.bash, "--noprofile", "--norc"],
+                    input=script.encode("utf-8"),
+                    capture_output=True,
+                    env=env,
+                    check=False,
+                )
+                stdout = result.stdout.decode("utf-8", errors="replace")
+                stderr = result.stderr.decode("utf-8", errors="replace")
+                self.assertEqual(result.returncode, expected_status, f"stdout={stdout!r}; stderr={stderr!r}")
+                self.assertNotIn("SYNTHETIC_PRIVATE", stdout + stderr)
+                removed = actions.exists()
+                self.assertEqual(removed, marker_kind == "owned" and network_present)
+                self.assertEqual(state.exists(), network_present and marker_kind != "owned")
+                if expected_status == 0:
+                    self.assertEqual(stdout, "synthetic-project-cleanup=pass\n"
+                                     "synthetic-network-cleanup=pass\n"
+                                     "synthetic-fixture-cleanup=pass\n")
+                    self.assertEqual(stderr, "")
+                    self.assertFalse(root.exists())
+                else:
+                    self.assertEqual(stdout, "")
+                    self.assertEqual(stderr, "synthetic-network-cleanup=fail\n"
+                                      "synthetic-fixture-cleanup=retained-for-runner-teardown\n")
+                    self.assertTrue(root.is_dir())
+                    self.assertTrue(bootstrap_marker.is_file())
+                    if marker_kind == "symlink":
+                        self.assertTrue(marker.is_symlink())
+                        self.assertEqual(marker_target.read_text(encoding="utf-8"), network_name + "\n")
+
     def test_missing_mounted_file_stops_before_connection_or_restore(self):
         result, calls = self.run_diagnostic(missing_file=True)
         self.assertEqual(result.returncode, 1)

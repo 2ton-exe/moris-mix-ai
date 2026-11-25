@@ -15,6 +15,12 @@ export RESTORE_PROJECT_ID="mori276-synthetic"
 export RESTORE_DOCKER_NETWORK="$restore_network"
 export GITHUB_STEP_SUMMARY="$root/synthetic-summary.md"
 
+synthetic_network_owned_by_run() {
+  local marker="$RUNNER_TEMP/restore-network-owned"
+  [[ -f "$marker" && ! -L "$marker" ]] && \
+    [[ "$(cat -- "$marker" 2>/dev/null)" == "$RESTORE_DOCKER_NETWORK" ]]
+}
+
 cleanup() {
   local original_status=$?
   local network_cleanup_ok=1 network_list network_name
@@ -30,7 +36,8 @@ cleanup() {
   if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
     while IFS= read -r network_name; do
       if [[ "$network_name" == "$RESTORE_DOCKER_NETWORK" ]]; then
-        if ! docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
+        if ! synthetic_network_owned_by_run || \
+           ! docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
           network_cleanup_ok=0
         fi
         break
@@ -73,7 +80,10 @@ cleanup() {
     printf '%s\n' 'synthetic-network-cleanup=fail' >&2
     if (( original_status == 0 )); then original_status=1; fi
   fi
-  if rm -rf "$root" > /dev/null 2>&1 && [[ ! -e "$root" ]]; then
+  if [[ "$network_cleanup_ok" != 1 ]]; then
+    # Keep the ownership markers if a network or firewall guard could remain.
+    printf '%s\n' 'synthetic-fixture-cleanup=retained-for-runner-teardown' >&2
+  elif rm -rf "$root" > /dev/null 2>&1 && [[ ! -e "$root" ]]; then
     printf '%s\n' 'synthetic-fixture-cleanup=pass'
   else
     printf '%s\n' 'synthetic-fixture-cleanup=fail' >&2
