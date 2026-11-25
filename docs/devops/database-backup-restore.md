@@ -144,6 +144,10 @@ The drill must, at minimum:
 
 A backup upload is not restore proof. DEVOPS-10 remains open until this drill succeeds and another teammate can follow the tested procedure.
 
+For the current #159 selection, Stage B accepts Backup #7 only and is restricted to ordinary recovery. It cannot select Backup #4 or provide the private statement/catalog evidence required by #276/#280. Before either secret is provisioned or changed, an independent reviewer must receive the exact proposed UTF-8 manifest bytes through the restricted owner channel, reconcile the Backup #7 entry against the successful producer run and evidence in the restricted record, and independently compute the SHA-256 of those exact bytes. Set `RESTORE_CANDIDATES_JSON` to those bytes and `RESTORE_CANDIDATE_MANIFEST_SHA256` to that independently computed lowercase digest as separate protected-environment secrets. Do not read back, print, or publish either secret. Stage B compares the exact received bytes with the separate digest and fails before any R2 request if either is missing or mismatched. Any later change requires the same independent review again. The digest detects byte drift after review; it is not provenance proof by itself. Keep the manifest and digest private.
+
+Stage B isolates the disposable containers but does not deny outbound TCP/DNS from the runner host; it observes and reports that connectivity. This is a residual risk for ordinary Backup #7 recovery and must be explicitly accepted by the protected-run approver. It does not meet the stricter #276/#280 owner-diagnostic network requirements.
+
 ### Disposable restore principal
 
 The [credential-free PostgreSQL 17 experiment](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44866128120)
@@ -165,8 +169,7 @@ Stage B still checks the five application counts and migration version set as
 local `postgres`. Synthetic fixtures exercise both restored ownership and
 explicit read grants. If that role cannot read the restored tables, or its row
 visibility produces different counts, verification fails. Objects with implicit
-ownership can take the replay role as owner. Backup #4 must still succeed in a
-protected isolated drill, including aggregate and cleanup checks, and the drill
+ownership can take the replay role as owner. Backup #7 is the selected candidate for the ordinary #159 recovery drill; its success does not diagnose or resolve Backup #4's failure under #276/#280. The drill
 does not establish recovery of excluded managed services or Storage objects.
 
 ## Failure handling

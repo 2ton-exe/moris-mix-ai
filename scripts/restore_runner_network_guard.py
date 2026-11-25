@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import socket
 import subprocess
 import sys
@@ -87,13 +88,39 @@ def _run(command, *, input_text=None, timeout=20):
         raise GuardError("network-guard-failed") from error
 
 
+def _path_contains_symlink_component(path):
+    candidate = Path(path)
+    if not candidate.is_absolute() or ".." in candidate.parts:
+        return True
+    current = Path(candidate.anchor)
+    for component in candidate.parts[1:]:
+        current /= component
+        try:
+            details = current.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return True
+        if stat.S_ISLNK(details.st_mode) or (
+            getattr(details, "st_file_attributes", 0) & 0x400
+        ):
+            return True
+    return False
+
+
 def _marker_path(path):
     runner_temp = os.environ.get("RUNNER_TEMP")
     if not runner_temp:
         raise GuardError("marker-invalid")
-    expected = Path(runner_temp).resolve() / "restore-runner-network-guard.json"
+    runner_path = Path(runner_temp)
     supplied = Path(path)
-    if supplied.resolve() != expected or supplied.is_symlink():
+    if (
+        _path_contains_symlink_component(runner_path)
+        or _path_contains_symlink_component(supplied)
+    ):
+        raise GuardError("marker-invalid")
+    expected = runner_path.resolve() / "restore-runner-network-guard.json"
+    if supplied.resolve() != expected:
         raise GuardError("marker-invalid")
     return expected
 
@@ -102,9 +129,15 @@ def _bootstrap_marker_path(path):
     runner_temp = os.environ.get("RUNNER_TEMP")
     if not runner_temp:
         raise GuardError("bootstrap-marker-invalid")
-    expected = Path(runner_temp).resolve() / "restore-runner-bootstrap-guard.json"
+    runner_path = Path(runner_temp)
     supplied = Path(path)
-    if supplied.resolve() != expected or supplied.is_symlink():
+    if (
+        _path_contains_symlink_component(runner_path)
+        or _path_contains_symlink_component(supplied)
+    ):
+        raise GuardError("bootstrap-marker-invalid")
+    expected = runner_path.resolve() / "restore-runner-bootstrap-guard.json"
+    if supplied.resolve() != expected:
         raise GuardError("bootstrap-marker-invalid")
     return expected
 
@@ -158,6 +191,7 @@ def _verify_bootstrap_firewall():
 
 
 def _read_bootstrap_marker(marker):
+    _reject_temporary_marker(marker, "bootstrap-marker-state-invalid")
     if not marker.exists() or marker.is_symlink():
         raise GuardError("bootstrap-marker-state-invalid")
     try:
@@ -439,6 +473,7 @@ def _run_dns_probe(network, image, *, database_container=None):
 
 
 def _read_marker(marker):
+    _reject_temporary_marker(marker, "marker-state-invalid")
     if not marker.exists() or marker.is_symlink():
         raise GuardError("marker-state-invalid")
     try:
@@ -465,20 +500,53 @@ def _read_marker(marker):
     return record
 
 
-def _write_marker(marker, record):
+def _reject_temporary_marker(marker, reason):
     temporary = marker.with_name(marker.name + ".tmp")
     try:
+        temporary.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise GuardError(reason) from error
+    raise GuardError(reason)
+
+
+def _write_marker(marker, record):
+    temporary = marker.with_name(marker.name + ".tmp")
+    descriptor = None
+    created = False
+    try:
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        created = True
         with os.fdopen(descriptor, "w", encoding="ascii") as output:
+            descriptor = None
             json.dump(record, output, sort_keys=True)
             output.write("\n")
         os.replace(temporary, marker)
     except OSError as error:
-        try:
-            temporary.unlink()
-        except OSError:
-            pass
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if created:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
         raise GuardError("marker-state-invalid") from error
+    except BaseException:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if created:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def apply(network, database_container, project_id, image, marker):
@@ -624,8 +692,7 @@ def handoff_bootstrap(marker, guard_marker, network, database_container, project
 def remove_bootstrap(marker, project_id):
     marker = _bootstrap_marker_path(marker)
     if not marker.exists():
-        if marker.with_name(marker.name + ".tmp").exists():
-            raise GuardError("bootstrap-marker-state-invalid")
+        _reject_temporary_marker(marker, "bootstrap-marker-state-invalid")
         tables = _run(["nft", "list", "tables"])
         if tables.returncode != 0 or re.search(
             rf"(?m)^table\s+inet\s+{BOOTSTRAP_TABLE}\s*$", tables.stdout
@@ -675,6 +742,12 @@ def remove_bootstrap(marker, project_id):
 def remove(network, marker):
     marker = _marker_path(marker)
     if not marker.exists():
+        _reject_temporary_marker(marker, "marker-state-invalid")
+        tables = _run(["nft", "list", "tables"])
+        if tables.returncode != 0 or re.search(
+            rf"(?m)^table\s+inet\s+{TABLE}\s*$", tables.stdout
+        ):
+            raise GuardError("cleanup-firewall-unverified")
         print("restore-runner-host-guard-cleanup=not-installed")
         return
     record = _read_marker(marker)

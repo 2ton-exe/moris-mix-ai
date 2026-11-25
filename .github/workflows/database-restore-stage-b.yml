@@ -1,15 +1,15 @@
 name: Database Restore Drill (Stage B)
 
+# Ordinary recovery only: this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic.
 # No PR, push, or scheduled access to the selected production backup.
 on:
   workflow_dispatch:
     inputs:
       candidate:
-        description: Approved recovery candidate
+        description: Ordinary Backup #7 recovery only
         required: true
         type: choice
         options:
-          - backup-4
           - backup-7
 
 permissions:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   isolated-restore:
-    name: Restore selected private R2 backup into disposable PostgreSQL 17
+    name: Ordinary Backup #7 recovery into disposable PostgreSQL 17
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -36,6 +36,15 @@ jobs:
       AWS_EC2_METADATA_DISABLED: "true"
 
     steps:
+      - name: Enforce ordinary Backup #7 selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RESTORE_CANDIDATE" != "backup-7" ]]; then
+            echo "::error::Stage B is restricted to the ordinary Backup #7 recovery drill"
+            exit 1
+          fi
+
       - name: Checkout reviewed restore workflow
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -264,13 +273,14 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_RESTORE_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_RESTORE_SECRET_ACCESS_KEY }}
           RESTORE_CANDIDATES_JSON: ${{ secrets.RESTORE_CANDIDATES_JSON }}
+          RESTORE_CANDIDATE_MANIFEST_SHA256: ${{ secrets.RESTORE_CANDIDATE_MANIFEST_SHA256 }}
           R2_BUCKET: moris-mix-db-backups-prod
         run: |
           set -euo pipefail
           umask 077
-          for key in R2_RESTORE_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+          for key in R2_RESTORE_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY RESTORE_CANDIDATE_MANIFEST_SHA256; do
             if [[ -z "${!key:-}" ]]; then
-              echo "::error::Missing isolated restore credential $key"
+              echo "::error::Missing isolated restore configuration $key"
               exit 1
             fi
           done
@@ -602,8 +612,9 @@ jobs:
           {
             echo '### Database Restore Drill — Stage B'
             echo '- Approved recovery candidate identity: withheld from public output'
+            echo '- Purpose: ordinary Backup #7 recovery only; this run cannot diagnose Backup #4 for #276/#280'
             echo '- Target: disposable PostgreSQL 17; private data is introduced after the internal network and runner-ingress guard pass'
-            echo '- Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow'
+            echo '- Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow; residual egress risk remains'
             echo '- R2 byte-integrity, metadata, component checksums: passed'
             echo '- Transactional SQL restore: passed'
             echo '- Application counts and migration history: passed'
@@ -657,7 +668,7 @@ jobs:
           if [[ "$failure" -eq 0 && -e "$RUNNER_TEMP/restore-network-owned" ]]; then
             rm -f "$RUNNER_TEMP/restore-network-owned" || failure=1
           fi
-          if [[ "$failure" -eq 0 && -e "$RUNNER_TEMP/restore-runner-network-guard.json" ]]; then
+          if [[ "$failure" -eq 0 ]]; then
             sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py remove \
               --docker-network "$RESTORE_DOCKER_NETWORK" \
               --marker "$RUNNER_TEMP/restore-runner-network-guard.json" || failure=1
@@ -668,6 +679,13 @@ jobs:
             failure=1
           elif [[ -n "$remaining_containers" || -n "$remaining_volumes" || -n "$remaining_networks" ]]; then
             echo '::error::Disposable PostgreSQL containers, volumes, or networks remain after cleanup'
+            failure=1
+          fi
+          if [[ -e "$RUNNER_TEMP/restore-runner-network-guard.json.tmp" || \
+                -L "$RUNNER_TEMP/restore-runner-network-guard.json.tmp" || \
+                -e "$RUNNER_TEMP/restore-runner-bootstrap-guard.json.tmp" || \
+                -L "$RUNNER_TEMP/restore-runner-bootstrap-guard.json.tmp" ]]; then
+            echo '::error::Temporary runner guard marker files remain after cleanup'
             failure=1
           fi
           if [[ "$failure" -eq 0 ]]; then

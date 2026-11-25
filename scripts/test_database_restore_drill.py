@@ -151,8 +151,37 @@ class StageBOfflineTests(unittest.TestCase):
         for private_field in (
             "BACKUP_PREFIX", "ARCHIVE_NAME", "EVIDENCE_NAME", "BACKUP_SHA256",
             "BACKUP_RUN_ID", "BACKUP_SOURCE_SHA", "BACKUP_SOURCE_PROJECT", "object_key",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256",
         ):
             self.assertNotIn(private_field, summary)
+
+    def test_stage_b_is_backup_7_only_and_checks_private_identity_pin_before_download(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        dispatch = workflow.split("  workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
+        self.assertIn("options:\n          - backup-7", dispatch)
+        self.assertNotIn("backup-4", dispatch)
+        self.assertIn('if [[ "$RESTORE_CANDIDATE" != "backup-7" ]]', workflow)
+        self.assertIn(
+            "this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic",
+            workflow,
+        )
+        download = workflow.split(
+            "      - name: Download selected private R2 backup and evidence", 1
+        )[1].split(
+            "      - name: Verify selected archive, source identity, and component checksums", 1
+        )[0]
+        self.assertIn(
+            "RESTORE_CANDIDATE_MANIFEST_SHA256: " + "$" + "{{ secrets.RESTORE_CANDIDATE_MANIFEST_SHA256 }}",
+            download,
+        )
+        self.assertLess(
+            download.index("restore_candidate_manifest.py"),
+            download.index("aws s3 cp"),
+        )
+        self.assertIn(
+            "Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow; residual egress risk remains",
+            workflow,
+        )
 
     def test_synthetic_startup_probe_emits_only_allowlisted_runtime_states(self):
         script_path = (
@@ -578,13 +607,30 @@ esac
         self.assertNotIn("--network-id", cleanup.split("if ! rm -rf", 1)[0])
         self.assertLess(cleanup.index("docker network rm"), cleanup.index("restore_runner_network_guard.py remove"))
         self.assertIn('[[ "$(cat "$RUNNER_TEMP/restore-network-owned")" == "$RESTORE_DOCKER_NETWORK" ]]', cleanup)
-        self.assertIn('failure" -eq 0 && -e "$RUNNER_TEMP/restore-runner-network-guard.json"', cleanup)
+        self.assertIn(
+            'if [[ "$failure" -eq 0 ]]; then\n'
+            '            sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py remove',
+            cleanup,
+        )
+        self.assertNotIn('&& -e "$RUNNER_TEMP/restore-runner-network-guard.json"', cleanup)
+        host_guard_remove = runner_guard.split("def remove(", 1)[1].split("def main(", 1)[0]
+        missing_guard_marker = host_guard_remove.split("if not marker.exists():", 1)[1].split(
+            "record = _read_marker(marker)", 1
+        )[0]
+        self.assertIn('["nft", "list", "tables"]', missing_guard_marker)
+        self.assertIn('"cleanup-firewall-unverified"', missing_guard_marker)
         self.assertIn('docker ps -aq --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
         self.assertIn('docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
         self.assertIn('docker network ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
         self.assertIn("Disposable PostgreSQL containers, volumes, or networks remain after cleanup", cleanup)
         self.assertLess(
             cleanup.index("Disposable PostgreSQL containers, volumes, or networks remain after cleanup"),
+            cleanup.index("restore_runner_network_guard.py remove-bootstrap"),
+        )
+        self.assertIn("restore-runner-network-guard.json.tmp", cleanup)
+        self.assertIn("restore-runner-bootstrap-guard.json.tmp", cleanup)
+        self.assertLess(
+            cleanup.index("Temporary runner guard marker files remain after cleanup"),
             cleanup.index("restore_runner_network_guard.py remove-bootstrap"),
         )
         self.assertIn("runner teardown will recycle the VM", cleanup)
@@ -1475,6 +1521,8 @@ python3() {
         cases = (
             ("network-present", 0, 0, 0, 0, 0, 1, True, True),
             ("network-absent", 0, 0, 0, 0, 0, 0, False, True),
+            ("bootstrap-remove-fails", 0, 0, 0, 0, 1, 1, True, True),
+            ("host-guard-remove-fails", 0, 0, 0, 0, 1, 1, True, True),
             ("docker-list-fails", 1, 0, 0, 0, 1, 0, False, True),
             ("network-remove-fails", 0, 1, 0, 0, 1, 1, True, True),
             ("database-stop-fails", 0, 0, 72, 0, 1, 1, True, True),
@@ -1503,8 +1551,12 @@ python3() {
                         (path / "synthetic.txt").write_text("SYNTHETIC_PRIVATE_SENTINEL")
                     else:
                         path.write_text("SYNTHETIC_PRIVATE_SENTINEL")
+                if name == "bootstrap-remove-fails":
+                    (root / "restore-runner-bootstrap-guard.json").write_bytes(
+                        b"SYNTHETIC_FIREWALL_MARKER"
+                    )
                 if owned:
-                    (root / "restore-network-owned").write_text("restore-synthetic-cleanup\n")
+                    (root / "restore-network-owned").write_bytes(b"restore-synthetic-cleanup\n")
                 stub = r'''\
 supabase() {
   [[ "$1" == stop ]] || return 99
@@ -1538,6 +1590,29 @@ docker() {
   fi
   return 99
 }
+sudo() {
+  if [[ "$#" == 9 && "$1" == env && "$2" == "RUNNER_TEMP=$RUNNER_TEMP" &&
+        "$3" == python3 && "$4" == scripts/restore_runner_network_guard.py &&
+        "$5" == remove && "$6" == --docker-network &&
+        "$7" == "$RESTORE_DOCKER_NETWORK" && "$8" == --marker &&
+        "$9" == "$RUNNER_TEMP/restore-runner-network-guard.json" ]]; then
+    printf 'remove-host-guard\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    [[ "$SYNTHETIC_HOST_GUARD_STATUS" == 0 ]] || return "$SYNTHETIC_HOST_GUARD_STATUS"
+    printf 'restore-runner-host-guard-cleanup=not-installed\n'
+    return 0
+  fi
+  if [[ "$#" == 9 && "$1" == env && "$2" == "RUNNER_TEMP=$RUNNER_TEMP" &&
+        "$3" == python3 && "$4" == scripts/restore_runner_network_guard.py &&
+        "$5" == remove-bootstrap && "$6" == --project-id &&
+        "$7" == "$RESTORE_PROJECT_ID" && "$8" == --marker &&
+        "$9" == "$RUNNER_TEMP/restore-runner-bootstrap-guard.json" ]]; then
+    printf 'remove-bootstrap\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    [[ "$SYNTHETIC_SUDO_STATUS" == 0 ]] || return "$SYNTHETIC_SUDO_STATUS"
+    printf 'restore-runner-bootstrap-ingress-cleanup=not-installed\n'
+    return 0
+  fi
+  return 99
+}
 rm() {
   [[ "$SYNTHETIC_RM_STATUS" == 0 ]] || return "$SYNTHETIC_RM_STATUS"
   command rm "$@"
@@ -1553,6 +1628,12 @@ rm() {
                            SYNTHETIC_DOCKER_REMOVE_STATUS=str(remove_status),
                            SYNTHETIC_STOP_STATUS=str(stop_status),
                            SYNTHETIC_RM_STATUS=str(rm_status),
+                           SYNTHETIC_HOST_GUARD_STATUS=(
+                               "1" if name == "host-guard-remove-fails" else "0"
+                           ),
+                           SYNTHETIC_SUDO_STATUS=(
+                               "1" if name == "bootstrap-remove-fails" else "0"
+                           ),
                            SYNTHETIC_PROJECT_RESOURCE_STATUS=(
                                "1" if name == "project-resource-list-fails" else "0"
                            ),
@@ -1571,24 +1652,38 @@ rm() {
                 stderr = result.stderr.decode("utf-8", errors="replace")
                 self.assertEqual(result.returncode, expected, f"stdout={stdout!r}; stderr={stderr!r}")
                 self.assertEqual(stderr, "")
-                expected_output = (
-                    "restore-runner-bootstrap-ingress-cleanup=not-installed\n"
+                actions = (root / "actions").read_text().splitlines() if (root / "actions").exists() else []
+                expected_host_calls = (
+                    1 if expected == 0 or name in {
+                        "bootstrap-remove-fails", "host-guard-remove-fails",
+                        "project-resources-remain", "project-resource-list-fails",
+                    } else 0
+                )
+                expected_bootstrap_calls = (
+                    1 if expected == 0 or name == "bootstrap-remove-fails" else 0
+                )
+                expected_output = ""
+                if expected_host_calls and name != "host-guard-remove-fails":
+                    expected_output += "restore-runner-host-guard-cleanup=not-installed\n"
+                if name == "project-resources-remain":
+                    expected_output += "::error::Disposable PostgreSQL containers, volumes, or networks remain after cleanup\n"
+                if expected_bootstrap_calls and name != "bootstrap-remove-fails":
+                    expected_output += "restore-runner-bootstrap-ingress-cleanup=not-installed\n"
+                expected_output += (
                     "Isolated database, volumes, network guard, and private runner files cleaned.\n"
                     if expected == 0 else
                     "::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM\n"
                 )
-                if name == "project-resources-remain":
-                    expected_output = (
-                        "::error::Disposable PostgreSQL containers, volumes, or networks remain after cleanup\n"
-                        + expected_output
-                    )
                 self.assertEqual(stdout, expected_output)
                 self.assertNotIn("SYNTHETIC_PRIVATE", stdout + stderr)
                 if name == "project-resources-remain":
                     self.assertNotIn("synthetic-container-id", stdout + stderr)
-                actions = (root / "actions").read_text().splitlines() if (root / "actions").exists() else []
                 self.assertIn("stop", actions)
                 self.assertEqual(actions.count("network-rm"), remove_calls)
+                self.assertEqual(actions.count("remove-host-guard"), expected_host_calls)
+                self.assertEqual(actions.count("remove-bootstrap"), expected_bootstrap_calls)
+                if name == "bootstrap-remove-fails":
+                    self.assertTrue((root / "restore-runner-bootstrap-guard.json").is_file())
                 if expected == 0:
                     self.assertFalse((root / "restore-selected.tar.gz").exists())
                     self.assertFalse(workdir.exists())
@@ -1649,13 +1744,13 @@ docker() {
                 marker = root / "restore-network-owned"
                 marker_target = base / "marker-target"
                 if marker_kind == "owned":
-                    marker.write_text(network_name + "\n", encoding="utf-8")
+                    marker.write_bytes((network_name + "\n").encode("utf-8"))
                 elif marker_kind == "mismatch":
-                    marker.write_text("SYNTHETIC_PRIVATE_MARKER\n", encoding="utf-8")
+                    marker.write_bytes(b"SYNTHETIC_PRIVATE_MARKER\n")
                 elif marker_kind == "directory":
                     marker.mkdir()
                 elif marker_kind == "symlink":
-                    marker_target.write_text(network_name + "\n", encoding="utf-8")
+                    marker_target.write_bytes((network_name + "\n").encode("utf-8"))
                     try:
                         marker.symlink_to(marker_target)
                     except OSError:

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -12,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-CANDIDATES = {"backup-4", "backup-7"}
+CANDIDATES = {"backup-7"}
 FIELDS = (
     "object_prefix",
     "archive_name",
@@ -40,7 +42,7 @@ def resolve_candidate(candidate: str, raw_manifest: str) -> dict[str, str]:
         return result
 
     manifest: Any = json.loads(raw_manifest, object_pairs_hook=unique_object)
-    if not isinstance(manifest, dict) or set(manifest) - CANDIDATES:
+    if not isinstance(manifest, dict) or set(manifest) != {candidate}:
         raise ValueError("invalid candidate configuration")
     record = manifest.get(candidate)
     if not isinstance(record, dict) or set(record) != set(FIELDS):
@@ -74,6 +76,45 @@ def resolve_candidate(candidate: str, raw_manifest: str) -> dict[str, str]:
     return values
 
 
+def verify_manifest_pin(raw_manifest: str, expected_sha256: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise ValueError("invalid candidate manifest pin")
+    actual_sha256 = hashlib.sha256(raw_manifest.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(actual_sha256, expected_sha256):
+        raise ValueError("candidate manifest pin mismatch")
+
+
+def _open_parent_directory_without_symlinks(path: Path) -> tuple[int, str]:
+    raw_path = Path(path)
+    if ".." in raw_path.parts:
+        raise ValueError("unsafe candidate manifest output path")
+    if not raw_path.is_absolute():
+        raw_path = Path.cwd() / raw_path
+    if raw_path.anchor != "/" or not raw_path.name or raw_path.name in {".", ".."}:
+        raise ValueError("unsupported candidate manifest output path")
+    if (
+        os.name != "posix"
+        or not hasattr(os, "O_DIRECTORY")
+        or not hasattr(os, "O_NOFOLLOW")
+        or os.open not in os.supports_dir_fd
+        or os.unlink not in os.supports_dir_fd
+    ):
+        raise OSError("symlink-safe candidate manifest output is unavailable")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+    nofollow_flags = directory_flags | os.O_NOFOLLOW
+    directory_fd = os.open("/", directory_flags)
+    try:
+        for component in raw_path.parent.parts[1:]:
+            child_fd = os.open(component, nofollow_flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child_fd
+    except BaseException:
+        os.close(directory_fd)
+        raise
+    return directory_fd, raw_path.name
+
+
 def write_shell_environment(path: Path, values: dict[str, str]) -> None:
     names = {
         "object_prefix": "BACKUP_PREFIX",
@@ -86,19 +127,42 @@ def write_shell_environment(path: Path, values: dict[str, str]) -> None:
         "source_revision": "BACKUP_SOURCE_SHA",
         "source_project_ref": "BACKUP_SOURCE_PROJECT",
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    payload = "".join(
+        f"export {names[field]}={shlex.quote(values[field])}\n"
+        for field in FIELDS
+    ).encode("utf-8")
+    parent_fd, filename = _open_parent_directory_without_symlinks(path)
+    output_fd: int | None = None
+    created = False
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as output:
-            for field in FIELDS:
-                output.write(f"export {names[field]}={shlex.quote(values[field])}\n")
+        output_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_NOFOLLOW
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        output_fd = os.open(filename, output_flags, 0o600, dir_fd=parent_fd)
+        created = True
+        os.fchmod(output_fd, 0o600)
+        output = os.fdopen(output_fd, "wb")
+        output_fd = None
+        with output:
+            output.write(payload)
     except BaseException:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
+        if output_fd is not None:
+            try:
+                os.close(output_fd)
+            except OSError:
+                pass
+        if created:
+            try:
+                os.unlink(filename, dir_fd=parent_fd)
+            except OSError:
+                pass
         raise
-    os.chmod(path, 0o600)
+    finally:
+        os.close(parent_fd)
 
 
 def main(argv: list[str]) -> int:
@@ -106,7 +170,12 @@ def main(argv: list[str]) -> int:
         print(ERROR, file=sys.stderr)
         return 1
     try:
-        values = resolve_candidate(argv[1], os.environ.get("RESTORE_CANDIDATES_JSON", ""))
+        raw_manifest = os.environ.get("RESTORE_CANDIDATES_JSON", "")
+        verify_manifest_pin(
+            raw_manifest,
+            os.environ.get("RESTORE_CANDIDATE_MANIFEST_SHA256", ""),
+        )
+        values = resolve_candidate(argv[1], raw_manifest)
         write_shell_environment(Path(argv[2]), values)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         print(ERROR, file=sys.stderr)

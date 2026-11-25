@@ -500,6 +500,137 @@ class RestoreRunnerNetworkGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(guard.GuardError, "marker-invalid"):
                     guard._marker_path(str(expected))
 
+    def test_both_marker_helpers_reject_symlinked_runner_temp_parents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            real_parent = base / "real-runner-temp"
+            real_parent.mkdir()
+            linked_parent = base / "runner-temp-link"
+            try:
+                linked_parent.symlink_to(real_parent, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                if os.name == "nt":
+                    self.skipTest("Windows does not permit symlink creation in this environment")
+                raise
+            with patch.dict(os.environ, {"RUNNER_TEMP": str(linked_parent)}):
+                with self.assertRaisesRegex(guard.GuardError, "marker-invalid"):
+                    guard._marker_path(str(linked_parent / "restore-runner-network-guard.json"))
+                with self.assertRaisesRegex(guard.GuardError, "bootstrap-marker-invalid"):
+                    guard._bootstrap_marker_path(
+                        str(linked_parent / "restore-runner-bootstrap-guard.json")
+                    )
+
+    def test_bootstrap_marker_helper_rejects_a_final_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict(os.environ, {"RUNNER_TEMP": temporary}):
+                target = Path(temporary) / "target.json"
+                target.write_text("{}", encoding="ascii")
+                marker = Path(temporary) / "restore-runner-bootstrap-guard.json"
+                try:
+                    marker.symlink_to(target)
+                except (OSError, NotImplementedError):
+                    if os.name == "nt":
+                        self.skipTest("Windows does not permit symlink creation in this environment")
+                    raise
+                with self.assertRaisesRegex(guard.GuardError, "bootstrap-marker-invalid"):
+                    guard._bootstrap_marker_path(str(marker))
+
+    def test_marker_writer_preserves_preexisting_temp_and_removes_its_partial_temp(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"RUNNER_TEMP": temporary}
+        ):
+            marker = Path(temporary) / "restore-runner-network-guard.json"
+            temp_marker = Path(str(marker) + ".tmp")
+            temp_marker.write_bytes(b"SYNTHETIC_PREEXISTING_MARKER_SENTINEL")
+            with self.assertRaisesRegex(guard.GuardError, "marker-state-invalid"):
+                guard._write_marker(marker, {
+                    "database_ipv4": DATABASE_IP,
+                    "interface": INTERFACE,
+                    "network": "restore-synthetic",
+                    "phase": "installing",
+                    "table": guard.TABLE,
+                })
+            self.assertEqual(
+                temp_marker.read_bytes(), b"SYNTHETIC_PREEXISTING_MARKER_SENTINEL"
+            )
+            temp_marker.unlink()
+
+            with patch.object(guard.os, "replace", side_effect=OSError("synthetic replace failure")):
+                with self.assertRaisesRegex(guard.GuardError, "marker-state-invalid"):
+                    guard._write_marker(marker, {
+                        "database_ipv4": DATABASE_IP,
+                        "interface": INTERFACE,
+                        "network": "restore-synthetic",
+                        "phase": "installing",
+                        "table": guard.TABLE,
+                    })
+            self.assertFalse(temp_marker.exists())
+            self.assertFalse(marker.exists())
+
+    def test_cleanup_rejects_orphan_temporary_marker_files(self):
+        cases = (
+            (
+                "restore-runner-network-guard.json",
+                {
+                    "database_ipv4": DATABASE_IP,
+                    "interface": INTERFACE,
+                    "network": "restore-synthetic",
+                    "phase": "active",
+                    "table": guard.TABLE,
+                },
+                lambda marker: guard.remove("restore-synthetic", str(marker)),
+                "marker-state-invalid",
+            ),
+            (
+                "restore-runner-bootstrap-guard.json",
+                {"phase": "active", "table": guard.BOOTSTRAP_TABLE},
+                lambda marker: guard.remove_bootstrap(str(marker), "synthetic-project"),
+                "bootstrap-marker-state-invalid",
+            ),
+        )
+        for filename, record, cleanup, error in cases:
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"RUNNER_TEMP": temporary}
+            ), patch.object(guard, "_run") as run:
+                marker = Path(temporary) / filename
+                marker.write_text(json.dumps(record), encoding="ascii")
+                temp_marker = Path(str(marker) + ".tmp")
+                temp_marker.write_bytes(b"SYNTHETIC_INTERRUPTED_MARKER_WRITE")
+                with self.assertRaisesRegex(guard.GuardError, error):
+                    cleanup(marker)
+                self.assertTrue(marker.exists())
+                self.assertEqual(temp_marker.read_bytes(), b"SYNTHETIC_INTERRUPTED_MARKER_WRITE")
+                run.assert_not_called()
+
+    def test_missing_host_marker_requires_verified_firewall_absence(self):
+        results = (
+            (subprocess.CompletedProcess([], 0, "table inet unrelated\n", ""), False),
+            (
+                subprocess.CompletedProcess([], 0, f"table inet {guard.TABLE}\n", ""),
+                True,
+            ),
+            (subprocess.CompletedProcess([], 1, "", "SYNTHETIC_PRIVATE_SENTINEL"), True),
+        )
+        for result, should_fail in results:
+            with self.subTest(result=result), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"RUNNER_TEMP": temporary}
+            ), patch.object(guard, "_run", return_value=result) as run, patch(
+                "builtins.print"
+            ) as printed:
+                marker = Path(temporary) / "restore-runner-network-guard.json"
+                if should_fail:
+                    with self.assertRaisesRegex(
+                        guard.GuardError, "cleanup-firewall-unverified"
+                    ):
+                        guard.remove("restore-synthetic", str(marker))
+                    printed.assert_not_called()
+                else:
+                    guard.remove("restore-synthetic", str(marker))
+                    printed.assert_called_once_with(
+                        "restore-runner-host-guard-cleanup=not-installed"
+                    )
+                run.assert_called_once_with(["nft", "list", "tables"])
+
     def test_cleanup_removes_only_the_verified_guard_after_network_removal(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"RUNNER_TEMP": temporary}
