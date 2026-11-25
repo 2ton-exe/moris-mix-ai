@@ -98,7 +98,7 @@ for workflow, step, output in (
             ('python3 - "$workdir/supabase/config.toml"', "config-update"),
             ("if supabase --debug db start", "database-start"),
             ("mapfile -t db_ids < <(docker ps", "database-discovery"),
-            ("mapfile -t initial_networks < <(docker inspect", "initial-network-check"),
+            ('initial_networks_text="$(docker inspect --format', "initial-network-check"),
             ("docker network create --driver bridge", "internal-network-create"),
             ("docker network connect --alias db", "database-network-attach"),
             ("docker network disconnect", "database-network-detach"),
@@ -216,6 +216,8 @@ else
     else
       failure_class=database-start-other
     fi
+  elif grep -Fq 'Disposable database did not start on one temporary default bridge' "$root/start.out" "$root/start.err"; then
+    failure_class=initial-network-unverified
   elif guard_diagnostic="$(synthetic_network_guard_diagnostic "$root/start.err")" && \
        [[ -n "$guard_diagnostic" ]]; then
     printf 'Synthetic setup diagnostic: %s\n' "$guard_diagnostic"

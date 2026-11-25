@@ -97,8 +97,11 @@ jobs:
             exit 1
           fi
           db_id="${db_ids[0]}"
-          mapfile -t initial_networks < <(docker inspect --format \
-            '{{range $name, $cfg := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' "$db_id")
+          initial_networks_text="$(docker inspect --format \
+            '{{range $name, $cfg := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' "$db_id")"
+          # Docker appends a newline to inspect output; command substitution
+          # trims it before mapfile so an empty trailing element is not counted.
+          mapfile -t initial_networks <<< "$initial_networks_text"
           if [[ "${#initial_networks[@]}" != "1" || -z "${initial_networks[0]}" || \
                 "${initial_networks[0]}" == "$RESTORE_DOCKER_NETWORK" ]]; then
             echo "::error::Disposable database did not start on one temporary default bridge"
