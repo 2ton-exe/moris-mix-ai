@@ -224,7 +224,10 @@ supabase() {
 }
 export -f supabase
 docker() {
+  if [[ "$1" == ps && "$2" == -aq ]]; then return 0; fi
+  if [[ "$1" == volume && "$2" == ls ]]; then return 0; fi
   if [[ "$1" == network && "$2" == ls ]]; then
+    if [[ " $* " == *" -q "* ]]; then return 0; fi
     if [[ -e "$RUNNER_TEMP/network-created" ]]; then
       printf '%s\n' 'restore-synthetic-test'
     fi
@@ -233,7 +236,7 @@ docker() {
   if [[ "$1" == network && "$2" == inspect ]]; then
     if [[ ! -e "$RUNNER_TEMP/network-created" ]]; then return 1; fi
     if [[ "$#" == 3 ]]; then return 0; fi
-    printf 'bridge|true|false|127.0.0.1|mori276-synthetic|mori276-synthetic\n'
+    printf 'bridge|true|false|mori276-synthetic|mori276-synthetic\n'
     return 0
   fi
   if [[ "$1" == network && "$2" == create ]]; then
@@ -264,7 +267,8 @@ bash scripts/test_database_restore_synthetic.sh
                 self.assertEqual(run.stdout.splitlines(), [
                     "synthetic-startup-probe container=unknown state=unknown pg_ready=unverified",
                     "::error::Synthetic protected target setup failed; class=database-start-other", shutdown,
-                    "synthetic-network-cleanup=pass", "synthetic-fixture-cleanup=pass"
+                    "synthetic-project-cleanup=pass", "synthetic-network-cleanup=pass",
+                    "synthetic-fixture-cleanup=pass"
                 ])
                 self.assertEqual({p.name for p in Path(tmp).iterdir()}, {"stop-called"})
 

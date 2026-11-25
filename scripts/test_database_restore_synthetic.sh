@@ -20,8 +20,7 @@ cleanup() {
   local network_cleanup_ok=1 network_list network_name
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
-    if supabase stop --workdir "$workdir" --no-backup \
-      --network-id "$RESTORE_DOCKER_NETWORK" > /dev/null 2>&1; then
+    if supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
       printf '%s\n' 'synthetic-database-shutdown=pass'
     else
       printf '%s\n' '::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.'
@@ -46,6 +45,17 @@ cleanup() {
           --docker-network "$RESTORE_DOCKER_NETWORK" \
           --marker "$RUNNER_TEMP/restore-runner-network-guard.json"; then
         network_cleanup_ok=0
+    fi
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]]; then
+    local remaining_containers remaining_volumes remaining_networks
+    if ! remaining_containers="$(docker ps -aq --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" 2>/dev/null)" || \
+       ! remaining_volumes="$(docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" 2>/dev/null)" || \
+       ! remaining_networks="$(docker network ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" 2>/dev/null)" || \
+       [[ -n "$remaining_containers" || -n "$remaining_volumes" || -n "$remaining_networks" ]]; then
+      network_cleanup_ok=0
+    else
+      printf '%s\n' 'synthetic-project-cleanup=pass'
     fi
   fi
   if [[ "$network_cleanup_ok" == 1 ]]; then
@@ -110,13 +120,25 @@ synthetic_startup_probe() {
     "$container" "$state" "$ready"
 }
 
+synthetic_startup_failure_class() {
+  local log="$1"
+  if grep -Eiq 'ECONNREFUSED[^[:cntrl:]]*127[.]0[.]0[.]1:54322|127[.]0[.]0[.]1:54322[^[:cntrl:]]*ECONNREFUSED' "$log"; then
+    printf '%s\n' 'database-start-loopback-healthcheck'
+  else
+    printf '%s\n' 'unknown'
+  fi
+}
+
 if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
   :
 else
   start_status=$?
   failure_class=unknown
   if grep -Fq 'Disposable Supabase startup failed' "$root/start.out" "$root/start.err"; then
-    if grep -Eiq '(docker daemon|docker socket|cannot connect to docker)' "$root/private-db-start.log" 2>/dev/null; then
+    loopback_failure="$(synthetic_startup_failure_class "$root/private-db-start.log")"
+    if [[ "$loopback_failure" == database-start-loopback-healthcheck ]]; then
+      failure_class="$loopback_failure"
+    elif grep -Eiq '(docker daemon|docker socket|cannot connect to docker)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-daemon
     elif grep -Eiq '(pull access denied|manifest unknown|no matching manifest|failed to pull|toomanyrequests|too many requests|rate limit|http 429|status code 429)' "$root/private-db-start.log" 2>/dev/null; then
       failure_class=database-start-image-pull
@@ -141,8 +163,8 @@ else
     fi
   elif grep -Fq 'Disposable restore network isolation failed' "$root/start.out" "$root/start.err"; then
     failure_class=network-isolation
-  elif grep -Fq 'Disposable PostgreSQL host binding is not loopback-only' "$root/start.out" "$root/start.err"; then
-    failure_class=loopback-binding
+  elif grep -Fq 'Disposable PostgreSQL host port mapping is unexpected' "$root/start.out" "$root/start.err"; then
+    failure_class=unexpected-port-mapping
   elif grep -Fq 'Unexpected PostgreSQL server version' "$root/start.out" "$root/start.err"; then
     failure_class=server-version
   elif grep -Fq 'Target is not a clean Supabase baseline' "$root/start.out" "$root/start.err"; then
