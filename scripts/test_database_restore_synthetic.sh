@@ -1037,7 +1037,18 @@ if ! run_restore_step aggregates ||
   elif grep -Fxq '::error::Application foreign-key verification query is unavailable' "$root/step.out"; then
     aggregate_stage=foreign-key-query-unavailable
   elif grep -Fxq '::error::Application foreign-key verification query failed' "$root/step.out"; then
-    aggregate_stage=foreign-key-query
+    integrity_query="$(< "$script_dir/verify_restore_foreign_keys.sql")"
+    if "${client[@]}" psql -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
+        -c "$integrity_query" -d "$local_db" \
+        > "$root/aggregate-fk-internal.out" 2> "$root/aggregate-fk-internal.err"; then
+      if grep -Fxq '1' "$root/aggregate-fk-internal.out"; then
+        aggregate_stage=foreign-key-host-path-internal-pass
+      else
+        aggregate_stage=foreign-key-internal-result-not-one
+      fi
+    else
+      aggregate_stage=foreign-key-internal-query-failed
+    fi
   elif grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out"; then
     aggregate_stage=foreign-key-integrity
   elif grep -Fxq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
