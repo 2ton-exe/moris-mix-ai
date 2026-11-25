@@ -1,9 +1,11 @@
 """Verify host and Docker ingress isolation for the disposable Stage B database.
 
-The pinned Supabase CLI needs a normal startup path for its host-loopback
-readiness check. Stage B starts an empty credential-free database first, moves
-it to a verified internal IPv4 bridge, then applies this guard before private
-backup data or R2 credentials are introduced. Public output uses fixed labels.
+The pinned Supabase CLI needs a host-loopback readiness check while starting
+the empty database. A narrow bootstrap guard denies non-loopback PostgreSQL
+ingress first; after the database moves to a verified internal IPv4 bridge,
+the final guard takes over and the bootstrap guard is removed. Both guards are
+verified before private backup data or R2 credentials are introduced. Public
+output uses fixed labels.
 """
 
 import argparse
@@ -20,6 +22,7 @@ import threading
 
 
 TABLE = "restore_stage_b"
+BOOTSTRAP_TABLE = "restore_stage_b_bootstrap"
 PINNED_IMAGE = (
     "postgres:17.11-alpine@sha256:"
     "266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
@@ -53,6 +56,15 @@ ALLOWED_FAILURES = {
     "cleanup-firewall-unverified",
     "cleanup-marker-failed",
     "client-image-mismatch",
+    "bootstrap-firewall-table-exists",
+    "bootstrap-firewall-install-failed",
+    "bootstrap-firewall-policy-unverified",
+    "bootstrap-marker-invalid",
+    "bootstrap-marker-exists",
+    "bootstrap-marker-state-invalid",
+    "bootstrap-resources-remain",
+    "bootstrap-cleanup-firewall-unverified",
+    "bootstrap-cleanup-marker-failed",
     "network-guard-failed",
 }
 
@@ -84,6 +96,82 @@ def _marker_path(path):
     if supplied.resolve() != expected or supplied.is_symlink():
         raise GuardError("marker-invalid")
     return expected
+
+
+def _bootstrap_marker_path(path):
+    runner_temp = os.environ.get("RUNNER_TEMP")
+    if not runner_temp:
+        raise GuardError("bootstrap-marker-invalid")
+    expected = Path(runner_temp).resolve() / "restore-runner-bootstrap-guard.json"
+    supplied = Path(path)
+    if supplied.resolve() != expected or supplied.is_symlink():
+        raise GuardError("bootstrap-marker-invalid")
+    return expected
+
+
+def _bootstrap_ruleset():
+    """Protect Supabase's published port while its empty DB starts."""
+    return "\n".join(
+        [
+            f"add table inet {BOOTSTRAP_TABLE}",
+            f"add chain inet {BOOTSTRAP_TABLE} input {{ type filter hook input priority -150; policy accept; }}",
+            f"add rule inet {BOOTSTRAP_TABLE} input iifname \"lo\" ip daddr 127.0.0.1 tcp dport 54322 accept",
+            f"add rule inet {BOOTSTRAP_TABLE} input tcp dport 54322 drop",
+            f"add chain inet {BOOTSTRAP_TABLE} forward {{ type filter hook forward priority -1; policy accept; }}",
+            f"add rule inet {BOOTSTRAP_TABLE} forward iifname \"lo\" meta nfproto ipv4 ct status dnat tcp dport 5432 accept",
+            f"add rule inet {BOOTSTRAP_TABLE} forward tcp dport 5432 drop",
+        ]
+    ) + "\n"
+
+
+def _verify_bootstrap_firewall():
+    result = _run(
+        ["nft", "--numeric-priority", "list", "table", "inet", BOOTSTRAP_TABLE]
+    )
+    if result.returncode != 0 or not result.stdout.lstrip().startswith(
+        f"table inet {BOOTSTRAP_TABLE} {{"
+    ):
+        raise GuardError("bootstrap-firewall-policy-unverified")
+    chains = dict(
+        re.findall(
+            r"^\s*chain\s+([A-Za-z0-9_-]+)\s*\{(.*?)^\s*\}",
+            result.stdout,
+            re.MULTILINE | re.DOTALL,
+        )
+    )
+    if set(chains) != {"input", "forward"}:
+        raise GuardError("bootstrap-firewall-policy-unverified")
+    actual_input = [line.strip() for line in chains["input"].splitlines() if line.strip()]
+    expected_input = [
+        "type filter hook input priority -150; policy accept;",
+        'iifname "lo" ip daddr 127.0.0.1 tcp dport 54322 accept',
+        "tcp dport 54322 drop",
+    ]
+    actual_forward = [line.strip() for line in chains["forward"].splitlines() if line.strip()]
+    expected_forward = [
+        "type filter hook forward priority -1; policy accept;",
+        'iifname "lo" meta nfproto ipv4 ct status dnat tcp dport 5432 accept',
+        "tcp dport 5432 drop",
+    ]
+    if actual_input != expected_input or actual_forward != expected_forward:
+        raise GuardError("bootstrap-firewall-policy-unverified")
+
+
+def _read_bootstrap_marker(marker):
+    if not marker.exists() or marker.is_symlink():
+        raise GuardError("bootstrap-marker-state-invalid")
+    try:
+        record = json.loads(marker.read_text(encoding="ascii"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise GuardError("bootstrap-marker-state-invalid") from error
+    if (
+        not isinstance(record, dict)
+        or set(record) != {"phase", "table"}
+        or record.get("table") != BOOTSTRAP_TABLE
+        or record.get("phase") not in {"installing", "active"}
+    ):
+        raise GuardError("bootstrap-marker-state-invalid")
+    return record
 
 
 def _network_details(network, project_id):
@@ -290,6 +378,27 @@ def _run_published_port_probe(image):
         raise GuardError("published-port-unverified")
 
 
+def _default_bridge_gateway():
+    result = _run(["docker", "network", "inspect", "bridge"])
+    if result.returncode != 0:
+        raise GuardError("host-route-unverified")
+    try:
+        records = json.loads(result.stdout)
+        record = records[0]
+        configs = record["IPAM"]["Config"]
+        gateway = ipaddress.ip_address(configs[0]["Gateway"])
+    except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise GuardError("host-route-unverified") from error
+    if (
+        len(records) != 1
+        or record.get("Driver") != "bridge"
+        or len(configs) != 1
+        or gateway.version != 4
+    ):
+        raise GuardError("host-route-unverified")
+    return str(gateway)
+
+
 def _run_dns_probe(network, image, *, database_container=None):
     command = ["docker", "run", "--rm"]
     if database_container is None:
@@ -427,6 +536,142 @@ def apply(network, database_container, project_id, image, marker):
         thread.join(timeout=1)
 
 
+def bootstrap(marker):
+    """Install a narrow ingress deny before Supabase publishes PostgreSQL."""
+    marker = _bootstrap_marker_path(marker)
+    if not shutil.which("nft"):
+        raise GuardError("firewall-unavailable")
+    tables = _run(["nft", "list", "tables"])
+    if tables.returncode != 0:
+        raise GuardError("bootstrap-firewall-policy-unverified")
+    if re.search(rf"(?m)^table\s+inet\s+{BOOTSTRAP_TABLE}\s*$", tables.stdout):
+        raise GuardError("bootstrap-firewall-table-exists")
+    if marker.exists() or marker.with_name(marker.name + ".tmp").exists():
+        raise GuardError("bootstrap-marker-exists")
+
+    record = {"phase": "installing", "table": BOOTSTRAP_TABLE}
+    _write_marker(marker, record)
+    result = _run(["nft", "-f", "-"], input_text=_bootstrap_ruleset())
+    if result.returncode != 0:
+        raise GuardError("bootstrap-firewall-install-failed")
+    _verify_bootstrap_firewall()
+    record["phase"] = "active"
+    _write_marker(marker, record)
+
+
+def verify_bootstrap(marker, image):
+    marker = _bootstrap_marker_path(marker)
+    record = _read_bootstrap_marker(marker)
+    if record["phase"] != "active":
+        raise GuardError("bootstrap-marker-state-invalid")
+    if image != PINNED_IMAGE:
+        raise GuardError("client-image-mismatch")
+    _verify_bootstrap_firewall()
+    gateway = _default_bridge_gateway()
+    listener, stopped, thread, port = _start_host_listener(gateway)
+    try:
+        if not _run_host_probe("bridge", gateway, port, image):
+            raise GuardError("host-route-unverified")
+        _run_published_port_probe(image)
+    finally:
+        stopped.set()
+        listener.close()
+        thread.join(timeout=1)
+
+
+def _delete_bootstrap_guard(marker, record):
+    tables = _run(["nft", "list", "tables"])
+    if tables.returncode != 0:
+        raise GuardError("bootstrap-cleanup-firewall-unverified")
+    has_table = (
+        re.search(rf"(?m)^table\s+inet\s+{BOOTSTRAP_TABLE}\s*$", tables.stdout)
+        is not None
+    )
+    if has_table:
+        _verify_bootstrap_firewall()
+        deleted = _run(["nft", "delete", "table", "inet", BOOTSTRAP_TABLE])
+        if deleted.returncode != 0:
+            raise GuardError("bootstrap-cleanup-firewall-unverified")
+    elif record["phase"] != "installing":
+        raise GuardError("bootstrap-cleanup-firewall-unverified")
+    try:
+        marker.unlink()
+    except OSError as error:
+        raise GuardError("bootstrap-cleanup-marker-failed") from error
+
+
+def handoff_bootstrap(marker, guard_marker, network, database_container, project_id):
+    marker = _bootstrap_marker_path(marker)
+    record = _read_bootstrap_marker(marker)
+    if record["phase"] != "active":
+        raise GuardError("bootstrap-marker-state-invalid")
+    guard_record = _read_marker(_marker_path(guard_marker))
+    _, interface = _network_details(network, project_id)
+    database_ip = _database_ipv4(database_container, network)
+    if (
+        guard_record["phase"] != "active"
+        or guard_record["network"] != network
+        or guard_record["interface"] != interface
+        or guard_record["database_ipv4"] != database_ip
+    ):
+        raise GuardError("firewall-policy-unverified")
+    _verify_firewall(interface, database_ip)
+    _verify_bootstrap_firewall()
+    _delete_bootstrap_guard(marker, record)
+    print("restore-runner-bootstrap-ingress-handoff=verified")
+
+
+def remove_bootstrap(marker, project_id):
+    marker = _bootstrap_marker_path(marker)
+    if not marker.exists():
+        if marker.with_name(marker.name + ".tmp").exists():
+            raise GuardError("bootstrap-marker-state-invalid")
+        tables = _run(["nft", "list", "tables"])
+        if tables.returncode != 0 or re.search(
+            rf"(?m)^table\s+inet\s+{BOOTSTRAP_TABLE}\s*$", tables.stdout
+        ):
+            raise GuardError("bootstrap-cleanup-firewall-unverified")
+        print("restore-runner-bootstrap-ingress-cleanup=not-installed")
+        return
+    record = _read_bootstrap_marker(marker)
+    if not isinstance(project_id, str) or NETWORK_RE.fullmatch(project_id) is None:
+        raise GuardError("bootstrap-marker-state-invalid")
+
+    for command in (
+        [
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            f"label=com.supabase.cli.project={project_id}",
+        ],
+        [
+            "docker",
+            "volume",
+            "ls",
+            "-q",
+            "--filter",
+            f"label=com.supabase.cli.project={project_id}",
+        ],
+        [
+            "docker",
+            "network",
+            "ls",
+            "-q",
+            "--filter",
+            f"label=com.supabase.cli.project={project_id}",
+        ],
+    ):
+        result = _run(command)
+        if result.returncode != 0:
+            raise GuardError("bootstrap-resources-remain")
+        if result.stdout.strip():
+            raise GuardError("bootstrap-resources-remain")
+
+    _delete_bootstrap_guard(marker, record)
+    print("restore-runner-bootstrap-ingress-cleanup=pass")
+
+
 def remove(network, marker):
     marker = _marker_path(marker)
     if not marker.exists():
@@ -467,6 +712,20 @@ def main(argv=None):
     install.add_argument("--project-id", required=True)
     install.add_argument("--psql-image", default=PINNED_IMAGE)
     install.add_argument("--marker", required=True)
+    bootstrap_command = subparsers.add_parser("bootstrap")
+    bootstrap_command.add_argument("--marker", required=True)
+    verify_bootstrap_command = subparsers.add_parser("verify-bootstrap")
+    verify_bootstrap_command.add_argument("--psql-image", default=PINNED_IMAGE)
+    verify_bootstrap_command.add_argument("--marker", required=True)
+    handoff_bootstrap_command = subparsers.add_parser("handoff-bootstrap")
+    handoff_bootstrap_command.add_argument("--bootstrap-marker", required=True)
+    handoff_bootstrap_command.add_argument("--guard-marker", required=True)
+    handoff_bootstrap_command.add_argument("--docker-network", required=True)
+    handoff_bootstrap_command.add_argument("--database-container", required=True)
+    handoff_bootstrap_command.add_argument("--project-id", required=True)
+    remove_bootstrap_command = subparsers.add_parser("remove-bootstrap")
+    remove_bootstrap_command.add_argument("--project-id", required=True)
+    remove_bootstrap_command.add_argument("--marker", required=True)
     cleanup = subparsers.add_parser("remove")
     cleanup.add_argument("--docker-network", required=True)
     cleanup.add_argument("--marker", required=True)
@@ -480,6 +739,20 @@ def main(argv=None):
                 args.psql_image,
                 args.marker,
             )
+        elif args.command == "bootstrap":
+            bootstrap(args.marker)
+        elif args.command == "verify-bootstrap":
+            verify_bootstrap(args.marker, args.psql_image)
+        elif args.command == "handoff-bootstrap":
+            handoff_bootstrap(
+                args.bootstrap_marker,
+                args.guard_marker,
+                args.docker_network,
+                args.database_container,
+                args.project_id,
+            )
+        elif args.command == "remove-bootstrap":
+            remove_bootstrap(args.marker, args.project_id)
         else:
             remove(args.docker_network, args.marker)
     except Exception as error:
@@ -490,6 +763,10 @@ def main(argv=None):
         return 1
     if args.command == "apply":
         print("restore-runner-host-guard=verified")
+    elif args.command == "bootstrap":
+        print("restore-runner-bootstrap-ingress=installed")
+    elif args.command == "verify-bootstrap":
+        print("restore-runner-bootstrap-ingress=verified")
     return 0
 
 

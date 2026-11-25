@@ -58,6 +58,15 @@ cleanup() {
       printf '%s\n' 'synthetic-project-cleanup=pass'
     fi
   fi
+  if [[ "$network_cleanup_ok" == 1 ]] && \
+     [[ -e "$RUNNER_TEMP/restore-runner-bootstrap-guard.json" || \
+        -e "$RUNNER_TEMP/restore-runner-bootstrap-guard.json.tmp" ]]; then
+    if ! sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 "$script_dir/restore_runner_network_guard.py" remove-bootstrap \
+        --project-id "$RESTORE_PROJECT_ID" \
+        --marker "$RUNNER_TEMP/restore-runner-bootstrap-guard.json"; then
+      network_cleanup_ok=0
+    fi
+  fi
   if [[ "$network_cleanup_ok" == 1 ]]; then
     printf '%s\n' 'synthetic-network-cleanup=pass'
   else
@@ -96,9 +105,11 @@ for workflow, step, output in (
         markers = (
             ('supabase init --workdir "$workdir"', "config-init"),
             ('python3 - "$workdir/supabase/config.toml"', "config-update"),
+            ("python3 scripts/restore_runner_network_guard.py bootstrap", "bootstrap-guard-apply"),
             ("if supabase --debug db start", "database-start"),
             ("mapfile -t db_ids < <(docker ps", "database-discovery"),
             ('initial_networks_text="$(docker inspect --format', "initial-network-check"),
+            ("python3 scripts/restore_runner_network_guard.py verify-bootstrap", "bootstrap-guard-verify"),
             ("docker network create --driver bridge", "internal-network-create"),
             ("docker network connect --alias db", "database-network-attach"),
             ("docker network disconnect", "database-network-detach"),
@@ -111,6 +122,7 @@ for workflow, step, output in (
             ('docker exec "$db_id" pg_isready', "container-readiness-check"),
             ('"${network_client[@]}" sh -c \'command -v nc', "client-tool-check"),
             ("sudo env RUNNER_TEMP=\"$RUNNER_TEMP\" python3 scripts/restore_runner_network_guard.py apply", "runner-guard-apply"),
+            ("python3 scripts/restore_runner_network_guard.py handoff-bootstrap", "bootstrap-guard-handoff"),
             ('if "${network_client[@]}" sh -c \'nc -z -w 4 1.1.1.1 443\'', "client-egress-check"),
             ("server_probe=(docker run", "database-egress-check"),
             ('if "${server_probe[@]}" -c \'nc -z -w 4 1.1.1.1 443\'', "database-egress-probe"),
@@ -168,7 +180,7 @@ synthetic_startup_failure_class() {
 
 synthetic_network_guard_diagnostic() {
   local log="$1"
-  local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|database-namespace-dns-unverified|dns-probe-client-missing|dns-probe-failed|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|network-guard-failed'
+  local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|database-namespace-dns-unverified|dns-probe-client-missing|dns-probe-failed|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|bootstrap-firewall-table-exists|bootstrap-firewall-install-failed|bootstrap-firewall-policy-unverified|bootstrap-marker-invalid|bootstrap-marker-exists|bootstrap-marker-state-invalid|bootstrap-resources-remain|bootstrap-cleanup-firewall-unverified|bootstrap-cleanup-marker-failed|network-guard-failed'
   if [[ -r "$log" ]]; then
     grep -Eo "^Restore runner network guard failed \\(($allowed)\\)\\.$" "$log" | head -n 1 || true
   fi
@@ -178,7 +190,7 @@ synthetic_startup_stage_diagnostic() {
   local stage
   if [[ -r "$1" ]] && IFS= read -r stage < "$1"; then
     case "$stage" in
-      config-init|config-update|database-start|database-discovery|initial-network-check|internal-network-create|database-network-attach|database-network-detach|server-image-check|final-membership-check|internal-network-check|published-port-check|server-version-check|clean-baseline-check|container-readiness-check|client-tool-check|runner-guard-apply|post-guard-db-connectivity|client-egress-check|database-egress-check|database-egress-probe|runner-host-egress-check|runner-host-dns-check)
+      config-init|config-update|bootstrap-guard-apply|database-start|database-discovery|initial-network-check|bootstrap-guard-verify|internal-network-create|database-network-attach|database-network-detach|server-image-check|final-membership-check|internal-network-check|published-port-check|server-version-check|clean-baseline-check|container-readiness-check|client-tool-check|runner-guard-apply|bootstrap-guard-handoff|post-guard-db-connectivity|client-egress-check|database-egress-check|database-egress-probe|runner-host-egress-check|runner-host-dns-check)
         printf 'Synthetic startup failure stage: %s\n' "$stage"
         ;;
     esac

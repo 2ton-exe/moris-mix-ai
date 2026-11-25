@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import restore_runner_network_guard as guard
 
@@ -52,7 +52,303 @@ table inet {guard.TABLE} {{
 '''
 
 
+def bootstrap_firewall_output(*, extra_input="", extra_forward=""):
+    return f'''\
+table inet {guard.BOOTSTRAP_TABLE} {{
+ chain input {{
+  type filter hook input priority -150; policy accept;
+  iifname "lo" ip daddr 127.0.0.1 tcp dport 54322 accept
+  tcp dport 54322 drop
+  {extra_input}
+ }}
+ chain forward {{
+  type filter hook forward priority -1; policy accept;
+  iifname "lo" meta nfproto ipv4 ct status dnat tcp dport 5432 accept
+  tcp dport 5432 drop
+  {extra_forward}
+ }}
+}}
+'''
+
+
 class RestoreRunnerNetworkGuardTests(unittest.TestCase):
+    def test_bootstrap_guard_covers_host_and_forwarded_ipv4_ipv6_ingress(self):
+        rules = guard._bootstrap_ruleset()
+        self.assertIn(
+            "type filter hook input priority -150; policy accept;", rules
+        )
+        self.assertIn(
+            'input iifname "lo" ip daddr 127.0.0.1 tcp dport 54322 accept',
+            rules,
+        )
+        self.assertIn("input tcp dport 54322 drop", rules)
+        self.assertIn(
+            "type filter hook forward priority -1; policy accept;", rules
+        )
+        self.assertIn(
+            'forward iifname "lo" meta nfproto ipv4 ct status dnat tcp dport 5432 accept',
+            rules,
+        )
+        self.assertIn("forward tcp dport 5432 drop", rules)
+        self.assertNotIn("hook output", rules)
+        with patch.object(
+            guard,
+            "_run",
+            return_value=subprocess.CompletedProcess(
+                [], 0, bootstrap_firewall_output(), ""
+            ),
+        ):
+            guard._verify_bootstrap_firewall()
+        for output in (
+            bootstrap_firewall_output(extra_input='iifname "eth0" tcp dport 54322 accept'),
+            bootstrap_firewall_output(extra_forward='iifname "br-other" tcp dport 5432 accept'),
+            bootstrap_firewall_output().replace("policy accept", "policy drop"),
+        ):
+            with self.subTest(output=output[-120:]), patch.object(
+                guard,
+                "_run",
+                return_value=subprocess.CompletedProcess([], 0, output, ""),
+            ):
+                with self.assertRaisesRegex(
+                    guard.GuardError, "bootstrap-firewall-policy-unverified"
+                ):
+                    guard._verify_bootstrap_firewall()
+
+    def test_bootstrap_installs_exact_rules_before_start_and_writes_owned_marker(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"RUNNER_TEMP": temporary}
+        ), patch.object(guard.shutil, "which", return_value="/usr/sbin/nft"), patch.object(
+            guard, "_run", side_effect=[
+                subprocess.CompletedProcess([], 0, "", ""),
+                subprocess.CompletedProcess([], 0, "", ""),
+            ]
+        ) as run, patch.object(guard, "_verify_bootstrap_firewall") as verify:
+            marker = Path(temporary) / "restore-runner-bootstrap-guard.json"
+            guard.bootstrap(str(marker))
+            self.assertEqual(
+                json.loads(marker.read_text(encoding="ascii")),
+                {"phase": "active", "table": guard.BOOTSTRAP_TABLE},
+            )
+            self.assertEqual(run.call_args_list[0].args[0], ["nft", "list", "tables"])
+            self.assertEqual(run.call_args_list[1].args[0], ["nft", "-f", "-"])
+            self.assertEqual(run.call_args_list[1].kwargs["input_text"], guard._bootstrap_ruleset())
+            verify.assert_called_once_with()
+
+    def test_bootstrap_verification_requires_active_marker_and_live_denial_probe(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"RUNNER_TEMP": temporary}
+        ):
+            marker = Path(temporary) / "restore-runner-bootstrap-guard.json"
+            marker.write_text(
+                json.dumps({"phase": "active", "table": guard.BOOTSTRAP_TABLE}),
+                encoding="ascii",
+            )
+            listener, stopped, thread = MagicMock(), MagicMock(), MagicMock()
+            with patch.object(guard, "_verify_bootstrap_firewall") as verify, patch.object(
+                guard, "_default_bridge_gateway", return_value="172.17.0.1"
+            ), patch.object(
+                guard, "_start_host_listener",
+                return_value=(listener, stopped, thread, 43123),
+            ), patch.object(
+                guard, "_run_host_probe", return_value=True
+            ) as host_probe, patch.object(
+                guard, "_run_published_port_probe"
+            ) as probe:
+                guard.verify_bootstrap(str(marker), guard.PINNED_IMAGE)
+                verify.assert_called_once_with()
+                host_probe.assert_called_once_with(
+                    "bridge", "172.17.0.1", 43123, guard.PINNED_IMAGE
+                )
+                probe.assert_called_once_with(guard.PINNED_IMAGE)
+                listener.close.assert_called_once_with()
+                stopped.set.assert_called_once_with()
+                thread.join.assert_called_once_with(timeout=1)
+            with patch.object(guard, "_verify_bootstrap_firewall"), patch.object(
+                guard, "_default_bridge_gateway", return_value="172.17.0.1"
+            ), patch.object(
+                guard, "_start_host_listener",
+                return_value=(MagicMock(), MagicMock(), MagicMock(), 43123),
+            ), patch.object(
+                guard, "_run_host_probe", return_value=True
+            ), patch.object(
+                guard,
+                "_run_published_port_probe",
+                side_effect=guard.GuardError("published-port-reachable"),
+            ):
+                with self.assertRaisesRegex(guard.GuardError, "published-port-reachable"):
+                    guard.verify_bootstrap(str(marker), guard.PINNED_IMAGE)
+            with patch.object(guard, "_verify_bootstrap_firewall"), patch.object(
+                guard, "_default_bridge_gateway", return_value="172.17.0.1"
+            ), patch.object(
+                guard, "_start_host_listener",
+                return_value=(MagicMock(), MagicMock(), MagicMock(), 43123),
+            ), patch.object(
+                guard, "_run_host_probe", return_value=False
+            ), patch.object(
+                guard, "_run_published_port_probe"
+            ) as probe:
+                with self.assertRaisesRegex(guard.GuardError, "host-route-unverified"):
+                    guard.verify_bootstrap(str(marker), guard.PINNED_IMAGE)
+                probe.assert_not_called()
+
+    def test_default_bridge_gateway_requires_a_single_ipv4_bridge_record(self):
+        valid = [{
+            "Driver": "bridge",
+            "IPAM": {"Config": [{"Gateway": "172.17.0.1"}]},
+        }]
+        with patch.object(
+            guard,
+            "_run",
+            return_value=subprocess.CompletedProcess([], 0, json.dumps(valid), ""),
+        ):
+            self.assertEqual(guard._default_bridge_gateway(), "172.17.0.1")
+        for records in (
+            [],
+            [{"Driver": "overlay", "IPAM": {"Config": [{"Gateway": "172.17.0.1"}]}}],
+            [{"Driver": "bridge", "IPAM": {"Config": [{"Gateway": "2001:db8::1"}]}}],
+            [{"Driver": "bridge", "IPAM": {"Config": []}}],
+        ):
+            with self.subTest(records=records), patch.object(
+                guard,
+                "_run",
+                return_value=subprocess.CompletedProcess([], 0, json.dumps(records), ""),
+            ):
+                with self.assertRaisesRegex(guard.GuardError, "host-route-unverified"):
+                    guard._default_bridge_gateway()
+
+    def test_bootstrap_handoff_requires_verified_internal_guard_before_removal(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"RUNNER_TEMP": temporary}
+        ):
+            bootstrap_marker = Path(temporary) / "restore-runner-bootstrap-guard.json"
+            final_marker = Path(temporary) / "restore-runner-network-guard.json"
+            bootstrap_marker.write_text(
+                json.dumps({"phase": "active", "table": guard.BOOTSTRAP_TABLE}),
+                encoding="ascii",
+            )
+            final_marker.write_text(
+                json.dumps({
+                    "database_ipv4": DATABASE_IP,
+                    "interface": INTERFACE,
+                    "network": "restore-synthetic",
+                    "phase": "active",
+                    "table": guard.TABLE,
+                }),
+                encoding="ascii",
+            )
+            with patch.object(
+                guard,
+                "_network_details",
+                return_value=("172.30.0.1", INTERFACE),
+            ), patch.object(
+                guard, "_database_ipv4", return_value=DATABASE_IP
+            ), patch.object(
+                guard, "_verify_firewall"
+            ) as verify_final, patch.object(
+                guard, "_verify_bootstrap_firewall"
+            ) as verify_bootstrap, patch.object(
+                guard, "_run", side_effect=[
+                    subprocess.CompletedProcess(
+                        [], 0, f"table inet {guard.BOOTSTRAP_TABLE}\n", ""
+                    ),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                ]
+            ) as run:
+                guard.handoff_bootstrap(
+                    str(bootstrap_marker),
+                    str(final_marker),
+                    "restore-synthetic",
+                    "a" * 12,
+                    "synthetic-project",
+                )
+            verify_final.assert_called_once_with(INTERFACE, DATABASE_IP)
+            self.assertEqual(verify_bootstrap.call_count, 2)
+            self.assertEqual(
+                run.call_args_list[-1].args[0],
+                ["nft", "delete", "table", "inet", guard.BOOTSTRAP_TABLE],
+            )
+            self.assertFalse(bootstrap_marker.exists())
+            self.assertTrue(final_marker.exists())
+
+            bootstrap_marker.write_text(
+                json.dumps({"phase": "active", "table": guard.BOOTSTRAP_TABLE}),
+                encoding="ascii",
+            )
+            with patch.object(
+                guard,
+                "_network_details",
+                return_value=("172.30.0.1", INTERFACE),
+            ), patch.object(
+                guard, "_database_ipv4", return_value=DATABASE_IP
+            ), patch.object(
+                guard, "_verify_firewall"
+            ), patch.object(
+                guard, "_run"
+            ) as run:
+                with self.assertRaisesRegex(
+                    guard.GuardError, "firewall-policy-unverified"
+                ):
+                    guard.handoff_bootstrap(
+                        str(bootstrap_marker),
+                        str(final_marker),
+                        "other-network",
+                        "a" * 12,
+                        "synthetic-project",
+                    )
+            run.assert_not_called()
+            self.assertTrue(bootstrap_marker.exists())
+
+    def test_bootstrap_cleanup_requires_all_project_resources_gone(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"RUNNER_TEMP": temporary}
+        ):
+            marker = Path(temporary) / "restore-runner-bootstrap-guard.json"
+            with patch.object(
+                guard,
+                "_run",
+                return_value=subprocess.CompletedProcess(
+                    [], 0, f"table inet {guard.BOOTSTRAP_TABLE}\n", ""
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    guard.GuardError, "bootstrap-cleanup-firewall-unverified"
+                ):
+                    guard.remove_bootstrap(str(marker), "synthetic-project")
+            marker.write_text(
+                json.dumps({"phase": "active", "table": guard.BOOTSTRAP_TABLE}),
+                encoding="ascii",
+            )
+            with patch.object(
+                guard, "_run", side_effect=[
+                    subprocess.CompletedProcess([], 0, "container\n", "")
+                ]
+            ) as run:
+                with self.assertRaisesRegex(
+                    guard.GuardError, "bootstrap-resources-remain"
+                ):
+                    guard.remove_bootstrap(str(marker), "synthetic-project")
+            run.assert_called_once()
+            self.assertTrue(marker.exists())
+
+            with patch.object(
+                guard, "_run", side_effect=[
+                    subprocess.CompletedProcess([], 0, "", ""),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                    subprocess.CompletedProcess(
+                        [], 0, f"table inet {guard.BOOTSTRAP_TABLE}\n", ""
+                    ),
+                    subprocess.CompletedProcess([], 0, "", ""),
+                ]
+            ) as run, patch.object(guard, "_verify_bootstrap_firewall") as verify:
+                guard.remove_bootstrap(str(marker), "synthetic-project")
+            self.assertFalse(marker.exists())
+            self.assertEqual(
+                run.call_args_list[-1].args[0],
+                ["nft", "delete", "table", "inet", guard.BOOTSTRAP_TABLE],
+            )
+            verify.assert_called_once_with()
+
     def test_network_requires_the_owned_internal_ipv4_only_bridge(self):
         for record, accepted in (
             (network_record(), True),
@@ -296,6 +592,30 @@ class RestoreRunnerNetworkGuardTests(unittest.TestCase):
                     "--database-container", "a" * 12,
                     "--project-id", "synthetic-project",
                     "--marker", str(Path(temporary) / "restore-runner-network-guard.json"),
+                ])
+            self.assertEqual(result, 1)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(
+                stderr.getvalue(),
+                "Restore runner network guard failed (network-guard-failed).\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", stdout.getvalue() + stderr.getvalue())
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"RUNNER_TEMP": temporary}
+        ), patch.object(
+            guard, "bootstrap", side_effect=RuntimeError("SYNTHETIC_PRIVATE_SENTINEL")
+        ):
+            from contextlib import redirect_stderr, redirect_stdout
+            from io import StringIO
+
+            stdout = StringIO()
+            stderr = StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = guard.main([
+                    "bootstrap",
+                    "--marker",
+                    str(Path(temporary) / "restore-runner-bootstrap-guard.json"),
                 ])
             self.assertEqual(result, 1)
             self.assertEqual(stdout.getvalue(), "")

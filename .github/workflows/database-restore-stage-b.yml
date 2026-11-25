@@ -81,6 +81,10 @@ jobs:
               raise SystemExit('Disposable restore project configuration failed')
           path.write_text(updated,encoding='utf-8')
           PY
+          # Deny non-loopback PostgreSQL ingress before Supabase publishes
+          # its credential-free empty target.
+          sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py bootstrap \
+            --marker "$RUNNER_TEMP/restore-runner-bootstrap-guard.json"
           # Start the empty database while no private archive or R2 credential
           # is present. Supabase CLI 2.122.0 performs a host-loopback readiness
           # check that can fail on an internal Docker bridge.
@@ -114,6 +118,12 @@ jobs:
             echo "::error::Disposable database did not start on one temporary default bridge"
             exit 1
           fi
+          # The successful CLI startup proves its IPv4 loopback readiness path.
+          # This pinned-client probe proves the published port is blocked from
+          # a separate Docker bridge before the database network transition.
+          sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py verify-bootstrap \
+            --psql-image "$PSQL_IMAGE" \
+            --marker "$RUNNER_TEMP/restore-runner-bootstrap-guard.json"
           if docker network inspect "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
             echo "::error::Disposable restore network already exists"
             exit 1
@@ -165,16 +175,6 @@ jobs:
           network_client=(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
             --user "$(id -u):$(id -g)" --cap-drop ALL \
             --security-opt no-new-privileges --read-only "$PSQL_IMAGE")
-          server_version="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
-            -c 'SHOW server_version' -d 'postgresql://postgres:postgres@db:5432/postgres')"
-          if [[ ! "$server_version" =~ ^17\.11([.[:space:]]|$) ]]; then
-            echo "::error::Unexpected PostgreSQL server version"
-            exit 1
-          fi
-          fresh="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
-            -c "SELECT (to_regclass('public.recipes') IS NULL AND to_regclass('public.profiles') IS NULL AND to_regclass('auth.users') IS NOT NULL)::int" \
-            -d 'postgresql://postgres:postgres@db:5432/postgres')"
-          [[ "$fresh" == "1" ]] || { echo "::error::Target is not a clean Supabase baseline"; exit 1; }
           docker exec "$db_id" pg_isready -U postgres -d postgres >/dev/null 2>&1 || {
             echo "::error::Container-local PostgreSQL readiness check failed"
             exit 1
@@ -188,6 +188,14 @@ jobs:
             --project-id "$RESTORE_PROJECT_ID" \
             --psql-image "$PSQL_IMAGE" \
             --marker "$RUNNER_TEMP/restore-runner-network-guard.json"
+          # Handoff is fail-closed: the final internal bridge and exact network
+          # guard must be verified before the temporary bootstrap rule is removed.
+          sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py handoff-bootstrap \
+            --bootstrap-marker "$RUNNER_TEMP/restore-runner-bootstrap-guard.json" \
+            --guard-marker "$RUNNER_TEMP/restore-runner-network-guard.json" \
+            --docker-network "$RESTORE_DOCKER_NETWORK" \
+            --database-container "$db_id" \
+            --project-id "$RESTORE_PROJECT_ID"
           if post_guard_result="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
               -c 'SELECT 1' \
               -d 'postgresql://postgres:postgres@db:5432/postgres?connect_timeout=5' \
@@ -198,6 +206,18 @@ jobs:
             echo "::error::Disposable PostgreSQL client connectivity check failed after isolation"
             exit 1
           fi
+          # Bootstrap denies forwarded PostgreSQL traffic until the final guard
+          # permits only the verified internal bridge.
+          server_version="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
+            -c 'SHOW server_version' -d 'postgresql://postgres:postgres@db:5432/postgres')"
+          if [[ ! "$server_version" =~ ^17\.11([.[:space:]]|$) ]]; then
+            echo "::error::Unexpected PostgreSQL server version"
+            exit 1
+          fi
+          fresh="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
+            -c "SELECT (to_regclass('public.recipes') IS NULL AND to_regclass('public.profiles') IS NULL AND to_regclass('auth.users') IS NOT NULL)::int" \
+            -d 'postgresql://postgres:postgres@db:5432/postgres')"
+          [[ "$fresh" == "1" ]] || { echo "::error::Target is not a clean Supabase baseline"; exit 1; }
           python3 - <<'PY'
           import socket
           try:
@@ -649,6 +669,11 @@ jobs:
           elif [[ -n "$remaining_containers" || -n "$remaining_volumes" || -n "$remaining_networks" ]]; then
             echo '::error::Disposable PostgreSQL containers, volumes, or networks remain after cleanup'
             failure=1
+          fi
+          if [[ "$failure" -eq 0 ]]; then
+            sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py remove-bootstrap \
+              --project-id "$RESTORE_PROJECT_ID" \
+              --marker "$RUNNER_TEMP/restore-runner-bootstrap-guard.json" || failure=1
           fi
           if [[ "$failure" -ne 0 ]]; then
             echo '::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM'

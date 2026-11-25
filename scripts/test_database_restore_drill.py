@@ -417,9 +417,11 @@ esac
         expected_stages = (
             "config-init",
             "config-update",
+            "bootstrap-guard-apply",
             "database-start",
             "database-discovery",
             "initial-network-check",
+            "bootstrap-guard-verify",
             "internal-network-create",
             "database-network-attach",
             "database-network-detach",
@@ -427,12 +429,13 @@ esac
             "final-membership-check",
             "internal-network-check",
             "published-port-check",
-            "server-version-check",
-            "clean-baseline-check",
             "container-readiness-check",
             "client-tool-check",
             "runner-guard-apply",
+            "bootstrap-guard-handoff",
             "post-guard-db-connectivity",
+            "server-version-check",
+            "clean-baseline-check",
             "client-egress-check",
             "database-egress-check",
             "database-egress-probe",
@@ -500,6 +503,14 @@ esac
         )
         self.assertIn("Disposable Supabase initialization failed", start)
         self.assertLess(start.index("umask 077"), start.index("private-supabase-init.log"))
+        self.assertLess(
+            start.index("restore_runner_network_guard.py bootstrap"),
+            start.index("supabase --debug db start"),
+        )
+        self.assertLess(
+            start.index("supabase --debug db start"),
+            start.index("restore_runner_network_guard.py verify-bootstrap"),
+        )
         self.assertLess(start.index("supabase --debug db start"), start.index("docker network create"))
         self.assertLess(start.index("docker network create"), start.index('> "$RUNNER_TEMP/restore-network-owned"'))
         self.assertLess(start.index("docker network disconnect"), start.index("restore_runner_network_guard.py apply"))
@@ -515,7 +526,19 @@ esac
         self.assertIn("connectivity check failed after isolation", start)
         self.assertLess(
             start.index("restore_runner_network_guard.py apply"),
+            start.index("restore_runner_network_guard.py handoff-bootstrap"),
+        )
+        self.assertLess(
+            start.index("restore_runner_network_guard.py handoff-bootstrap"),
             start.index("post_guard_result="),
+        )
+        self.assertLess(
+            start.index("post_guard_result="),
+            start.index("'SHOW server_version'"),
+        )
+        self.assertLess(
+            start.index("'SHOW server_version'"),
+            start.index("Target is not a clean Supabase baseline"),
         )
         self.assertLess(
             start.index("post_guard_result="),
@@ -560,6 +583,10 @@ esac
         self.assertIn('docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
         self.assertIn('docker network ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
         self.assertIn("Disposable PostgreSQL containers, volumes, or networks remain after cleanup", cleanup)
+        self.assertLess(
+            cleanup.index("Disposable PostgreSQL containers, volumes, or networks remain after cleanup"),
+            cleanup.index("restore_runner_network_guard.py remove-bootstrap"),
+        )
         self.assertIn("runner teardown will recycle the VM", cleanup)
 
     def test_synthetic_workflow_runs_runner_guard_offline_and_live_start_tests(self):
