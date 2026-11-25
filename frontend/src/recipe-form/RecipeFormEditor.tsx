@@ -41,13 +41,14 @@ function resizeTextarea(target: EventTarget | null) {
   target.style.height = `${target.scrollHeight}px`
 }
 
-export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewComparison, comparisonIngredient, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
   const [hasConfirmedSave, setHasConfirmedSave] = useState(initialSaveConfirmation !== undefined)
+  const [editingFromReceipt, setEditingFromReceipt] = useState(false)
   const [confirmationMessage, setConfirmationMessage] = useState(initialSaveConfirmation?.statusMessage ?? 'Recipe saved.')
   const [pending, setPending] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
@@ -135,6 +136,12 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const estimateCount = showExtractionHints ? state.ingredients.filter((ingredient) => ingredient.inferred).length : 0
   const dirty = baseline === null || JSON.stringify(state) !== baseline
   const saved = hasConfirmedSave && !dirty
+  const showReviewReceipt = Boolean(reviewReceipt && saved && !editingFromReceipt)
+  useLayoutEffect(() => {
+    if (showReviewReceipt || editingFromReceipt) {
+      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-chef-review__receipt h2' : '.mm-writing-leaf input[name=title]')?.focus()
+    }
+  }, [showReviewReceipt, editingFromReceipt])
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
   useMoriActivity(message
     ? { kind: Object.keys(errors).length ? 'attention' : 'confused', message: 'Your recipe needs a little attention. Check the form message before serving it up.' }
@@ -499,6 +506,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       setBaseline(JSON.stringify(state))
       onDirtyChange?.(false)
       setHasConfirmedSave(true)
+      setEditingFromReceipt(false)
       setCelebrating(true)
       setConfirmationMessage(confirmation.statusMessage ?? 'Recipe saved.')
     } catch (error) {
@@ -864,7 +872,13 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     return [...new Set(leaves.slice(first, first + (single ? 1 : 2)).map(recipeFormSection))].join(' and ')
   }
 
-  const content = <>
+  const content = showReviewReceipt ? <section className="mm-chef-review__receipt" aria-label="Saved recipe">
+    {reviewReceipt}
+    <button type="button" className="button mm-review-detail-link" onClick={() => {
+      setPageAnchor('identity')
+      setEditingFromReceipt(true)
+    }}>Edit saved recipe</button>
+  </section> : <>
     <div hidden ref={supplementParking} />
     {supplementHost && createPortal(supplement, supplementHost)}
     <JournalFacingPage className="mm-facing-content--form mm-page-column mm-journal-editor">
@@ -884,7 +898,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         prioritizeNext={!methodJump}
         nextSection={desktopRecipeEditor && !reviewWorkflow && !finalPage ? sectionsOnPage(position.page + 1) : undefined}
         review={reviewWorkflow ? {
-          current: `${sectionsOnPage(position.page)} · Step ${position.page + 1} of ${position.total}`,
+          current: `${desktopReview && finalPage && reviewSaveContext ? reviewPage.title : sectionsOnPage(position.page)} · Step ${position.page + 1} of ${position.total}`,
           previous: position.page > 0 ? sectionsOnPage(position.page - 1) : undefined,
           next: finalPage ? undefined : sectionsOnPage(position.page + 1),
           save: saved && savedAction ? savedAction : saveButton,
@@ -915,7 +929,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     }}
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
-    {renderFrame ? renderFrame(content, desktopReview ? finalPage : undefined) : content}
+    {renderFrame ? renderFrame(content, desktopReview ? faceIndex === 0 : undefined, showReviewReceipt) : content}
     <dialog className="recipe-ingredient-move" ref={moveDialog} aria-labelledby={prefix + '-move-title'}>
       <h2 id={prefix + '-move-title'}>Move {moveKind}</h2>
       <label htmlFor={prefix + '-move-position'}>Move to position</label>

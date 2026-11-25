@@ -18,8 +18,8 @@ const navigationTapArm = -58
 const navigationTapStyle: CSSProperties & { '--mori-navigation-arm': string } = { '--mori-navigation-arm': `${navigationTapArm}deg` }
 const defaultChatSize = { width: 520, height: 560 }
 const smallChatSize = { width: 380, height: 420 }
-const emptyChatSize = { width: 440, height: 400 }
-const smallEmptyChatSize = { width: 360, height: 328 }
+const emptyChatSize = { width: 390, height: 336 }
+const smallEmptyChatSize = { width: 320, height: 300 }
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({
   hidden: z.boolean().default(false),

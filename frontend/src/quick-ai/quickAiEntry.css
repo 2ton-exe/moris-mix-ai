@@ -193,9 +193,8 @@
     min-height: var(--mm-page-height);
     grid-template-rows: auto;
   }
-  .mm-journal-page:has(.mm-quick-ai[data-recovery]) {
-    padding-bottom: var(--mm-footer-inset);
-  }
+  .mm-desk .mm-journal-page:has(.mm-quick-ai[data-recovery]) { padding-bottom: var(--mm-footer-inset); }
+  .mm-desk .mm-quick-ai[data-recovery] { height: auto; }
   .mm-journal-page:has(.mm-quick-ai[data-recovery]) > .mm-journal-page-footer {
     position: relative;
     inset: auto;

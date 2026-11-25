@@ -454,20 +454,16 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   />
 
   const savedTitle = confirmedTitle ?? editedDraft?.title ?? handoff.response.recipe.title
-  if (revision && desktopComparison && saved && !dirty && handoff.savedRecipeId && lineageStatus === 'confirmed' && !storageIssue) {
-    return <RecipeEditorFrame mode="create" connected showBack={false} headingTitle="Your recipe is saved."
-      facingPageContent={<p className="mm-chef-review__receipt-title">{savedTitle}</p>}>
-      <section className="mm-chef-review__receipt" aria-labelledby="revision-receipt-heading">
-        <h2 id="revision-receipt-heading">Ready for your next cook</h2>
-        <p role="status">{completionMessage}</p>
-        {original && <p>Linked to <strong>{original.title}</strong>.</p>}
-        <div className="actions">
-          <Link className="button button-primary" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>Open saved version</Link>
-          {sourceRecipeId && <Link className="button button-secondary" to={'/app/recipes/' + encodeURIComponent(sourceRecipeId)}>Open original recipe</Link>}
-        </div>
-      </section>
-    </RecipeEditorFrame>
-  }
+  const reviewReceipt = desktopComparison && handoff.savedRecipeId && lineageStatus === 'confirmed' && !storageIssue && <>
+    <h2 tabIndex={-1}>{savedTitle}</h2>
+    <p role="status">{completionMessage}</p>
+    {original && <p>Linked to <strong>{original.title}</strong>.</p>}
+    <div className="actions">
+      <Link className="button button-primary" to={'/app/recipes/' + encodeURIComponent(handoff.savedRecipeId)}>{revision ? 'Open saved version' : 'Open saved recipe'}</Link>
+      {sourceRecipeId ? <Link className="button button-secondary" to={'/app/recipes/' + encodeURIComponent(sourceRecipeId)}>Open original recipe</Link>
+        : <button type="button" className="button button-secondary" onClick={() => navigate('/app/chef')}>Use this pantry again</button>}
+    </div>
+  </>
 
   return <RecipeForm key={userId} mode="create"
     initialValues={reviewDraft ? undefined : initialValues}
@@ -499,13 +495,14 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       content: <ChefDraftComparison handoff={handoff} source={parentRecipe} edited={editedDraft} />,
     } : { title: 'Recipe inspiration', content: <>{generationNotice(true)}{storageNotice}</> }}
     reviewStatus={storageNotice}
-    reviewSaveContext={desktopComparison && saveContext}
-    renderFrame={(content, finalDesktopReview) => <RecipeEditorFrame mode="create" connected showBack={false}
+    reviewReceipt={reviewReceipt}
+    reviewSaveContext={revision && desktopComparison && saveContext}
+    renderFrame={(content, initialDesktopReview, showingReceipt) => <RecipeEditorFrame mode="create" connected showBack={false}
       headingTitle={saved ? 'Your recipe is saved.' : "Review Mori's recipe."}
       facingPageContent={saved
-        ? revision || desktopComparison ? <p className="mm-chef-review__receipt-title">{savedTitle}</p> : <ChefProgress stage="saved" />
-        : finalDesktopReview !== undefined && desktopComparison ? undefined
-          : finalDesktopReview === false && comparison ? undefined : saveContext}
+        ? showingReceipt ? undefined : revision || desktopComparison ? <p className="mm-chef-review__receipt-title">{savedTitle}</p> : <ChefProgress stage="saved" />
+        : (revision && desktopComparison && initialDesktopReview !== undefined) || (initialDesktopReview && comparison)
+          ? undefined : saveContext}
       navigationConfirmation={{ ...navigationConfirmation, discardChanges: clearReviewDraftAndLeave }}>{content}</RecipeEditorFrame>} />
 }
 

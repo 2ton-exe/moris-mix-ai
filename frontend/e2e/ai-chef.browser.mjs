@@ -251,6 +251,8 @@ async function advanceChefReviewToSave(page, saveName = 'Save recipe') {
 }
 
 async function returnChefReviewToTitle(page) {
+  const editSaved = page.getByRole('button', { name: 'Edit saved recipe', exact: true })
+  if (await editSaved.isVisible()) await editSaved.click()
   const title = page.getByRole('textbox', { name: 'Recipe title', exact: true })
   const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
     .getByRole('button', { name: /^Previous:/ })

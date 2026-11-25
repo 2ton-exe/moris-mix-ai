@@ -588,7 +588,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
     <button type="button" disabled={pending || navigating || traveling} onClick={(event) => openRoute('/app/chef', 'Opening the pantry field.', { focus: 'pantry', anchor: event.currentTarget, shortcut: true })}><CookingPot size={16} aria-hidden="true" />Open pantry</button>
   </nav>
 
-  return <div className="mori-chat">
+  return <div className="mori-chat" data-empty={!hasMessages}>
     <div className="mori-chat-conversation">
       <p className="mori-chat-task">{mode === 'create' ? 'Creating a recipe' : mode === 'suggest' ? 'Finding a cooking idea' : 'How can I help?'}</p>
       <div ref={log} className="mori-chat-log" role="log" tabIndex={messages.length ? 0 : -1} aria-label="Chat with Mori" aria-busy={pending} aria-relevant="additions" onScroll={(event) => {
