@@ -7,11 +7,30 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 classifier="$script_dir/classify_restore_component.py"
 umask 077
 root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/moris-restore-synthetic.XXXXXX")"
-workdir="$root/local"
+workdir="$root/moris-restore-local"
 fixture="$root/restore-verified-sql"
+restore_network="restore-synthetic-$$"
+export RUNNER_TEMP="$root"
+export RESTORE_PROJECT_ID="mori276-synthetic"
+export RESTORE_DOCKER_NETWORK="$restore_network"
+export GITHUB_STEP_SUMMARY="$root/synthetic-summary.md"
+
+synthetic_network_owned_by_run() {
+  local marker="$RUNNER_TEMP/restore-network-owned"
+  local -a marker_lines=()
+  local marker_network marker_id marker_extra
+  [[ -f "$marker" && ! -L "$marker" ]] || return 1
+  mapfile -t marker_lines < "$marker" || return 1
+  [[ "${#marker_lines[@]}" == 1 ]] || return 1
+  IFS='|' read -r marker_network marker_id marker_extra <<< "${marker_lines[0]}"
+  [[ "$marker_network" == "$RESTORE_DOCKER_NETWORK" && \
+     "$marker_id" =~ ^[0-9a-f]{64}$ && -z "$marker_extra" ]] || return 1
+  printf '%s\n' "$marker_id"
+}
 
 cleanup() {
   local original_status=$?
+  local network_cleanup_ok=1 network_list network_name owned_network_id current_network_id
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
     if supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
@@ -21,7 +40,59 @@ cleanup() {
       if (( original_status == 0 )); then original_status=1; fi
     fi
   fi
-  if rm -rf "$root" > /dev/null 2>&1 && [[ ! -e "$root" ]]; then
+  if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
+    while IFS= read -r network_name; do
+      if [[ "$network_name" == "$RESTORE_DOCKER_NETWORK" ]]; then
+        if ! owned_network_id="$(synthetic_network_owned_by_run)" || \
+           ! current_network_id="$(docker network inspect --format '{{.Id}}' "$RESTORE_DOCKER_NETWORK" 2>/dev/null)" || \
+           [[ "$current_network_id" != "$owned_network_id" ]] || \
+           ! docker network rm "$owned_network_id" >/dev/null 2>&1; then
+          network_cleanup_ok=0
+        fi
+        break
+      fi
+    done <<< "$network_list"
+  else
+    network_cleanup_ok=0
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]]; then
+    if [[ -e "$RUNNER_TEMP/restore-runner-network-guard.json" ]] && \
+       ! sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 "$script_dir/restore_runner_network_guard.py" remove \
+          --docker-network "$RESTORE_DOCKER_NETWORK" \
+          --marker "$RUNNER_TEMP/restore-runner-network-guard.json"; then
+        network_cleanup_ok=0
+    fi
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]]; then
+    local remaining_containers remaining_volumes remaining_networks
+    if ! remaining_containers="$(docker ps -aq --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" 2>/dev/null)" || \
+       ! remaining_volumes="$(docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" 2>/dev/null)" || \
+       ! remaining_networks="$(docker network ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" 2>/dev/null)" || \
+       [[ -n "$remaining_containers" || -n "$remaining_volumes" || -n "$remaining_networks" ]]; then
+      network_cleanup_ok=0
+    else
+      printf '%s\n' 'synthetic-project-cleanup=pass'
+    fi
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]] && \
+     [[ -e "$RUNNER_TEMP/restore-runner-bootstrap-guard.json" || \
+        -e "$RUNNER_TEMP/restore-runner-bootstrap-guard.json.tmp" ]]; then
+    if ! sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 "$script_dir/restore_runner_network_guard.py" remove-bootstrap \
+        --project-id "$RESTORE_PROJECT_ID" \
+        --marker "$RUNNER_TEMP/restore-runner-bootstrap-guard.json"; then
+      network_cleanup_ok=0
+    fi
+  fi
+  if [[ "$network_cleanup_ok" == 1 ]]; then
+    printf '%s\n' 'synthetic-network-cleanup=pass'
+  else
+    printf '%s\n' 'synthetic-network-cleanup=fail' >&2
+    if (( original_status == 0 )); then original_status=1; fi
+  fi
+  if [[ "$network_cleanup_ok" != 1 ]]; then
+    # Keep the ownership markers if a network or firewall guard could remain.
+    printf '%s\n' 'synthetic-fixture-cleanup=retained-for-runner-teardown' >&2
+  elif rm -rf "$root" > /dev/null 2>&1 && [[ ! -e "$root" ]]; then
     printf '%s\n' 'synthetic-fixture-cleanup=pass'
   else
     printf '%s\n' 'synthetic-fixture-cleanup=fail' >&2
@@ -33,33 +104,199 @@ trap cleanup EXIT
 mkdir -p "$fixture"
 
 # Generate an independent local Supabase project. Never load repository or hosted config.
-supabase init --workdir "$workdir"
-python3 - "$workdir/supabase/config.toml" <<'PY'
+python3 - "$script_dir/../.github/workflows" "$root" <<'PY'
 from pathlib import Path
-import re
 import sys
-import tomllib
+import textwrap
 
-p = Path(sys.argv[1])
-updated, replacements = re.subn(
-    r'(?m)^([ \t]*major_version[ \t]*=[ \t]*)(?:"[0-9]+"|[0-9]+)([ \t]*(?:#.*)?)$',
-    r'\g<1>17\2',
-    p.read_text(encoding='utf-8'),
-)
-if replacements != 1 or tomllib.loads(updated)['db']['major_version'] != 17:
-    raise SystemExit('Disposable PostgreSQL 17 configuration failed')
-p.write_text(updated, encoding='utf-8')
+workflows, target = map(Path, sys.argv[1:])
+for workflow, step, output in (
+    ("stage-b", "Start clean, isolated Supabase PostgreSQL 17", "start"),
+    ("stage-b", "Restore SQL transactionally using patched PostgreSQL 17 client", "admin-restore"),
+    ("stage-b", "Validate restored application counts, migration versions and foreign keys", "aggregates"),
+    ("role-diagnostic", "Record bounded role patterns and replay diagnostics", "role-replay"),
+):
+    source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
+    prefix = f"      - name: {step}\n        shell: bash\n        run: |\n"
+    _, body = source.split(prefix, 1)
+    script = textwrap.dedent(body.split("\n      - name:", 1)[0])
+    if output == "start":
+        markers = (
+            ('supabase init --workdir "$workdir"', "config-init"),
+            ('python3 - "$workdir/supabase/config.toml"', "config-update"),
+            ("python3 scripts/restore_runner_network_guard.py bootstrap", "bootstrap-guard-apply"),
+            ("if supabase --debug db start", "database-start"),
+            ("mapfile -t db_ids < <(docker ps", "database-discovery"),
+            ('initial_networks_text="$(docker inspect --format', "initial-network-check"),
+            ("python3 scripts/restore_runner_network_guard.py verify-bootstrap", "bootstrap-guard-verify"),
+            ("docker network create --driver bridge", "internal-network-create"),
+            ("docker network connect --alias db", "database-network-attach"),
+            ("docker network disconnect", "database-network-detach"),
+            ('image="$(docker inspect', "server-image-check"),
+            ('attached_networks="$(docker inspect', "final-membership-check"),
+            ('network_info="$(docker network inspect', "internal-network-check"),
+            ('binding_json="$(docker inspect', "published-port-check"),
+            ('server_version="$("${network_client[@]}" psql', "server-version-check"),
+            ('fresh="$("${network_client[@]}" psql', "clean-baseline-check"),
+            ('docker exec "$db_id" pg_isready', "container-readiness-check"),
+            ('"${network_client[@]}" sh -c \'command -v nc', "client-tool-check"),
+            ("sudo env RUNNER_TEMP=\"$RUNNER_TEMP\" python3 scripts/restore_runner_network_guard.py apply", "runner-guard-apply"),
+            ("python3 scripts/restore_runner_network_guard.py handoff-bootstrap", "bootstrap-guard-handoff"),
+            ('if "${network_client[@]}" sh -c \'nc -z -w 4 1.1.1.1 443\'', "client-egress-check"),
+            ("server_probe=(docker run", "database-egress-check"),
+            ('if "${server_probe[@]}" -c \'nc -z -w 4 1.1.1.1 443\'', "database-egress-probe"),
+            ("if post_guard_result=", "post-guard-db-connectivity"),
+            ('host_egress="$(python3 -c', "runner-host-egress-check"),
+            ('host_dns="$(python3 -c', "runner-host-dns-check"),
+        )
+        lines = script.splitlines()
+        insertions = []
+        for fragment, stage in markers:
+            matches = [index for index, line in enumerate(lines) if fragment in line]
+            if len(matches) != 1:
+                raise SystemExit(f"Expected one synthetic startup marker for {stage}")
+            index = matches[0]
+            indent = lines[index][:len(lines[index]) - len(lines[index].lstrip())]
+            insertions.append((index, f"{indent}printf '%s\\n' '{stage}' > \"$RUNNER_TEMP/synthetic-startup-stage\""))
+        for index, marker_line in sorted(insertions, reverse=True):
+            lines.insert(index, marker_line)
+        script = "\n".join(lines) + "\n"
+    (target / f"{output}.sh").write_text(script, encoding="utf-8")
 PY
-supabase db start --workdir "$workdir"
+synthetic_startup_probe() {
+  local ids="" container=unknown state=unknown ready=unverified raw_state=""
+  if ids="$(docker ps -a --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" \
+      --filter "name=^/supabase_db_${RESTORE_PROJECT_ID}$" \
+      --format '{{.ID}}' 2>/dev/null)"; then
+    if [[ -z "$ids" ]]; then
+      container=none
+    elif [[ "$ids" =~ ^[0-9a-f]{12,64}$ ]]; then
+      container=one
+      if raw_state="$(docker inspect --format '{{.State.Status}}' "$ids" 2>/dev/null)"; then
+        case "$raw_state" in
+          created|running|restarting|paused|exited|dead) state="$raw_state" ;;
+        esac
+      fi
+      if docker exec "$ids" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+        ready=verified
+      fi
+    else
+      container=ambiguous
+    fi
+  fi
+  printf 'synthetic-startup-probe container=%s state=%s pg_ready=%s\n' \
+    "$container" "$state" "$ready"
+}
 
-local_db='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+synthetic_startup_failure_class() {
+  local log="$1"
+  if grep -Eiq 'ECONNREFUSED[^[:cntrl:]]*127[.]0[.]0[.]1:54322|127[.]0[.]0[.]1:54322[^[:cntrl:]]*ECONNREFUSED' "$log"; then
+    printf '%s\n' 'database-start-loopback-healthcheck'
+  else
+    printf '%s\n' 'unknown'
+  fi
+}
+
+synthetic_network_guard_diagnostic() {
+  local log="$1"
+  local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|database-namespace-dns-unverified|dns-probe-client-missing|dns-probe-failed|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|bootstrap-firewall-table-exists|bootstrap-firewall-install-failed|bootstrap-firewall-policy-unverified|bootstrap-marker-invalid|bootstrap-marker-exists|bootstrap-marker-state-invalid|bootstrap-resources-remain|bootstrap-cleanup-firewall-unverified|bootstrap-cleanup-marker-failed|network-guard-failed'
+  if [[ -r "$log" ]]; then
+    grep -Eo "^Restore runner network guard failed \\(($allowed)\\)\\.$" "$log" | head -n 1 || true
+  fi
+}
+
+synthetic_startup_stage_diagnostic() {
+  local stage
+  if [[ -r "$1" ]] && IFS= read -r stage < "$1"; then
+    case "$stage" in
+      config-init|config-update|bootstrap-guard-apply|database-start|database-discovery|initial-network-check|bootstrap-guard-verify|internal-network-create|database-network-attach|database-network-detach|server-image-check|final-membership-check|internal-network-check|published-port-check|server-version-check|clean-baseline-check|container-readiness-check|client-tool-check|runner-guard-apply|bootstrap-guard-handoff|post-guard-db-connectivity|client-egress-check|database-egress-check|database-egress-probe|runner-host-egress-check|runner-host-dns-check)
+        printf 'Synthetic startup failure stage: %s\n' "$stage"
+        ;;
+    esac
+  fi
+}
+
+synthetic_startup_evidence_check() {
+  local output="$1"
+  if grep -Fq 'container-egress-isolated' "$output"; then
+    return 0
+  fi
+  printf '%s\n' '::error::Synthetic startup evidence rejected; reason=completion-marker-missing'
+  return 1
+}
+
+if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
+  :
+else
+  start_status=$?
+  failure_class=unknown
+  if grep -Fq 'Disposable Supabase startup failed' "$root/start.out" "$root/start.err"; then
+    loopback_failure="$(synthetic_startup_failure_class "$root/private-db-start.log")"
+    if [[ "$loopback_failure" == database-start-loopback-healthcheck ]]; then
+      failure_class="$loopback_failure"
+    elif grep -Eiq '(docker daemon|docker socket|cannot connect to docker)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-daemon
+    elif grep -Eiq '(pull access denied|manifest unknown|no matching manifest|failed to pull|toomanyrequests|too many requests|rate limit|http 429|status code 429)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-pull
+    elif grep -Eiq '(unauthorized|authentication required|forbidden|status code 401|status code 403|failed to fetch anonymous token)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-auth
+    elif grep -Eiq '(error response from daemon|docker api[^[:cntrl:]]*(error|failed)|failed to (create|start) docker container)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-daemon-api
+    elif grep -Eiq '(TLS handshake timeout|i/o timeout|connection reset|no such host|network is unreachable|temporary failure in name resolution|context deadline exceeded)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-network
+    elif grep -Eiq '(image[^[:cntrl:]]*(not found|does not exist)|manifest[^[:cntrl:]]*(unknown|not found)|repository[^[:cntrl:]]*not found)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-image-missing
+    elif grep -Eiq '(connection refused|health check|healthcheck|unhealthy|failed to start|container[^[:cntrl:]]*(exited|failed))' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-health
+    elif grep -Eiq '(network.*(not found|invalid)|failed to.*network|gateway)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-network
+    elif grep -Eiq '(port is already allocated|address already in use|bind:|listen)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-port
+    elif grep -Eiq '(auth|migration|baseline)' "$root/private-db-start.log" 2>/dev/null; then
+      failure_class=database-start-baseline
+    else
+      failure_class=database-start-other
+    fi
+  elif grep -Fq 'Disposable Supabase initialization failed' "$root/start.out" "$root/start.err"; then
+    failure_class=database-init
+  elif grep -Fq 'Disposable database did not start on one temporary default bridge' "$root/start.out" "$root/start.err"; then
+    failure_class=initial-network-unverified
+  elif grep -Fq 'Disposable PostgreSQL client connectivity check failed after isolation' "$root/start.out" "$root/start.err"; then
+    failure_class=post-guard-database-connectivity
+  elif guard_diagnostic="$(synthetic_network_guard_diagnostic "$root/start.err")" && \
+       [[ -n "$guard_diagnostic" ]]; then
+    printf 'Synthetic setup diagnostic: %s\n' "$guard_diagnostic"
+    failure_class=network-isolation
+  elif grep -Fq 'Disposable restore network isolation failed' "$root/start.out" "$root/start.err"; then
+    failure_class=network-isolation
+  elif grep -Fq 'Disposable PostgreSQL host port mapping is unexpected' "$root/start.out" "$root/start.err"; then
+    failure_class=unexpected-port-mapping
+  elif grep -Fq 'Unexpected PostgreSQL server version' "$root/start.out" "$root/start.err"; then
+    failure_class=server-version
+  elif grep -Fq 'Target is not a clean Supabase baseline' "$root/start.out" "$root/start.err"; then
+    failure_class=clean-baseline
+  elif grep -Fq 'Restore client network permits outbound connectivity' "$root/start.out" "$root/start.err"; then
+    failure_class=client-egress
+  elif grep -Fq 'Restore database network permits outbound connectivity' "$root/start.out" "$root/start.err"; then
+    failure_class=database-egress
+  fi
+  synthetic_startup_stage_diagnostic "$root/synthetic-startup-stage"
+  synthetic_startup_probe
+  printf '::error::Synthetic protected target setup failed; class=%s\n' "$failure_class"
+  exit "$start_status"
+fi
+# A zero exit and the completion marker are authoritative. Captured stderr stays
+# in the private temp directory and is never printed by the synthetic runner.
+synthetic_startup_evidence_check "$root/start.out" || exit 1
+local_db='postgresql://postgres:postgres@db:5432/postgres'
 # The pinned CLI currently selects this server image. Fail if it drifts.
-if ! docker ps --format '{{.Image}}' | grep -Eq '(^|/)supabase/postgres:17[.]11[.]0[.]006$'; then
+if ! docker ps --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID" \
+    --format '{{.Image}}' | grep -Eq '(^|/)supabase/postgres:17[.]11[.]0[.]006$'; then
   echo '::error::The expected Supabase PostgreSQL server image is not running'
   exit 1
 fi
 
-client=(docker run --rm --network host \
+client=(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
   --user "$(id -u):$(id -g)" --cap-drop ALL \
   --security-opt no-new-privileges --read-only \
   --mount "type=bind,source=$fixture,target=/backup,readonly" \
@@ -382,7 +619,7 @@ echo 'Synthetic ALTER OWNER 42501 isolated; baseline ownership and cleanup verif
 
 # Compare both principals on the existing disposable server. Do not reuse
 # this administrative connection for any hosted database or private replay.
-admin_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+admin_db='postgresql://supabase_admin:postgres@db:5432/postgres'
 principal_query() {
   "${client[@]}" psql -X -qAt -F '|' --no-password -v ON_ERROR_STOP=1 \
     -v VERBOSITY=sqlstate -d "$1" -c "$2" 2> "$root/principal-query.err"
@@ -503,51 +740,46 @@ if (( failed )); then
 fi
 echo 'synthetic-principal-comparison=pass'
 
-# Run the actual protected replay and verification commands against synthetic
-# files only. No archive, Environment, or workflow dispatch is involved.
-python3 - "$script_dir/../.github/workflows" "$root" <<'PY'
-from pathlib import Path
-import sys
-import textwrap
-
-workflows, target = map(Path, sys.argv[1:])
-for workflow, step, output in (
-    ("stage-b", "Restore SQL transactionally using patched PostgreSQL 17 client", "admin-restore"),
-    ("stage-b", "Validate restored application counts, migration versions and foreign keys", "aggregates"),
-    ("role-diagnostic", "Record bounded role patterns and replay diagnostics", "role-replay"),
-):
-    source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
-    _, body = source.split(f"      - name: {step}\n        shell: bash\n        run: |\n")
-    (target / f"{output}.sh").write_text(textwrap.dedent(body.split("\n      - name:", 1)[0]),
-                                       encoding="utf-8")
-PY
-
 run_restore_step() (
   cd "$script_dir/.." || exit 1
+  local role_replay_network=0
   if [[ "$1" == role-replay ]]; then
+    role_replay_network=1
     local role_sql_dir="$root/restore-private/restore-verified-sql"
     mkdir -p "$role_sql_dir"
     cp "$fixture/roles.sql" "$role_sql_dir/roles.sql"
     cp "$fixture/schema.sql" "$role_sql_dir/schema.sql"
   fi
   # Use a separate Bash process so the checked-in step keeps its own errexit.
+  # For the isolated test target, remap the standalone role workflow's host
+  # loopback endpoint into the same internal bridge used by Stage B.
   RUNNER_TEMP="$root" GITHUB_STEP_SUMMARY="$root/synthetic-summary.md" \
     bash --noprofile --norc -c '
+      step_script="$1"
       substitute_db="$2"
       admin_db="$3"
-      if [[ -n "$substitute_db" ]]; then
-        docker() {
-          local args=("$@") index
-          for index in "${!args[@]}"; do
-            if [[ "${args[index]}" == "$admin_db" ]]; then
+      role_replay_network="$4"
+      docker() {
+        local args=("$@") index
+        for index in "${!args[@]}"; do
+          if [[ "$role_replay_network" == 1 && "${args[index]}" == "--network" &&
+                "${args[index+1]:-}" == "host" ]]; then
+            args[index+1]="$RESTORE_DOCKER_NETWORK"
+          elif [[ "$role_replay_network" == 1 &&
+                  "${args[index]}" == "postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres" ]]; then
+            if [[ -n "$substitute_db" ]]; then
               args[index]="$substitute_db"
+            else
+              args[index]="$admin_db"
             fi
-          done
-          command docker "${args[@]}"
-        }
-      fi
-      source "$1"
-    ' bash "$root/$1.sh" "${2:-}" "$admin_db" > "$root/step.out" 2> "$root/step.err"
+          elif [[ -n "$substitute_db" && "${args[index]}" == "$admin_db" ]]; then
+            args[index]="$substitute_db"
+          fi
+        done
+        command docker "${args[@]}"
+      }
+      source "$step_script"
+    ' bash "$root/$1.sh" "${2:-}" "$admin_db" "$role_replay_network" > "$root/step.out" 2> "$root/step.err"
 )
 
 require_clean_restore() {
@@ -617,12 +849,14 @@ done
 status=0
 run_restore_step role-replay "$local_db" || status=$?
 if [[ "$status" != 1 || -e "$root/synthetic-summary.md" ]] ||
-    ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out"; then
-  echo '::error::Synthetic role diagnostic did not reject the wrong identity'
+    ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out" ||
+    [[ ! -r "$root/restore-private/private-role-flags-stderr.log" ]] ||
+    ! grep -Fxq 'ERROR:  Unexpected local restore identity' "$root/restore-private/private-role-flags-stderr.log" 2>/dev/null; then
+  echo '::error::Synthetic role diagnostic did not reject the wrong identity with the expected guard error'
   exit 1
 fi
 require_clean_restore
-echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=yes summary-absent=yes'
+echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=guard-rejected summary-absent=yes'
 
 # The diagnostic must publish the guarded admin's flags even on SQL failure.
 cp "$fixture/roles.sql" "$root/roles.sql"
@@ -823,7 +1057,35 @@ echo 'synthetic-admin-replay=pass membership=pass parameter=pass ownership=pass'
 
 if ! run_restore_step aggregates ||
     ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
-  echo '::error::Synthetic postgres aggregate verification failed after administrative replay'
+  aggregate_stage=unclassified
+  if grep -Fxq '::error::Restore target network isolation check failed' "$root/step.out"; then
+    aggregate_stage=network-isolation
+  elif grep -Fxq '::error::Database aggregate verification query failed' "$root/step.out"; then
+    aggregate_stage=aggregate-query
+  elif grep -Fxq 'Restored row counts do not match backup' "$root/step.err" ||
+       grep -Fxq 'Restored migration version set does not match backup' "$root/step.err"; then
+    aggregate_stage=count-or-version-check
+  elif grep -Fxq '::error::Application foreign-key verification query is unavailable' "$root/step.out"; then
+    aggregate_stage=foreign-key-query-unavailable
+  elif grep -Fxq '::error::Application foreign-key verification query failed' "$root/step.out"; then
+    integrity_query="$(< "$script_dir/verify_restore_foreign_keys.sql")"
+    if "${client[@]}" psql -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
+        -c "$integrity_query" -d "$local_db" \
+        > "$root/aggregate-fk-internal.out" 2> "$root/aggregate-fk-internal.err"; then
+      if grep -Fxq '1' "$root/aggregate-fk-internal.out"; then
+        aggregate_stage=foreign-key-host-path-internal-pass
+      else
+        aggregate_stage=foreign-key-internal-result-not-one
+      fi
+    else
+      aggregate_stage=foreign-key-internal-query-failed
+    fi
+  elif grep -Fxq '::error::Application foreign-key integrity verification failed' "$root/step.out"; then
+    aggregate_stage=foreign-key-integrity
+  elif grep -Fxq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then
+    aggregate_stage=after-count-check
+  fi
+  printf '::error::Synthetic postgres aggregate verification failed; safe_stage=%s\n' "$aggregate_stage"
   exit 1
 fi
 echo 'synthetic-postgres-aggregates=pass'

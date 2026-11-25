@@ -30,6 +30,18 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/database-res
 SQL = ("roles.sql", "schema.sql", "data.sql", "history-schema.sql", "history-data.sql")
 
 
+def bash_path(path):
+    """Return a temporary path in the namespace used by Windows Bash."""
+    resolved = Path(path).resolve()
+    if os.name != "nt":
+        return resolved.as_posix()
+    drive = resolved.drive[:1].lower()
+    tail = resolved.as_posix()[2:]
+    bash_exe = (shutil.which("bash") or "").replace("\\", "/").lower()
+    mount = "/mnt" if "/windowsapps/" in bash_exe else ""
+    return f"{mount}/{drive}{tail}"
+
+
 def programs():
     """Compile Python heredocs from the workflow, not duplicated test-side logic."""
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
@@ -50,9 +62,24 @@ def programs():
             compile(source, str(WORKFLOW), "exec")
             collected.append(source)
         index += 1
-    if len(collected) != 3:
-        raise AssertionError(f"Expected three embedded Python programs, got {len(collected)}")
-    return collected
+    if len(collected) != 5:
+        raise AssertionError(f"Expected five embedded Python programs, got {len(collected)}")
+    markers = {
+        "verify_archive": "hashlib.sha256(arc.read_bytes())",
+        "configure_db": "tomllib.loads(updated)",
+        "verify_port_binding": "bindings=json.loads(sys.argv[1])",
+        "verify_runner_ingress": "socket.create_connection(('::1', 54322)",
+        "verify_counts": "Restored row counts do not match backup",
+    }
+    mapped = {}
+    for source in collected:
+        matches = [name for name, marker in markers.items() if marker in source]
+        if len(matches) != 1:
+            raise AssertionError("Could not identify one embedded workflow verifier")
+        mapped[matches[0]] = source
+    if set(mapped) != set(markers):
+        raise AssertionError("An expected embedded workflow verifier is missing")
+    return tuple(mapped[name] for name in markers)
 
 
 def make_archive(root, extra=None, invalid_checksum=False):
@@ -100,7 +127,641 @@ class StageBOfflineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Compile the actual workflow's Python rather than a test duplicate."""
-        cls.verify_archive, cls.configure_db, cls.verify_counts = programs()
+        (cls.verify_archive, cls.configure_db, cls.verify_port_binding,
+         cls.verify_runner_ingress, cls.verify_counts) = programs()
+
+    def run_embedded_python(self, source, *args):
+        return subprocess.run([sys.executable, "-", *map(str, args)], input=source,
+                              text=True, capture_output=True, check=False)
+
+    def test_public_summary_names_host_egress_limit_without_candidate_identifiers(self):
+        summary = WORKFLOW.read_text(encoding="utf-8").split(
+            "      - name: Record safe restore result", 1)[1]
+        self.assertIn(
+            "Approved recovery candidate identity: withheld from public output", summary
+        )
+        self.assertIn(
+            "Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow",
+            summary,
+        )
+        self.assertIn(
+            "private data is introduced after the internal network and runner-ingress guard pass",
+            summary,
+        )
+        for private_field in (
+            "BACKUP_PREFIX", "ARCHIVE_NAME", "EVIDENCE_NAME", "BACKUP_SHA256",
+            "BACKUP_RUN_ID", "BACKUP_SOURCE_SHA", "BACKUP_SOURCE_PROJECT", "object_key",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256", "RESTORE_CANDIDATE_APPROVED_SHA256",
+        ):
+            self.assertNotIn(private_field, summary)
+
+    def test_stage_b_has_no_operator_candidate_input_and_checks_both_digests_before_download(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        dispatch = workflow.split("  workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
+        self.assertNotIn("inputs:", dispatch)
+        self.assertNotIn("candidate:", dispatch)
+        self.assertIn("RESTORE_CANDIDATE: backup-7", workflow)
+        self.assertNotIn("inputs.candidate", workflow)
+        self.assertIn('if [[ "$RESTORE_CANDIDATE" != "backup-7" ]]', workflow)
+        self.assertIn(
+            "this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic",
+            workflow,
+        )
+        self.assertIn("environment: database-restore-drill", workflow)
+        self.assertIn("actions: read", workflow)
+
+        approval = workflow.split(
+            "      - name: Verify explicit per-run protected deployment approval", 1
+        )[1].split("      - name: Verify independently approved Backup #7 manifest", 1)[0]
+        self.assertIn("restore_deployment_authorization.py", approval)
+        self.assertIn("GITHUB_TOKEN: " + "$" + "{{ github.token }}", approval)
+
+        candidate = workflow.split(
+            "      - name: Verify independently approved Backup #7 manifest", 1
+        )[1].split("      - name: Set up Supabase CLI", 1)[0]
+        for secret in (
+            "RESTORE_CANDIDATES_JSON",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256",
+            "RESTORE_CANDIDATE_APPROVED_SHA256",
+        ):
+            self.assertIn(secret, candidate)
+        self.assertNotIn("AWS_ACCESS_KEY_ID", candidate)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", candidate)
+        self.assertNotIn("R2_RESTORE_ENDPOINT", candidate)
+        self.assertIn('"$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate-preflight.env"', candidate)
+        self.assertIn('rm -f -- "$RUNNER_TEMP/restore-candidate-preflight.env"', candidate)
+
+        revalidate = workflow.split(
+            "      - name: Revalidate approved candidate before private access", 1
+        )[1].split("      - name: Download selected private R2 backup and evidence", 1)[0]
+        for secret in (
+            "RESTORE_CANDIDATES_JSON",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256",
+            "RESTORE_CANDIDATE_APPROVED_SHA256",
+        ):
+            self.assertIn(secret, revalidate)
+        self.assertNotIn("AWS_ACCESS_KEY_ID", revalidate)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", revalidate)
+        self.assertIn('"$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"', revalidate)
+        self.assertIn('source "$RUNNER_TEMP/restore-candidate.env"', revalidate)
+        self.assertIn('} >> "$GITHUB_ENV"', revalidate)
+        self.assertIn('rm -f -- "$RUNNER_TEMP/restore-candidate.env"', revalidate)
+        for field in (
+            "BACKUP_PREFIX", "ARCHIVE_NAME", "EVIDENCE_NAME", "BACKUP_SHA256",
+            "BACKUP_SIZE", "BACKUP_RUN_ID", "BACKUP_ATTEMPT", "BACKUP_SOURCE_SHA",
+            "BACKUP_SOURCE_PROJECT",
+        ):
+            self.assertIn(f"printf '{field}=%s\\n'", revalidate)
+        self.assertLess(
+            revalidate.index("restore_candidate_manifest.py"),
+            revalidate.index('} >> "$GITHUB_ENV"'),
+        )
+        self.assertLess(
+            revalidate.index("::add-mask::%s"),
+            revalidate.index('} >> "$GITHUB_ENV"'),
+        )
+        self.assertNotIn('source "$RUNNER_TEMP/restore-candidate-preflight.env"', workflow)
+
+        download = workflow.split(
+            "      - name: Download selected private R2 backup and evidence", 1
+        )[1].split(
+            "      - name: Verify selected archive, source identity, and component checksums", 1
+        )[0]
+        self.assertNotIn("RESTORE_CANDIDATES_JSON", download)
+        self.assertNotIn("RESTORE_CANDIDATE_MANIFEST_SHA256", download)
+        self.assertNotIn("RESTORE_CANDIDATE_APPROVED_SHA256", download)
+        self.assertNotIn('source "$RUNNER_TEMP/restore-candidate.env"', download)
+        self.assertIn('"$BACKUP_PREFIX" "$ARCHIVE_NAME"', download)
+        first_download = workflow.index("aws s3 cp")
+        self.assertLess(workflow.index("restore_deployment_authorization.py"), first_download)
+        self.assertLess(
+            workflow.index("Verify independently approved Backup #7 manifest"),
+            first_download,
+        )
+        self.assertLess(
+            workflow.index("Revalidate approved candidate before private access"),
+            first_download,
+        )
+        archive_verification = workflow.split(
+            "      - name: Verify selected archive, source identity, and component checksums", 1
+        )[1].split("      - name: Restore SQL transactionally using patched PostgreSQL 17 client", 1)[0]
+        self.assertNotIn('source "$RUNNER_TEMP/restore-candidate.env"', archive_verification)
+        self.assertIn(
+            "Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow; residual egress risk remains",
+            workflow,
+        )
+
+    def test_synthetic_startup_probe_emits_only_allowlisted_runtime_states(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_probe() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_probe() {\n" + probe + "\n}\n"
+        docker = """#!/usr/bin/env bash
+case "$1" in
+  ps)
+    if [[ " $* " == *"label=com.supabase.cli.project=$RESTORE_PROJECT_ID"* &&
+          " $* " == *"name=^/supabase_db_$RESTORE_PROJECT_ID$"* ]]; then
+      printf '%s\\n' "${DB_CONTAINERS:-}"
+    else
+      printf '%s\\n' "${PROJECT_CONTAINERS:-}"
+    fi ;;
+  inspect) printf '%s\\n' "${DB_STATE:-running}" ;;
+  exec*)
+    if [[ "${PG_READY:-yes}" != yes ]]; then
+      printf '%s\\n' 'SYNTHETIC_PRIVATE_EXEC_ERROR' >&2
+      exit 93
+    fi ;;
+  *) printf '%s\\n' 'SYNTHETIC_PRIVATE_DOCKER_ERROR' >&2; exit 92 ;;
+esac
+"""
+        with tempfile.TemporaryDirectory() as td:
+            docker_path = Path(td) / "docker"
+            docker_path.write_text(docker, encoding="utf-8")
+            docker_path.chmod(0o755)
+            env = dict(
+                os.environ,
+                PATH=f"{td}{os.pathsep}{os.environ['PATH']}",
+                RESTORE_PROJECT_ID="synthetic-project",
+                RESTORE_DOCKER_NETWORK="synthetic-network",
+                PROJECT_CONTAINERS="111111111111\n222222222222",
+                DB_CONTAINERS="0123456789ab",
+            )
+            ready = subprocess.run(["bash", "-c", function + "synthetic_startup_probe"],
+                                   env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(ready.returncode, 0, ready.stderr)
+            self.assertEqual(
+                ready.stdout,
+                "synthetic-startup-probe container=one state=running pg_ready=verified\n",
+            )
+            self.assertEqual(ready.stderr, "")
+            env.update(DB_CONTAINERS="SYNTHETIC_PRIVATE_CONTAINER_ID")
+            ambiguous = subprocess.run(["bash", "-c", function + "synthetic_startup_probe"],
+                                       env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(ambiguous.returncode, 0, ambiguous.stderr)
+            self.assertEqual(
+                ambiguous.stdout,
+                "synthetic-startup-probe container=ambiguous state=unknown pg_ready=unverified\n",
+            )
+            self.assertEqual(ambiguous.stderr, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_", ambiguous.stdout + ambiguous.stderr)
+            env.update(DB_CONTAINERS="0123456789ab", DB_STATE="SYNTHETIC_PRIVATE_STATE",
+                       PG_READY="no")
+            private_state = subprocess.run(
+                ["bash", "-c", function + "synthetic_startup_probe"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(private_state.returncode, 0, private_state.stderr)
+            self.assertEqual(
+                private_state.stdout,
+                "synthetic-startup-probe container=one state=unknown pg_ready=unverified\n",
+            )
+            self.assertEqual(private_state.stderr, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_", private_state.stdout + private_state.stderr)
+
+    def test_synthetic_startup_refusal_is_sanitized_to_a_fixed_cause(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_failure_class() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_failure_class() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "synthetic-startup.log"
+            log.write_text(
+                "connect ECONNREFUSED 127.0.0.1:54322 SYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", "-c", function + 'synthetic_startup_failure_class "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "database-start-loopback-healthcheck\n")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", result.stdout + result.stderr)
+            log.write_text("unrecognized synthetic diagnostic\n", encoding="utf-8")
+            unknown = subprocess.run(
+                ["bash", "-c", function + 'synthetic_startup_failure_class "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(unknown.returncode, 0, unknown.stderr)
+            self.assertEqual(unknown.stdout, "unknown\n")
+            self.assertNotIn("unrecognized synthetic diagnostic", unknown.stdout + unknown.stderr)
+
+    def test_synthetic_network_guard_failure_surfaces_only_its_fixed_label(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_network_guard_diagnostic() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_network_guard_diagnostic() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "synthetic-guard.log"
+            log.write_text(
+                "SYNTHETIC_PRIVATE_SENTINEL\n"
+                "Restore runner network guard failed (published-port-reachable).\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", "-c", function + 'synthetic_network_guard_diagnostic "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "Restore runner network guard failed (published-port-reachable).\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", result.stdout + result.stderr)
+            log.write_text(
+                "SYNTHETIC_PRIVATE_SENTINEL\n"
+                "Restore runner network guard failed (database-namespace-dns-unverified).\n",
+                encoding="utf-8",
+            )
+            database_dns = subprocess.run(
+                ["bash", "-c", function + 'synthetic_network_guard_diagnostic "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(database_dns.returncode, 0, database_dns.stderr)
+            self.assertEqual(
+                database_dns.stdout,
+                "Restore runner network guard failed (database-namespace-dns-unverified).\n",
+            )
+            self.assertNotIn(
+                "SYNTHETIC_PRIVATE_SENTINEL",
+                database_dns.stdout + database_dns.stderr,
+            )
+            log.write_text(
+                "Restore runner network guard failed (private-relation-name).\n"
+                "Restore runner network guard failed (firewall-unavailable). SYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                ["bash", "-c", function + 'synthetic_network_guard_diagnostic "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(rejected.returncode, 0, rejected.stderr)
+            self.assertEqual(rejected.stdout, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", rejected.stdout + rejected.stderr)
+
+    def test_synthetic_startup_failure_surfaces_only_its_fixed_stage(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_stage_diagnostic() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_stage_diagnostic() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            marker = Path(td) / "synthetic-startup-stage"
+            marker.write_text(
+                "client-tool-check\nSYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", "-c", function + 'synthetic_startup_stage_diagnostic "$1"', "bash", str(marker)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "Synthetic startup failure stage: client-tool-check\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", result.stdout + result.stderr)
+            marker.write_text(
+                "unknown-stage-SYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                ["bash", "-c", function + 'synthetic_startup_stage_diagnostic "$1"', "bash", str(marker)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(rejected.returncode, 0, rejected.stderr)
+            self.assertEqual(rejected.stdout, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", rejected.stdout + rejected.stderr)
+
+    def test_synthetic_startup_evidence_requires_marker_without_emitting_logs(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        ).read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_evidence_check() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_evidence_check() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "start.out"
+            output.write_text(
+                "SYNTHETIC_PRIVATE_SENTINEL\ncontainer-egress-isolated\n",
+                encoding="utf-8",
+            )
+            success = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    function + 'synthetic_startup_evidence_check "$1"',
+                    "bash",
+                    str(output),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(success.returncode, 0, success.stderr)
+            self.assertEqual(success.stdout, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", success.stdout + success.stderr)
+
+            output.write_text("SYNTHETIC_PRIVATE_SENTINEL\n", encoding="utf-8")
+            missing = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    function + 'synthetic_startup_evidence_check "$1"',
+                    "bash",
+                    str(output),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(missing.returncode, 1)
+            self.assertEqual(
+                missing.stdout,
+                "::error::Synthetic startup evidence rejected; reason=completion-marker-missing\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", missing.stdout + missing.stderr)
+
+    def test_synthetic_startup_stage_generator_is_fixed_and_valid(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        ).read_text(encoding="utf-8")
+        heredoc_start = script.index("<<'PY'\n") + len("<<'PY'\n")
+        heredoc_end = script.index("\nPY\n", heredoc_start)
+        generator = script[heredoc_start:heredoc_end]
+        expected_stages = (
+            "config-init",
+            "config-update",
+            "bootstrap-guard-apply",
+            "database-start",
+            "database-discovery",
+            "initial-network-check",
+            "bootstrap-guard-verify",
+            "internal-network-create",
+            "database-network-attach",
+            "database-network-detach",
+            "server-image-check",
+            "final-membership-check",
+            "internal-network-check",
+            "published-port-check",
+            "container-readiness-check",
+            "client-tool-check",
+            "runner-guard-apply",
+            "bootstrap-guard-handoff",
+            "post-guard-db-connectivity",
+            "server-version-check",
+            "clean-baseline-check",
+            "client-egress-check",
+            "database-egress-check",
+            "database-egress-probe",
+            "runner-host-egress-check",
+            "runner-host-dns-check",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            result = subprocess.run(
+                [sys.executable, "-c", generator, str(WORKFLOW.parent), td],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            generated = Path(td) / "start.sh"
+            startup_script = generated.read_text(encoding="utf-8")
+            marker_lines = [
+                line for line in startup_script.splitlines()
+                if "synthetic-startup-stage" in line
+            ]
+            actual_stages = []
+            for line in marker_lines:
+                match = re.search(r"printf '[^']+' '([a-z-]+)' >", line)
+                self.assertIsNotNone(match, line)
+                actual_stages.append(match.group(1))
+            self.assertEqual(tuple(actual_stages), expected_stages)
+            syntax = subprocess.run(
+                ["bash", "-n", str(generated)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", startup_script)
+
+    def test_empty_database_is_isolated_before_private_download_and_cleanup_fails_closed(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        firewall_setup = workflow.index("Install nftables for temporary runner isolation guard")
+        private_download = workflow.index("Download selected private R2 backup and evidence")
+        self.assertLess(firewall_setup, private_download)
+        self.assertIn("command -v nft >/dev/null || sudo apt-get install -y nftables", workflow)
+        start_position = workflow.index("      - name: Start clean, isolated Supabase PostgreSQL 17")
+        download_position = workflow.index("      - name: Download selected private R2 backup and evidence")
+        verify_position = workflow.index("      - name: Verify selected archive, source identity, and component checksums")
+        restore_position = workflow.index("      - name: Restore SQL transactionally using patched PostgreSQL 17 client")
+        self.assertLess(firewall_setup, start_position)
+        self.assertLess(start_position, download_position)
+        self.assertLess(download_position, verify_position)
+        self.assertLess(verify_position, restore_position)
+        start = workflow.split(
+            "      - name: Start clean, isolated Supabase PostgreSQL 17", 1
+        )[1].split("      - name: Download selected private R2 backup and evidence", 1)[0]
+        self.assertIn("supabase --debug db start", start)
+        self.assertIn("docker network connect --alias db", start)
+        self.assertIn("docker network disconnect", start)
+        self.assertIn('initial_networks_text="$(docker inspect --format', start)
+        self.assertIn('mapfile -t initial_networks <<< "$initial_networks_text"', start)
+        self.assertNotIn("mapfile -t initial_networks < <", start)
+        self.assertNotIn("AWS_ACCESS_KEY_ID", start)
+        self.assertNotIn("R2_RESTORE_ENDPOINT", start)
+        self.assertIn("umask 077", start)
+        self.assertIn(
+            'supabase init --workdir "$workdir" > "$RUNNER_TEMP/private-supabase-init.log" 2>&1',
+            start,
+        )
+        self.assertIn("Disposable Supabase initialization failed", start)
+        self.assertLess(start.index("umask 077"), start.index("private-supabase-init.log"))
+        self.assertLess(
+            start.index("restore_runner_network_guard.py bootstrap"),
+            start.index("supabase --debug db start"),
+        )
+        self.assertLess(
+            start.index("supabase --debug db start"),
+            start.index("restore_runner_network_guard.py verify-bootstrap"),
+        )
+        self.assertLess(start.index("supabase --debug db start"), start.index("docker network create"))
+        self.assertIn('created_network_id="$(docker network create', start)
+        self.assertLess(start.index("docker network create"), start.index('> "$RUNNER_TEMP/restore-network-owned"'))
+        self.assertIn('[[ ! "$created_network_id" =~ ^[0-9a-f]{64}$ ]]', start)
+        self.assertLess(start.index("docker network disconnect"), start.index("restore_runner_network_guard.py apply"))
+        self.assertIn("runner-host-connectivity tcp=", start)
+        self.assertIn("ports[0].get('HostIp') in ('', '0.0.0.0', '127.0.0.1')", start)
+        self.assertNotIn("host_binding_ipv4", start)
+        self.assertLess(
+            start.index("restore_runner_network_guard.py apply"),
+            start.index("Restore client network permits outbound connectivity"),
+        )
+        self.assertIn("post_guard_result=", start)
+        self.assertIn("SELECT 1", start)
+        self.assertIn("connectivity check failed after isolation", start)
+        self.assertLess(
+            start.index("restore_runner_network_guard.py apply"),
+            start.index("restore_runner_network_guard.py handoff-bootstrap"),
+        )
+        self.assertLess(
+            start.index("restore_runner_network_guard.py handoff-bootstrap"),
+            start.index("post_guard_result="),
+        )
+        self.assertLess(
+            start.index("post_guard_result="),
+            start.index("'SHOW server_version'"),
+        )
+        self.assertLess(
+            start.index("'SHOW server_version'"),
+            start.index("Target is not a clean Supabase baseline"),
+        )
+        self.assertLess(
+            start.index("post_guard_result="),
+            start.index("Restore client network permits outbound connectivity"),
+        )
+        self.assertIn("socket.create_connection(('::1', 54322)", start)
+        self.assertIn("runner-ingress-guarded", start)
+        runner_guard = (WORKFLOW.parent.parent.parent / "scripts/restore_runner_network_guard.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("getent hosts db", runner_guard)
+        self.assertIn("nslookup example.com", runner_guard)
+        self.assertIn('"database-namespace-dns-unverified"', runner_guard)
+        self.assertIn('"dns-probe-client-missing"', runner_guard)
+        self.assertIn('"dns-probe-failed"', runner_guard)
+        self.assertIn('"external-dns-resolves"', runner_guard)
+        self.assertIn("verify_restore_foreign_keys.sql", workflow)
+        self.assertIn("Seven application foreign-key mappings and references verified.", workflow)
+        integrity_check = workflow.split("if ! integrity_result=", 1)[1].split(
+            'if [[ "$integrity_result"', 1
+        )[0]
+        self.assertIn('--network "$RESTORE_DOCKER_NETWORK"', integrity_check)
+        self.assertIn("postgresql://postgres:postgres@db:5432/postgres", integrity_check)
+        self.assertNotIn("--network host", integrity_check)
+        self.assertNotIn("127.0.0.1:54322", integrity_check)
+        synthetic = (WORKFLOW.parent / "../.." / "scripts/test_database_restore_synthetic.sh").resolve()
+        synthetic_text = synthetic.read_text(encoding="utf-8")
+        self.assertIn("synthetic-application-foreign-keys=pass", synthetic_text)
+        self.assertIn("restore_db='postgresql://supabase_admin:postgres@db:5432/postgres'", workflow)
+        self.assertIn("admin_db='postgresql://supabase_admin:postgres@db:5432/postgres'", synthetic_text)
+        self.assertNotIn("admin_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'", synthetic_text)
+        self.assertIn("reason=completion-marker-missing", synthetic_text)
+        cleanup = workflow.split(
+            "      - name: Stop isolated database and delete private files", 1
+        )[1]
+        self.assertIn("if: always()", cleanup)
+        self.assertNotIn("--network-id", cleanup.split("if ! rm -rf", 1)[0])
+        self.assertLess(cleanup.index("docker network rm"), cleanup.index("restore_runner_network_guard.py remove"))
+        self.assertIn("mapfile -t ownership_lines < \"$RUNNER_TEMP/restore-network-owned\"", cleanup)
+        self.assertIn('"$marker_id" =~ ^[0-9a-f]{64}$', cleanup)
+        self.assertIn("docker network inspect --format '{{.Id}}' \"$RESTORE_DOCKER_NETWORK\"", cleanup)
+        self.assertIn('docker network rm "$owned_network_id"', cleanup)
+        self.assertIn('[[ "$current_network_id" == "$owned_network_id" ]]', cleanup)
+        self.assertIn(
+            'if [[ "$failure" -eq 0 ]]; then\n'
+            '            sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py remove',
+            cleanup,
+        )
+        self.assertNotIn('&& -e "$RUNNER_TEMP/restore-runner-network-guard.json"', cleanup)
+        host_guard_remove = runner_guard.split("def remove(", 1)[1].split("def main(", 1)[0]
+        missing_guard_marker = host_guard_remove.split("if not marker.exists():", 1)[1].split(
+            "record = _read_marker(marker)", 1
+        )[0]
+        self.assertIn('["nft", "list", "tables"]', missing_guard_marker)
+        self.assertIn('"cleanup-firewall-unverified"', missing_guard_marker)
+        self.assertIn('docker ps -aq --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
+        self.assertIn('docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
+        self.assertIn('docker network ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', cleanup)
+        self.assertIn("Disposable PostgreSQL containers, volumes, or networks remain after cleanup", cleanup)
+        self.assertLess(
+            cleanup.index("Disposable PostgreSQL containers, volumes, or networks remain after cleanup"),
+            cleanup.index("restore_runner_network_guard.py remove-bootstrap"),
+        )
+        self.assertIn("restore-runner-network-guard.json.tmp", cleanup)
+        self.assertIn("restore-runner-bootstrap-guard.json.tmp", cleanup)
+        self.assertIn('"$RUNNER_TEMP/restore-candidate-preflight.env"', cleanup)
+        self.assertIn('"$RUNNER_TEMP/restore-candidate.env"', cleanup)
+        self.assertLess(
+            cleanup.index("Temporary runner guard marker files remain after cleanup"),
+            cleanup.index("restore_runner_network_guard.py remove-bootstrap"),
+        )
+        self.assertIn("runner teardown will recycle the VM", cleanup)
+
+    def test_synthetic_workflow_runs_runner_guard_offline_and_live_start_tests(self):
+        synthetic = (WORKFLOW.parent / "database-restore-synthetic.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/restore_runner_network_guard.py", synthetic)
+        self.assertIn("scripts/test_database_restore_runner_network_guard.py", synthetic)
+        self.assertIn("scripts/verify_restore_foreign_keys.sql", synthetic)
+        self.assertIn("Install nftables for temporary runner isolation guard", synthetic)
+        self.assertIn("python3 -m unittest discover -s scripts -p 'test_database_restore_*.py'", synthetic)
+        self.assertIn("bash scripts/test_database_restore_synthetic.sh", synthetic)
+        synthetic_script = (WORKFLOW.parent / "../.." / "scripts/test_database_restore_synthetic.sh").resolve().read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("synthetic-project-cleanup=pass", synthetic_script)
+        self.assertIn('role_replay_network=1', synthetic_script)
+        self.assertIn("postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres", synthetic_script)
+        self.assertIn('args[index+1]="$RESTORE_DOCKER_NETWORK"', synthetic_script)
+        self.assertIn("Unexpected local restore identity", synthetic_script)
+        self.assertIn('"${args[index+1]:-}" == "host"', synthetic_script)
+        self.assertIn('docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', synthetic_script)
+
+    def test_database_config_is_pinned_to_postgres_17_and_unique_project(self):
+        import tomllib
+
+        with tempfile.TemporaryDirectory() as td:
+            config = Path(td) / "config.toml"
+            config.write_text('project_id = "supabase"\n[db]\nmajor_version = 15\n')
+            result = self.run_embedded_python(self.configure_db, config, "mori276-test")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            parsed = tomllib.loads(config.read_text())
+            self.assertEqual(parsed["project_id"], "mori276-test")
+            self.assertEqual(parsed["db"]["major_version"], 17)
+
+    def test_database_port_mapping_is_guarded_before_private_data(self):
+        allowed = (
+            json.dumps({"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "54322"}]}),
+            json.dumps({"5432/tcp": [{"HostIp": "", "HostPort": "54322"}]}),
+            json.dumps({"5432/tcp": [{"HostIp": "0.0.0.0", "HostPort": "54322"}]}),
+        )
+        denied = (
+            json.dumps({"5432/tcp": [{"HostIp": "::", "HostPort": "54322"}]}),
+            json.dumps({"5432/tcp": [{"HostIp": "0.0.0.0", "HostPort": "54323"}]}),
+            json.dumps({"5432/tcp": [{"HostIp": "127.0.0.1", "HostPort": "54322"}],
+                        "8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]}),
+        )
+        for value in allowed:
+            with self.subTest(allowed=value):
+                self.assertEqual(self.run_embedded_python(self.verify_port_binding, value).returncode, 0)
+        for value in denied:
+            with self.subTest(binding=value):
+                result = self.run_embedded_python(self.verify_port_binding, value)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn(value, result.stderr)
 
     def run_archive_check(self, archive, evidence, env, dest):
         """Run the verifier with a disposable synthetic archive."""
@@ -626,6 +1287,9 @@ class RestoreDiagnosticTests(unittest.TestCase):
         step = workflow.split("      - name: Restore SQL transactionally", 1)[1]
         body = step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0]
         cls.script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
+        cleanup = workflow.split("      - name: Stop isolated database and delete private files", 1)[1]
+        body = cleanup.split("        run: |\n", 1)[1]
+        cls.cleanup_script = "\n".join(line[10:] for line in body.splitlines()) + "\n"
 
     def run_diagnostic(self, phase="none", code=0, missing_file=False,
                        temp_prefix="tmp", stderr=None, helper_mode="normal",
@@ -634,6 +1298,19 @@ class RestoreDiagnosticTests(unittest.TestCase):
         # contain synthetic private markers, including annotation-like content.
         stub = r'''
 docker() {
+  if [[ "${1:-}" == network && "${2:-}" == inspect ]]; then
+    printf 'bridge|true|false|%s|%s\n' \
+      "$RESTORE_PROJECT_ID" "$RESTORE_PROJECT_ID"
+    return 0
+  fi
+  if [[ "${1:-}" == ps ]]; then
+    printf 'synthetic-db-id\n'
+    return 0
+  fi
+  if [[ "${1:-}" == inspect ]]; then
+    printf '%s\n' "$RESTORE_DOCKER_NETWORK"
+    return 0
+  fi
   local phase=restore arg
   for arg in "$@"; do
     case "$arg" in
@@ -676,17 +1353,24 @@ python3() {
                         path.write_bytes(roles_sql)
                     else:
                         path.write_text("SYNTHETIC_PRIVATE_DUMP")
-            env = dict(os.environ, RUNNER_TEMP=root.as_posix(),
+            env = dict(os.environ, RUNNER_TEMP=bash_path(root),
                        PSQL_IMAGE="synthetic-pinned-image", FAIL_PHASE=phase,
                        FAIL_CODE=str(code), TEST_PYTHON=sys.executable,
+                       RESTORE_DOCKER_NETWORK="synthetic-restore-network",
+                       RESTORE_PROJECT_ID="moris-restore-local",
                        HELPER_MODE=helper_mode, HELPER_OUTPUT=helper_output or "",
                        DIAG_STDERR=stderr if stderr is not None
                        else "::error::SYNTHETIC_PRIVATE_STDERR SELECT secret FROM synthetic;\n")
             result = subprocess.run([self.bash, "--noprofile", "--norc"],
-                                    input=stub + self.script, text=True,
+                                    input=(stub + self.script).encode("utf-8"),
                                     capture_output=True, env=env, check=False)
+            result.stdout = result.stdout.decode("utf-8", errors="replace")
+            result.stderr = result.stderr.decode("utf-8", errors="replace")
             private_log = root / "private-restore-result.log"
             private_stderr = root / "private-restore-stderr.log"
+            self.assertTrue(private_log.is_file(),
+                            f"restore step exited {result.returncode}; "
+                            f"stdout={result.stdout!r}; stderr={result.stderr!r}")
             self.assertIn("SYNTHETIC_PRIVATE_SQL", private_log.read_text())
             self.assertNotIn("SYNTHETIC_PRIVATE_STDERR", private_log.read_text())
             self.assertEqual(private_stderr.read_text(), env["DIAG_STDERR"])
@@ -716,14 +1400,15 @@ python3() {
             for phase in ("client", "files", "connection", "restore")) +
             "Transactional isolated SQL restore passed.\n")
         for call in calls:
-            self.assertEqual(call[1:5], ["run", "--rm", "--network", "host"])
+            self.assertEqual(call[1:5],
+                             ["run", "--rm", "--network", "synthetic-restore-network"])
             self.assertIn("--read-only", call)
             self.assertIn("no-new-privileges", call)
             self.assertIn("ALL", call)
             self.assertIn("synthetic-pinned-image", call)
             self.assertTrue(any(arg.endswith("target=/backup,readonly") for arg in call))
         restore = calls[-1]
-        admin_db = "postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres"
+        admin_db = "postgresql://supabase_admin:postgres@db:5432/postgres"
         self.assertEqual(calls[-2][-2:], ["-d", admin_db])
         command = restore[restore.index("psql"):]
         guard = command[command.index("-c") + 1]
@@ -743,9 +1428,10 @@ python3() {
 
     def test_bash_syntax(self):
         result = subprocess.run([self.bash, "--noprofile", "--norc", "-n"],
-                                input=self.script, text=True, capture_output=True,
+                                input=self.script.encode("utf-8"), capture_output=True,
                                 check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0,
+                         result.stderr.decode("utf-8", errors="replace"))
 
     def test_failure_categories_and_actual_exit_codes(self):
         cases = [("client", 1, "container-client"),
@@ -905,6 +1591,350 @@ python3() {
         self.assertIn("if: always()", cleanup)
         self.assertIn('"$RUNNER_TEMP/private-restore-result.log"', cleanup)
         self.assertIn('"$RUNNER_TEMP/private-restore-stderr.log"', cleanup)
+        self.assertIn('"$RUNNER_TEMP/private-supabase-init.log"', cleanup)
+
+    def test_actual_cleanup_fails_closed_and_attempts_independent_obligations(self):
+        cases = (
+            ("network-present", 0, 0, 0, 0, 0, 1, True, True),
+            ("network-absent", 0, 0, 0, 0, 0, 0, False, True),
+            ("network-replaced", 0, 0, 0, 0, 1, 0, True, True),
+            ("malformed-network-id", 0, 0, 0, 0, 1, 0, True, True),
+            ("bootstrap-remove-fails", 0, 0, 0, 0, 1, 1, True, True),
+            ("host-guard-remove-fails", 0, 0, 0, 0, 1, 1, True, True),
+            ("docker-list-fails", 1, 0, 0, 0, 1, 0, False, True),
+            ("network-remove-fails", 0, 1, 0, 0, 1, 1, True, True),
+            ("database-stop-fails", 0, 0, 72, 0, 1, 1, True, True),
+            ("private-file-remove-fails", 0, 0, 0, 1, 1, 1, True, True),
+            ("unowned-network", 0, 0, 0, 0, 1, 0, True, False),
+            ("project-resources-remain", 0, 0, 0, 0, 1, 0, False, True),
+            ("project-resource-list-fails", 0, 0, 0, 0, 1, 0, False, True),
+        )
+        for name, list_status, remove_status, stop_status, rm_status, expected, remove_calls, present, owned in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                workdir = root / "moris-restore-local"
+                (workdir / "supabase").mkdir(parents=True)
+                (workdir / "supabase/config.toml").write_text("synthetic\n")
+                for filename in (
+                    "restore-verified-sql", "restore-selected.tar.gz", "restore-selected.json",
+                    "private-restore-result.log", "private-restore-stderr.log",
+                    "private-verify-result.log", "private-db-start.log",
+                    "private-supabase-init.log",
+                    "restore-download-archive.log", "restore-download-evidence.log",
+                    "restore-candidate-preflight.env", "restore-candidate.env",
+                ):
+                    path = root / filename
+                    if filename == "restore-verified-sql":
+                        path.mkdir()
+                        (path / "synthetic.txt").write_text("SYNTHETIC_PRIVATE_SENTINEL")
+                    else:
+                        path.write_text("SYNTHETIC_PRIVATE_SENTINEL")
+                if name == "bootstrap-remove-fails":
+                    (root / "restore-runner-bootstrap-guard.json").write_bytes(
+                        b"SYNTHETIC_FIREWALL_MARKER"
+                    )
+                if owned:
+                    (root / "restore-network-owned").write_bytes(
+                        b"restore-synthetic-cleanup|" +
+                        (b"invalid" if name == "malformed-network-id" else b"a" * 64) + b"\n"
+                    )
+                stub = r'''\
+supabase() {
+  [[ "$1" == stop ]] || return 99
+  printf 'stop\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+  return "$SYNTHETIC_STOP_STATUS"
+}
+docker() {
+  if [[ "$1" == ps && "$2" == -aq ]]; then
+    [[ "$SYNTHETIC_PROJECT_RESOURCE_STATUS" == 0 ]] || return "$SYNTHETIC_PROJECT_RESOURCE_STATUS"
+    printf '%s\n' "$SYNTHETIC_PROJECT_CONTAINERS"
+    return 0
+  fi
+  if [[ "$1" == volume && "$2" == ls ]]; then
+    [[ "$SYNTHETIC_PROJECT_RESOURCE_STATUS" == 0 ]] || return "$SYNTHETIC_PROJECT_RESOURCE_STATUS"
+    printf '%s\n' "$SYNTHETIC_PROJECT_VOLUMES"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == ls ]]; then
+    if [[ " $* " == *" -q "* ]]; then
+      [[ "$SYNTHETIC_PROJECT_RESOURCE_STATUS" == 0 ]] || return "$SYNTHETIC_PROJECT_RESOURCE_STATUS"
+      printf '%s\n' "$SYNTHETIC_PROJECT_NETWORKS"
+      return 0
+    fi
+    [[ "$SYNTHETIC_DOCKER_LIST_STATUS" == 0 ]] || return "$SYNTHETIC_DOCKER_LIST_STATUS"
+    printf '%s\n' "$SYNTHETIC_DOCKER_NETWORK_LIST"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == inspect ]]; then
+    [[ "$3" == --format && "$4" == '{{.Id}}' &&
+       "$5" == "$RESTORE_DOCKER_NETWORK" ]] || return 99
+    printf '%s\n' "$SYNTHETIC_CURRENT_NETWORK_ID"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == rm ]]; then
+    [[ "$3" == "$SYNTHETIC_CURRENT_NETWORK_ID" ]] || return 98
+    printf 'network-rm:%s\n' "$3" >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    return "$SYNTHETIC_DOCKER_REMOVE_STATUS"
+  fi
+  return 99
+}
+sudo() {
+  if [[ "$#" == 9 && "$1" == env && "$2" == "RUNNER_TEMP=$RUNNER_TEMP" &&
+        "$3" == python3 && "$4" == scripts/restore_runner_network_guard.py &&
+        "$5" == remove && "$6" == --docker-network &&
+        "$7" == "$RESTORE_DOCKER_NETWORK" && "$8" == --marker &&
+        "$9" == "$RUNNER_TEMP/restore-runner-network-guard.json" ]]; then
+    printf 'remove-host-guard\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    [[ "$SYNTHETIC_HOST_GUARD_STATUS" == 0 ]] || return "$SYNTHETIC_HOST_GUARD_STATUS"
+    printf 'restore-runner-host-guard-cleanup=not-installed\n'
+    return 0
+  fi
+  if [[ "$#" == 9 && "$1" == env && "$2" == "RUNNER_TEMP=$RUNNER_TEMP" &&
+        "$3" == python3 && "$4" == scripts/restore_runner_network_guard.py &&
+        "$5" == remove-bootstrap && "$6" == --project-id &&
+        "$7" == "$RESTORE_PROJECT_ID" && "$8" == --marker &&
+        "$9" == "$RUNNER_TEMP/restore-runner-bootstrap-guard.json" ]]; then
+    printf 'remove-bootstrap\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    [[ "$SYNTHETIC_SUDO_STATUS" == 0 ]] || return "$SYNTHETIC_SUDO_STATUS"
+    printf 'restore-runner-bootstrap-ingress-cleanup=not-installed\n'
+    return 0
+  fi
+  return 99
+}
+rm() {
+  [[ "$SYNTHETIC_RM_STATUS" == 0 ]] || return "$SYNTHETIC_RM_STATUS"
+  command rm "$@"
+}
+'''
+                network_list = "restore-synthetic-cleanup" if present else "restore-synthetic-cleanup-other"
+                env = dict(os.environ, RUNNER_TEMP=bash_path(root),
+                           RESTORE_PROJECT_ID="moris-restore-local",
+                           RESTORE_DOCKER_NETWORK="restore-synthetic-cleanup",
+                           SYNTHETIC_TEST_LOG_DIR=bash_path(root),
+                           SYNTHETIC_DOCKER_NETWORK_LIST=network_list,
+                           SYNTHETIC_CURRENT_NETWORK_ID=(
+                               "b" * 64 if name == "network-replaced" else "a" * 64
+                           ),
+                           SYNTHETIC_DOCKER_LIST_STATUS=str(list_status),
+                           SYNTHETIC_DOCKER_REMOVE_STATUS=str(remove_status),
+                           SYNTHETIC_STOP_STATUS=str(stop_status),
+                           SYNTHETIC_RM_STATUS=str(rm_status),
+                           SYNTHETIC_HOST_GUARD_STATUS=(
+                               "1" if name == "host-guard-remove-fails" else "0"
+                           ),
+                           SYNTHETIC_SUDO_STATUS=(
+                               "1" if name == "bootstrap-remove-fails" else "0"
+                           ),
+                           SYNTHETIC_PROJECT_RESOURCE_STATUS=(
+                               "1" if name == "project-resource-list-fails" else "0"
+                           ),
+                           SYNTHETIC_PROJECT_CONTAINERS=(
+                               "synthetic-container-id"
+                               if name == "project-resources-remain" else ""
+                           ),
+                           SYNTHETIC_PROJECT_VOLUMES="",
+                           SYNTHETIC_PROJECT_NETWORKS="")
+                result = subprocess.run(
+                    [self.bash, "--noprofile", "--norc"],
+                    input=(stub + self.cleanup_script).encode("utf-8"),
+                    capture_output=True, env=env, check=False,
+                )
+                stdout = result.stdout.decode("utf-8", errors="replace")
+                stderr = result.stderr.decode("utf-8", errors="replace")
+                self.assertEqual(result.returncode, expected, f"stdout={stdout!r}; stderr={stderr!r}")
+                self.assertEqual(stderr, "")
+                actions = (root / "actions").read_text().splitlines() if (root / "actions").exists() else []
+                expected_host_calls = (
+                    1 if expected == 0 or name in {
+                        "bootstrap-remove-fails", "host-guard-remove-fails",
+                        "project-resources-remain", "project-resource-list-fails",
+                    } else 0
+                )
+                expected_bootstrap_calls = (
+                    1 if expected == 0 or name == "bootstrap-remove-fails" else 0
+                )
+                expected_output = ""
+                if expected_host_calls and name != "host-guard-remove-fails":
+                    expected_output += "restore-runner-host-guard-cleanup=not-installed\n"
+                if name == "project-resources-remain":
+                    expected_output += "::error::Disposable PostgreSQL containers, volumes, or networks remain after cleanup\n"
+                if expected_bootstrap_calls and name != "bootstrap-remove-fails":
+                    expected_output += "restore-runner-bootstrap-ingress-cleanup=not-installed\n"
+                expected_output += (
+                    "Isolated database, volumes, network guard, and private runner files cleaned.\n"
+                    if expected == 0 else
+                    "::error::Restore cleanup could not be confirmed; runner teardown will recycle the VM\n"
+                )
+                self.assertEqual(stdout, expected_output)
+                self.assertNotIn("SYNTHETIC_PRIVATE", stdout + stderr)
+                if name == "project-resources-remain":
+                    self.assertNotIn("synthetic-container-id", stdout + stderr)
+                self.assertIn("stop", actions)
+                network_rm_actions = [action for action in actions if action.startswith("network-rm:")]
+                self.assertEqual(len(network_rm_actions), remove_calls)
+                if remove_calls:
+                    self.assertEqual(network_rm_actions, ["network-rm:" + "a" * 64])
+                self.assertEqual(actions.count("remove-host-guard"), expected_host_calls)
+                self.assertEqual(actions.count("remove-bootstrap"), expected_bootstrap_calls)
+                if name == "bootstrap-remove-fails":
+                    self.assertTrue((root / "restore-runner-bootstrap-guard.json").is_file())
+                if expected == 0:
+                    self.assertFalse((root / "restore-selected.tar.gz").exists())
+                    self.assertFalse(workdir.exists())
+                    self.assertFalse((root / "restore-network-owned").exists())
+                elif rm_status == 0:
+                    self.assertFalse((root / "restore-selected.tar.gz").exists())
+                if name == "unowned-network":
+                    self.assertFalse((root / "restore-network-owned").exists())
+                    self.assertFalse(network_rm_actions)
+                if name == "network-replaced":
+                    self.assertTrue((root / "restore-network-owned").is_file())
+                    self.assertTrue((root / "restore-network-owned").read_bytes().startswith(
+                        b"restore-synthetic-cleanup|" + b"a" * 64
+                    ))
+                    self.assertFalse(network_rm_actions)
+                if name == "malformed-network-id":
+                    self.assertTrue((root / "restore-network-owned").is_file())
+                    self.assertFalse(network_rm_actions)
+
+    def test_synthetic_cleanup_removes_only_a_run_owned_network(self):
+        synthetic = Path(__file__).with_name("test_database_restore_synthetic.sh").read_text(
+            encoding="utf-8"
+        )
+        ownership_body = synthetic.split("synthetic_network_owned_by_run() {\n", 1)[1].split(
+            "\n}\n", 1
+        )[0]
+        ownership = "synthetic_network_owned_by_run() {\n" + ownership_body + "\n}\n"
+        cleanup_body = synthetic.split("cleanup() {\n", 1)[1].split(
+            "\n}\ntrap cleanup EXIT", 1
+        )[0]
+        cleanup = "cleanup() {\n" + cleanup_body + "\n}\n"
+        docker_stub = r'''\
+docker() {
+  if [[ "$1" == network && "$2" == ls ]]; then
+    if [[ " $* " == *" -q "* ]]; then return 0; fi
+    [[ ! -e "$SYNTHETIC_NETWORK_STATE" ]] || printf '%s\n' "$RESTORE_DOCKER_NETWORK"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == inspect ]]; then
+    [[ "$3" == --format && "$4" == '{{.Id}}' &&
+       "$5" == "$RESTORE_DOCKER_NETWORK" ]] || return 99
+    printf '%s\n' "$SYNTHETIC_CURRENT_NETWORK_ID"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == rm ]]; then
+    [[ "$3" == "$SYNTHETIC_CURRENT_NETWORK_ID" ]] || return 98
+    printf 'network-rm:%s\n' "$3" >> "$SYNTHETIC_ACTIONS"
+    rm -f -- "$SYNTHETIC_NETWORK_STATE"
+    return 0
+  fi
+  if [[ "$1" == ps && "$2" == -aq ]]; then return 0; fi
+  if [[ "$1" == volume && "$2" == ls ]]; then return 0; fi
+  return 99
+}
+'''
+        cases = (
+            ("owned", True, "owned", 0),
+            ("replacement-network", True, "owned", 1),
+            ("malformed-network-id", True, "malformed-id", 1),
+            ("no-network", False, "absent", 0),
+            ("missing-marker", True, "absent", 1),
+            ("mismatched-marker", True, "mismatch", 1),
+            ("directory-marker", True, "directory", 1),
+            ("symlink-marker", True, "symlink", 1),
+        )
+        network_name = "restore-synthetic-owned-test"
+        for name, network_present, marker_kind, expected_status in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                root = base / "runner-temp"
+                root.mkdir()
+                state = base / "docker-network-present"
+                actions = base / "docker-actions"
+                if network_present:
+                    state.touch()
+                marker = root / "restore-network-owned"
+                marker_target = base / "marker-target"
+                if marker_kind == "owned":
+                    marker.write_bytes((network_name + "|" + "a" * 64 + "\n").encode("utf-8"))
+                elif marker_kind == "malformed-id":
+                    marker.write_bytes((network_name + "|invalid\n").encode("utf-8"))
+                elif marker_kind == "mismatch":
+                    marker.write_bytes(b"SYNTHETIC_PRIVATE_MARKER\n")
+                elif marker_kind == "directory":
+                    marker.mkdir()
+                elif marker_kind == "symlink":
+                    marker_target.write_bytes(
+                        (network_name + "|" + "a" * 64 + "\n").encode("utf-8")
+                    )
+                    try:
+                        marker.symlink_to(marker_target)
+                    except OSError:
+                        if os.name == "nt":
+                            continue
+                        raise
+                bootstrap_marker = root / "restore-runner-bootstrap-guard.json"
+                if expected_status != 0:
+                    bootstrap_marker.write_text("SYNTHETIC_FIREWALL_MARKER", encoding="utf-8")
+
+                script = (
+                    docker_stub + ownership + cleanup + ":\ncleanup\n"
+                )
+                env = dict(
+                    os.environ,
+                    RUNNER_TEMP=bash_path(root),
+                    root=bash_path(root),
+                    workdir=bash_path(root / "moris-restore-local"),
+                    RESTORE_PROJECT_ID="mori276-synthetic",
+                    RESTORE_DOCKER_NETWORK=network_name,
+                    SYNTHETIC_NETWORK_STATE=bash_path(state),
+                    SYNTHETIC_ACTIONS=bash_path(actions),
+                    SYNTHETIC_CURRENT_NETWORK_ID=(
+                        "b" * 64 if name == "replacement-network" else "a" * 64
+                    ),
+                )
+                result = subprocess.run(
+                    [self.bash, "--noprofile", "--norc"],
+                    input=script.encode("utf-8"),
+                    capture_output=True,
+                    env=env,
+                    check=False,
+                )
+                stdout = result.stdout.decode("utf-8", errors="replace")
+                stderr = result.stderr.decode("utf-8", errors="replace")
+                self.assertEqual(result.returncode, expected_status, f"stdout={stdout!r}; stderr={stderr!r}")
+                self.assertNotIn("SYNTHETIC_PRIVATE", stdout + stderr)
+                action_lines = actions.read_text().splitlines() if actions.exists() else []
+                network_rm_actions = [line for line in action_lines if line.startswith("network-rm:")]
+                removed = bool(network_rm_actions)
+                expected_removed = (
+                    marker_kind == "owned" and network_present and name != "replacement-network"
+                )
+                self.assertEqual(removed, expected_removed)
+                if expected_removed:
+                    self.assertEqual(network_rm_actions, ["network-rm:" + "a" * 64])
+                self.assertEqual(state.exists(), network_present and not expected_removed)
+                if expected_status == 0:
+                    self.assertEqual(stdout, "synthetic-project-cleanup=pass\n"
+                                     "synthetic-network-cleanup=pass\n"
+                                     "synthetic-fixture-cleanup=pass\n")
+                    self.assertEqual(stderr, "")
+                    self.assertFalse(root.exists())
+                else:
+                    self.assertEqual(stdout, "")
+                    self.assertEqual(stderr, "synthetic-network-cleanup=fail\n"
+                                      "synthetic-fixture-cleanup=retained-for-runner-teardown\n")
+                    self.assertTrue(root.is_dir())
+                    self.assertTrue(bootstrap_marker.is_file())
+                    if marker_kind == "symlink":
+                        self.assertTrue(marker.is_symlink())
+                        self.assertEqual(
+                            marker_target.read_text(encoding="utf-8"),
+                            network_name + "|" + "a" * 64 + "\n",
+                        )
+                    if name == "replacement-network":
+                        self.assertTrue(marker.is_file())
+                        self.assertTrue(bootstrap_marker.is_file())
 
     def test_missing_mounted_file_stops_before_connection_or_restore(self):
         result, calls = self.run_diagnostic(missing_file=True)

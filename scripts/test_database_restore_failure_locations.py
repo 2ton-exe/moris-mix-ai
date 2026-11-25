@@ -5,6 +5,7 @@ from io import StringIO
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,18 @@ PREFIX = DECOYS + """\
 INSERT INTO phase276_baseline.rows VALUES (1);
 SELECT 'SYNTHETIC_276_PRIVATE_REACHED';
 """
+
+
+def bash_path(path):
+    """Return a temporary path in the namespace used by Windows Bash."""
+    resolved = Path(path).resolve()
+    if os.name != "nt":
+        return resolved.as_posix()
+    drive = resolved.drive[:1].lower()
+    tail = resolved.as_posix()[2:]
+    bash_exe = (shutil.which("bash") or "").replace("\\", "/").lower()
+    mount = "/mnt" if "/windowsapps/" in bash_exe else ""
+    return f"{mount}/{drive}{tail}"
 
 ROW_COPY = "COPY phase276.copy_target (payload) FROM stdin;\n"
 CASES = {
@@ -194,29 +207,71 @@ supabase() {
   case "$1" in
     init)
       mkdir -p "$3/supabase"
-      printf '[db]\nmajor_version = 15\n' > "$3/supabase/config.toml"
+      printf 'project_id = "supabase"\n[db]\nmajor_version = 15\n' > "$3/supabase/config.toml"
+      return 0
       ;;
-    db) return 73 ;;
     stop)
-      touch "$RUNNER_TEMP/stop-called"
+      touch "$SYNTHETIC_TEST_LOG_DIR/stop-called"
       return "$SYNTHETIC_STOP_STATUS"
-      ;;
-    *) return 99 ;;
   esac
+  [[ "$1" == --debug ]] || return 98
+  shift
+  if [[ "$1" == db ]]; then
+    printf 'Image pull progress for synthetic project\n'
+    return 73
+  fi
+  return 99
 }
 export -f supabase
+docker() {
+  if [[ "$1" == ps && "$2" == -aq ]]; then return 0; fi
+  if [[ "$1" == volume && "$2" == ls ]]; then return 0; fi
+  if [[ "$1" == network && "$2" == ls ]]; then
+    if [[ " $* " == *" -q "* ]]; then return 0; fi
+    if [[ -e "$RUNNER_TEMP/network-created" ]]; then
+      printf '%s\n' 'restore-synthetic-test'
+    fi
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == inspect ]]; then
+    if [[ ! -e "$RUNNER_TEMP/network-created" ]]; then return 1; fi
+    if [[ "$#" == 3 ]]; then return 0; fi
+    printf 'bridge|true|false|mori276-synthetic|mori276-synthetic\n'
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == create ]]; then
+    touch "$RUNNER_TEMP/network-created"
+    return 0
+  fi
+  if [[ "$1" == network && "$2" == rm ]]; then
+    rm -f "$RUNNER_TEMP/network-created"
+    return 0
+  fi
+  return 99
+}
+export -f docker
 bash scripts/test_database_restore_synthetic.sh
 """],
                     cwd=Path(__file__).resolve().parents[1],
-                    env={**os.environ, "RUNNER_TEMP": Path(tmp).as_posix(),
-                         "PSQL_IMAGE": "unused-offline", "SYNTHETIC_STOP_STATUS": str(stop_status)},
+                    env={**os.environ, "RUNNER_TEMP": bash_path(tmp),
+                         "PSQL_IMAGE": "unused-offline", "SYNTHETIC_STOP_STATUS": str(stop_status),
+                         "RESTORE_PROJECT_ID": "mori276-synthetic",
+                         "RESTORE_DOCKER_NETWORK": "restore-synthetic-test",
+                         "SYNTHETIC_TEST_LOG_DIR": bash_path(tmp)},
                     capture_output=True, text=True, timeout=30,
                 )
-                self.assertEqual(run.returncode, 73)
+                self.assertEqual(run.returncode, 73, f"stdout={run.stdout!r}; stderr={run.stderr!r}")
                 self.assertEqual(run.stderr, "")
                 shutdown = ("synthetic-database-shutdown=pass" if stop_status == 0 else
                             "::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.")
-                self.assertEqual(run.stdout.splitlines(), [shutdown, "synthetic-fixture-cleanup=pass"])
+                self.assertEqual(run.stdout.splitlines(), [
+                    "Synthetic startup failure stage: database-start",
+                    "synthetic-startup-probe container=unknown state=unknown pg_ready=unverified",
+                    "::error::Synthetic protected target setup failed; class=database-start-other", shutdown,
+                    "synthetic-project-cleanup=pass", "restore-runner-bootstrap-ingress-cleanup=pass",
+                    "synthetic-network-cleanup=pass",
+                    "synthetic-fixture-cleanup=pass"
+                ])
                 self.assertEqual({p.name for p in Path(tmp).iterdir()}, {"stop-called"})
 
 
