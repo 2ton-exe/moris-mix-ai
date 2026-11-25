@@ -487,7 +487,10 @@ esac
         self.assertIn("verify_restore_foreign_keys.sql", workflow)
         self.assertIn("Seven application foreign-key mappings and references verified.", workflow)
         synthetic = (WORKFLOW.parent / "../.." / "scripts/test_database_restore_synthetic.sh").resolve()
-        self.assertIn("synthetic-application-foreign-keys=pass", synthetic.read_text(encoding="utf-8"))
+        synthetic_text = synthetic.read_text(encoding="utf-8")
+        self.assertIn("synthetic-application-foreign-keys=pass", synthetic_text)
+        self.assertIn("reason=stderr-present", synthetic_text)
+        self.assertIn("reason=completion-marker-missing", synthetic_text)
         cleanup = workflow.split(
             "      - name: Stop isolated database and delete private files", 1
         )[1]

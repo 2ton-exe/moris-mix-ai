@@ -245,9 +245,12 @@ else
   printf '::error::Synthetic protected target setup failed; class=%s\n' "$failure_class"
   exit "$start_status"
 fi
-if [[ -s "$root/start.err" ]] || \
-   ! grep -Fq 'container-egress-isolated' "$root/start.out"; then
-  echo '::error::Synthetic protected target isolation evidence was incomplete'
+if [[ -s "$root/start.err" ]]; then
+  echo '::error::Synthetic startup evidence rejected; reason=stderr-present'
+  exit 1
+fi
+if ! grep -Fq 'container-egress-isolated' "$root/start.out"; then
+  echo '::error::Synthetic startup evidence rejected; reason=completion-marker-missing'
   exit 1
 fi
 local_db='postgresql://postgres:postgres@db:5432/postgres'
