@@ -23,6 +23,18 @@ import './newRecipeScrapbook.css'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
+function reviewPageSize(form: HTMLFormElement) {
+  const page = form.querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')
+  if (!page?.parentElement) return null
+  const height = Number.parseFloat(getComputedStyle(page.parentElement).minHeight)
+  if (!height) return null
+  const style = getComputedStyle(page)
+  return {
+    height,
+    width: page.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+  }
+}
+
 function resizeTextarea(target: EventTarget | null) {
   if (!(target instanceof HTMLTextAreaElement)) return
   target.style.height = 'auto'
@@ -92,6 +104,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }, [movingRow])
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const hasComparison = Boolean(reviewComparison)
+  const flowingReview = desktopReview && hasComparison
   const leaves = useMemo(() => {
     const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows })
     if (reviewWorkflow && reviewPage) {
@@ -158,14 +171,16 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     if (!book || single || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
       // Short spreads give each cooking step a full leaf so its controls stay reachable.
-      const next = entry.contentRect.height < 740
+      const fixedPage = flowingReview && formRef.current && reviewPageSize(formRef.current)
+      const overhang = fixedPage ? Number.parseFloat(getComputedStyle(book).paddingBlockStart) * 2 : 0
+      const next = (fixedPage ? fixedPage.height + overhang : entry.contentRect.height) < 740
       if (next === compact) return
       rememberFocus(document.activeElement)
       setCompact(next)
     })
     observer.observe(book)
     return () => observer.disconnect()
-  }, [single, compact, rememberFocus])
+  }, [single, compact, flowingReview, rememberFocus])
 
   useLayoutEffect(() => {
     const form = formRef.current
@@ -173,15 +188,20 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const measure = () => {
       if (document.activeElement instanceof HTMLElement) rememberFocus(document.activeElement)
       const leaf = form.querySelector<HTMLElement>('.mm-writing-leaf')
-      if (!leaf || leaf.clientWidth <= 0 || leaf.clientHeight <= 0) return
-      const next = formTextPageLimit(leaf.clientWidth, leaf.clientHeight)
-      const nextRows = formTextPageRows(leaf.clientHeight)
-      const nextColumns = formTextPageColumns(leaf.clientWidth)
+      // A flowing review grows with its content. Paginate against the journal's
+      // viewport-based page size so a rendered leaf cannot change its own capacity.
+      const fixedPage = flowingReview ? reviewPageSize(form) : null
+      const width = fixedPage?.width ?? leaf?.clientWidth ?? 0
+      const height = fixedPage?.height ?? leaf?.clientHeight ?? 0
+      if (width <= 0 || height <= 0) return
+      const next = formTextPageLimit(width, height)
+      const nextRows = formTextPageRows(height)
+      const nextColumns = formTextPageColumns(width)
       setTextPageLength((current) => current === next ? current : next)
       setTextPageRows((current) => current === nextRows ? current : nextRows)
       setTextPageColumns((current) => current === nextColumns ? current : nextColumns)
       // shortcut: use a 350px budget for two summaries until rows are measured individually.
-      setRoomForTwoIngredientRows(desktopEdit && leaf.clientHeight >= 350)
+      setRoomForTwoIngredientRows(desktopEdit && height >= 350)
     }
     const book = form.querySelector<HTMLElement>('.mm-journal-book')
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
@@ -190,7 +210,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     window.addEventListener('resize', measure, true)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
-  }, [single, compact, desktopEdit, leaves.length, visibleIndicesKey, rememberFocus])
+  }, [single, compact, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus])
 
   useLayoutEffect(() => {
     formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
