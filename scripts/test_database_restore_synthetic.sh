@@ -588,7 +588,7 @@ echo 'Synthetic ALTER OWNER 42501 isolated; baseline ownership and cleanup verif
 
 # Compare both principals on the existing disposable server. Do not reuse
 # this administrative connection for any hosted database or private replay.
-admin_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'
+admin_db='postgresql://supabase_admin:postgres@db:5432/postgres'
 principal_query() {
   "${client[@]}" psql -X -qAt -F '|' --no-password -v ON_ERROR_STOP=1 \
     -v VERBOSITY=sqlstate -d "$1" -c "$2" 2> "$root/principal-query.err"

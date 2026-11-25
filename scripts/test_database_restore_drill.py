@@ -537,6 +537,9 @@ esac
         synthetic = (WORKFLOW.parent / "../.." / "scripts/test_database_restore_synthetic.sh").resolve()
         synthetic_text = synthetic.read_text(encoding="utf-8")
         self.assertIn("synthetic-application-foreign-keys=pass", synthetic_text)
+        self.assertIn("restore_db='postgresql://supabase_admin:postgres@db:5432/postgres'", workflow)
+        self.assertIn("admin_db='postgresql://supabase_admin:postgres@db:5432/postgres'", synthetic_text)
+        self.assertNotIn("supabase_admin:postgres@127.0.0.1:54322", synthetic_text)
         self.assertIn("reason=completion-marker-missing", synthetic_text)
         cleanup = workflow.split(
             "      - name: Stop isolated database and delete private files", 1
