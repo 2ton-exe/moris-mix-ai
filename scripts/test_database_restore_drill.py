@@ -539,7 +539,7 @@ esac
         self.assertIn("synthetic-application-foreign-keys=pass", synthetic_text)
         self.assertIn("restore_db='postgresql://supabase_admin:postgres@db:5432/postgres'", workflow)
         self.assertIn("admin_db='postgresql://supabase_admin:postgres@db:5432/postgres'", synthetic_text)
-        self.assertNotIn("supabase_admin:postgres@127.0.0.1:54322", synthetic_text)
+        self.assertNotIn("admin_db='postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres'", synthetic_text)
         self.assertIn("reason=completion-marker-missing", synthetic_text)
         cleanup = workflow.split(
             "      - name: Stop isolated database and delete private files", 1
@@ -567,6 +567,11 @@ esac
             encoding="utf-8"
         )
         self.assertIn("synthetic-project-cleanup=pass", synthetic_script)
+        self.assertIn('role_replay_network=1', synthetic_script)
+        self.assertIn("postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres", synthetic_script)
+        self.assertIn('args[index+1]="$RESTORE_DOCKER_NETWORK"', synthetic_script)
+        self.assertIn("ERROR:  42501", synthetic_script)
+        self.assertIn('"${args[index+1]:-}" == "host"', synthetic_script)
         self.assertIn('docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', synthetic_script)
 
     def test_database_config_is_pinned_to_postgres_17_and_unique_project(self):

@@ -711,30 +711,44 @@ echo 'synthetic-principal-comparison=pass'
 
 run_restore_step() (
   cd "$script_dir/.." || exit 1
+  local role_replay_network=0
   if [[ "$1" == role-replay ]]; then
+    role_replay_network=1
     local role_sql_dir="$root/restore-private/restore-verified-sql"
     mkdir -p "$role_sql_dir"
     cp "$fixture/roles.sql" "$role_sql_dir/roles.sql"
     cp "$fixture/schema.sql" "$role_sql_dir/schema.sql"
   fi
   # Use a separate Bash process so the checked-in step keeps its own errexit.
+  # For the isolated test target, remap the standalone role workflow's host
+  # loopback endpoint into the same internal bridge used by Stage B.
   RUNNER_TEMP="$root" GITHUB_STEP_SUMMARY="$root/synthetic-summary.md" \
     bash --noprofile --norc -c '
+      step_script="$1"
       substitute_db="$2"
       admin_db="$3"
-      if [[ -n "$substitute_db" ]]; then
-        docker() {
-          local args=("$@") index
-          for index in "${!args[@]}"; do
-            if [[ "${args[index]}" == "$admin_db" ]]; then
+      role_replay_network="$4"
+      docker() {
+        local args=("$@") index
+        for index in "${!args[@]}"; do
+          if [[ "$role_replay_network" == 1 && "${args[index]}" == "--network" &&
+                "${args[index+1]:-}" == "host" ]]; then
+            args[index+1]="$RESTORE_DOCKER_NETWORK"
+          elif [[ "$role_replay_network" == 1 &&
+                  "${args[index]}" == "postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres" ]]; then
+            if [[ -n "$substitute_db" ]]; then
               args[index]="$substitute_db"
+            else
+              args[index]="$admin_db"
             fi
-          done
-          command docker "${args[@]}"
-        }
-      fi
-      source "$1"
-    ' bash "$root/$1.sh" "${2:-}" "$admin_db" > "$root/step.out" 2> "$root/step.err"
+          elif [[ -n "$substitute_db" && "${args[index]}" == "$admin_db" ]]; then
+            args[index]="$substitute_db"
+          fi
+        done
+        command docker "${args[@]}"
+      }
+      source "$step_script"
+    ' bash "$root/$1.sh" "${2:-}" "$admin_db" "$role_replay_network" > "$root/step.out" 2> "$root/step.err"
 )
 
 require_clean_restore() {
@@ -804,12 +818,14 @@ done
 status=0
 run_restore_step role-replay "$local_db" || status=$?
 if [[ "$status" != 1 || -e "$root/synthetic-summary.md" ]] ||
-    ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out"; then
-  echo '::error::Synthetic role diagnostic did not reject the wrong identity'
+    ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out" ||
+    [[ ! -r "$root/restore-private/private-role-flags-stderr.log" ]] ||
+    ! grep -Fxq 'ERROR:  42501' "$root/restore-private/private-role-flags-stderr.log" 2>/dev/null; then
+  echo '::error::Synthetic role diagnostic did not reject the wrong identity with SQLSTATE 42501'
   exit 1
 fi
 require_clean_restore
-echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=yes summary-absent=yes'
+echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=42501 summary-absent=yes'
 
 # The diagnostic must publish the guarded admin's flags even on SQL failure.
 cp "$fixture/roles.sql" "$root/roles.sql"
