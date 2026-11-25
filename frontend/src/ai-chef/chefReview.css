@@ -276,19 +276,6 @@
   overflow-wrap: anywhere;
 }
 
-.mm-chef-review__receipt {
-  display: grid;
-  align-content: start;
-  gap: var(--mm-space-2);
-  padding-block: var(--mm-space-6);
-}
-.mm-chef-review__receipt :is(h2, p) { margin: 0; overflow-wrap: anywhere; }
-.mm-chef-review__receipt h2 { color: var(--mm-color-burgundy-900); font: 600 1.5rem/1.2 var(--mm-font-serif); }
-.mm-chef-review__receipt .actions { margin-block-start: var(--mm-space-2); }
-.mm-chef-review__receipt .button { white-space: normal; }
-.mm-chef-review__receipt > .mm-review-detail-link { justify-self: start; min-block-size: 44px; }
-.mm-chef-review:has(.mm-chef-review__receipt) .mm-journal-book { min-block-size: var(--mm-book-height); }
-
 .mm-chef-review__save-context { margin-block-end: 12px; overflow-wrap: anywhere; color: var(--mm-color-ink); }
 .mm-chef-review__save-context h2 { margin: 0 0 4px; font: 600 18px/1.2 var(--mm-font-serif); }
 .mm-chef-review__save-context p { margin: 4px 0; font: 400 14px/1.35 var(--mm-font-sans); }

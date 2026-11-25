@@ -248,6 +248,16 @@ describe('AI Chef pantry and review workflow', () => {
     expect(save.mock.calls[0]?.[0].ingredients[1]?.quantity).toBe(3)
     expect(save).toHaveBeenCalledOnce()
     expect((await screen.findByRole('link', { name: 'Open saved version' })).getAttribute('href')).toBe('/app/recipes/' + savedRecipeId)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit saved recipe' }))
+    const title = screen.getByRole('textbox', { name: 'Recipe title', exact: true })
+    expect(document.activeElement).toBe(title)
+    fireEvent.change(title, { target: { value: 'A better next cook' } })
+    expect(screen.getByRole('button', { name: /^Next:/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByRole('heading', { name: 'A better next cook' })
+    expect(save.mock.calls[1]?.[1]).toMatchObject({ recipeId: savedRecipeId })
+    expect(saveLineage).toHaveBeenCalledOnce()
   })
 
   it('keeps a cooking observation through a conflicting notes edit and asks to review again', async () => {

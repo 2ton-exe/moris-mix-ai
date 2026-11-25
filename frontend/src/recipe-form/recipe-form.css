@@ -296,6 +296,19 @@
 .mm-recipe-review .mm-desk .recipe-amount-row { gap: 12px; }
 .mm-journal-editor .recipe-form-field label small { font-size: inherit; font-weight: 450; }
 .mm-extraction-notes summary { min-height: 44px; }
+.mm-recipe-review__receipt {
+  display: grid;
+  align-content: start;
+  gap: var(--mm-space-2);
+  padding-block: var(--mm-space-6);
+}
+.mm-recipe-review__receipt :is(h2, p) { margin: 0; overflow-wrap: anywhere; }
+.mm-recipe-review__receipt h2 { color: var(--mm-color-burgundy-900); font: 600 1.5rem/1.2 var(--mm-font-serif); }
+.mm-recipe-review__receipt .actions { margin-block-start: var(--mm-space-2); }
+.mm-recipe-review__receipt .button { white-space: normal; }
+.mm-recipe-review__receipt > .mm-review-detail-link { justify-self: start; min-block-size: 44px; }
+.mm-recipe-review:has(.mm-recipe-review__receipt) .mm-journal-book { min-block-size: var(--mm-book-height); }
+
 .mm-review-progress {
   color: var(--mm-color-ink-soft);
   font: 650 13px/1.35 var(--mm-font-sans);

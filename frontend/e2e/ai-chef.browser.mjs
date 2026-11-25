@@ -238,6 +238,7 @@ async function advanceChefReviewToSave(page, saveName = 'Save recipe') {
   const save = page.getByRole('button', { name: saveName, exact: true })
   const method = page.locator('textarea[name="instructions.0.text"]:not([disabled])')
   const saveAlreadyAvailable = await save.isVisible()
+  if (saveName === 'Save changes' && saveAlreadyAvailable) return
   let sawMethod = await method.isVisible()
   while (await next.isVisible()) {
     await expect(save).toHaveCount(0)

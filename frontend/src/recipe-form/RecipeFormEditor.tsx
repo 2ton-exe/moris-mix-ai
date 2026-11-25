@@ -137,9 +137,10 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const dirty = baseline === null || JSON.stringify(state) !== baseline
   const saved = hasConfirmedSave && !dirty
   const showReviewReceipt = Boolean(reviewReceipt && saved && !editingFromReceipt)
+  const canSaveOnThisPage = finalPage || (editingFromReceipt && dirty)
   useLayoutEffect(() => {
     if (showReviewReceipt || editingFromReceipt) {
-      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-chef-review__receipt h2' : '[data-form-focus-key="title"]')?.focus()
+      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-recipe-review__receipt h2' : '[data-form-focus-key="title"]')?.focus()
     }
   }, [showReviewReceipt, editingFromReceipt])
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
@@ -477,7 +478,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (submitting.current || ingredientDrag.active() || instructionDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !finalPage)) return
+    if (submitting.current || ingredientDrag.active() || instructionDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !canSaveOnThisPage)) return
     setMessage(null)
     setCelebrating(false)
     const result = validateEditor(state)
@@ -872,7 +873,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     return [...new Set(leaves.slice(first, first + (single ? 1 : 2)).map(recipeFormSection))].join(' and ')
   }
 
-  const content = showReviewReceipt ? <section className="mm-chef-review__receipt" aria-label="Saved recipe">
+  const content = showReviewReceipt ? <section className="mm-recipe-review__receipt" aria-label="Saved recipe">
     {reviewReceipt}
     <button type="button" className="button mm-review-detail-link" onClick={() => {
       setPageAnchor('identity')
@@ -901,7 +902,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           current: `${desktopReview && finalPage && reviewSaveContext ? reviewPage.title : sectionsOnPage(position.page)} · Step ${position.page + 1} of ${position.total}`,
           previous: position.page > 0 ? sectionsOnPage(position.page - 1) : undefined,
           next: finalPage ? undefined : sectionsOnPage(position.page + 1),
-          save: saved && savedAction ? savedAction : saveButton,
+          save: canSaveOnThisPage ? saved && savedAction ? savedAction : saveButton : undefined,
           exit: exitButton,
         } : undefined} />
       {!reviewWorkflow && <div className="actions recipe-form-actions">
