@@ -820,12 +820,12 @@ run_restore_step role-replay "$local_db" || status=$?
 if [[ "$status" != 1 || -e "$root/synthetic-summary.md" ]] ||
     ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out" ||
     [[ ! -r "$root/restore-private/private-role-flags-stderr.log" ]] ||
-    ! grep -Fxq 'ERROR:  42501' "$root/restore-private/private-role-flags-stderr.log" 2>/dev/null; then
-  echo '::error::Synthetic role diagnostic did not reject the wrong identity with SQLSTATE 42501'
+    ! grep -Fxq 'Unexpected local restore identity' "$root/restore-private/private-role-flags-stderr.log" 2>/dev/null; then
+  echo '::error::Synthetic role diagnostic did not reject the wrong identity with the expected guard error'
   exit 1
 fi
 require_clean_restore
-echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=42501 summary-absent=yes'
+echo 'synthetic-admin-role-diagnostic=expected-failure wrong-identity=guard-rejected summary-absent=yes'
 
 # The diagnostic must publish the guarded admin's flags even on SQL failure.
 cp "$fixture/roles.sql" "$root/roles.sql"

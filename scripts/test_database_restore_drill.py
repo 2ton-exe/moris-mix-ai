@@ -570,7 +570,7 @@ esac
         self.assertIn('role_replay_network=1', synthetic_script)
         self.assertIn("postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres", synthetic_script)
         self.assertIn('args[index+1]="$RESTORE_DOCKER_NETWORK"', synthetic_script)
-        self.assertIn("ERROR:  42501", synthetic_script)
+        self.assertIn("Unexpected local restore identity", synthetic_script)
         self.assertIn('"${args[index+1]:-}" == "host"', synthetic_script)
         self.assertIn('docker volume ls -q --filter "label=com.supabase.cli.project=$RESTORE_PROJECT_ID"', synthetic_script)
 
