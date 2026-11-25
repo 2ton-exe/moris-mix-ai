@@ -26,6 +26,7 @@ on:
       - scripts/restore_data_failure.py
       - scripts/test_database_restore_drill.py
       - scripts/classify_restore_component.py
+      - scripts/verify_restore_foreign_keys.sql
 
 permissions:
   contents: read

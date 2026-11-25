@@ -75,7 +75,7 @@ workflows, target = map(Path, sys.argv[1:])
 for workflow, step, output in (
     ("stage-b", "Start clean, isolated Supabase PostgreSQL 17", "start"),
     ("stage-b", "Restore SQL transactionally using patched PostgreSQL 17 client", "admin-restore"),
-    ("stage-b", "Validate restored application counts and migration versions", "aggregates"),
+    ("stage-b", "Validate restored application counts, migration versions and foreign keys", "aggregates"),
     ("role-diagnostic", "Record bounded role patterns and replay diagnostics", "role-replay"),
 ):
     source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
@@ -196,31 +196,52 @@ CREATE ROLE devops_restore_synthetic NOLOGIN;
 \unrestrict SyntheticRestoreGuard2026
 SQL
 cat > "$fixture/schema.sql" <<'SQL'
-CREATE TABLE public.profiles (id integer PRIMARY KEY);
-CREATE TABLE public.recipes (id integer PRIMARY KEY);
-CREATE TABLE public.recipe_lineage (id integer PRIMARY KEY);
-CREATE TABLE public.ai_usage_daily (id integer PRIMARY KEY);
-CREATE TABLE public.ai_quota_reservations (id integer PRIMARY KEY);
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id)
+);
+CREATE TABLE public.recipes (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth.users(id)
+);
+CREATE TABLE public.recipe_lineage (
+  id uuid PRIMARY KEY,
+  parent_recipe_id uuid NOT NULL REFERENCES public.recipes(id),
+  child_recipe_id uuid NOT NULL REFERENCES public.recipes(id),
+  CHECK (parent_recipe_id <> child_recipe_id)
+);
+CREATE TABLE public.ai_usage_daily (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES auth.users(id)
+);
+CREATE TABLE public.ai_quota_reservations (
+  id uuid PRIMARY KEY,
+  daily_usage_id uuid NOT NULL REFERENCES public.ai_usage_daily(id),
+  user_id uuid NOT NULL REFERENCES auth.users(id)
+);
 SQL
 cat > "$fixture/history-schema.sql" <<'SQL'
 CREATE SCHEMA devops_restore_synthetic;
 CREATE TABLE devops_restore_synthetic.schema_migrations (version text PRIMARY KEY);
 SQL
 cat > "$fixture/data.sql" <<'SQL'
+COPY auth.users (id) FROM stdin;
+00000000-0000-0000-0000-000000000001
+\.
 COPY public.profiles (id) FROM stdin;
-1
+00000000-0000-0000-0000-000000000001
 \.
-COPY public.recipes (id) FROM stdin;
-1
+COPY public.recipes (id, user_id) FROM stdin;
+00000000-0000-0000-0000-000000000010	00000000-0000-0000-0000-000000000001
+00000000-0000-0000-0000-000000000011	00000000-0000-0000-0000-000000000001
 \.
-COPY public.recipe_lineage (id) FROM stdin;
-1
+COPY public.recipe_lineage (id, parent_recipe_id, child_recipe_id) FROM stdin;
+00000000-0000-0000-0000-000000000020	00000000-0000-0000-0000-000000000010	00000000-0000-0000-0000-000000000011
 \.
-COPY public.ai_usage_daily (id) FROM stdin;
-1
+COPY public.ai_usage_daily (id, user_id) FROM stdin;
+00000000-0000-0000-0000-000000000030	00000000-0000-0000-0000-000000000001
 \.
-COPY public.ai_quota_reservations (id) FROM stdin;
-1
+COPY public.ai_quota_reservations (id, daily_usage_id, user_id) FROM stdin;
+00000000-0000-0000-0000-000000000040	00000000-0000-0000-0000-000000000030	00000000-0000-0000-0000-000000000001
 \.
 SQL
 cat > "$fixture/history-data.sql" <<'SQL'
@@ -897,6 +918,215 @@ if ! run_restore_step aggregates ||
   exit 1
 fi
 echo 'synthetic-postgres-aggregates=pass'
+
+# Require exact public output and no stderr for every FK failure path. This
+# catches unexpected notices or diagnostics that broad sentinel matching misses.
+assert_fk_failure_output() {
+  local expected_error="$1"
+  local aggregate_pass="$2"
+  local expected_output="$root/fk-expected-output"
+  if [[ "$aggregate_pass" == yes ]]; then
+    printf '%s\n%s\n' \
+      'Five application table counts and the migration version set match the backup.' \
+      "$expected_error" > "$expected_output"
+  else
+    printf '%s\n' "$expected_error" > "$expected_output"
+  fi
+  if ! cmp -s "$expected_output" "$root/step.out" || [[ -s "$root/step.err" ]]; then
+    echo '::error::Synthetic foreign-key failure output was not fixed and stderr-free'
+    exit 1
+  fi
+}
+
+# The verifier must catch both a same-count orphan inserted while FK triggers
+# are suppressed and a missing expected mapping, while publishing fixed labels.
+fk_counts_before="$(principal_query "$admin_db" \
+  'SELECT (SELECT count(*) FROM public.profiles),
+          (SELECT count(*) FROM public.recipes),
+          (SELECT count(*) FROM public.recipe_lineage),
+          (SELECT count(*) FROM public.ai_usage_daily),
+          (SELECT count(*) FROM public.ai_quota_reservations)')" || {
+  echo '::error::Synthetic foreign-key baseline count query failed'
+  exit 1
+}
+if ! principal_query "$admin_db" \
+    "BEGIN; SET LOCAL session_replication_role = replica;
+     UPDATE public.ai_quota_reservations
+     SET user_id = '00000000-0000-0000-0000-000000000099'; COMMIT;" \
+    > "$root/fk-orphan-setup.out"; then
+  echo '::error::Synthetic same-count orphan setup failed'
+  exit 1
+fi
+fk_counts_orphan="$(principal_query "$admin_db" \
+  'SELECT (SELECT count(*) FROM public.profiles),
+          (SELECT count(*) FROM public.recipes),
+          (SELECT count(*) FROM public.recipe_lineage),
+          (SELECT count(*) FROM public.ai_usage_daily),
+          (SELECT count(*) FROM public.ai_quota_reservations)')" || {
+  echo '::error::Synthetic foreign-key orphan count query failed'
+  exit 1
+}
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 || "$fk_counts_orphan" != "$fk_counts_before" ]]; then
+  echo '::error::Synthetic same-count orphan was not rejected with fixed output'
+  exit 1
+fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
+if ! principal_query "$admin_db" \
+    "UPDATE public.ai_quota_reservations
+     SET user_id = '00000000-0000-0000-0000-000000000001';" \
+    > "$root/fk-orphan-repair.out"; then
+  echo '::error::Synthetic foreign-key orphan repair failed'
+  exit 1
+fi
+
+if ! principal_query "$admin_db" \
+    'ALTER TABLE public.ai_quota_reservations
+       DROP CONSTRAINT ai_quota_reservations_user_id_fkey;' \
+    > "$root/fk-mapping-drop.out"; then
+  echo '::error::Synthetic foreign-key mapping removal failed'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]]; then
+  echo '::error::Synthetic missing foreign-key mapping was not rejected with fixed output'
+  exit 1
+fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
+if ! principal_query "$admin_db" \
+    'ALTER TABLE public.ai_quota_reservations
+       ADD CONSTRAINT ai_quota_reservations_user_id_fkey
+       FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;' \
+    > "$root/fk-mapping-restore.out" ||
+    ! run_restore_step aggregates ||
+    ! grep -Fq 'Seven application foreign-key mappings and references verified.' "$root/step.out"; then
+  echo '::error::Synthetic foreign-key mapping repair or positive verification failed'
+  exit 1
+fi
+
+# A missing application table makes the verifier query itself fail at parse /
+# relation resolution. Check both the actual query result and Stage B's public
+# failure boundary; the private server diagnostic must stay out of step output.
+integrity_query="$(< "$script_dir/verify_restore_foreign_keys.sql")"
+if ! principal_query "$admin_db" \
+    'ALTER TABLE public.profiles RENAME TO devops_fk_profiles_missing;' \
+    > "$root/fk-missing-table-setup.out"; then
+  echo '::error::Synthetic missing-table fixture setup failed'
+  exit 1
+fi
+status=0
+"${client[@]}" psql -X -q -A -t --no-password -v ON_ERROR_STOP=1 \
+  -c "$integrity_query" -d "$admin_db" \
+  > "$root/fk-missing-table.stdout" 2>/dev/null || status=$?
+if [[ "$status" == 0 || -s "$root/fk-missing-table.stdout" ]]; then
+  echo '::error::Synthetic foreign-key verifier did not fail closed for a missing table'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]]; then
+  echo '::error::Synthetic missing-table validation leaked diagnostics or passed unexpectedly'
+  exit 1
+fi
+assert_fk_failure_output '::error::Database aggregate verification query failed' no
+if ! principal_query "$admin_db" \
+    'ALTER TABLE public.devops_fk_profiles_missing RENAME TO profiles;' \
+    > "$root/fk-missing-table-repair.out"; then
+  echo '::error::Synthetic missing-table fixture repair failed'
+  exit 1
+fi
+
+# Keep row-count and migration verification valid while making the FK query
+# itself fail on a missing catalog column. Stage B must emit its fixed query
+# failure label and keep both database stderr and all unexpected stdout hidden.
+if ! principal_query "$admin_db" \
+    'ALTER TABLE auth.users RENAME COLUMN id TO devops_fk_users_id;' \
+    > "$root/fk-missing-column-setup.out"; then
+  echo '::error::Synthetic missing-column fixture setup failed'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]]; then
+  echo '::error::Synthetic foreign-key query error was not rejected'
+  exit 1
+fi
+assert_fk_failure_output '::error::Application foreign-key verification query failed' yes
+if ! principal_query "$admin_db" \
+    'ALTER TABLE auth.users RENAME COLUMN devops_fk_users_id TO id;' \
+    > "$root/fk-missing-column-repair.out" ||
+    ! run_restore_step aggregates ||
+    ! grep -Fq 'Seven application foreign-key mappings and references verified.' "$root/step.out"; then
+  echo '::error::Synthetic missing-column fixture repair or positive verification failed'
+  exit 1
+fi
+
+# A same-named view is the wrong object kind for the expected application
+# table. Preserve the underlying table and row count so only FK verification
+# can reject the candidate.
+if ! principal_query "$admin_db" \
+    'ALTER TABLE public.profiles RENAME TO devops_fk_profiles_base;
+     CREATE VIEW public.profiles AS SELECT id FROM public.devops_fk_profiles_base;
+     GRANT SELECT ON public.profiles TO postgres;' \
+    > "$root/fk-wrong-kind-setup.out"; then
+  echo '::error::Synthetic wrong-kind fixture setup failed'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]]; then
+  echo '::error::Synthetic wrong-kind relation was not rejected with fixed output'
+  exit 1
+fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
+if ! principal_query "$admin_db" \
+    'DROP VIEW public.profiles;
+     ALTER TABLE public.devops_fk_profiles_base RENAME TO profiles;' \
+    > "$root/fk-wrong-kind-repair.out"; then
+  echo '::error::Synthetic wrong-kind fixture repair failed'
+  exit 1
+fi
+
+# Replace one expected FK with a valid reference to a different synthetic
+# table containing the same key. Row checks alone pass; catalog mapping must
+# reject the wrong parent schema.
+if ! principal_query "$admin_db" \
+    "CREATE SCHEMA devops_restore_fk_decoy;
+     CREATE TABLE devops_restore_fk_decoy.users (id uuid PRIMARY KEY);
+     INSERT INTO devops_restore_fk_decoy.users VALUES
+       ('00000000-0000-0000-0000-000000000001');
+     ALTER TABLE public.ai_quota_reservations
+       DROP CONSTRAINT ai_quota_reservations_user_id_fkey;
+     ALTER TABLE public.ai_quota_reservations
+       ADD CONSTRAINT ai_quota_reservations_user_id_fkey
+       FOREIGN KEY (user_id) REFERENCES devops_restore_fk_decoy.users(id);" \
+    > "$root/fk-wrong-target-setup.out"; then
+  echo '::error::Synthetic wrong-target fixture setup failed'
+  exit 1
+fi
+status=0
+run_restore_step aggregates || status=$?
+if [[ "$status" != 1 ]]; then
+  echo '::error::Synthetic wrong-target FK was not rejected with fixed output'
+  exit 1
+fi
+assert_fk_failure_output '::error::Application foreign-key integrity verification failed' yes
+if ! principal_query "$admin_db" \
+    'ALTER TABLE public.ai_quota_reservations
+       DROP CONSTRAINT ai_quota_reservations_user_id_fkey;
+     ALTER TABLE public.ai_quota_reservations
+       ADD CONSTRAINT ai_quota_reservations_user_id_fkey
+       FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+     DROP SCHEMA devops_restore_fk_decoy CASCADE;' \
+    > "$root/fk-wrong-target-repair.out" ||
+    ! run_restore_step aggregates ||
+    ! grep -Fq 'Seven application foreign-key mappings and references verified.' "$root/step.out"; then
+  echo '::error::Synthetic wrong-target repair or positive verification failed'
+  exit 1
+fi
+echo 'synthetic-application-foreign-keys=pass valid=pass same-count-orphan=fail-closed missing-mapping=fail-closed missing-table=fail-closed missing-column=fail-closed wrong-kind=fail-closed wrong-target=fail-closed output-suppressed=pass'
 
 # Supabase can give postgres read access through predefined roles and default
 # grants. Remove those paths in this throwaway fixture and verify the effective ACL.
