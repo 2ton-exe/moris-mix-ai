@@ -91,9 +91,45 @@ for workflow, step, output in (
     source = (workflows / f"database-restore-{workflow}.yml").read_text(encoding="utf-8")
     prefix = f"      - name: {step}\n        shell: bash\n        run: |\n"
     _, body = source.split(prefix, 1)
-    (target / f"{output}.sh").write_text(
-        textwrap.dedent(body.split("\n      - name:", 1)[0]), encoding="utf-8"
-    )
+    script = textwrap.dedent(body.split("\n      - name:", 1)[0])
+    if output == "start":
+        markers = (
+            ('supabase init --workdir "$workdir"', "config-init"),
+            ('python3 - "$workdir/supabase/config.toml"', "config-update"),
+            ("if supabase --debug db start", "database-start"),
+            ("mapfile -t db_ids < <(docker ps", "database-discovery"),
+            ("mapfile -t initial_networks < <(docker inspect", "initial-network-check"),
+            ("docker network create --driver bridge", "internal-network-create"),
+            ("docker network connect --alias db", "database-network-attach"),
+            ("docker network disconnect", "database-network-detach"),
+            ('image="$(docker inspect', "server-image-check"),
+            ('attached_networks="$(docker inspect', "final-membership-check"),
+            ('network_info="$(docker network inspect', "internal-network-check"),
+            ('binding_json="$(docker inspect', "published-port-check"),
+            ('server_version="$("${network_client[@]}" psql', "server-version-check"),
+            ('fresh="$("${network_client[@]}" psql', "clean-baseline-check"),
+            ('docker exec "$db_id" pg_isready', "container-readiness-check"),
+            ('"${network_client[@]}" sh -c \'command -v nc', "client-tool-check"),
+            ("sudo env RUNNER_TEMP=\"$RUNNER_TEMP\" python3 scripts/restore_runner_network_guard.py apply", "runner-guard-apply"),
+            ('if "${network_client[@]}" sh -c \'nc -z -w 4 1.1.1.1 443\'', "client-egress-check"),
+            ("server_probe=(docker run", "database-egress-check"),
+            ('if "${server_probe[@]}" -c \'nc -z -w 4 1.1.1.1 443\'', "database-egress-probe"),
+            ('host_egress="$(python3 -c', "runner-host-egress-check"),
+            ('host_dns="$(python3 -c', "runner-host-dns-check"),
+        )
+        lines = script.splitlines()
+        insertions = []
+        for fragment, stage in markers:
+            matches = [index for index, line in enumerate(lines) if fragment in line]
+            if len(matches) != 1:
+                raise SystemExit(f"Expected one synthetic startup marker for {stage}")
+            index = matches[0]
+            indent = lines[index][:len(lines[index]) - len(lines[index].lstrip())]
+            insertions.append((index, f"{indent}printf '%s\\n' '{stage}' > \"$RUNNER_TEMP/synthetic-startup-stage\""))
+        for index, marker_line in sorted(insertions, reverse=True):
+            lines.insert(index, marker_line)
+        script = "\n".join(lines) + "\n"
+    (target / f"{output}.sh").write_text(script, encoding="utf-8")
 PY
 synthetic_startup_probe() {
   local ids="" container=unknown state=unknown ready=unverified raw_state=""
@@ -134,6 +170,17 @@ synthetic_network_guard_diagnostic() {
   local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|network-guard-failed'
   if [[ -r "$log" ]]; then
     grep -Eo "^Restore runner network guard failed \\(($allowed)\\)\\.$" "$log" | head -n 1 || true
+  fi
+}
+
+synthetic_startup_stage_diagnostic() {
+  local stage
+  if [[ -r "$1" ]] && IFS= read -r stage < "$1"; then
+    case "$stage" in
+      config-init|config-update|database-start|database-discovery|initial-network-check|internal-network-create|database-network-attach|database-network-detach|server-image-check|final-membership-check|internal-network-check|published-port-check|server-version-check|clean-baseline-check|container-readiness-check|client-tool-check|runner-guard-apply|client-egress-check|database-egress-check|database-egress-probe|runner-host-egress-check|runner-host-dns-check)
+        printf 'Synthetic startup failure stage: %s\n' "$stage"
+        ;;
+    esac
   fi
 }
 
@@ -186,6 +233,7 @@ else
   elif grep -Fq 'Restore database network permits outbound connectivity' "$root/start.out" "$root/start.err"; then
     failure_class=database-egress
   fi
+  synthetic_startup_stage_diagnostic "$root/synthetic-startup-stage"
   synthetic_startup_probe
   printf '::error::Synthetic protected target setup failed; class=%s\n' "$failure_class"
   exit "$start_status"

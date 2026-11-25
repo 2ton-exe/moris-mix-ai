@@ -300,6 +300,105 @@ esac
             self.assertEqual(rejected.stdout, "")
             self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", rejected.stdout + rejected.stderr)
 
+    def test_synthetic_startup_failure_surfaces_only_its_fixed_stage(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_startup_stage_diagnostic() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_startup_stage_diagnostic() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            marker = Path(td) / "synthetic-startup-stage"
+            marker.write_text(
+                "client-tool-check\nSYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", "-c", function + 'synthetic_startup_stage_diagnostic "$1"', "bash", str(marker)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "Synthetic startup failure stage: client-tool-check\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", result.stdout + result.stderr)
+            marker.write_text(
+                "unknown-stage-SYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                ["bash", "-c", function + 'synthetic_startup_stage_diagnostic "$1"', "bash", str(marker)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(rejected.returncode, 0, rejected.stderr)
+            self.assertEqual(rejected.stdout, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", rejected.stdout + rejected.stderr)
+
+    def test_synthetic_startup_stage_generator_is_fixed_and_valid(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        ).read_text(encoding="utf-8")
+        heredoc_start = script.index("<<'PY'\n") + len("<<'PY'\n")
+        heredoc_end = script.index("\nPY\n", heredoc_start)
+        generator = script[heredoc_start:heredoc_end]
+        expected_stages = (
+            "config-init",
+            "config-update",
+            "database-start",
+            "database-discovery",
+            "initial-network-check",
+            "internal-network-create",
+            "database-network-attach",
+            "database-network-detach",
+            "server-image-check",
+            "final-membership-check",
+            "internal-network-check",
+            "published-port-check",
+            "server-version-check",
+            "clean-baseline-check",
+            "container-readiness-check",
+            "client-tool-check",
+            "runner-guard-apply",
+            "client-egress-check",
+            "database-egress-check",
+            "database-egress-probe",
+            "runner-host-egress-check",
+            "runner-host-dns-check",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            result = subprocess.run(
+                [sys.executable, "-c", generator, str(WORKFLOW.parent), td],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            generated = Path(td) / "start.sh"
+            startup_script = generated.read_text(encoding="utf-8")
+            marker_lines = [
+                line for line in startup_script.splitlines()
+                if "synthetic-startup-stage" in line
+            ]
+            actual_stages = []
+            for line in marker_lines:
+                match = re.search(r"printf '[^']+' '([a-z-]+)' >", line)
+                self.assertIsNotNone(match, line)
+                actual_stages.append(match.group(1))
+            self.assertEqual(tuple(actual_stages), expected_stages)
+            syntax = subprocess.run(
+                ["bash", "-n", str(generated)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", startup_script)
+
     def test_empty_database_is_isolated_before_private_download_and_cleanup_fails_closed(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         firewall_setup = workflow.index("Install nftables for temporary runner isolation guard")

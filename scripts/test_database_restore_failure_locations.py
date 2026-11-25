@@ -265,6 +265,7 @@ bash scripts/test_database_restore_synthetic.sh
                 shutdown = ("synthetic-database-shutdown=pass" if stop_status == 0 else
                             "::warning::Disposable Supabase shutdown failed; runner teardown will recycle it.")
                 self.assertEqual(run.stdout.splitlines(), [
+                    "Synthetic startup failure stage: database-start",
                     "synthetic-startup-probe container=unknown state=unknown pg_ready=unverified",
                     "::error::Synthetic protected target setup failed; class=database-start-other", shutdown,
                     "synthetic-project-cleanup=pass", "synthetic-network-cleanup=pass",
