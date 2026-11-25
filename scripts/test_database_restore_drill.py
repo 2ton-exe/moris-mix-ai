@@ -259,6 +259,47 @@ esac
             self.assertEqual(unknown.stdout, "unknown\n")
             self.assertNotIn("unrecognized synthetic diagnostic", unknown.stdout + unknown.stderr)
 
+    def test_synthetic_network_guard_failure_surfaces_only_its_fixed_label(self):
+        script_path = (
+            Path(__file__).resolve().parents[1] / "scripts/test_database_restore_synthetic.sh"
+        )
+        script = script_path.read_text(encoding="utf-8")
+        probe = script.split("synthetic_network_guard_diagnostic() {", 1)[1].split("\n}", 1)[0]
+        function = "synthetic_network_guard_diagnostic() {\n" + probe + "\n}\n"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "synthetic-guard.log"
+            log.write_text(
+                "SYNTHETIC_PRIVATE_SENTINEL\n"
+                "Restore runner network guard failed (published-port-reachable).\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", "-c", function + 'synthetic_network_guard_diagnostic "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout,
+                "Restore runner network guard failed (published-port-reachable).\n",
+            )
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", result.stdout + result.stderr)
+            log.write_text(
+                "Restore runner network guard failed (private-relation-name).\n"
+                "Restore runner network guard failed (firewall-unavailable). SYNTHETIC_PRIVATE_SENTINEL\n",
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                ["bash", "-c", function + 'synthetic_network_guard_diagnostic "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(rejected.returncode, 0, rejected.stderr)
+            self.assertEqual(rejected.stdout, "")
+            self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", rejected.stdout + rejected.stderr)
+
     def test_empty_database_is_isolated_before_private_download_and_cleanup_fails_closed(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         firewall_setup = workflow.index("Install nftables for temporary runner isolation guard")

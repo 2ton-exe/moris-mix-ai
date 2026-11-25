@@ -129,6 +129,14 @@ synthetic_startup_failure_class() {
   fi
 }
 
+synthetic_network_guard_diagnostic() {
+  local log="$1"
+  local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|network-guard-failed'
+  if [[ -r "$log" ]]; then
+    grep -Eo "^Restore runner network guard failed \\(($allowed)\\)\\.$" "$log" | head -n 1 || true
+  fi
+}
+
 if bash "$root/start.sh" > "$root/start.out" 2> "$root/start.err"; then
   :
 else
@@ -161,6 +169,10 @@ else
     else
       failure_class=database-start-other
     fi
+  elif guard_diagnostic="$(synthetic_network_guard_diagnostic "$root/start.err")" && \
+       [[ -n "$guard_diagnostic" ]]; then
+    printf 'Synthetic setup diagnostic: %s\n' "$guard_diagnostic"
+    failure_class=network-isolation
   elif grep -Fq 'Disposable restore network isolation failed' "$root/start.out" "$root/start.err"; then
     failure_class=network-isolation
   elif grep -Fq 'Disposable PostgreSQL host port mapping is unexpected' "$root/start.out" "$root/start.err"; then
