@@ -201,7 +201,7 @@ try {
       saveHeight: globalThis.getComputedStyle(save).height,
     }
   })
-  for (const name of ['Clear rating', 'Expand notes']) {
+  for (const name of ['Unrated', 'Expand notes']) {
     const target = await page.getByRole('button', { name }).boundingBox()
     assert.ok(target && target.width >= 44 && target.height >= 44, `${name} must have a visible 44px target`)
   }

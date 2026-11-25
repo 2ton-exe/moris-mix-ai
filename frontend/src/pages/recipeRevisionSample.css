@@ -85,19 +85,6 @@
 }
 
 @media (min-width: 1100px) and (min-height: 640px) {
-  .mm-journal-book:has(.mm-revision-sample-sheet) {
-    height: auto;
-    padding-block: var(--mm-overhang);
-  }
-
-  .mm-journal-spread:has(.mm-revision-sample-sheet) {
-    position: relative;
-    top: auto;
-    height: auto;
-    min-height: var(--mm-page-height);
-    grid-template-rows: auto;
-  }
-
   .mm-revision-sample__evidence { line-height: 1.5; }
   .mm-revision-sample__start { font-weight: 650; }
 }

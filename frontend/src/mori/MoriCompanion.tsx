@@ -117,17 +117,18 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       const next = rect?.width ? moriRestFoot(rect) : null
       let dockPosition: Position | null = null
       if (next && rect && paper) {
-        const x = next.x - size / 2
+        const candidate = clamp({ x: next.x - width / 2, y: next.y - MORI_FOOT.y * MORI_ART_SCALE })
+        const x = candidate.x + (width - size) / 2
         const artHeight = size * 1.2 + 24
         const controls = Array.from(paper.querySelectorAll('button, a[href], input, textarea, select, [contenteditable]'), (control) => control.getBoundingClientRect())
           .filter((control) => control.width && control.height && control.left < x + size && control.right > x)
-        let y = next.y - MORI_FOOT.y * MORI_ART_SCALE
+        let y = candidate.y
         const minimum = Math.max(rect.top + 8, 8)
         controls.sort((a, b) => b.bottom - a.bottom)
         for (const control of controls) {
           if (control.top < y + artHeight && control.bottom > y) y = control.top - artHeight - 4
         }
-        if (y >= minimum) dockPosition = { x: next.x - width / 2, y }
+        if (y >= minimum) dockPosition = { x: candidate.x, y }
       }
       setDock((current) => current?.x === dockPosition?.x && current?.y === dockPosition?.y ? current : dockPosition)
     }
@@ -150,7 +151,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       window.removeEventListener('scroll', place)
       window.removeEventListener('resize', place)
     }
-  }, [location.pathname, singleLayout, size, width])
+  }, [location.pathname, singleLayout, size, width, clamp])
   const keepOpen = typeof location.state === 'object' && location.state !== null && 'moriKeepOpen' in location.state && location.state.moriKeepOpen === true
   useEffect(() => {
     if (keepOpen) setOpen(true)

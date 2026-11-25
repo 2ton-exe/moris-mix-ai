@@ -44,9 +44,13 @@
 .mm-desk .mm-recipe-artwork__caption { position: absolute; left: 6%; right: 6%; bottom: 3.5%; height: 15%; min-height: 0; padding: 0; justify-content: center; align-items: center; color: #3c2f27; font: 600 17px/1 var(--mm-font-hand); }
 .mm-desk .mm-recipe-artwork__caption time { text-align: center; }
 .mm-collection-entry .mm-recipe-artwork__tape { top: -10px; left: calc(50% - 44px); width: 88px; height: 26px; transform: rotate(-8deg); }
-.mm-collection-entry:is(:hover, :focus-visible), .mm-index-card:is(:hover, :focus-visible) {
+.mm-collection-entry:is(:hover, :focus-within), .mm-index-card:is(:hover, :focus-within) {
   border-color: var(--mm-color-burgundy-600);
 }
+.mm-recipe-card__link { color: inherit; text-decoration: none; }
+.mm-recipe-card__link::after { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+.mm-recipe-card__link:focus-visible { outline: none; }
+.mm-recipe-card__link:focus-visible::after { outline: 3px solid var(--mm-color-burgundy-700); outline-offset: -3px; }
 .mm-empty-slot { display: flex; align-items: center; flex: none; min-height: 60px; margin-top: 20px; padding: 10px 16px; border: 2px dashed rgb(120 92 60 / .38); border-radius: 8px; color: var(--mm-color-burgundy-700); text-decoration: none; font: 600 17px/1.4 var(--mm-font-serif); }
 .mm-desk .mm-recipe-empty { min-height: 0; padding: 22px 10px; border: 0; background: transparent; }
 .mm-desk .mm-recipe-empty__card { padding: 24px 16px; }
@@ -72,6 +76,7 @@
 .mm-desk .mm-facing-content--index .discovery-active { gap: 8px; }
 .mm-desk .recipe-grid.mm-index-entries { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0; padding: 4px; }
 .mm-index-card {
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;

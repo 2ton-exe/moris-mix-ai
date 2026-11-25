@@ -652,7 +652,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
                     change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, inferred: false } : row) })
                     focusStable('ingredient:' + item.key + ':edit')
                     setAnnouncement('Ingredient ' + (rowIndex + 1) + ' marked as reviewed.')
-                  }}><Check size={14} aria-hidden="true" /> Needs review</button>}
+                  }}><Check size={14} aria-hidden="true" /> Mark as reviewed</button>}
               </span>
               <span className="recipe-ingredient-compact__actions">
                 <button className="recipe-ingredient-control recipe-ingredient-handle" type="button"

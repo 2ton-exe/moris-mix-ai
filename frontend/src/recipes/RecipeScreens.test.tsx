@@ -94,12 +94,13 @@ it('reserves a card grid while loading, then renders collection metadata and det
   await act(async () => request.resolve(previewRecipes))
   const link = await screen.findByRole('link', { name: /Ginger and garlic rice/ })
   expect(link.getAttribute('href')).toBe(`/app/recipes/${previewRecipes[0].id}`)
-  expect(within(link).getByText('4 / 5')).toBeTruthy()
-  expect(within(link).getByText('Oct 18, 2026')).toBeTruthy()
-  expect(within(link).getByRole('img', { name: /no recipe photo is available/ })).toBeTruthy()
-  expect(link.querySelector('img')).toBeNull()
+  const card = link.closest('li')!
+  expect(within(card).getByText('4 / 5')).toBeTruthy()
+  expect(within(card).getByText('Oct 18, 2026')).toBeTruthy()
+  expect(within(card).getByRole('img', { name: /no recipe photo is available/ })).toBeTruthy()
+  expect(card.querySelector('img')).toBeNull()
   const other = screen.getByRole('link', { name: /Lemon chickpea salad/ })
-  expect(within(other).queryByText('Rating')).toBeNull()
+  expect(within(other.closest('li')!).queryByText('Rating')).toBeNull()
 })
 
 it.each([{ leaf: 1, entry: 0 }, { leaf: 2, entry: 3 }, { leaf: 4, entry: 8 }])('preserves collection return parameters and entry $entry without URLSearchParams.size', async ({ leaf, entry }) => {

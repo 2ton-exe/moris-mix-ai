@@ -75,6 +75,19 @@
 .mm-journal-flyleaf, .mm-journal-page, .mm-journal-spread { scroll-behavior: auto; }
 
 @media (min-width: 1100px) and (min-height: 640px) {
+  .mm-journal-book:has(> .mm-journal-spread > .mm-journal-page:is(.mm-public-page, .mm-revision-sample-sheet)) {
+    height: auto;
+    padding-block: var(--mm-overhang);
+  }
+
+  .mm-journal-spread:has(> .mm-journal-page:is(.mm-public-page, .mm-revision-sample-sheet)) {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: var(--mm-page-height);
+    grid-template-rows: auto;
+  }
+
   .mm-public-workflow__steps, .mm-public-example { font-size: 1rem; line-height: 1.6; }
   .mm-public-example { gap: var(--mm-space-4); margin-block: var(--mm-space-3); }
   .mm-public-preview > p:last-child { margin-block: var(--mm-space-2) 0; }
