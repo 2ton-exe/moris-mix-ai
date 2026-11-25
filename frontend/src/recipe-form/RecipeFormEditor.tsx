@@ -72,16 +72,28 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const desktop = useJournalMedia('(min-width: 1100px)')
   const moveDialog = useRef<HTMLDialogElement>(null)
   const movePosition = useRef<HTMLInputElement>(null)
-  const movingIngredient = useRef<string | null>(null)
+  const [movingRow, setMovingRow] = useState<{ kind: 'ingredient' | 'step'; key: string; index: number } | null>(null)
   const desktopReview = !single && reviewPage !== undefined
   const desktopCreate = !single && newRecipeScrapbook
   const desktopRecipeEditor = !single && desktop && !desktopReview
   const desktopEdit = desktopRecipeEditor && mode === 'edit'
   const compactIngredientRows = compact && desktopEdit && roomForTwoIngredientRows ? 2 : 1
-  const ingredientDrag = useIngredientDrag(`${single}:${compact}:${compactIngredientRows}:${isTurning}:${pageAnchor}:${pending}`)
+  const dragLayout = `${single}:${compact}:${compactIngredientRows}:${isTurning}:${pageAnchor}:${pending}`
+  const ingredientDrag = useIngredientDrag(dragLayout)
+  const instructionDrag = useIngredientDrag(dragLayout, 'data-instruction-slot')
+  const moveKind = movingRow?.kind ?? 'ingredient'
+  const moveCount = moveKind === 'step' ? state.instructions.length : state.ingredients.length
+
+  useLayoutEffect(() => {
+    if (!movingRow || !moveDialog.current || !movePosition.current) return
+    movePosition.current.value = String(movingRow.index + 1)
+    moveDialog.current.showModal()
+    movePosition.current.select()
+  }, [movingRow])
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
+  const instructionColumns = desktopRecipeEditor ? Math.max(1, textPageColumns - 18) : textPageColumns
   const leaves = useMemo(() => {
-    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows })
+    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows, instructionColumns })
     if (reviewWorkflow && reviewPage) {
       const reviewIndex = pages.findIndex((leaf) => leaf.kind === 'review')
       if (reviewIndex >= 0) {
@@ -91,7 +103,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     }
     if (supplement && desktop && !single && !desktopEdit) pages.push({ key: 'supplement', kind: 'supplement' })
     return pages
-  }, [supplement, state, single, desktopReview, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes])
+  }, [supplement, state, single, desktopReview, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes, instructionColumns])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
@@ -144,7 +156,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const book = formRef.current?.querySelector('.mm-journal-book')
     if (!book || single || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
-      // Short spreads give each cooking step a full leaf so its controls stay reachable.
+      // Ingredient editors need extra room on short spreads.
       const next = entry.contentRect.height < 740
       if (next === compact) return
       rememberFocus(document.activeElement)
@@ -282,7 +294,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }
 
   function turnToPage(page: number, targetIndex?: number): boolean {
-    if (pending || isTurning || ingredientDrag.active() || page < 0 || page >= position.total) return false
+    if (pending || isTurning || ingredientDrag.active() || instructionDrag.active() || page < 0 || page >= position.total) return false
     const firstIndex = single ? page : page * 2
     const leaf = leaves[targetIndex ?? firstIndex]
     if (!leaf) return false
@@ -407,33 +419,27 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     setAnnouncement(`${item.name.trim() || 'Ingredient ' + (index + 1)} moved to position ${destination + 1} of ${state.ingredients.length}.`)
   }
 
-  function openIngredientMove(key: string, index: number) {
-    if (!moveDialog.current || !movePosition.current) return
-    movingIngredient.current = key
-    movePosition.current.value = String(index + 1)
-    moveDialog.current.showModal()
-    movePosition.current.select()
-  }
-
-  function confirmIngredientMove() {
-    const key = movingIngredient.current
+  function confirmRowMove() {
     const position = movePosition.current
-    if (!key || !position?.reportValidity()) return
+    if (!movingRow || !position?.reportValidity()) return
     const destination = position.valueAsNumber - 1
     moveDialog.current?.close()
-    moveIngredient(key, destination)
+    if (movingRow.kind === 'ingredient') moveIngredient(movingRow.key, destination)
+    else moveInstruction(movingRow.key, destination)
   }
 
-  function moveInstruction(key: string, index: number, offset: number) {
-    change({ ...state, instructions: moveRow(state.instructions, index, offset) })
+  function moveInstruction(key: string, destination: number) {
+    const index = state.instructions.findIndex((step) => step.key === key)
+    if (index < 0 || index === destination || destination < 0 || destination >= state.instructions.length) return
+    change({ ...state, instructions: moveRow(state.instructions, index, destination - index) })
     setPageAnchor('instruction:' + key)
-    focusStable('instruction:' + key + ':text:0')
-    setAnnouncement('Step ' + (index + 1) + ' moved ' + (offset < 0 ? 'up.' : 'down.'))
+    focusStable('instruction:' + key + (desktopRecipeEditor ? ':move' : ':text:0'))
+    setAnnouncement(`Step ${index + 1} moved to position ${destination + 1} of ${state.instructions.length}.`)
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (submitting.current || ingredientDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !finalPage)) return
+    if (submitting.current || ingredientDrag.active() || instructionDrag.active() || moveDialog.current?.open || saved || (reviewWorkflow && !finalPage)) return
     setMessage(null)
     setCelebrating(false)
     const result = validateEditor(state)
@@ -492,7 +498,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const pageIndex = single ? currentLeafIndex : visibleIndices[1]
 
   function visitNextErrorPage() {
-    if (isTurning || ingredientDrag.active()) return
+    if (isTurning || ingredientDrag.active() || instructionDrag.active()) return
     const index = otherErrorLeafIndices[0]
     if (index === undefined) return
     const path = errorPaths.find((candidate) => leafIndexForAnchor(leaves, leafKeyForFieldPath(candidate, state)) === index)
@@ -643,7 +649,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
                   title="Drag to reorder. Click to choose a position." aria-label={`Move ingredient ${rowIndex + 1}${item.name.trim() ? ': ' + item.name.trim() : ''}`}
                   aria-haspopup="dialog" data-form-focus-key={`ingredient:${item.key}:move`} disabled={state.ingredients.length < 2}
                   onPointerDown={(event) => ingredientDrag.begin(event, (destination) => moveIngredient(item.key, destination), () => setAnnouncement('Ingredient move cancelled.'))}
-                  onClick={(event) => { if (ingredientDrag.shouldOpenMove(event)) openIngredientMove(item.key, rowIndex) }}>
+                  onClick={(event) => { if (ingredientDrag.shouldOpenMove(event)) setMovingRow({ kind: 'ingredient', key: item.key, index: rowIndex }) }}>
                   <GripVertical size={18} aria-hidden="true" />
                 </button>
                 <button className="recipe-ingredient-control recipe-ingredient-edit" type="button" title="Edit ingredient details"
@@ -662,7 +668,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
                   title="Drag or move to position" aria-label={`Move ingredient ${rowIndex + 1}${item.name.trim() ? ': ' + item.name.trim() : ''}`}
                   aria-haspopup="dialog" data-form-focus-key={`ingredient:${item.key}:move`} disabled={state.ingredients.length < 2}
                   onPointerDown={(event) => ingredientDrag.begin(event, (destination) => moveIngredient(item.key, destination), () => setAnnouncement('Ingredient move cancelled.'))}
-                  onClick={(event) => { if (ingredientDrag.shouldOpenMove(event)) openIngredientMove(item.key, rowIndex) }}>
+                  onClick={(event) => { if (ingredientDrag.shouldOpenMove(event)) setMovingRow({ kind: 'ingredient', key: item.key, index: rowIndex }) }}>
                   <GripVertical size={19} aria-hidden="true" />
                 </button>
                 <span aria-hidden="true">Ingredient {rowIndex + 1}</span>
@@ -766,20 +772,32 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
         {items.map(({ item, rowIndex, part }) => {
-          const parts = splitInstructionText(item.text, textPageLength, textPageRows, textPageColumns)
+          const parts = splitInstructionText(item.text, textPageLength, textPageRows, instructionColumns)
           const partText = parts[part] ?? ''
           const fieldId = `${prefix}-instructions-${rowIndex}-${part}`
-          return <fieldset className="recipe-editor-row" key={item.key}>
-          <legend>Step {rowIndex + 1}{state.instructions.length > 1 ? ' of ' + state.instructions.length : ''}{part > 0 ? ' · continued' : ''}</legend>
-          <RecipeFormField id={fieldId} label={'Step ' + (rowIndex + 1) + (part > 0 ? ' continued' : '') + ' description'} error={errors['instructions.' + rowIndex + '.text']}>
-            <textarea ref={rowIndex === 0 && part === 0 ? focusInitialMethod : undefined} {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={`instruction:${item.key}:part:${part}`} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
+          const fieldLabel = 'Step ' + (rowIndex + 1) + (part > 0 ? ' continued' : '') + ' description'
+          const card = <fieldset className={desktopRecipeEditor ? 'recipe-editor-row recipe-step-card' : 'recipe-editor-row'} key={item.key}>
+          <legend className={desktopRecipeEditor ? 'visually-hidden' : undefined}>Step {rowIndex + 1}{state.instructions.length > 1 ? ' of ' + state.instructions.length : ''}{part > 0 ? ' · continued' : ''}</legend>
+          {desktopRecipeEditor && <span className="recipe-step-card__number" aria-hidden="true">{String(rowIndex + 1).padStart(2, '0')}</span>}
+          {desktopRecipeEditor && part === 0 && state.instructions.length > 1 && <button className="recipe-ingredient-control recipe-step-card__handle" type="button"
+            title="Drag to reorder. Click to choose a position." aria-label={`Move step ${rowIndex + 1}`} aria-haspopup="dialog"
+            data-form-focus-key={`instruction:${item.key}:move`}
+            onPointerDown={(event) => instructionDrag.begin(event, (destination) => moveInstruction(item.key, destination), () => setAnnouncement('Step move cancelled.'))}
+            onClick={(event) => { if (instructionDrag.shouldOpenMove(event)) setMovingRow({ kind: 'step', key: item.key, index: rowIndex }) }}>
+            <GripVertical size={18} aria-hidden="true" />
+          </button>}
+          <RecipeFormField id={fieldId} label={desktopRecipeEditor ? <span className="visually-hidden">{fieldLabel}</span> : fieldLabel} error={errors['instructions.' + rowIndex + '.text']}>
+            <textarea ref={rowIndex === 0 && part === 0 ? focusInitialMethod : undefined} {...field('instructions.' + rowIndex + '.text', false, `instruction:${item.key}:text:${part}`, fieldId)} data-form-page-anchor={`instruction:${item.key}:part:${part}`} data-form-autosize maxLength={Math.max(partText.length, 2_000 - item.text.length + partText.length)} rows={desktopRecipeEditor ? 1 : 4} value={partText} onChange={(event) => change({ ...state, instructions: state.instructions.map((row) => row.key === item.key ? { ...row, text: replaceFormTextPart(parts, part, event.target.value) } : row) })} />
           </RecipeFormField>
           {part === 0 && <div className="recipe-row-actions">
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveInstruction(item.key, rowIndex, -1)} aria-label={'Move step ' + (rowIndex + 1) + ' up'}><ArrowUp size={16} aria-hidden="true" /> Up</button>
-            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.instructions.length - 1} onClick={() => moveInstruction(item.key, rowIndex, 1)} aria-label={'Move step ' + (rowIndex + 1) + ' down'}><ArrowDown size={16} aria-hidden="true" /> Down</button>
-            <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeStep(item.key, rowIndex)} aria-label={'Remove step ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /> Remove</button>
+            {!desktopRecipeEditor && <>
+            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === 0} onClick={() => moveInstruction(item.key, rowIndex - 1)} aria-label={'Move step ' + (rowIndex + 1) + ' up'}><ArrowUp size={16} aria-hidden="true" /> Up</button>
+            <button className="button button-secondary mm-button--small" type="button" disabled={rowIndex === state.instructions.length - 1} onClick={() => moveInstruction(item.key, rowIndex + 1)} aria-label={'Move step ' + (rowIndex + 1) + ' down'}><ArrowDown size={16} aria-hidden="true" /> Down</button>
+            </>}
+            <button className="button button-secondary mm-row-remove mm-button--small" type="button" title="Remove" onClick={() => removeStep(item.key, rowIndex)} aria-label={'Remove step ' + (rowIndex + 1)}><X size={16} aria-hidden="true" /><span className={desktopRecipeEditor ? 'visually-hidden' : undefined}>Remove</span></button>
           </div>}
         </fieldset>
+          return desktopRecipeEditor && part === 0 ? <div className="recipe-step-slot" data-instruction-slot={rowIndex} key={item.key}>{card}</div> : card
         })}
         {!desktopEdit && (!items.length || containsLast) && addStepButton}
       </section>
@@ -865,16 +883,16 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
     {renderFrame ? renderFrame(content, titleEditor) : content}
     <dialog className="recipe-ingredient-move" ref={moveDialog} aria-labelledby={prefix + '-move-title'}>
-      <h2 id={prefix + '-move-title'}>Move ingredient</h2>
+      <h2 id={prefix + '-move-title'}>Move {moveKind}</h2>
       <label htmlFor={prefix + '-move-position'}>Move to position</label>
-      <input id={prefix + '-move-position'} ref={movePosition} type="number" min={1} max={state.ingredients.length}
+      <input id={prefix + '-move-position'} ref={movePosition} type="number" min={1} max={moveCount}
         required aria-describedby={prefix + '-move-range'} onKeyDown={(event) => {
-          if (event.key === 'Enter') { event.preventDefault(); confirmIngredientMove() }
+          if (event.key === 'Enter') { event.preventDefault(); confirmRowMove() }
         }} />
-      <p id={prefix + '-move-range'} className="field-hint">Choose a position from 1 to {state.ingredients.length}.</p>
+      <p id={prefix + '-move-range'} className="field-hint">Choose a position from 1 to {moveCount}.</p>
       <div className="actions">
         <button type="button" className="mm-button mm-button--paper" onClick={() => moveDialog.current?.close()}>Cancel</button>
-        <button type="button" className="mm-button mm-button--burgundy" onClick={confirmIngredientMove}>Move ingredient</button>
+        <button type="button" className="mm-button mm-button--burgundy" onClick={confirmRowMove}>Move {moveKind}</button>
       </div>
     </dialog>
   </form>

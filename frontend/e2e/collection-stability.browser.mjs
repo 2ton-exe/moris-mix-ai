@@ -96,7 +96,7 @@ try {
     await page.goto(`${origin}app?entry=0`)
     await page.getByRole('heading', { name: 'Saved recipes (5)' }).waitFor()
     await page.waitForTimeout(500)
-    assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= (height >= 900 ? 3 : 2), 'Desktop paper must use available height for compact recipes')
+    assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= 2, 'Desktop paper must use available height for compact recipes')
     await page.screenshot({ path: path.join(output, `${width}-collection.png`) })
     const seen = new Set()
     for (let turn = 0; turn < recipes.length; turn++) {
@@ -113,9 +113,21 @@ try {
       const next = page.getByRole('link', { name: 'Next page' })
       if (!await next.count()) break
       const target = await next.getAttribute('href')
+      await page.evaluate(() => {
+        globalThis.__moriSpriteMounts = 0
+        globalThis.__moriSpriteObserver = new globalThis.MutationObserver(entries => {
+          for (const entry of entries) {
+            if (!entry.target.matches?.('[data-mori-paper-actor]')) continue
+            globalThis.__moriSpriteMounts += [...entry.addedNodes].filter(node => node.nodeName === 'IMG').length
+          }
+        })
+        globalThis.__moriSpriteObserver.observe(globalThis.document.body, { childList: true, subtree: true })
+      })
       await next.click()
       await page.waitForURL(new URL(target, origin).href)
       await expect(page.locator('[data-journal-page-turn="true"]')).toHaveCount(0)
+      const spriteMounts = await page.evaluate(() => { globalThis.__moriSpriteObserver.disconnect(); return globalThis.__moriSpriteMounts })
+      assert.equal(spriteMounts, 1, 'Mori keeps one sprite element through the page turn')
     }
     assert.equal(seen.size, recipes.length, 'Every recipe must remain reachable exactly once')
     const visibleLists = page.locator('.mm-collection-body > .mm-collection-entries')

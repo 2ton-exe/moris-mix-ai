@@ -100,19 +100,20 @@ function ingredientLeaves(rows: IngredientRow[], groupSize: number, compactPairs
 }
 
 /** Keep identity fixed and group rows only when the paper can fit them. */
-export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, { expandedNotes = false, compactIngredientRows = 1 } = {}): RecipeFormLeaf[] {
+export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, { expandedNotes = false, compactIngredientRows = 1, instructionColumns = textPageColumns } = {}): RecipeFormLeaf[] {
   const groupSize = single ? 1 : compact ? compactIngredientRows : desktop ? FORM_ROWS_PER_LEAF * 2 : FORM_ROWS_PER_LEAF
-  const instructionGroupSize = single || compact ? 1 : FORM_ROWS_PER_LEAF
-  const instructionTextRows = Math.max(1, textPageRows - instructionGroupSize * 4)
+  const instructionGroupSize = single ? 1 : desktop && reviewTitle === null ? 3 : compact ? 1 : FORM_ROWS_PER_LEAF
+  const compactInstructions = desktop && !single && reviewTitle === null
+  const instructionTextRows = Math.max(1, textPageRows - instructionGroupSize * (compactInstructions ? 1 : 4))
   const noteParts = reviewTitle === null && !expandedNotes ? splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns) : []
   const instructionLeaves: RecipeFormLeaf[] = []
   for (const row of state.instructions) {
-    const parts = splitInstructionText(row.text, textPageLength, textPageRows, textPageColumns)
+    const parts = splitInstructionText(row.text, textPageLength, textPageRows, instructionColumns)
     for (const [part] of parts.entries()) {
       const previous = instructionLeaves.at(-1)
       const previousLength = previous?.kind === 'instructions' ? previous.textParts.reduce((sum, item) => sum + (state.instructions.find((candidate) => candidate.key === item.rowKey)?.text.length ?? 0), 0) : Infinity
-      const previousRows = previous?.kind === 'instructions' ? previous.rowKeys.reduce((sum, key) => sum + formTextRows(state.instructions.find((candidate) => candidate.key === key)?.text ?? '', textPageColumns), 0) : Infinity
-      const rowRows = formTextRows(row.text, textPageColumns)
+      const previousRows = previous?.kind === 'instructions' ? previous.rowKeys.reduce((sum, key) => sum + formTextRows(state.instructions.find((candidate) => candidate.key === key)?.text ?? '', instructionColumns), 0) : Infinity
+      const rowRows = formTextRows(row.text, instructionColumns)
       if (part === 0 && parts.length === 1 && previous?.kind === 'instructions' && previous.textParts.every((item) => item.part === 0) && previous.rowKeys.length < instructionGroupSize && previousLength + row.text.length <= textPageLength && previousRows + rowRows <= instructionTextRows) {
         instructionLeaves[instructionLeaves.length - 1] = { ...previous, rowKeys: [...previous.rowKeys, row.key], textParts: [...previous.textParts, { rowKey: row.key, part }] }
       } else instructionLeaves.push({ key: `instructions:${instructionLeaves.length}`, kind: 'instructions', rowKeys: [row.key], textParts: [{ rowKey: row.key, part }] })

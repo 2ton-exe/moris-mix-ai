@@ -49,7 +49,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       // paginateReading already includes 10px between entries.
       const gap = index ? 0 : (parseFloat(listStyle.rowGap) || 0) - 10
       // The index reserves feedback space; collection pages use their actual list padding.
-      const reserve = index ? 64 : parseFloat(listStyle.paddingTop) + parseFloat(listStyle.paddingBottom) + (desktop ? 20 : 0)
+      const reserve = index ? 64 : parseFloat(listStyle.paddingTop) + parseFloat(listStyle.paddingBottom)
       const capacity = viewport.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom) - reserve + gap
       if (capacity <= 0) return
       list.style.width = `${viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)}px`
@@ -65,7 +65,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     return () => observer.disconnect()
   }, [measureCatalog, recipes, index, desktop])
   const heading = <header ref={headingRef} className="mm-collection-heading">
-    {!index && recipes && <p className="mm-recipe-index__eyebrow">{`${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'highest rated first' : 'newest first'}`}</p>}
+    {!index && <p className="mm-recipe-index__eyebrow">{recipes ? `${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'highest rated first' : 'newest first'}` : 'Loading recipes…'}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Search saved recipes' : desktop ? 'My recipes' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
     {!index && <p className="mm-collection-owner">This journal belongs to {ownerName}.</p>}

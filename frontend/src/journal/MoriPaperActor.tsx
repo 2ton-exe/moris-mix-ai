@@ -96,8 +96,12 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
   art.querySelector('[data-mori-hand]')?.removeAttribute('data-mori-hand')
   const feet = Array.from(art.querySelectorAll<SVGEllipseElement>('.mori-foot-l, .mori-foot-r'))
   art.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-MORI_FOOT.y * MORI_ART_SCALE}px)`
-  let sprite: HTMLImageElement | null = null
-  let spriteFacing: string | undefined
+  const sprite = new Image()
+  sprite.alt = ''
+  sprite.hidden = true
+  sprite.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-MORI_FOOT.y * MORI_ART_SCALE}px)`
+  actor.appendChild(sprite)
+  let spriteSource: string | undefined
   actor.hidden = false
 
   const width = book.clientWidth
@@ -127,18 +131,14 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
       const distance = walking ? frame.distance / MORI_ART_SCALE : undefined
       const image = reaching ? null : moriSpriteFrame(frame.facing, distance)
       const loaded = image && loadedMoriSprite(image.src)
-      if (loaded !== sprite && (loaded || spriteFacing !== frame.facing || reaching)) {
-        sprite?.remove()
-        sprite = loaded
-        spriteFacing = frame.facing
-        if (sprite && image) {
-          // Center on the common ground datum as the planted leg changes sides.
-          sprite.style.transform = `translate(${-MORI_FOOT.x * MORI_ART_SCALE}px, ${-image.foot.y * MORI_ART_SCALE}px)`
-          actor.appendChild(sprite)
-        }
+      if (loaded && image && spriteSource !== image.src) {
+        sprite.src = image.src
+        spriteSource = image.src
       }
-      art.style.visibility = sprite || reaching ? 'hidden' : ''
-      if (!sprite && !reaching) {
+      const showSprite = !!loaded && !reaching
+      sprite.hidden = !showSprite
+      art.style.visibility = showSprite || reaching ? 'hidden' : ''
+      if (!showSprite && !reaching) {
         const stride = distance === undefined ? 0 : Math.sin(distance * Math.PI / 80) * 6
         feet.forEach((foot, index) => { foot.style.transform = `translateY(${Math.min(0, index ? -stride : stride)}px)` })
       }
@@ -160,7 +160,7 @@ export function createMoriPaperScene({ book, layer, leaf, direction, companion, 
     stop() {
       observer?.disconnect()
       if (resizeFrame !== null) cancelAnimationFrame(resizeFrame)
-      sprite?.remove()
+      sprite.remove()
       grip.hide()
       actor.hidden = true
       control.stop()

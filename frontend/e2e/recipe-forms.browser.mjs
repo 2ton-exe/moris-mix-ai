@@ -360,7 +360,40 @@ try {
   await page.getByLabel('Step 1 description').fill('Chop the tomatoes.')
   await page.getByRole('button', { name: 'Add cooking step' }).click()
   await page.getByLabel('Step 2 description').fill('Warm the olive oil.')
-  await page.getByRole('button', { name: 'Move step 1 down' }).click()
+  await page.getByRole('button', { name: 'Add cooking step' }).click()
+  await page.getByLabel('Step 3 description').fill('Simmer until tender.')
+  const compactSteps = await page.locator('.recipe-step-card').evaluateAll(cards => cards.map(card => ({
+    height: card.getBoundingClientRect().height,
+    leaf: card.closest('[data-writing-leaf-key]').dataset.writingLeafKey,
+    lineHeight: parseFloat(globalThis.getComputedStyle(card.querySelector('textarea')).lineHeight),
+    fits: card.querySelector('textarea').scrollHeight <= card.querySelector('textarea').clientHeight + 2,
+  })))
+  assert.equal(compactSteps.length, 3)
+  assert.equal(new Set(compactSteps.map(step => step.leaf)).size, 1, 'Three short steps share one leaf')
+  assert.ok(compactSteps.every(step => step.height <= 100 && step.lineHeight >= 24 && step.fits), 'Compact steps retain readable line height and show all text')
+  await page.screenshot({ path: path.join(outputDir, 'compact-cooking-method-1440.png') })
+  await page.getByRole('button', { name: 'Remove step 3' }).click()
+  const firstStepGrip = page.getByRole('button', { name: 'Move step 1', exact: true })
+  const secondStepGrip = page.getByRole('button', { name: 'Move step 2', exact: true })
+  await firstStepGrip.press('Enter')
+  const moveStepDialog = page.getByRole('dialog', { name: 'Move step' })
+  await moveStepDialog.getByLabel('Move to position').fill('2')
+  await moveStepDialog.getByLabel('Move to position').press('Enter')
+  await expect(page.getByLabel('Step 1 description')).toHaveValue('Warm the olive oil.')
+  await expect(secondStepGrip).toBeFocused()
+
+  const from = await secondStepGrip.boundingBox()
+  const to = await firstStepGrip.boundingBox()
+  assert.ok(from && to, 'Both step grips must be visible for drag reordering')
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.getByLabel('Step 1 description')).toHaveValue('Chop the tomatoes.')
+
+  await firstStepGrip.press('Enter')
+  await moveStepDialog.getByLabel('Move to position').fill('2')
+  await moveStepDialog.getByLabel('Move to position').press('Enter')
   await expect(page.getByLabel('Step 1 description')).toHaveValue('Warm the olive oil.')
   assert.equal(recipeReadRequests.length, readsBeforePageTurns, 'Page navigation must not make recipe API requests')
   await expect(page.getByLabel('Step 2 description')).toHaveValue('Chop the tomatoes.')
@@ -654,9 +687,11 @@ try {
     await turnPage(page, nextPage)
   }
   const movedStep = await stepFourDescription.inputValue()
-  await page.getByRole('button', { name: 'Move step 4 down' }).click()
+  await page.getByRole('button', { name: 'Move step 4', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Move step' }).getByLabel('Move to position').fill('5')
+  await page.getByRole('dialog', { name: 'Move step' }).getByLabel('Move to position').press('Enter')
   await expect(page.getByLabel('Step 5 description')).toHaveValue(movedStep)
-  await expect(page.getByLabel('Step 5 description')).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Move step 5', exact: true })).toBeFocused()
 
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
   for (const width of [1440, 1280, 1024, 390, 320]) {

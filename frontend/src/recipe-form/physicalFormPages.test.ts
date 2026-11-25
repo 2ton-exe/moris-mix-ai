@@ -48,7 +48,7 @@ it('creates empty section leaves and follows a row across grouped page boundarie
     { rowKeys: withRows.ingredients.slice(4).map(({ key }) => key) },
   ])
   expect(shortDesktop.filter(({ kind }) => kind === 'instructions')).toMatchObject(
-    withRows.instructions.map(({ key }) => ({ rowKeys: [key] })),
+    [{ rowKeys: withRows.instructions.map(({ key }) => key) }],
   )
   expect(leafIndexForAnchor(shortDesktop, `ingredient:${movedKey}`)).toBe(2)
 
@@ -106,4 +106,14 @@ it.each([223, 224, 225, 226])('splits emoji near the row boundary after %i ASCII
     expect(formTextRows(part, 56)).toBeLessThanOrEqual(4)
     expect(part).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/)
   }
+})
+
+it('packs three short desktop steps while keeping long continuations intact', () => {
+  const state = editorState({ ...recipeFormFixture, instructions: Array.from({ length: 4 }, (_, index) => ({ step: index + 1, text: 'Stir gently.' })) })
+  const pages = recipeFormLeaves(state, false, null, true, true, 600, 8, 40)
+  expect(pages.filter(({ kind }) => kind === 'instructions').map(leaf => 'rowKeys' in leaf && leaf.rowKeys.length)).toEqual([3, 1])
+  expect(recipeFormLeaves(state, true).filter(({ kind }) => kind === 'instructions')).toHaveLength(4)
+  state.instructions[1].text = 'Keep stirring slowly. '.repeat(60)
+  const longPages = recipeFormLeaves(state, false, null, true, true, 600, 8, 40)
+  expect(longPages.filter(leaf => leaf.kind === 'instructions' && leaf.rowKeys.includes(state.instructions[1].key)).every(leaf => 'rowKeys' in leaf && leaf.rowKeys.length === 1)).toBe(true)
 })

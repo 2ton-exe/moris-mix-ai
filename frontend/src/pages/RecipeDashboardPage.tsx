@@ -275,12 +275,11 @@ export default function RecipeDashboardPage() {
       onSearchShortcut={searchShortcutAvailable ? openSearchWithShortcut : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}
+        <Link title={searchShortcutAvailable ? 'Focus the recipe list and press / to search' : undefined} className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}
           onClick={(event) => {
           const unmodifiedPrimaryClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
           if (unmodifiedPrimaryClick) prepareViewChange(indexView ? 'collection' : 'index')
-        }}>{indexView ? 'Browse saved recipes' : 'Search saved recipes'}</Link>
-        {searchShortcutAvailable && <span className="mm-search-shortcut-hint">Focus the recipe list and press <kbd className="mm-search-shortcut">/</kbd> to search</span>}
+        }}>{indexView ? 'Browse saved recipes' : 'Search saved recipes'}{searchShortcutAvailable && <kbd className="mm-search-shortcut" aria-hidden="true">/</kbd>}</Link>
         {source.mode !== 'unavailable' && !isRecipeAccessError(query.error) && <button className="button button-secondary mm-button--ghost mm-button--small" type="button" disabled={query.isFetching || controls.waiting} onClick={() => { void query.refetch() }}>{query.isFetching ? 'Refreshing…' : 'Refresh recipes'}</button>}
       </div>}
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} searchInputRef={searchInput} hideReset={searchResultsKnownEmpty} />}
