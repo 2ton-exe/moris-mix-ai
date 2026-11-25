@@ -609,7 +609,9 @@ esac
             start.index("restore_runner_network_guard.py verify-bootstrap"),
         )
         self.assertLess(start.index("supabase --debug db start"), start.index("docker network create"))
+        self.assertIn('created_network_id="$(docker network create', start)
         self.assertLess(start.index("docker network create"), start.index('> "$RUNNER_TEMP/restore-network-owned"'))
+        self.assertIn('[[ ! "$created_network_id" =~ ^[0-9a-f]{64}$ ]]', start)
         self.assertLess(start.index("docker network disconnect"), start.index("restore_runner_network_guard.py apply"))
         self.assertIn("runner-host-connectivity tcp=", start)
         self.assertIn("ports[0].get('HostIp') in ('', '0.0.0.0', '127.0.0.1')", start)
@@ -674,7 +676,11 @@ esac
         self.assertIn("if: always()", cleanup)
         self.assertNotIn("--network-id", cleanup.split("if ! rm -rf", 1)[0])
         self.assertLess(cleanup.index("docker network rm"), cleanup.index("restore_runner_network_guard.py remove"))
-        self.assertIn('[[ "$(cat "$RUNNER_TEMP/restore-network-owned")" == "$RESTORE_DOCKER_NETWORK" ]]', cleanup)
+        self.assertIn("mapfile -t ownership_lines < \"$RUNNER_TEMP/restore-network-owned\"", cleanup)
+        self.assertIn('"$marker_id" =~ ^[0-9a-f]{64}$', cleanup)
+        self.assertIn("docker network inspect --format '{{.Id}}' \"$RESTORE_DOCKER_NETWORK\"", cleanup)
+        self.assertIn('docker network rm "$owned_network_id"', cleanup)
+        self.assertIn('[[ "$current_network_id" == "$owned_network_id" ]]', cleanup)
         self.assertIn(
             'if [[ "$failure" -eq 0 ]]; then\n'
             '            sudo env RUNNER_TEMP="$RUNNER_TEMP" python3 scripts/restore_runner_network_guard.py remove',
@@ -1591,6 +1597,8 @@ python3() {
         cases = (
             ("network-present", 0, 0, 0, 0, 0, 1, True, True),
             ("network-absent", 0, 0, 0, 0, 0, 0, False, True),
+            ("network-replaced", 0, 0, 0, 0, 1, 0, True, True),
+            ("malformed-network-id", 0, 0, 0, 0, 1, 0, True, True),
             ("bootstrap-remove-fails", 0, 0, 0, 0, 1, 1, True, True),
             ("host-guard-remove-fails", 0, 0, 0, 0, 1, 1, True, True),
             ("docker-list-fails", 1, 0, 0, 0, 1, 0, False, True),
@@ -1626,7 +1634,10 @@ python3() {
                         b"SYNTHETIC_FIREWALL_MARKER"
                     )
                 if owned:
-                    (root / "restore-network-owned").write_bytes(b"restore-synthetic-cleanup\n")
+                    (root / "restore-network-owned").write_bytes(
+                        b"restore-synthetic-cleanup|" +
+                        (b"invalid" if name == "malformed-network-id" else b"a" * 64) + b"\n"
+                    )
                 stub = r'''\
 supabase() {
   [[ "$1" == stop ]] || return 99
@@ -1654,8 +1665,15 @@ docker() {
     printf '%s\n' "$SYNTHETIC_DOCKER_NETWORK_LIST"
     return 0
   fi
+  if [[ "$1" == network && "$2" == inspect ]]; then
+    [[ "$3" == --format && "$4" == '{{.Id}}' &&
+       "$5" == "$RESTORE_DOCKER_NETWORK" ]] || return 99
+    printf '%s\n' "$SYNTHETIC_CURRENT_NETWORK_ID"
+    return 0
+  fi
   if [[ "$1" == network && "$2" == rm ]]; then
-    printf 'network-rm\n' >> "$SYNTHETIC_TEST_LOG_DIR/actions"
+    [[ "$3" == "$SYNTHETIC_CURRENT_NETWORK_ID" ]] || return 98
+    printf 'network-rm:%s\n' "$3" >> "$SYNTHETIC_TEST_LOG_DIR/actions"
     return "$SYNTHETIC_DOCKER_REMOVE_STATUS"
   fi
   return 99
@@ -1694,6 +1712,9 @@ rm() {
                            RESTORE_DOCKER_NETWORK="restore-synthetic-cleanup",
                            SYNTHETIC_TEST_LOG_DIR=bash_path(root),
                            SYNTHETIC_DOCKER_NETWORK_LIST=network_list,
+                           SYNTHETIC_CURRENT_NETWORK_ID=(
+                               "b" * 64 if name == "network-replaced" else "a" * 64
+                           ),
                            SYNTHETIC_DOCKER_LIST_STATUS=str(list_status),
                            SYNTHETIC_DOCKER_REMOVE_STATUS=str(remove_status),
                            SYNTHETIC_STOP_STATUS=str(stop_status),
@@ -1749,7 +1770,10 @@ rm() {
                 if name == "project-resources-remain":
                     self.assertNotIn("synthetic-container-id", stdout + stderr)
                 self.assertIn("stop", actions)
-                self.assertEqual(actions.count("network-rm"), remove_calls)
+                network_rm_actions = [action for action in actions if action.startswith("network-rm:")]
+                self.assertEqual(len(network_rm_actions), remove_calls)
+                if remove_calls:
+                    self.assertEqual(network_rm_actions, ["network-rm:" + "a" * 64])
                 self.assertEqual(actions.count("remove-host-guard"), expected_host_calls)
                 self.assertEqual(actions.count("remove-bootstrap"), expected_bootstrap_calls)
                 if name == "bootstrap-remove-fails":
@@ -1762,7 +1786,18 @@ rm() {
                     self.assertFalse((root / "restore-selected.tar.gz").exists())
                 if name == "unowned-network":
                     self.assertFalse((root / "restore-network-owned").exists())
-                    self.assertNotIn("network-rm", actions)
+                    self.assertFalse(network_rm_actions)
+                if name == "network-replaced":
+                    self.assertTrue((root / "restore-network-owned").is_file())
+                    self.assertTrue((root / "restore-network-owned").read_bytes().startswith(
+                        b"restore-synthetic-cleanup|" + b"a" * 64
+                    ))
+                    self.assertTrue((root / "docker-network-present").is_file())
+                    self.assertFalse(network_rm_actions)
+                if name == "malformed-network-id":
+                    self.assertTrue((root / "restore-network-owned").is_file())
+                    self.assertTrue((root / "docker-network-present").is_file())
+                    self.assertFalse(network_rm_actions)
 
     def test_synthetic_cleanup_removes_only_a_run_owned_network(self):
         synthetic = Path(__file__).with_name("test_database_restore_synthetic.sh").read_text(
@@ -1783,8 +1818,15 @@ docker() {
     [[ ! -e "$SYNTHETIC_NETWORK_STATE" ]] || printf '%s\n' "$RESTORE_DOCKER_NETWORK"
     return 0
   fi
+  if [[ "$1" == network && "$2" == inspect ]]; then
+    [[ "$3" == --format && "$4" == '{{.Id}}' &&
+       "$5" == "$RESTORE_DOCKER_NETWORK" ]] || return 99
+    printf '%s\n' "$SYNTHETIC_CURRENT_NETWORK_ID"
+    return 0
+  fi
   if [[ "$1" == network && "$2" == rm ]]; then
-    printf '%s\n' "$2" >> "$SYNTHETIC_ACTIONS"
+    [[ "$3" == "$SYNTHETIC_CURRENT_NETWORK_ID" ]] || return 98
+    printf 'network-rm:%s\n' "$3" >> "$SYNTHETIC_ACTIONS"
     rm -f -- "$SYNTHETIC_NETWORK_STATE"
     return 0
   fi
@@ -1795,6 +1837,8 @@ docker() {
 '''
         cases = (
             ("owned", True, "owned", 0),
+            ("replacement-network", True, "owned", 1),
+            ("malformed-network-id", True, "malformed-id", 1),
             ("no-network", False, "absent", 0),
             ("missing-marker", True, "absent", 1),
             ("mismatched-marker", True, "mismatch", 1),
@@ -1814,7 +1858,9 @@ docker() {
                 marker = root / "restore-network-owned"
                 marker_target = base / "marker-target"
                 if marker_kind == "owned":
-                    marker.write_bytes((network_name + "\n").encode("utf-8"))
+                    marker.write_bytes((network_name + "|" + "a" * 64 + "\n").encode("utf-8"))
+                elif marker_kind == "malformed-id":
+                    marker.write_bytes((network_name + "|invalid\n").encode("utf-8"))
                 elif marker_kind == "mismatch":
                     marker.write_bytes(b"SYNTHETIC_PRIVATE_MARKER\n")
                 elif marker_kind == "directory":
@@ -1828,7 +1874,7 @@ docker() {
                             continue
                         raise
                 bootstrap_marker = root / "restore-runner-bootstrap-guard.json"
-                if network_present and marker_kind not in ("owned",):
+                if expected_status != 0:
                     bootstrap_marker.write_text("SYNTHETIC_FIREWALL_MARKER", encoding="utf-8")
 
                 script = (
@@ -1843,6 +1889,9 @@ docker() {
                     RESTORE_DOCKER_NETWORK=network_name,
                     SYNTHETIC_NETWORK_STATE=bash_path(state),
                     SYNTHETIC_ACTIONS=bash_path(actions),
+                    SYNTHETIC_CURRENT_NETWORK_ID=(
+                        "b" * 64 if name == "replacement-network" else "a" * 64
+                    ),
                 )
                 result = subprocess.run(
                     [self.bash, "--noprofile", "--norc"],
@@ -1855,9 +1904,16 @@ docker() {
                 stderr = result.stderr.decode("utf-8", errors="replace")
                 self.assertEqual(result.returncode, expected_status, f"stdout={stdout!r}; stderr={stderr!r}")
                 self.assertNotIn("SYNTHETIC_PRIVATE", stdout + stderr)
-                removed = actions.exists()
-                self.assertEqual(removed, marker_kind == "owned" and network_present)
-                self.assertEqual(state.exists(), network_present and marker_kind != "owned")
+                action_lines = actions.read_text().splitlines() if actions.exists() else []
+                network_rm_actions = [line for line in action_lines if line.startswith("network-rm:")]
+                removed = bool(network_rm_actions)
+                expected_removed = (
+                    marker_kind == "owned" and network_present and name != "replacement-network"
+                )
+                self.assertEqual(removed, expected_removed)
+                if expected_removed:
+                    self.assertEqual(network_rm_actions, ["network-rm:" + "a" * 64])
+                self.assertEqual(state.exists(), network_present and not expected_removed)
                 if expected_status == 0:
                     self.assertEqual(stdout, "synthetic-project-cleanup=pass\n"
                                      "synthetic-network-cleanup=pass\n"
@@ -1872,7 +1928,13 @@ docker() {
                     self.assertTrue(bootstrap_marker.is_file())
                     if marker_kind == "symlink":
                         self.assertTrue(marker.is_symlink())
-                        self.assertEqual(marker_target.read_text(encoding="utf-8"), network_name + "\n")
+                        self.assertEqual(
+                            marker_target.read_text(encoding="utf-8"),
+                            network_name + "|" + "a" * 64 + "\n",
+                        )
+                    if name == "replacement-network":
+                        self.assertTrue(marker.is_file())
+                        self.assertTrue(bootstrap_marker.is_file())
 
     def test_missing_mounted_file_stops_before_connection_or_restore(self):
         result, calls = self.run_diagnostic(missing_file=True)

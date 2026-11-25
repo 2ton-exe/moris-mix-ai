@@ -17,13 +17,20 @@ export GITHUB_STEP_SUMMARY="$root/synthetic-summary.md"
 
 synthetic_network_owned_by_run() {
   local marker="$RUNNER_TEMP/restore-network-owned"
-  [[ -f "$marker" && ! -L "$marker" ]] && \
-    [[ "$(cat -- "$marker" 2>/dev/null)" == "$RESTORE_DOCKER_NETWORK" ]]
+  local -a marker_lines=()
+  local marker_network marker_id marker_extra
+  [[ -f "$marker" && ! -L "$marker" ]] || return 1
+  mapfile -t marker_lines < "$marker" || return 1
+  [[ "${#marker_lines[@]}" == 1 ]] || return 1
+  IFS='|' read -r marker_network marker_id marker_extra <<< "${marker_lines[0]}"
+  [[ "$marker_network" == "$RESTORE_DOCKER_NETWORK" && \
+     "$marker_id" =~ ^[0-9a-f]{64}$ && -z "$marker_extra" ]] || return 1
+  printf '%s\n' "$marker_id"
 }
 
 cleanup() {
   local original_status=$?
-  local network_cleanup_ok=1 network_list network_name
+  local network_cleanup_ok=1 network_list network_name owned_network_id current_network_id
   trap - EXIT
   if [[ -f "$workdir/supabase/config.toml" ]]; then
     if supabase stop --workdir "$workdir" --no-backup > /dev/null 2>&1; then
@@ -36,8 +43,10 @@ cleanup() {
   if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
     while IFS= read -r network_name; do
       if [[ "$network_name" == "$RESTORE_DOCKER_NETWORK" ]]; then
-        if ! synthetic_network_owned_by_run || \
-           ! docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1; then
+        if ! owned_network_id="$(synthetic_network_owned_by_run)" || \
+           ! current_network_id="$(docker network inspect --format '{{.Id}}' "$RESTORE_DOCKER_NETWORK" 2>/dev/null)" || \
+           [[ "$current_network_id" != "$owned_network_id" ]] || \
+           ! docker network rm "$owned_network_id" >/dev/null 2>&1; then
           network_cleanup_ok=0
         fi
         break

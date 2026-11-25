@@ -168,11 +168,15 @@ jobs:
             echo "::error::Disposable restore network ownership marker already exists"
             exit 1
           fi
-          docker network create --driver bridge --internal --ipv6=false \
+          created_network_id="$(docker network create --driver bridge --internal --ipv6=false \
             --label "com.supabase.cli.project=$RESTORE_PROJECT_ID" \
             --label "com.docker.compose.project=$RESTORE_PROJECT_ID" \
-            "$RESTORE_DOCKER_NETWORK" >/dev/null
-          printf '%s\n' "$RESTORE_DOCKER_NETWORK" > "$RUNNER_TEMP/restore-network-owned"
+            "$RESTORE_DOCKER_NETWORK")"
+          if [[ ! "$created_network_id" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Disposable restore network identity is invalid"
+            exit 1
+          fi
+          printf '%s|%s\n' "$RESTORE_DOCKER_NETWORK" "$created_network_id" > "$RUNNER_TEMP/restore-network-owned"
           chmod 600 "$RUNNER_TEMP/restore-network-owned"
           docker network connect --alias db "$RESTORE_DOCKER_NETWORK" "$db_id"
           docker network disconnect "${initial_networks[0]}" "$db_id"
@@ -710,9 +714,17 @@ jobs:
           if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
             network_exists=0
             network_owned=0
+            owned_network_id=''
+            ownership_lines=()
             if [[ -f "$RUNNER_TEMP/restore-network-owned" && ! -L "$RUNNER_TEMP/restore-network-owned" ]] && \
-               [[ "$(cat "$RUNNER_TEMP/restore-network-owned")" == "$RESTORE_DOCKER_NETWORK" ]]; then
-              network_owned=1
+               mapfile -t ownership_lines < "$RUNNER_TEMP/restore-network-owned" && \
+               [[ "${#ownership_lines[@]}" == 1 ]]; then
+              IFS='|' read -r marker_network marker_id marker_extra <<< "${ownership_lines[0]}"
+              if [[ "$marker_network" == "$RESTORE_DOCKER_NETWORK" && \
+                    "$marker_id" =~ ^[0-9a-f]{64}$ && -z "$marker_extra" ]]; then
+                network_owned=1
+                owned_network_id="$marker_id"
+              fi
             fi
             while IFS= read -r network_name; do
               if [[ "$network_name" == "$RESTORE_DOCKER_NETWORK" ]]; then
@@ -721,8 +733,10 @@ jobs:
               fi
             done <<< "$network_list"
             if [[ "$network_exists" == 1 ]]; then
-              if [[ "$network_owned" == 1 ]]; then
-                docker network rm "$RESTORE_DOCKER_NETWORK" >/dev/null 2>&1 || failure=1
+              if [[ "$network_owned" == 1 ]] && \
+                 current_network_id="$(docker network inspect --format '{{.Id}}' "$RESTORE_DOCKER_NETWORK" 2>/dev/null)" && \
+                 [[ "$current_network_id" == "$owned_network_id" ]]; then
+                docker network rm "$owned_network_id" >/dev/null 2>&1 || failure=1
               else
                 failure=1
               fi
