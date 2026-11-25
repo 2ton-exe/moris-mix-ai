@@ -3,7 +3,7 @@ name: Reusable Staging Deployment
 on:
   workflow_call:
     secrets:
-      STAGING_CLOUDFLARE_API_TOKEN:
+      STAGING_CLOUDFLARE_API_TOKEN_CANDIDATE:
         required: true
       STAGING_CLOUDFLARE_ACCOUNT_ID:
         required: true
@@ -42,7 +42,7 @@ jobs:
       - name: Validate staging configuration
         shell: bash
         env:
-          STAGING_CLOUDFLARE_API_TOKEN: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+          STAGING_CLOUDFLARE_API_TOKEN_CANDIDATE: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN_CANDIDATE }}
           STAGING_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.STAGING_CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
@@ -54,7 +54,7 @@ jobs:
             STAGING_DEMO_RECIPE_REVISION
             VITE_SUPABASE_URL
             VITE_SUPABASE_PUBLISHABLE_KEY
-            STAGING_CLOUDFLARE_API_TOKEN
+            STAGING_CLOUDFLARE_API_TOKEN_CANDIDATE
             STAGING_CLOUDFLARE_ACCOUNT_ID
           )
 
@@ -110,7 +110,7 @@ jobs:
         id: deploy-staging
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
         with:
-          apiToken: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN }}
+          apiToken: ${{ secrets.STAGING_CLOUDFLARE_API_TOKEN_CANDIDATE }}
           accountId: ${{ secrets.STAGING_CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
           command: deploy --config wrangler.jsonc --env staging
