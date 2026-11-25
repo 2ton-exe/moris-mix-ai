@@ -269,6 +269,24 @@
   .mm-chef-review__inspiration > section { border-color: CanvasText; }
 }
 
+.mm-chef-review__receipt-title {
+  margin: 0;
+  color: var(--mm-color-ink-soft);
+  font: 600 clamp(1.25rem, 2.1vw, 1.75rem)/1.25 var(--mm-font-serif);
+  overflow-wrap: anywhere;
+}
+
+.mm-chef-review__receipt {
+  display: grid;
+  align-content: start;
+  gap: var(--mm-space-2);
+  padding-block: var(--mm-space-6);
+}
+.mm-chef-review__receipt :is(h2, p) { margin: 0; overflow-wrap: anywhere; }
+.mm-chef-review__receipt h2 { color: var(--mm-color-burgundy-900); font: 600 1.5rem/1.2 var(--mm-font-serif); }
+.mm-chef-review__receipt .actions { margin-block-start: var(--mm-space-2); }
+.mm-chef-review__receipt .button { white-space: normal; }
+
 .mm-chef-review__save-context { margin-block-end: 12px; overflow-wrap: anywhere; color: var(--mm-color-ink); }
 .mm-chef-review__save-context h2 { margin: 0 0 4px; font: 600 18px/1.2 var(--mm-font-serif); }
 .mm-chef-review__save-context p { margin: 4px 0; font: 400 14px/1.35 var(--mm-font-sans); }
@@ -389,7 +407,5 @@
 
   .mm-chef-review__change :is(p, blockquote) { line-height: 1.5; }
   .mm-chef-review__save-context p { line-height: 1.5; }
-  .mm-chef-review .mm-pagination-number { display: none; }
-  .mm-chef-review .mm-pagination-half--right { justify-content: flex-end; }
   .mm-chef-review .mm-review-progress { font-size: 14px; line-height: 1.5; }
 }

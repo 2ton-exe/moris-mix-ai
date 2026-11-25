@@ -74,10 +74,10 @@ export default function RecipeDetailPage() {
         {query.isError && <><RecipeError detail error={query.error} onRetry={retry} /><p className="recipe-update" role="status">Showing the last loaded recipe. Its latest changes could not be checked.</p></>}
       </>}
       editable={source.mode === 'live'}
+      cookingActions={desktopTools && user && source.mode === 'live' && <RecipeRevisionTools key={`${user.id}:${recipe.id}`} recipe={recipe} userId={user.id} onReload={() => { void query.refetch() }} />}
       actions={<>
-        {source.mode === 'live' && <Link className="button button-primary mm-button--small" to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn, recipeFolio: folio }}>Edit recipe</Link>}
+        {source.mode === 'live' && <Link className={`button ${desktopTools ? 'button-secondary' : 'button-primary'} mm-button--small`} to={`/app/recipes/${encodeURIComponent(recipe.id)}/edit`} state={{ journalReturn, recipeFolio: folio }}>Edit recipe</Link>}
         <RecipeDeletionControl recipeId={recipe.id} recipeTitle={recipe.title} />
-        {desktopTools && user && source.mode === 'live' && <RecipeRevisionTools key={`${user.id}:${recipe.id}`} recipe={recipe} userId={user.id} onReload={() => { void query.refetch() }} />}
       </>}
     />}
   </div>

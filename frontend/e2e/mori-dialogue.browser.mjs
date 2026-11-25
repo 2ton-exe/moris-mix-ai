@@ -548,7 +548,7 @@ try {
       await panel.getByRole('textbox', { name: 'Message Mori' }).scrollIntoViewIfNeeded()
       await expect(panel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport()
     }
-    if (width === 1440) assert.equal(chatGeometry.height, 560, 'Desktop chat must use its full available height')
+    if (width === 1440) assert.ok(chatGeometry.height <= 400, 'Empty desktop chat should leave room for the journal')
     if (width > 600) assert.equal(chatGeometry.panelScrolls, false, 'A roomy desktop panel keeps the composer in place')
     if (width === 1440) {
       const shortcutsFit = await panel.locator('.mori-chat-shortcuts').evaluate((element) => {
@@ -689,6 +689,7 @@ try {
   await quickApp.page.goto(`${origin}app/quick-entry`)
   await quickApp.page.getByRole('button', { name: 'Talk to Mori', exact: true }).click()
   const quickPanel = quickApp.page.getByRole('region', { name: 'Mori', exact: true })
+  const emptyChatHeight = (await quickPanel.boundingBox()).height
   await quickPanel.getByText('Suggested prompts', { exact: true }).click()
   await quickPanel.getByRole('button', { name: 'See more', exact: true }).click()
   await quickPanel.getByRole('button', { name: 'Record a recipe', exact: true }).click()
@@ -703,6 +704,7 @@ try {
       return rect.top >= bounds.top && rect.bottom <= bounds.bottom
     })
   })
+  assert.ok((await quickPanel.boundingBox()).height > emptyChatHeight, 'Desktop chat expands when the conversation starts')
   assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
   assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
   quickApp.releaseExtraction()

@@ -41,7 +41,7 @@ function resizeTextarea(target: EventTarget | null) {
   target.style.height = `${target.scrollHeight}px`
 }
 
-export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewComparison, comparisonIngredient, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewComparison, comparisonIngredient, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
@@ -578,7 +578,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         <section className={'recipe-form-section' + (desktopReview ? ' mm-chef-review__identity' : '')} aria-labelledby={headingId}>
           <div className="recipe-section-heading">
             <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
-            {reviewWorkflow && (invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count">Ready</span>)}
+            {reviewWorkflow && (invalidReviewFields.some((field) => field !== 'ingredients' && field !== 'instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
           </div>
           {desktopReview ? <div className="mm-chef-review__title">
             {titleField}
@@ -652,7 +652,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           <h2 id={headingId} tabIndex={-1}>{desktopCreate ? <span>Ingredients</span> : 'Ingredients'}</h2>
           {desktopCreate && <ScrapbookSticker name="ingredient-basket" className="mm-new-recipe__basket" decorative />}
           {estimateCount > 0 && <span className="recipe-review-count">{estimateCount} to review</span>}
-          {reviewWorkflow && estimateCount === 0 && items.length > 0 && (invalidReviewFields.includes('ingredients') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count">Ready</span>)}
+          {reviewWorkflow && estimateCount === 0 && items.length > 0 && (invalidReviewFields.includes('ingredients') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
         </div>
         <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
         {desktopEdit && items.length > 0 && !editing && <p className="field-hint">Use the pencil to edit an ingredient.{state.ingredients.length > 1 && ' Drag a handle to reorder, or select it to choose a position.'}</p>}
@@ -797,7 +797,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
           <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
-          {reviewWorkflow && items.length > 0 && (invalidReviewFields.includes('instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count">Ready</span>)}
+          {reviewWorkflow && items.length > 0 && (invalidReviewFields.includes('instructions') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
           {desktopEdit && isLastMethodLeafOnSpread && addStepButton}
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
@@ -879,6 +879,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       {saved && <p className="recipe-save-success" role="status">{saveSuccessMessage ?? confirmationMessage}</p>}
       {pending && <p role="status">Saving your recipe…</p>}
       {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + (otherErrorLeafIndices.length === 1 ? ' other page has' : ' other pages have') + ' errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
+      {desktopReview && finalPage && !hasConfirmedSave && reviewSaveContext}
       <RecipeWritingTurns page={position.page} total={position.total} text={position.text} single={single} onTurn={turnToPage}
         prioritizeNext={!methodJump}
         nextSection={desktopRecipeEditor && !reviewWorkflow && !finalPage ? sectionsOnPage(position.page + 1) : undefined}
@@ -914,7 +915,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     }}
     onSelectCapture={(event) => rememberFocus(event.target)} onKeyUpCapture={(event) => rememberFocus(event.target)}
     onMouseUpCapture={(event) => rememberFocus(event.target)}>
-    {renderFrame ? renderFrame(content, desktopReview && faceIndex === 0) : content}
+    {renderFrame ? renderFrame(content, desktopReview ? finalPage : undefined) : content}
     <dialog className="recipe-ingredient-move" ref={moveDialog} aria-labelledby={prefix + '-move-title'}>
       <h2 id={prefix + '-move-title'}>Move {moveKind}</h2>
       <label htmlFor={prefix + '-move-position'}>Move to position</label>

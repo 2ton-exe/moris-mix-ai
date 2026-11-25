@@ -181,6 +181,28 @@
   .mm-quick-ai-intro--task h1 { margin-bottom: 8px; font-size: clamp(25px, 3vw, 34px); }
 }
 
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-journal-book:has(.mm-quick-ai[data-recovery]) {
+    height: auto;
+    padding-block: var(--mm-overhang);
+  }
+  .mm-journal-spread:has(.mm-quick-ai[data-recovery]) {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: var(--mm-page-height);
+    grid-template-rows: auto;
+  }
+  .mm-journal-page:has(.mm-quick-ai[data-recovery]) {
+    padding-bottom: var(--mm-footer-inset);
+  }
+  .mm-journal-page:has(.mm-quick-ai[data-recovery]) > .mm-journal-page-footer {
+    position: relative;
+    inset: auto;
+    margin-block-start: var(--mm-space-3);
+  }
+}
+
 @media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
   .mm-quick-ai__back { margin-bottom: 5px; }
   .mm-quick-ai-intro--task .mm-quick-ai-intro__copy { display: none; }

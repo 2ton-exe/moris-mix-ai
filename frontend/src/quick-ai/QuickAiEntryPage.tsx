@@ -194,7 +194,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     if (!notes || !spread) return
     const measure = () => {
       const width = notes.clientWidth
-      const height = spread.clientHeight
+      const height = Number.parseFloat(getComputedStyle(spread).minHeight) || spread.clientHeight
       if (width <= 0 || height <= 0) return
       const columns = Math.max(1, Math.floor(width / 8))
       const rows = Math.max(3, Math.floor((height - 420) / 32))
@@ -478,7 +478,8 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       </>}
     </JournalFacingPage>
 
-    <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes">
+    <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes"
+      data-recovery={page < noteParts.length && (Boolean(error) || retryWait > 0 || persistenceFailed) || undefined}>
       {desktopSpread && <header className="mm-quick-ai-intro mm-quick-ai-intro--task">
         <h1 tabIndex={-1}>Quick AI Entry</h1>
         <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
@@ -539,7 +540,6 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
             </button>
             {error && draft.notes.trim() && <Link className="button button-secondary mm-button--small" to="/app/recipes/new"
-              aria-label="Write this recipe manually using your original notes"
               state={{ manualRecipe: { userId, source: 'quick-entry', notes: draft.notes } }}>
               Write manually with these notes
             </Link>}

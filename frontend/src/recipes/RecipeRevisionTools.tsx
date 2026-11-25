@@ -8,6 +8,7 @@ import { lineageApi } from '../ai-chef/lineage'
 import { recipeFormApi } from '../recipe-form/api'
 import { ReviewDetailDialog } from '../recipe-form/ReviewDetailDialog'
 import { useRecipe } from './queries'
+import { formatCookedDate } from './recipePresentation'
 import { recipeKeys } from './queryOptions'
 import { RecipeSourceContext } from './source'
 import type { RecipeDetail } from './types'
@@ -24,19 +25,26 @@ export function RecipeRevisionTools({ recipe, userId, onReload }: {
   const [note, setNote] = useState('')
   const [recording, setRecording] = useState(false)
 
-  return <div className="mm-cook-actions" role="group" aria-label="Cook this recipe again">
-    <ReviewDetailDialog title="Make a version for next time" action="Revise with Mori" closeLabel="Cancel">
-      <RevisionRequest recipe={recipe} userId={userId} onReload={onReload} />
-    </ReviewDetailDialog>
-    <ReviewDetailDialog title="Record this cook" action="Record cooking" closeLabel="Back to recipe"
-      unsavedMessage={note.trim() ? 'The cooked date is recorded. This cooking note is still unsaved.' : undefined}
-      closeDisabled={recording} onClosed={() => setNote('')}>
-      <CookingRecord recipe={recipe} userId={userId} note={note} setNote={setNote} pending={recording} setPending={setRecording} />
-    </ReviewDetailDialog>
-    <ReviewDetailDialog title="Linked recipes" action="Linked recipes">
-      <LinkedRecipes childId={recipe.id} userId={userId} />
-    </ReviewDetailDialog>
-  </div>
+  const heading = useId()
+  const hasNotes = Boolean(recipe.notes?.trim())
+
+  return <section className="mm-cook-actions" aria-labelledby={heading}>
+    <h2 id={heading}>Next time you cook</h2>
+    {!hasNotes && <p>Record what you’d change. Mori can use your note to draft the next version.</p>}
+    <div className="mm-cook-actions__controls">
+      {hasNotes && <ReviewDetailDialog title="Make a version for next time" action="Revise with Mori" closeLabel="Cancel">
+        <RevisionRequest recipe={recipe} userId={userId} onReload={onReload} />
+      </ReviewDetailDialog>}
+      <ReviewDetailDialog title="Record this cook" action="Record cooking" closeLabel="Back to recipe"
+        unsavedMessage={note.trim() ? 'The cooked date is recorded. This cooking note is still unsaved.' : undefined}
+        closeDisabled={recording} onClosed={() => setNote('')}>
+        <CookingRecord recipe={recipe} userId={userId} note={note} setNote={setNote} pending={recording} setPending={setRecording} />
+      </ReviewDetailDialog>
+      <ReviewDetailDialog title="Linked recipes" action="Linked recipes">
+        <LinkedRecipes childId={recipe.id} userId={userId} />
+      </ReviewDetailDialog>
+    </div>
+  </section>
 }
 
 function RevisionRequest({ recipe, userId, onReload }: {
@@ -47,7 +55,8 @@ function RevisionRequest({ recipe, userId, onReload }: {
   const navigate = useNavigate()
   const id = useId()
   const notes = recipe.notes ?? ''
-  const [excerpt, setExcerpt] = useState('')
+  const [selection, setSelection] = useState<{ kind: 'whole' | 'excerpt'; text: string } | null>(null)
+  const excerpt = selection?.text ?? ''
   const [replace, setReplace] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -60,14 +69,15 @@ function RevisionRequest({ recipe, userId, onReload }: {
   const noteLines = [...new Set(notes.split(/\r\n?|\n/).filter((line) => line.trim()))]
   const quickChoices = noteLines.length <= 3 && noteLines.every((line) => line.length <= 160) ? noteLines : []
 
-  function chooseExcerpt(text: string) {
-    setExcerpt(text)
+  function chooseNote(kind: 'whole' | 'excerpt', text: string) {
+    if (!text.trim() || notesChanged) return
+    setSelection({ kind, text })
     setNotesChanged(false)
     setError('')
   }
 
   async function revise() {
-    if (!validExcerpt || inFlight.current || (replaceDraft && !replace) || draft.handoff?.savedRecipeId) return
+    if (!validExcerpt || notesChanged || inFlight.current || (replaceDraft && !replace) || draft.handoff?.savedRecipeId) return
 
     const controller = new AbortController()
     inFlight.current = controller
@@ -103,38 +113,46 @@ function RevisionRequest({ recipe, userId, onReload }: {
     }
   }
 
-  if (!notes.trim()) return <>
-    <p>Add a Personal Note about how this recipe went, then ask Mori to revise it.</p>
-    <Link to={recipePath(recipe.id) + '/edit'}>Edit Personal Notes</Link>
-  </>
-
-  return <div className="mm-revision-tools" role="group" aria-labelledby={id + '-select'}>
-    <p>Choose a whole note or highlight part of one to revise <strong>{recipe.title}</strong>. Only the excerpt you preview will be shared from your Personal Notes.</p>
-    {quickChoices.length > 0 && <div className="mm-revision-tools__choices" role="group" aria-label="Choose a whole note">
-      {quickChoices.map((line) => <button className="button button-secondary" type="button" key={line}
-        aria-pressed={line === excerpt} disabled={pending} onClick={() => chooseExcerpt(line)}>{line}</button>)}
-    </div>}
-    <label id={id + '-select'} htmlFor={id + '-notes'}>Select text from your Personal Notes</label>
+  const excerptPicker = <div className="mm-revision-tools__excerpt">
+    <label htmlFor={id + '-notes'}>Select text from your Personal Notes</label>
     <textarea id={id + '-notes'} value={notes} rows={3} readOnly disabled={pending} onSelect={(event) => {
       const field = event.currentTarget
-      chooseExcerpt(field.value.slice(field.selectionStart, field.selectionEnd))
+      chooseNote('excerpt', field.value.slice(field.selectionStart, field.selectionEnd))
     }} />
-    {excerpt && <section className="mm-revision-tools__preview" aria-label="Note to share with Mori">
-      <h3>Note to share with Mori</h3><blockquote>{excerpt}</blockquote>
+  </div>
+
+  return <div className="mm-revision-tools">
+    <p>Choose what Mori should use to revise <strong>{recipe.title}</strong>. Only the note or excerpt you select is shared.</p>
+    {quickChoices.length > 0 ? <>
+      <fieldset className="mm-revision-tools__choices" disabled={pending}>
+        <legend>Cooking note to share</legend>
+        {quickChoices.map((line) => <label key={line}>
+          <input type="radio" name={id + '-note'} checked={selection?.kind === 'whole' && line === excerpt}
+            onChange={() => chooseNote('whole', line)} />
+          <span>{line}</span>
+        </label>)}
+      </fieldset>
+      <details className="mm-revision-tools__excerpt-option">
+        <summary>Share part of a note</summary>
+        {excerptPicker}
+      </details>
+    </> : excerptPicker}
+    {selection?.kind === 'excerpt' && <section className="mm-revision-tools__preview" aria-label="Excerpt to share with Mori">
+      <h3>Excerpt to share with Mori</h3><blockquote>{excerpt}</blockquote>
     </section>}
     {excerpt.length > revisionNoteLimit && <p role="status">Select up to {revisionNoteLimit} characters.</p>}
     {pending && <p role="status">Mori is reviewing your note…</p>}
     {error && <p role="alert">{error}</p>}
     {notesChanged && <button type="button" className="button button-secondary" onClick={() => {
-      setExcerpt('')
+      setSelection(null)
       setNotesChanged(false)
       setError('')
       onReload()
     }}>Reload recipe notes</button>}
     {draft.handoff?.savedRecipeId ? <Link to="/app/chef/review">Open the existing AI Chef review</Link> : <>
       {replaceDraft && <label><input type="checkbox" checked={replace} onChange={(event) => setReplace(event.target.checked)} /> Replace my current unsaved AI Chef preview</label>}
-      <button type="button" className="button button-primary" disabled={!validExcerpt || pending || (replaceDraft && !replace)}
-        onClick={() => { void revise() }}>{pending ? 'Asking Mori…' : 'Ask Mori for a revision'}</button>
+      <button type="button" className="button button-primary" disabled={!validExcerpt || notesChanged || pending || (replaceDraft && !replace)}
+        onClick={() => { void revise() }}>{pending ? 'Asking Mori…' : error && !notesChanged ? 'Try revision again' : 'Ask Mori for a revision'}</button>
     </>}
   </div>
 }
@@ -244,10 +262,12 @@ function CookingRecord({ recipe, userId, note, setNote, pending, setPending }: {
         onClick={() => { setError(''); setStage('note') }}>Keep recorded date and add a note</button>}
     </>}
     {stage === 'note' && <>
-      <p role="status">Cooked date recorded. A note is optional.</p>
+      <p role="status">Cooked date recorded{recipe.cooked_at && <> · <time dateTime={recipe.cooked_at}>{formatCookedDate(recipe.cooked_at)}</time></>}. A note is optional.</p>
       <label htmlFor={id + '-note'}>A note for next time</label>
-      <textarea id={id + '-note'} ref={noteField} rows={4} value={note} maxLength={20_000}
-        placeholder="What would you keep or change next time?" onChange={(event) => setNote(event.target.value)} />
+      <textarea id={id + '-note'} ref={noteField} rows={4} aria-describedby={id + '-note-help'} value={note} maxLength={20_000}
+        onChange={(event) => setNote(event.target.value)} />
+      <p className="mm-revision-tools__hint" id={id + '-note-help'}>Write what you’d keep or change. For example, “Too salty with ¼ cup soy sauce.”</p>
+      {error && expectedNotes.current && <details open><summary>Current Personal Notes</summary><blockquote>{expectedNotes.current}</blockquote></details>}
       {nextNotes.length > 20_000 && <p role="status">Shorten your note to fit in Personal Notes.</p>}
       <button type="submit" className="button button-primary" disabled={!note.trim() || nextNotes.length > 20_000}>Review cooking note</button>
     </>}
@@ -259,7 +279,10 @@ function CookingRecord({ recipe, userId, note, setNote, pending, setPending }: {
       <button type="submit" className="button button-primary" disabled={pending}>{pending ? 'Saving…' : 'Save cooking note'}</button>
       <button type="button" className="button button-secondary" disabled={pending} onClick={() => setStage('note')}>Keep editing</button>
     </>}
-    {stage === 'saved' && <h3 role="status" ref={stageHeading} tabIndex={-1}>Saved to Personal Notes.</h3>}
+    {stage === 'saved' && <>
+      <h3 role="status" ref={stageHeading} tabIndex={-1}>Saved to Personal Notes.</h3>
+      <p>Back on the recipe, choose <strong>Revise with Mori</strong> to use this note for your next version.</p>
+    </>}
     {error && <p role="alert">{error}</p>}
   </form>
 }

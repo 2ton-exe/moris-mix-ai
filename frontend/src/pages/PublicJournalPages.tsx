@@ -32,6 +32,7 @@ export function HomePage() {
 }
 
 export function AboutPage() {
+  const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   return <PublicPage title="Keep your recipes close.">
     <p className="intro">Your recipes stay private in your account.</p>
     <section className="mm-public-note mm-public-workflow" aria-labelledby="public-workflow-heading">
@@ -43,6 +44,11 @@ export function AboutPage() {
       <p className="mm-public-workflow__hint">Review the draft, then choose <strong>Save recipe</strong> to add it to <strong>My recipes</strong>. <Link to="/demo-recipe">Read a sample recipe</Link>.</p>
       <p className="mm-public-workflow__steps">After signup: <strong>New recipe</strong> to write, <strong>Quick AI Entry</strong> for notes, or <strong>AI Chef</strong> for pantry ideas.</p>
     </section>
+    {desktop && <section className="mm-public-note mm-public-workflow">
+      <h2>Cook it better next time</h2>
+      <p>Open a saved recipe and choose <strong>Record cooking</strong> to add what worked or what you’d change. Then select a note in <strong>Revise with Mori</strong>. You can edit the suggested change and save it as a linked version.</p>
+      <p><Link to="/demo-recipe/try-a-revision">See a cooking note turn into a revision</Link>.</p>
+    </section>}
     <div className="actions"><Link className="button button-primary" to="/signup">Start a private journal</Link><Link className="button button-secondary" to="/login">Log in to your journal</Link></div>
   </PublicPage>
 }
