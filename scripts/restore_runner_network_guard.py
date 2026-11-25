@@ -307,8 +307,9 @@ def _run_dns_probe(network, image, *, database_container=None):
             "sh",
             image,
             "-c",
+            "command -v getent >/dev/null 2>&1 || exit 120; "
             "command -v nslookup >/dev/null 2>&1 || exit 120; "
-            "nslookup db >/dev/null 2>&1 || exit 121; "
+            "getent hosts db >/dev/null 2>&1 || exit 121; "
             "if nslookup example.com >/dev/null 2>&1; then exit 122; fi; exit 0",
         ]
     )

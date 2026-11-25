@@ -159,7 +159,7 @@ class RestoreRunnerNetworkGuardTests(unittest.TestCase):
             guard, "_run", return_value=subprocess.CompletedProcess([], 0, "", "")
         ) as run:
             guard._run_dns_probe("restore-synthetic", guard.PINNED_IMAGE)
-        self.assertIn("nslookup db", run.call_args.args[0][-1])
+        self.assertIn("getent hosts db", run.call_args.args[0][-1])
         self.assertIn("nslookup example.com", run.call_args.args[0][-1])
         for returncode, error in (
             (120, "dns-probe-client-missing"),

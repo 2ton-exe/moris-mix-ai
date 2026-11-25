@@ -384,6 +384,7 @@ esac
             "container-readiness-check",
             "client-tool-check",
             "runner-guard-apply",
+            "post-guard-db-connectivity",
             "client-egress-check",
             "database-egress-check",
             "database-egress-probe",
@@ -454,12 +455,23 @@ esac
             start.index("restore_runner_network_guard.py apply"),
             start.index("Restore client network permits outbound connectivity"),
         )
+        self.assertIn("post_guard_result=", start)
+        self.assertIn("SELECT 1", start)
+        self.assertIn("connectivity check failed after isolation", start)
+        self.assertLess(
+            start.index("restore_runner_network_guard.py apply"),
+            start.index("post_guard_result="),
+        )
+        self.assertLess(
+            start.index("post_guard_result="),
+            start.index("Restore client network permits outbound connectivity"),
+        )
         self.assertIn("socket.create_connection(('::1', 54322)", start)
         self.assertIn("runner-ingress-guarded", start)
         runner_guard = (WORKFLOW.parent.parent.parent / "scripts/restore_runner_network_guard.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("nslookup db", runner_guard)
+        self.assertIn("getent hosts db", runner_guard)
         self.assertIn("nslookup example.com", runner_guard)
         self.assertIn('"database-namespace-dns-unverified"', runner_guard)
         self.assertIn('"dns-probe-client-missing"', runner_guard)

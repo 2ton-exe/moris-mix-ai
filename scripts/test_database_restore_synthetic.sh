@@ -114,6 +114,7 @@ for workflow, step, output in (
             ('if "${network_client[@]}" sh -c \'nc -z -w 4 1.1.1.1 443\'', "client-egress-check"),
             ("server_probe=(docker run", "database-egress-check"),
             ('if "${server_probe[@]}" -c \'nc -z -w 4 1.1.1.1 443\'', "database-egress-probe"),
+            ("if post_guard_result=", "post-guard-db-connectivity"),
             ('host_egress="$(python3 -c', "runner-host-egress-check"),
             ('host_dns="$(python3 -c', "runner-host-dns-check"),
         )
@@ -177,7 +178,7 @@ synthetic_startup_stage_diagnostic() {
   local stage
   if [[ -r "$1" ]] && IFS= read -r stage < "$1"; then
     case "$stage" in
-      config-init|config-update|database-start|database-discovery|initial-network-check|internal-network-create|database-network-attach|database-network-detach|server-image-check|final-membership-check|internal-network-check|published-port-check|server-version-check|clean-baseline-check|container-readiness-check|client-tool-check|runner-guard-apply|client-egress-check|database-egress-check|database-egress-probe|runner-host-egress-check|runner-host-dns-check)
+      config-init|config-update|database-start|database-discovery|initial-network-check|internal-network-create|database-network-attach|database-network-detach|server-image-check|final-membership-check|internal-network-check|published-port-check|server-version-check|clean-baseline-check|container-readiness-check|client-tool-check|runner-guard-apply|post-guard-db-connectivity|client-egress-check|database-egress-check|database-egress-probe|runner-host-egress-check|runner-host-dns-check)
         printf 'Synthetic startup failure stage: %s\n' "$stage"
         ;;
     esac
@@ -218,6 +219,8 @@ else
     fi
   elif grep -Fq 'Disposable database did not start on one temporary default bridge' "$root/start.out" "$root/start.err"; then
     failure_class=initial-network-unverified
+  elif grep -Fq 'Disposable PostgreSQL client connectivity check failed after isolation' "$root/start.out" "$root/start.err"; then
+    failure_class=post-guard-database-connectivity
   elif guard_diagnostic="$(synthetic_network_guard_diagnostic "$root/start.err")" && \
        [[ -n "$guard_diagnostic" ]]; then
     printf 'Synthetic setup diagnostic: %s\n' "$guard_diagnostic"

@@ -181,6 +181,16 @@ jobs:
             --project-id "$RESTORE_PROJECT_ID" \
             --psql-image "$PSQL_IMAGE" \
             --marker "$RUNNER_TEMP/restore-runner-network-guard.json"
+          if post_guard_result="$("${network_client[@]}" psql -X -A -t --no-password -v ON_ERROR_STOP=1 \
+              -c 'SELECT 1' \
+              -d 'postgresql://postgres:postgres@db:5432/postgres?connect_timeout=5' \
+              2>"$RUNNER_TEMP/post-guard-client-psql.log")" && \
+              [[ "$post_guard_result" == "1" ]]; then
+            :
+          else
+            echo "::error::Disposable PostgreSQL client connectivity check failed after isolation"
+            exit 1
+          fi
           python3 - <<'PY'
           import socket
           try:
