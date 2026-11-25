@@ -54,8 +54,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          umask 077
           workdir="$RUNNER_TEMP/moris-restore-local"
-          supabase init --workdir "$workdir"
+          if supabase init --workdir "$workdir" > "$RUNNER_TEMP/private-supabase-init.log" 2>&1; then
+            :
+          else
+            rc=$?
+            echo "::error::Disposable Supabase initialization failed"
+            exit "$rc"
+          fi
           python3 - "$workdir/supabase/config.toml" "$RESTORE_PROJECT_ID" <<'PY'
           from pathlib import Path
           import re, sys, tomllib
@@ -599,6 +606,7 @@ jobs:
             "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/private-restore-result.log" \
             "$RUNNER_TEMP/private-restore-stderr.log" \
             "$RUNNER_TEMP/private-verify-result.log" "$RUNNER_TEMP/private-db-start.log" \
+            "$RUNNER_TEMP/private-supabase-init.log" \
             "$RUNNER_TEMP/restore-download-archive.log" "$RUNNER_TEMP/restore-download-evidence.log" \
             "$RUNNER_TEMP/restore-candidate.env" "$workdir"; then
             failure=1

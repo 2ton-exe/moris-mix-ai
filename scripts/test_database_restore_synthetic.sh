@@ -217,6 +217,8 @@ else
     else
       failure_class=database-start-other
     fi
+  elif grep -Fq 'Disposable Supabase initialization failed' "$root/start.out" "$root/start.err"; then
+    failure_class=database-init
   elif grep -Fq 'Disposable database did not start on one temporary default bridge' "$root/start.out" "$root/start.err"; then
     failure_class=initial-network-unverified
   elif grep -Fq 'Disposable PostgreSQL client connectivity check failed after isolation' "$root/start.out" "$root/start.err"; then

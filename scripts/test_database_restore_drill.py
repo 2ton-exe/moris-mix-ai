@@ -445,6 +445,13 @@ esac
         self.assertNotIn("mapfile -t initial_networks < <", start)
         self.assertNotIn("AWS_ACCESS_KEY_ID", start)
         self.assertNotIn("R2_RESTORE_ENDPOINT", start)
+        self.assertIn("umask 077", start)
+        self.assertIn(
+            'supabase init --workdir "$workdir" > "$RUNNER_TEMP/private-supabase-init.log" 2>&1',
+            start,
+        )
+        self.assertIn("Disposable Supabase initialization failed", start)
+        self.assertLess(start.index("umask 077"), start.index("private-supabase-init.log"))
         self.assertLess(start.index("supabase --debug db start"), start.index("docker network create"))
         self.assertLess(start.index("docker network create"), start.index('> "$RUNNER_TEMP/restore-network-owned"'))
         self.assertLess(start.index("docker network disconnect"), start.index("restore_runner_network_guard.py apply"))
@@ -1370,6 +1377,7 @@ python3() {
         self.assertIn("if: always()", cleanup)
         self.assertIn('"$RUNNER_TEMP/private-restore-result.log"', cleanup)
         self.assertIn('"$RUNNER_TEMP/private-restore-stderr.log"', cleanup)
+        self.assertIn('"$RUNNER_TEMP/private-supabase-init.log"', cleanup)
 
     def test_actual_cleanup_fails_closed_and_attempts_independent_obligations(self):
         cases = (
@@ -1393,6 +1401,7 @@ python3() {
                     "restore-verified-sql", "restore-selected.tar.gz", "restore-selected.json",
                     "private-restore-result.log", "private-restore-stderr.log",
                     "private-verify-result.log", "private-db-start.log",
+                    "private-supabase-init.log",
                     "restore-download-archive.log", "restore-download-evidence.log",
                     "restore-candidate.env",
                 ):
