@@ -157,8 +157,9 @@ try {
     await expect(page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
     await assertJournalSemantics(page, `${width}px dashboard`)
     await expect(page.locator('.mm-journal-spread .mm-collection-body > .recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
-    const firstCard = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
-    await expect(firstCard).toBeVisible()
+    const firstRecipeLink = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
+    const firstCard = page.locator('.mm-recipe-card-slot').filter({ has: firstRecipeLink })
+    await expect(firstRecipeLink).toBeVisible()
     await expect(firstCard.getByRole('img', { name: /no recipe photo is available/ })).toBeVisible()
     await expect(firstCard.getByText('Oct 13, 2026')).toBeVisible()
     await expect(firstCard.getByText('4 / 5')).toBeVisible()
@@ -184,7 +185,7 @@ try {
     await expect(page.getByRole('alert')).toHaveCount(0)
     await expect(firstCard).toBeVisible()
 
-    await firstCard.focus()
+    await firstRecipeLink.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeVisible()
     await assertJournalSemantics(page, `${width}px recipe detail`)
@@ -210,7 +211,7 @@ try {
 
     await page.goBack()
     await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i })).toBeVisible()
-    await expect(firstCard).toBeFocused()
+    await expect(firstRecipeLink).toBeFocused()
     await page.goForward()
     await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeFocused()
     const shortUnits = await readAllRecipePages(page)
@@ -260,7 +261,7 @@ try {
 
       await settleJournalLayout(page)
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      const reducedCardMotion = await firstCard.evaluate((element) => {
+      const reducedCardMotion = await firstCard.locator('.mm-collection-entry').evaluate((element) => {
         const style = globalThis.getComputedStyle(element)
         return { transition: style.transitionProperty, transform: style.transform }
       })
