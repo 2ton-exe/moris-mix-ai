@@ -820,7 +820,7 @@ run_restore_step role-replay "$local_db" || status=$?
 if [[ "$status" != 1 || -e "$root/synthetic-summary.md" ]] ||
     ! grep -Fxq '::error::Local role attribute probe failed' "$root/step.out" ||
     [[ ! -r "$root/restore-private/private-role-flags-stderr.log" ]] ||
-    ! grep -Fxq 'Unexpected local restore identity' "$root/restore-private/private-role-flags-stderr.log" 2>/dev/null; then
+    ! grep -Fxq 'ERROR:  Unexpected local restore identity' "$root/restore-private/private-role-flags-stderr.log" 2>/dev/null; then
   echo '::error::Synthetic role diagnostic did not reject the wrong identity with the expected guard error'
   exit 1
 fi
