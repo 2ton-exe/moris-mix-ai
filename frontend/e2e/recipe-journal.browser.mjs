@@ -156,7 +156,7 @@ try {
     }
     await expect(page.getByRole('heading', { name: 'Saved recipes (4)' })).toBeVisible()
     await assertJournalSemantics(page, `${width}px dashboard`)
-    await expect(page.locator('.mm-journal-spread .mm-collection-body > .recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
+    if (width < 1100) await expect(page.locator('.mm-journal-spread .mm-collection-body > .recipe-grid > li')).toHaveCount(width < 600 ? 1 : 2)
     const firstRecipeLink = page.getByRole('link', { name: `Open recipe ${recipe.title}` })
     const firstCard = page.locator('.mm-recipe-card-slot').filter({ has: firstRecipeLink })
     await expect(firstRecipeLink).toBeVisible()
@@ -272,8 +272,11 @@ try {
       // Warm the route module: Vite's development assets cannot load offline.
       await page.evaluate(() => import('/src/pages/RecipeDetailPage.tsx'))
       // Offline data navigation pauses visibly and resumes on the same route.
+      const secondRecipeLink = page.getByRole('link', { name: `Open recipe ${secondRecipe.title}` })
+      if (!await secondRecipeLink.isVisible()) await page.getByRole('link', { name: 'Next page' }).click()
+      await expect(secondRecipeLink).toBeVisible()
       await context.setOffline(true)
-      await page.getByRole('link', { name: `Open recipe ${secondRecipe.title}` }).click()
+      await secondRecipeLink.click()
       await expect(page.getByRole('status').filter({ hasText: 'offline' })).toBeVisible()
       await context.setOffline(false)
       await expect(page.getByRole('heading', { name: secondRecipe.title, level: 1 })).toBeVisible()

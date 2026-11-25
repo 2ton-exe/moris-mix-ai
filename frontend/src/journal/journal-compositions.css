@@ -29,6 +29,7 @@
 .mm-demo-sheet .flavor-scores dt { color: var(--mm-color-ink-soft); }
 .mm-public-page { gap: 8px; }
 .mm-public-page h1 { margin-top: 8px; }
+.mm-journal-page.mm-public-page .intro a { text-decoration: underline; text-underline-offset: 3px; }
 .mm-public-page .actions { margin-top: 12px; gap: 12px; }
 .mm-public-note { margin: 12px 0; padding: 14px 18px; border-block: 1px dashed var(--mm-border-paper); }
 .mm-public-note p { margin: 8px 0; }
