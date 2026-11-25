@@ -534,6 +534,13 @@ esac
         self.assertIn('"external-dns-resolves"', runner_guard)
         self.assertIn("verify_restore_foreign_keys.sql", workflow)
         self.assertIn("Seven application foreign-key mappings and references verified.", workflow)
+        integrity_check = workflow.split("if ! integrity_result=", 1)[1].split(
+            'if [[ "$integrity_result"', 1
+        )[0]
+        self.assertIn('--network "$RESTORE_DOCKER_NETWORK"', integrity_check)
+        self.assertIn("postgresql://postgres:postgres@db:5432/postgres", integrity_check)
+        self.assertNotIn("--network host", integrity_check)
+        self.assertNotIn("127.0.0.1:54322", integrity_check)
         synthetic = (WORKFLOW.parent / "../.." / "scripts/test_database_restore_synthetic.sh").resolve()
         synthetic_text = synthetic.read_text(encoding="utf-8")
         self.assertIn("synthetic-application-foreign-keys=pass", synthetic_text)

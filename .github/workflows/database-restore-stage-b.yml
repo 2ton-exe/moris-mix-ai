@@ -559,12 +559,12 @@ jobs:
             echo "::error::Application foreign-key verification query is unavailable"
             exit 1
           fi
-          if ! integrity_result="$(docker run --rm --network host \
+          if ! integrity_result="$(docker run --rm --network "$RESTORE_DOCKER_NETWORK" \
               --user "$(id -u):$(id -g)" --cap-drop ALL \
               --security-opt no-new-privileges --read-only \
               "$PSQL_IMAGE" \
                 psql -X -q -A -t -v ON_ERROR_STOP=1 -c "$integrity_query" \
-                -d 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' \
+                -d 'postgresql://postgres:postgres@db:5432/postgres' \
               2>/dev/null)"; then
             echo "::error::Application foreign-key verification query failed"
             exit 1
