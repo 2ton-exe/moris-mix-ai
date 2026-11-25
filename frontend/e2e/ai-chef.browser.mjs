@@ -525,10 +525,9 @@ try {
   const initialMethod = await returnChefReviewToMethod(page)
   await expect(initialMethod).toHaveValue('Warm the rice, then fold in the eggs.')
   const cookingMethod = page.getByRole('region', { name: 'Instructions', exact: true })
-  const readyBox = await cookingMethod.getByText('Ready', { exact: true }).boundingBox()
-  const addStepBox = await cookingMethod.getByRole('button', { name: 'Add cooking step' }).boundingBox()
-  assert.ok(readyBox && addStepBox && readyBox.x + readyBox.width <= addStepBox.x,
-    'The method status and add-step button must have separate space')
+  await expect(cookingMethod.getByText('Ready', { exact: true })).toBeHidden()
+  await expect(cookingMethod.getByRole('button', { name: 'Add cooking step' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: /Instructions.*Step/ })).toBeVisible()
   await advanceChefReviewToSave(page)
   await expect(save).toBeVisible()
   const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })

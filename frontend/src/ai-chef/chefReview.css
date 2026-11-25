@@ -407,5 +407,7 @@
 
   .mm-chef-review__change :is(p, blockquote) { line-height: 1.5; }
   .mm-chef-review__save-context p { line-height: 1.5; }
+  .mm-chef-review .mm-pagination-number { display: none; }
+  .mm-chef-review .mm-pagination-half--right { justify-content: flex-end; }
   .mm-chef-review .mm-review-progress { font-size: 14px; line-height: 1.5; }
 }

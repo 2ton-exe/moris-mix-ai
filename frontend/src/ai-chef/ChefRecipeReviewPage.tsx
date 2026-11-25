@@ -167,6 +167,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const [chosenParent, setChosenParent] = useState('')
   const [editedDraft, setEditedDraft] = useState(stored.handoff?.reviewDraft ?? null)
   const [saved, setSaved] = useState(Boolean(stored.handoff?.savedRecipeId))
+  const [confirmedTitle, setConfirmedTitle] = useState<string | null>(null)
   const [handoff, setHandoff] = useState(stored.handoff)
   const parents = handoff ? uniqueCandidateParents(handoff) : []
   const parentId = parents.find((parent) => parent.id === chosenParent)?.id ?? parents[0]?.id ?? ''
@@ -268,6 +269,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     if (!confirmedSave(confirmation) || !handoff) return confirmation
     const reviewKey = moriReviewKeyFromState(location.state)
     if (typeof reviewKey === 'number') markReviewCompleted(reviewKey)
+    setConfirmedTitle(draft.title)
     setSaved(true)
     if (handoff.savedRecipeId) {
       return {
@@ -451,7 +453,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
     onRetryLineage={() => { void retryLineage() }}
   />
 
-  const savedTitle = reviewDraftRef.current?.title ?? handoff.response.recipe.title
+  const savedTitle = confirmedTitle ?? editedDraft?.title ?? handoff.response.recipe.title
   if (revision && desktopComparison && saved && !dirty && handoff.savedRecipeId && lineageStatus === 'confirmed' && !storageIssue) {
     return <RecipeEditorFrame mode="create" connected showBack={false} headingTitle="Your recipe is saved."
       facingPageContent={<p className="mm-chef-review__receipt-title">{savedTitle}</p>}>

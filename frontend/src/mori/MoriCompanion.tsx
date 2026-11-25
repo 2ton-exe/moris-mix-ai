@@ -65,6 +65,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [bubbleHeight, setBubbleHeight] = useState(260)
   const mobile = useJournalMedia('(max-width: 600px)')
   const singleLayout = useJournalMedia(JOURNAL_SINGLE_LAYOUT_QUERY)
+  const desktopPointer = useJournalMedia('(hover: hover) and (pointer: fine)')
   const reducedMotion = useJournalMedia('(prefers-reduced-motion: reduce)')
   const character = useRef<HTMLDivElement>(null)
   const navigationTap = useRef<HTMLDivElement>(null)
@@ -266,8 +267,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const resizeFromSide = resizableChat && (placement === 'left' || placement === 'right')
   const resizeBottom = Math.min(bottom, Math.max(top + defaultChatSize.height, mouthY + defaultChatSize.height / 2))
   const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : (resizeFromSide ? resizeBottom : bottom) - top
-  const standardChat = hasConversation ? defaultChatSize : emptyChatSize
-  const smallChat = hasConversation ? smallChatSize : smallEmptyChatSize
+  const standardChat = hasConversation || !desktopPointer ? defaultChatSize : emptyChatSize
+  const smallChat = hasConversation || !desktopPointer ? smallChatSize : smallEmptyChatSize
   const preferredChat = chatSize ?? standardChat
   const preferredWidth = resizableChat ? preferredChat.width : userId && viewport.width >= 1100 ? defaultChatSize.width : 380
   const preferredHeight = resizableChat ? preferredChat.height : userId && viewport.width >= 1100 ? defaultChatSize.height : 460

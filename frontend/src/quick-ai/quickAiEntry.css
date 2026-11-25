@@ -181,7 +181,7 @@
   .mm-quick-ai-intro--task h1 { margin-bottom: 8px; font-size: clamp(25px, 3vw, 34px); }
 }
 
-@media (min-width: 1100px) and (min-height: 640px) {
+@media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
   .mm-journal-book:has(.mm-quick-ai[data-recovery]) {
     height: auto;
     padding-block: var(--mm-overhang);

@@ -601,6 +601,8 @@ try {
     const savedPosition = await character.boundingBox()
     assert.equal(apiRequests.length, requestsBefore, 'Companion interactions must not initiate API requests')
     await page.reload()
+    await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
+    await settleJournalLayout(page)
     await expect(trigger).toBeVisible()
     await expect.poll(async () => {
       const restoredPosition = await character.boundingBox()

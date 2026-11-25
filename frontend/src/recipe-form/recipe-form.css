@@ -311,7 +311,7 @@
   text-underline-offset: .18em;
 }
 .mm-desk .button.mm-review-exit:hover { background: var(--mm-color-parchment-100); }
-@media (min-width: 1100px) and (min-height: 640px) {
+@media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
   .mm-recipe-review .recipe-review-count[data-review-ready] { display: none; }
   .mm-recipe-review .mm-pagination-number { display: none; }
   .mm-recipe-review .mm-pagination-half--right { justify-content: flex-end; }

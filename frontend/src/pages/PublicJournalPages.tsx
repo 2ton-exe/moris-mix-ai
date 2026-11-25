@@ -32,7 +32,7 @@ export function HomePage() {
 }
 
 export function AboutPage() {
-  const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
+  const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine)')
   return <PublicPage title="Keep your recipes close.">
     <p className="intro">Your recipes stay private in your account.</p>
     <section className="mm-public-note mm-public-workflow" aria-labelledby="public-workflow-heading">
