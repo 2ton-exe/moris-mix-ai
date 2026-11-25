@@ -139,7 +139,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const showReviewReceipt = Boolean(reviewReceipt && saved && !editingFromReceipt)
   useLayoutEffect(() => {
     if (showReviewReceipt || editingFromReceipt) {
-      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-chef-review__receipt h2' : '.mm-writing-leaf input[name=title]')?.focus()
+      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-chef-review__receipt h2' : '[data-form-focus-key="title"]')?.focus()
     }
   }, [showReviewReceipt, editingFromReceipt])
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
