@@ -286,6 +286,26 @@ esac
             )
             self.assertNotIn("SYNTHETIC_PRIVATE_SENTINEL", result.stdout + result.stderr)
             log.write_text(
+                "SYNTHETIC_PRIVATE_SENTINEL\n"
+                "Restore runner network guard failed (database-namespace-dns-unverified).\n",
+                encoding="utf-8",
+            )
+            database_dns = subprocess.run(
+                ["bash", "-c", function + 'synthetic_network_guard_diagnostic "$1"', "bash", str(log)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(database_dns.returncode, 0, database_dns.stderr)
+            self.assertEqual(
+                database_dns.stdout,
+                "Restore runner network guard failed (database-namespace-dns-unverified).\n",
+            )
+            self.assertNotIn(
+                "SYNTHETIC_PRIVATE_SENTINEL",
+                database_dns.stdout + database_dns.stderr,
+            )
+            log.write_text(
                 "Restore runner network guard failed (private-relation-name).\n"
                 "Restore runner network guard failed (firewall-unavailable). SYNTHETIC_PRIVATE_SENTINEL\n",
                 encoding="utf-8",
@@ -441,6 +461,9 @@ esac
         )
         self.assertIn("nslookup db", runner_guard)
         self.assertIn("nslookup example.com", runner_guard)
+        self.assertIn('"database-namespace-dns-unverified"', runner_guard)
+        self.assertIn('"dns-probe-client-missing"', runner_guard)
+        self.assertIn('"dns-probe-failed"', runner_guard)
         self.assertIn('"external-dns-resolves"', runner_guard)
         self.assertIn("verify_restore_foreign_keys.sql", workflow)
         self.assertIn("Seven application foreign-key mappings and references verified.", workflow)

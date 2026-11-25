@@ -161,7 +161,12 @@ class RestoreRunnerNetworkGuardTests(unittest.TestCase):
             guard._run_dns_probe("restore-synthetic", guard.PINNED_IMAGE)
         self.assertIn("nslookup db", run.call_args.args[0][-1])
         self.assertIn("nslookup example.com", run.call_args.args[0][-1])
-        for returncode, error in ((122, "external-dns-resolves"), (121, "internal-dns-unverified"), (125, "internal-dns-unverified")):
+        for returncode, error in (
+            (120, "dns-probe-client-missing"),
+            (121, "internal-dns-unverified"),
+            (122, "external-dns-resolves"),
+            (125, "dns-probe-failed"),
+        ):
             with self.subTest(returncode=returncode), patch.object(
                 guard,
                 "_run",
@@ -169,6 +174,19 @@ class RestoreRunnerNetworkGuardTests(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(guard.GuardError, error):
                     guard._run_dns_probe("restore-synthetic", guard.PINNED_IMAGE)
+        with patch.object(
+            guard,
+            "_run",
+            return_value=subprocess.CompletedProcess([], 121, "", ""),
+        ):
+            with self.assertRaisesRegex(
+                guard.GuardError, "database-namespace-dns-unverified"
+            ):
+                guard._run_dns_probe(
+                    "restore-synthetic",
+                    guard.PINNED_IMAGE,
+                    database_container="0123456789abcdef",
+                )
 
     def test_marker_is_exact_runner_temp_file_and_rejects_symlinks(self):
         with tempfile.TemporaryDirectory() as temporary:

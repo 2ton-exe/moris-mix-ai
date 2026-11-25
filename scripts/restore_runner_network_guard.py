@@ -39,6 +39,9 @@ ALLOWED_FAILURES = {
     "host-route-unverified",
     "host-route-reachable-after-guard",
     "internal-dns-unverified",
+    "database-namespace-dns-unverified",
+    "dns-probe-client-missing",
+    "dns-probe-failed",
     "external-dns-resolves",
     "published-port-unverified",
     "published-port-reachable",
@@ -310,10 +313,19 @@ def _run_dns_probe(network, image, *, database_container=None):
         ]
     )
     result = _run(command, timeout=15)
+    if result.returncode == 120:
+        raise GuardError("dns-probe-client-missing")
+    if result.returncode == 121:
+        reason = (
+            "database-namespace-dns-unverified"
+            if database_container is not None
+            else "internal-dns-unverified"
+        )
+        raise GuardError(reason)
     if result.returncode == 122:
         raise GuardError("external-dns-resolves")
     if result.returncode != 0:
-        raise GuardError("internal-dns-unverified")
+        raise GuardError("dns-probe-failed")
 
 
 def _read_marker(marker):

@@ -167,7 +167,7 @@ synthetic_startup_failure_class() {
 
 synthetic_network_guard_diagnostic() {
   local log="$1"
-  local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|network-guard-failed'
+  local allowed='docker-network-unverified|docker-network-mismatch|docker-container-unverified|database-ip-unverified|firewall-unavailable|firewall-table-exists|firewall-install-failed|firewall-policy-unverified|host-route-unverified|host-route-reachable-after-guard|internal-dns-unverified|database-namespace-dns-unverified|dns-probe-client-missing|dns-probe-failed|external-dns-resolves|published-port-unverified|published-port-reachable|marker-invalid|marker-exists|marker-state-invalid|cleanup-network-unverified|cleanup-network-still-present|cleanup-firewall-unverified|cleanup-marker-failed|client-image-mismatch|network-guard-failed'
   if [[ -r "$log" ]]; then
     grep -Eo "^Restore runner network guard failed \\(($allowed)\\)\\.$" "$log" | head -n 1 || true
   fi
