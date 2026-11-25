@@ -117,8 +117,8 @@ After the workflow is merged to `main` and all required secrets/variables are co
 5. Confirm the normalized role/schema/migration-history pre/post consistency comparisons pass.
 6. Confirm the archive and evidence JSON upload to `moris-mix-db-backups-prod`.
 7. Confirm the remote object size equals the local archive size and the re-downloaded archive SHA-256 equals the locally recorded SHA-256.
-8. Record the workflow run ID, source SHA, timestamp, R2 object key, archive size, and SHA-256 in #159.
-9. Do not post SQL contents, archive contents, passwords, tokens, user rows, or auth data as evidence.
+8. Record only the workflow run link and fixed outcomes in public issue #159. Keep the source revision, timestamp, R2 object key, archive size, SHA-256, and other backup identifiers in the restricted owner-controlled record.
+9. Do not post SQL contents, archive contents, passwords, tokens, user rows, auth data, or backup identifiers in public GitHub evidence.
 
 A configured workflow is not a backup. Completion of these steps proves only backup creation/upload/round-trip integrity verification.
 
