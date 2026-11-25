@@ -188,6 +188,39 @@ class StageBOfflineTests(unittest.TestCase):
         self.assertNotIn("AWS_ACCESS_KEY_ID", candidate)
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", candidate)
         self.assertNotIn("R2_RESTORE_ENDPOINT", candidate)
+        self.assertIn('"$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate-preflight.env"', candidate)
+        self.assertIn('rm -f -- "$RUNNER_TEMP/restore-candidate-preflight.env"', candidate)
+
+        revalidate = workflow.split(
+            "      - name: Revalidate approved candidate before private access", 1
+        )[1].split("      - name: Download selected private R2 backup and evidence", 1)[0]
+        for secret in (
+            "RESTORE_CANDIDATES_JSON",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256",
+            "RESTORE_CANDIDATE_APPROVED_SHA256",
+        ):
+            self.assertIn(secret, revalidate)
+        self.assertNotIn("AWS_ACCESS_KEY_ID", revalidate)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", revalidate)
+        self.assertIn('"$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"', revalidate)
+        self.assertIn('source "$RUNNER_TEMP/restore-candidate.env"', revalidate)
+        self.assertIn('} >> "$GITHUB_ENV"', revalidate)
+        self.assertIn('rm -f -- "$RUNNER_TEMP/restore-candidate.env"', revalidate)
+        for field in (
+            "BACKUP_PREFIX", "ARCHIVE_NAME", "EVIDENCE_NAME", "BACKUP_SHA256",
+            "BACKUP_SIZE", "BACKUP_RUN_ID", "BACKUP_ATTEMPT", "BACKUP_SOURCE_SHA",
+            "BACKUP_SOURCE_PROJECT",
+        ):
+            self.assertIn(f"printf '{field}=%s\\n'", revalidate)
+        self.assertLess(
+            revalidate.index("restore_candidate_manifest.py"),
+            revalidate.index('} >> "$GITHUB_ENV"'),
+        )
+        self.assertLess(
+            revalidate.index("::add-mask::%s"),
+            revalidate.index('} >> "$GITHUB_ENV"'),
+        )
+        self.assertNotIn('source "$RUNNER_TEMP/restore-candidate-preflight.env"', workflow)
 
         download = workflow.split(
             "      - name: Download selected private R2 backup and evidence", 1
@@ -197,13 +230,22 @@ class StageBOfflineTests(unittest.TestCase):
         self.assertNotIn("RESTORE_CANDIDATES_JSON", download)
         self.assertNotIn("RESTORE_CANDIDATE_MANIFEST_SHA256", download)
         self.assertNotIn("RESTORE_CANDIDATE_APPROVED_SHA256", download)
-        self.assertIn('source "$RUNNER_TEMP/restore-candidate.env"', download)
+        self.assertNotIn('source "$RUNNER_TEMP/restore-candidate.env"', download)
+        self.assertIn('"$BACKUP_PREFIX" "$ARCHIVE_NAME"', download)
         first_download = workflow.index("aws s3 cp")
         self.assertLess(workflow.index("restore_deployment_authorization.py"), first_download)
         self.assertLess(
             workflow.index("Verify independently approved Backup #7 manifest"),
             first_download,
         )
+        self.assertLess(
+            workflow.index("Revalidate approved candidate before private access"),
+            first_download,
+        )
+        archive_verification = workflow.split(
+            "      - name: Verify selected archive, source identity, and component checksums", 1
+        )[1].split("      - name: Restore SQL transactionally using patched PostgreSQL 17 client", 1)[0]
+        self.assertNotIn('source "$RUNNER_TEMP/restore-candidate.env"', archive_verification)
         self.assertIn(
             "Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow; residual egress risk remains",
             workflow,
@@ -655,6 +697,8 @@ esac
         )
         self.assertIn("restore-runner-network-guard.json.tmp", cleanup)
         self.assertIn("restore-runner-bootstrap-guard.json.tmp", cleanup)
+        self.assertIn('"$RUNNER_TEMP/restore-candidate-preflight.env"', cleanup)
+        self.assertIn('"$RUNNER_TEMP/restore-candidate.env"', cleanup)
         self.assertLess(
             cleanup.index("Temporary runner guard marker files remain after cleanup"),
             cleanup.index("restore_runner_network_guard.py remove-bootstrap"),
@@ -1569,7 +1613,7 @@ python3() {
                     "private-verify-result.log", "private-db-start.log",
                     "private-supabase-init.log",
                     "restore-download-archive.log", "restore-download-evidence.log",
-                    "restore-candidate.env",
+                    "restore-candidate-preflight.env", "restore-candidate.env",
                 ):
                     path = root / filename
                     if filename == "restore-verified-sql":

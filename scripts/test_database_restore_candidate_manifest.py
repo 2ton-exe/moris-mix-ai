@@ -176,6 +176,44 @@ class RestoreCandidateManifestTests(unittest.TestCase):
             self.assertNotIn("synthetic-four", contents)
             self.assertEqual(len(contents.splitlines()), len(FIELDS))
 
+    def test_preflight_file_tampering_is_not_reused_after_late_revalidation(self):
+        if os.name != "posix":
+            self.skipTest("secure dir_fd output is Linux/POSIX-only")
+        raw = json.dumps(self.manifest)
+        env = os.environ.copy()
+        env["RESTORE_CANDIDATES_JSON"] = raw
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        env["RESTORE_CANDIDATE_MANIFEST_SHA256"] = digest
+        env["RESTORE_CANDIDATE_APPROVED_SHA256"] = digest
+        script = Path(__file__).with_name("restore_candidate_manifest.py")
+        with tempfile.TemporaryDirectory() as directory:
+            preflight = Path(directory) / "candidate-preflight.env"
+            late_output = Path(directory) / "candidate-before-access.env"
+            result = subprocess.run(
+                [sys.executable, str(script), "backup-7", str(preflight)],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            preflight.write_bytes(
+                b"export BACKUP_PREFIX='postgres/attacker'\n"
+                b"SYNTHETIC_TAMPER_SENTINEL=1\n"
+            )
+            result = subprocess.run(
+                [sys.executable, str(script), "backup-7", str(late_output)],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            materialized = late_output.read_text(encoding="utf-8")
+            self.assertIn("postgres/2026/11/25/synthetic-seven", materialized)
+            self.assertNotIn("postgres/attacker", materialized)
+            self.assertNotIn("SYNTHETIC_TAMPER_SENTINEL", materialized)
+
     def test_private_output_failure_removes_partial_file(self):
         if os.name != "posix":
             self.skipTest("secure dir_fd output is Linux/POSIX-only")

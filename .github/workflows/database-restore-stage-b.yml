@@ -73,7 +73,8 @@ jobs:
             fi
           done
           python3 scripts/restore_candidate_manifest.py \
-            "$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"
+            "$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate-preflight.env"
+          rm -f -- "$RUNNER_TEMP/restore-candidate-preflight.env"
           echo 'restore-candidate-authorization=pass'
 
       - name: Set up Supabase CLI
@@ -292,6 +293,49 @@ jobs:
           printf 'runner-host-connectivity tcp=%s dns=%s (separate from container isolation)\n' "$host_egress" "$host_dns"
           echo 'Disposable PostgreSQL 17 target is runner-ingress-guarded and container-egress-isolated.'
 
+      - name: Revalidate approved candidate before private access
+        shell: bash
+        env:
+          RESTORE_CANDIDATES_JSON: ${{ secrets.RESTORE_CANDIDATES_JSON }}
+          RESTORE_CANDIDATE_MANIFEST_SHA256: ${{ secrets.RESTORE_CANDIDATE_MANIFEST_SHA256 }}
+          RESTORE_CANDIDATE_APPROVED_SHA256: ${{ secrets.RESTORE_CANDIDATE_APPROVED_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for key in RESTORE_CANDIDATES_JSON RESTORE_CANDIDATE_MANIFEST_SHA256 RESTORE_CANDIDATE_APPROVED_SHA256; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Required Backup #7 authorization is missing"
+              exit 1
+            fi
+          done
+          # Recreate a fresh candidate only after all preceding setup steps.
+          # The initial preflight file is never sourced or trusted here.
+          python3 scripts/restore_candidate_manifest.py \
+            "$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"
+          source "$RUNNER_TEMP/restore-candidate.env"
+          for value in "$BACKUP_PREFIX" "$ARCHIVE_NAME" "$EVIDENCE_NAME" \
+                       "$BACKUP_SHA256" "$BACKUP_SIZE" "$BACKUP_RUN_ID" \
+                       "$BACKUP_ATTEMPT" "$BACKUP_SOURCE_SHA" "$BACKUP_SOURCE_PROJECT"; do
+            printf '::add-mask::%s\n' "$value"
+          done
+          {
+            printf 'BACKUP_PREFIX=%s\n' "$BACKUP_PREFIX"
+            printf 'ARCHIVE_NAME=%s\n' "$ARCHIVE_NAME"
+            printf 'EVIDENCE_NAME=%s\n' "$EVIDENCE_NAME"
+            printf 'BACKUP_SHA256=%s\n' "$BACKUP_SHA256"
+            printf 'BACKUP_SIZE=%s\n' "$BACKUP_SIZE"
+            printf 'BACKUP_RUN_ID=%s\n' "$BACKUP_RUN_ID"
+            printf 'BACKUP_ATTEMPT=%s\n' "$BACKUP_ATTEMPT"
+            printf 'BACKUP_SOURCE_SHA=%s\n' "$BACKUP_SOURCE_SHA"
+            printf 'BACKUP_SOURCE_PROJECT=%s\n' "$BACKUP_SOURCE_PROJECT"
+          } >> "$GITHUB_ENV"
+          rm -f -- "$RUNNER_TEMP/restore-candidate.env"
+          if [[ -e "$RUNNER_TEMP/restore-candidate.env" || -L "$RUNNER_TEMP/restore-candidate.env" ]]; then
+            echo "::error::Approved restore candidate cleanup failed"
+            exit 1
+          fi
+          echo 'restore-candidate-authorization=pass'
+
       - name: Download selected private R2 backup and evidence
         shell: bash
         env:
@@ -312,11 +356,6 @@ jobs:
             echo "::error::Invalid R2 restore endpoint"
             exit 1
           fi
-          if [[ ! -f "$RUNNER_TEMP/restore-candidate.env" || -L "$RUNNER_TEMP/restore-candidate.env" ]]; then
-            echo "::error::Approved restore candidate is unavailable"
-            exit 1
-          fi
-          source "$RUNNER_TEMP/restore-candidate.env"
           for value in "$BACKUP_PREFIX" "$ARCHIVE_NAME" "$EVIDENCE_NAME" \
                        "$BACKUP_SHA256" "$BACKUP_SIZE" "$BACKUP_RUN_ID" \
                        "$BACKUP_ATTEMPT" "$BACKUP_SOURCE_SHA" "$BACKUP_SOURCE_PROJECT"; do
@@ -348,7 +387,6 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          source "$RUNNER_TEMP/restore-candidate.env"
           python3 - "$RUNNER_TEMP/restore-selected.tar.gz" \
             "$RUNNER_TEMP/restore-selected.json" "$RUNNER_TEMP/restore-verified-sql" <<'PY'
           import hashlib, json, os, pathlib, re, sys, tarfile
@@ -665,7 +703,8 @@ jobs:
             "$RUNNER_TEMP/private-verify-result.log" "$RUNNER_TEMP/private-db-start.log" \
             "$RUNNER_TEMP/private-supabase-init.log" \
             "$RUNNER_TEMP/restore-download-archive.log" "$RUNNER_TEMP/restore-download-evidence.log" \
-            "$RUNNER_TEMP/restore-candidate.env" "$workdir"; then
+            "$RUNNER_TEMP/restore-candidate-preflight.env" "$RUNNER_TEMP/restore-candidate.env" \
+            "$workdir"; then
             failure=1
           fi
           if network_list="$(docker network ls --format '{{.Name}}' 2>/dev/null)"; then
