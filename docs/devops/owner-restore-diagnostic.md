@@ -252,10 +252,11 @@ R2_RESTORE_ENDPOINT='https://<account-id>.r2.cloudflarestorage.com'
 
 Set the expected identity values from the restricted, independently
 reviewed Backup #4 producer record. Stage B no longer contains private
-identity constants; its protected `RESTORE_CANDIDATES_JSON` and separate
-manifest digest pin are for ordinary Backup #7 recovery only and are not an
-identity source for this diagnostic. Do not copy private identifiers into
-public issue #159 or derive expected values only from downloaded evidence.
+identity constants; its protected `RESTORE_CANDIDATES_JSON`, manifest pin,
+and independent approval digest are for ordinary Backup #7 recovery only
+and are not an identity source for this diagnostic. Do not copy private
+identifiers into public issue #159 or derive expected values only from
+downloaded evidence.
 Set `BACKUP_SHA256`, `BACKUP_SIZE`, `BACKUP_RUN_ID`,
 `BACKUP_ATTEMPT`, `BACKUP_SOURCE_SHA`, `BACKUP_SOURCE_PROJECT`,
 `BACKUP_PREFIX`, `ARCHIVE_NAME`, and `EVIDENCE_NAME`, then set:

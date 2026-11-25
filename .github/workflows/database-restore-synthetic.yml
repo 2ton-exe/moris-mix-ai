@@ -21,6 +21,8 @@ on:
       - scripts/test_database_restore_data_failure.py
       - scripts/restore_candidate_manifest.py
       - scripts/test_database_restore_candidate_manifest.py
+      - scripts/restore_deployment_authorization.py
+      - scripts/test_database_restore_authorization.py
       - scripts/restore_runner_network_guard.py
       - scripts/test_database_restore_runner_network_guard.py
       - scripts/restore_data_failure.py

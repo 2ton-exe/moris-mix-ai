@@ -151,32 +151,58 @@ class StageBOfflineTests(unittest.TestCase):
         for private_field in (
             "BACKUP_PREFIX", "ARCHIVE_NAME", "EVIDENCE_NAME", "BACKUP_SHA256",
             "BACKUP_RUN_ID", "BACKUP_SOURCE_SHA", "BACKUP_SOURCE_PROJECT", "object_key",
-            "RESTORE_CANDIDATE_MANIFEST_SHA256",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256", "RESTORE_CANDIDATE_APPROVED_SHA256",
         ):
             self.assertNotIn(private_field, summary)
 
-    def test_stage_b_is_backup_7_only_and_checks_private_identity_pin_before_download(self):
+    def test_stage_b_has_no_operator_candidate_input_and_checks_both_digests_before_download(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         dispatch = workflow.split("  workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
-        self.assertIn("options:\n          - backup-7", dispatch)
-        self.assertNotIn("backup-4", dispatch)
+        self.assertNotIn("inputs:", dispatch)
+        self.assertNotIn("candidate:", dispatch)
+        self.assertIn("RESTORE_CANDIDATE: backup-7", workflow)
+        self.assertNotIn("inputs.candidate", workflow)
         self.assertIn('if [[ "$RESTORE_CANDIDATE" != "backup-7" ]]', workflow)
         self.assertIn(
             "this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic",
             workflow,
         )
+        self.assertIn("environment: database-restore-drill", workflow)
+        self.assertIn("actions: read", workflow)
+
+        approval = workflow.split(
+            "      - name: Verify explicit per-run protected deployment approval", 1
+        )[1].split("      - name: Verify independently approved Backup #7 manifest", 1)[0]
+        self.assertIn("restore_deployment_authorization.py", approval)
+        self.assertIn("GITHUB_TOKEN: " + "$" + "{{ github.token }}", approval)
+
+        candidate = workflow.split(
+            "      - name: Verify independently approved Backup #7 manifest", 1
+        )[1].split("      - name: Set up Supabase CLI", 1)[0]
+        for secret in (
+            "RESTORE_CANDIDATES_JSON",
+            "RESTORE_CANDIDATE_MANIFEST_SHA256",
+            "RESTORE_CANDIDATE_APPROVED_SHA256",
+        ):
+            self.assertIn(secret, candidate)
+        self.assertNotIn("AWS_ACCESS_KEY_ID", candidate)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", candidate)
+        self.assertNotIn("R2_RESTORE_ENDPOINT", candidate)
+
         download = workflow.split(
             "      - name: Download selected private R2 backup and evidence", 1
         )[1].split(
             "      - name: Verify selected archive, source identity, and component checksums", 1
         )[0]
-        self.assertIn(
-            "RESTORE_CANDIDATE_MANIFEST_SHA256: " + "$" + "{{ secrets.RESTORE_CANDIDATE_MANIFEST_SHA256 }}",
-            download,
-        )
+        self.assertNotIn("RESTORE_CANDIDATES_JSON", download)
+        self.assertNotIn("RESTORE_CANDIDATE_MANIFEST_SHA256", download)
+        self.assertNotIn("RESTORE_CANDIDATE_APPROVED_SHA256", download)
+        self.assertIn('source "$RUNNER_TEMP/restore-candidate.env"', download)
+        first_download = workflow.index("aws s3 cp")
+        self.assertLess(workflow.index("restore_deployment_authorization.py"), first_download)
         self.assertLess(
-            download.index("restore_candidate_manifest.py"),
-            download.index("aws s3 cp"),
+            workflow.index("Verify independently approved Backup #7 manifest"),
+            first_download,
         )
         self.assertIn(
             "Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow; residual egress risk remains",

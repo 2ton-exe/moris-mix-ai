@@ -84,6 +84,16 @@ def verify_manifest_pin(raw_manifest: str, expected_sha256: str) -> None:
         raise ValueError("candidate manifest pin mismatch")
 
 
+def verify_manifest_approval(
+    raw_manifest: str,
+    configured_sha256: str,
+    independently_approved_sha256: str,
+) -> None:
+    """Require both the operational pin and independent approval to match bytes."""
+    verify_manifest_pin(raw_manifest, configured_sha256)
+    verify_manifest_pin(raw_manifest, independently_approved_sha256)
+
+
 def _open_parent_directory_without_symlinks(path: Path) -> tuple[int, str]:
     raw_path = Path(path)
     if ".." in raw_path.parts:
@@ -171,9 +181,10 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         raw_manifest = os.environ.get("RESTORE_CANDIDATES_JSON", "")
-        verify_manifest_pin(
+        verify_manifest_approval(
             raw_manifest,
             os.environ.get("RESTORE_CANDIDATE_MANIFEST_SHA256", ""),
+            os.environ.get("RESTORE_CANDIDATE_APPROVED_SHA256", ""),
         )
         values = resolve_candidate(argv[1], raw_manifest)
         write_shell_environment(Path(argv[2]), values)

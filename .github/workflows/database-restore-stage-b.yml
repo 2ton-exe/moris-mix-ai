@@ -1,23 +1,18 @@
 name: Database Restore Drill (Stage B)
+run-name: "Protected ordinary Backup #7 restore - reviewer authorization required"
 
 # Ordinary recovery only: this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic.
 # No PR, push, or scheduled access to the selected production backup.
 on:
   workflow_dispatch:
-    inputs:
-      candidate:
-        description: Ordinary Backup #7 recovery only
-        required: true
-        type: choice
-        options:
-          - backup-7
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
   isolated-restore:
-    name: Ordinary Backup #7 recovery into disposable PostgreSQL 17
+    name: "Protected Backup #7 recovery - egress and candidate approval required"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -29,14 +24,14 @@ jobs:
       # Official postgres:17.11-alpine multi-platform index (Docker Library).
       # Immutable client code is important because this container reads private SQL.
       PSQL_IMAGE: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
-      RESTORE_CANDIDATE: ${{ inputs.candidate }}
+      RESTORE_CANDIDATE: backup-7
       RESTORE_PROJECT_ID: moris-restore-local
       RESTORE_DOCKER_NETWORK: moris-restore-${{ github.run_id }}-${{ github.run_attempt }}
       AWS_DEFAULT_REGION: auto
       AWS_EC2_METADATA_DISABLED: "true"
 
     steps:
-      - name: Enforce ordinary Backup #7 selection
+      - name: Enforce fixed ordinary Backup #7 scope
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +44,37 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Verify explicit per-run protected deployment approval
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: python3 scripts/restore_deployment_authorization.py
+
+      - name: Verify independently approved Backup #7 manifest
+        shell: bash
+        env:
+          RESTORE_CANDIDATES_JSON: ${{ secrets.RESTORE_CANDIDATES_JSON }}
+          RESTORE_CANDIDATE_MANIFEST_SHA256: ${{ secrets.RESTORE_CANDIDATE_MANIFEST_SHA256 }}
+          RESTORE_CANDIDATE_APPROVED_SHA256: ${{ secrets.RESTORE_CANDIDATE_APPROVED_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for key in RESTORE_CANDIDATES_JSON RESTORE_CANDIDATE_MANIFEST_SHA256 RESTORE_CANDIDATE_APPROVED_SHA256; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "::error::Required Backup #7 authorization is missing"
+              exit 1
+            fi
+          done
+          python3 scripts/restore_candidate_manifest.py \
+            "$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"
+          echo 'restore-candidate-authorization=pass'
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1
@@ -272,13 +298,11 @@ jobs:
           R2_RESTORE_ENDPOINT: ${{ secrets.R2_RESTORE_ENDPOINT }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_RESTORE_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_RESTORE_SECRET_ACCESS_KEY }}
-          RESTORE_CANDIDATES_JSON: ${{ secrets.RESTORE_CANDIDATES_JSON }}
-          RESTORE_CANDIDATE_MANIFEST_SHA256: ${{ secrets.RESTORE_CANDIDATE_MANIFEST_SHA256 }}
           R2_BUCKET: moris-mix-db-backups-prod
         run: |
           set -euo pipefail
           umask 077
-          for key in R2_RESTORE_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY RESTORE_CANDIDATE_MANIFEST_SHA256; do
+          for key in R2_RESTORE_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
             if [[ -z "${!key:-}" ]]; then
               echo "::error::Missing isolated restore configuration $key"
               exit 1
@@ -288,8 +312,10 @@ jobs:
             echo "::error::Invalid R2 restore endpoint"
             exit 1
           fi
-          python3 scripts/restore_candidate_manifest.py \
-            "$RESTORE_CANDIDATE" "$RUNNER_TEMP/restore-candidate.env"
+          if [[ ! -f "$RUNNER_TEMP/restore-candidate.env" || -L "$RUNNER_TEMP/restore-candidate.env" ]]; then
+            echo "::error::Approved restore candidate is unavailable"
+            exit 1
+          fi
           source "$RUNNER_TEMP/restore-candidate.env"
           for value in "$BACKUP_PREFIX" "$ARCHIVE_NAME" "$EVIDENCE_NAME" \
                        "$BACKUP_SHA256" "$BACKUP_SIZE" "$BACKUP_RUN_ID" \

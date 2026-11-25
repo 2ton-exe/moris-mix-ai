@@ -11,7 +11,13 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from restore_candidate_manifest import FIELDS, resolve_candidate, verify_manifest_pin, write_shell_environment
+from restore_candidate_manifest import (
+    FIELDS,
+    resolve_candidate,
+    verify_manifest_approval,
+    verify_manifest_pin,
+    write_shell_environment,
+)
 
 
 def candidate_record(seed: str) -> dict[str, str | int]:
@@ -52,6 +58,19 @@ class RestoreCandidateManifestTests(unittest.TestCase):
             verify_manifest_pin(raw + " ", pin)
         with self.assertRaises(ValueError):
             verify_manifest_pin(raw, "not-a-pin")
+
+    def test_candidate_requires_an_independently_approved_matching_manifest_digest(self) -> None:
+        raw = json.dumps(self.manifest, separators=(",", ":"))
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        verify_manifest_approval(raw, digest, digest)
+        invalid_approvals = ("", "not-a-digest", "0" * 64)
+        for approval in invalid_approvals:
+            with self.subTest(approval=approval or "missing"), self.assertRaises(ValueError):
+                verify_manifest_approval(raw, digest, approval)
+        with self.assertRaises(ValueError):
+            verify_manifest_approval(raw + " ", digest, digest)
+        with self.assertRaises(ValueError):
+            verify_manifest_approval(raw, "0" * 64, digest)
 
     def test_missing_or_extra_candidate_and_fields_fail_closed(self) -> None:
         with self.assertRaises(ValueError):
@@ -137,6 +156,7 @@ class RestoreCandidateManifestTests(unittest.TestCase):
         env = os.environ.copy()
         env["RESTORE_CANDIDATES_JSON"] = raw
         env["RESTORE_CANDIDATE_MANIFEST_SHA256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        env["RESTORE_CANDIDATE_APPROVED_SHA256"] = env["RESTORE_CANDIDATE_MANIFEST_SHA256"]
         script = Path(__file__).with_name("restore_candidate_manifest.py")
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.env"
@@ -173,6 +193,7 @@ class RestoreCandidateManifestTests(unittest.TestCase):
         env = os.environ.copy()
         env["RESTORE_CANDIDATES_JSON"] = raw
         env["RESTORE_CANDIDATE_MANIFEST_SHA256"] = "0" * 64
+        env["RESTORE_CANDIDATE_APPROVED_SHA256"] = "0" * 64
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.env"
             result = subprocess.run(
@@ -191,12 +212,38 @@ class RestoreCandidateManifestTests(unittest.TestCase):
         )
         self.assertNotIn("SYNTHETIC_PRIVATE_MANIFEST_SENTINEL", result.stderr)
 
+    def test_cli_rejects_missing_independent_candidate_approval_before_output(self):
+        script = Path(__file__).with_name("restore_candidate_manifest.py")
+        raw = json.dumps({"backup-7": candidate_record("approval-gate")})
+        env = os.environ.copy()
+        env["RESTORE_CANDIDATES_JSON"] = raw
+        env["RESTORE_CANDIDATE_MANIFEST_SHA256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        env.pop("RESTORE_CANDIDATE_APPROVED_SHA256", None)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.env"
+            result = subprocess.run(
+                [sys.executable, str(script), "backup-7", str(output)],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output.exists())
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            result.stderr.strip(),
+            "::error::Selected restore candidate configuration is missing or invalid",
+        )
+        self.assertNotIn("synthetic-approval-gate", result.stdout + result.stderr)
+
     def test_cli_errors_do_not_echo_private_manifest_values(self) -> None:
         script = Path(__file__).with_name("restore_candidate_manifest.py")
         env = os.environ.copy()
         raw = json.dumps({"backup-7": {"secret": "synthetic-private-sentinel"}})
         env["RESTORE_CANDIDATES_JSON"] = raw
         env["RESTORE_CANDIDATE_MANIFEST_SHA256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        env["RESTORE_CANDIDATE_APPROVED_SHA256"] = env["RESTORE_CANDIDATE_MANIFEST_SHA256"]
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(
                 [sys.executable, str(script), "backup-7", str(Path(directory) / "candidate.env")],
