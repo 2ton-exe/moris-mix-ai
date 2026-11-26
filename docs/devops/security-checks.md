@@ -33,8 +33,8 @@ recorded successful deployment URL, AI-route, and runtime smoke steps.
   `project-sync.mjs` queries the configured organization and validates that
   Project #2 is open and matches the expected owner and title. This is an
   application check. The token-minting job now pins all three actions to the
-  existing upstream commits. The [hosted Project sync run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44925421642)
-  passed on the reviewed PR head.
+  existing upstream commits. The [scheduled Project sync run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45545447511)
+  passed on `main` at `e22478df287ceb59c58550fd850a683baab9aef4`.
 - Standard validation still has mutable action references, and the dormant
   reusable Cloudflare workflow has no active caller. These are separately
   tracked supply-chain surfaces. Pins reduce tag drift, while runner images,
