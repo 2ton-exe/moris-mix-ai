@@ -23,6 +23,8 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
   const reviewedTitle = `${marker} reviewed`
   const createRequests = []
   let createAttempts = 0
+  let originalFirstInstruction = ''
+  let reviewedInstruction = ''
 
   page.on('request', (request) => {
     const url = new URL(request.url())
@@ -60,7 +62,9 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/app/quick-entry')
     await page.getByRole('textbox', { name: 'Cooking notes' }).fill(notes)
+    const extraction = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/functions/v1/extract-recipe')
     await page.getByRole('button', { name: 'Organize my notes' }).click()
+    originalFirstInstruction = (await (await extraction).json()).recipe.instructions[0].text
     await expect(page.getByRole('heading', { name: extractedTitle })).toBeVisible()
     await expect(page.getByText('Unsaved preview')).toBeVisible()
     expect(createRequests).toHaveLength(0)
@@ -76,7 +80,12 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     await ingredients.getByLabel('Ingredient 1 name').fill('free-range chicken')
 
     const cookingMethod = await navigateToRecipeSection(page, 'Instructions')
-    await cookingMethod.getByLabel('Step 1 description').fill('Cook the chicken slowly until tender.')
+    const firstPart = cookingMethod.getByLabel('Step 1 description')
+    const visibleText = await firstPart.inputValue()
+    expect(originalFirstInstruction.startsWith(visibleText)).toBe(true)
+    // Editing one physical leaf preserves the instruction's continued text.
+    reviewedInstruction = 'Cook the chicken slowly until tender.' + originalFirstInstruction.slice(visibleText.length)
+    await firstPart.fill('Cook the chicken slowly until tender.')
 
     expect(createRequests).toHaveLength(0)
     const collectionPage = await page.context().newPage()
@@ -95,7 +104,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     expect(createRequests[0].postDataJSON()).toMatchObject({
       title: reviewedTitle,
       ingredients: expect.arrayContaining([expect.objectContaining({ name: 'free-range chicken' })]),
-      instructions: expect.arrayContaining([expect.objectContaining({ text: 'Cook the chicken slowly until tender.' })]),
+      instructions: expect.arrayContaining([expect.objectContaining({ text: reviewedInstruction })]),
     })
 
     const previous = page.getByRole('navigation', { name: 'Previous Recipe writing pages', exact: true })
@@ -105,7 +114,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
       await previous.click()
       await waitForJournalPageTurn(page)
     }
-    await expect(page.getByLabel('Step 1 description')).toHaveValue('Cook the chicken slowly until tender.')
+    await expect(page.getByLabel('Step 1 description')).toHaveValue(reviewedInstruction)
     const pagePosition = page.locator('.mm-review-progress')
     const title = page.getByLabel('Recipe title')
     while (!(await title.isVisible())) {
@@ -138,7 +147,7 @@ test('an edited extraction stays unsaved until a successful explicit retry', asy
     expect(createRequests[1].postDataJSON()).toMatchObject({
       title: reviewedTitle,
       ingredients: expect.arrayContaining([expect.objectContaining({ name: 'free-range chicken' })]),
-      instructions: expect.arrayContaining([expect.objectContaining({ text: 'Cook the chicken slowly until tender.' })]),
+      instructions: expect.arrayContaining([expect.objectContaining({ text: reviewedInstruction })]),
     })
 
     await page.goto('/app/recipes')

@@ -101,14 +101,14 @@ try {
     const corner = page.getByRole('link', { name: /^Next page/ })
     if (await corner.count()) {
       await corner.hover()
-      await expect.poll(() => corner.evaluate(element => getComputedStyle(element, '::after').opacity)).toBe('1')
+      await expect.poll(() => corner.evaluate(element => globalThis.getComputedStyle(element, '::after').opacity)).toBe('1')
       await page.screenshot({ path: path.join(output, `${width}-corner-hover.png`) })
     }
     const hover = []
     for (const card of await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries .mm-collection-entry').all()) {
       await card.hover()
       await card.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)))
-      hover.push(await card.evaluate(element => getComputedStyle(element).borderColor))
+      hover.push(await card.evaluate(element => globalThis.getComputedStyle(element).borderColor))
     }
     assert.equal(new Set(hover).size, 1, 'Recipe scraps share one hover treatment')
 

@@ -233,11 +233,24 @@ try {
           const rect = element.getBoundingClientRect()
           return footer.lastElementChild === element && Math.abs(rect.bottom - (footer.getBoundingClientRect().bottom - Number.parseFloat(globalThis.getComputedStyle(footer).paddingBottom))) < 2
         }), true, 'Pagination must be the bottom row of the footer')
-        const rowCenters = await pages.locator(':scope > *').evaluateAll((elements) => elements.map((element) => {
-          const rect = element.getBoundingClientRect()
-          return rect.y + rect.height / 2
-        }))
-        assert.ok(Math.max(...rowCenters) - Math.min(...rowCenters) < 2, 'Page controls must align on one row')
+        if (width >= 1100) {
+          const next = pages.getByRole('button', { name: /^Next/ })
+          if (await next.count()) {
+            const corner = await next.evaluate(element => {
+              const button = element.getBoundingClientRect()
+              const paper = element.closest('.mm-journal-page').getBoundingClientRect()
+              return { right: paper.right - button.right, bottom: paper.bottom - button.bottom, width: button.width, height: button.height }
+            })
+            assert.ok(Math.abs(corner.right) < 2 && Math.abs(corner.bottom) < 2, `Next fold must meet the paper corner: ${JSON.stringify(corner)}`)
+            assert.ok(corner.width >= 44 && corner.height >= 44, 'Paper fold must retain a keyboard/touch target')
+          }
+        } else {
+          const rowCenters = await pages.locator(':scope > *').evaluateAll((elements) => elements.map((element) => {
+            const rect = element.getBoundingClientRect()
+            return rect.y + rect.height / 2
+          }))
+          assert.ok(Math.max(...rowCenters) - Math.min(...rowCenters) < 2, 'Single-page controls must align on one row')
+        }
         await page.screenshot({ path: path.join(root, 'test-results', `demo-reading-footer-${browserName}-${width}.png`) })
         assert.deepEqual(pageErrors, [])
         await context.close()
