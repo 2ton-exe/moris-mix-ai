@@ -142,8 +142,8 @@
     margin-block-start: 2px;
   }
 
-  :is(.mm-recipe-form-editor, .mm-recipe-review) .mm-recipe-star-rating { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
-  :is(.mm-recipe-form-editor, .mm-recipe-review) .mm-recipe-star-rating legend {
+  .mm-recipe-star-rating { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+  .mm-recipe-star-rating legend {
     margin-block-end: 4px;
     padding: 0;
     font: 700 .75rem/1.2 var(--mm-font-sans);

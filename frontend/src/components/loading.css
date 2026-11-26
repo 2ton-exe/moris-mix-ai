@@ -18,8 +18,10 @@
 .mm-skeleton-field { display: block; width: 100%; height: 44px; border-block-end: 1px solid var(--mm-border-paper); }
 .mm-skeleton-notes { display: block; width: 100%; height: 116px; background-image: repeating-linear-gradient(transparent 0 27px, var(--mm-border-paper) 27px 28px); }
 .mm-loading-fields { display: grid; gap: 16px; }
+.mm-loading-fields--review { display: block; }
 .mm-loading-fields .recipe-form-field { min-width: 0; }
 .mm-loading-fields .recipe-form-field > span:first-child { display: block; margin-bottom: 8px; color: var(--mm-color-burgundy-900); font: 700 .75rem/1.2 var(--mm-font-sans); letter-spacing: .045em; text-transform: uppercase; }
+.mm-loading-fields--review .recipe-form-field > span:first-child { margin-bottom: 4px; }
 .mm-loading-photo { aspect-ratio: 1; width: min(100%, 220px); }
 .mm-reading-skeleton .mm-reading-ingredients li { display: flex; align-items: center; gap: 10px; }
 .mm-skeleton-method-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }

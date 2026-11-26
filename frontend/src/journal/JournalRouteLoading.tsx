@@ -25,7 +25,11 @@ export function JournalRouteLoading({ message }: { message: string }) {
     <JournalFacingPage className="mm-facing-content--revision-sample"><section className="mm-revision-sample" aria-hidden="true" inert><span className="mm-skeleton-line mm-skeleton-action" /><header><p>Original recipe</p><h1><span className="mm-skeleton-line" /></h1></header><ul className="mm-revision-sample__ingredients">{[0, 1, 2, 3].map(row => <li key={row}><span className="mm-skeleton-line" /></li>)}</ul><p><span className="mm-skeleton-line" /></p></section></JournalFacingPage>
     <div className="mm-revision-sample" aria-busy="true" aria-hidden="true" inert><header><h2>Try a revision</h2><p><span className="mm-skeleton-line" /></p></header><div className="mm-revision-sample__choices">{[0, 1].map(row => <span key={row} className="mm-skeleton-line mm-skeleton-action" />)}</div><section className="mm-revision-sample__draft"><h3>Sample draft</h3><p><span className="mm-skeleton-line" /></p></section></div>
   </>
-  if (/\/recipes\/.+\/edit$/.test(pathname) || pathname.endsWith('/new') || pathname.endsWith('/review')) return <RecipeEditorSkeleton message={message} title={pathname.endsWith('/new') ? 'New recipe' : pathname.endsWith('/review') ? 'Review recipe' : 'Edit recipe'} />
+  if (/\/recipes\/.+\/edit$/.test(pathname) || pathname.endsWith('/new') || pathname.endsWith('/review')) {
+    const extractionReview = desktop && pathname === '/app/quick-entry/review'
+    return <RecipeEditorSkeleton message={message} extractionReview={extractionReview}
+      title={pathname.endsWith('/new') ? 'New recipe' : extractionReview ? 'Review your recipe' : pathname.endsWith('/review') ? 'Review recipe' : 'Edit recipe'} />
+  }
   if (pathname === '/app/quick-entry' || pathname === '/app/chef') {
     const notes = pathname.endsWith('/quick-entry')
     const title = notes ? 'Quick AI Entry' : 'What’s in your pantry?'

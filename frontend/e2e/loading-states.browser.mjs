@@ -194,6 +194,12 @@ try {
         const stamp = width === 1470 ? `cold-${name}` : `cold-${name}-${width}`
         const page = await context.newPage()
         if (routePath.startsWith('/app')) await preparePage(page)
+        if (name === 'notes-review') await page.addInitScript(({ userId, recipe }) => {
+          const notes = 'A handwritten cooking note.'
+          globalThis.sessionStorage.setItem(`moris-mix:quick-ai-entry:v1:${userId}`, JSON.stringify({
+            notes, blockedUntil: null, blockedReason: null, handoff: { sourceNotes: notes, recipe, saved: false }, reviewDraft: null,
+          }))
+        }, { userId, recipe: fixture })
         let collectionState = 'populated'
         let releaseModule
         const moduleHold = new Promise(resolve => { releaseModule = resolve })
@@ -217,6 +223,13 @@ try {
         await page.evaluate(() => globalThis.document.fonts.ready)
         await page.waitForTimeout(200)
         await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
+        let loadingReference
+        if (name === 'notes-review') {
+          const reference = page.locator('.mm-extraction-notes--facing')
+          await expect(reference).toHaveAttribute('inert', '')
+          await expect(reference).toHaveAttribute('aria-hidden', 'true')
+          loadingReference = await reference.boundingBox()
+        }
         await page.screenshot({ path: path.join(output, `${stamp}-loading.png`) })
         if (name === 'collection') {
           await page.getByRole('button', { name: 'Talk to Mori' }).click()
@@ -226,6 +239,11 @@ try {
         await expect(page.locator('.mm-skeleton-line')).toHaveCount(0)
         await page.waitForTimeout(200)
         await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
+        if (loadingReference) {
+          const loadedReference = await page.locator('.mm-extraction-notes--facing').boundingBox()
+          assert.ok(Math.abs(loadingReference.y - loadedReference.y) <= 2 && Math.abs(loadingReference.height - loadedReference.height) <= 2,
+            `${stamp}: loading references must reserve the loaded reference geometry`)
+        }
         if (name === 'collection') await expect(page.getByRole('button', { name: 'Talk to Mori' })).toBeFocused()
         if (name === 'collection') {
           collectionState = 'empty'
