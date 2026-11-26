@@ -2,7 +2,7 @@
 // This suite never contacts a hosted Supabase project or writes recipe records.
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
@@ -202,6 +202,48 @@ try {
 
   await page.goto(`${origin}app`)
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
+  if (process.env.MORI_RECOVERY_ONLY === 'true') {
+    for (const mode of ['invalid', 'network', 'provider-rate-limit', 'quota']) {
+      for (const [width, height] of [[1100, 640], [1280, 720], [1440, 900]]) {
+        extractionMode = mode
+        const recoveryPage = await context.newPage()
+        recoveryPage.on('pageerror', error => errors.push(error.message))
+        await recoveryPage.setViewportSize({ width, height })
+        await recoveryPage.goto(`${origin}app/quick-entry`)
+        await recoveryPage.getByRole('textbox', { name: 'Cooking notes' }).fill('Beans with garlic and a little salt.')
+        await recoveryPage.getByRole('button', { name: 'Organize my notes' }).click()
+        await expect(recoveryPage.getByRole('alert')).toBeVisible()
+        await recoveryPage.evaluate(() => globalThis.document.fonts.ready)
+        await settleJournalLayout(recoveryPage)
+        const metrics = await recoveryPage.evaluate(() => {
+          const sheet = globalThis.document.querySelector('.mm-quick-ai__sheet')
+          const paper = globalThis.document.querySelector('.mm-journal-page').getBoundingClientRect()
+          const facing = globalThis.document.querySelector('.mm-journal-flyleaf').getBoundingClientRect()
+          return {
+            paper: paper.toJSON(), facing: facing.toJSON(), sheet: sheet.getBoundingClientRect().toJSON(),
+            clientHeight: sheet.clientHeight, scrollHeight: sheet.scrollHeight,
+            documentHeight: globalThis.document.documentElement.scrollHeight,
+            blocks: Array.from(sheet.querySelectorAll('form, .mm-quick-ai__field, .mm-quick-ai__textarea, .mm-quick-ai__error, .mm-quick-ai__cooldown, .mm-quick-ai__actions'), element => ({
+              className: element.className, rect: element.getBoundingClientRect().toJSON(),
+              display: globalThis.getComputedStyle(element).display, gap: globalThis.getComputedStyle(element).gap,
+            })),
+            actions: Array.from(sheet.querySelectorAll('.mm-quick-ai__actions > *'), element => element.getBoundingClientRect().toJSON()),
+          }
+        })
+        await recoveryPage.screenshot({ path: path.join(outputDir, `recovery-${mode}-${width}.png`), animations: 'disabled' })
+        await writeFile(path.join(outputDir, `recovery-${mode}-${width}.json`), JSON.stringify(metrics, null, 2))
+        assert.ok(Math.abs(metrics.paper.bottom - metrics.facing.bottom) <= 2 && metrics.documentHeight <= height + 2,
+          `${mode} ${width}: recovery must preserve paper and viewport bounds`)
+        assert.ok(metrics.scrollHeight <= metrics.clientHeight + 1,
+          `${mode} ${width}: ordinary recovery should fit its sheet (${metrics.scrollHeight}/${metrics.clientHeight}); artifacts ${outputDir}`)
+        assert.ok(metrics.actions.every(action => action.height >= 44 && action.bottom <= metrics.paper.bottom), `${mode} ${width}: actions fit the paper`)
+        await recoveryPage.close()
+      }
+    }
+    assert.deepEqual(errors, [])
+    await context.close()
+    process.stdout.write(`Twelve desktop recovery states passed. Screenshots and geometry: ${outputDir}\n`)
+  } else {
   await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
   await expect(page).toHaveURL(`${origin}app/quick-entry`)
   await expect(page.getByRole('heading', { name: 'Quick AI Entry' })).toBeVisible()
@@ -585,7 +627,8 @@ try {
     await expect(retry).toBeInViewport({ ratio: 1 })
     const messageBox = await error.boundingBox()
     const buttonBox = await retry.boundingBox()
-    assert.ok(messageBox.y + messageBox.height <= buttonBox.y, `Error and retry must fit in reading order at ${width}×${height}`)
+    assert.ok(messageBox.x + messageBox.width < buttonBox.x, `Recovery guidance precedes the editable notes on the facing leaf at ${width}×${height}`)
+    assert.ok(await error.evaluate(element => Boolean(element.closest('.mm-journal-flyleaf'))), 'Desktop recovery uses the facing paper')
     await expect.poll(async () => {
       const art = await page.locator('.mori-pet-trigger .mm-mori').boundingBox()
       const message = await error.boundingBox()
@@ -593,6 +636,13 @@ try {
         art.y + art.height <= message.y || message.y + message.height <= art.y)
     }, { message: `Automatic Mori docking must not cover failure feedback at ${width}×${height}` }).toBe(true)
     await retry.click({ trial: true })
+    assert.ok(await page.locator('.mm-quick-ai__sheet').evaluate(element => element.scrollHeight <= element.clientHeight + 1),
+      `Ordinary failure feedback must fit without inner scrolling at ${width}×${height}`)
+    assert.ok(await page.evaluate(() => {
+      const paper = globalThis.document.querySelector('.mm-journal-page').getBoundingClientRect()
+      const facing = globalThis.document.querySelector('.mm-journal-flyleaf').getBoundingClientRect()
+      return Math.abs(paper.bottom - facing.bottom) <= 2 && globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 2
+    }), `Recovery must preserve equal paper bounds at ${width}×${height}`)
     await page.screenshot({ path: path.join(outputDir, `quick-entry-invalid-result-${width}.png`), animations: 'disabled' })
   }
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -686,6 +736,7 @@ try {
   assert.deepEqual(errors, [])
   await context.close()
   process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, ${desktopOnly ? 'desktop' : '320/375/768/1440px'} layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
+  }
 } finally {
   releaseExtraction()
   await browser?.close()

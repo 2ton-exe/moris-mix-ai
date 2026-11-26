@@ -181,32 +181,18 @@
   .mm-quick-ai-intro--task h1 { margin-bottom: 8px; font-size: clamp(25px, 3vw, 34px); }
 }
 
-@media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
-  .mm-journal-book:has(.mm-quick-ai[data-recovery]) {
-    height: auto;
-    padding-block: var(--mm-overhang);
-  }
-  .mm-journal-spread:has(.mm-quick-ai[data-recovery]) {
-    position: relative;
-    top: auto;
-    height: auto;
-    min-height: var(--mm-page-height);
-    grid-template-rows: auto;
-  }
-  .mm-desk .mm-journal-page:has(.mm-quick-ai[data-recovery]) { padding-bottom: var(--mm-footer-inset); }
-  .mm-desk .mm-quick-ai[data-recovery] { height: auto; }
-  .mm-journal-page:has(.mm-quick-ai[data-recovery]) > .mm-journal-page-footer {
-    position: relative;
-    inset: auto;
-    margin-block-start: var(--mm-space-3);
-  }
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-quick-ai__actions:has(> a) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mm-quick-ai__actions:has(> a) .button { white-space: normal; text-align: center; }
+  .mm-quick-ai__recovery :is(.mm-quick-ai__error, .mm-quick-ai__cooldown) { margin: 0; padding: 0; border: 0; background: none; }
+  .mm-quick-ai__recovery .mm-quick-ai__cooldown + .mm-quick-ai__error { margin-block-start: 12px; }
 }
 
 @media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
   .mm-quick-ai__back { margin-bottom: 5px; }
   .mm-quick-ai-intro--task .mm-quick-ai-intro__copy { display: none; }
   .mm-quick-ai__sheet { padding: 12px; }
-  .mm-quick-ai__sheet:has(.mm-quick-ai__error, .mm-quick-ai__cooldown) .mm-quick-ai__textarea {
+  .mm-quick-ai[data-recovery] .mm-quick-ai__textarea {
     min-height: 5rem;
     max-height: 5.5rem;
   }

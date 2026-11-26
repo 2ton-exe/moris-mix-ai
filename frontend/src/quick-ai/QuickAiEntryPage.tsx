@@ -441,6 +441,21 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     }
   }
 
+  const recoveryFeedback = <>
+    {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
+      {draft.blockedReason === 'quota'
+        ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
+        : draft.blockedReason === 'auth-service-rate-limit'
+          ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
+          : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
+    </p>}
+    {error && <div className="mm-quick-ai__error">
+      <p role="alert">{error.message}</p>
+      {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
+    </div>}
+  </>
+  const showRecovery = page < noteParts.length && (Boolean(error) || retryWait > 0)
+
   const describedBy = [helpId, countId, validationMessage ? validationId : null, persistenceFailed ? persistenceWarningId : null].filter(Boolean).join(' ')
   return <>
     {(navigationConfirmation.open || logoutConfirmationOpen) && <UnsavedChangesDialog
@@ -452,18 +467,23 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
     />}
     <JournalFacingPage className={`mm-facing-content--quick-ai${desktopSpread ? ' mm-facing-content--quick-ai-task' : ''}`}>
       {desktopSpread ? <section className="mm-quick-ai__support" aria-labelledby="quick-ai-support-title">
-        <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__journey">
-          <h2 id="quick-ai-support-title">From notes to recipe</h2>
-          <ol className="mm-quick-ai__steps">
-            <li><span><strong>Write</strong> the ingredients and steps you remember.</span></li>
-            <li><span><strong>Review</strong> the draft and make any changes.</span></li>
-            <li><span><strong>Choose</strong> when to save it to your journal.</span></li>
-          </ol>
-        </PaperCard>
-        <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
-          <h2>Example cooking notes</h2>
-          <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
-        </PaperCard>
+        {showRecovery ? <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__journey mm-quick-ai__recovery">
+          <h2 id="quick-ai-support-title">Before you try again</h2>
+          {recoveryFeedback}
+        </PaperCard> : <>
+          <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__journey">
+            <h2 id="quick-ai-support-title">From notes to recipe</h2>
+            <ol className="mm-quick-ai__steps">
+              <li><span><strong>Write</strong> the ingredients and steps you remember.</span></li>
+              <li><span><strong>Review</strong> the draft and make any changes.</span></li>
+              <li><span><strong>Choose</strong> when to save it to your journal.</span></li>
+            </ol>
+          </PaperCard>
+          <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
+            <h2>Example cooking notes</h2>
+            <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
+          </PaperCard>
+        </>}
       </section> : <>
         <header className="mm-quick-ai-intro">
           <div>
@@ -524,17 +544,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
           </div>
 
           {loading && <p className="mm-quick-ai__loading" role="status" aria-live="polite">Mori is organizing your notes. {persistenceFailed ? 'Keep this page open.' : 'Keep this page open, or come back to your saved-in-session draft.'}</p>}
-          {retryWait > 0 && <p className="mm-quick-ai__cooldown" role="timer" aria-live="off">
-            {draft.blockedReason === 'quota'
-              ? `Today's AI limit is still in effect. Wait at least ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before retrying.`
-              : draft.blockedReason === 'auth-service-rate-limit'
-                ? `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} before asking Mori to try again.`
-                : `Please wait ${retryWait} ${retryWait === 1 ? 'second' : 'seconds'} for Mori's cooldown before retrying.`}
-          </p>}
-          {error && <div className="mm-quick-ai__error">
-            <p role="alert">{error.message}</p>
-            {error.code === 'UNAUTHORIZED' && <button className="button button-secondary mm-button--small" type="button" onClick={() => { void signInAgain() }}>Log out and sign in again</button>}
-          </div>}
+          {!desktopSpread && recoveryFeedback}
           {error?.code !== 'UNAUTHORIZED' && <div className="mm-quick-ai__actions">
             <button className="button button-primary" type="submit" disabled={loading || retryWait > 0}>
               {loading ? 'Mori is organizing…' : retryWait > 0 ? 'Please wait to retry' : error?.retryable ? 'Retry extraction' : 'Organize my notes'}
