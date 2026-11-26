@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { Mori, type MoriMood } from '../journal/Mori'
 import { MORI_ART_SCALE, MORI_DESKTOP_SIZE, moriRestFoot } from '../journal/moriPaperMotion'
 import { MORI_FOOT, preloadMoriSprites } from '../journal/moriSpriteAtlas'
-import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor, registerTurnCompanion, smooth } from '../journal/pageTurnMotion'
+import { JOURNAL_SINGLE_LAYOUT_QUERY, mittAnchor } from '../journal/pageTurnMotion'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { MoriChatPanel } from './MoriChatPanel'
 import { useMoriCompanionState } from './MoriCompanionContext'
@@ -58,7 +58,6 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [hasConversation, setHasConversation] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
-  const [pageTurn, setPageTurn] = useState(false)
   const [traveling, setTraveling] = useState(false)
   const [dock, setDock] = useState<Position | null>(null)
   const [viewport, setViewport] = useState(readViewport)
@@ -171,80 +170,6 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     return () => observer.disconnect()
   }, [])
   useLayoutEffect(() => {
-    const element = character.current
-    const svg = trigger.current?.querySelector('svg')
-    if (!element || !svg) return
-    const arm = svg.querySelector('[data-mori-grip-arm]')
-    const closed = svg.querySelector<SVGElement>('[data-mori-closed-mitt]')
-    const openMitt = svg.querySelector<SVGElement>('[data-mori-open-mitt]')
-    const neutralArm = arm?.getAttribute('transform')
-    return registerTurnCompanion({
-      startSpatial() {
-        const button = trigger.current
-        const rect = button?.getBoundingClientRect()
-        stopNavigationTravel.current?.()
-        if (!rect || element.closest('[hidden]')) return null
-        if (rect.width === 0) return null
-        element.dataset.moriSpatialTurn = ''
-        setPageTurn(true)
-        setOpen(false)
-        return {
-          screenFoot: { x: rect.left + rect.width / 2, y: rect.top + MORI_FOOT.y * MORI_ART_SCALE },
-          setActorOpacity(opacity) { element.style.opacity = String(1 - opacity) },
-          stop() {
-            delete element.dataset.moriSpatialTurn
-            element.style.removeProperty('opacity')
-            setPageTurn(false)
-          },
-        }
-      },
-      start(direction, single) {
-        stopNavigationTravel.current?.()
-        if (!element.getClientRects().length) return
-        element.dataset.turnDirection = direction
-        svg.style.transform = 'none'
-        const rect = element.getBoundingClientRect()
-        const art = svg.getBoundingClientRect()
-        const scale = art.width / 200
-        const offset = { x: art.left - rect.left, y: art.top - rect.top }
-        const mirror = !single && direction === 'backward'
-        const turnScale = single ? .6 : 1
-        setPageTurn(true)
-        setOpen(false)
-        return (frame, corner) => {
-          const hand = mittAnchor(frame.armAngle)
-          const target = { x: corner.x - (offset.x + (mirror ? 200 - hand.x : hand.x) * scale) * turnScale, y: corner.y - (offset.y + hand.y * scale) * turnScale }
-          const blend = frame.progress < .18 ? smooth(frame.progress / .18) : 1 - smooth((frame.progress - .9) / .1)
-          element.style.transform = `translate(${(target.x - rect.left) * blend}px, ${(target.y - rect.top) * blend}px) scale(${1 + (turnScale - 1) * blend})`
-          svg.style.transform = mirror ? 'scaleX(-1)' : 'none'
-          arm?.setAttribute('transform', `rotate(${frame.armAngle} 128 168)`)
-          if (frame.attached) {
-            const matrix = svg.getScreenCTM()
-            if (matrix) {
-              const rendered = new DOMPoint(hand.x, hand.y).matrixTransform(matrix)
-              element.style.transform = `translate(${(target.x - rect.left) * blend + corner.x - rendered.x}px, ${(target.y - rect.top) * blend + corner.y - rendered.y}px) scale(${1 + (turnScale - 1) * blend})`
-            }
-          }
-          if (closed) closed.style.opacity = String(frame.grip)
-          if (openMitt) openMitt.style.opacity = String(1 - frame.grip)
-          element.dataset.turnStage = frame.stage
-        }
-      },
-      stop() {
-        if (!element.dataset.turnDirection) return
-        element.style.removeProperty('transform')
-        svg.style.removeProperty('transform')
-        if (neutralArm == null) arm?.removeAttribute('transform')
-        else arm?.setAttribute('transform', neutralArm)
-        closed?.style.removeProperty('opacity')
-        openMitt?.style.removeProperty('opacity')
-        delete element.dataset.turnDirection
-        delete element.dataset.turnStage
-        setPageTurn(false)
-      },
-    })
-  }, [size])
-  useLayoutEffect(() => {
     if (!open) return
     const composer = userId ? bubble.current?.querySelector('textarea') : null
     ;(composer ?? heading.current)?.focus({ preventScroll: true })
@@ -304,7 +229,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (!open || userId) return
     const height = bubble.current?.offsetHeight ?? 0
     if (height > 0 && Math.abs(height - bubbleHeight) > 1) setBubbleHeight(height)
-  }, [open, pageTurn, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight, userId])
+  }, [open, panelWidth, availablePanelHeight, companionMessage, page.label, pageGuidance?.action?.label, bubbleHeight, userId])
 
   async function playNavigationTap(findAnchor: () => HTMLElement | null, signal: AbortSignal) {
     if (document.hidden) return
@@ -356,9 +281,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   async function playNavigationTravel(findTab: () => HTMLElement | null, signal: AbortSignal) {
     const element = character.current
     const button = trigger.current
-    if (signal.aborted || element?.dataset.turnDirection || element?.hasAttribute('data-mori-spatial-turn')) return false
+    if (signal.aborted) return false
     if (!element || !button) return true
-    if (stopNavigationTravel.current) return false
+    stopNavigationTravel.current?.()
     setTraveling(true)
     const travel = travelToJournalTab({ character: element, trigger: button, findTab, signal, onSettled() {
       stopNavigationTravel.current = null
@@ -367,6 +292,18 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     stopNavigationTravel.current = travel.cancel
     return travel.arrived
   }
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const walk = (event: MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('.mm-bookmarks--journal a') : null
+      if (link) void playNavigationTravel(() => Array.from(document.querySelectorAll<HTMLAnchorElement>('.mm-bookmarks--journal a'))
+        .find((tab) => tab.pathname === link.pathname) ?? null, controller.signal)
+    }
+    document.addEventListener('click', walk)
+    return () => { controller.abort(); document.removeEventListener('click', walk) }
+  }, [])
 
   function close() { setOpen(false); trigger.current?.focus() }
   function show() {
@@ -379,7 +316,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     if (description) setMoved(description)
   }
   function moveKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (pageTurn || traveling) return
+    if (traveling) return
     const directions: Record<string, [number, number, string]> = { ArrowLeft: [-16, 0, 'left'], ArrowRight: [16, 0, 'right'], ArrowUp: [0, -16, 'up'], ArrowDown: [0, 16, 'down'] }
     const direction = directions[event.key]
     if (!direction) return
@@ -399,9 +336,9 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       <span className="mori-pet-sr" aria-live="polite">{moved}</span>
       <span id={moveHintId} className="mori-pet-sr">Drag Mori to move. When focused, use the arrow keys to reposition.</span>
       <div ref={character} className="mori-pet-character" role="group" aria-label="Mori companion" data-activity={activity.kind} style={characterStyle}>
-        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open && !pageTurn} aria-disabled={pageTurn || traveling ? 'true' : undefined} tabIndex={pageTurn || traveling ? -1 : undefined}
+        <button className="mori-pet-trigger" ref={trigger} type="button" aria-label="Talk to Mori" aria-describedby={moveHintId} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-controls={panelId} aria-expanded={open} aria-disabled={traveling ? 'true' : undefined} tabIndex={traveling ? -1 : undefined}
           onClick={(event) => {
-            if (pageTurn || traveling) { event.preventDefault(); return }
+            if (traveling) { event.preventDefault(); return }
             if (suppressClick.current) {
               suppressClick.current = false
               if (event.detail !== 0) { event.preventDefault(); return }
@@ -411,7 +348,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           }}
           onKeyDown={moveKey}
           onPointerDown={(event) => {
-            if (pageTurn || traveling || event.button !== 0 || !event.isPrimary) return
+            if (traveling || event.button !== 0 || !event.isPrimary) return
             drag.current = { pointerId: event.pointerId, x: event.clientX - actual.x, y: event.clientY - actual.y, startX: event.clientX, startY: event.clientY, moved: false }
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
@@ -437,7 +374,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <Mori size={size} mood={open ? 'talk' : moods[activity.kind]} animated={!reducedMotion} />
         </button>
       </div>
-      <div ref={bubble} hidden={!open || pageTurn} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
+      <div ref={bubble} hidden={!open} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />
         <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-resizable={resizeFromSide || undefined} style={{ maxHeight: availablePanelHeight, height: resizeFromSide ? availablePanelHeight : undefined }}>
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>

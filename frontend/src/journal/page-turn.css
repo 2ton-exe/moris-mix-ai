@@ -140,30 +140,10 @@
 }
 .mm-turn-under--single > .mm-journal-spread,
 .mm-turn-content > .mm-journal-spread { overflow-y: hidden !important; }
-.mm-turn-corner { position: absolute; top: var(--mm-grab-y, 0px); right: 0; width: 0; height: 0; }
-.mm-turn-leaf--backward .mm-turn-corner { right: auto; left: 0; }
-.mm-turn-crease {
-  position: absolute;
-  z-index: 5;
-  top: calc(var(--mm-grab-y, 0px) - 8px);
-  right: 0;
-  width: 26px;
-  height: 16px;
-  opacity: var(--mm-crease-strength, 0);
-  background: linear-gradient(173deg, transparent 34%, rgb(255 250 233 / .92) 49%, rgb(74 44 25 / .3) 53%, transparent 76%);
-  clip-path: polygon(100% 0, 100% 100%, 0 55%);
-}
-.mm-turn-leaf--forward[data-layout='spread'] .mm-turn-face--back .mm-turn-crease,
-.mm-turn-leaf--backward[data-layout='spread'] .mm-turn-face--front .mm-turn-crease {
-  left: 0;
-  right: auto;
-  transform: scaleX(-1);
-}
 .mm-turn-face--front { transform: translateZ(.1px); }
 .mm-turn-face--back { transform: rotateY(180deg) translateZ(.1px); }
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-turn-leaf[data-layout='single'] .mm-turn-face--back { transform: translateZ(.1px); }
-  .mm-turn-leaf[data-layout='single'] .mm-turn-corner { left: auto; right: 0; }
 }
 @media (max-width: 1099.98px), (max-height: 639.98px) {
   .mm-page-turn-layer { perspective-origin: var(--mm-ring-zone) var(--mm-overhang); }
@@ -172,20 +152,3 @@
 /* The turning sheet covers the frozen footers as it crosses the spine. */
 .mm-journal-book[data-page-turning] > .mm-journal-spread :is(.mm-journal-page-footer, .mm-pagination-slot--left) { visibility: hidden; }
 .mm-turn-under--single .mm-journal-page-footer { visibility: hidden; }
-
-.mm-mori-paper-actor {
-  position: absolute;
-  inset: 0 auto auto 0;
-  z-index: 3;
-  pointer-events: none;
-}
-.mm-mori-paper-actor:not([hidden]) { will-change: transform; }
-.mm-mori-paper-actor[hidden] { display: none; }
-.mm-mori-paper-actor > img[hidden] { display: none; }
-.mm-mori-paper-actor > img { width: 96px; height: auto; }
-.mm-mori-paper-actor > :is(svg, img, [data-mori-foot]) {
-  position: absolute;
-  inset: 0 auto auto 0;
-}
-.mm-mori-paper-actor > svg { overflow: visible; }
-.mm-mori-paper-actor > :is(svg, img) { filter: drop-shadow(0 5px 3px rgb(47 33 26 / .2)); }

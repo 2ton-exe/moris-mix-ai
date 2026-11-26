@@ -3,8 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefObject } from 'react'
 import { flushSync } from 'react-dom'
-import { createMoriPaperScene, MoriPaperActor } from './MoriPaperActor'
-import { chooseTurnGrab, getTurnCompanion, projectGrabPoint, TURN_DURATION, TURN_PERSPECTIVE, smooth, turnFrame, type GrabSpot } from './pageTurnMotion'
+import { TURN_DURATION, TURN_PERSPECTIVE, turnFrame } from './pageTurnMotion'
 
 export type JournalTurnDirection = 'forward' | 'backward'
 export type JournalTurnLayout = 'spread' | 'single'
@@ -283,11 +282,9 @@ export function JournalPageTurnLayer({ turn }: { turn: TurnState }) {
     {turn.layout === 'single' && <div ref={single} className="mm-turn-under mm-turn-under--single" />}
     {next && <div className="mm-turn-ground-shadow" />}
     {next && <div className={`mm-turn-leaf mm-turn-leaf--${turn.direction}`} data-direction={turn.direction} data-layout={turn.layout}>
-      <div className="mm-turn-face mm-turn-face--front"><div ref={front} className="mm-turn-content" /><div className="mm-turn-shade" /><span className="mm-turn-crease" /></div>
-      <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /><span className="mm-turn-crease" /></div>
-      <span data-page-corner="true" className="mm-turn-corner" />
+      <div className="mm-turn-face mm-turn-face--front"><div ref={front} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
+      <div className="mm-turn-face mm-turn-face--back"><div ref={back} className="mm-turn-content" /><div className="mm-turn-shade" /></div>
     </div>}
-    {next && !singleLeaf && <MoriPaperActor />}
   </div>
 }
 
@@ -304,14 +301,10 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
   const owner = useRef(Symbol('journal-turn'))
   const frame = useRef<number | null>(null)
   const settleFrame = useRef<(() => void) | null>(null)
-  const stopCompanion = useRef<(() => void) | null>(null)
-  const lastGrab = useRef<GrabSpot>('corner')
   const clearMotion = useCallback(() => {
     if (frame.current !== null) cancelAnimationFrame(frame.current)
     frame.current = null
     settleFrame.current = null
-    stopCompanion.current?.()
-    stopCompanion.current = null
   }, [])
 
   const cancel = useCallback((id: number) => {
@@ -408,36 +401,13 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
     const layer = book?.querySelector<HTMLElement>('[data-journal-page-turn]')
     const leaf = layer?.querySelector<HTMLElement>('.mm-turn-leaf')
     if (!book || !leaf || !layer) return finish(motionId)
-    const rect = book.getBoundingClientRect()
-    const paper = leaf.getBoundingClientRect()
-    const origin = parseFloat(getComputedStyle(leaf).transformOrigin)
-    const radius = motionLayout === 'single' || motionDirection === 'forward' ? paper.width - origin : -origin
-    const geometry = { left: rect.left, top: rect.top, width: rect.width, height: rect.height, hinge: paper.left - rect.left + origin, pageTop: paper.top - rect.top, radius, single: motionLayout === 'single' }
-    const companion = getTurnCompanion()
-    const spatial = companion && motionLayout === 'spread' ? createMoriPaperScene({
-      book, layer, leaf, direction: motionDirection, companion, previousGrab: lastGrab.current, settle: () => finish(motionId),
-    }) : null
-    const move = motionLayout === 'single' ? companion?.start(motionDirection, true) : undefined
-    const viewport = window.visualViewport
-    const grab = move ? chooseTurnGrab({
-      geometry, direction: motionDirection, pageHeight: paper.height, previous: lastGrab.current,
-      viewportTop: viewport?.offsetTop ?? 0,
-      viewportHeight: viewport?.height ?? window.innerHeight,
-    }) : null
-    if (spatial) lastGrab.current = spatial.grabSpot
-    if (grab) {
-      lastGrab.current = grab.spot
-      leaf.style.setProperty('--mm-grab-y', `${grab.y}px`)
-    }
-    stopCompanion.current = spatial?.stop ?? (move && companion ? () => companion.stop() : null)
-    const duration = spatial?.duration ?? TURN_DURATION
-    layer.dataset.duration = String(duration)
+    const duration = TURN_DURATION
     const shades = [...leaf.querySelectorAll<HTMLElement>('.mm-turn-shade')]
     const front = leaf.querySelector<HTMLElement>('.mm-turn-face--front')!
     const back = leaf.querySelector<HTMLElement>('.mm-turn-face--back')!
     setTurn((current) => current?.id === motionId && current.phase === 'ready' ? { ...current, phase: 'animating' } : current)
     const apply = (progress: number) => {
-      const value = spatial?.apply(progress) ?? turnFrame(progress, motionDirection, motionLayout === 'single')
+      const value = turnFrame(progress, motionDirection, motionLayout === 'single')
       leaf.style.transform = `rotateY(${value.angle}deg)`
       shades.forEach((shade) => { shade.style.opacity = String(value.shade) })
       layer.style.setProperty('--mm-turn-shadow', String(value.shade))
@@ -448,13 +418,6 @@ export function useJournalPageTurnManager({ bookRef, pathname, search, singleLay
       layer.dataset.progress = String(progress)
       layer.dataset.travel = String(value.travel)
       layer.dataset.stage = value.stage
-      if (move && grab) {
-        const { left, top } = book.getBoundingClientRect()
-        geometry.left = left
-        geometry.top = top
-        leaf.style.setProperty('--mm-crease-strength', String(value.grip * smooth((progress - .24) / .08)))
-        move(value, projectGrabPoint(geometry, value.angle, grab.y))
-      }
     }
     settleFrame.current = () => apply(1)
     let started: number | null = null

@@ -9,7 +9,7 @@ import { chromium, expect } from '@playwright/test'
 import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { assertReferencePrerequisites } from './reference-prerequisites.mjs'
-import { holdSpatialPaperGrip } from './journal-geometry.mjs'
+import { holdPaperTurn } from './journal-geometry.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const referenceRoot = path.resolve(root, '../../figma-make-reference')
@@ -223,10 +223,9 @@ try {
   const forwardLayer = appPage.locator('[data-journal-page-turn]')
   await expect(forwardLayer).toHaveAttribute('data-phase', 'animating')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
-  const [forwardMori, forwardReferenceTimes] = await Promise.all([holdSpatialPaperGrip(forwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
+  const [forwardMori, forwardReferenceTimes] = await Promise.all([holdPaperTurn(forwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
   assert.equal(forwardMori?.direction, 'forward')
-  assert.ok(forwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
-  await expect(forwardLayer.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
+  await expect(forwardLayer.locator('[data-mori-paper-actor]')).toHaveCount(0)
   await expect(appPage.locator('.mori-pet-root .mm-mori')).toHaveCount(1)
   assert.ok(forwardReferenceTimes.length > 0, 'The reference spread exposes its turn animations')
   const forwardMidCurrent = await turnDiagnostics(appPage)
@@ -255,9 +254,8 @@ try {
   const backwardLayer = appPage.locator('[data-journal-page-turn]')
   await expect(backwardLayer).toHaveAttribute('data-phase', 'animating')
   await expect(referencePage.locator('.turn-layer .leaf')).toBeVisible()
-  const [backwardMori, backwardReferenceTimes] = await Promise.all([holdSpatialPaperGrip(backwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
+  const [backwardMori, backwardReferenceTimes] = await Promise.all([holdPaperTurn(backwardLayer), holdTurnAtMidpoint(referencePage, true, 410)])
   assert.equal(backwardMori?.direction, 'backward')
-  assert.ok(backwardMori?.separation <= 2, 'Rendered mitt stays attached to paper')
   assert.ok(backwardReferenceTimes.length > 0, 'The reference spread exposes its turn animations')
   const backwardMidCurrent = await turnDiagnostics(appPage)
   const backwardMidReference = await turnDiagnostics(referencePage, true)

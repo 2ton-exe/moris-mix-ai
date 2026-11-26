@@ -98,6 +98,20 @@ try {
     await page.waitForTimeout(500)
     assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= 2, 'Desktop paper must use available height for compact recipes')
     await page.screenshot({ path: path.join(output, `${width}-collection.png`) })
+    const corner = page.getByRole('link', { name: /^Next page/ })
+    if (await corner.count()) {
+      await corner.hover()
+      await expect.poll(() => corner.evaluate(element => getComputedStyle(element, '::after').opacity)).toBe('1')
+      await page.screenshot({ path: path.join(output, `${width}-corner-hover.png`) })
+    }
+    const hover = []
+    for (const card of await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries .mm-collection-entry').all()) {
+      await card.hover()
+      await card.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)))
+      hover.push(await card.evaluate(element => getComputedStyle(element).borderColor))
+    }
+    assert.equal(new Set(hover).size, 1, 'Recipe scraps share one hover treatment')
+
     const seen = new Set()
     for (let turn = 0; turn < recipes.length; turn++) {
       const lists = page.locator('.mm-collection-body > .mm-collection-entries')
@@ -127,7 +141,7 @@ try {
       await page.waitForURL(new URL(target, origin).href)
       await expect(page.locator('[data-journal-page-turn="true"]')).toHaveCount(0)
       const spriteMounts = await page.evaluate(() => { globalThis.__moriSpriteObserver.disconnect(); return globalThis.__moriSpriteMounts })
-      assert.equal(spriteMounts, 1, 'Mori keeps one sprite element through the page turn')
+      assert.equal(spriteMounts, 0, 'Pagination must not mount a paper-turning mascot')
     }
     assert.equal(seen.size, recipes.length, 'Every recipe must remain reachable exactly once')
     const visibleLists = page.locator('.mm-collection-body > .mm-collection-entries')

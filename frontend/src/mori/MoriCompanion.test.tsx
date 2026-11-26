@@ -1,9 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { Link, MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider, useMoriActivity, useMoriGuidance } from './MoriCompanionContext'
 import type { MoriActivity } from './MoriCompanionContext'
+import * as navigationMotion from './moriNavigationMotion'
 import { JOURNAL_SINGLE_LAYOUT_QUERY } from '../journal/pageTurnMotion'
 
 function Activity({ activity }: { activity: MoriActivity | null }) { useMoriActivity(activity); return null }
@@ -182,4 +183,26 @@ it.each([
   expect(panel.textContent).not.toContain('private-recipe-id')
   expect(screen.queryByText('Organize cooking notes')).toBeNull()
   expect(screen.queryByText('Find something to cook')).toBeNull()
+})
+
+
+it('routes chapter clicks immediately while Mori walks independently and cancels stale travel', () => {
+  const cancel = vi.fn()
+  const travel = vi.spyOn(navigationMotion, 'travelToJournalTab').mockReturnValue({
+    arrived: new Promise<boolean>(() => {}), cancel,
+  })
+  function Location() { return <output data-testid="chapter-route">{useLocation().pathname}</output> }
+  const view = render(<Companion><nav className="mm-bookmarks--journal">
+    <Link to="/app/recipes/new">New recipe</Link>
+    <Link to="/app/chef">AI Chef</Link>
+  </nav><Location /></Companion>)
+  fireEvent.click(screen.getByRole('link', { name: 'New recipe' }))
+  expect(screen.getByTestId('chapter-route').textContent).toBe('/app/recipes/new')
+  expect(travel).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('link', { name: 'AI Chef' }))
+  expect(screen.getByTestId('chapter-route').textContent).toBe('/app/chef')
+  expect(cancel).toHaveBeenCalledTimes(1)
+  expect(travel).toHaveBeenCalledTimes(2)
+  view.unmount()
+  expect(cancel).toHaveBeenCalledTimes(2)
 })

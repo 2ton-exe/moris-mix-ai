@@ -10,7 +10,7 @@ import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
-import { holdSpatialPaperGrip } from './journal-geometry.mjs'
+import { holdPaperTurn } from './journal-geometry.mjs'
 
 const apiOrigin = 'https://fe07.example.test'
 const userId = '11111111-1111-4111-8111-111111111111'
@@ -128,9 +128,8 @@ try {
       const layer = page.locator('[data-journal-page-turn="true"]')
       async function sampleTurn(direction) {
         await expect(layer).toHaveAttribute('data-phase', 'animating')
-        const grip = await holdSpatialPaperGrip(layer)
+        const grip = await holdPaperTurn(layer)
         assert.equal(grip.direction, direction)
-        assert.ok(grip.separation <= 2, `${direction} turn separates Mori's mitt from the sheet by ${grip.separation}px`)
         await page.screenshot({ path: path.join(outputDir, `1440-turn-${direction}.png`) })
         await layer.evaluate((element) => element.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: 1 })))
         await expect(layer).toHaveCount(0)

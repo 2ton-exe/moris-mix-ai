@@ -425,10 +425,9 @@ it('walks toward the actual bookmark with matching idle art while walk frames ar
   const character = screen.getByRole('group', { name: 'Mori companion' })
   await waitFor(() => expect(character.querySelector('.mori-navigation-sprite')?.getAttribute('src')).toEqual(expect.stringMatching(/\/(NE|N|E)\/idle\.svg/)))
   await waitFor(() => expect(tab.hasAttribute('data-mori-tap-target')).toBe(true))
-  expect(screen.getByTestId('location').textContent).toContain('/app/recipes|')
-  expect(screen.getByRole('button', { name: 'Open recipes' })).toHaveProperty('disabled', true)
+  expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new|')
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/recipes/new|'))
-  expect(tab.hasAttribute('data-mori-tap-target')).toBe(false)
+  await waitFor(() => expect(tab.hasAttribute('data-mori-tap-target')).toBe(false))
 })
 
 it('opens an existing AI Chef review instead of targeting its disabled pantry field', async () => {

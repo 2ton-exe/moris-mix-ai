@@ -120,10 +120,6 @@ export function Mori({ mood = 'happy', size = 120, className = '', style, label,
             <path d="M137 200 Q132 188 140 180 Q147 176 150 186 Q160 176 163 184 Q166 196 155 205 Q144 211 137 200Z" fill={MITT} stroke={O} strokeWidth="3.2" />
             <path d="M149 187 L148 194" stroke={O} strokeWidth="2" strokeLinecap="round" />
           </g>
-          <g data-mori-closed-mitt="true" opacity="0">
-            <path d="M137 199 Q134 187 143 183 Q153 180 159 187 L157 199 Q148 209 137 199Z" fill={MITT} stroke={O} strokeWidth="3.2" />
-            <path d="M157 187 Q143 184 143 191 Q144 197 154 194" fill="#edbe5c" stroke={O} strokeWidth="2.5" strokeLinecap="round" />
-          </g>
           <path d="M139 200 Q147 204 154 199" stroke="#b07f25" strokeWidth="2.5" fill="none" />
           <circle data-mori-hand="true" cx="148" cy="190" r=".1" fill="transparent" />
         </g>

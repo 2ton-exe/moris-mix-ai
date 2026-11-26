@@ -281,10 +281,15 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
           ? Array.from(document.querySelectorAll<HTMLAnchorElement>('.mm-journal-book > .mm-journal-spread .mm-bookmarks--journal a'))
             .find((link) => link.pathname === journalTab) ?? null
           : anchor ?? log.current?.querySelector<HTMLElement>(`[data-message-id="${acknowledgment}"]`) ?? null
-        void playNavigation(findAnchor, controller.signal).then((continueNavigation) => {
-          if (continueNavigation === false) cancel(false)
-          else finish()
-        }, finish)
+        if (journalTab) {
+          void playNavigation(findAnchor, controller.signal)
+          finish()
+        } else {
+          void playNavigation(findAnchor, controller.signal).then((continueNavigation) => {
+            if (continueNavigation === false) cancel(false)
+            else finish()
+          }, finish)
+        }
       } else {
         finish()
       }

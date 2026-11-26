@@ -47,7 +47,6 @@ const server = await createServer({
 })
 let browser
 let appOrigin
-const measurements = { contactSamples: 0, maxContactPx: 0, desktopContactSamples: 0, maxDesktopContactPx: 0, maxSpineDriftPx: 0, maxBindingPx: 0 }
 
 async function createJournal(width, { reducedMotion = false, empty = false, chef = false, collection = false, recordVideo = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, ...(recordVideo ? { recordVideo: { dir: path.join(outputDir, 'videos'), size: { width, height: 900 } } } : {}), reducedMotion: reducedMotion ? 'reduce' : 'no-preference' })
@@ -119,154 +118,6 @@ async function reachable(page, locator) {
     `Companion control must remain reachable: ${JSON.stringify(box)}`)
 }
 
-async function verifySpatialMoriTurn(layer, direction, screenshot) {
-  await expect(layer.locator('[data-mori-paper-actor] > :is(svg, img):visible')).toBeVisible()
-  const { width, samples } = await layer.evaluate((node) => {
-    const book = node.closest('.mm-journal-book')
-    const actor = node.querySelector('[data-mori-paper-actor]')
-    const foot = actor.querySelector('[data-mori-foot]')
-    const corner = node.querySelector('[data-page-corner]')
-    const live = book.querySelector(':scope > .mm-journal-spread')
-    const left = live.querySelector(':scope > .mm-journal-flyleaf').getBoundingClientRect()
-    const right = live.querySelector(':scope > .mm-journal-page').getBoundingClientRect()
-    const ringElements = [...book.querySelectorAll('.mm-journal-ring')]
-    const rings = ringElements.map((ring) => ring.getBoundingClientRect())
-    const bindingAlignment = (flipped) => {
-      const ring = rings[0]
-      const surface = node.querySelector(flipped ? '.mm-turn-face--back' : '.mm-turn-face--front')
-      const hole = [...surface.querySelectorAll('.mm-journal-hole')].map((element) => element.getBoundingClientRect()).find((box) => box.width > 0)
-      const rightEndpoint = flipped ? node.dataset.direction === 'backward' : node.dataset.direction === 'forward'
-      return hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : Infinity
-    }
-    const contains = (rect, x, y) => x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1
-    const samples = Array.from({ length: 200 }, (_, index) => {
-      const progress = index === 199 ? .999 : index / 200
-      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-      const { x, y } = foot.getBoundingClientRect()
-      const { x: cornerX, y: cornerY } = corner.getBoundingClientRect()
-      const gripping = actor.hasAttribute('data-mori-gripping')
-      const ring = ringElements[0].getBoundingClientRect()
-      const grip = actor.querySelector('[data-mori-hand]')
-      const point = gripping ? new globalThis.DOMPoint(grip.cx.baseVal.value, grip.cy.baseVal.value).matrixTransform(grip.getScreenCTM()) : null
-      const sprite = actor.querySelector('img')
-      return {
-        progress, motion: actor.dataset.moriMotion, facing: actor.dataset.moriFacing, x, y, cornerX, cornerY, gripping,
-        sprite: sprite?.getAttribute('src'),
-        spriteFootY: sprite ? sprite.getBoundingClientRect().top + sprite.getBoundingClientRect().height * 230.6 / 240 : null,
-        travel: Number(node.dataset.travel),
-        crease: Number(globalThis.getComputedStyle(node.querySelector('.mm-turn-crease')).opacity),
-        spineDrift: Math.max(Math.abs(ring.x - rings[0].x), Math.abs(ring.y - rings[0].y)),
-        bindingAlignment: index === 0 || index === 199 ? bindingAlignment(index === 199) : null,
-        separation: point && Math.hypot(point.x - cornerX, point.y - cornerY),
-        step: actor.querySelector('[data-mori-pull-foot]')?.getAttribute('transform'),
-        paper: contains(left, x, y) ? 'left' : contains(right, x, y) ? 'right' : null,
-        inGutter: x >= left.right && x <= right.left && y >= left.top && y <= left.bottom,
-        onRing: rings.some((ring) => contains(ring, x, y)),
-      }
-    })
-    return { width: globalThis.innerWidth, samples }
-  })
-
-  const label = `${width}px ${direction}`
-  const motion = samples.filter((sample, index) => sample.motion !== samples[index - 1]?.motion).map((sample) => sample.motion)
-  assert.deepEqual(motion, ['approach', 'align', 'grab', 'turn', 'release', 'recover'], `${label}: takes one approach-to-recovery sequence`)
-  const initial = samples[0]
-  const alignment = samples.find((sample) => sample.motion === 'align')
-  const recovery = samples.findLast((sample) => sample.motion === 'recover')
-  assert.equal(alignment.paper, direction === 'forward' ? 'right' : 'left', `${label}: approaches the outgoing leaf`)
-  assert.ok(Math.hypot(alignment.x - initial.x, alignment.y - initial.y) > 12, `${label}: feet move to reach the paper`)
-  assert.equal(alignment.facing, direction === 'forward' ? 'E' : 'W', `${label}: faces the outgoing edge`)
-  assert.ok(recovery.paper && Math.hypot(recovery.x - initial.x, recovery.y - initial.y) <= 1, `${label}: returns to his resting point on paper`)
-
-  const directions = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
-  const pulledPaper = []
-  const displayedWalkFrames = new Set()
-  for (const [index, sample] of samples.entries()) {
-    assert.ok((sample.paper || sample.inGutter) && !sample.onRing, `${label}: foot leaves the book or crosses a ring ${JSON.stringify(sample)}`)
-    if (['approach', 'align', 'grab'].includes(sample.motion)) {
-      assert.equal(sample.travel, 0, `${label}: paper waits for contact`)
-      assert.ok(Math.hypot(sample.cornerX - initial.cornerX, sample.cornerY - initial.cornerY) <= .5, `${label}: outgoing paper remains stationary`)
-    }
-    measurements.maxSpineDriftPx = Math.max(measurements.maxSpineDriftPx, sample.spineDrift)
-    assert.ok(sample.spineDrift <= 1, `${label}: spine stays fixed`)
-    if (sample.bindingAlignment !== null) {
-      measurements.maxBindingPx = Math.max(measurements.maxBindingPx, sample.bindingAlignment)
-      assert.ok(sample.bindingAlignment <= 1, `${label}: page holes align with the loop endpoints`)
-    }
-    if (sample.gripping) {
-      measurements.contactSamples++
-      measurements.maxContactPx = Math.max(measurements.maxContactPx, sample.separation)
-      measurements.desktopContactSamples++
-      measurements.maxDesktopContactPx = Math.max(measurements.maxDesktopContactPx, sample.separation)
-      assert.ok(sample.separation <= 2, `${label}: mitt separates from paper by ${sample.separation}px`)
-      assert.ok(sample.crease > .2 && sample.crease < .9, `${label}: subtle crease appears while gripping`)
-      if (sample.travel > 0) pulledPaper.push(sample)
-    }
-    if (sample.sprite && ['approach', 'recover'].includes(sample.motion)) {
-      assert.ok(Math.abs(sample.spriteFootY - sample.y) <= 1, `${label}: sprite sole is registered to the paper`)
-      if (sample.sprite.includes(`/${sample.facing}/walk-`)) displayedWalkFrames.add(sample.sprite)
-    }
-    if (sample.motion === 'recover') assert.equal(sample.gripping, false, `${label}: releases the paper before walking`)
-
-    const previous = samples[index - 1]
-    if (!previous || !['approach', 'recover'].includes(sample.motion) || previous.motion !== sample.motion || previous.facing !== sample.facing) continue
-    const dx = sample.x - previous.x
-    const dy = sample.y - previous.y
-    if (Math.hypot(dx, dy) < 1) continue
-    const sector = Math.atan2(dy, dx) / (Math.PI / 4)
-    if (Math.abs(sector - Math.round(sector)) > .48) continue
-    assert.equal(sample.facing, directions[(Math.round(sector) + 8) % 8], `${label}: faces in the direction of travel`)
-  }
-  assert.ok(displayedWalkFrames.size >= 4, `${label}: renders the approved walk frames`)
-  assert.ok(pulledPaper.length > 5, `${label}: Mori keeps contact as the paper starts to move`)
-  const oppositeSide = direction === 'forward' ? 'left' : 'right'
-  assert.ok(pulledPaper.some((sample) => sample.travel > .8 && sample.paper === oppositeSide),
-    `${label}: Mori follows the paper to the other side before releasing it`)
-  assert.ok(samples.filter((sample) => sample.travel >= .25 && sample.travel <= .85).every((sample) => sample.gripping),
-    `${label}: Mori holds the same edge throughout the turn across the spine`)
-  assert.ok(new Set(pulledPaper.map(({ step }) => step).filter(Boolean)).size > 1,
-    `${label}: Mori takes steps while pulling the paper`)
-
-  for (const stage of motion) {
-    const frames = samples.filter((sample) => sample.motion === stage)
-    const sample = stage === 'turn' ? frames.find((frame) => frame.travel >= .8) : frames[Math.floor(frames.length / 2)]
-    await layer.evaluate((node, progress) => {
-      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-      return new Promise((resolve) => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve)))
-    }, sample.progress)
-    await screenshot(stage)
-  }
-  await layer.evaluate((node, progress) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress })), samples.at(-1).progress)
-}
-
-async function verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot }) {
-  const spine = await page.locator('.mm-journal-ring').first().boundingBox()
-  await expect(character).toHaveAttribute('data-turn-direction', direction)
-  const points = [...new Set([.1, .22, .32, .54, .68, .85, .95, ...Array.from({ length: 29 }, (_, i) => Number((.26 + i * .02).toFixed(2)))])].sort((a, b) => a - b)
-  for (const progress of points) {
-    const contact = await layer.evaluate((node, progress) => {
-      node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: progress }))
-      const hand = globalThis.document.querySelector('[data-mori-hand]')
-      const point = new globalThis.DOMPoint(Number(hand.getAttribute('cx')), Number(hand.getAttribute('cy'))).matrixTransform(hand.getScreenCTM())
-      const corner = node.querySelector('[data-page-corner]').getBoundingClientRect()
-      const ring = globalThis.document.querySelector('.mm-journal-ring').getBoundingClientRect()
-      const surface = node.querySelector(progress < .54 ? '.mm-turn-face--front' : '.mm-turn-face--back')
-      const hole = [...surface.querySelectorAll('.mm-journal-hole')].map((element) => element.getBoundingClientRect()).find((box) => box.width > 0)
-      const rightEndpoint = node.dataset.layout === 'single' || (progress < .54 ? node.dataset.direction === 'forward' : node.dataset.direction === 'backward')
-      const alignment = hole ? Math.hypot(hole.x + hole.width / 2 - (rightEndpoint ? ring.right : ring.left), hole.y + hole.height / 2 - (ring.y + ring.height / 2)) : null
-      return { alignment, connected: node.isConnected, phase: node.dataset.phase, progress: node.dataset.progress, leaf: node.querySelector('.mm-turn-leaf').getBoundingClientRect().toJSON(), distance: Math.hypot(point.x - corner.x, point.y - corner.y), hand: { x: point.x, y: point.y }, corner: { x: corner.x, y: corner.y }, ring: { x: ring.x, y: ring.y } }
-    }, progress)
-    if (progress >= .26 && progress <= .82) { measurements.contactSamples++; measurements.maxContactPx = Math.max(measurements.maxContactPx, contact.distance) }
-    measurements.maxSpineDriftPx = Math.max(measurements.maxSpineDriftPx, Math.abs(contact.ring.x - spine.x), Math.abs(contact.ring.y - spine.y))
-    if ([.1, .95].includes(progress)) measurements.maxBindingPx = Math.max(measurements.maxBindingPx, contact.alignment ?? Infinity)
-    if (progress >= .26 && progress <= .82) assert.ok(contact.distance <= 2, `${width}px ${direction} p=${progress}: detached mitt ${JSON.stringify(contact)}`)
-    if ([.1, .95].includes(progress)) assert.ok(contact.alignment !== null && contact.alignment <= 1, `Hole and loop endpoint must align: ${JSON.stringify(contact)}`)
-    if (progress >= .26 && progress <= .82 && contact.corner.x >= 0 && contact.corner.x <= width && contact.corner.y >= 0) assert.ok(contact.hand.x >= -2 && contact.hand.x <= width + 2 && contact.hand.y >= -2, 'Attached mitt stays within the viewport when the page corner is visible')
-    assert.ok(Math.abs(contact.ring.x - spine.x) <= 1 && Math.abs(contact.ring.y - spine.y) <= 1, 'Spine stays fixed')
-    if ([.1, .22, .32, .54, .68, .85, .95].includes(progress)) await screenshot(progress)
-  }
-}
-
 async function verifyMoriPageTurn(page, character, direction) {
   const layer = page.locator('[data-journal-page-turn]')
   await expect(layer).toHaveAttribute('data-phase', 'animating')
@@ -276,10 +127,9 @@ async function verifyMoriPageTurn(page, character, direction) {
   const width = page.viewportSize().width
   const journey = new URL(page.url()).pathname.split('/').at(-1)
   const screenshot = (stage) => page.screenshot({ path: path.join(outputDir, `${journey}-${width}-${direction}-${stage}.png`) })
-  if (spatial) {
-    await expect(character.getByRole('button', { name: 'Talk to Mori' })).toHaveAttribute('tabindex', '-1')
-    await verifySpatialMoriTurn(layer, direction, screenshot)
-  } else await verifyCompactMoriTurn({ page, character, layer, direction, width, screenshot })
+  await expect(layer.locator('[data-mori-paper-actor]')).toHaveCount(0)
+  await layer.evaluate((node) => node.dispatchEvent(new globalThis.CustomEvent('mm-journal-turn-sample', { detail: .999 })))
+  await screenshot('independent-turn')
   await expect(page).toHaveURL(before)
   const destinationPositions = await layer.evaluate((node) => {
     const selectors = node.dataset.layout === 'single' ? ['.mm-turn-face--back'] : node.dataset.direction === 'forward' ? ['.mm-turn-face--back', '.mm-turn-under--right'] : ['.mm-turn-face--back', '.mm-turn-under--left']
@@ -361,7 +211,7 @@ async function assertShortcutTravel(recording, tabName, { checkSteps = false, ch
     assert.ok(walking.length > 1, `Mori walks to ${tabName}`)
     assert.ok(arrival.some((sample) => sample.target === tabName && sample.handGap !== null && sample.handGap <= 3),
       `Mori reaches the real ${tabName} tab: ${JSON.stringify(arrival)}`)
-    assert.ok(arrival.every((sample) => sample.stillOnSource), `Navigation waits for Mori to arrive at ${tabName}`)
+    assert.ok(arrival.every((sample) => !sample.stillOnSource), `Navigation proceeds independently of Mori arriving at ${tabName}`)
     assert.deepEqual(linksClicked, [], 'The real notebook tab receives no synthetic click')
     if (checkMovedTab) assert.equal(shifted, true, 'The destination changes position while Mori travels')
     if (checkCurvature) {
@@ -430,7 +280,7 @@ try {
     await page.keyboard.press('Enter')
     if (editorTravel) {
       await expect(character).toHaveAttribute('data-navigation-stage', /travel|arrival/)
-      await expect(page).toHaveURL(`${origin}app/recipes?view=index`)
+      await expect(page).toHaveURL(`${origin}app/recipes/new`)
       await expect(editor).toBeDisabled()
       await chat.getByRole('button', { name: 'Open recipes' }).evaluate((button) => button.click())
       await expect(chat.getByRole('log')).not.toContainText('Opening your recipe collection.')
@@ -955,15 +805,15 @@ try {
       await settleReadingPages(page)
       await page.evaluate(() => { globalThis.__moriSampleTurns = true })
       const layer = page.locator('[data-journal-page-turn]')
-      const actor = layer.locator('[data-mori-paper-actor] > :is(svg, img):visible')
+      const actor = layer.locator('[data-mori-paper-actor]')
       await page.getByRole('button', { name: 'Next Page', exact: true }).click()
-      await expect(actor).toBeVisible()
+      await expect(actor).toHaveCount(0)
       const turnId = await layer.getAttribute('data-turn-id')
       await page.locator('.mm-journal-spread .mm-button--page-turn').evaluateAll((buttons) => buttons.forEach((button) => button.click()))
       await expect(layer).toHaveAttribute('data-turn-id', turnId)
       await verifyMoriPageTurn(page, character, 'forward')
       await page.getByRole('button', { name: 'Previous Page', exact: true }).click()
-      await expect(actor).toBeVisible()
+      await expect(actor).toHaveCount(0)
       await page.locator('.mm-desk-brand').click()
       await expect(page).toHaveURL(`${origin}app/recipes`)
       await expect(layer).toHaveCount(0)
@@ -1076,7 +926,7 @@ try {
   await expect(page.locator('.mori-pet-character')).not.toHaveAttribute('data-turn-direction', 'forward')
   assert.deepEqual(errors, [])
   await context.close()
-  await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', ...measurements }, null, 2))
+  await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', independentPageTurns: true }, null, 2))
   process.stdout.write(`Empty guidance and reduced motion passed. Screenshots: ${outputDir}\n`)
   }
 } finally {
