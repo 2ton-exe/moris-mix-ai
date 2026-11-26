@@ -517,7 +517,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             <div className="mm-quick-ai__field-meta">
               <p className="mm-quick-ai__helper" id={helpId}>{persistenceFailed
                 ? 'Your notes stay available while this app is open.'
-                : 'Your notes are kept in this tab as you type.'}</p>
+                : desktopSpread ? 'Notes kept in this tab.' : 'Your notes are kept in this tab as you type.'}</p>
               <p className="mm-quick-ai__count" id={countId} aria-live="off">{draft.notes.length.toLocaleString()} / {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()}</p>
             </div>
             {validationMessage && <p className="mm-quick-ai__validation" id={validationId} role="alert">{validationMessage}</p>}

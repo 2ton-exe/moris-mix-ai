@@ -593,6 +593,13 @@ try {
         art.y + art.height <= message.y || message.y + message.height <= art.y)
     }, { message: `Automatic Mori docking must not cover failure feedback at ${width}×${height}` }).toBe(true)
     await retry.click({ trial: true })
+    assert.ok(await page.locator('.mm-quick-ai__sheet').evaluate(element => element.scrollHeight <= element.clientHeight + 1),
+      `Ordinary failure feedback must fit without inner scrolling at ${width}×${height}`)
+    assert.ok(await page.evaluate(() => {
+      const paper = globalThis.document.querySelector('.mm-journal-page').getBoundingClientRect()
+      const facing = globalThis.document.querySelector('.mm-journal-flyleaf').getBoundingClientRect()
+      return Math.abs(paper.bottom - facing.bottom) <= 2 && globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 2
+    }), `Recovery must preserve equal paper bounds at ${width}×${height}`)
     await page.screenshot({ path: path.join(outputDir, `quick-entry-invalid-result-${width}.png`), animations: 'disabled' })
   }
   await page.setViewportSize({ width: 1440, height: 900 })

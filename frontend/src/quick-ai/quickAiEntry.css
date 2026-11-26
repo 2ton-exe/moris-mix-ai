@@ -182,27 +182,14 @@
 }
 
 @media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
-  .mm-journal-book:has(.mm-quick-ai[data-recovery]) {
-    height: auto;
-    padding-block: var(--mm-overhang);
-  }
-  .mm-journal-spread:has(.mm-quick-ai[data-recovery]) {
-    position: relative;
-    top: auto;
-    height: auto;
-    min-height: var(--mm-page-height);
-    grid-template-rows: auto;
-  }
-  .mm-desk .mm-journal-page:has(.mm-quick-ai[data-recovery]) { padding-bottom: var(--mm-footer-inset); }
-  .mm-desk .mm-quick-ai[data-recovery] { height: auto; }
-  .mm-journal-page:has(.mm-quick-ai[data-recovery]) > .mm-journal-page-footer {
-    position: relative;
-    inset: auto;
-    margin-block-start: var(--mm-space-3);
-  }
+  .mm-quick-ai[data-recovery] .mm-quick-ai__sheet { overflow: auto; overscroll-behavior: contain; scroll-padding-block: 8px; }
+  .mm-quick-ai[data-recovery] .mm-quick-ai__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mm-quick-ai[data-recovery] .mm-quick-ai__actions .button { min-inline-size: 0; white-space: normal; }
+  .mm-quick-ai[data-recovery] .mm-quick-ai__actions > :only-child { grid-column: 1 / -1; justify-self: start; }
 }
 
 @media (min-width: 1100px) and (min-height: 640px) and (max-height: 760px) {
+  .mm-quick-ai-intro h1 { font-size: 28px; margin-block-end: 8px; }
   .mm-quick-ai__back { margin-bottom: 5px; }
   .mm-quick-ai-intro--task .mm-quick-ai-intro__copy { display: none; }
   .mm-quick-ai__sheet { padding: 12px; }
@@ -211,6 +198,7 @@
     max-height: 5.5rem;
   }
   .mm-quick-ai__error, .mm-quick-ai__cooldown { margin-block-start: 8px; padding-block: 7px; }
+  .mm-quick-ai__cooldown { margin-block-start: 4px; padding: 0; border: 0; background: none; }
   .mm-quick-ai__actions { padding-top: 8px; }
 }
 
