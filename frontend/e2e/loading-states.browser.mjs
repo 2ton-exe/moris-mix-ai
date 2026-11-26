@@ -223,6 +223,26 @@ try {
         await page.evaluate(() => globalThis.document.fonts.ready)
         await page.waitForTimeout(200)
         await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
+        const measureNewEditor = () => Object.fromEntries([
+          ['title', '.mm-form-identity [name="title"]'], ['date', '.mm-form-identity input[type="date"]'],
+          ['rating', '.mm-form-identity .mm-recipe-star-rating__stars'], ['notes', '.mm-form-identity textarea[name="notes"]'],
+          ['ingredients', '.mm-form-recipe h2'], ['information', '.mm-form-identity h3'], ['add', '.mm-form-recipe .mm-row-add'],
+        ].map(([name, selector]) => {
+          const e = globalThis.document.querySelector(selector)
+          return [name, e?.getBoundingClientRect().toJSON()]
+        }))
+        const loadingNew = name === 'new' ? await page.evaluate(measureNewEditor) : null
+        if (loadingNew) {
+          await expect(page.locator('.mm-form-identity')).toHaveAttribute('inert', '')
+          await expect(page.locator('.mm-form-identity')).toHaveAttribute('aria-hidden', 'true')
+          assert.ok(await page.locator('.mm-form-identity textarea').evaluateAll(fields => fields.length === 2 && fields.every(field =>
+            globalThis.getComputedStyle(field).animationName.includes('mm-paper-field-light'))), `${stamp}: native field placeholders use the paper shimmer`)
+          await page.emulateMedia({ reducedMotion: 'reduce' })
+          assert.ok(await page.locator('.mm-form-identity textarea').evaluateAll(fields => fields.every(field =>
+            !globalThis.getComputedStyle(field).animationName.includes('mm-paper-field-light'))), `${stamp}: reduced motion disables the paper shimmer`)
+          if (width === 1100) await page.screenshot({ path: path.join(output, `${stamp}-loading-reduced.png`), animations: 'disabled' })
+          await page.emulateMedia({ reducedMotion: 'no-preference' })
+        }
         let loadingReference
         if (name === 'notes-review') {
           const reference = page.locator('.mm-extraction-notes--facing')
@@ -239,6 +259,14 @@ try {
         await expect(page.locator('.mm-skeleton-line')).toHaveCount(0)
         await page.waitForTimeout(200)
         await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
+        if (loadingNew) {
+          const loadedNew = await page.evaluate(measureNewEditor)
+          for (const [field, loading] of Object.entries(loadingNew)) {
+            const loaded = loadedNew[field]
+            for (const dimension of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loading[dimension] - loaded[dimension]) <= 2, `${stamp}: ${field} ${dimension} shifts when loading completes`)
+          }
+          await expect(page.locator('.mm-form-identity .mm-recipe-star-rating__stars')).toBeVisible()
+        }
         if (loadingReference) {
           const loadedReference = await page.locator('.mm-extraction-notes--facing').boundingBox()
           assert.ok(Math.abs(loadingReference.y - loadedReference.y) <= 2 && Math.abs(loadingReference.height - loadedReference.height) <= 2,
