@@ -476,6 +476,8 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
     if (pending || navigationRequest.current) return
     const text = composer.trim()
     if (!text) return
+    followLatest.current = true
+    setReadingHistory(false)
 
     const title = requestedRecipeTitle(text)
     if (title) {

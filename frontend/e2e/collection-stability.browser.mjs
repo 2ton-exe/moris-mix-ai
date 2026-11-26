@@ -8,6 +8,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { settleJournalLayout } from './journal-geometry.mjs'
 
 const apiOrigin = 'https://fe07.example.test'
 const userId = '11111111-1111-4111-8111-111111111111'
@@ -212,7 +213,7 @@ try {
       await expect(chat.locator('.mori-chat-message')).toHaveCount(2)
       const conversation = await chat.boundingBox()
       assert.equal(conversation.width, initial.width, 'Starting a conversation must not widen the bubble')
-      assert.ok(conversation.height <= 560, 'Default conversation fits within its desktop height')
+      assert.ok(conversation.height < 480, 'A short conversation stays compact until the user expands it')
       await expect(chat.getByRole('navigation', { name: 'Open a journal page' })).toBeHidden()
       await chat.getByText('Journal pages', { exact: true }).click()
       await expect(chat.getByRole('button', { name: 'Open recipe editor' })).toBeVisible()
@@ -234,6 +235,7 @@ try {
       await chat.getByRole('button', { name: 'Latest reply' }).click()
       await chat.getByRole('textbox', { name: 'Message Mori' }).fill('A cooking note kept while resizing.')
       await resize.focus()
+      await settleJournalLayout(page)
       const beforeResize = await chat.boundingBox()
       const beforeLog = await chat.getByRole('log').boundingBox()
       for (let step = 0; step < 6; step++) await resize.press('ArrowUp')
@@ -241,7 +243,7 @@ try {
       const bounds = await chat.boundingBox()
       assert.ok(bounds.height > beforeResize.height + 20, 'ArrowUp expands the actual conversation panel')
       assert.ok((await chat.getByRole('log').boundingBox()).height > beforeLog.height + 20, 'Extra height goes to the conversation')
-      assert.ok(Math.abs(bounds.y + bounds.height - beforeResize.y - beforeResize.height) < 2, 'Upward resizing preserves the bottom edge')
+      assert.ok(Math.abs(bounds.y + bounds.height - beforeResize.y - beforeResize.height) < 2, `Upward resizing preserves the bottom edge (${beforeResize.y + beforeResize.height} → ${bounds.y + bounds.height})`)
       const grip = await resize.boundingBox()
       assert.ok(grip.x + grip.width >= bounds.x + bounds.width - 12, 'The resize grip belongs in the top-right corner')
       assert.ok(await chat.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'Expanded chat must keep its controls visible')
@@ -256,7 +258,7 @@ try {
       await page.mouse.up()
       const dragged = await chat.boundingBox()
       assert.ok(dragged.width > wider.width, 'The corner grip resizes the dialogue width')
-      assert.ok(Math.abs(dragged.x - wider.x) < 1 && dragged.height > 560, 'Manual sizing preserves the anchored edge and can grow beyond the default height')
+      assert.ok(Math.abs(dragged.x - wider.x) < 1 && dragged.height > beforeResize.height + 20, 'Manual sizing preserves the anchored edge and grows beyond the natural height')
       await resize.click()
       assert.equal((await chat.boundingBox()).width, dragged.width, 'A pointer click on the grip does not expand or collapse chat')
       await resize.press('Enter')

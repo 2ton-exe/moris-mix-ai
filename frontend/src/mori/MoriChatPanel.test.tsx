@@ -471,7 +471,7 @@ it('fills and focuses an editable prompt without sending', () => {
   expect(screen.queryAllByRole('article')).toHaveLength(count)
 })
 
-it('preserves the reading position when a new turn arrives', () => {
+it('shows your newly sent turn after reading earlier history', () => {
   renderChat('mori-chat-scroll')
   const log = screen.getByRole('log')
   Object.defineProperties(log, {
@@ -481,11 +481,29 @@ it('preserves the reading position when a new turn arrives', () => {
   log.scrollTop = 100
   fireEvent.scroll(log)
   send('hello')
-  expect(log.scrollTop).toBe(100)
+  expect(log.scrollTop).toBe(1000)
   log.scrollTop = 800
   fireEvent.scroll(log)
   send('hello again')
   expect(log.scrollTop).toBe(1000)
+})
+
+it('preserves the reading position when a pending reply arrives', async () => {
+  let resolveRequest!: (value: ExtractedRecipe) => void
+  vi.spyOn(extractRecipeApi, 'extract').mockImplementation(() => new Promise(resolve => { resolveRequest = resolve }))
+  renderChat('mori-chat-reading-reply')
+  choosePrompt('Record a recipe')
+  send('I simmered tomatoes for soup.')
+  const log = screen.getByRole('log')
+  Object.defineProperties(log, {
+    scrollHeight: { configurable: true, value: 1000 },
+    clientHeight: { configurable: true, value: 200 },
+  })
+  log.scrollTop = 100
+  fireEvent.scroll(log)
+  await act(async () => { resolveRequest(recipe()) })
+  await screen.findByRole('button', { name: 'Review draft' })
+  expect(log.scrollTop).toBe(100)
 })
 
 it('identifies speakers and announces pending work outside the busy transcript', async () => {

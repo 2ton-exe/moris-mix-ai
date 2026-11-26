@@ -229,11 +229,14 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
     : placement === 'right' ? Math.abs(panelLeft - gap - actual.x - width) < 1 : true
   function resizeChat(width: number, height: number) {
     if (placement !== 'left' && placement !== 'right') return
+    const bounds = bubble.current?.getBoundingClientRect()
+    const currentLeft = bounds?.left ?? panelLeft
+    const currentBottom = bounds?.bottom ?? panelTop + visiblePanelHeight
     setChatSize({
-      width: Math.min(right - panelLeft, Math.max(smallChat.width, width)),
-      height: Math.min(verticalSpace, panelTop + visiblePanelHeight - top, Math.max(smallChat.height, height)),
-      leftOffset: panelLeft - actual.x,
-      bottomOffset: panelTop + visiblePanelHeight - actual.y,
+      width: Math.min(right - currentLeft, Math.max(smallChat.width, width)),
+      height: Math.min(verticalSpace, currentBottom - top, Math.max(smallChat.height, height)),
+      leftOffset: currentLeft - actual.x,
+      bottomOffset: currentBottom - actual.y,
       placement,
     })
   }
@@ -397,7 +400,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
       </div>
       <div ref={bubble} hidden={!open} className="mori-pet-bubble" data-placement={placement} style={{ left: panelLeft, top: panelTop, width: panelWidth }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() } }}>
         {tailAttached && <span className="mori-pet-bubble-tail" style={placement === 'left' || placement === 'right' ? { top: tailOffset } : { left: tailOffset }} aria-hidden="true" />}
-        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-dialogue={dialogue || undefined} data-resizable={resizeFromSide || undefined} style={{ maxHeight: availablePanelHeight, height: resizeFromSide && (!naturalDialogue || manuallySized) ? availablePanelHeight : undefined }}>
+        <section id={panelId} role="region" aria-labelledby={headingId} className="mori-pet-panel" data-chat={Boolean(userId)} data-dialogue={dialogue || undefined} data-resizable={resizeFromSide || undefined} data-sized={manuallySized || undefined} style={{ maxHeight: availablePanelHeight, height: resizeFromSide && (!naturalDialogue || manuallySized) ? availablePanelHeight : undefined }}>
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
@@ -416,12 +419,12 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
             const vertical = event.key === 'ArrowUp' ? -24 : event.key === 'ArrowDown' ? 24 : 0
             if (!horizontal && !vertical) return
             event.preventDefault()
-            resizeChat(panelWidth + horizontal, visiblePanelHeight - vertical)
+            resizeChat(panelWidth + horizontal, (bubble.current?.getBoundingClientRect().height ?? visiblePanelHeight) - vertical)
           }}
           onPointerDown={(event) => {
             if (!event.isPrimary || event.button !== 0) return
             resizedByDrag.current = false
-            resizeDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, size: { width: panelWidth, height: visiblePanelHeight } }
+            resizeDrag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, size: { width: panelWidth, height: bubble.current?.getBoundingClientRect().height ?? visiblePanelHeight } }
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
           onPointerMove={(event) => {
