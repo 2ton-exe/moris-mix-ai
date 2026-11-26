@@ -158,6 +158,9 @@ try {
       })
       const capture = async name => {
         await page.evaluate(() => globalThis.document.fonts.ready)
+        await page.locator('[data-reading-ready="true"]').waitFor()
+        const indicator = await page.locator('.mm-reading-indicator').innerText()
+        assert.ok(Number(indicator.match(/of (\d+)/)?.[1]) < 20, `Short fixture must not fragment into single-character leaves: ${indicator}`)
         await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), animations: 'disabled' })
         const modal = page.locator('dialog[open], [role="alertdialog"]').first()
         assert.ok(await modal.evaluate(element => element.scrollWidth <= element.clientWidth + 1), `${name}: horizontal modal overflow`)
@@ -173,6 +176,8 @@ try {
       await capture('record-note')
       await cook.getByRole('button', { name: 'Back to recipe' }).click()
       await capture('record-discard-confirmation')
+      await expect(cook.locator('.mm-review-detail-dialog__content')).toHaveAttribute('inert', '')
+      await expect(cook.locator('.mm-review-detail-dialog__content > form')).toHaveCSS('opacity', '0.45')
       await cook.getByRole('button', { name: 'Keep editing note' }).click()
       await cook.getByRole('button', { name: 'Review cooking note' }).click()
       await capture('record-review')
@@ -202,6 +207,8 @@ try {
       await page.goto(`${origin}app/recipes/${current.id}`)
       await page.getByRole('button', { name: 'Linked recipes', exact: true }).click()
       await expect(linked.getByRole('alert')).toBeVisible()
+      const retry = linked.getByRole('button', { name: 'Try again' })
+      assert.ok((await retry.boundingBox()).height >= 44, 'Linked recipe retry needs the shared control target size')
       await capture('links-error')
       links = 'populated'
       await linked.getByRole('button', { name: 'Try again' }).click()

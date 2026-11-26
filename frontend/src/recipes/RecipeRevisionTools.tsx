@@ -12,6 +12,7 @@ import { formatCookedDate } from './recipePresentation'
 import { recipeKeys } from './queryOptions'
 import { RecipeSourceContext } from './source'
 import type { RecipeDetail } from './types'
+import { useJournalMedia } from '../journal/useJournalMedia'
 
 function recipePath(id: string) {
   return '/app/recipes/' + encodeURIComponent(id)
@@ -288,12 +289,13 @@ function CookingRecord({ recipe, userId, note, setNote, pending, setPending }: {
 }
 
 function LinkedRecipes({ childId, userId }: { childId: string; userId: string }) {
+  const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   const query = useQuery({
     queryKey: [...recipeKeys.detail(userId, childId), 'lineage'],
     queryFn: ({ signal }) => lineageApi.get(childId, { userId, signal }),
   })
   if (query.isPending) return <><p role="status" className="visually-hidden">Checking linked recipes…</p><ul aria-busy="true" aria-hidden="true"><li><span className="mm-skeleton-line" /></li></ul></>
-  if (query.isError) return <><p role="alert">Could not load linked recipes.</p><button type="button" onClick={() => { void query.refetch() }}>Try again</button></>
+  if (query.isError) return <><p role="alert">Could not load linked recipes.</p><button className={desktop ? 'button button-primary' : undefined} type="button" onClick={() => { void query.refetch() }}>Try again</button></>
   if (!query.data.lineage.length) return <p>This recipe has no saved links to earlier versions.</p>
   return <ul>{query.data.lineage.map((link) => <LinkedRecipe key={link.id} recipeId={link.parent_recipe_id} />)}</ul>
 }

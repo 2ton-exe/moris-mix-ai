@@ -57,7 +57,7 @@ export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false, g
       request.cancel()
       setRequest(null)
     }
-  }, [blocker.state, key, request])
+  }, [blocker, key, request])
   useLayoutEffect(() => {
     if (!warnOnUnload || !dirty || typeof window === 'undefined') return
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {

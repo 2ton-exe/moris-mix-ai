@@ -84,6 +84,9 @@
 .mm-cook-actions__controls > .mm-review-detail-link:first-of-type:hover { background: var(--mm-color-sage-200); }
 }
 @media (min-width: 1100px) and (min-height: 640px) {
+  .mm-review-detail-dialog__content[inert] > * { opacity: .45; }
+  .mm-review-detail-dialog__content > .button { justify-self: start; }
+  .mm-review-detail-dialog .mm-revision-tools > [role='alert'] { color: var(--mm-color-brick-700); }
 .mm-cook-actions__controls > .mm-review-detail-link.mm-record-cooking {
   padding-inline: var(--mm-space-2);
   border: 1px solid var(--mm-color-sage-600);

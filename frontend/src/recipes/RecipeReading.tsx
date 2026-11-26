@@ -14,7 +14,7 @@ import { readingParagraphs, readingSpreads, splitReadingText } from './readingPa
 import { useReadingPagination } from './useReadingPagination'
 import type { RecipeDetail } from './types'
 
-interface ReadingUnit { id: string; section: string; heading: string; count?: string; action?: ReactNode; list?: 'ul' | 'ol'; step?: number; content: ReactNode }
+interface ReadingUnit { id: string; section: string; heading: string; splittable?: boolean; count?: string; action?: ReactNode; list?: 'ul' | 'ol'; step?: number; content: ReactNode }
 
 function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, single: boolean, textChunkSize: number, editable: boolean, journalReturn: string, folio: number | undefined, hasCookingActions: boolean): ReadingUnit[] {
   const editRecipePath = `/app/recipes/${encodeURIComponent(recipe.id)}/edit`
@@ -23,22 +23,25 @@ function recipeUnits(recipe: RecipeDetail, publicDemo: boolean, single: boolean,
     const amount = ingredient.quantityText ?? [ingredient.quantity, ingredient.unit].filter((part) => part !== null).join(' ')
     const text = amount ? `${amount} ${ingredient.name}` : ingredient.name
     return splitReadingText(text, textChunkSize).map<ReadingUnit>((partText, part) => ({ id: part ? `ingredient-${index}-part-${part}` : `ingredient-${index}`, section: 'ingredients', heading: 'Ingredients',
-      list: 'ul', content: <li>{part === 0 && <IngredientEmoji name={ingredient.name} />}{partText}</li> }))
+      splittable: true, list: 'ul', content: <li>{part === 0 && <IngredientEmoji name={ingredient.name} />}{partText}</li> }))
   }).flat()
   if (!units.length) units.push({ id: 'ingredients-empty', section: 'ingredients', heading: 'Ingredients', content: <p>No ingredients listed.{editable && !publicDemo && <> <Link to={editRecipePath} state={editRecipeState}>Edit this recipe</Link> to add ingredients.</>}</p> })
   const methodHeading = publicDemo ? 'Instructions' : 'In the kitchen'
   const instructions = [...recipe.instructions].sort((a, b) => a.step - b.step)
   units.push(...instructions.flatMap((instruction, index) => splitReadingText(instruction.text, textChunkSize).map<ReadingUnit>((text, part) => ({
-    id: part ? `instruction-${index}-part-${part}` : `instruction-${index}`, section: 'method', heading: methodHeading,
+    id: part ? `instruction-${index}-part-${part}` : `instruction-${index}`, section: 'method', heading: methodHeading, splittable: true,
     action: editable && !publicDemo && !single && <Link className="button mm-button--ghost" to={`${editRecipePath}?section=method`} state={editRecipeState}>Edit cooking steps</Link>,
     list: 'ol', step: instruction.step, content: <li value={instruction.step}><span className="mm-step-number" aria-hidden="true">{instruction.step}</span><p>{part > 0 && <span className="visually-hidden">Step {instruction.step}, continued: </span>}{text}</p></li>,
   }))))
   if (!instructions.length) units.push({ id: 'instructions-empty', section: 'method', heading: methodHeading, content: <p>No cooking steps listed.{editable && !publicDemo && <> <Link to={`${editRecipePath}?section=method`} state={editRecipeState}>Add cooking steps</Link>.</>}</p> })
   // Delimiters stay attached: concatenating note segments preserves the source.
   const paragraphs = readingParagraphs(recipe.notes ?? '')
-  if (paragraphs.length) units.push(...paragraphs.flatMap((paragraph, index) => splitReadingText(paragraph, textChunkSize).map((text, part) => ({
-    id: part ? `note-${index}-part-${part}` : `note-${index}`, section: 'notes', heading: 'Personal notes', content: <p>{text}</p>,
-  }))))
+  if (paragraphs.length) units.push(...paragraphs.flatMap((paragraph, index) => splitReadingText(paragraph, textChunkSize).map((text, part) => {
+    const boundary = text.match(/(?:\r?\n[\t ]*)+$/)?.[0] ?? ''
+    // Paragraph spacing carries the boundary; preserve its source without charging blank lines to a leaf.
+    const content = <p>{text.slice(0, text.length - boundary.length)}{boundary && <span className="visually-hidden">{boundary}</span>}</p>
+    return { id: part ? `note-${index}-part-${part}` : `note-${index}`, section: 'notes', heading: 'Personal notes', splittable: true, content }
+  })))
   else if (!publicDemo) units.push({ id: 'notes-empty', section: 'notes', heading: 'Personal notes', content: <p className="mm-reading-notes__empty">No personal notes yet.{hasCookingActions ? <> Choose <strong>Record cooking</strong> below to add one.</>
     : editable && <> <Link to={editRecipePath} state={editRecipeState}>Edit this recipe</Link> to add a note.</>}</p> })
   if (recipe.flavor_scores) units.push({ id: 'flavors', section: 'flavors', heading: publicDemo ? 'Flavor scores' : 'Flavor notes', content:
@@ -65,7 +68,7 @@ function ReadingUnits({ units, prefix, measured = false, width }: {
     const List = first.list
     const content = [first, ...rest].map(({ id, content }) => <Fragment key={id}>{content}</Fragment>)
     const Section = measured ? 'div' : 'section'
-    return <Section key={first.id} data-unit={first.id} data-section={first.section} className={`mm-reading-unit mm-reading-${first.section}`} aria-labelledby={measured ? undefined : label}>
+    return <Section key={first.id} data-unit={first.id} data-section={first.section} data-splittable={first.splittable || undefined} className={`mm-reading-unit mm-reading-${first.section}`} aria-labelledby={measured ? undefined : label}>
       {first.section === 'notes' && <Tape variant="masking" />}
       <div className="mm-section-heading mm-unit-heading">
         <h2 id={label}>{first.heading}{continued && <span className="mm-continued"> · continued</span>}</h2>

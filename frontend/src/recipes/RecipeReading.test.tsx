@@ -49,6 +49,14 @@ beforeEach(() => {
   measured.pages = [['ingredient-0', 'ingredient-1'], ['ingredient-2'], ['instruction-0', 'instruction-1', 'instruction-1-part-1', 'instruction-1-part-2', 'instruction-1-part-3', 'instruction-1-part-4', 'instruction-1-part-5', 'instruction-1-part-6', 'note-0', 'note-1', 'flavors']]
 })
 
+it.each(['First paragraph.\n\nLast paragraph.', 'First paragraph.\r\n\r\nLast paragraph.\r\n'])('retains exact note paragraph delimiters through paper spacing: %j', (notes) => {
+  measured.pages = [['note-0', 'note-1']]
+  render(<MemoryRouter initialEntries={['/app/recipes/reading-test']}><RouteView data={{ ...recipe, notes }} /></MemoryRouter>)
+  const region = live().getByRole('region', { name: 'Personal notes' })
+  const text = Array.from(region.querySelectorAll('.mm-unit-content > p'), node => node.textContent).join('')
+  expect(text).toBe(notes)
+})
+
 async function finishPageTurn() {
   await waitFor(() => expect(document.querySelector('[data-journal-page-turn]')?.getAttribute('data-phase')).toBe('animating'))
   fireEvent(document.querySelector('[data-journal-page-turn]')!, new CustomEvent('mm-journal-turn-sample', { detail: 1 }))
