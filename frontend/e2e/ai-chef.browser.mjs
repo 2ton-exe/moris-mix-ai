@@ -888,7 +888,7 @@ try {
   await journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) }).check()
   await page.keyboard.press('Escape')
   await expect(journalChooser).toBeFocused()
-  await expect(page.getByText('1 of 10 parent recipes selected.')).toBeVisible()
+  await expect(page.getByText('1 selected · up to 10 recipes.')).toBeVisible()
   await journalChooser.click()
   await expect(journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) })).toBeChecked()
   await journalDialog.getByRole('button', { name: 'Done' }).click()

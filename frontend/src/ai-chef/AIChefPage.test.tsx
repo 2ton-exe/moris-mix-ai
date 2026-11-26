@@ -533,7 +533,7 @@ describe('AI Chef pantry and review workflow', () => {
     const journal = openReviewDetail('Choose journal recipes (1)', 'From your journal')
     fireEvent.click(journal.getByRole('checkbox', { name: new RegExp(parent.title) }))
     fireEvent.click(journal.getByRole('button', { name: 'Done' }))
-    expect(screen.getByText('1 of 10 parent recipes selected.')).toBeTruthy()
+    expect(screen.getByText('1 selected · up to 10 recipes.')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Optional details from Mori'))
     const request = screen.getByRole('region', { name: 'Your request' })
@@ -1165,7 +1165,7 @@ describe('AI Chef pantry and review workflow', () => {
     }
     expect(choices.getByRole('checkbox', { name: 'Parent 11' })).toHaveProperty('disabled', true)
     fireEvent.click(choices.getByRole('button', { name: 'Done' }))
-    expect(screen.getByText('10 of 10 parent recipes selected.')).toBeTruthy()
+    expect(screen.getByText('10 selected · up to 10 recipes.')).toBeTruthy()
     const reopened = openReviewDetail('Choose journal recipes (11)', 'From your journal')
     expect(reopened.getByRole('checkbox', { name: 'Parent 4' })).toHaveProperty('checked', true)
   })

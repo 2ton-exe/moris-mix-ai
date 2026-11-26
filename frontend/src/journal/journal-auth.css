@@ -210,6 +210,8 @@
   .mm-auth-card__description { margin-block-start: 8px; font-size: 15px; line-height: 1.45; }
   .mm-auth-card__content { padding-block-start: 12px; }
   .mm-auth-card .auth-form, .mm-auth-card .auth-form fieldset { gap: 12px; }
+  .mm-auth-card:has(input[aria-invalid='true']) :is(.auth-form, .auth-form fieldset) { gap: 8px; }
+  .mm-auth-stage:has(input[aria-invalid='true']) { padding-block-end: 0; }
   .mm-auth-card__footer { gap: 8px; margin-block-start: 12px; padding-block-start: 12px; font-size: 14px; }
   .mm-auth-card .auth-links { margin-block-start: 8px; font-size: 14px; }
 }

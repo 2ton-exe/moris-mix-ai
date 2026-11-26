@@ -34,24 +34,24 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
   const [email, setEmail] = useState(suggestedEmail)
   const [pending, setPending] = useState(false)
   const submitting = useRef(false)
-  const [error, setError] = useState<string | null>(null)
+  const [errors, setErrors] = useState<{ email?: string; request?: string }>({})
   const [sent, setSent] = useState(false)
   const verified = callback && callbackResult !== 'checking' && callbackResult.kind === 'verified' && session?.user.email_confirmed_at
 
   async function resend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting.current) return
-    setError(null)
+    setErrors({})
     setSent(false)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError('Enter a valid email address.')
+      setErrors({ email: 'Enter a valid email address.' })
       event.currentTarget.querySelector('input')?.focus()
       return
     }
     submitting.current = true
     setPending(true)
     try { await resendVerification(email.trim()); setSent(true) }
-    catch (error) { setError(error instanceof Error ? error.message : 'Could not send a verification link. Please try again later.') }
+    catch (error) { setErrors({ request: error instanceof Error ? error.message : 'Could not send a verification link. Please try again later.' }) }
     finally { submitting.current = false; setPending(false) }
   }
 
@@ -108,10 +108,10 @@ export default function EmailVerificationPage({ callback = false }: { callback?:
               <div className="auth-field">
                 <label htmlFor="verification-email">Email</label>
                 <input id="verification-email" name="email" type="email" autoComplete="email" required value={email}
-                  onChange={(event) => { setEmail(event.target.value); if (error) setError(null) }} disabled={pending} aria-invalid={Boolean(error)}
-                  aria-describedby={error ? 'verification-error' : undefined} />
+                  onChange={(event) => { setEmail(event.target.value); setErrors({}) }} disabled={pending} aria-invalid={Boolean(errors.email)}
+                  aria-describedby={errors.email ? 'verification-error' : undefined} />
               </div>
-              {error && <p id="verification-error" className="field-error" role="alert">{error}</p>}
+              {(errors.email || errors.request) && <p id="verification-error" className="field-error" role="alert">{errors.email || errors.request}</p>}
 
               <button className="button button-primary" type="submit" disabled={pending}>{pending ? 'Sending…' : 'Send verification link'}</button>
             </form>
@@ -163,7 +163,7 @@ function VerifiedPasswordReset({ accessToken }: { accessToken: string }) {
 
   return <JournalAuthScene><main className="mm-auth-main"><JournalAuthCard
     title={saved ? 'Password updated' : 'Choose a new password'}
-    description={saved ? 'You can now use your new password to log in.' : 'Use at least 6 characters. Choose a password you don’t use anywhere else.'}
+    description={saved ? 'Your password has been updated.' : 'Use at least 6 characters. Choose a password you don’t use anywhere else.'}
     mood={saved ? 'cheer' : 'think'} focusHeading>
     {saved ? <Link className="button button-primary mm-button--large" to="/app">Continue to your journal</Link>
       : <form className="auth-form" method="post" noValidate aria-busy={pending} onSubmit={(event) => { void submit(event) }}>

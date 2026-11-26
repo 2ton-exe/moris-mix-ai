@@ -620,7 +620,9 @@ function ChefGenerationNotice({
           <p>{selectedParentIds.length} selected. You can link up to 10 recipes.</p>
           {parentChoices}
         </ReviewDetailDialog>}
-        <p className="mm-ai-chef__selection-count">{selectedParentIds.length} of 10 parent recipes selected.</p>
+        <p className="mm-ai-chef__selection-count">{compact
+          ? `${selectedParentIds.length} selected · up to 10 recipes.`
+          : `${selectedParentIds.length} of 10 parent recipes selected.`}</p>
         {!saved && <p className="mm-chef-review__selection-help">{response.revision
           ? 'This original will be linked when you save the new version.'
           : 'Check the recipes you want to link as inspiration. You can leave them all unchecked.'}</p>}

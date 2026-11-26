@@ -11,6 +11,7 @@ import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiOrigin = 'https://auth-ui.example.test'
 const userId = '22222222-2222-4222-8222-222222222222'
@@ -41,7 +42,8 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true })
 
   async function newAuthContext(width, contextOptions = {}) {
-    const context = await browser.newContext({ viewport: { width, height: 900 }, ...contextOptions })
+    const viewport = desktopOnly && width < 1100 ? { width: 1280, height: 720 } : { width, height: 900 }
+    const context = await browser.newContext({ viewport, ...contextOptions })
     const authRequests = []
     const page = await context.newPage()
     const errors = []
@@ -60,7 +62,7 @@ try {
       if (url.pathname === '/auth/v1/token') {
         if (url.searchParams.get('grant_type') === 'pkce') return route.fulfill({ json: session })
         if (url.searchParams.get('grant_type') === 'password') {
-          if (body.email === 'wrong@example.test') return route.fulfill({ status: 400, json: { code: 'invalid_credentials', message: 'private auth detail' } })
+          if (body.email === 'wrong@example.test') return route.fulfill({ status: 400, headers: { 'X-Supabase-Api-Version': '2024-01-01', 'Access-Control-Expose-Headers': 'X-Supabase-Api-Version' }, json: { code: 'invalid_credentials', message: 'private auth detail' } })
           return route.fulfill({ json: session })
         }
       }
@@ -68,7 +70,7 @@ try {
         return route.fulfill({ json: { ...user, email: body.email, email_confirmed_at: null, identities: [{ id: userId, user_id: userId, identity_data: { email: body.email } }] } })
       }
       if (url.pathname === '/auth/v1/resend' && method === 'POST') {
-        if (body.email === 'rate@example.test') return route.fulfill({ status: 429, json: { code: 'over_email_send_rate_limit', message: 'private rate detail' } })
+        if (body.email === 'rate@example.test') return route.fulfill({ status: 429, headers: { 'X-Supabase-Api-Version': '2024-01-01', 'Access-Control-Expose-Headers': 'X-Supabase-Api-Version' }, json: { code: 'over_email_send_rate_limit', message: 'private rate detail' } })
         return route.fulfill({ json: {} })
       }
       if (url.pathname === '/auth/v1/logout' && method === 'POST') return route.fulfill({ status: 204 })
@@ -76,6 +78,19 @@ try {
       return route.fulfill({ status: 404, json: { code: 'unexpected_test_request', message: 'Unexpected isolated request' } })
     })
     return { context, page, authRequests, errors }
+  }
+  async function capture(page, name) {
+    await page.evaluate(() => globalThis.document.fonts.ready)
+    await page.screenshot({ path: path.join(outputDir, `${name}.png`), animations: 'disabled', fullPage: true })
+  }
+  async function holdAuthResponse(page, pathname, method = 'POST') {
+    let release
+    const hold = new Promise(resolve => { release = resolve })
+    await page.route(url => url.origin === apiOrigin && url.pathname === pathname, async route => {
+      if (route.request().method() === method) await hold
+      return route.fallback()
+    })
+    return release
   }
 
   const desktop = await newAuthContext(1440)
@@ -100,15 +115,22 @@ try {
   await expect(page.getByLabel('Email')).toHaveAttribute('aria-describedby', /email-error/)
   await expect(page.getByLabel('Email')).toBeFocused()
   await assertJournalSemantics(page, 'login validation errors')
+  await capture(page, 'desktop-login-validation')
   await page.getByLabel('Email').fill('wrong@example.test')
   await page.getByRole('textbox', { name: 'Password' }).fill('example-password')
   await page.getByRole('button', { name: 'Show password' }).click()
   await expect(page.getByRole('textbox', { name: 'Password' })).toHaveAttribute('type', 'text')
   await page.getByRole('button', { name: 'Hide password' }).click()
   await expect(page.getByRole('textbox', { name: 'Password' })).toHaveAttribute('type', 'password')
+  const releaseLogin = await holdAuthResponse(page, '/auth/v1/token')
   await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('button', { name: 'Logging in…' })).toBeDisabled()
+  await capture(page, 'desktop-login-pending')
+  releaseLogin()
   await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('The email or password is incorrect.')
   assert.equal(await page.getByRole('alert').filter({ hasText: 'private auth detail' }).count(), 0)
+  await capture(page, 'desktop-login-rejected')
   await page.getByLabel('Email').fill('cook@example.test')
   await page.getByRole('button', { name: 'Log in' }).click()
   await expect(page).toHaveURL(`${origin}app/recipes/new`)
@@ -118,7 +140,7 @@ try {
   await context.close()
   assert.deepEqual(errors, [])
 
-  for (const width of [390, 320]) {
+  for (const width of (desktopOnly ? [] : [390, 320])) {
     for (const [route, action] of [['login', 'Log in'], ['signup', 'Create account']]) {
       const narrow = await newAuthContext(width)
       await narrow.page.goto(`${origin}${route}`)
@@ -148,7 +170,9 @@ try {
   await signup.page.goto(`${origin}signup`)
   await expect(signup.page.getByRole('heading', { name: 'Create your account' })).toBeVisible()
   await assertJournalSemantics(signup.page, 'signup')
-  await expect(signup.page.locator('.mm-auth-cover')).toBeHidden()
+  if (desktopOnly) await expect(signup.page.locator('.mm-auth-cover')).toBeVisible()
+  else await expect(signup.page.locator('.mm-auth-cover')).toBeHidden()
+  await capture(signup.page, 'signup-empty')
   await signup.page.getByLabel('Email').fill('new-cook@example.test')
   await signup.page.getByLabel('Password', { exact: true }).fill('short')
   await signup.page.getByRole('textbox', { name: 'Confirm password' }).fill('different')
@@ -156,25 +180,46 @@ try {
   await expect(signup.page.getByText('Use at least 6 characters.', { exact: true })).toBeVisible()
   await expect(signup.page.getByText('Passwords do not match.')).toBeVisible()
   await assertJournalSemantics(signup.page, 'signup validation errors')
+  if (desktopOnly) {
+    await expect(signup.page.getByRole('button', { name: 'Create account' })).toBeInViewport({ ratio: 1 })
+    await expect(signup.page.getByRole('link', { name: 'Request a verification link' })).toBeInViewport({ ratio: 1 })
+    assert.ok(await signup.page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1), 'Desktop signup validation must fit without decorative page overflow')
+    await signup.page.screenshot({ path: path.join(outputDir, 'signup-validation-viewport.png'), animations: 'disabled' })
+  }
+  await capture(signup.page, 'signup-validation')
   await signup.page.getByLabel('Password', { exact: true }).fill('correct-horse-7')
   await signup.page.getByRole('textbox', { name: 'Confirm password' }).fill('correct-horse-7')
+  const releaseSignup = await holdAuthResponse(signup.page, '/auth/v1/signup')
   await signup.page.getByRole('button', { name: 'Create account' }).click()
+  await expect(signup.page.getByRole('button', { name: 'Creating account…' })).toBeDisabled()
+  await capture(signup.page, 'signup-pending')
+  releaseSignup()
   await expect(signup.page).toHaveURL(`${origin}verify-email`)
   await expect(signup.page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
   await assertJournalSemantics(signup.page, 'verification pending')
   await expect(signup.page.getByRole('status')).toContainText('finish signing up')
+  await capture(signup.page, 'verification-pending')
+  const releaseVerification = await holdAuthResponse(signup.page, '/auth/v1/resend')
   await signup.page.getByRole('button', { name: 'Send verification link' }).click()
+  await expect(signup.page.getByRole('button', { name: 'Sending…' })).toBeDisabled()
+  await capture(signup.page, 'verification-sending')
+  releaseVerification()
   await expect(signup.page.getByRole('status').filter({ hasText: 'new link will arrive shortly' })).toBeVisible()
+  await capture(signup.page, 'verification-sent')
   await signup.page.getByLabel('Email').fill('rate@example.test')
   await signup.page.getByRole('button', { name: 'Send verification link' }).click()
   await expect(signup.page.getByRole('alert')).toBeVisible()
+  await expect(signup.page.getByRole('alert')).toContainText('Too many attempts.')
+  await expect(signup.page.getByLabel('Email')).toHaveAttribute('aria-invalid', 'false')
   await expect(signup.page.getByText('private rate detail')).toHaveCount(0)
+  await capture(signup.page, 'verification-quota')
   const signupFlowId = await signup.page.evaluate(() => JSON.parse(globalThis.localStorage.getItem('sb-auth-ui-auth-token-flows-code-verifier') ?? '[]')[0])
   assert.equal(typeof signupFlowId, 'string')
   await signup.page.goto(`${origin}auth/callback?code=auth-ui-pkce-code&sb_flow_id=${encodeURIComponent(signupFlowId)}`)
   await expect(signup.page.getByRole('heading', { name: 'Email verified' })).toBeVisible()
   await assertJournalSemantics(signup.page, 'verification success')
   await expect(signup.page.getByRole('status')).toContainText('email is confirmed')
+  await capture(signup.page, 'verification-success')
   assert.ok(signup.authRequests.some((request) => request.path === '/auth/v1/token' && request.search === '?grant_type=pkce'))
   await expect(signup.page).toHaveURL(`${origin}auth/callback`)
   assert.deepEqual(signup.errors, [])
@@ -186,7 +231,7 @@ try {
   await assertJournalSemantics(verificationFailure.page, 'invalid verification link')
   await expect(verificationFailure.page.getByRole('status')).toContainText('expired, invalid, or already used')
   assert.equal(await verificationFailure.page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth), true)
-  await verificationFailure.page.screenshot({ path: path.join(outputDir, 'mobile-verification.png'), fullPage: true })
+  await capture(verificationFailure.page, desktopOnly ? 'desktop-verification-expired' : 'mobile-verification')
   await verificationFailure.page.getByRole('link', { name: 'Back to login' }).click()
   await expect(verificationFailure.page).toHaveURL(`${origin}login`)
   assert.deepEqual(verificationFailure.errors, [])
@@ -199,6 +244,7 @@ try {
   await expect(verificationRequest.page.getByRole('heading', { name: 'Verify your email' })).toBeVisible()
   await expect(verificationRequest.page.getByLabel('Email')).toHaveValue(user.email)
   assert.equal(verificationRequest.authRequests.filter(({ path }) => path === '/auth/v1/resend').length, 0)
+  await capture(verificationRequest.page, 'verification-request')
   await verificationRequest.context.close()
 
   const recovery = await newAuthContext(1280, { viewport: { width: 1280, height: 720 } })
@@ -207,8 +253,14 @@ try {
   await recovery.page.getByRole('link', { name: 'Reset your password' }).click()
   await expect(recovery.page.getByRole('heading', { name: 'Reset your password' })).toBeFocused()
   await expect(recovery.page.getByLabel('Email')).toHaveValue(user.email)
+  await capture(recovery.page, 'password-reset-request')
+  const releaseReset = await holdAuthResponse(recovery.page, '/auth/v1/recover')
   await recovery.page.getByRole('button', { name: 'Send password reset link' }).click()
+  await expect(recovery.page.getByRole('button', { name: 'Sending reset link…' })).toBeDisabled()
+  await capture(recovery.page, 'password-reset-sending')
+  releaseReset()
   await expect(recovery.page.getByRole('status')).toContainText('If there’s an account')
+  await capture(recovery.page, 'password-reset-sent')
   const resetRequest = recovery.authRequests.find((request) => request.path === '/auth/v1/recover')
   assert.equal(resetRequest?.body.email, user.email)
   const resetCallback = new URL(new URLSearchParams(resetRequest.search).get('redirect_to'))
@@ -222,10 +274,16 @@ try {
   await recovery.page.getByRole('button', { name: 'Update password' }).click()
   await expect(recovery.page.getByText('Passwords do not match.')).toBeVisible()
   await expect(recovery.page.getByLabel('Confirm new password', { exact: true })).toBeFocused()
+  await capture(recovery.page, 'password-change-validation')
   assert.equal(recovery.authRequests.filter(({ method }) => method === 'PUT').length, 0)
   await recovery.page.getByLabel('Confirm new password', { exact: true }).fill('example-new-password')
+  const releasePasswordUpdate = await holdAuthResponse(recovery.page, '/auth/v1/user', 'PUT')
   await recovery.page.getByRole('button', { name: 'Update password' }).click()
+  await expect(recovery.page.getByRole('button', { name: 'Updating password…' })).toBeDisabled()
+  await capture(recovery.page, 'password-updating')
+  releasePasswordUpdate()
   await expect(recovery.page.getByRole('heading', { name: 'Password updated' })).toBeFocused()
+  await capture(recovery.page, 'password-updated')
   assert.equal(recovery.authRequests.find(({ method }) => method === 'PUT')?.body.password, 'example-new-password')
   await recovery.page.getByRole('link', { name: 'Continue to your journal' }).click()
   await expect(recovery.page).toHaveURL(`${origin}app`)
@@ -286,7 +344,7 @@ try {
   await longError.context.close()
   assert.deepEqual(longError.errors, [])
 
-  process.stdout.write(`Login, signup, verification pending/success/expired, resend, password recovery, protected return, session restoration, logout, keyboard/focus, 390px and 320px login/signup reachability, long-error reflow, reduced motion and 200% zoom passed. Screenshots: ${outputDir}\n`)
+  process.stdout.write(`Login, signup, verification pending/success/expired, resend, password recovery, protected return, session restoration, logout, keyboard/focus, ${desktopOnly ? 'desktop layouts' : '390px and 320px login/signup reachability'}, long-error reflow, reduced motion and 200% zoom passed. Screenshots: ${outputDir}\n`)
 } finally {
   await browser?.close()
   await server.close()
