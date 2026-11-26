@@ -1,6 +1,23 @@
 import { expect, it } from 'vitest'
-import { editorState, moveRow, recipeDraftSchema, validateEditor } from './draft'
+import { editorState, findOriginalIngredientIndex, moveRow, recipeDraftSchema, recipeEditorStateSchema, validateEditor } from './draft'
 import { recipeFormFixture } from './testing/fixtures'
+
+it('keeps the revised ingredient identity through duplicate names, reordering and draft storage', () => {
+  const state = editorState({ ...recipeFormFixture, ingredients: [
+    { name: 'soy sauce', quantity: 1, unit: 'tbsp', inferred: false },
+    { name: 'soy sauce', quantity: 2, unit: 'tbsp', inferred: false },
+  ] })
+  state.ingredients = moveRow(state.ingredients, 1, -1)
+  const restored = recipeEditorStateSchema.parse(JSON.parse(JSON.stringify(state)))
+  expect(findOriginalIngredientIndex(restored.ingredients, 'soy sauce', 1)).toBe(0)
+  expect(findOriginalIngredientIndex(restored.ingredients, 'soy sauce')).toBe(-1)
+  restored.ingredients.splice(0, 1)
+  expect(findOriginalIngredientIndex(restored.ingredients, 'soy sauce', 1)).toBe(-1)
+  expect(findOriginalIngredientIndex(restored.ingredients, 'soy sauce')).toBe(0)
+  const draft = validateEditor(restored)
+  if (!draft.success) throw new Error('Fixture must remain a valid recipe')
+  expect(draft.data.ingredients[0]).not.toHaveProperty('originalIndex')
+})
 
 it('normalizes editor fields and preserves nullable quantities and inferred metadata', () => {
   const state = editorState(recipeFormFixture)

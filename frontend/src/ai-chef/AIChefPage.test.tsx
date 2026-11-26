@@ -10,6 +10,7 @@ import type { AuthState } from '../auth/context'
 import { MoriCompanion } from '../mori/MoriCompanion'
 import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import { JournalShell } from '../journal/JournalShell'
+import { JournalLogoutGuardContext, type RegisterJournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { recipeFormApi } from '../recipe-form/api'
 import { lineageApi, LineageApiError } from './lineage'
@@ -70,6 +71,7 @@ let matchMediaDescriptor: PropertyDescriptor | undefined
 
 function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })), source = defaultRecipeSource }: { userId?: string; save?: SaveRecipeDraft; source?: RecipeSource } = {}) {
   const state = authState(userId)
+  const registerLogoutGuard = vi.fn<RegisterJournalLogoutGuard>(() => () => {})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
     { path: '/app', element: <WorkspaceLayout />, children: [
@@ -78,8 +80,8 @@ function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async 
       { path: 'recipes/new', element: <ManualRecipeRoute /> },
     ] },
   ], { initialEntries: ['/app/chef'] })
-  const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RecipeSourceContext.Provider value={source}><RouterProvider router={router} /></RecipeSourceContext.Provider></AuthContext.Provider></QueryClientProvider>)
-  return { ...view, router, save }
+  const view = render(<QueryClientProvider client={queryClient}><AuthContext.Provider value={state}><RecipeSourceContext.Provider value={source}><JournalLogoutGuardContext.Provider value={registerLogoutGuard}><RouterProvider router={router} /></JournalLogoutGuardContext.Provider></RecipeSourceContext.Provider></AuthContext.Provider></QueryClientProvider>)
+  return { ...view, router, save, registerLogoutGuard }
 }
 
 function addIngredient(value: string) {
@@ -189,14 +191,15 @@ describe('AI Chef pantry and review workflow', () => {
     })
     const original = response.parents[0]
     const excerpt = 'Too salty this time.'
+    const proposed = { ...response, recipe: { ...response.recipe, ingredients: response.recipe.ingredients.map(ingredient => ({ ...ingredient, name: 'tomatoes' })) } }
     const recipe = {
-      ...response.recipe, id: original.id, title: original.title, notes: excerpt + '\nKeep this other note private.',
-      ingredients: response.recipe.ingredients.map((ingredient) => ingredient.name === 'tomatoes' ? { ...ingredient, quantity: 4 } : ingredient),
+      ...proposed.recipe, id: original.id, title: original.title, notes: excerpt + '\nKeep this other note private.',
+      ingredients: proposed.recipe.ingredients.map((ingredient, index) => index === 1 ? { ...ingredient, quantity: 4 } : ingredient),
     }
     const revise = vi.spyOn(generateRecipeApi, 'revise').mockResolvedValue({
-      ...response,
+      ...proposed,
       revision: {
-        noteExcerpt: excerpt, ingredient: 'tomatoes', reason: 'Use fewer salted tomatoes.',
+        noteExcerpt: excerpt, ingredient: 'tomatoes', ingredientIndex: 1, reason: 'Use fewer salted tomatoes.',
         before: { quantity: 4, unit: null }, after: { quantity: 2, unit: null },
       },
     })
@@ -205,7 +208,7 @@ describe('AI Chef pantry and review workflow', () => {
       id: '66666666-6666-4666-8666-666666666666',
       parent_recipe_id: original.id, child_recipe_id: savedRecipeId, created_at: '2026-11-07T00:00:00.000Z',
     }] })
-    const { router } = renderChef({
+    const { router, registerLogoutGuard } = renderChef({
       save, source: { mode: 'live', list: async () => [recipe], detail: async () => recipe },
     })
     await act(() => router.navigate('/app/recipes/' + original.id))
@@ -231,6 +234,7 @@ describe('AI Chef pantry and review workflow', () => {
     expect(within(proposal).getByText('Mori’s suggestion').nextElementSibling?.textContent).toBe('2')
     expect(proposal.textContent).toContain(excerpt)
     expect(proposal.textContent).not.toContain('Keep this other note private.')
+    expect(proposal.textContent).not.toContain('Your edited amount')
 
     fireEvent.click(within(proposal).getByRole('button', { name: 'Edit proposed amount' }))
     await finishJournalTurn(() => Boolean(screen.queryByRole('textbox', { name: 'Ingredient 2 quantity' })))
@@ -253,11 +257,25 @@ describe('AI Chef pantry and review workflow', () => {
     const title = screen.getByRole('textbox', { name: /^Recipe title$/ })
     expect(document.activeElement).toBe(title)
     fireEvent.change(title, { target: { value: 'A better next cook' } })
+    const logout = vi.fn()
+    const guard = registerLogoutGuard.mock.calls.at(-1)?.[0]
+    if (!guard) throw new Error('AI Chef review did not register its logout guard')
+    act(() => expect(guard(logout)).toBe(false))
+    const unsaved = screen.getByRole('alertdialog')
+    expect(logout).not.toHaveBeenCalled()
+    fireEvent.click(within(unsaved).getByRole('button', { name: 'Keep Editing' }))
+    expect(title).toHaveProperty('value', 'A better next cook')
     expect(screen.getByRole('button', { name: /^Next:/ })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await screen.findByRole('heading', { name: 'A better next cook' })
     expect(save.mock.calls[1]?.[1]).toMatchObject({ recipeId: savedRecipeId })
     expect(saveLineage).toHaveBeenCalledOnce()
+    expect(guard(logout)).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit saved recipe' }))
+    fireEvent.change(screen.getByRole('textbox', { name: /^Recipe title$/ }), { target: { value: 'An unsaved later edit' } })
+    act(() => expect(guard(logout)).toBe(false))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard Changes' }))
+    expect(logout).toHaveBeenCalledOnce()
   })
 
   it('keeps a cooking observation through a conflicting notes edit and asks to review again', async () => {

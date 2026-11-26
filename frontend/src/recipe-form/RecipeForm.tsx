@@ -37,6 +37,7 @@ export type RecipeFormProps = {
   reviewReceipt?: ReactNode
   reviewComparison?: (editAmount?: ReactNode) => ReactNode
   comparisonIngredient?: string
+  comparisonIngredientIndex?: number
   supplement?: ReactNode
 }
 

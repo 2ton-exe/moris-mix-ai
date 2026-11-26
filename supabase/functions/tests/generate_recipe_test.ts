@@ -3238,6 +3238,7 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
     const original = source.ingredients[index];
     assertEquals(result.revision.noteExcerpt, noteExcerpt);
     assertEquals(result.revision.ingredient, original.name);
+    assertEquals(result.revision.ingredientIndex, index);
     assertEquals(result.revision.reason, explanations[index]);
     assertEquals(
       result.recipe.ingredients[1 - index],
@@ -3271,6 +3272,13 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
     );
   }
 
+  source.ingredients[1].name = "soy sauce";
+  changedIngredient = 1;
+  const repeatedName = await revise(salty);
+  assertEquals(repeatedName.status, 200);
+  assertEquals((await repeatedName.json()).revision.ingredientIndex, 1);
+  source.ingredients[1].name = "vinegar";
+
   changedIngredient = -1;
   const unsupported = await revise(salty);
   assertEquals(unsupported.status, 422);
@@ -3297,6 +3305,6 @@ Deno.test("Chef revisions use exact selected evidence and sign only an owned sou
   assertEquals((await revise(salty)).status, 404);
   rows = [];
   assertEquals((await revise(salty)).status, 404);
-  assertEquals(observedContexts.length, 5);
+  assertEquals(observedContexts.length, 6);
   assertNoDatabaseWrites(requests);
 });

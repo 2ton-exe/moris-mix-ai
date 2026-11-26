@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import type { Ingredient } from '../api/demoRecipe'
 import type { RecipeDetail } from '../recipes/types'
 import type { RecipeEditorState } from '../recipe-form/draft'
+import { findOriginalIngredientIndex } from '../recipe-form/draft'
 import type { ChefReviewHandoff } from './draft'
 
 const ingredientKey = (name: string) => name.trim().toLowerCase()
@@ -53,10 +54,10 @@ export function ChefDraftComparison({ handoff, source, edited, editAmount }: {
   const { request, response } = handoff
   const { revision } = response
   if (revision) {
-    const current = edited?.ingredients.find((entry) => ingredientKey(entry.name) === ingredientKey(revision.ingredient))
-    const currentAmount = current ? current.quantityText.trim() || amount(current.quantity, current.unit.trim()) : 'Ingredient removed'
+    const current = edited?.ingredients[findOriginalIngredientIndex(edited.ingredients, revision.ingredient, revision.ingredientIndex)]
+    const currentAmount = current ? current.quantityText.trim() || amount(current.quantity, current.unit.trim()) : null
     const proposedAmount = amount(revision.after.quantity, revision.after.unit)
-    const changed = edited && currentAmount !== proposedAmount
+    const changed = edited && currentAmount !== null && currentAmount !== proposedAmount
     return <section className="mm-chef-review__change" aria-labelledby={id}>
       <h3 id={id}>Mori’s proposed change</h3>
       <p className="mm-chef-review__changed-ingredient">{revision.ingredient}</p>
@@ -65,6 +66,7 @@ export function ChefDraftComparison({ handoff, source, edited, editAmount }: {
         <div><dt>Mori’s suggestion</dt><dd>{proposedAmount}</dd></div>
       </dl>
       {changed && <p><strong>Your edited amount</strong> · {currentAmount}</p>}
+      {edited && !current && <p>This ingredient was removed or cannot be identified in this draft. Check the ingredient list to compare amounts.</p>}
       <div>
         <p className="mm-chef-review__note-label">Your Personal Note</p>
         <blockquote>{revision.noteExcerpt}</blockquote>

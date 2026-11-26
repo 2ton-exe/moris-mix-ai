@@ -277,12 +277,16 @@ source title and ID, ingredient amounts, and directions to the model.
   call owned by BE-11 (#101).
 
 A focused revision also returns `revision` with the cook's exact `noteExcerpt`,
-the source `ingredient` name, `before` and `after` numeric amounts each with a
-nullable `unit`, and Mori's short `reason`. Only one explicit ingredient amount
+the source `ingredient` name and its zero-based `ingredientIndex`, `before` and
+`after` numeric amounts each with a nullable `unit`, and Mori's short `reason`.
+Only one explicit ingredient amount
 may change, and all other ingredient amounts must match the source. The original
 recipe is the single signed parent. Context shows `MATCHED` with both counts
 set to `1`. The focused revision stays an unsaved preview until the user
 confirms a separate save.
+
+`ingredientIndex` identifies the changed row even when ingredient names repeat.
+Older stored previews may omit it; clients must not guess between repeated names.
 
 ### Error responses
 

@@ -564,6 +564,7 @@ const RecipeRevisionAmountSchema = z.object({
 export const RecipeRevisionSummarySchema = z.object({
   noteExcerpt: RevisionNoteExcerptSchema,
   ingredient: z.string().min(1),
+  ingredientIndex: z.number().int().min(0).max(99).optional(),
   before: RecipeRevisionAmountSchema,
   after: RecipeRevisionAmountSchema,
   reason: z.string().min(1).max(400),

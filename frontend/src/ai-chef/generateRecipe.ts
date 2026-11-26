@@ -21,6 +21,7 @@ const revisionAmountSchema = z.object({ quantity: z.number(), unit: z.string().n
 const revisionEvidenceSchema = z.object({
   noteExcerpt: revisionRequestSchema.shape.noteExcerpt,
   ingredient: z.string().min(1),
+  ingredientIndex: z.number().int().min(0).max(99).optional(),
   before: revisionAmountSchema,
   after: revisionAmountSchema,
   reason: z.string().min(1),

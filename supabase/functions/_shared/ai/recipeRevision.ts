@@ -124,7 +124,12 @@ export function explainRecipeRevision(
     const before = { quantity: original.quantity, unit: original.unit };
     const after = { quantity: draft.quantity, unit: draft.unit };
     if (!isDifferentAmount(before, after)) return null;
-    change = { ingredient: original.name, before, after };
+    change = {
+      ingredient: original.name,
+      ingredientIndex: index,
+      before,
+      after,
+    };
   }
 
   if (!change) return null;

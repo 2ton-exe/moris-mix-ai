@@ -4,7 +4,7 @@ import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { useMoriActivity } from '../mori/MoriCompanionContext'
 import { ArrowDown, ArrowLeft, ArrowUp, Check, GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
 import type { RecipeDraft, RecipeEditorState } from './draft'
-import { emptyRecipeDraft, editorState, moveRow, validateEditor } from './draft'
+import { emptyRecipeDraft, editorState, findOriginalIngredientIndex, moveRow, validateEditor } from './draft'
 import { confirmedSave, RecipeSubmissionError, submissionMessage } from './submission'
 import { RecipeFormField } from './RecipeFormField'
 import { RecipeStarRating } from './RecipeStarRating'
@@ -47,7 +47,7 @@ function resizeTextarea(target: EventTarget | null) {
   target.style.height = `${target.scrollHeight}px`
 }
 
-export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, supplement }: RecipeFormEditorProps) {
+export function RecipeFormEditor({ mode, initialSection, initialValues, initialEditorState, initialValuesAreUnsaved = false, initialSaveConfirmation, saveSuccessMessage, createSubmitLabel = 'Save recipe', savedAction, onSubmit, onCancel, cancelLabel = 'Back to journal', onDirtyChange, onEditorStateChange, showExtractionHints = false, reviewWorkflow = false, newRecipeScrapbook = false, draftKeptInSession = false, editorIntro, editorTitle, notesSupported = false, renderFrame, notice, reviewPage, reviewStatus, reviewSaveContext, reviewReceipt, reviewComparison, comparisonIngredient, comparisonIngredientIndex, supplement }: RecipeFormEditorProps) {
   const prefix = useId()
   const [state, setState] = useState(() => initialEditorState ?? editorState(initialValues ?? emptyRecipeDraft()))
   const [baseline, setBaseline] = useState<string | null>(() => initialSaveConfirmation ? JSON.stringify(state) : initialValuesAreUnsaved ? null : JSON.stringify(state))
@@ -353,7 +353,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }
 
   const ingredientIndex = comparisonIngredient === undefined ? -1
-    : state.ingredients.findIndex(({ name }) => name.trim().toLowerCase() === comparisonIngredient.trim().toLowerCase())
+    : findOriginalIngredientIndex(state.ingredients, comparisonIngredient, comparisonIngredientIndex)
   const editComparedAmount = ingredientIndex >= 0 && <button type="button" className="button button-secondary mm-button--small mm-review-edit-amount"
     disabled={pending || isTurning} onClick={() => {
       const path = `ingredients.${ingredientIndex}.quantity`

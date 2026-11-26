@@ -86,10 +86,11 @@ describe('AI Chef request and response contract', () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain('/recipes')
   })
 
-  it('requests a revision from an exact excerpt and requires evidence for that request', async () => {
+  it.each([undefined, 1])('requests a revision with ingredient index %s and requires exact evidence', async (ingredientIndex) => {
     const noteExcerpt = 'Too salty. Keep the tang.'
     const revision = {
       noteExcerpt, ingredient: 'tomatoes', reason: 'Use less this time.',
+      ...(ingredientIndex === undefined ? {} : { ingredientIndex }),
       before: { quantity: 4, unit: null }, after: { quantity: 2, unit: null },
     }
     const send = vi.fn().mockResolvedValue({ ...generated, revision })

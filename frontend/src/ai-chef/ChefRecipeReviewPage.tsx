@@ -191,7 +191,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
   const recipeSave = useRecipeSave(save, handoff?.savedRecipeId)
   const lineageLock = useRef(false)
   const lineageController = useRef<AbortController | null>(null)
-  const navigationConfirmation = useUnsavedChangesGuard(dirty || (saved && storageIssue !== null), { warnOnUnload: storageIssue !== null })
+  const navigationConfirmation = useUnsavedChangesGuard(dirty || (saved && storageIssue !== null), { warnOnUnload: storageIssue !== null, guardLogout: true })
 
   useEffect(() => {
     if (!generationSucceeded.current) return
@@ -489,6 +489,7 @@ function ChefReviewSession({ userId, save }: { userId: string; save?: SaveRecipe
       ? '/app/recipes/' + encodeURIComponent(handoff.request.sourceRecipeId) : '/app/chef')}
     reviewComparison={comparison}
     comparisonIngredient={handoff.response.revision?.ingredient}
+    comparisonIngredientIndex={handoff.response.revision?.ingredientIndex}
     notice={<>{generationNotice()}{storageNotice}</>}
     reviewPage={revision && desktopComparison && !saved ? {
       title: 'Review the change',
