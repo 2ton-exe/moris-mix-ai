@@ -131,7 +131,7 @@
   .mori-pet-panel[data-chat='true'] { height: 560px; padding: 16px 20px; border-radius: 24px 24px 24px 5px; }
 }
 @media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
-  .mori-chat[data-empty='true'] .mori-chat-log:empty { flex: none; padding: 0; }
+  .mori-chat[data-empty='true'] .mori-chat-log:empty { padding: 0; }
   .mori-pet-panel .mori-chat[data-empty='true'] .mori-chat-task {
     padding-bottom: 0;
     border-bottom: 0;
@@ -204,11 +204,12 @@
 .mori-pet-resize {
   position: absolute;
   inset-block-start: 4px;
+  inset-inline-end: 4px;
   display: grid;
   inline-size: 44px;
   block-size: 44px;
-  place-items: center;
-  padding: 0;
+  place-items: start end;
+  padding: 8px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -219,8 +220,5 @@
   user-select: none;
 }
 .mori-pet-resize:hover { background: var(--mm-color-parchment-200); }
-.mori-pet-bubble[data-placement='left'] .mori-pet-resize { inset-inline-start: 4px; cursor: nwse-resize; }
-.mori-pet-bubble[data-placement='left'] .mori-pet-resize svg { scale: -1 1; }
-.mori-pet-bubble[data-placement='right'] .mori-pet-resize { inset-inline-end: 4px; }
-.mori-pet-bubble[data-placement='left'] .mori-pet-panel[data-resizable] > header { padding-inline-start: 32px; }
-.mori-pet-bubble[data-placement='right'] .mori-pet-panel[data-resizable] > header { padding-inline-end: 32px; }
+.mori-pet-resize:focus-visible { outline-offset: -4px; }
+.mori-pet-panel[data-resizable] > header { padding-inline-end: 44px; }
