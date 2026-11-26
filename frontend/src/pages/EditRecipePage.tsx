@@ -25,7 +25,7 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const [dirty, setDirty] = useState(false)
   const query = useRecipe(recipeId, !record && !isLoading && !loadError)
   const submit = useRecipeSave(save, recipeId)
-  const navigationConfirmation = useUnsavedChangesGuard(dirty)
+  const navigationConfirmation = useUnsavedChangesGuard(dirty, { guardLogout: true })
   const loadedRecord = query.data && user?.id ? {
     id: query.data.id,
     userId: user.id,

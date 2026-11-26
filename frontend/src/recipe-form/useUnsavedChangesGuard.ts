@@ -1,10 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useContext, useLayoutEffect, useRef, useState } from 'react'
 import { useBlocker, useLocation } from 'react-router'
 import { useNavigationConfirmation, type RequestNavigationConfirmation } from './navigationConfirmation'
+import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 
 const AUTH_ROUTES = new Set(['/login', '/signup', '/verify-email', '/auth/callback'])
 
-export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false }: { warnOnUnload?: boolean } = {}) {
+export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false, guardLogout = false }: { warnOnUnload?: boolean; guardLogout?: boolean } = {}) {
+  const registerLogoutGuard = useContext(JournalLogoutGuardContext)
   const confirmation = useNavigationConfirmation()
   const { pathname, key } = useLocation()
   const currentDirty = useRef(dirty)
@@ -18,6 +20,14 @@ export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false }:
   const pending = request?.originKey === key ? request : null
   const approvedRequest = useRef<typeof request>(null)
   useLayoutEffect(() => { currentDirty.current = dirty }, [dirty])
+  useLayoutEffect(() => {
+    if (!guardLogout || !registerLogoutGuard) return
+    return registerLogoutGuard((proceed) => {
+      if (!currentDirty.current) return true
+      if (proceed) setRequest({ originKey: key, path: '/login', proceed: commit => commit(proceed), cancel: () => {} })
+      return false
+    })
+  }, [guardLogout, registerLogoutGuard, key])
 
   function willBlock(from: string, to: string) {
     return currentDirty.current && from !== to && !AUTH_ROUTES.has(to)

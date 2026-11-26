@@ -1,5 +1,5 @@
 import { StrictMode, isValidElement } from 'react'
-import { createContext, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen } from '@testing-library/react'
@@ -17,6 +17,7 @@ import type { RecipeSource } from '../recipes/types'
 import CreateRecipePage from '../pages/CreateRecipePage'
 import EditRecipePage from '../pages/EditRecipePage'
 import { RecipeQueryProvider } from '../recipes/RecipeQueryProvider'
+import { JournalLogoutGuardContext, type JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 import type { RecipeEditorRecord, SaveRecipeDraft } from './submission'
 import { recipeFormFixture } from './testing/fixtures'
 
@@ -50,8 +51,19 @@ function TestNavigationControls() {
 
 function PageRoutes() {
   const options = useContext(PageOptionsContext)
+  const logoutGuard = useRef<JournalLogoutGuard | null>(null)
+  const register = useCallback((guard: JournalLogoutGuard) => {
+    logoutGuard.current = guard
+    return () => { if (logoutGuard.current === guard) logoutGuard.current = null }
+  }, [])
   if (!options) return null
-  return <AuthContext.Provider value={options.state}><Outlet /><TestNavigationControls /></AuthContext.Provider>
+  return <AuthContext.Provider value={options.state}><JournalLogoutGuardContext.Provider value={register}>
+    <Outlet /><TestNavigationControls />
+    <button type="button" onClick={() => {
+      const proceed = () => { void options.state.logout() }
+      if (logoutGuard.current?.(proceed) !== false) proceed()
+    }}>Test logout</button>
+  </JournalLogoutGuardContext.Provider></AuthContext.Provider>
 }
 
 function CreatePageFromOptions() {
@@ -105,6 +117,21 @@ function tree(options: Partial<PageOptions> = {}) {
 }
 function click(name: string) { fireEvent.click(screen.getByRole('button', { name })) }
 function title(value: string) { fireEvent.change(screen.getByLabelText('Recipe title'), { target: { value } }) }
+
+it.each(['/app/recipes/new', '/app/recipes/recipe-a/edit'])('guards logout before discarding dirty edits on %s', (path) => {
+  const state = authState()
+  render(tree({ path, state, initial: record() }))
+  title('Keep this private draft')
+  click('Test logout')
+  expect(screen.getByRole('alertdialog', { name: 'Leave without saving?' })).toBeTruthy()
+  expect(state.logout).not.toHaveBeenCalled()
+  click('Keep Editing')
+  expect(screen.getByDisplayValue('Keep this private draft')).toBeTruthy()
+  expect(state.logout).not.toHaveBeenCalled()
+  click('Test logout')
+  click('Discard Changes')
+  expect(state.logout).toHaveBeenCalledTimes(1)
+})
 
 it.each([true, false])('opens the method directly and focuses its first control (has steps: %s)', (hasSteps) => {
   const initial = record()

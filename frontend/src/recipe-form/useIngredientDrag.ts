@@ -3,8 +3,8 @@ import type { MouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 
 const settleOffset = (offset: number) => Math.min(20, Math.max(-20, offset))
 
-function visibleSlots(form: HTMLFormElement, slotAttribute: string) {
-  return Array.from(form.querySelectorAll<HTMLElement>(`[${slotAttribute}]`)).flatMap((slot) => {
+function visibleSlots(root: ParentNode, slotAttribute: string) {
+  return Array.from(root.querySelectorAll<HTMLElement>(`[${slotAttribute}]`)).flatMap((slot) => {
     const card = slot.querySelector('fieldset')
     const leaf = slot.closest('.mm-writing-leaf')
     if (!card || !leaf || card.offsetHeight === 0) return []
@@ -31,7 +31,8 @@ export function useIngredientDrag(layout: string, slotAttribute: 'data-ingredien
     const pointer = event.pointerId
     if (!form || typeof HTMLElement.prototype.showPopover !== 'function') return
 
-    const slots = visibleSlots(form, slotAttribute)
+    const root = form.closest('.mm-journal-book') ?? form
+    const slots = visibleSlots(root, slotAttribute)
     const source = slots.find(({ card }) => card.contains(handle))
     if (!source || slots.length < 2) return
     const { card, slot: sourceSlot, rect: origin, leaf: sourceLeaf, index: sourceIndex } = source
@@ -113,7 +114,7 @@ export function useIngredientDrag(layout: string, slotAttribute: 'data-ingredien
       move(destination.index)
       if (!motionAllowed()) return
       requestAnimationFrame(() => {
-        const card = form?.querySelector<HTMLElement>(`[${slotAttribute}="${destination.index}"] > fieldset`)
+        const card = root.querySelector<HTMLElement>(`[${slotAttribute}="${destination.index}"] > fieldset`)
         if (!card || stop.current) return
         const settled = card.getBoundingClientRect()
         card.animate(

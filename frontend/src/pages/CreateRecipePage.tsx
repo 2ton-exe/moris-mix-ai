@@ -38,7 +38,7 @@ export default function CreateRecipePage({ save, notesSupported = true }: { save
     if (user) setSavedRecipe({ id: result.id, title: args[0].title, userId: user.id })
     return result
   }
-  const navigationConfirmation = useUnsavedChangesGuard(dirty)
+  const navigationConfirmation = useUnsavedChangesGuard(dirty, { guardLogout: true })
   return <RecipeForm key={userId ?? 'signed-out'} mode="create" newRecipeScrapbook onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported}
     initialEditorState={manual?.initialEditorState}
     cancelLabel={manual?.source === 'quick-entry' ? 'Back to cooking notes' : manual ? 'Back to AI Chef' : undefined}

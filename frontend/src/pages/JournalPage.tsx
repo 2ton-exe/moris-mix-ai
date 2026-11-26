@@ -28,9 +28,9 @@ export default function JournalPage() {
   }, [])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
-  async function signOut() {
+  async function signOut(confirmed = false) {
     if (submitting.current) return
-    if (logoutGuard.current?.() === false) return
+    if (!confirmed && logoutGuard.current?.(() => { void signOut(true) }) === false) return
     submitting.current = true
     setPending(true)
     setError(null)
