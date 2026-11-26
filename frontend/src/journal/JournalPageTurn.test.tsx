@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { JournalFacingPage } from './JournalFacingPage'
 import { JournalShell } from './JournalShell'
 import { useJournalPageTurn } from './JournalPageTurn'
-import { TURN_DURATION } from './pageTurnMotion'
+import { SINGLE_TURN_DURATION, TURN_DURATION } from './pageTurnMotion'
 
 let matchMediaDescriptor: PropertyDescriptor | undefined
 function mockMatchMedia(matches: (query: string) => boolean) {
@@ -158,7 +158,7 @@ it('uses one timing and cancels a preview when a route interrupts a single-page 
   advance()
   const layer = document.querySelector<HTMLElement>('[data-journal-page-turn]')!
   expect(layer.dataset.layout).toBe('single')
-  expect(layer.dataset.duration).toBe(String(TURN_DURATION))
+  expect(layer.dataset.duration).toBe(String(SINGLE_TURN_DURATION))
   expect(layer.querySelectorAll('.mm-turn-cast')).toHaveLength(0)
   expect(screen.getByTestId('route-state').textContent).toBe('/app/recipes · page 1 · committed 0')
   fireEvent.click(screen.getByTestId('leave-route'))

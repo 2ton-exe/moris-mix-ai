@@ -771,3 +771,15 @@
   .mm-ai-chef__recovery-actions { display: grid; width: min(100%, 280px); gap: 10px; }
   .mm-ai-chef__recovery-actions .button { min-block-size: 44px; }
 }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-ai-chef__journey--scrapbook ol { gap: 4px; padding-inline: 6px; }
+  .mm-ai-chef__journey--scrapbook li { flex: 0 0 auto; padding-inline: 2px; font-size: 12px; white-space: nowrap; }
+  .mm-ai-chef__journey--scrapbook li + li::before { width: 8px; }
+}
+
+@media (min-width: 1100px) and (min-height: 640px) and (max-width: 1279px) {
+  .mm-ai-chef__journey--scrapbook ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .mm-ai-chef__journey--scrapbook li { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 3px; border-radius: var(--mm-radius-paper); }
+  .mm-ai-chef__journey--scrapbook li + li::before { display: none; }
+}

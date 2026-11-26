@@ -53,7 +53,7 @@ export function RecipeSkeleton({ index = false, message = 'Loading your recipesâ
   useLayoutEffect(() => {
     const element = list.current
     const body = element?.closest('.mm-page-body')
-    if (!element || !body || single || typeof ResizeObserver === 'undefined') return
+    if (!element || !body || single || !index || typeof ResizeObserver === 'undefined') return
     const measure = () => {
       const row = element.firstElementChild
       if (!row) return
@@ -72,7 +72,7 @@ export function RecipeSkeleton({ index = false, message = 'Loading your recipesâ
   return <div className="recipe-loading">
     <span className="visually-hidden" role="status">{message}</span>
     <ul ref={list} className={`recipe-grid mm-paper-loading ${index ? 'mm-index-entries' : 'mm-collection-entries'}`} aria-busy="true" aria-hidden="true" inert>
-      {Array.from({ length: single ? 1 : count }, (_, offset) => <li className="mm-recipe-card-slot" key={offset}>
+      {Array.from({ length: single ? 1 : index ? count : 2 }, (_, offset) => <li className="mm-recipe-card-slot" key={offset}>
         <div className={`${index ? 'mm-index-card' : `mm-collection-entry${offset % 2 ? ' is-flipped' : ''}`} mm-skeleton-card`}>
           {index ? <RecipeIndexCardContent folio={offset + 1} /> : <RecipeCollectionCardContent folio={offset + 1} editorial={!single} />}
         </div>

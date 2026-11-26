@@ -311,3 +311,18 @@
   .mm-recipe-form-editor .recipe-form-section:has(.recipe-step-card) { display: block; }
   .mm-recipe-form-editor .recipe-form-section:has(.recipe-step-card) > .mm-row-add { display: flex; margin: 8px auto 0; }
 }
+
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 767.98px) {
+  .mm-new-recipe .mm-form-identity .mm-scrapbook-form__notes {
+    display: grid;
+    flex: none;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .mm-new-recipe .mm-form-identity .mm-scrapbook-form__notes textarea[name='notes'] { min-block-size: 50px; block-size: 50px; }
+  .mm-new-recipe .mm-form-identity .mm-scrapbook-form__notes > .mm-review-detail-link { margin-block-start: 0; }
+  .mm-new-recipe .mm-form-identity .recipe-form-section h3 { margin-block-start: 8px; }
+  .mm-new-recipe .mm-form-identity .recipe-amount-row { padding-block: 4px; }
+  .mm-new-recipe .mm-recipe-star-rating__clear:disabled { min-block-size: 20px; padding-block: 2px; }
+  .mm-new-recipe .mm-form-identity input[type='date'] { font-size: 14px; padding-inline: 0; }
+}

@@ -13,6 +13,8 @@ import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { settleJournalLayout } from './journal-geometry.mjs'
 
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userId = '33333333-3333-4333-8333-333333333333'
 const user = {
@@ -243,12 +245,13 @@ try {
   await storageFailurePage.getByRole('button', { name: 'Log out' }).click()
   const logoutDialog = storageFailurePage.getByRole('alertdialog', { name: 'Leave without saving your notes?' })
   await expect(logoutDialog).toBeVisible()
+  await storageFailurePage.screenshot({ path: path.join(outputDir, 'desktop-unsaved-notes-dialog.png'), animations: 'disabled' })
   await expect(logoutDialog).toContainText('Copy your notes before leaving')
   assert.equal(requests.filter((request) => request.path === '/auth/v1/logout').length, logoutCountBeforeWarning, 'Log out ran before the user confirmed leaving')
   await logoutDialog.getByRole('button', { name: 'Keep Editing' }).click()
   await expect(storageFailureNotes).toHaveValue(lostNotes)
 
-  for (const width of [1440, 375, 320]) {
+  for (const width of [1440, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await storageFailurePage.setViewportSize({ width, height: 900 })
     await settleJournalLayout(storageFailurePage)
     await expect(storageWarning).toBeVisible()
@@ -394,7 +397,7 @@ try {
   await page.getByLabel('Ingredient 1 quantity').fill('1.5')
   assert.equal(recipeWrites.length, 0, 'Editing the extracted preview created a recipe')
 
-  for (const width of [1440, 768, 375, 320]) {
+  for (const width of [1440, 768, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     await expect(page.getByLabel('Ingredient 1 quantity')).toHaveValue('1.5')
@@ -433,7 +436,7 @@ try {
   assert.equal(consumedDraft.handoff, null, 'Successful Save did not consume the unsaved handoff')
   assert.equal(consumedDraft.notes, sourceNotes, 'Successful Save cleared the original cooking notes')
   const repeatNotes = page.getByRole('button', { name: 'Use these notes again', exact: true })
-  for (const [width, height] of [[1280, 720], [390, 844]]) {
+  for (const [width, height] of [[1280, 720], [390, 844]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await repeatNotes.scrollIntoViewIfNeeded()
@@ -517,7 +520,7 @@ try {
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText("Mori couldn't validate the recipe")
   await expect(notes).toHaveValue('notes that receive a malformed result')
-  for (const [width, height] of [[1440, 900], [1280, 720]]) {
+  for (const [width, height] of [[1440, 900], [1280, 720]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     const error = page.getByRole('alert')
@@ -546,7 +549,7 @@ try {
   await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toHaveValue('curry notes that remain after quota failure')
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
 
-  for (const width of [1440, 768, 375, 320]) {
+  for (const width of [1440, 768, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     await expect(page.getByRole('textbox', { name: 'Cooking notes' })).toBeVisible()
@@ -614,7 +617,7 @@ try {
   await expect(reducedMotionPage.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(errors, [])
   await context.close()
-  process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, 320/375/768/1440px layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
+  process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, ${desktopOnly ? 'desktop' : '320/375/768/1440px'} layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
 } finally {
   await browser?.close()
   await server?.close()

@@ -68,15 +68,16 @@ try {
     await loadingCard.waitFor()
     await page.evaluate(() => globalThis.document.fonts.ready)
     await expect.poll(() => page.locator('.mm-journal-page .recipe-loading ul').evaluate(element => element.getBoundingClientRect().bottom <= element.closest('.mm-page-body').getBoundingClientRect().bottom + 2)).toBe(true)
-    const loadingGeometry = await loadingCard.boundingBox()
-    const loadingArt = await loadingCard.locator('.mm-recipe-artwork').boundingBox()
     await page.screenshot({ path: path.join(output, `${width}-loading.png`) })
+    const loadingGeometry = await loadingCard.evaluate(e => e.getBoundingClientRect().toJSON())
+    const loadingArt = await loadingCard.locator('.mm-recipe-artwork').evaluate(e => e.getBoundingClientRect().toJSON())
     releaseRecipes()
     await page.getByRole('heading', { name: 'Saved recipes (5)' }).waitFor()
     await page.waitForTimeout(1000)
     const loadedCard = page.locator('.mm-journal-page .mm-collection-entry').first()
-    const loadedGeometry = await loadedCard.boundingBox()
-    const loadedArt = await loadedCard.locator('.mm-recipe-artwork').boundingBox()
+    const loadedGeometry = await loadedCard.evaluate(e => e.getBoundingClientRect().toJSON())
+    const loadedArt = await loadedCard.locator('.mm-recipe-artwork').evaluate(e => e.getBoundingClientRect().toJSON())
+    await page.screenshot({ path: path.join(output, `${width}-loaded.png`) })
     for (const key of ['x', 'y', 'width', 'height']) {
       assert.ok(Math.abs(loadingGeometry[key] - loadedGeometry[key]) <= 2, `Card ${key} shifts during loading: ${loadingGeometry[key]} → ${loadedGeometry[key]}`)
       assert.ok(Math.abs(loadingArt[key] - loadedArt[key]) <= 2, `Thumbnail ${key} shifts during loading: ${loadingArt[key]} → ${loadedArt[key]}`)
@@ -98,10 +99,17 @@ try {
     await page.waitForTimeout(500)
     assert.ok(await page.locator('.mm-journal-page .mm-collection-body > .mm-collection-entries > li').count() >= 2, 'Desktop paper must use available height for compact recipes')
     await page.screenshot({ path: path.join(output, `${width}-collection.png`) })
+    await expect.poll(() => page.evaluate(() => {
+      const mori = globalThis.document.querySelector('.mori-pet-trigger')?.getBoundingClientRect()
+      return !mori || [...globalThis.document.querySelectorAll('.mm-journal-spread .mm-collection-entry')].every(art => {
+        const photo = art.getBoundingClientRect()
+        return mori.right <= photo.left || mori.left >= photo.right || mori.bottom <= photo.top || mori.top >= photo.bottom
+      })
+    })).toBe(true)
     const corner = page.getByRole('link', { name: /^Next page/ })
     if (await corner.count()) {
       await corner.hover()
-      await expect.poll(() => corner.evaluate(element => globalThis.getComputedStyle(element, '::after').opacity)).toBe('1')
+      await expect.poll(() => corner.locator('..').locator('.mm-paper-corner__arrow').evaluate(element => globalThis.getComputedStyle(element).opacity)).toBe('1')
       await page.screenshot({ path: path.join(output, `${width}-corner-hover.png`) })
     }
     const hover = []
@@ -115,9 +123,24 @@ try {
     const seen = new Set()
     for (let turn = 0; turn < recipes.length; turn++) {
       const lists = page.locator('.mm-collection-body > .mm-collection-entries')
+      if (turn === 0) {
+        await expect(page.locator('.mm-journal-flyleaf .mm-bookplate')).toBeVisible()
+        await expect(page.locator('.mm-journal-flyleaf .mm-collection-entry')).toHaveCount(0)
+        await expect(lists).toHaveCount(1)
+        await expect(page.getByRole('heading', { name: 'My recipes', exact: true })).toBeVisible()
+        await expect(page.getByRole('link', { name: 'Search saved recipes' })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Refresh recipes' })).toBeVisible()
+      } else {
+        await expect(page.locator('.mm-journal-flyleaf .mm-bookplate')).toBeHidden()
+        await expect(lists).toHaveCount(2)
+        await expect(page.locator('.mm-journal-spread .mm-collection-heading')).toHaveCount(0)
+        await expect(page.getByRole('link', { name: 'Search saved recipes' })).toHaveCount(0)
+        await expect(page.getByRole('button', { name: 'Refresh recipes' })).toHaveCount(0)
+      }
+      await page.screenshot({ path: path.join(output, `${width}-spread-${turn}.png`) })
       for (const list of await lists.all()) {
         const remaining = recipes.length - seen.size
-        assert.ok(await list.locator(':scope > li').count() >= Math.min(2, remaining), 'Each desktop leaf must fit multiple ordinary recipes')
+        assert.equal(await list.locator(':scope > li').count(), Math.min(2, remaining), 'Each desktop leaf must fit multiple ordinary recipes')
         assert.ok(await list.evaluate(e => e.getBoundingClientRect().bottom <= e.parentElement.getBoundingClientRect().bottom + 2), 'Cards must stay above the footer')
         for (const href of await list.locator('a').evaluateAll(elements => elements.map(e => e.getAttribute('href')))) {
           assert.ok(!seen.has(href), `Recipe repeated across pages: ${href}`)
@@ -137,9 +160,27 @@ try {
         })
         globalThis.__moriSpriteObserver.observe(globalThis.document.body, { childList: true, subtree: true })
       })
+      await page.evaluate(() => {
+        globalThis.__paperFrameTimes = []
+        const sample = now => {
+          globalThis.__paperFrameTimes.push(now)
+          globalThis.__paperFrame = globalThis.requestAnimationFrame(sample)
+        }
+        globalThis.__paperFrame = globalThis.requestAnimationFrame(sample)
+      })
       await next.click()
+      const leaf = page.locator('.mm-turn-leaf')
+      await leaf.waitFor()
+      assert.ok(await leaf.evaluate(element => element.getAnimations().length > 0), 'Desktop paper motion must use the browser animation timeline')
       await page.waitForURL(new URL(target, origin).href)
       await expect(page.locator('[data-journal-page-turn="true"]')).toHaveCount(0)
+      const timing = await page.evaluate(() => {
+        globalThis.cancelAnimationFrame(globalThis.__paperFrame)
+        const times = globalThis.__paperFrameTimes
+        const gaps = times.slice(1).map((time, index) => time - times[index]).sort((a, b) => a - b)
+        return { elapsed: times.at(-1) - times[0], frames: times.length, mainThreadRafP95: gaps[Math.floor(gaps.length * .95)] }
+      })
+      globalThis.console.log(`${width}x${height}: paper timing ${JSON.stringify(timing)}`)
       const spriteMounts = await page.evaluate(() => { globalThis.__moriSpriteObserver.disconnect(); return globalThis.__moriSpriteMounts })
       assert.equal(spriteMounts, 0, 'Pagination must not mount a paper-turning mascot')
     }

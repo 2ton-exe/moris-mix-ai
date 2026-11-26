@@ -248,7 +248,7 @@ try {
       await page.getByRole('link', { name: 'Back to recipes' }).click()
       await expect(page).toHaveURL(/view=collection&q=test&sort=rating&entry=2$/)
       await expect(page.getByRole('link', { name: `Open recipe ${testEntries[2].title}` })).toBeFocused()
-      await page.getByRole('link', { name: 'Search saved recipes' }).click()
+      await page.getByRole('link', { name: 'Search saved recipes' }).first().click()
       await expect(page.getByRole('searchbox')).toHaveValue('test')
       await expect(page.getByRole('combobox', { name: 'Sort recipes' })).toHaveValue('rating')
       await page.goBack()

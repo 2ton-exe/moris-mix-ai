@@ -277,7 +277,7 @@ export default function RecipeDashboardPage() {
       onSearchShortcut={searchShortcutAvailable ? openSearchWithShortcut : undefined}
       hasMore={query.hasNextPage} ownerName={typeof user?.user_metadata?.name === 'string' ? user.user_metadata.name : user?.email?.split('@')[0] ?? 'a cook'}
       header={<div className="mm-collection-tools">
-        <Link title={searchShortcutAvailable ? 'Focus the recipe list and press / to search' : undefined} className={`button ${indexView ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}
+        <Link title={searchShortcutAvailable ? 'Focus the recipe list and press / to search' : undefined} className={`button ${indexView || !single && recipes?.length === 0 ? 'button-secondary' : 'button-primary'} mm-button--small`} to={viewLink(indexView ? 'collection' : 'index')} state={{ journalAccount: user?.id }}
           onClick={(event) => {
           const unmodifiedPrimaryClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
           if (unmodifiedPrimaryClick) prepareViewChange(indexView ? 'collection' : 'index')
@@ -301,7 +301,7 @@ export default function RecipeDashboardPage() {
       </>}
       endOfResults={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (nextPage === undefined || (indexView && !pagedIndex))
         ? <p ref={endOfResultsRef} className="discovery-end" role="status" tabIndex={-1}>End of results.</p> : null}
-      empty={recipes ? empty : null} pagination={recipes ? pagination : null}
+      empty={recipes && !(query.isError && recipes.length === 0) ? empty : null} pagination={recipes ? pagination : null}
       previous={<>
         {previousPage !== undefined ? <Link className="button mm-button--page-turn" to={pageLink(previousPage)}
           aria-disabled={isTurning || undefined} tabIndex={isTurning ? -1 : undefined}

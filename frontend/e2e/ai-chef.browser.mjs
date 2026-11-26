@@ -13,6 +13,8 @@ import { createServer } from 'vite'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 import { settleJournalLayout } from './journal-geometry.mjs'
 
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userId = '44444444-4444-4444-8444-444444444444'
 const user = {
@@ -337,7 +339,7 @@ try {
   await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
 
   // The pantry input must retain a usable width even on a narrow journal leaf.
-  for (const width of [1440, 1100, 768, 400, 375, 320]) {
+  for (const width of [1440, 1100, 768, 400, 375, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     await settleJournalLayout(page)
     const dimensions = await page.locator('.mm-ai-chef__ingredient-entry').evaluate((entry) => {
@@ -401,7 +403,7 @@ try {
   await expect(pantryInput).toBeFocused()
   await pantryInput.clear()
 
-  await page.setViewportSize({ width: 1100, height: 700 })
+  await page.setViewportSize({ width: 1100, height: 640 })
   await settleJournalLayout(page)
   await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toBeVisible()
   assert.ok(await board.evaluate((element) =>
@@ -415,9 +417,11 @@ try {
       .querySelector('.mm-journal-page-footer').getBoundingClientRect().top
   ), 'Validation stays within the bounded pantry workspace on compact desktop')
   await pantryInput.clear()
-  await page.setViewportSize({ width: 375, height: 800 })
-  await settleJournalLayout(page)
-  await expect(firstCards).toHaveCount(1)
+  if (!desktopOnly) {
+    await page.setViewportSize({ width: 375, height: 800 })
+    await settleJournalLayout(page)
+    await expect(firstCards).toHaveCount(1)
+  }
   await page.setViewportSize({ width: 1440, height: 900 })
   await settleJournalLayout(page)
   await expect(firstCards).toHaveCount(12)
@@ -489,7 +493,7 @@ try {
   await page.goto(`${origin}app/chef`)
   const resume = page.getByRole('complementary', { name: 'Unsaved AI Chef recipe' })
   const resumeLink = resume.getByRole('link', { name: 'Return to recipe review' })
-  for (const [width, height] of [[1440, 900], [1100, 640], [375, 800]]) {
+  for (const [width, height] of [[1440, 900], [1100, 640], [375, 800]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     const notice = await resume.evaluate((element) => {
@@ -536,7 +540,7 @@ try {
   const reviewLeaf = page.locator('.mm-writing-leaf').filter({ has: page.getByRole('region', { name: 'AI Chef generation details' }) })
   const back = page.getByRole('button', { name: 'Back to AI Chef' })
   const reviewPages = page.locator('.mm-writing-leaf')
-  for (const [width, height] of [[1280, 720], [1366, 768], [1440, 900], [1536, 864], [1920, 1080]]) {
+  for (const [width, height] of [[1280, 720], [1366, 768], [1440, 900], [1536, 864], [1920, 1080]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await advanceChefReviewToSave(page)
@@ -586,6 +590,7 @@ try {
   await page.getByRole('button', { name: 'Expand recipe title' }).click()
   const titleDialog = page.getByRole('dialog', { name: 'Recipe title' })
   await titleDialog.getByRole('textbox', { name: 'Full recipe title' }).fill(longTitle)
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-fe10-title-dialog-1440.png') })
   await titleDialog.getByRole('button', { name: 'Done' }).click()
   await expect(recipeTitle).toHaveValue(longTitle)
   const expandNotes = page.getByRole('button', { name: 'Expand notes' })
@@ -598,6 +603,8 @@ try {
   await page.getByRole('combobox', { name: 'Rating' }).selectOption('4')
   await advanceChefReviewToSave(page)
   await expect(reviewLeaf.getByRole('heading', { name: 'Recipe inspiration' })).toBeInViewport({ ratio: 1 })
+  await expect(page.locator('.mm-journal-page .mm-review-leaf')).toBeVisible()
+  await expect(page.locator('.mm-writing-blank-page')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Suggested parent recipes' })).toContainText('Sunday fried rice')
   const firstParent = page.getByRole('checkbox', { name: /Sunday fried rice/ })
   const secondParent = page.getByRole('checkbox', { name: /Mori’s tomato rice/ })
@@ -626,7 +633,7 @@ try {
   assert.equal(lineageWrites.length, 0, 'Editing the review saved lineage before explicit confirmation')
   await advanceChefReviewToSave(page)
 
-  for (const [width, height] of [[1280, 720], [1440, 900], [768, 1024], [390, 844], [375, 800], [320, 900]]) {
+  for (const [width, height] of [[1280, 720], [1440, 900], [768, 1024], [390, 844], [375, 800], [320, 900]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await advanceChefReviewToSave(page)
@@ -670,7 +677,7 @@ try {
   const clearedDraft = await page.evaluate((key) => JSON.parse(globalThis.sessionStorage.getItem(key)), `moris-mix:ai-chef:v1:${userId}`)
   assert.equal(clearedDraft.handoff, null, 'A confirmed save did not clear the unsaved review handoff')
   const repeatPantry = page.getByRole('button', { name: 'Use this pantry again', exact: true })
-  for (const [width, height] of [[1280, 720], [390, 844]]) {
+  for (const [width, height] of [[1280, 720], [390, 844]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     await repeatPantry.scrollIntoViewIfNeeded()
@@ -866,6 +873,8 @@ try {
   const allIngredients = page.getByRole('button', { name: 'All suggested ingredients (7)' })
   await allIngredients.click()
   const ingredientDialog = page.getByRole('dialog', { name: 'Ingredients in this suggestion' })
+  await ingredientDialog.waitFor()
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-fe10-ingredients-dialog-1366.png') })
   await expect(ingredientDialog.getByRole('listitem')).toHaveText(expandedSuggestion.recipe.ingredients.map(({ name }) => name))
   await ingredientDialog.getByRole('button', { name: 'Done' }).click()
   await expect(allIngredients).toBeFocused()
@@ -873,6 +882,8 @@ try {
   const journalChooser = page.getByRole('button', { name: 'Choose journal recipes (3)' })
   await journalChooser.click()
   const journalDialog = page.getByRole('dialog', { name: 'From your journal' })
+  await journalDialog.waitFor()
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-fe10-journal-dialog-1366.png') })
   await expect(journalDialog.getByRole('checkbox')).toHaveCount(3)
   await journalDialog.getByRole('checkbox', { name: new RegExp(extraParent.title) }).check()
   await page.keyboard.press('Escape')

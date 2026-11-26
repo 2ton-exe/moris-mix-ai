@@ -72,6 +72,7 @@
 .mm-cook-actions p { margin: 4px 0; color: var(--mm-color-ink-soft); font-size: .875rem; line-height: 1.35; }
 .mm-cook-actions__controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--mm-space-2); }
 .mm-cook-actions__controls > .mm-review-detail-link { min-block-size: 44px; font-size: .8125rem; }
+@media (max-width: 1099.98px), (max-height: 639.98px) {
 .mm-cook-actions__controls > .mm-review-detail-link:first-of-type {
   padding-inline: var(--mm-space-2);
   border: 1px solid var(--mm-color-sage-600);
@@ -81,6 +82,21 @@
   text-decoration: none;
 }
 .mm-cook-actions__controls > .mm-review-detail-link:first-of-type:hover { background: var(--mm-color-sage-200); }
+}
+@media (min-width: 1100px) and (min-height: 640px) {
+.mm-cook-actions__controls > .mm-review-detail-link.mm-record-cooking {
+  padding-inline: var(--mm-space-2);
+  border: 1px solid var(--mm-color-sage-600);
+  border-radius: var(--mm-radius-control);
+  background: var(--mm-color-sage-100);
+  color: var(--mm-color-sage-900);
+  text-decoration: none;
+}
+.mm-cook-actions__controls > .mm-review-detail-link.mm-record-cooking:hover { background: var(--mm-color-sage-200); }
+  .mm-cook-actions { padding-block: 12px; }
+  .mm-cook-actions p { margin-block: 6px 8px; }
+  .mm-cook-actions__controls { gap: 8px 12px; }
+}
 
 .mm-revision-tools {
   display: grid;

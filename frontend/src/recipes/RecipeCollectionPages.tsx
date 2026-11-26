@@ -1,5 +1,5 @@
 import { JournalPagination } from '../journal/JournalPagination'
-import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
+import { useLayoutEffect, useMemo, useRef, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router'
 import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPage'
 import { useJournalMedia } from '../journal/useJournalMedia'
@@ -24,18 +24,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     }
     return new Set(titleKeys.filter(([, titleKey]) => (counts.get(titleKey) ?? 0) > 1).map(([id]) => id))
   }, [recipes])
-  const headingRef = useRef<HTMLElement>(null)
   const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
-  const [headingHeight, setHeadingHeight] = useState(0)
-  useLayoutEffect(() => {
-    const element = headingRef.current
-    if (!element || index || typeof ResizeObserver === 'undefined') return
-    const measure = () => setHeadingHeight(element.getBoundingClientRect().height + parseFloat(getComputedStyle(element).marginBottom))
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    measure()
-    return () => observer.disconnect()
-  }, [index, pages.length])
   const results = useRef<HTMLDivElement>(null)
   const bank = useRef<HTMLUListElement>(null)
   const measureCatalog = index ? catalog?.measure : collection?.measure
@@ -55,7 +44,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
       list.style.width = `${viewport.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight)}px`
       const starts = paginateReading(Array.from(list.children, (row, offset) => ({
         id: String(offset), section: 'index', headingHeight: 0, height: row.getBoundingClientRect().height + gap,
-      })), capacity).map((page) => Number(page[0] ?? 0))
+      })), capacity, index ? Infinity : 2).map((page) => Number(page[0] ?? 0))
       measureCatalog(starts)
     }
     const observer = new ResizeObserver(measure)
@@ -64,7 +53,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     measure()
     return () => observer.disconnect()
   }, [measureCatalog, recipes, index, desktop])
-  const heading = <header ref={headingRef} className="mm-collection-heading">
+  const heading = <header className="mm-collection-heading">
     {!index && <p className="mm-recipe-index__eyebrow">{recipes ? `${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}${hasMore ? ' loaded' : ''} · ${sort === 'rating' ? 'highest rated first' : 'newest first'}` : 'Loading recipes…'}</p>}
     <h1 ref={titleRef} tabIndex={-1}>{index ? 'Search saved recipes' : desktop ? 'My recipes' : 'Your cooking journal'}</h1>
     {!index && <span className="mm-title-swash" aria-hidden="true" />}
@@ -102,17 +91,14 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
   const [left, right] = pages.length === 2 ? pages : [0, pages[0]]
   const pageOffset = pages.length === 2 ? 1 : 0
   const rightStart = collection ? collection.starts[right] ?? recipes?.length ?? 0 : (right - 1) * perPage
-  const first = right === 1
   return <>
     {left > 0 && <JournalFacingPage className="mm-facing-content--collection mm-page-column">
-      <div className="mm-collection-heading-space" style={{ height: headingHeight }} aria-hidden="true" />
       <div className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${left}`} tabIndex={0}
         aria-keyshortcuts={onSearchShortcut ? '/' : undefined} onKeyDown={onSearchShortcut}>{entries(left)}</div>
     </JournalFacingPage>}
     <section className="recipe-collection mm-page-column" aria-labelledby="collection-heading">
-      {/* Keep desktop page capacity independent of the selected spread. */}
-      {first || pages.length === 2 ? heading : <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
-      {!first && left === 0 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>Your cooking journal</h1>}
+      {right === 1 ? heading : !desktop && <nav className="mm-collection-tools" aria-label="Collection navigation">{header}</nav>}
+      {right !== 1 && <h1 className="visually-hidden" ref={titleRef} tabIndex={-1}>{desktop ? 'My recipes' : 'Your cooking journal'}</h1>}
       <h2 id="collection-heading" className="collection-heading visually-hidden" tabIndex={-1}>Saved recipes{recipes && <span> ({recipes.length})</span>}</h2>
       <div ref={results} className="mm-page-body mm-collection-body" role="region" aria-label={`Recipe collection page ${right}`} tabIndex={0}
         aria-keyshortcuts={onSearchShortcut ? '/' : undefined} onKeyDown={onSearchShortcut}>
@@ -130,7 +116,7 @@ export function RecipeCollectionPages({ recipes, pages, perPage, index, catalog,
     </ul>}
     <JournalPageFooter><div className="mm-collection-footer">
       <span className="visually-hidden" aria-live="polite" aria-atomic="true">{pageOffset ? `Collection pages ${left + pageOffset} and ${right + pageOffset}` : `Collection page ${right}`}</span>
-      <JournalPagination label="Collection pages" previous={previous} next={next} rightNumber={pageOffset ? `Pages ${left + pageOffset}–${right + pageOffset}` : `Page ${right}`} />
+      {(recipes === undefined || recipes.length > 0) && <JournalPagination label="Collection pages" previous={previous} next={next} rightNumber={pageOffset ? `Pages ${left + pageOffset}–${right + pageOffset}` : `Page ${right}`} />}
       {pagination}
     </div></JournalPageFooter>
   </>

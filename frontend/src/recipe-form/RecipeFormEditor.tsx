@@ -549,8 +549,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const errorPaths = Object.keys(errors).filter(fieldPathExists)
   const errorLeafIndices = Array.from(new Set(errorPaths.map((path) => leafIndexForAnchor(leaves, leafKeyForFieldPath(path, state)))))
   const otherErrorLeafIndices = errorLeafIndices.filter((index) => !visibleIndices.includes(index))
-  const faceIndex = single ? -1 : visibleIndices[0]
-  const pageIndex = single ? currentLeafIndex : visibleIndices[1]
+  const loneReview = desktopReview && visibleIndices.length === 1 && leaves[currentLeafIndex]?.kind === 'review'
+  const faceIndex = single || loneReview ? -1 : visibleIndices[0]
+  const pageIndex = single || loneReview ? currentLeafIndex : visibleIndices[1]
 
   function visitNextErrorPage() {
     if (isTurning || ingredientDrag.active() || instructionDrag.active()) return
@@ -874,10 +875,10 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }
 
   const methodJump = desktopRecipeEditor && !reviewWorkflow && position.page === 0 && methodPage > 1
-    && <button type="button" className="button button-primary" disabled={pending || isTurning}
+    && <button type="button" className="button button-secondary" disabled={pending || isTurning}
       onClick={() => turnToPage(methodPage, methodIndex)}>Cooking method</button>
   const showEditStatus = desktopEdit && !saved && !pending
-  const saveButton = <button key="save" className={`button ${desktopRecipeEditor && !reviewWorkflow && position.page === 0 ? 'button-secondary' : 'button-primary'}`} type="submit" disabled={pending || saved}
+  const saveButton = <button key="save" className="button button-primary" type="submit" disabled={pending || saved}
     aria-describedby={showEditStatus ? `${prefix}-save-status` : undefined}>
     {desktopReview && !pending && <ScrapbookSticker decorative name="sparkle" />}
     {pending ? 'Saving…' : mode === 'create' && !editingCreatedRecipe ? createSubmitLabel : 'Save changes'}
@@ -899,6 +900,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     <div hidden ref={supplementParking} />
     {supplementHost && createPortal(supplement, supplementHost)}
     <JournalFacingPage className="mm-facing-content--form mm-page-column mm-journal-editor">
+      {loneReview && !hasConfirmedSave && reviewSaveContext}
       {!single && faceIndex >= 0 && leaves[faceIndex] && renderLeaf(leaves[faceIndex], faceIndex)}
     </JournalFacingPage>
     <div className="recipe-form-content mm-writing-pages mm-page-column" data-form-page={single ? currentLeafIndex : Math.floor(currentLeafIndex / 2)}>
@@ -910,7 +912,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       {saved && <p className="recipe-save-success" role="status">{saveSuccessMessage ?? confirmationMessage}</p>}
       {pending && <p role="status">Saving your recipe…</p>}
       {otherErrorLeafIndices.length > 0 && <button className="mm-writing-error-link" type="button" onClick={visitNextErrorPage} aria-label={'Go to another recipe page with errors. ' + otherErrorLeafIndices.length + (otherErrorLeafIndices.length === 1 ? ' other page has' : ' other pages have') + ' errors.'}>{otherErrorLeafIndices.length} other {otherErrorLeafIndices.length === 1 ? 'page has' : 'pages have'} errors</button>}
-      {desktopReview && finalPage && !hasConfirmedSave && reviewSaveContext}
+      {desktopReview && finalPage && !loneReview && !hasConfirmedSave && reviewSaveContext}
       <RecipeWritingTurns page={position.page} total={position.total} text={position.text} single={single} onTurn={turnToPage}
         prioritizeNext={!methodJump}
         nextSection={desktopRecipeEditor && !reviewWorkflow && !finalPage ? sectionsOnPage(position.page + 1) : undefined}

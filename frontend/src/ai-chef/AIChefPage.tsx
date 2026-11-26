@@ -53,7 +53,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
   const splitPantry = !single
   const cards = useJournalMedia('(min-width: 1024px) and (pointer: fine)')
-  const board = useJournalMedia('(min-width: 1100px) and (min-height: 700px) and (pointer: fine)')
+  const board = useJournalMedia('(min-width: 1100px) and (min-height: 640px) and (pointer: fine)')
   const { isTurning, requestPageTurn } = useJournalPageTurn()
   const [initialRead] = useState(() => readChefDraftResult(userId))
   const [pantryEntries, setPantryEntries] = useState(() =>

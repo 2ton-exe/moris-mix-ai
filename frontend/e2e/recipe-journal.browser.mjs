@@ -164,7 +164,7 @@ try {
     await expect(firstCard.getByText('Oct 13, 2026')).toBeVisible()
     await expect(firstCard.getByText('4 / 5')).toBeVisible()
     if (width >= 1100) {
-      await expect(page.getByRole('heading', { name: 'My recipes', exact: true })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'My recipes', exact: true, level: 1 })).toBeVisible()
       await expect(page.locator('.mm-journal-flyleaf .mm-bookplate')).toBeVisible()
       await expect(page.locator('.mm-journal-flyleaf [data-recipe-id]')).toHaveCount(0)
       await expect(firstCard.getByText(/Toast the garlic gently/)).toBeVisible()
@@ -174,7 +174,7 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-dashboard.png`), fullPage: true })
 
     app.failNextLists(3)
-    await page.getByRole('button', { name: 'Refresh recipes' }).click()
+    await page.getByRole('button', { name: 'Refresh recipes' }).first().click()
     await expect(page.getByRole('alert')).toContainText('Could not load your recipes')
     await expect(firstCard).toBeVisible()
     await expect(page.getByRole('status').filter({ hasText: 'Showing your last loaded collection' })).toBeVisible()
@@ -210,7 +210,7 @@ try {
     await page.screenshot({ path: path.join(outputDir, `${width}-detail.png`), fullPage: true })
 
     await page.goBack()
-    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /^(My recipes|Your cooking journal)$/i, level: 1 })).toBeVisible()
     await expect(firstRecipeLink).toBeFocused()
     await page.goForward()
     await expect(page.getByRole('heading', { name: recipe.title, level: 1 })).toBeFocused()

@@ -4,10 +4,12 @@ import { RecipeEditorSkeleton } from '../recipe-form/RecipeEditorSkeleton'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
 import { RecipeReadingSkeleton, RecipeSkeleton } from '../recipes/RecipeStates'
 import { JournalFacingPage } from './JournalFacingPage'
+import { useJournalMedia } from './useJournalMedia'
 import '../pages/recipeRevisionSample.css'
 
 export function JournalRouteLoading({ message }: { message: string }) {
   const { pathname, search } = useLocation()
+  const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
   if (pathname === '/demo-recipe' || /^\/app\/recipes\/[^/]+$/.test(pathname) && !pathname.endsWith('/new')) {
     const demo = pathname === '/demo-recipe'
     return <RecipeReadingSkeleton publicDemo={demo} back={<Link to={demo ? '/home' : '/app'}>{demo ? 'Back home' : 'Back to recipes'}</Link>} />
@@ -36,6 +38,14 @@ export function JournalRouteLoading({ message }: { message: string }) {
     const home = pathname === '/home'
     const actions = <div className="actions"><span className="mm-skeleton-line mm-skeleton-action" /><span className="mm-skeleton-line mm-skeleton-action" /></div>
     const note = <section className={`mm-public-note ${home ? 'mm-public-preview' : 'mm-public-workflow'}`}><h2><span className="mm-skeleton-line" /></h2><p><span className="mm-skeleton-line" /></p><p><span className="mm-skeleton-line mm-skeleton-line--short" /></p></section>
+    if (desktop) return <><span className="visually-hidden" role="status">{message}</span>
+      <JournalFacingPage className="mm-facing-content--public mm-public-page"><div aria-busy="true" aria-hidden="true" inert>
+        <h1>{home ? 'Good meals deserve a page.' : 'Keep your recipes close.'}</h1>
+        <p className="intro"><span className="mm-skeleton-line" /><span className="mm-skeleton-line" /></p>
+        {!home && note}{actions}
+      </div></JournalFacingPage>
+      <div aria-busy="true" aria-hidden="true" inert>{note}</div>
+    </>
     return <><span className="visually-hidden" role="status">{message}</span><div aria-busy="true" aria-hidden="true" inert><h1><span className="mm-skeleton-line" /></h1><p className="intro"><span className="mm-skeleton-line" /><span className="mm-skeleton-line" /></p>{home && actions}{note}{!home && <>{note}{actions}</>}</div></>
   }
   if (pathname === '/login' || pathname === '/signup') {

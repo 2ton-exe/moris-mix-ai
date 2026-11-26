@@ -100,7 +100,7 @@ it('keeps focus in search when editing a restored index anchor', async () => {
 
 it('moves focus to search when opening the index from the collection', async () => {
   render(tree('cook-a', '/app/recipes?view=collection'))
-  fireEvent.click(await screen.findByRole('link', { name: 'Search saved recipes' }))
+  fireEvent.click((await screen.findAllByRole('link', { name: 'Search saved recipes' }))[0])
   const search = await screen.findByRole('searchbox', { name: 'Search recipes' })
   await waitFor(() => expect(document.activeElement).toBe(search))
   fireEvent.click(screen.getByRole('link', { name: 'Browse saved recipes' }))
@@ -163,7 +163,7 @@ it('debounces search, hides stale cards immediately, aborts old requests and pre
   await act(async () => { await vi.advanceTimersByTimeAsync(200) })
   fireEvent.change(input, { target: { value: 'salad' } })
   expect(card()).toBeNull()
-  expect((screen.getByRole('button', { name: 'Refresh recipes' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getAllByRole('button', { name: 'Refresh recipes' })[0] as HTMLButtonElement).disabled).toBe(true)
   await act(async () => { await vi.advanceTimersByTimeAsync(299) })
   expect(page).toHaveBeenCalledTimes(initialCalls)
   await act(async () => { await vi.advanceTimersByTimeAsync(1) })
@@ -346,7 +346,7 @@ it('keeps cards visible during a same-query refresh', async () => {
   await ready()
   const refresh = deferred<RecipeDiscoveryPage>()
   page.mockReturnValue(refresh.promise)
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh recipes' }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Refresh recipes' })[0])
   expect(card()).toBeTruthy()
   expect(await screen.findByText('Updating your collection…')).toBeTruthy()
   await act(async () => refresh.resolve({ recipes: [salad], nextPage: null }))

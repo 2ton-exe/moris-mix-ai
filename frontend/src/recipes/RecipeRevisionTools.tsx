@@ -35,7 +35,7 @@ export function RecipeRevisionTools({ recipe, userId, onReload }: {
       {hasNotes && <ReviewDetailDialog title="Make a version for next time" action="Revise with Mori" closeLabel="Cancel">
         <RevisionRequest recipe={recipe} userId={userId} onReload={onReload} />
       </ReviewDetailDialog>}
-      <ReviewDetailDialog title="Record this cook" action="Record cooking" closeLabel="Back to recipe"
+      <ReviewDetailDialog title="Record this cook" action="Record cooking" triggerClassName="mm-record-cooking" closeLabel="Back to recipe"
         unsavedMessage={note.trim() ? 'The cooked date is recorded. This cooking note is still unsaved.' : undefined}
         closeDisabled={recording} onClosed={() => setNote('')}>
         <CookingRecord recipe={recipe} userId={userId} note={note} setNote={setNote} pending={recording} setPending={setRecording} />

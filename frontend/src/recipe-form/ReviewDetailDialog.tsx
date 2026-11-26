@@ -1,9 +1,10 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import './detail-dialog.css'
 
-export function ReviewDetailDialog({ title, action, closeLabel = 'Done', unsavedMessage, closeDisabled = false, onClosed, children }: {
+export function ReviewDetailDialog({ title, action, triggerClassName = '', closeLabel = 'Done', unsavedMessage, closeDisabled = false, onClosed, children }: {
   title: string
   action: string
+  triggerClassName?: string
   closeLabel?: string
   unsavedMessage?: string
   closeDisabled?: boolean
@@ -43,7 +44,7 @@ export function ReviewDetailDialog({ title, action, closeLabel = 'Done', unsaved
   }
 
   return <>
-    <button type="button" className="mm-review-detail-link" aria-haspopup="dialog" onClick={() => setOpen(true)}>{action}</button>
+    <button type="button" className={`mm-review-detail-link ${triggerClassName}`} aria-haspopup="dialog" onClick={() => setOpen(true)}>{action}</button>
     <dialog ref={dialog} className="mm-review-detail-dialog" aria-labelledby={open ? headingId : undefined}
       onCancel={(event) => {
         if (!closeDisabled && !unsavedMessage && !confirming) return

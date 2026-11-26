@@ -8,6 +8,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 
 const apiOrigin = 'https://fe07.example.test'
 const userId = '11111111-1111-4111-8111-111111111111'
@@ -60,7 +61,7 @@ try {
   const origin = server.resolvedUrls.local[0]
   globalThis.console.log(`Serving ${phase}: ${origin}`)
   browser = await chromium.launch({ channel: 'chrome', headless: true })
-  for (const [width, height, motion] of [[1470, 803, 'no-preference'], [1854, 930, 'no-preference'], [1470, 803, 'reduce']]) {
+  for (const [width, height, motion] of (process.env.MORI_COLD_ONLY === 'true' ? [] : [[1470, 803, 'no-preference'], [1854, 930, 'no-preference'], [1470, 803, 'reduce']])) {
     for (const [name, routePath, pendingSelector, loadedSelector] of scenarios) {
       const context = await browser.newContext({ viewport: { width, height }, reducedMotion: motion })
       const page = await context.newPage()
@@ -101,7 +102,7 @@ try {
         const skeleton = page.locator('.mm-journal-spread .mm-skeleton-line').first()
         await expect(skeleton).toBeVisible()
         if (motion === 'reduce') assert.equal(await skeleton.evaluate(e => globalThis.getComputedStyle(e, '::after').animationName), 'none')
-        else assert.equal(await skeleton.evaluate(e => globalThis.getComputedStyle(e, '::after').animationDuration), '2.2s')
+        else await expect.poll(() => skeleton.evaluate(e => globalThis.getComputedStyle(e, '::after').animationDuration)).toBe('2.2s')
       }
       release()
       await page.locator(loadedSelector).first().waitFor()
@@ -131,11 +132,11 @@ try {
       if (name === 'collection' && motion === 'no-preference') {
         hold = new Promise(resolve => { release = resolve })
         const card = page.locator(loadedSelector).first()
-        await page.getByRole('button', { name: 'Refresh recipes' }).click()
+        await page.getByRole('button', { name: 'Refresh recipes' }).first().click()
         await expect(card).toBeVisible()
         await expect(page.locator('.mm-skeleton-card')).toHaveCount(0)
         release()
-        await page.getByRole('button', { name: 'Refresh recipes' }).waitFor()
+        await page.getByRole('button', { name: 'Refresh recipes' }).first().waitFor()
         // Chapter travel and route commit must not wait for another data request.
         await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
         await expect(page).toHaveURL(/\/app\/quick-entry$/)
@@ -163,6 +164,7 @@ try {
         await page.goto(new URL('/app/recipes/missing', origin).href)
         await expect(page.getByRole('alert').first()).toContainText('could not be found')
         await expect(page.locator('.mm-reading-skeleton')).toHaveCount(0)
+        await page.screenshot({ path: path.join(output, `${stamp}-missing.png`), animations: 'disabled' })
       }
       release(); releasePhoto()
       await context.close()
@@ -186,46 +188,84 @@ try {
       ['revision-sample', '/demo-recipe/try-a-revision', 'pages/RecipeRevisionSamplePage.tsx'],
       ['missing-page', '/missing-page', 'pages/PublicJournalPages.tsx'],
     ]
-    for (const [name, routePath, modulePath] of coldRoutes) {
-      const context = await browser.newContext({ viewport: { width: 1470, height: 803 } })
-      const page = await context.newPage()
-      if (routePath.startsWith('/app')) await preparePage(page)
-      let releaseModule
-      const moduleHold = new Promise(resolve => { releaseModule = resolve })
-      let seenModule
-      const requested = new Promise(resolve => { seenModule = resolve })
-      await context.route('**/*', async route => {
-        const url = new URL(route.request().url())
-        if (url.origin === new URL(origin).origin) {
-          if (url.pathname === '/src/' + modulePath) { seenModule(); await moduleHold }
-          return route.continue()
+    for (const [width, height] of [[1470, 803], [1280, 720], [1100, 640]]) {
+      for (const [name, routePath, modulePath] of coldRoutes.filter(([name]) => !process.env.MORI_COLD_ROUTES || process.env.MORI_COLD_ROUTES.split(',').includes(name))) {
+        const context = await browser.newContext({ viewport: { width, height } })
+        const stamp = width === 1470 ? `cold-${name}` : `cold-${name}-${width}`
+        const page = await context.newPage()
+        if (routePath.startsWith('/app')) await preparePage(page)
+        let collectionState = 'populated'
+        let releaseModule
+        const moduleHold = new Promise(resolve => { releaseModule = resolve })
+        let seenModule
+        const requested = new Promise(resolve => { seenModule = resolve })
+        await context.route('**/*', async route => {
+          const url = new URL(route.request().url())
+          if (url.origin === new URL(origin).origin) {
+            if (url.pathname === '/src/' + modulePath) { seenModule(); await moduleHold }
+            return route.continue()
+          }
+          assert.equal(url.origin, apiOrigin)
+          if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'browser-test@example.test' } })
+          if (url.pathname.endsWith('/recipe-image-download-url')) return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND', message: 'No photo' } } })
+          if (name === 'collection' && url.pathname.endsWith('/recipes') && collectionState === 'error') return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR', message: 'Test collection failure' } } })
+          return route.fulfill({ json: { recipes: collectionState === 'empty' ? [] : recipes, recipe, has_more: false, next_cursor: null } })
+        })
+        await page.goto(new URL(routePath, origin).href)
+        await requested
+        await page.locator('.mm-skeleton-line').first().waitFor()
+        await page.evaluate(() => globalThis.document.fonts.ready)
+        await page.waitForTimeout(200)
+        await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
+        await page.screenshot({ path: path.join(output, `${stamp}-loading.png`) })
+        if (name === 'collection') {
+          await page.getByRole('button', { name: 'Talk to Mori' }).click()
+          await page.keyboard.press('Escape')
         }
-        assert.equal(url.origin, apiOrigin)
-        if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'browser-test@example.test' } })
-        if (url.pathname.endsWith('/recipe-image-download-url')) return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND', message: 'No photo' } } })
-        return route.fulfill({ json: { recipes, recipe, has_more: false, next_cursor: null } })
-      })
-      await page.goto(new URL(routePath, origin).href)
-      await requested
-      await page.locator('.mm-skeleton-line').first().waitFor()
-      await page.evaluate(() => globalThis.document.fonts.ready)
-      await page.waitForTimeout(200)
-      await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
-      await page.screenshot({ path: path.join(output, `cold-${name}-loading.png`) })
-      if (name === 'collection') {
-        await page.getByRole('button', { name: 'Talk to Mori' }).click()
-        await page.keyboard.press('Escape')
+        releaseModule()
+        await expect(page.locator('.mm-skeleton-line')).toHaveCount(0)
+        await page.waitForTimeout(200)
+        await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
+        if (name === 'collection') await expect(page.getByRole('button', { name: 'Talk to Mori' })).toBeFocused()
+        if (name === 'collection') {
+          collectionState = 'empty'
+          await page.getByRole('button', { name: 'Refresh recipes' }).first().click()
+          await expect(page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toBeVisible()
+          await page.screenshot({ path: path.join(output, `${stamp}-empty.png`), animations: 'disabled' })
+          collectionState = 'error'
+          await page.getByRole('button', { name: 'Refresh recipes' }).first().click()
+          await expect(page.getByRole('alert').first()).toBeVisible()
+          await expect(page.getByRole('heading', { name: 'A fresh page for your next favorite.' })).toHaveCount(0)
+          assert.ok(await page.locator('.mm-journal-page .mm-collection-body').evaluate(element => element.scrollHeight <= element.clientHeight + 2), `${stamp}: retry state overflows the paper`)
+          await page.screenshot({ path: path.join(output, `${stamp}-error.png`), animations: 'disabled' })
+          collectionState = 'populated'
+          await page.getByRole('button', { name: 'Try again', exact: true }).click()
+          await expect(page.locator('.mm-journal-page .mm-collection-entry').first()).toBeVisible()
+        }
+        if (name === 'new') {
+          assert.ok(await page.locator('.mm-form-identity').evaluate(element => {
+            const notes = element.querySelector('textarea[name="notes"]')
+            return notes.getBoundingClientRect().top + 25 <= element.getBoundingClientRect().bottom
+          }), `${stamp}: notes must show a writing line before the inner scroll boundary`)
+        }
+        const sameBook = await page.evaluate(() => !globalThis.__coldBook || globalThis.__coldBook === globalThis.document.querySelector('.mm-journal-book'))
+        assert.equal(sameBook, true, `${name}: route module loading replaced the notebook`)
+        if (name === 'chef') {
+          const labels = await page.locator('.mm-ai-chef__journey li').evaluateAll(items => items.map(item => {
+            const label = item.lastElementChild
+            return { text: label.textContent, display: globalThis.getComputedStyle(item).display, columns: globalThis.getComputedStyle(item).gridTemplateColumns, item: item.getBoundingClientRect().toJSON(), label: label.getBoundingClientRect().toJSON() }
+          }))
+          await writeFile(path.join(output, `${stamp}-stepper.json`), JSON.stringify(labels, null, 2))
+          for (const item of labels) assert.ok(item.label.left >= item.item.left && item.label.right <= item.item.right, `${stamp}: step label overflows: ${item.text}`)
+        }
+        const geometry = await page.evaluate(() => ({ documentWidth: globalThis.document.documentElement.scrollWidth, documentHeight: globalThis.document.documentElement.scrollHeight }))
+        assert.ok(geometry.documentWidth <= width + 2, `${name}: horizontal overflow at ${width}`)
+        assert.ok(geometry.documentHeight <= height + 2, `${name}: document overflow at ${width}×${height}: ${geometry.documentHeight}`)
+        if (name === 'home' || name === 'about') await assertJournalSemantics(page, name)
+        results.push({ name, width, height, coldRoute: routePath, sameBook, ...geometry })
+        await context.close()
+        globalThis.console.log(`${stamp}: preserved shell`)
       }
-      releaseModule()
-      await expect(page.locator('.mm-skeleton-line')).toHaveCount(0)
-      await page.waitForTimeout(200)
-      await page.screenshot({ path: path.join(output, `cold-${name}-loaded.png`) })
-      if (name === 'collection') await expect(page.getByRole('button', { name: 'Talk to Mori' })).toBeFocused()
-      const sameBook = await page.evaluate(() => !globalThis.__coldBook || globalThis.__coldBook === globalThis.document.querySelector('.mm-journal-book'))
-      assert.equal(sameBook, true, `${name}: route module loading replaced the notebook`)
-      results.push({ name, coldRoute: routePath, sameBook })
-      await context.close()
-      globalThis.console.log(`cold-${name}: preserved shell`)
     }
   }
   await writeFile(path.join(output, 'results.json'), JSON.stringify(results, null, 2))

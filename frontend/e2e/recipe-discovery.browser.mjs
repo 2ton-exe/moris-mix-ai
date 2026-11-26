@@ -99,7 +99,7 @@ try {
       await expect(collection).toBeVisible()
       assert.equal(await collection.getAttribute('aria-keyshortcuts'), null, `No slash shortcut at ${width}px`)
       await expect(page.locator('.mm-search-shortcut-hint')).toHaveCount(0)
-      await page.getByRole('link', { name: 'Search saved recipes' }).click()
+      await page.getByRole('link', { name: 'Search saved recipes' }).first().click()
       await expect(page.getByRole('searchbox', { name: 'Search recipes' })).toBeFocused()
     }
     assert.equal(await page.getByRole('searchbox', { name: 'Search recipes' }).isDisabled(), false)
