@@ -51,3 +51,7 @@ Workflow:
 Issue → Branch → Implementation → Tests → Pull Request
 → Teammate Review → CI → Merge → Deploy → Verify
 ```
+
+## Submission evidence
+
+See the [27 November 2026 evidence and disclosure pack](docs/submission/README.md) for four-sprint records, the reconstructed board index, external-work and asset disclosure, and outstanding confirmation requests. Historical evidence and pending confirmations are marked separately.
