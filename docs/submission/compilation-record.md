@@ -31,3 +31,7 @@ No tokens, environment values, signed storage URLs, backup payloads or private u
 ## New generated work
 
 This evidence pack and the necessary procedural texture replacement were prepared with OpenAI Codex in this chat on 27 November 2026, using delegated evidence/disclosure workers and independent review. Source collection, reconciliation, link checks and local visual checks are recorded in the pack. Human contributor confirmation and instructor acceptance remain pending where explicitly marked. This statement covers this PR only; it does not establish historical assistant use by any teammate.
+
+## Reviewer rendering check
+
+On 27 November 2026, an anonymous Chromium session at 1440 × 960 rendered the committed reviewer entry point and board index on GitHub. The board columns were consolidated after visual inspection so the item, assignee, status/dates, PR/branch and outstanding-gap fields fit the visible document width. This verifies those rendered documents, not every historical external attachment. Issue/PR inventory capture preceded creation of this submission PR, so later repository counts can differ without changing the captured scope.
