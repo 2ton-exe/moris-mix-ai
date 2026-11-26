@@ -129,6 +129,98 @@ try {
   const origin = server.resolvedUrls.local[0]
   appOrigin = new URL(origin).origin
   browser = await chromium.launch({ channel: 'chrome', headless: true })
+  if (process.env.MORI_OVERLAYS_ONLY === 'true') {
+    for (const [width, height] of [[1440, 900], [1100, 640]]) {
+      const app = await newJournalContext(width)
+      const { page } = app
+      await page.setViewportSize({ width, height })
+      let current = { ...recipe, id: '11111111-1111-4111-8111-111111111111', updated_at: '2026-11-27T00:00:00Z' }
+      let failSave = false
+      let links = 'empty'
+      await page.route(apiOrigin + '/**', async route => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith('/lineage')) return route.fulfill(links === 'error'
+          ? { status: 503, json: { error: { code: 'INTERNAL_ERROR', message: 'Private lineage detail' } } }
+          : { json: { lineage: links === 'empty' ? [] : [{ id: '77777777-7777-4777-8777-777777777777', parent_recipe_id: secondRecipe.id, child_recipe_id: current.id, created_at: current.updated_at }] } })
+        if (url.pathname.endsWith('/generate-recipe')) return route.fulfill({ status: 503, json: { error: { code: 'AI_DISABLED', message: 'Private generation detail' } } })
+        if (url.pathname.endsWith('/recipes/' + current.id)) {
+          if (request.method() === 'PATCH') {
+            if (failSave) return route.fulfill({ status: 503, json: { error: { code: 'INTERNAL_ERROR', message: 'Private save detail' } } })
+            const { expected_updated_at, ...changes } = request.postDataJSON()
+            assert.ok(!expected_updated_at || expected_updated_at === current.updated_at)
+            current = { ...current, ...changes, updated_at: '2026-11-27T00:01:00Z' }
+          }
+          if (request.method() === 'DELETE') return route.fulfill({ status: 503, json: { error: { code: 'INTERNAL_ERROR', message: 'Private delete detail' } } })
+          return route.fulfill({ json: { recipe: current } })
+        }
+        return route.fallback()
+      })
+      const capture = async name => {
+        await page.evaluate(() => globalThis.document.fonts.ready)
+        await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), animations: 'disabled' })
+        const modal = page.locator('dialog[open], [role="alertdialog"]').first()
+        assert.ok(await modal.evaluate(element => element.scrollWidth <= element.clientWidth + 1), `${name}: horizontal modal overflow`)
+        await assertJournalSemantics(page, name)
+      }
+      await page.goto(`${origin}app/recipes/${current.id}`)
+      await page.getByRole('heading', { name: recipe.title, level: 1 }).waitFor()
+      await page.getByRole('button', { name: 'Record cooking', exact: true }).click()
+      const cook = page.getByRole('dialog', { name: 'Record this cook' })
+      await capture('record-date')
+      await cook.getByRole('button', { name: 'Record cooked date', exact: true }).click()
+      await cook.getByLabel('A note for next time').fill('Use a little less salt next time.')
+      await capture('record-note')
+      await cook.getByRole('button', { name: 'Back to recipe' }).click()
+      await capture('record-discard-confirmation')
+      await cook.getByRole('button', { name: 'Keep editing note' }).click()
+      await cook.getByRole('button', { name: 'Review cooking note' }).click()
+      await capture('record-review')
+      failSave = true
+      await cook.getByRole('button', { name: 'Save cooking note' }).click()
+      await expect(cook.getByRole('alert')).toContainText('Your entry is still here')
+      await capture('record-error')
+      failSave = false
+      await cook.getByRole('button', { name: 'Save cooking note' }).click()
+      await expect(cook.getByRole('status').filter({ hasText: 'Saved to Personal Notes.' })).toBeVisible()
+      await capture('record-saved')
+      await cook.getByRole('button', { name: 'Back to recipe' }).click()
+      await page.getByRole('button', { name: 'Revise with Mori' }).click()
+      const revision = page.getByRole('dialog', { name: 'Make a version for next time' })
+      await capture('revision-note-choice')
+      await revision.getByRole('radio').first().check()
+      await revision.getByRole('button', { name: 'Ask Mori for a revision' }).click()
+      await expect(revision.getByRole('alert')).toBeVisible()
+      await capture('revision-unavailable')
+      await revision.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.getByRole('button', { name: 'Linked recipes', exact: true }).click()
+      const linked = page.getByRole('dialog', { name: 'Linked recipes' })
+      await expect(linked.getByText('This recipe has no saved links to earlier versions.')).toBeVisible()
+      await capture('links-empty')
+      await linked.getByRole('button', { name: 'Done' }).click()
+      links = 'error'
+      await page.goto(`${origin}app/recipes/${current.id}`)
+      await page.getByRole('button', { name: 'Linked recipes', exact: true }).click()
+      await expect(linked.getByRole('alert')).toBeVisible()
+      await capture('links-error')
+      links = 'populated'
+      await linked.getByRole('button', { name: 'Try again' }).click()
+      await expect(linked.getByRole('link', { name: 'Based on ' + secondRecipe.title })).toBeVisible()
+      await capture('links-populated')
+      await linked.getByRole('button', { name: 'Done' }).click()
+      await page.getByRole('button', { name: 'Delete recipe', exact: true }).click()
+      const deletion = page.getByRole('alertdialog')
+      await capture('delete-confirmation')
+      await deletion.getByRole('button', { name: 'Delete recipe', exact: true }).click()
+      await expect(deletion.getByRole('alert')).toBeVisible()
+      await capture('delete-error')
+      await deletion.getByRole('button', { name: 'Cancel' }).click()
+      await expect(page.getByRole('button', { name: 'Delete recipe', exact: true })).toBeFocused()
+      assert.deepEqual(app.pageErrors, [])
+      await app.context.close()
+    }
+    process.stdout.write(`Desktop cooking, revision, lineage and delete overlays passed. Screenshots: ${outputDir}\n`)
+  } else {
   for (const [width, height] of [[1280, 720], [390, 844]]) {
     const empty = await newJournalContext(width, { empty: true })
     await empty.page.setViewportSize({ width, height })
@@ -325,6 +417,7 @@ try {
   assert.deepEqual(failed.pageErrors, [])
   await failed.context.close()
   process.stdout.write('FE-13 initial-list failure and cached-refresh recovery passed.\n')
+  }
 } finally {
   await browser?.close()
   await server.close()
