@@ -246,6 +246,7 @@ try {
     await page.getByRole('heading', { name: 'Saved recipes (1)' }).waitFor()
     await page.getByRole('button', { name: 'Talk to Mori' }).click()
     const chat = page.getByRole('region', { name: 'Mori', exact: true })
+    if (width === 1440) await chat.getByText('Journal pages', { exact: true }).click()
     await expect(page.locator('.mori-pet-bubble')).toHaveCSS('opacity', '1')
     const editor = chat.getByRole('button', { name: 'Open recipe editor' })
     const tap = page.locator('.mori-navigation-tap')
@@ -262,7 +263,7 @@ try {
       await page.mouse.move(grip.x + grip.width / 2 + (growsLeft ? 60 : -60), grip.y + grip.height / 2 + 64, { steps: 4 })
       await page.mouse.up()
       const smaller = await chat.boundingBox()
-      assert.ok(smaller.width < initial.width && smaller.height < initial.height, 'Dragging resizes both dimensions')
+      assert.ok(smaller.width < initial.width && smaller.height <= 480, 'Dragging changes width while retaining a content-aware height cap')
       await resize.focus()
       await resize.press(growsLeft ? 'ArrowLeft' : 'ArrowRight')
       assert.ok((await chat.boundingBox()).width > smaller.width, 'The keyboard can widen the chat')
@@ -272,7 +273,7 @@ try {
       await resize.press('Enter')
       const restored = await chat.boundingBox()
       assert.equal(restored.width, initial.width, 'Activating the grip again restores the standard width')
-      assert.equal(restored.height, initial.height, 'Activating the grip again restores the standard height')
+      assert.ok(restored.height <= 480, 'Reset keeps the dialogue within its content cap')
     } else {
       await expect(resize).toHaveCount(0)
     }
@@ -493,7 +494,8 @@ try {
     const chefTrigger = chefApp.page.getByRole('button', { name: 'Talk to Mori', exact: true })
     await chefTrigger.click()
     const chefPanel = chefApp.page.getByRole('region', { name: 'Mori', exact: true })
-    await expect(chefPanel.locator('.mori-chat-task')).toHaveText('How can I help?')
+    await expect(chefPanel.locator('.mori-chat-task')).toHaveText(width === 1440 ? 'What shall we cook with your pantry?' : 'How can I help?')
+    if (width === 1440) await chefPanel.getByText('Journal pages', { exact: true }).click()
     await chefPanel.getByRole('button', { name: 'Open cooking notes' }).click()
     await expect(chefApp.page).toHaveURL(`${origin}app/quick-entry`)
     const notesInput = chefApp.page.getByRole('textbox', { name: 'Cooking notes' })
@@ -550,16 +552,11 @@ try {
   await quickPanel.getByRole('button', { name: 'Send' }).click()
   await quickPanel.getByRole('status').filter({ hasText: 'Mori is working on your request.' }).waitFor()
   assert.equal(await quickPanel.getByRole('status').count(), 1, 'A pending chat request must have only one live status announcement')
-  const pendingFits = await quickPanel.evaluate(element => {
-    const bounds = element.getBoundingClientRect()
-    return [...element.querySelectorAll('.mori-chat-composer, .mori-chat-shortcuts, .mori-chat-pending, .mori-chat-hint')].every(child => {
-      const rect = child.getBoundingClientRect()
-      return rect.top >= bounds.top && rect.bottom <= bounds.bottom
-    })
-  })
-  assert.ok((await quickPanel.boundingBox()).height > emptyChatHeight, 'Desktop chat expands when the conversation starts')
-  assert.equal(pendingFits, true, 'Composer, navigation, Cancel and hint must fit while a request is pending')
-  assert.ok((await quickPanel.getByRole('log').boundingBox()).height >= 44, 'Pending requests must retain a readable transcript')
+  assert.ok((await quickPanel.boundingBox()).height > emptyChatHeight, 'Dialogue grows to fit the request status')
+  await expect(quickPanel.getByRole('textbox', { name: 'Message Mori' })).toBeInViewport({ ratio: 1 })
+  await expect(quickPanel.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(quickPanel.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(quickPanel.getByRole('article', { name: 'You' }).last()).toBeInViewport({ ratio: 1 })
   quickApp.releaseExtraction()
   const draftReview = quickPanel.getByRole('button', { name: 'Review draft' })
   await Promise.all([

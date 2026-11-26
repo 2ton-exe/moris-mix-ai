@@ -220,16 +220,45 @@
 .mori-pet-panel[data-resizable] > header { padding-inline-end: 44px; }
 
 @media (min-width: 1100px) and (min-height: 640px) and (hover: hover) and (pointer: fine) {
-  .mori-pet-panel[data-chat='true'] { padding: 20px 24px; }
-  .mori-pet-panel[data-chat='true'] > header { padding-block-end: 8px; }
-  .mori-chat, .mori-chat-conversation { gap: 12px; }
-  .mori-pet-panel .mori-chat-task { padding-block-end: 0; border-bottom: 0; font-size: 14px; }
-  .mori-pet-panel[data-resizable] .mori-chat-log { min-block-size: 0; }
-  .mori-chat-message { padding: 12px 14px; font-size: 14px; line-height: 1.5; }
-  .mori-chat-prompts > summary { min-height: 36px; padding-inline: 12px; }
-  .mori-chat-composer { gap: 8px 12px; padding-block-start: 12px; }
-  .mori-chat-composer textarea { min-height: 72px; padding: 12px; }
-  .mori-chat-composer button { min-height: 72px; }
-  .mori-chat-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 8px; }
-  .mori-chat-shortcuts button { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.35; border-radius: 6px; }
+  .mori-pet-panel[data-dialogue] {
+    height: auto;
+    padding: var(--mm-space-4) var(--mm-space-6);
+    border-radius: 24px 24px 24px 8px;
+    background: var(--mm-color-fresh) var(--mm-tex-grain);
+    box-shadow: var(--mm-shadow-paper);
+  }
+  .mori-pet-panel[data-dialogue] > header { flex: none; padding-block-end: var(--mm-space-2); }
+  .mori-pet-panel[data-dialogue] h2 { color: var(--mm-color-burgundy-800); font-size: 28px; }
+  .mori-pet-panel[data-dialogue] .mori-chat,
+  .mori-pet-panel[data-dialogue] .mori-chat-conversation { flex: 0 1 auto; gap: var(--mm-space-2); }
+  .mori-pet-panel[data-dialogue] .mori-chat-task { margin: 0 0 var(--mm-space-2); padding: 0; border: 0; color: var(--mm-color-ink); font-size: 16px; line-height: 1.5; font-weight: 450; }
+  .mori-pet-panel[data-dialogue] .mori-chat-log { flex: 0 1 auto; min-block-size: 0; max-block-size: 200px; padding: 0; gap: var(--mm-space-3); }
+  .mori-pet-panel[data-dialogue] .mori-chat-log:empty { display: none; }
+  .mori-pet-panel[data-dialogue] .mori-chat-log:not(:focus-visible)[data-overflow-before] { mask-image: linear-gradient(to bottom, transparent, black 12px); }
+  .mori-pet-panel[data-dialogue] .mori-chat-log:not(:focus-visible)[data-overflow-after] { mask-image: linear-gradient(to top, transparent, black 12px); }
+  .mori-pet-panel[data-dialogue] .mori-chat-log:not(:focus-visible)[data-overflow-before][data-overflow-after] { mask-image: linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent); }
+  .mori-pet-panel .mori-chat-history { align-self: flex-start; min-height: 32px; padding: var(--mm-space-1) 0; border: 0; background: none; color: var(--mm-color-burgundy-800); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+  .mori-pet-panel[data-dialogue] .mori-chat-message { padding: 0; border: 0; background: none; font-size: 14px; line-height: 1.5; }
+  .mori-pet-panel[data-dialogue] .mori-chat-message p { margin: 0; }
+  .mori-pet-panel[data-dialogue] .mori-chat-message[data-role='user'] { padding: var(--mm-space-2) var(--mm-space-3); background: var(--mm-color-sage-100); border-radius: 12px 12px 4px 12px; }
+  .mori-pet-panel[data-dialogue] .mori-chat-composer { padding: var(--mm-space-1); border: 1px solid var(--mm-color-espresso-500); border-radius: var(--mm-radius-control); gap: var(--mm-space-2); background: var(--mm-color-parchment-50); }
+  .mori-pet-panel[data-dialogue] .mori-chat-label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+  .mori-pet-panel[data-dialogue] .mori-chat-composer textarea { min-height: 56px; padding: var(--mm-space-2); border: 0; background: transparent; resize: none; font-size: 14px; }
+  .mori-pet-panel[data-dialogue] .mori-chat-composer button { min-height: 44px; margin-block-end: var(--mm-space-1); }
+  .mori-pet-panel[data-dialogue] .mori-chat-composer:focus-within { outline: 2px solid var(--mm-color-burgundy-600); outline-offset: 2px; }
+  .mori-pet-panel[data-dialogue] .mori-chat-composer textarea:focus-visible { outline: none; }
+  .mori-pet-panel[data-dialogue] .mori-chat-hint { display: none; margin: 0; font-size: 11px; color: var(--mm-color-ink-soft); }
+  .mori-pet-panel[data-dialogue]:has(.mori-chat-composer:focus-within) .mori-chat-hint { display: block; }
+  .mori-chat-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--mm-space-2); align-items: start; }
+  .mori-chat-tools > .mori-chat-quick-prompts { grid-column: 1 / -1; }
+  .mori-chat-tools > details[open] { grid-column: 1 / -1; }
+  .mori-chat-pages { font-size: 12px; color: var(--mm-color-burgundy-800); }
+  .mori-chat-pages > summary { display: list-item; min-block-size: 32px; align-content: center; cursor: pointer; text-underline-offset: 3px; }
+  .mori-pet-panel[data-dialogue] .mori-chat-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); border: 0; padding: var(--mm-space-1) 0; background: none; gap: var(--mm-space-1); }
+  .mori-pet-panel[data-dialogue] .mori-chat-shortcuts button { flex-direction: row; justify-content: flex-start; gap: var(--mm-space-2); padding: var(--mm-space-2); font-size: 12px; text-align: start; }
+  .mori-chat-quick-prompts { display: flex; flex-wrap: wrap; gap: var(--mm-space-2); }
+  .mori-pet-panel .mori-chat-quick-prompts button { display: inline-flex; align-items: center; gap: var(--mm-space-1); min-height: 36px; padding: var(--mm-space-1) var(--mm-space-2); border: 1px solid var(--mm-border-paper); border-radius: var(--mm-radius-control); font-size: 12px; }
+  .mori-chat:has(.mori-chat-prompts[open]) .mori-chat-quick-prompts { display: none; }
+  .mori-pet-bubble .mori-pet-resize:focus-visible { outline: none; }
+  .mori-pet-bubble .mori-pet-resize:focus-visible svg { outline: 2px solid var(--mm-color-burgundy-600); outline-offset: 4px; border-radius: 2px; }
 }

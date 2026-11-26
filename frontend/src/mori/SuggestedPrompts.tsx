@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown, RefreshCw, CookingPot, NotebookPen } from 'lucide-react'
 import { categories, promptLibrary, selectSuggestions, type Suggestion, type SuggestionContext } from './suggestions'
 
-export function SuggestedPrompts({ context, busy, draft, onSelect }: { context: SuggestionContext; busy: boolean; draft: string; onSelect: (prompt: Suggestion) => void }) {
+export function SuggestedPrompts({ context, busy, draft, onSelect, preview = false }: { context: SuggestionContext; busy: boolean; draft: string; onSelect: (prompt: Suggestion) => void; preview?: boolean }) {
   const id = useId()
   const disclosure = useRef<HTMLDetailsElement>(null)
   const [interacting, setInteracting] = useState(false)
@@ -18,7 +18,8 @@ export function SuggestedPrompts({ context, busy, draft, onSelect }: { context: 
     setExpanded(false)
     onSelect(prompt)
   }}>{prompt.workflow === 'create' ? <NotebookPen size={13} aria-hidden="true" /> : <CookingPot size={13} aria-hidden="true" />}{prompt.label}</button>
-  return <details ref={disclosure} className="mori-chat-prompts" onFocusCapture={() => setInteracting(true)} onBlurCapture={event => {
+  return <>{preview && <div className="mori-chat-quick-prompts" role="group" aria-label="Ideas for this page">{selection.prompts.slice(0, 2).map(chip)}</div>}
+  <details ref={disclosure} className="mori-chat-prompts" onFocusCapture={() => setInteracting(true)} onBlurCapture={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setInteracting(false)
   }}>
     <summary>Suggested prompts <ChevronDown size={14} aria-hidden="true" /></summary>
@@ -32,5 +33,5 @@ export function SuggestedPrompts({ context, busy, draft, onSelect }: { context: 
     <div key={revision} id={`${id}-library`} className={expanded ? 'mori-prompts-library' : 'mori-prompts-chips'} role="group" aria-label="Suggested prompts">
       {expanded ? categories.map(category => <section key={category}><h3>{category}</h3><div>{promptLibrary.filter(p => p.category === category).map(chip)}</div></section>) : selection.prompts.map(chip)}
     </div>
-  </details>
+  </details></>
 }

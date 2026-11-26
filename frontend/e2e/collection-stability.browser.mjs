@@ -42,6 +42,8 @@ try {
     }))
     let releaseRecipes
     const recipesReady = new Promise(resolve => { releaseRecipes = resolve })
+    let releaseMori
+    const moriReady = new Promise(resolve => { releaseMori = resolve })
     await context.route('**/*', async (route) => {
       const url = new URL(route.request().url())
       if (url.origin === new URL(origin).origin) {
@@ -51,6 +53,10 @@ try {
       assert.equal(url.origin, apiOrigin, `Unexpected external request: ${url.origin}`)
       if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204 })
       if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'browser-test@example.test' } })
+      if (url.pathname === '/functions/v1/generate-recipe') {
+        await moriReady
+        return route.fulfill({ status: 503, json: { error: { code: 'AI_DISABLED', message: 'Isolated AI unavailable' } } })
+      }
       assert.equal(url.pathname, '/functions/v1/recipes')
       assert.equal(route.request().method(), 'GET')
       assert.match(route.request().headers().authorization, /^Bearer /)
@@ -192,6 +198,7 @@ try {
     }
     globalThis.console.log(`${width}x${height}: stable layout; all five recipes reached exactly once`)
     if (width === 1470) {
+      await page.screenshot({ path: path.join(output, 'mori-idle.png'), animations: 'disabled' })
       await page.getByRole('button', { name: 'Talk to Mori' }).click()
       const chat = page.getByRole('region', { name: 'Mori', exact: true })
       const resize = page.getByRole('button', { name: 'Resize Mori chat' })
@@ -205,9 +212,21 @@ try {
       await expect(chat.locator('.mori-chat-message')).toHaveCount(2)
       const conversation = await chat.boundingBox()
       assert.equal(conversation.width, initial.width, 'Starting a conversation must not widen the bubble')
-      assert.equal(conversation.height, initial.height, 'Starting a conversation must not expand the bubble')
+      assert.ok(conversation.height <= 480, 'Conversation growth must remain bounded to its content cap')
+      await expect(chat.getByRole('navigation', { name: 'Open a journal page' })).toBeHidden()
+      await chat.getByText('Journal pages', { exact: true }).click()
+      await expect(chat.getByRole('button', { name: 'Open recipe editor' })).toBeVisible()
+      await chat.getByText('Journal pages', { exact: true }).click()
       assert.ok(await chat.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'Conversation history must scroll inside the log without pushing the composer out')
       await page.screenshot({ path: path.join(output, 'mori-chat-conversation.png'), animations: 'disabled' })
+      await chat.getByRole('textbox', { name: 'Message Mori' }).fill('Hello Mori, I am planning supper for my family. '.repeat(35))
+      await chat.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(chat.getByRole('button', { name: 'Earlier conversation' })).toBeVisible()
+      await chat.getByRole('button', { name: 'Earlier conversation' }).click()
+      assert.equal(await chat.getByRole('log').evaluate(element => element.scrollTop), 0)
+      await page.screenshot({ path: path.join(output, 'mori-chat-long-history.png'), animations: 'disabled' })
+      await expect(chat.getByRole('button', { name: 'Latest reply' })).toBeVisible()
+      await chat.getByRole('button', { name: 'Latest reply' }).click()
       await chat.getByRole('textbox', { name: 'Message Mori' }).fill('A cooking note kept while resizing.')
       await resize.focus()
       for (let step = 0; step < 6; step++) await resize.press('ArrowUp')
@@ -215,10 +234,7 @@ try {
       const bounds = await chat.boundingBox()
       const grip = await resize.boundingBox()
       assert.ok(grip.x + grip.width >= bounds.x + bounds.width - 12, 'The resize grip belongs in the top-right corner')
-      assert.ok(await chat.locator('.mori-chat-hint').evaluate(element => {
-        const panel = element.closest('.mori-pet-panel').getBoundingClientRect()
-        return panel.bottom - element.getBoundingClientRect().bottom < 32
-      }), 'Expanded chat must keep the composer and its hint at the bottom')
+      assert.ok(await chat.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'Expanded chat must keep its controls visible')
       await resize.press('ArrowRight')
       const wider = await chat.boundingBox()
       assert.equal(wider.x, bounds.x, 'Resizing from the top right keeps the left edge anchored')
@@ -229,18 +245,25 @@ try {
       await page.mouse.move(dragGrip.x + 52, dragGrip.y - 2, { steps: 4 })
       await page.mouse.up()
       const dragged = await chat.boundingBox()
-      assert.ok(dragged.width > wider.width && dragged.height > wider.height, 'The corner grip resizes both dimensions')
-      assert.ok(Math.abs(dragged.x - wider.x) < 1 && Math.abs(dragged.y + dragged.height - wider.y - wider.height) < 1, 'Dragging keeps the opposite corner anchored')
+      assert.ok(dragged.width > wider.width, 'The corner grip resizes the dialogue width')
+      assert.ok(Math.abs(dragged.x - wider.x) < 1 && dragged.height <= 480, 'Manual sizing preserves the anchored edge and content height cap')
       await resize.click()
-      assert.equal((await chat.boundingBox()).height, dragged.height, 'A pointer click on the grip does not expand or collapse chat')
+      assert.equal((await chat.boundingBox()).width, dragged.width, 'A pointer click on the grip does not expand or collapse chat')
       await resize.press('Enter')
       assert.equal((await chat.boundingBox()).width, initial.width, 'Keyboard reset restores the original width')
-      assert.equal((await chat.boundingBox()).height, initial.height, 'Keyboard reset restores the original height')
+      await expect.poll(async () => (await chat.boundingBox()).height).toBeLessThanOrEqual(480)
       await expect(chat.getByRole('textbox', { name: 'Message Mori' })).toHaveValue('A cooking note kept while resizing.')
       for (let step = 0; step < 6; step++) { await resize.press('ArrowLeft'); await resize.press('ArrowDown') }
       assert.ok(await chat.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'The smallest desktop chat must keep its controls visible')
       await page.screenshot({ path: path.join(output, 'mori-chat-smallest.png'), animations: 'disabled' })
       await resize.press('Enter')
+      await chat.getByRole('textbox', { name: 'Message Mori' }).fill('What can I cook with rice and eggs; quick and spicy')
+      await chat.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(chat.getByRole('status')).toContainText('Mori is working')
+      await page.screenshot({ path: path.join(output, 'mori-chat-thinking.png'), animations: 'disabled' })
+      releaseMori()
+      await expect(chat.getByRole('button', { name: 'Retry same request' })).toBeInViewport({ ratio: 1 })
+      await page.screenshot({ path: path.join(output, 'mori-chat-error.png'), animations: 'disabled' })
       await page.getByRole('button', { name: 'Close Mori' }).click()
       const mori = page.getByRole('button', { name: 'Talk to Mori' })
       const actor = await mori.boundingBox()
