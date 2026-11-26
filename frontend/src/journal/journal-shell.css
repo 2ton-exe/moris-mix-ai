@@ -185,6 +185,9 @@
 }
 .mm-journal-page :where(h1, h2, h3) { font-family: var(--mm-font-serif); letter-spacing: -.025em; }
 .mm-journal-page h1, .mm-journal-flyleaf h1 { font-size: clamp(28px, 2.5vw, 36px); line-height: 1.15; }
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-journal-flyleaf h1 { letter-spacing: -.025em; text-wrap: balance; }
+}
 .mm-journal-page .intro { color: var(--mm-color-ink-soft); }
 .mm-journal-page .journal-heading { margin-top: 0; flex-wrap: wrap; }
 .mm-journal-page .journal-heading > div { flex: 1 1 280px; min-width: 0; }

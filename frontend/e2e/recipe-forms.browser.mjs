@@ -11,6 +11,8 @@ import { createServer } from 'vite'
 import { assertJournalGeometry, settleJournalLayout } from './journal-geometry.mjs'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 
+const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiOrigin = 'https://recipe-journal.example.test'
 const userId = '22222222-2222-4222-8222-222222222222'
@@ -694,7 +696,7 @@ try {
   await expect(page.getByRole('button', { name: 'Move step 5', exact: true })).toBeFocused()
 
   // The responsive matrix exposes two coordinated leaves on desktop and one on narrow views.
-  for (const width of [1440, 1280, 1024, 390, 320]) {
+  for (const width of [1440, 1280, 1024, 390, 320].filter(width => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height: 900 })
     // Check the journal's layout from the top of the page at each viewport.
     await page.evaluate(() => globalThis.scrollTo(0, 0))
@@ -710,7 +712,7 @@ try {
   }
 
   // Real Chromium keyboard regression for physical page turns.
-  for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }]) {
+  for (const { width, height } of [{ width: 1440, height: 700 }, { width: 390, height: 640 }, { width: 320, height: 640 }].filter(({ width }) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await page.goto(editUrl(longRecipe.id))
     await expect(page.getByLabel('Recipe title')).toHaveValue(longRecipe.title)
@@ -811,7 +813,7 @@ try {
   assert.equal(saveRequests.at(-1).id, longRecipe.id)
   assert.equal(saveRequests.at(-1).body.ingredients.length, 18)
   assert.equal(saveRequests.at(-1).body.instructions.length, 14)
-  process.stdout.write('Long form: all 18 ingredients and 14 steps reachable, cross-spread reordering, 1440/1280/1024/390/320px, 200% reflow, reachable Save, and reduced motion passed.\n')
+  process.stdout.write(`Long form: all 18 ingredients and 14 steps reachable, cross-spread reordering, ${desktopOnly ? 'desktop 1440/1280px' : '1440/1280/1024/390/320px'}, 200% reflow, reachable Save, and reduced motion passed.\n`)
 
   // Existing delete state machine: cancel, pending, recoverable failure, retry, and confirmed 204.
   await page.setViewportSize({ width: 1440, height: 960 })
