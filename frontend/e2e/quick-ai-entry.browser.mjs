@@ -36,6 +36,8 @@ const outputDir = await mkdtemp(path.join(os.tmpdir(), 'moris-fe08-'))
 let appOrigin
 let apiOrigin
 let extractionMode = 'success'
+let releaseExtraction
+const extractionGate = new Promise(resolve => { releaseExtraction = resolve })
 const requests = []
 const recipeWrites = []
 
@@ -144,7 +146,7 @@ async function handleApiRequest(request, response) {
     return
   }
   if (extractionMode === 'slow-success') {
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 500))
+    await extractionGate
     sendJson(request, response, 200, { recipe })
     return
   }
@@ -517,6 +519,7 @@ try {
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText('Mori could not reach the kitchen')
   await expect(returnedNotes).toHaveValue('beans, cumin, lemon, a splash of water')
+  await page.screenshot({ path: path.join(outputDir, 'quick-entry-network-error-1280.png'), animations: 'disabled' })
   extractionMode = 'success'
   await settleJournalLayout(page)
   const retryLayout = await page.evaluate(() => {
@@ -544,6 +547,7 @@ try {
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText('Mori could not organize those notes just now')
   await expect(page.getByText('private provider detail')).toHaveCount(0)
+  await page.screenshot({ path: path.join(outputDir, 'quick-entry-provider-error-1280.png'), animations: 'disabled' })
 
   extractionMode = 'provider-rate-limit'
   const providerPage = await context.newPage()
@@ -559,6 +563,7 @@ try {
   const providerWait = Number((await providerCooldown.textContent()).match(/Please wait (\d+) seconds/)[1])
   assert.ok(providerWait > 30 && providerWait <= 60, `Expected the exposed 60-second provider cooldown, got ${providerWait}`)
   await expect(providerNotes).toHaveValue('keep these notes while the provider cools down')
+  await providerPage.screenshot({ path: path.join(outputDir, 'quick-entry-provider-cooldown.png'), animations: 'disabled' })
   await expect(providerPage.getByText('private provider detail')).toHaveCount(0)
   await providerPage.getByRole('link', { name: 'Write manually with these notes' }).click()
   await expect(providerPage).toHaveURL(`${origin}app/recipes/new`)
@@ -571,7 +576,7 @@ try {
   await page.getByRole('button', { name: 'Organize my notes' }).click()
   await expect(page.getByRole('alert')).toContainText("Mori couldn't validate the recipe")
   await expect(notes).toHaveValue('notes that receive a malformed result')
-  for (const [width, height] of [[1440, 900], [1280, 720]].filter(([width]) => !desktopOnly || width >= 1100)) {
+  for (const [width, height] of [[1440, 900], [1280, 720], [1100, 640]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
     const error = page.getByRole('alert')
@@ -581,7 +586,14 @@ try {
     const messageBox = await error.boundingBox()
     const buttonBox = await retry.boundingBox()
     assert.ok(messageBox.y + messageBox.height <= buttonBox.y, `Error and retry must fit in reading order at ${width}×${height}`)
+    await expect.poll(async () => {
+      const art = await page.locator('.mori-pet-trigger .mm-mori').boundingBox()
+      const message = await error.boundingBox()
+      return art && message && (art.x + art.width <= message.x || message.x + message.width <= art.x ||
+        art.y + art.height <= message.y || message.y + message.height <= art.y)
+    }, { message: `Automatic Mori docking must not cover failure feedback at ${width}×${height}` }).toBe(true)
     await retry.click({ trial: true })
+    await page.screenshot({ path: path.join(outputDir, `quick-entry-invalid-result-${width}.png`), animations: 'disabled' })
   }
   await page.setViewportSize({ width: 1440, height: 900 })
   await expect(page.getByRole('heading', { name: 'Garlic soy chicken' })).toHaveCount(0)
@@ -593,6 +605,7 @@ try {
   await expect(page.getByRole('button', { name: 'Please wait to retry' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Retry extraction' })).toHaveCount(0)
   await expect(page.getByText('private quota detail')).toHaveCount(0)
+  await page.screenshot({ path: path.join(outputDir, 'quick-entry-quota-1440.png'), animations: 'disabled' })
 
   await page.getByRole('link', { name: 'Back to journal' }).click()
   await expect(page).toHaveURL(`${origin}app`)
@@ -660,16 +673,21 @@ try {
   await reducedMotionPage.goto(`${origin}app/quick-entry`)
   await reducedMotionPage.getByRole('textbox', { name: 'Cooking notes' }).fill('notes prepared with reduced motion enabled')
   extractionMode = 'slow-success'
+  const previousExtractions = requests.filter(request => request.path === '/functions/v1/extract-recipe').length
   await reducedMotionPage.getByRole('button', { name: 'Organize my notes' }).click()
   const loadingMori = reducedMotionPage.getByRole('group', { name: 'Mori companion' })
   await expect(loadingMori).toHaveAttribute('data-activity', 'working')
   await expect(loadingMori).toBeVisible()
   await expect(loadingMori.locator('.mm-mori')).not.toHaveAttribute('data-animated', 'true')
+  await expect.poll(() => requests.filter(request => request.path === '/functions/v1/extract-recipe').length).toBe(previousExtractions + 1)
+  await reducedMotionPage.screenshot({ path: path.join(outputDir, 'quick-entry-pending-reduced.png'), animations: 'disabled' })
+  releaseExtraction()
   await expect(reducedMotionPage.getByRole('heading', { name: 'Garlic soy chicken' })).toBeVisible()
   assert.deepEqual(errors, [])
   await context.close()
   process.stdout.write(`Quick AI Entry and FE-09 authenticated extraction/review, validation, refresh recovery, explicit-save-only persistence, consumed-handoff clearing, notes/flavor metadata, failure recovery, keyboard focus, page turns, reduced motion, ${desktopOnly ? 'desktop' : '320/375/768/1440px'} layouts, and 200% equivalent reflow passed. Screenshots: ${outputDir}\n`)
 } finally {
+  releaseExtraction()
   await browser?.close()
   await server?.close()
   await new Promise((resolve, reject) => apiServer.close((error) => error ? reject(error) : resolve()))
