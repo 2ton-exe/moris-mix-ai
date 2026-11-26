@@ -117,8 +117,8 @@ After the workflow is merged to `main` and all required secrets/variables are co
 5. Confirm the normalized role/schema/migration-history pre/post consistency comparisons pass.
 6. Confirm the archive and evidence JSON upload to `moris-mix-db-backups-prod`.
 7. Confirm the remote object size equals the local archive size and the re-downloaded archive SHA-256 equals the locally recorded SHA-256.
-8. Record the workflow run ID, source SHA, timestamp, R2 object key, archive size, and SHA-256 in #159.
-9. Do not post SQL contents, archive contents, passwords, tokens, user rows, or auth data as evidence.
+8. Record only the workflow run link and fixed outcomes in public issue #159. Keep the source revision, timestamp, R2 object key, archive size, SHA-256, and other backup identifiers in the restricted owner-controlled record.
+9. Do not post SQL contents, archive contents, passwords, tokens, user rows, auth data, or backup identifiers in public GitHub evidence.
 
 A configured workflow is not a backup. Completion of these steps proves only backup creation/upload/round-trip integrity verification.
 
@@ -144,6 +144,21 @@ The drill must, at minimum:
 
 A backup upload is not restore proof. DEVOPS-10 remains open until this drill succeeds and another teammate can follow the tested procedure.
 
+For the current #159 selection, Stage B has no candidate dispatch input and is fixed to ordinary Backup #7 recovery. It cannot select Backup #4 or provide the private statement/catalog evidence required by #276/#280. Before configuring candidate secrets, Ramos (or a different independent verifier explicitly designated by Haresco) must receive the exact proposed UTF-8 manifest bytes through the restricted owner channel, reconcile the Backup #7 entry against the successful producer run and evidence in the restricted record, and independently compute the SHA-256 of those exact bytes. The authorized secret steward sets `RESTORE_CANDIDATES_JSON` and `RESTORE_CANDIDATE_MANIFEST_SHA256`; Ramos must set the separate `RESTORE_CANDIDATE_APPROVED_SHA256` only after completing that reconciliation. The workflow requires the exact manifest bytes, the operational pin, and Ramos's independent approval digest to match before database startup or any R2 credential is injected, then rechecks them after target setup immediately before the first R2 request. That final check creates a fresh mode-0600 candidate mapping and passes the validated fields to later steps as environment data; it never sources the earlier preflight file. Missing, malformed, or mismatched values fail closed. Do not read back, print, or publish any secret or digest. Any later change requires the same independent review and replacement of the approval digest. The digest binds approval to exact bytes; it is not provenance proof by itself. Keep the manifest and both digests private.
+
+The `database-restore-drill` Environment remains a per-execution protected gate. Its reviewers must be restricted to people authorized to accept both this ordinary restore's residual egress risk and the run's candidate-approval state; prevent self-review, disable administrator bypass, and allow only `main`. After approval, Stage B reads that run's approval history and proceeds only if an approved record is from someone other than the dispatcher/rerunner and its complete public comment consists of exactly these two lines (in either order):
+
+```text
+MORI-STAGEB-ORDINARY-EGRESS-ACCEPTED run_id=<run-id> run_attempt=1
+MORI-STAGEB-CANDIDATE-APPROVAL-CONFIRMED run_id=<run-id> run_attempt=1
+```
+
+The comment is a public authorization record and must contain only these fixed labels and the public Actions run ID/attempt. Do not include the manifest, digest, backup identifiers, SQL, or private diagnostics; any extra or duplicate line fails closed. The run must be attempt `1`: GitHub's approval-history response is run-scoped and does not identify an attempt, so Stage B rejects reruns rather than reusing an earlier attempt's approval. Start a new `workflow_dispatch` run to obtain a fresh per-execution approval. A missing, invalid, stale-attempt, self-approved, rerun, or unavailable approval record stops before candidate preflight and before R2 credentials are provided. For each run, the authorized environment reviewer must confirm through the restricted owner channel that Ramos completed the independent candidate review, then explicitly accept runner-host TCP/DNS exposure in the environment approval. GitHub requires approval from one of the configured reviewers, so every configured reviewer must be authorized for this decision.
+
+GitHub does not provide a per-secret writer ACL. Haresco must restrict and audit environment-secret administration so only Ramos or the separately designated independent verifier can provision `RESTORE_CANDIDATE_APPROVED_SHA256`. If that role separation cannot be established, do not run Stage B. Revoke candidate authorization by removing or rotating the approved-digest secret; the preflight then fails. Each egress acceptance applies only to the named run attempt; reject the pending environment deployment or cancel that run to revoke it. Cancel an active run immediately if authorization is withdrawn and revoke the R2 read key if private access may already have occurred.
+
+Stage B isolates the disposable containers but does not deny outbound TCP/DNS from the runner host; it observes and reports that connectivity. The per-run protected approval records explicit acceptance of this residual risk for ordinary Backup #7 recovery. It does not meet the stricter #276/#280 owner-diagnostic network requirements.
+
 ### Disposable restore principal
 
 The [credential-free PostgreSQL 17 experiment](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44866128120)
@@ -165,8 +180,7 @@ Stage B still checks the five application counts and migration version set as
 local `postgres`. Synthetic fixtures exercise both restored ownership and
 explicit read grants. If that role cannot read the restored tables, or its row
 visibility produces different counts, verification fails. Objects with implicit
-ownership can take the replay role as owner. Backup #4 must still succeed in a
-protected isolated drill, including aggregate and cleanup checks, and the drill
+ownership can take the replay role as owner. Backup #7 is the selected candidate for the ordinary #159 recovery drill; its success does not diagnose or resolve Backup #4's failure under #276/#280. The drill
 does not establish recovery of excluded managed services or Storage objects.
 
 ## Failure handling
@@ -289,3 +303,20 @@ grammar. Success and unattributed, unsupported, or ambiguous statements use
 `other-or-unknown`. The label reveals no parameter names, role identifiers,
 or SQL. It describes syntax only and leaves the required privileges and
 permission root cause unverified.
+
+## Owner-run private restore inspection (not recovery proof)
+
+Issue #280 adds a separate owner-controlled local procedure for bounded
+`data.sql` failure inspection. It replays the exact Stage B single transaction
+on one disposable PostgreSQL 17 target, then uses a separate fresh target for
+the committed pre-data reconstruction and catalog query. Before private SQL,
+it requires a second owner’s approval, provider-level ingress and egress
+denial, and verified host/container firewall probes. Follow the
+[owner restore diagnostic runbook](owner-restore-diagnostic.md) on a temporary
+isolated Linux VM. Its standard-library verifier reuses the protected
+workflow's archive identity and component-checksum checks; its local helper
+keeps the exact statement and catalog snapshot private and emits only a fixed
+investigative label. This path does not use GitHub logs or artifacts, does not
+authorize a production dispatch, and does not establish restore or production
+recovery. The host network guard uses the system `nftables` and `iproute2`
+tools; no Python or Node package is added.

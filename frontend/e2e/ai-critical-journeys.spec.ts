@@ -333,11 +333,20 @@ test('AI endpoints keep malformed and provider failures as unsaved, recoverable 
     await expect(page.getByRole('alert')).toContainText("Mori couldn't validate the recipe it returned.")
     await expect(notes).toHaveValue('QA03_MALFORMED\nrough cooking notes')
 
-    await notes.fill('QA03_PROVIDER_FAILURE\nrough cooking notes')
+    const providerFailureNotes = 'QA03_PROVIDER_FAILURE\nrough cooking notes'
+    await notes.fill(providerFailureNotes)
+    const providerFailureResponsePromise = page.waitForResponse((response) => {
+      const request = response.request()
+      if (request.method() !== 'POST' || new URL(response.url()).pathname !== '/functions/v1/extract-recipe') return false
+      return (request.postDataJSON() as { notes?: string }).notes === providerFailureNotes
+    })
     await page.getByRole('button', { name: 'Organize my notes' }).click()
+    const providerFailureResponse = await providerFailureResponsePromise
+    expect(providerFailureResponse.status()).toBe(503)
+    await expect(providerFailureResponse.json()).resolves.toMatchObject({ error: { code: 'AI_UNAVAILABLE' } })
     await expect(page.getByRole('alert')).toContainText('Mori could not organize those notes just now.')
     await expect(page.getByRole('button', { name: 'Retry extraction' })).toBeVisible()
-    await expect(notes).toHaveValue('QA03_PROVIDER_FAILURE\nrough cooking notes')
+    await expect(notes).toHaveValue(providerFailureNotes)
     expect(extractionRequests).toHaveLength(2)
     expect(recipeWrites).toHaveLength(0)
     expect(lineageWrites).toHaveLength(0)

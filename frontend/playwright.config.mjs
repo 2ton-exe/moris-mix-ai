@@ -12,7 +12,7 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
   outputDir: './test-results',
-  fullyParallel: false,
+  fullyParallel: true,
   forbidOnly: isCI,
   retries: 0,
   workers: 1,
