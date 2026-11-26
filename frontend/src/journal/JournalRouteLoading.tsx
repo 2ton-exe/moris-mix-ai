@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router'
+import { AIChefSkeleton } from '../ai-chef/AIChefSkeleton'
 import { LoadingState } from '../components/LoadingState'
 import { RecipeEditorSkeleton } from '../recipe-form/RecipeEditorSkeleton'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
@@ -13,6 +14,7 @@ import '../pages/recipeRevisionSample.css'
 export function JournalRouteLoading({ message }: { message: string }) {
   const { pathname, search } = useLocation()
   const desktop = useJournalMedia('(min-width: 1100px) and (min-height: 640px)')
+  const pantryBoard = useJournalMedia('(min-width: 1100px) and (min-height: 640px) and (pointer: fine)')
   if (pathname === '/demo-recipe' || /^\/app\/recipes\/[^/]+$/.test(pathname) && !pathname.endsWith('/new')) {
     const demo = pathname === '/demo-recipe'
     return <RecipeReadingSkeleton publicDemo={demo} back={<Link to={demo ? '/home' : '/app'}>{demo ? 'Back home' : 'Back to recipes'}</Link>} />
@@ -55,6 +57,7 @@ export function JournalRouteLoading({ message }: { message: string }) {
     </section>
     <JournalPageFooter><JournalPagination loading label="Cooking notes pages" rightNumber="Page 1 of 1" /></JournalPageFooter>
   </>
+  if (pantryBoard && pathname === '/app/chef') return <AIChefSkeleton message={message} />
   if (pathname === '/app/quick-entry' || pathname === '/app/chef') {
     const notes = pathname.endsWith('/quick-entry')
     const title = notes ? 'Quick AI Entry' : 'What’s in your pantry?'

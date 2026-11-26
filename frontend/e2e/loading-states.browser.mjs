@@ -223,7 +223,11 @@ try {
         await page.evaluate(() => globalThis.document.fonts.ready)
         await page.waitForTimeout(200)
         await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
-        const measureWritingLayout = (kind) => Object.fromEntries((kind === 'notes' ? [
+        const measureWritingLayout = (kind) => Object.fromEntries((kind === 'chef' ? [
+          ['journey', '.mm-ai-chef__journey'], ['entry', '.mm-ai-chef__entry-panel'], ['input', '.mm-ai-chef__ingredient-entry input'],
+          ['quickAdd', '.mm-ai-chef__quick-add summary'], ['heading', '.mm-ai-chef__heading'], ['pantry', '.mm-ai-chef__pantry-list'],
+          ['actions', '.mm-ai-chef__footer-actions'],
+        ] : kind === 'notes' ? [
           ['guide', '.mm-quick-ai__support'], ['journey', '.mm-quick-ai__journey'], ['example', '.mm-quick-ai__example'],
           ['heading', '.mm-quick-ai-intro--task'], ['back', '.mm-quick-ai__back'], ['sheet', '.mm-quick-ai__sheet'],
           ['notes', '.mm-quick-ai__textarea'], ['metadata', '.mm-quick-ai__field-meta'], ['actions', '.mm-quick-ai__actions'],
@@ -235,7 +239,7 @@ try {
           const e = globalThis.document.querySelector(selector)
           return [name, e?.getBoundingClientRect().toJSON()]
         }))
-        const loadingWriting = ['new', 'notes'].includes(name) ? await page.evaluate(measureWritingLayout, name) : null
+        const loadingWriting = ['new', 'notes', 'chef'].includes(name) ? await page.evaluate(measureWritingLayout, name) : null
         if (name === 'new') {
           await expect(page.locator('.mm-form-identity')).toHaveAttribute('inert', '')
           await expect(page.locator('.mm-form-identity')).toHaveAttribute('aria-hidden', 'true')
@@ -253,6 +257,12 @@ try {
           await expect(page.locator('.mm-quick-ai')).toHaveAttribute('aria-busy', 'true')
           await expect(page.locator('.mm-quick-ai__support').locator('..')).toHaveAttribute('inert', '')
           assert.ok(await page.locator('.mm-quick-ai__sheet').evaluate(e => e.scrollHeight <= e.clientHeight + 1), `${stamp}: empty notes skeleton fits without scrolling`)
+        }
+        if (name === 'chef') {
+          await expect(page.locator('.mm-ai-chef')).toHaveAttribute('inert', '')
+          await expect(page.locator('.mm-ai-chef')).toHaveAttribute('aria-hidden', 'true')
+          await expect(page.locator('.mm-ai-chef')).toHaveAttribute('aria-busy', 'true')
+          await expect(page.locator('.mm-ai-chef__journey').locator('..')).toHaveAttribute('inert', '')
         }
         let loadingReference
         if (name === 'notes-review') {
