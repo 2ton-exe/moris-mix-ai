@@ -53,6 +53,7 @@ export function useUnsavedChangesGuard(dirty: boolean, { warnOnUnload = false, g
       approvedRequest.current = null
     }
     if (request && (blocker.state === 'blocked' || request.originKey !== key)) {
+      if (blocker.state === 'blocked' && request.originKey === key) blocker.reset()
       request.cancel()
       setRequest(null)
     }
