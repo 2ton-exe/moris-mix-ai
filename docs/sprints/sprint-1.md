@@ -118,6 +118,8 @@ BE-01 and the approved Sprint 1 standards guide parallel work. FS-01 lets FE-02 
 
 **Sprint 2 boundary:** authenticated recipe CRUD and reusable JWT authorization middleware.
 
+> Retrospective compilation (27 November 2026): see the [four-sprint evidence pack](../submission/process-evidence.md) and [reconstructed work-item index](../submission/board-evidence.md). The original snapshot, dates and placeholders below remain historical records.
+
 ## Stand-up log
 
 Add one dated entry per stand-up. Record facts, blockers, decisions, and links; do not record secrets.
