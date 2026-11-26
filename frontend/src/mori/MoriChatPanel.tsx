@@ -68,12 +68,11 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
 
 type PlayNavigationMotion = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void | boolean>
 
-export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false, onConversationChange }: {
+export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false }: {
   userId: string
   playNavigationTap?: PlayNavigationMotion
   playNavigationTravel?: PlayNavigationMotion
   traveling?: boolean
-  onConversationChange?: (started: boolean) => void
 }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -86,7 +85,6 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
   const [navigating, setNavigating] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const hasMessages = messages.length > 0
-  useLayoutEffect(() => { onConversationChange?.(hasMessages) }, [hasMessages, onConversationChange])
   const [mode, setMode] = useState<'create' | 'suggest' | null>(null)
   const [composer, setComposer] = useState('')
   const [pendingTask, setPendingTask] = useState<'recipe' | 'search' | null>(null)

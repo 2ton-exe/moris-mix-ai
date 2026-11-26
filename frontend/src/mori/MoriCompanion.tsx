@@ -18,8 +18,8 @@ const navigationTapArm = -58
 const navigationTapStyle: CSSProperties & { '--mori-navigation-arm': string } = { '--mori-navigation-arm': `${navigationTapArm}deg` }
 const defaultChatSize = { width: 520, height: 560 }
 const smallChatSize = { width: 380, height: 420 }
-const emptyChatSize = { width: 390, height: 360 }
-const smallEmptyChatSize = { width: 320, height: 300 }
+const desktopChatSize = { width: 480, height: 560 }
+const smallDesktopChatSize = { width: 420, height: 480 }
 type ChatSize = typeof defaultChatSize & { leftOffset: number; placement: 'left' | 'right' }
 const storageKey = 'moris-mix:mori-companion'
 const preferencesSchema = z.object({
@@ -56,7 +56,6 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const [preferences, setPreferences] = useState(readPreferences)
   const [open, setOpen] = useState(false)
   const [chatSize, setChatSize] = useState<ChatSize | null>(null)
-  const [hasConversation, setHasConversation] = useState(false)
   const [moved, setMoved] = useState('')
   const [suspended, setSuspended] = useState(false)
   const [traveling, setTraveling] = useState(false)
@@ -193,8 +192,8 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
   const resizeFromSide = resizableChat && (placement === 'left' || placement === 'right')
   const resizeBottom = Math.min(bottom, Math.max(top + defaultChatSize.height, mouthY + defaultChatSize.height / 2))
   const verticalSpace = placement === 'bottom' ? belowSpace : placement === 'top' ? aboveSpace : (resizeFromSide ? resizeBottom : bottom) - top
-  const standardChat = hasConversation || !desktopPointer ? defaultChatSize : emptyChatSize
-  const smallChat = hasConversation || !desktopPointer ? smallChatSize : smallEmptyChatSize
+  const standardChat = desktopPointer ? desktopChatSize : defaultChatSize
+  const smallChat = desktopPointer ? smallDesktopChatSize : smallChatSize
   const preferredChat = chatSize ?? standardChat
   const preferredWidth = resizableChat ? preferredChat.width : userId && viewport.width >= 1100 ? defaultChatSize.width : 380
   const preferredHeight = resizableChat ? preferredChat.height : userId && viewport.width >= 1100 ? defaultChatSize.height : 460
@@ -388,7 +387,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           <header><h2 ref={heading} id={headingId} tabIndex={-1}>Mori</h2><button className="mori-pet-close" type="button" onClick={close} aria-label="Close Mori"><X size={18} strokeWidth={2.2} aria-hidden="true" /></button></header>
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} onConversationChange={setHasConversation} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)
