@@ -58,6 +58,49 @@ test('backup queue preserves unique run attempts and private local verification 
   assert.match(verify.run, /umask 077/);
 });
 
+test('main-only backup validates its own environment credentials before linking or dumping', () => {
+  assert.equal(backup.environment, 'production-backup');
+  assert.equal(backup.if, "github.ref == 'refs/heads/main'");
+  assert.doesNotMatch(JSON.stringify(backup), /secrets\.(?:SUPABASE_ACCESS_TOKEN|SUPABASE_DB_PASSWORD)\b/);
+
+  const preflight = step(backup, 'Validate Supabase backup configuration');
+  assert.deepEqual(preflight.env, {
+    PRODUCTION_BACKUP_SUPABASE_ACCESS_TOKEN: '${{ secrets.PRODUCTION_BACKUP_SUPABASE_ACCESS_TOKEN }}',
+    PRODUCTION_BACKUP_SUPABASE_DB_PASSWORD: '${{ secrets.PRODUCTION_BACKUP_SUPABASE_DB_PASSWORD }}',
+  });
+  for (const name of ['Link production Supabase project', 'Create Supabase logical backup bundle']) {
+    const consumer = step(backup, name);
+    assert.ok(backup.steps.indexOf(preflight) < backup.steps.indexOf(consumer));
+    assert.deepEqual(consumer.env, {
+      SUPABASE_ACCESS_TOKEN: preflight.env.PRODUCTION_BACKUP_SUPABASE_ACCESS_TOKEN,
+      SUPABASE_DB_PASSWORD: preflight.env.PRODUCTION_BACKUP_SUPABASE_DB_PASSWORD,
+    });
+  }
+
+  const testEnv = {
+    ...process.env,
+    SUPABASE_PROJECT_REF: readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([^"]+)"$/m)?.[1],
+    SUPABASE_ACCESS_TOKEN: 'legacy-test-only',
+    SUPABASE_DB_PASSWORD: 'legacy-test-only',
+    PRODUCTION_BACKUP_SUPABASE_ACCESS_TOKEN: 'new-test-only',
+    PRODUCTION_BACKUP_SUPABASE_DB_PASSWORD: 'new-test-only',
+  };
+  const check = overrides => spawnSync('bash', ['-c', `
+    supabase() { test "$1" = --version; }
+    docker() { test "$1" = --version; }
+    ${preflight.run}`], { encoding: 'utf8', env: { ...testEnv, ...overrides } });
+  const configured = check({});
+  assert.equal(configured.status, 0, configured.stderr || configured.stdout);
+  for (const key of Object.keys(preflight.env)) {
+    for (const value of ['', ' \t ']) {
+      const rejected = check({ [key]: value });
+      assert.equal(rejected.status, 1, rejected.stderr);
+      assert.ok(rejected.stdout.includes(`Required Supabase backup configuration is missing: ${key}`));
+      assert.doesNotMatch(rejected.stdout, /test-only/);
+    }
+  }
+});
+
 test('restricted backup metadata is masked before use and remains available within the job', () => {
   const bundle = step(backup, 'Create Supabase logical backup bundle');
   const verify = step(backup, 'Verify uploaded backup objects');
