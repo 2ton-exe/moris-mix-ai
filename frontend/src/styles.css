@@ -216,9 +216,9 @@ summary:focus-visible { outline: 3px solid #5a8c78; outline-offset: 4px; }
 }
 
 /* Loading uses the same card and reading-page classes as the available content. */
-.mm-skeleton-line { display: inline-block; width: 85%; height: .8em; border-radius: 3px; background: var(--mm-color-parchment-300); vertical-align: baseline; }
+.mm-skeleton-line { display: inline-block; width: 85%; height: .8em; border-radius: 3px; background: var(--mm-color-parchment-300) var(--mm-tex-grain); vertical-align: baseline; }
 .mm-skeleton-line--short { width: 45%; }
-.mm-skeleton-block { background: var(--mm-color-parchment-200) !important; }
+.mm-skeleton-block { background: var(--mm-color-parchment-200) var(--mm-tex-grain) !important; }
 .mm-skeleton-card { pointer-events: none; }
 .mm-skeleton-card .mm-recipe-card__folio { color: transparent; }
 .recipe-loading { margin: 0; }

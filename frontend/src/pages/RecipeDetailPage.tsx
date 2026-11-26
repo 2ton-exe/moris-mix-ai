@@ -13,6 +13,7 @@ import { useMoriHeadingFocusKey } from '../mori/routeState'
 import { useAuth } from '../auth/context'
 import { RecipeRevisionTools } from '../recipes/RecipeRevisionTools'
 import { useJournalMedia } from '../journal/useJournalMedia'
+import { focusLoadedJournalContent } from '../journal/focus'
 
 export default function RecipeDetailPage() {
   const { recipeId = '' } = useParams()
@@ -35,7 +36,8 @@ export default function RecipeDetailPage() {
   useEffect(() => { focusAfterRequest.current = true }, [recipeId, moriFocusKey])
   useEffect(() => {
     if (!focusAfterRequest.current || query.isPending || (!hasRecipe && !query.isError)) return
-    titleRef.current?.focus()
+    if (moriFocusKey) titleRef.current?.focus()
+    else focusLoadedJournalContent(titleRef.current)
     focusAfterRequest.current = false
   }, [query.isPending, query.isError, hasRecipe, recipe?.id, moriFocusKey])
 
@@ -70,7 +72,7 @@ export default function RecipeDetailPage() {
       artwork={<RecipeImagePanel key={`image-${recipe.id}`} recipeId={recipe.id} recipeTitle={recipe.title} cookedAt={recipe.cooked_at} framed />}
       back={<Link to={journalReturn} state={{ focusRecipe: recipeId }}><span aria-hidden="true">←</span> Back to recipes</Link>}
       status={<>
-        {query.isFetching && <p role="status" className="recipe-update">Updating recipe…</p>}
+        {query.isFetching && <p role="status" className="recipe-update visually-hidden">Updating recipe…</p>}
         {query.isError && <><RecipeError detail error={query.error} onRetry={retry} /><p className="recipe-update" role="status">Showing the last loaded recipe. Its latest changes could not be checked.</p></>}
       </>}
       editable={source.mode === 'live'}

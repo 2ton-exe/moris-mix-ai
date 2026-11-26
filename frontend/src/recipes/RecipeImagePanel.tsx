@@ -300,10 +300,14 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
   const currentDownload = download?.userId === user?.id ? download : null
   if (!framed && !allowUpload && !showEmpty && !loading && !currentDownload && !downloadError) return null
 
-  return <section className={`recipe-image-panel${framed ? ' recipe-image-panel--framed' : ''}`} aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
-    {(allowUpload || showEmpty) && <h2 id={`${id}-heading`} tabIndex={-1}>Recipe image</h2>}
+  return <>
     {loading && (allowUpload || showEmpty) && <p role="status">Loading current recipe image…</p>}
-    {framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail"
+    {preparing && <p role="status">Preparing image…</p>}
+    {uploading && <p role="status">{bytesUploaded ? 'Attaching image…' : 'Uploading image…'}</p>}
+    <section className={`recipe-image-panel${framed ? ' recipe-image-panel--framed' : ''}`} aria-label={allowUpload || showEmpty ? undefined : `Recipe photo for ${recipeTitle}`} aria-labelledby={allowUpload || showEmpty ? `${id}-heading` : undefined} aria-busy={loading || preparing || uploading}>
+    {(allowUpload || showEmpty) && <h2 id={`${id}-heading`} tabIndex={-1}>Recipe image</h2>}
+    {loading && !currentDownload && !framed && <div className="recipe-image mm-skeleton-block mm-loading-photo" aria-hidden="true" />}
+    {framed ? <RecipeScrapArtwork title={recipeTitle} cookedAt={cookedAt} size="detail" loading={loading && !currentDownload}
       image={currentDownload && !downloadError ? <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} /> : undefined} />
       : currentDownload && <img className="recipe-image" src={currentDownload.url} alt={`${recipeTitle} photo`} onError={handleImageError} />}
     {previewUrl && <img className="recipe-image" src={previewUrl} alt="Selected recipe image preview" />}
@@ -327,13 +331,11 @@ export function RecipeImagePanel({ recipeId, recipeTitle, allowUpload = false, s
         }}
       />
       {selectionError && <p role="alert">{selectionError}</p>}
-      {preparing && <p role="status">Preparing image…</p>}
-      {uploading && <p role="status">{bytesUploaded ? 'Attaching image…' : 'Uploading image…'}</p>}
       {uploadError && <p role="alert">{uploadError}</p>}
       {uploadSuccess && <p role="status">Recipe image saved.</p>}
       {selected && <button type="button" className="button button-secondary" disabled={preparing || uploading} onClick={() => { void uploadImage() }}>
         {uploadError ? attached ? 'Refresh attached image' : bytesUploaded ? 'Retry attachment' : 'Retry upload' : 'Upload image'}
       </button>}
     </div>}
-  </section>
+  </section></>
 }

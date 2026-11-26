@@ -489,7 +489,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       </nav>
       {page < noteParts.length && <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet" role="region" aria-label={`Cooking notes page ${page + 1} of ${pageCount}`} tabIndex={0} onKeyDown={handlePageKeyDown}>
         <form id={notesId + '-form'} onSubmit={handleSubmit} noValidate>
-          <div className="mm-quick-ai__field">
+          <div className="mm-quick-ai__field" aria-busy={loading}>
             <label htmlFor={notesId}>Cooking notes</label>
             <textarea
               ref={notesRef}

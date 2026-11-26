@@ -16,7 +16,7 @@ it('uses collection artwork and copy slots rather than a generic grid', () => {
 it('uses the index layout for search result placeholders', () => {
   const { container } = render(<RecipeSkeleton index />)
   expect(container.querySelectorAll('.mm-index-card')).toHaveLength(3)
-  expect(container.querySelectorAll('.mm-index-card__icon')).toHaveLength(3)
+  expect(container.querySelectorAll('.mm-index-card__number')).toHaveLength(3)
   expect(container.querySelector('.mm-recipe-artwork')).toBeNull()
 })
 it('keeps the loading announcement outside busy content and hides inert pagination', () => {

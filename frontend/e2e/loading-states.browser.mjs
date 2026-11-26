@@ -1,0 +1,233 @@
+// Isolated browser acceptance: synthetic auth and intercepted REST responses.
+// This script never contacts a hosted Supabase project.
+import assert from 'node:assert/strict'
+import path from 'node:path'
+import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises'
+import process from 'node:process'
+import { fileURLToPath, URL } from 'node:url'
+import { chromium, expect } from '@playwright/test'
+import { createServer } from 'vite'
+import react from '@vitejs/plugin-react'
+
+const apiOrigin = 'https://fe07.example.test'
+const userId = '11111111-1111-4111-8111-111111111111'
+const server = await createServer({
+  root: await realpath(process.env.MORI_LOADING_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')),
+  configFile: false,
+  envDir: false,
+  plugins: [react()],
+  resolve: { dedupe: ['react', 'react-dom', 'react-router'] },
+  cacheDir: path.resolve(`frontend/node_modules/.vite-loading-${process.env.MORI_LOADING_PHASE || 'after'}`),
+  define: {
+    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(apiOrigin),
+    'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify('browser-test-public-key'),
+    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(''),
+    'import.meta.env.VITE_RECIPE_PREVIEW': JSON.stringify('false'),
+    'import.meta.env.VITE_RECIPE_IMAGES': JSON.stringify('true'),
+  },
+  server: { host: '127.0.0.1', port: 0, fs: { allow: [await realpath(process.env.MORI_LOADING_ROOT || '.'), process.cwd()] } },
+  logLevel: 'error',
+})
+const phase = process.env.MORI_LOADING_PHASE || 'after'
+const output = path.resolve('output/playwright/loading-audit', phase)
+await mkdir(output, { recursive: true })
+const fixture = JSON.parse(await readFile(new URL('../../fixtures/demo-recipe.json', import.meta.url), 'utf8')).recipe
+const recipe = { ...fixture, user_id: userId, notes: 'A handwritten cooking note.' }
+const recipes = Array.from({ length: 5 }, (_, i) => ({ ...recipe, id: i ? `recipe-${i}` : recipe.id, title: i ? `Tomato rice ${i}` : recipe.title }))
+const results = []
+let browser
+const scenarios = [
+  ['collection', '/app', '.mm-journal-page .mm-skeleton-card', '.mm-journal-page .mm-collection-entry:not(.mm-skeleton-card)'],
+  ['index', '/app?view=index', '.mm-journal-page .mm-skeleton-card', '.mm-journal-page .mm-index-card:not(.mm-skeleton-card)'],
+  ['reading', `/app/recipes/${recipe.id}`, '.mm-reading-skeleton', '.journal-recipe:not(.mm-reading-skeleton)'],
+  ['editor', `/app/recipes/${recipe.id}/edit`, '[role="status"]', 'textarea[name="title"]'],
+  ['demo', '/demo-recipe', '.mm-reading-skeleton', '.journal-recipe:not(.mm-reading-skeleton)'],
+]
+async function preparePage(page) {
+  await page.addInitScript(({ userId }) => {
+        const expires_at = Math.floor(Date.now() / 1000) + 3600
+        const user = { id: userId, aud: 'authenticated', email: 'browser-test@example.test', app_metadata: {}, user_metadata: {}, created_at: '2026-10-25T00:00:00Z' }
+        const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: userId, exp: expires_at }))}.test-signature`
+        globalThis.localStorage.setItem('sb-fe07-auth-token', JSON.stringify({ access_token: token, refresh_token: 'test-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
+        globalThis.__layoutShifts = []
+        new globalThis.PerformanceObserver(list => {
+          for (const entry of list.getEntries()) if (!entry.hadRecentInput) globalThis.__layoutShifts.push(entry.value)
+        }).observe({ type: 'layout-shift', buffered: true })
+      }, { userId })
+}
+try {
+  await server.listen()
+  const origin = server.resolvedUrls.local[0]
+  globalThis.console.log(`Serving ${phase}: ${origin}`)
+  browser = await chromium.launch({ channel: 'chrome', headless: true })
+  for (const [width, height, motion] of [[1470, 803, 'no-preference'], [1854, 930, 'no-preference'], [1470, 803, 'reduce']]) {
+    for (const [name, routePath, pendingSelector, loadedSelector] of scenarios) {
+      const context = await browser.newContext({ viewport: { width, height }, reducedMotion: motion })
+      const page = await context.newPage()
+      page.setDefaultTimeout(30_000)
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      let release
+      let releasePhoto
+      let failure = false
+      let hold = new Promise(resolve => { release = resolve })
+      const photoHold = new Promise(resolve => { releasePhoto = resolve })
+      await context.route('**/*', async route => {
+        const url = new URL(route.request().url())
+        if (url.origin === new URL(origin).origin) return route.continue()
+        assert.equal(url.origin, apiOrigin, 'Only synthetic API requests are allowed')
+        if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'browser-test@example.test' } })
+        if (url.pathname.endsWith('/recipe-image-download-url')) {
+          await photoHold
+          return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND', message: 'No photo' } } })
+        }
+        await hold
+        if (failure) return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message: 'Test missing recipe' } } })
+        return route.fulfill({ json: url.pathname.endsWith('/recipes') ? { recipes, has_more: false, next_cursor: null } : { recipe } })
+      })
+      await preparePage(page)
+      const cdp = await context.newCDPSession(page)
+      await cdp.send('Network.enable')
+      globalThis.console.log(`Opening ${width}-${motion}-${name}`)
+      await page.goto(new URL(routePath, origin).href)
+      await page.locator(pendingSelector).first().waitFor({ state: 'attached' }).catch(async error => { await page.screenshot({ path: path.join(output, 'failure.png') }); globalThis.console.log(await page.locator('body').innerText(), errors); throw error })
+      await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 120, downloadThroughput: 512 * 1024, uploadThroughput: 128 * 1024 })
+      await page.evaluate(() => globalThis.document.fonts.ready)
+      await page.waitForTimeout(1000)
+      await page.evaluate(() => { globalThis.__loadingBook = globalThis.document.querySelector('.mm-journal-book'); globalThis.__layoutShifts = [] })
+      const stamp = `${width}-${motion}-${name}`
+      await page.screenshot({ path: path.join(output, `${stamp}-loading.png`) })
+      if (phase === 'after') {
+        const skeleton = page.locator('.mm-journal-spread .mm-skeleton-line').first()
+        await expect(skeleton).toBeVisible()
+        if (motion === 'reduce') assert.equal(await skeleton.evaluate(e => globalThis.getComputedStyle(e, '::after').animationName), 'none')
+        else assert.equal(await skeleton.evaluate(e => globalThis.getComputedStyle(e, '::after').animationDuration), '2.2s')
+      }
+      release()
+      await page.locator(loadedSelector).first().waitFor()
+      if (name === 'editor' && motion === 'no-preference') {
+        await page.getByText('Loading current recipe image…', { exact: true }).waitFor()
+        await page.screenshot({ path: path.join(output, `${stamp}-photo-loading.png`) })
+      }
+      releasePhoto()
+      await page.waitForTimeout(650)
+      await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
+      const metrics = await page.evaluate(() => ({
+        sameBook: globalThis.__loadingBook === globalThis.document.querySelector('.mm-journal-book'),
+        cls: globalThis.__layoutShifts.reduce((sum, value) => sum + value, 0),
+        overflow: globalThis.document.documentElement.scrollWidth > globalThis.innerWidth || globalThis.document.documentElement.scrollHeight > globalThis.innerHeight + 2,
+        actors: globalThis.document.querySelectorAll('[data-mori-paper-actor]').length,
+        turning: globalThis.document.querySelectorAll('[data-journal-page-turn="true"]').length,
+      }))
+      if (phase === 'after') {
+        assert.equal(metrics.sameBook, true, `${name}: loading must preserve the shell`)
+        assert.equal(metrics.overflow, false, `${name}: document must fit desktop`)
+        assert.equal(metrics.actors, 0)
+        assert.equal(metrics.turning, 0)
+        assert.ok(metrics.cls < .1, `${name}: loading CLS ${metrics.cls}`)
+      }
+      assert.deepEqual(errors, [])
+      results.push({ width, height, motion, name, ...metrics })
+      if (name === 'collection' && motion === 'no-preference') {
+        hold = new Promise(resolve => { release = resolve })
+        const card = page.locator(loadedSelector).first()
+        await page.getByRole('button', { name: 'Refresh recipes' }).click()
+        await expect(card).toBeVisible()
+        await expect(page.locator('.mm-skeleton-card')).toHaveCount(0)
+        release()
+        await page.getByRole('button', { name: 'Refresh recipes' }).waitFor()
+        // Chapter travel and route commit must not wait for another data request.
+        await page.getByRole('link', { name: 'Quick AI Entry', exact: true }).click()
+        await expect(page).toHaveURL(/\/app\/quick-entry$/)
+        await expect(page.getByRole('heading', { name: 'Quick AI Entry', exact: true }).first()).toBeVisible()
+        await expect(page.locator('[data-mori-paper-actor]')).toHaveCount(0)
+        await page.getByRole('link', { name: 'My recipes', exact: true }).click()
+        await expect(page.locator('.mm-skeleton-card')).toHaveCount(0)
+        await expect(card).toBeVisible()
+      }
+      if (name === 'reading' && motion === 'no-preference') {
+        // An interrupted request cannot replace a newer destination.
+        hold = new Promise(resolve => { release = resolve })
+        globalThis.console.log('Interrupting reading')
+        await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })
+        await page.goto(new URL('/app/recipes/interrupted', origin).href)
+        await page.locator('.mm-reading-skeleton').waitFor()
+        globalThis.console.log('Leaving reading')
+        await page.getByRole('link', { name: 'AI Chef', exact: true }).click()
+        release()
+        await expect(page).toHaveURL(/\/app\/chef$/)
+        await expect(page.getByRole('heading', { name: 'What’s in your pantry?' })).toBeVisible()
+        await expect(page.locator('.mm-reading-skeleton')).toHaveCount(0)
+        failure = true
+        globalThis.console.log('Checking missing recipe')
+        await page.goto(new URL('/app/recipes/missing', origin).href)
+        await expect(page.getByRole('alert').first()).toContainText('could not be found')
+        await expect(page.locator('.mm-reading-skeleton')).toHaveCount(0)
+      }
+      release(); releasePhoto()
+      await context.close()
+      globalThis.console.log(`${stamp}: ${JSON.stringify(metrics)}`)
+    }
+  }
+  if (phase === 'after') {
+    const coldRoutes = [
+      ['collection', '/app', 'pages/RecipeDashboardPage.tsx'],
+      ['home', '/home', 'pages/PublicJournalPages.tsx'],
+      ['about', '/about', 'pages/PublicJournalPages.tsx'],
+      ['login', '/login', 'pages/AuthPage.tsx'],
+      ['signup', '/signup', 'pages/AuthPage.tsx'],
+      ['verification', '/verify-email', 'pages/EmailVerificationPage.tsx'],
+      ['callback', '/auth/callback', 'pages/EmailVerificationPage.tsx'],
+      ['new', '/app/recipes/new', 'pages/CreateRecipePage.tsx'],
+      ['notes', '/app/quick-entry', 'quick-ai/QuickAiEntryPage.tsx'],
+      ['chef', '/app/chef', 'ai-chef/AIChefPage.tsx'],
+      ['notes-review', '/app/quick-entry/review', 'quick-ai/ExtractedRecipeReviewPage.tsx'],
+      ['chef-review', '/app/chef/review', 'ai-chef/ChefRecipeReviewPage.tsx'],
+      ['revision-sample', '/demo-recipe/try-a-revision', 'pages/RecipeRevisionSamplePage.tsx'],
+      ['missing-page', '/missing-page', 'pages/PublicJournalPages.tsx'],
+    ]
+    for (const [name, routePath, modulePath] of coldRoutes) {
+      const context = await browser.newContext({ viewport: { width: 1470, height: 803 } })
+      const page = await context.newPage()
+      if (routePath.startsWith('/app')) await preparePage(page)
+      let releaseModule
+      const moduleHold = new Promise(resolve => { releaseModule = resolve })
+      let seenModule
+      const requested = new Promise(resolve => { seenModule = resolve })
+      await context.route('**/*', async route => {
+        const url = new URL(route.request().url())
+        if (url.origin === new URL(origin).origin) {
+          if (url.pathname === '/src/' + modulePath) { seenModule(); await moduleHold }
+          return route.continue()
+        }
+        assert.equal(url.origin, apiOrigin)
+        if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'browser-test@example.test' } })
+        if (url.pathname.endsWith('/recipe-image-download-url')) return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND', message: 'No photo' } } })
+        return route.fulfill({ json: { recipes, recipe, has_more: false, next_cursor: null } })
+      })
+      await page.goto(new URL(routePath, origin).href)
+      await requested
+      await page.locator('.mm-skeleton-line').first().waitFor()
+      await page.evaluate(() => globalThis.document.fonts.ready)
+      await page.waitForTimeout(200)
+      await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
+      await page.screenshot({ path: path.join(output, `cold-${name}-loading.png`) })
+      if (name === 'collection') {
+        await page.getByRole('button', { name: 'Talk to Mori' }).click()
+        await page.keyboard.press('Escape')
+      }
+      releaseModule()
+      await expect(page.locator('.mm-skeleton-line')).toHaveCount(0)
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: path.join(output, `cold-${name}-loaded.png`) })
+      if (name === 'collection') await expect(page.getByRole('button', { name: 'Talk to Mori' })).toBeFocused()
+      const sameBook = await page.evaluate(() => !globalThis.__coldBook || globalThis.__coldBook === globalThis.document.querySelector('.mm-journal-book'))
+      assert.equal(sameBook, true, `${name}: route module loading replaced the notebook`)
+      results.push({ name, coldRoute: routePath, sameBook })
+      await context.close()
+      globalThis.console.log(`cold-${name}: preserved shell`)
+    }
+  }
+  await writeFile(path.join(output, 'results.json'), JSON.stringify(results, null, 2))
+  globalThis.console.log(`Screenshots and metrics: ${output}`)
+} finally { await browser?.close(); await server.close() }

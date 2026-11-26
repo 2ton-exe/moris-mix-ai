@@ -23,8 +23,14 @@ import './newRecipeScrapbook.css'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
 
+function editorScope(form: HTMLFormElement): HTMLElement
+function editorScope(form: HTMLFormElement | null): HTMLElement | null
+function editorScope(form: HTMLFormElement | null) {
+  return form?.closest<HTMLElement>('.mm-journal-book') ?? form
+}
+
 function reviewPageSize(form: HTMLFormElement) {
-  const page = form.querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')
+  const page = editorScope(form).querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')
   if (!page?.parentElement) return null
   const height = Number.parseFloat(getComputedStyle(page.parentElement).minHeight)
   if (!height) return null
@@ -141,7 +147,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const canSaveOnThisPage = finalPage || (editingFromReceipt && dirty)
   useLayoutEffect(() => {
     if (showReviewReceipt || editingFromReceipt) {
-      formRef.current?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-recipe-review__receipt h2' : '[data-form-focus-key="title"]')?.focus()
+      editorScope(formRef.current)?.querySelector<HTMLElement>(showReviewReceipt ? '.mm-recipe-review__receipt h2' : '[data-form-focus-key="title"]')?.focus()
     }
   }, [showReviewReceipt, editingFromReceipt])
   const editingCreatedRecipe = mode === 'create' && hasConfirmedSave
@@ -176,7 +182,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }, [])
 
   useLayoutEffect(() => {
-    const book = formRef.current?.querySelector('.mm-journal-book')
+    const book = formRef.current?.closest('.mm-journal-book') ?? formRef.current?.querySelector('.mm-journal-book')
     if (!book || single || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
       // Ingredient editors need extra room on short spreads.
@@ -196,7 +202,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     if (!form) return
     const measure = () => {
       if (document.activeElement instanceof HTMLElement) rememberFocus(document.activeElement)
-      const leaf = form.querySelector<HTMLElement>('.mm-writing-leaf')
+      const leaf = editorScope(form).querySelector<HTMLElement>('.mm-writing-leaf')
       // A flowing review grows with its content. Paginate against the journal's
       // viewport-based page size so a rendered leaf cannot change its own capacity.
       const fixedPage = flowingReview ? reviewPageSize(form) : null
@@ -212,18 +218,26 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       // shortcut: use a 350px budget for two summaries until rows are measured individually.
       setRoomForTwoIngredientRows(desktopEdit && height >= 350)
     }
-    const book = form.querySelector<HTMLElement>('.mm-journal-book')
+    const book = form.closest<HTMLElement>('.mm-journal-book') ?? form.querySelector<HTMLElement>('.mm-journal-book')
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     if (book) observer?.observe(book)
-    form.querySelectorAll('.mm-writing-leaf').forEach((leaf) => observer?.observe(leaf))
+    editorScope(form).querySelectorAll('.mm-writing-leaf').forEach((leaf) => observer?.observe(leaf))
     window.addEventListener('resize', measure, true)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
   }, [single, compact, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus])
 
   useLayoutEffect(() => {
-    formRef.current?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
+    editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
   }, [state, leaves])
+
+  useLayoutEffect(() => {
+    const form = formRef.current
+    if (!form) return
+    editorScope(form).querySelectorAll<HTMLButtonElement>('.mm-form-footer button, .mm-facing-content--form button').forEach(button => {
+      if (!button.form) button.setAttribute('form', prefix)
+    })
+  })
 
   // One controlled draft owns every value. Only current leaves are mounted.
   useLayoutEffect(() => {
@@ -235,7 +249,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       const remembered = lastFocusedControl.current
       const active = document.activeElement
       if (modeChanged && remembered && (active === document.body || active instanceof HTMLElement && active.dataset.formFocusKey === remembered.key)) {
-        const control = Array.from(formRef.current?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
+        const control = Array.from(editorScope(formRef.current)?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
           .find((element) => element.dataset.formFocusKey === remembered.key)
         if (control) {
           control.focus({ preventScroll: true })
@@ -250,16 +264,16 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     let target: HTMLElement | null = null
     if (request === 'leaf-heading') {
       const targetLeafKey = leaves[leafIndexForAnchor(leaves, pageAnchor)]?.key
-      target = Array.from(formRef.current?.querySelectorAll<HTMLElement>('[data-writing-leaf-key]') ?? [])
+      target = Array.from(editorScope(formRef.current)?.querySelectorAll<HTMLElement>('[data-writing-leaf-key]') ?? [])
         .find((element) => element.dataset.writingLeafKey === targetLeafKey)
         ?.querySelector<HTMLElement>('h2[tabindex="-1"]') ?? null
     } else if (request.startsWith('focus-key:')) {
       const key = request.slice('focus-key:'.length)
-      target = Array.from(formRef.current?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
+      target = Array.from(editorScope(formRef.current)?.querySelectorAll<HTMLElement>('[data-form-focus-key]') ?? [])
         .find((element) => element.dataset.formFocusKey === key) ?? null
     } else if (request.startsWith('name:')) {
       const named = formRef.current?.elements.namedItem(request.slice('name:'.length))
-      target = named instanceof HTMLElement ? named : formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
+      target = named instanceof HTMLElement ? named : editorScope(formRef.current)?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? null
     }
     target?.focus()
   }, [state, errors, pending, isTurning, pageAnchor, single, compact, compactIngredientRows, currentLeafIndex, desktop, editingIngredientKey, leaves])
@@ -295,7 +309,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
 
   function field(path: string, hint = false, focusKey = path, id = prefix + '-' + path) {
     return {
-      id, name: path, 'aria-invalid': Boolean(errors[path]),
+      id, form: prefix, name: path, 'aria-invalid': Boolean(errors[path]),
       'aria-describedby': [hint ? id + '-hint' : '', errors[path] ? id + '-error' : ''].filter(Boolean).join(' ') || undefined,
       'data-form-focus-key': focusKey,
     }
@@ -843,7 +857,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       </section>
     }
 
-    return <fieldset className="recipe-form-controls mm-writing-page-controls" key={leaf.key} disabled={pending}>
+    return <fieldset className="recipe-form-controls mm-writing-page-controls" key={leaf.key} disabled={pending} aria-busy={pending}>
       <legend className="visually-hidden">{sectionTitle}</legend>
       <div className={'mm-page-body mm-writing-leaf' + (leaf.kind === 'identity' ? ' mm-form-identity' : leaf.kind === 'review' ? '' : ' mm-form-recipe')}
         data-writing-leaf-key={leaf.key}
@@ -917,7 +931,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     <span className="visually-hidden" role="status" aria-live="polite">{announcement}</span>
   </>
 
-  return <form className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (hasComparison ? ' mm-chef-comparing' : '') + (desktopCreate ? ' mm-new-recipe' : '') + (desktopEdit ? ' mm-edit-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'} aria-busy={pending}
+  return <form id={prefix} className={'recipe-form' + (!reviewWorkflow ? ' mm-recipe-form-editor' : '') + (reviewWorkflow ? ' mm-recipe-review' : '') + (desktopReview ? ' mm-chef-review' : '') + (hasComparison ? ' mm-chef-comparing' : '') + (desktopCreate ? ' mm-new-recipe' : '') + (desktopEdit ? ' mm-edit-recipe' : '')} ref={formRef} noValidate aria-label={mode === 'create' ? editingCreatedRecipe ? 'Edit saved recipe' : 'Create recipe' : 'Edit recipe'}
     onSubmit={(event) => { void submit(event) }} onKeyDown={handlePageKeys}
     onFocusCapture={(event) => {
       const target = event.target

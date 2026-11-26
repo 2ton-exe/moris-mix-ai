@@ -46,7 +46,7 @@ export function RecipeError({ error, onRetry, detail = false, retryButtonRef }: 
   return <ErrorState message={message} onRetry={canRetry ? onRetry : undefined} retryButtonRef={retryButtonRef} />
 }
 
-export function RecipeSkeleton({ index = false }: { index?: boolean }) {
+export function RecipeSkeleton({ index = false, message = 'Loading your recipes…' }: { index?: boolean; message?: string }) {
   const list = useRef<HTMLUListElement>(null)
   const [count, setCount] = useState(3)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
@@ -69,12 +69,12 @@ export function RecipeSkeleton({ index = false }: { index?: boolean }) {
     measure()
     return () => observer.disconnect()
   }, [single, index])
-  return <div className="recipe-loading" role="status">
-    <span className="visually-hidden">Loading your recipes…</span>
-    <ul ref={list} className={`recipe-grid ${index ? 'mm-index-entries' : 'mm-collection-entries'}`} aria-hidden="true" inert>
+  return <div className="recipe-loading">
+    <span className="visually-hidden" role="status">{message}</span>
+    <ul ref={list} className={`recipe-grid mm-paper-loading ${index ? 'mm-index-entries' : 'mm-collection-entries'}`} aria-busy="true" aria-hidden="true" inert>
       {Array.from({ length: single ? 1 : count }, (_, offset) => <li className="mm-recipe-card-slot" key={offset}>
         <div className={`${index ? 'mm-index-card' : `mm-collection-entry${offset % 2 ? ' is-flipped' : ''}`} mm-skeleton-card`}>
-          {index ? <RecipeIndexCardContent /> : <RecipeCollectionCardContent folio={offset + 1} />}
+          {index ? <RecipeIndexCardContent folio={offset + 1} /> : <RecipeCollectionCardContent folio={offset + 1} editorial={!single} />}
         </div>
       </li>)}
     </ul>
@@ -83,27 +83,26 @@ export function RecipeSkeleton({ index = false }: { index?: boolean }) {
 
 export function RecipeReadingSkeleton({ back, publicDemo = false }: { back: ReactNode; publicDemo?: boolean }) {
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
-  return <><span className="visually-hidden" role="status">{publicDemo ? 'Loading demonstration recipe…' : 'Loading recipe…'}</span><article className="journal-recipe mm-recipe-detail__article mm-page-column mm-continuation mm-reading-skeleton" aria-busy="true">
+  return <><span className="visually-hidden" role="status">{publicDemo ? 'Loading demonstration recipe…' : 'Loading recipe…'}</span><article className="journal-recipe mm-recipe-detail__article mm-page-column mm-continuation mm-reading-skeleton mm-paper-loading" aria-busy="true">
     <JournalFacingPage className={`mm-facing-content--recipe mm-page-column mm-continuation-facing${publicDemo ? '' : ' mm-scrap-detail'}`}>
       <nav className="recipe-back mm-recipe-detail__back" aria-label="Recipe navigation"><span className="mm-back-clip"><PaperClip />{back}</span></nav>
       <div className="mm-continuation-body mm-continuation-left">
         <RecipeIdentitySkeleton publicDemo={publicDemo} />
       </div>
     </JournalFacingPage>
-    <div className="mm-reading-running-head">{single ? <span className="mm-reading-return">{back}</span> : 'From your journal'}</div>
+    <div className={`mm-reading-running-head${publicDemo ? ' mm-reading-running-head--demo' : ''}`}>{single ? <span className="mm-reading-return">{back}</span> : !publicDemo && 'From your journal'}</div>
     <div className="mm-reading-request-status" />
-    <div className="mm-continuation-body mm-continuation-right">
+    <div className="mm-continuation-body mm-recipe-reading-body">
       <div className="mm-skeleton-mobile-identity"><RecipeIdentitySkeleton publicDemo={publicDemo} /></div>
       <div className="mm-reading-page-content" aria-hidden="true">
-        {['Ingredients', publicDemo ? 'Instructions' : 'In the kitchen'].map(heading => <section className="mm-unit-group" key={heading}>
-          <div className="mm-reading-unit"><div className="mm-section-heading mm-unit-heading"><h2>{heading}</h2></div>
-            <div className="mm-unit-content mm-skeleton-copy">{Array.from({ length: 4 }, (_, index) => <p key={index}><span className="mm-skeleton-line" /></p>)}</div>
-          </div>
+        {['Ingredients', publicDemo ? 'Instructions' : 'In the kitchen'].map((heading, section) => <section className={`mm-reading-unit mm-reading-${section ? 'method' : 'ingredients'}`} key={heading}>
+          <div className="mm-section-heading mm-unit-heading"><h2>{heading}</h2></div>
+          <div className="mm-unit-content mm-skeleton-copy"><ul className={section ? 'mm-skeleton-method-list' : undefined} role="list">{Array.from({ length: section ? 2 : 4 }, (_, index) => <li key={index}>{section ? <><span className="mm-step-number">{index + 1}</span><p><span className="mm-skeleton-line" /><span className="mm-skeleton-line mm-skeleton-line--short" /></p></> : <><span className="ingredient-emoji mm-skeleton-line mm-skeleton-icon" /><span className="mm-skeleton-line" /></>}</li>)}</ul></div>
         </section>)}
       </div>
     </div>
     <JournalPageFooter>
-      {!publicDemo && <div className="mm-footer-actions" aria-hidden="true"><div className="mm-reading-footer"><span className="mm-skeleton-line mm-skeleton-action" /></div></div>}
+      <div className="mm-reading-footer" aria-hidden="true"><div className="mm-reading-footer__actions"><span className="mm-skeleton-line mm-skeleton-action" /><span className="mm-skeleton-line mm-skeleton-action" /></div></div>
       <JournalPagination loading label="Recipe reading pages" rightNumber={<span className="mm-skeleton-line mm-skeleton-action" />} />
     </JournalPageFooter>
   </article></>

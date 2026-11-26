@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
 import { RecipeError, RecipeSkeleton } from '../recipes/RecipeStates'
+import { focusLoadedJournalContent } from '../journal/focus'
 import { isRecipeAccessError } from '../recipes/errors'
 import { DiscoveryControls } from '../recipes/DiscoveryControls'
 import { useDiscoveryControls } from '../recipes/useDiscoveryControls'
@@ -141,7 +142,8 @@ export default function RecipeDashboardPage() {
       return
     }
     if ((restoreIndexFocus.current || moriFocusKey) && collectionTitle.current) {
-      collectionTitle.current.focus()
+      if (moriFocusKey) collectionTitle.current.focus()
+      else focusLoadedJournalContent(collectionTitle.current)
       restoreIndexFocus.current = false
     }
   }, [facingPage, explicitView, returnFocusId, moriFocusKey])
@@ -285,7 +287,7 @@ export default function RecipeDashboardPage() {
       controls={<DiscoveryControls adapter={source.discovery} criteria={controls.draft} onChange={controls.change} onReset={resetIndexSearch} searchInputRef={searchInput} hideReset={searchResultsKnownEmpty} />}
       status={<>
       {recipeDeleted && <p className="recipe-operation-feedback" role="status">Recipe deleted.</p>}
-      {controls.waiting ? <p role="status">Waiting to search…</p> : query.isPending && <RecipeSkeleton index={indexView} />}
+      {controls.waiting ? <RecipeSkeleton index={indexView} message="Waiting to search…" /> : query.isPending && <RecipeSkeleton index={indexView} />}
       {query.isPaused && <p role="status">You appear to be offline. Your recipes will load when you reconnect.</p>}
       {!controls.waiting && query.error && (!query.isFetchNextPageError || isRecipeAccessError(query.error)) && <>
         <RecipeError error={query.error} retryButtonRef={firstPageRetryButton} onRetry={() => {
@@ -294,7 +296,7 @@ export default function RecipeDashboardPage() {
         }} />
         {source.mode === 'unavailable' && <Link className="button button-secondary mm-button--small" to="/demo-recipe">Explore the sample recipe</Link>}
       </>}
-      {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update" role="status">Updating your collection…</p>}
+      {recipes && query.isFetching && !query.isFetchingNextPage && <p className="recipe-update visually-hidden" role="status">Updating your collection…</p>}
       {recipes && query.isError && !query.isFetchNextPageError && <p className="recipe-update" role="status">Showing your last loaded collection. Refresh to try again.</p>}
       </>}
       endOfResults={source.discovery && recipes && recipes.length > 0 && !query.hasNextPage && !query.isError && (nextPage === undefined || (indexView && !pagedIndex))

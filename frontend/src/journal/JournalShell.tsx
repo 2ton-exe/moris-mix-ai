@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useContext, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 import { BrandMark } from './BrandMark'
 import { MoriEmblem } from './Mori'
@@ -9,6 +9,8 @@ import { JOURNAL_PAGE_TURN_EVENT, JournalPageTurnContext, JournalPageTurnLayer, 
 import type { JournalTurnDirection } from './JournalPageTurn'
 import { JOURNAL_SINGLE_LAYOUT_QUERY } from './pageTurnMotion'
 import { useJournalMedia } from './useJournalMedia'
+
+const JournalShellMounted = createContext(false)
 
 const ringPositions = [0.12, 0.18, 0.24, 0.76, 0.82, 0.88]
 
@@ -53,8 +55,13 @@ function JournalNavigation() {
   </nav>
 }
 
-/** Presentation only: no router, auth, query, snapshot, or animation providers. */
-export function JournalShell({ account, children, pageClassName = '', mode = 'journal', publicNavigation = false, ownerName = 'a cook' }: {
+/** Reuse the route's notebook while lazy content and data settle. */
+export function JournalShell(props: Parameters<typeof JournalShellSurface>[0]) {
+  const mounted = useContext(JournalShellMounted)
+  return mounted ? props.children : <JournalShellSurface {...props} />
+}
+
+function JournalShellSurface({ account, children, pageClassName = '', mode = 'journal', publicNavigation = false, ownerName = 'a cook' }: {
   account?: ReactNode; children: ReactNode; pageClassName?: string
   mode?: 'journal' | 'reading' | 'writing' | 'demo'; publicNavigation?: boolean; ownerName?: string
 }) {
@@ -118,7 +125,7 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
       cancelAnimationFrame(frame)
     }
   }, [footer])
-  return <JournalPageTurnContext.Provider value={pageTurn.contextValue}>
+  return <JournalShellMounted.Provider value={true}><JournalPageTurnContext.Provider value={pageTurn.contextValue}>
   <div className={`mm-desk mm-desk--${mode}${companionEnabled ? ' mm-desk--with-companion' : ''}`}>
     <KitchenBackground />
     <a className="mm-skip-link" href="#journal-content">Skip to journal content</a>
@@ -170,5 +177,5 @@ export function JournalShell({ account, children, pageClassName = '', mode = 'jo
     {/* Portalled confirmations stay above the physical leaves and rings. */}
     <div id="journal-overlays" />
   </div>
-  </JournalPageTurnContext.Provider>
+  </JournalPageTurnContext.Provider></JournalShellMounted.Provider>
 }

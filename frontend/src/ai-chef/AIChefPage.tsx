@@ -430,7 +430,7 @@ function AIChefSession({ userId }: { userId: string }) {
   const pantryEntry = !handoff && <>
     <div className="mm-ai-chef__entry" data-measure-only={!splitPantry && page !== 0 || undefined} inert={!splitPantry && page !== 0 || undefined} aria-hidden={!splitPantry && page !== 0 || undefined}>
       {storageWarning}
-      <fieldset disabled={pending || !splitPantry && page !== 0}>
+      <fieldset disabled={pending || !splitPantry && page !== 0} aria-busy={pending}>
         <legend id="pantry-entry-heading">Pantry ingredients</legend>
         <p className="mm-ai-chef__help" id="pantry-help">Add up to {MAX_PANTRY_ITEMS} ingredients. Press Enter to add one or paste a list separated by commas or line breaks. Cooking preferences are optional.</p>
         <div className="mm-ai-chef__ingredient-entry">
@@ -534,7 +534,7 @@ function AIChefSession({ userId }: { userId: string }) {
           <p className="mm-ai-chef__help">{splitPantry ? 'Keep adding ingredients on the left while you browse this list.' : 'Return to the first page to add ingredients.'}</p>
         </header>
         {page < preferencesStartPage && pantryList}
-        {page >= preferencesStartPage && <fieldset disabled={pending} aria-label="Cooking preferences">
+        {page >= preferencesStartPage && <fieldset disabled={pending} aria-busy={pending} aria-label="Cooking preferences">
         <h2 className="mm-ai-chef__pane-title" tabIndex={-1}><label className="mm-ai-chef__preferences-label" htmlFor="ai-chef-preferences">Cooking preferences <span>(optional)</span></label></h2>
         <textarea
           ref={preferencesRef}

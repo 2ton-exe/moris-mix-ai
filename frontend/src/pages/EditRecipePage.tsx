@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { HttpError } from '../api/http'
 import { useAuth } from '../auth/context'
 import { ErrorState } from '../components/ErrorState'
-import { LoadingState } from '../components/LoadingState'
+import { RecipeEditorSkeleton } from '../recipe-form/RecipeEditorSkeleton'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { JournalShell } from '../journal/JournalShell'
 import { RecipeForm } from '../recipe-form/RecipeForm'
@@ -54,15 +54,16 @@ export default function EditRecipePage({ record, isLoading = false, loadError, o
   const accessDenied = activeError instanceof HttpError && [401, 403, 404].includes(activeError.status ?? 0)
   const canEdit = available && !accessDenied
   const initialSection = new URLSearchParams(location.search).get('section') === 'method' ? 'method' : undefined
-  if (canEdit) return <RecipeForm key={`${user?.id}:${activeRecord.id}:${initialSection ?? 'start'}`} mode="edit" initialSection={initialSection} initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} cancelLabel="Back to recipe" onCancel={() => navigate(`/app/recipes/${encodeURIComponent(recipeId)}`, { state: location.state })}
+  if (canEdit || (activeLoading && !activeError)) return <div className="recipe-form mm-recipe-form-editor mm-edit-recipe">
+    <RecipeEditorFrame mode="edit" connected showBack={false} focusHeading={!!canEdit && !initialSection}
+      headingIntro="Your journal keeps the last saved version while you edit."
+      navigationConfirmation={navigationConfirmation}>
+    {canEdit ? <RecipeForm key={`${user?.id}:${activeRecord.id}:${initialSection ?? 'start'}`} mode="edit" initialSection={initialSection} initialValues={activeRecord.values} onSubmit={submit} onDirtyChange={setDirty} notesSupported={notesSupported} cancelLabel="Back to recipe" onCancel={() => navigate(`/app/recipes/${encodeURIComponent(recipeId)}`, { state: location.state })}
     notice={activeError && <ErrorState message={message} onRetry={canRetry ? retry : undefined} />}
     supplement={import.meta.env.VITE_RECIPE_IMAGES === 'true' && <RecipeImagePanel key={`${user?.id}:image-${activeRecord.id}`} recipeId={activeRecord.id} recipeTitle={activeRecord.values.title} allowUpload />}
-    renderFrame={(content) => <RecipeEditorFrame mode="edit" connected showBack={false} focusHeading={!initialSection}
-      headingIntro="Your journal keeps the last saved version while you edit."
-      navigationConfirmation={navigationConfirmation}>{content}</RecipeEditorFrame>} />
-  if (activeLoading && !activeError) return <RecipeEditorFrame mode="edit" connected>
-    <LoadingState message="Loading recipe for editing…" />
-  </RecipeEditorFrame>
+    /> : <RecipeEditorSkeleton showHeading={false} />}
+    </RecipeEditorFrame>
+  </div>
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{user?.email}</span></div>}>
     <section className="mm-recipe-recovery" aria-labelledby="edit-unavailable-heading">
       <h1 id="edit-unavailable-heading" ref={recoveryHeading} tabIndex={-1}>Recipe unavailable</h1>

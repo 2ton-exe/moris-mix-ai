@@ -337,50 +337,17 @@
 .mm-chef-review .mm-chef-review__change .mm-review-edit-amount { min-block-size: 44px; justify-self: start; }
 
 @media (max-width: 1099.98px), (max-height: 639.98px) {
-  .mm-chef-comparing .mm-journal-book { height: auto; padding-block: var(--mm-overhang); }
-  .mm-chef-comparing .mm-journal-book > .mm-journal-spread { position: relative; top: auto; height: auto; }
-  .mm-chef-comparing .mm-desk--writing .mm-journal-page:has(.mm-writing-pages) { flex: none; height: auto; min-height: var(--mm-page-height); }
-  .mm-chef-comparing .mm-desk--writing :is(.recipe-form-content, .mm-writing-leaf) { display: block; height: auto; width: 100%; }
-  .mm-chef-comparing .mm-desk--writing .mm-journal-page:has(.mm-writing-pages) > .mm-journal-page-footer { position: relative; }
+  :is(.mm-chef-comparing, .mm-recipe-review:has(.mm-chef-comparing)) .mm-journal-book { height: auto; padding-block: var(--mm-overhang); }
+  :is(.mm-chef-comparing, .mm-recipe-review:has(.mm-chef-comparing)) .mm-journal-book > .mm-journal-spread { position: relative; top: auto; height: auto; }
+  :is(.mm-chef-comparing, .mm-recipe-review:has(.mm-chef-comparing)) .mm-desk--writing .mm-journal-page:has(.mm-writing-pages) { flex: none; height: auto; min-height: var(--mm-page-height); }
+  :is(.mm-chef-comparing, .mm-recipe-review:has(.mm-chef-comparing)) .mm-desk--writing :is(.recipe-form-content, .mm-writing-leaf) { display: block; height: auto; width: 100%; }
+  :is(.mm-chef-comparing, .mm-recipe-review:has(.mm-chef-comparing)) .mm-desk--writing .mm-journal-page:has(.mm-writing-pages) > .mm-journal-page-footer { position: relative; }
 }
 
 @media (min-width: 1100px) and (min-height: 640px) {
   .mm-chef-review .mm-desk--writing .mm-writing-leaf {
     overflow: auto;
     scroll-padding-block: 12px;
-  }
-
-  .mm-chef-review.mm-chef-comparing .mm-journal-book {
-    height: auto;
-    padding-block: var(--mm-overhang);
-  }
-
-  .mm-chef-review.mm-chef-comparing .mm-journal-spread {
-    position: relative;
-    top: auto;
-    height: auto;
-    min-height: var(--mm-page-height);
-    grid-template-rows: auto;
-  }
-
-  .mm-chef-review.mm-chef-comparing .mm-journal-spread :is(.mm-facing-slot, .mm-page-column, .recipe-form-content) {
-    display: block;
-    height: auto;
-  }
-
-  .mm-chef-review.mm-chef-comparing .mm-journal-spread :is(.mm-writing-page-controls, .mm-writing-leaf) {
-    display: block;
-    overflow: visible;
-  }
-
-  .mm-chef-review.mm-chef-comparing .mm-journal-spread .mm-journal-page {
-    padding-bottom: var(--mm-footer-inset);
-  }
-
-  .mm-chef-review.mm-chef-comparing .mm-journal-spread .mm-journal-page-footer {
-    position: relative;
-    inset: auto;
-    margin-block-start: var(--mm-space-3);
   }
 
   .mm-chef-review .mm-journal-spread:has(.mm-chef-review__comparison) .mm-journal-page-footer {

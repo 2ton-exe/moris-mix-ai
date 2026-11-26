@@ -292,7 +292,7 @@ function LinkedRecipes({ childId, userId }: { childId: string; userId: string })
     queryKey: [...recipeKeys.detail(userId, childId), 'lineage'],
     queryFn: ({ signal }) => lineageApi.get(childId, { userId, signal }),
   })
-  if (query.isPending) return <p role="status">Checking linked recipes…</p>
+  if (query.isPending) return <><p role="status" className="visually-hidden">Checking linked recipes…</p><ul aria-busy="true" aria-hidden="true"><li><span className="mm-skeleton-line" /></li></ul></>
   if (query.isError) return <><p role="alert">Could not load linked recipes.</p><button type="button" onClick={() => { void query.refetch() }}>Try again</button></>
   if (!query.data.lineage.length) return <p>This recipe has no saved links to earlier versions.</p>
   return <ul>{query.data.lineage.map((link) => <LinkedRecipe key={link.id} recipeId={link.parent_recipe_id} />)}</ul>
@@ -300,6 +300,6 @@ function LinkedRecipes({ childId, userId }: { childId: string; userId: string })
 
 function LinkedRecipe({ recipeId }: { recipeId: string }) {
   const query = useRecipe(recipeId)
-  return <li>{query.isPending ? 'Looking up the original recipe…' : query.isError || !query.data ? 'Original recipe unavailable'
+  return <li>{query.isPending ? <><span role="status" className="visually-hidden">Looking up the original recipe…</span><span className="mm-skeleton-line" aria-hidden="true" /></> : query.isError || !query.data ? 'Original recipe unavailable'
     : <Link to={recipePath(query.data.id)}>Based on {query.data.title}</Link>}</li>
 }

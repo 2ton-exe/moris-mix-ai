@@ -118,9 +118,9 @@ it.each([true, false])('opens the method directly and focuses its first control 
 })
 
 it.each([
-  ['/app/recipes/new', '/app/recipes/new'],
-  ['/app/quick-entry/review', '/app/quick-entry/review'],
-  ['/app/recipes/recipe-a/edit', '/app/recipes/:recipeId/edit'],
+  ['/app/recipes/new', 'recipes/new'],
+  ['/app/quick-entry/review', 'quick-entry/review'],
+  ['/app/recipes/recipe-a/edit', 'recipes/:recipeId/edit'],
   ['/app/recipes', 'recipes'],
   ['/app/quick-entry', 'quick-entry'],
 ])('keeps the production data-router route tree matching %s', (path, expectedRoute) => {
@@ -137,7 +137,7 @@ it('keeps Quick AI Entry under the protected app routes and account-scoped query
 
 it('keeps the extracted recipe review route protected and under the recipe query provider', () => {
   const matches = matchRoutes(createRoutesFromElements(createAppRouteElements()), '/app/quick-entry/review')
-  expect(matches?.at(-1)?.route.path).toBe('/app/quick-entry/review')
+  expect(matches?.at(-1)?.route.path).toBe('quick-entry/review')
   expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === ProtectedRoute)).toBe(true)
   expect(matches?.some(({ route }) => isValidElement(route.element) && route.element.type === RecipeQueryProvider)).toBe(true)
 })
@@ -463,6 +463,17 @@ it('supports host-provided edit loading and missing-recipe error states', () => 
   view.rerender(tree({ path: '/app/recipes/recipe-a/edit', loadError: new HttpError('http', 'private details', 404) }))
   expect(screen.getByRole('alert').textContent).toContain('could not be found')
   expect(document.body.textContent).not.toContain('private details')
+})
+
+it('keeps the editor shell mounted when the recipe finishes loading', () => {
+  const view = render(tree({ path: '/app/recipes/recipe-a/edit', isLoading: true }))
+  const book = document.querySelector('.mm-journal-book')
+  expect(document.querySelector('[aria-busy="true"]')).toBeTruthy()
+  view.rerender(tree({ path: '/app/recipes/recipe-a/edit', initial: record() }))
+  expect(document.querySelector('.mm-journal-book')).toBe(book)
+  const input = screen.getByLabelText('Recipe title')
+  expect(input.closest('form') || input.getAttribute('form')).toBeTruthy()
+  expect(screen.getByDisplayValue(draft.title)).toBeTruthy()
 })
 
 it('does not initialize edit fields from another account or another route ID', () => {

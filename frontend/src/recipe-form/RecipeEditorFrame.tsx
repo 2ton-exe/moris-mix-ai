@@ -6,6 +6,7 @@ import { Link, useLocation } from 'react-router'
 import { journalReturnTo } from '../journal/indexNavigation'
 import { useMoriHeadingFocusKey } from '../mori/routeState'
 import { UnsavedChangesDialog } from './UnsavedChangesDialog'
+import { focusLoadedJournalContent } from '../journal/focus'
 import './recipe-form.css'
 
 type NavigationConfirmation = {
@@ -30,7 +31,8 @@ export function RecipeEditorFrame({ mode, connected, children, navigationConfirm
   useEffect(() => {
     if (!focusHeading) return
     const visibleHeading = document.querySelector<HTMLElement>('.mm-writing-mobile-title') ?? heading.current
-    visibleHeading?.focus()
+    if (moriFocusKey) visibleHeading?.focus()
+    else focusLoadedJournalContent(visibleHeading)
   }, [mode, moriFocusKey, focusHeading])
   return <JournalShell mode="writing" account={<div className="journal-account"><span>{user?.email}</span></div>} pageClassName="mm-journal-editor">
     <JournalFacingPage className="mm-facing-content--editor">
