@@ -162,9 +162,9 @@ function ExtractedRecipeReviewSession({ userId, save }: { userId: string; save?:
   const storageNotice = storageIssue && <ReviewStorageWarning issue={storageIssue} saved={consumed} onRetry={storageIssue === 'handoff-changed' ? undefined : retryStorage} />
   const editorTitle = consumed ? 'Edit saved recipe' : 'Review your recipe'
   const editorIntro = consumed ? undefined : storageIssue === null
-    ? 'Review each named section. Save from the final page.'
+    ? single ? 'Review each named section. Save from the final page.' : 'Review each section. Save on the last page.'
     : 'Review each named section, then save from the final page. Keep this page open while you review.'
-  const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} draftKeptInTab={storageIssue === null} />
+  const extractionNotice = !consumed && <ExtractionNotice handoff={handoff} draftKeptInTab={storageIssue === null} facing={!single} />
   const repeatNotes = () => navigate('/app/quick-entry', { state: returnState })
   const reviewReceipt = desktop && savedRecipe && storageIssue === null && !logoutError && <>
     <h2 tabIndex={-1}>{savedRecipe.title}</h2>
@@ -228,7 +228,7 @@ function ReviewStorageWarning({ issue, saved, onRetry }: { issue: ReviewStorageI
   </div>
 }
 
-function ExtractionNotice({ handoff, draftKeptInTab }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; draftKeptInTab: boolean }) {
+function ExtractionNotice({ handoff, draftKeptInTab, facing }: { handoff: NonNullable<ReturnType<typeof readQuickAiEntryDraftResult>['draft']['handoff']>; draftKeptInTab: boolean; facing: boolean }) {
   const flavorScores = handoff.recipe.flavor_scores
   const words = (value: string) => value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? ''
   const source = ` ${words(handoff.sourceNotes)} `
@@ -236,9 +236,29 @@ function ExtractionNotice({ handoff, draftKeptInTab }: { handoff: NonNullable<Re
     .filter((name) => words(name) && !source.includes(` ${words(name)} `))
   const excerpt = handoff.sourceNotes.split('\n', 5).join('\n').slice(0, 240).trimEnd()
   const hasMore = excerpt.length < handoff.sourceNotes.trimEnd().length
+  const warning = ingredientsToCompare.length > 0 && <p>Check Mori’s wording for <strong>{ingredientsToCompare[0]}</strong> against your notes.</p>
+  const storageHelp = <p>{draftKeptInTab ? 'Return to this tab with the same account to keep reviewing.' : 'Keep this page open while you review. Reloading or closing it may erase recent edits.'} If the draft is missing, open Quick AI Entry and organize your notes again. Save recipe adds the reviewed recipe to My recipes.</p>
+  const flavors = flavorScores && <>
+    <p>Flavor estimates are preview only.</p>
+    <dl>{Object.entries(flavorScores).map(([flavor, score]) => <div key={flavor}><dt>{flavor}</dt><dd>{score} / 5</dd></div>)}</dl>
+  </>
+  if (facing) return <section className="mm-extraction-notes mm-extraction-notes--facing" aria-label="Mori's extraction notes">
+    {warning}
+    <div className="mm-extraction-notes__references">
+      <details>
+        <summary>Original cooking notes</summary>
+        <blockquote tabIndex={0}>{handoff.sourceNotes}</blockquote>
+      </details>
+      <details>
+        <summary>Draft details</summary>
+        {storageHelp}
+        {flavorScores && <><h3>Flavor estimates</h3>{flavors}</>}
+      </details>
+    </div>
+  </section>
   return <section className="mm-extraction-notes" aria-label="Mori's extraction notes">
     <h2>Original cooking notes</h2>
-    {ingredientsToCompare.length > 0 && <p>Check Mori’s wording for <strong>{ingredientsToCompare[0]}</strong> against your notes.</p>}
+    {warning}
     <blockquote>{excerpt}{hasMore && '…'}</blockquote>
     {hasMore && <details>
       <summary>Read full cooking notes</summary>
@@ -246,12 +266,11 @@ function ExtractionNotice({ handoff, draftKeptInTab }: { handoff: NonNullable<Re
     </details>}
     <details>
       <summary>Where is my draft kept?</summary>
-      <p>{draftKeptInTab ? 'Return to this tab with the same account to keep reviewing.' : 'Keep this page open while you review. Reloading or closing it may erase recent edits.'} If the draft is missing, open Quick AI Entry and organize your notes again. Save recipe adds the reviewed recipe to My recipes.</p>
+      {storageHelp}
     </details>
     {flavorScores && <details>
       <summary>Flavor estimates</summary>
-      <p>Flavor estimates are preview only.</p>
-      <dl>{Object.entries(flavorScores).map(([flavor, score]) => <div key={flavor}><dt>{flavor}</dt><dd>{score} / 5</dd></div>)}</dl>
+      {flavors}
     </details>}
   </section>
 }

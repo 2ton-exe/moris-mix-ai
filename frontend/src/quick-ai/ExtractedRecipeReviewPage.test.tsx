@@ -114,11 +114,11 @@ it('opens the review workflow with extraction fields and original notes kept sep
   const details = within(screen.getByRole('region', { name: "Mori's extraction notes" }))
   expect(details.getByText(sourceNotes)).toBeTruthy()
   expect(details.getByText(/preview only/)).toBeTruthy()
-  const draftHelp = details.getByText('Where is my draft kept?').closest('details')!
+  const draftHelp = details.getByText('Draft details').closest('details')!
   expect(draftHelp.open).toBe(false)
   expect(draftHelp.textContent).toContain('Return to this tab with the same account')
   expect(screen.getByRole('heading', { name: 'Review your recipe' })).toBeTruthy()
-  expect(screen.getByText(/Review each named section\. Save from the final page/)).toBeTruthy()
+  expect(screen.getByText(/Review each section\. Save on the last page/)).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Save recipe' })).toBeNull()
   fireEvent.submit(screen.getByRole('form', { name: 'Create recipe' }))
   expect(within(screen.getByRole('group', { name: 'Ingredient 2' })).queryByText('Quantity and unit not specified.')).toBeNull()
@@ -147,18 +147,32 @@ it('reloads a new Mori handoff when navigation stays on the review route', async
   expect((await screen.findByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
 })
 
-it('keeps the full original notes available after shortening the review excerpt', () => {
+it('keeps one complete source behind the desktop reference disclosure', () => {
   const notes = 'Garlic and rice.\n'.repeat(24) + 'Season after cooking.'
   writeQuickAiEntryDraft('cook-a', {
     notes, blockedUntil: null, blockedReason: null, handoff: { ...handoff, sourceNotes: notes }, reviewDraft: null,
   })
   renderReview()
   const evidence = screen.getByRole('region', { name: "Mori's extraction notes" })
-  const [excerpt, fullText] = evidence.querySelectorAll('blockquote')
-  expect(excerpt.textContent?.trimEnd().endsWith('…')).toBe(true)
-  expect(excerpt.textContent).not.toContain('Season after cooking.')
+  const [fullText] = evidence.querySelectorAll('blockquote')
+  expect(evidence.querySelectorAll('blockquote')).toHaveLength(1)
   expect(fullText.closest('details')?.open).toBe(false)
   expect(fullText.textContent).toBe(notes)
+})
+
+it('keeps the existing source excerpt and full-note disclosure on narrower layouts', () => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('max-width') || query.includes('prefers-reduced-motion'), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }))
+  const notes = 'Garlic and rice.\n'.repeat(24) + 'Season after cooking.'
+  writeQuickAiEntryDraft('cook-a', { notes, blockedUntil: null, blockedReason: null, handoff: { ...handoff, sourceNotes: notes }, reviewDraft: null })
+  renderReview()
+  const evidence = screen.getByRole('region', { name: "Mori's extraction notes" })
+  expect(within(evidence).getByRole('heading', { name: 'Original cooking notes' })).toBeTruthy()
+  const [excerpt, fullText] = evidence.querySelectorAll('blockquote')
+  expect(excerpt.textContent?.trimEnd().endsWith('…')).toBe(true)
+  expect(fullText.textContent).toBe(notes)
+  expect(within(evidence).getByText('Where is my draft kept?')).toBeTruthy()
 })
 
 it('persists corrected and temporarily invalid fields across remounts without saving', () => {
