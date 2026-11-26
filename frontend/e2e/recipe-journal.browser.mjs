@@ -166,8 +166,26 @@ try {
         assert.ok(await modal.evaluate(element => element.scrollWidth <= element.clientWidth + 1), `${name}: horizontal modal overflow`)
         await assertJournalSemantics(page, name)
       }
+      const captureReading = async name => {
+        await page.evaluate(() => globalThis.document.fonts.ready)
+        await page.locator('[data-reading-ready="true"]').waitFor()
+        const controls = page.locator('.mm-cook-actions__controls > button')
+        const boxes = await controls.evaluateAll(elements => elements.map(element => {
+          const { top, height } = element.getBoundingClientRect()
+          return { top, height }
+        }))
+        assert.ok(boxes.every(box => box.height >= 44), 'Cooking actions retain usable targets')
+        assert.ok(Math.max(...boxes.map(box => box.top)) - Math.min(...boxes.map(box => box.top)) < 1,
+          'Cooking actions share one row, leaving the paper for reading')
+        const navigation = page.getByRole('navigation', { name: 'Jump to recipe section' })
+        assert.ok(await navigation.evaluate(element => element.scrollWidth <= element.clientWidth + 1),
+          'Section navigation stays within the paper')
+        await page.screenshot({ path: path.join(outputDir, `${width}-${name}.png`), animations: 'disabled' })
+        process.stdout.write(`${width} ${name}: ${await page.locator('.mm-reading-indicator').innerText()}, capacity ${await page.locator('[data-reading-capacity]').getAttribute('data-reading-capacity')}px\n`)
+      }
       await page.goto(`${origin}app/recipes/${current.id}`)
       await page.getByRole('heading', { name: recipe.title, level: 1 }).waitFor()
+      await captureReading('reading-before-record')
       await page.getByRole('button', { name: 'Record cooking', exact: true }).click()
       const cook = page.getByRole('dialog', { name: 'Record this cook' })
       await capture('record-date')
@@ -190,6 +208,14 @@ try {
       await expect(cook.getByRole('status').filter({ hasText: 'Saved to Personal Notes.' })).toBeVisible()
       await capture('record-saved')
       await cook.getByRole('button', { name: 'Back to recipe' }).click()
+      await captureReading('reading-after-record')
+      await page.getByRole('button', { name: 'Personal notes', exact: true }).click()
+      await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
+      await settleJournalLayout(page)
+      await captureReading('reading-personal-notes')
+      await page.getByRole('button', { name: 'Recipe overview', exact: true }).click()
+      await page.waitForFunction(() => !globalThis.document.querySelector('[data-journal-page-turn]'))
+      await settleJournalLayout(page)
       await page.getByRole('button', { name: 'Revise with Mori' }).click()
       const revision = page.getByRole('dialog', { name: 'Make a version for next time' })
       await capture('revision-note-choice')

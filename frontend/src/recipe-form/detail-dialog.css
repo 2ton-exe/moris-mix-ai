@@ -98,7 +98,9 @@
 .mm-cook-actions__controls > .mm-review-detail-link.mm-record-cooking:hover { background: var(--mm-color-sage-200); }
   .mm-cook-actions { padding-block: 12px; }
   .mm-cook-actions p { margin-block: 6px 8px; }
-  .mm-cook-actions__controls { gap: 8px 12px; }
+  .mm-cook-actions__controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .mm-cook-actions__controls > .mm-review-detail-link { min-inline-size: 0; text-align: center; overflow-wrap: normal; }
+  .mm-cook-actions__controls:not(:has(.mm-review-detail-link:nth-of-type(3))) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .mm-revision-tools {

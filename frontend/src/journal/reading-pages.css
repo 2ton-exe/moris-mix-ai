@@ -14,13 +14,14 @@
   .mm-reading-running-head:not(.mm-reading-running-head--demo) { min-height: 44px; }
   .mm-reading-section-nav { display: flex; flex: 1 1 100%; gap: 4px; }
   .mm-desk .mm-reading-section-nav .button {
-    flex: 1 1 0;
-    min-inline-size: 0;
+    flex: 1 0 min-content;
+    min-inline-size: min-content;
     min-height: 44px;
-    padding-inline: 4px;
+    padding-inline: 2px;
     justify-content: center;
     text-align: center;
     white-space: normal;
+    overflow-wrap: normal;
     font-size: 13px;
     line-height: 1.2;
   }
