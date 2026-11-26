@@ -21,6 +21,7 @@ import { InvalidExtractionResponse, extractRecipeApi, MAX_EXTRACTION_INPUT_CHARS
 import type { QuickAiEntryHandoff } from './extractRecipe'
 import { readQuickAiEntryDraftResult, writeQuickAiEntryDraft } from './draft'
 import type { QuickAiBlockReason, QuickAiEntryDraft } from './draft'
+import { QuickAiEntryGuide, QuickAiEntryHeading, quickAiNotesHelp } from './QuickAiEntryScaffold'
 import './quickAiEntry.css'
 
 interface EntryError {
@@ -466,25 +467,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
       discardLabel={logoutPending ? 'Leaving…' : 'Leave Anyway'}
     />}
     <JournalFacingPage className={`mm-facing-content--quick-ai${desktopSpread ? ' mm-facing-content--quick-ai-task' : ''}`}>
-      {desktopSpread ? <section className="mm-quick-ai__support" aria-labelledby="quick-ai-support-title">
-        {showRecovery ? <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__journey mm-quick-ai__recovery">
-          <h2 id="quick-ai-support-title">Before you try again</h2>
-          {recoveryFeedback}
-        </PaperCard> : <>
-          <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__journey">
-            <h2 id="quick-ai-support-title">From notes to recipe</h2>
-            <ol className="mm-quick-ai__steps">
-              <li><span><strong>Write</strong> the ingredients and steps you remember.</span></li>
-              <li><span><strong>Review</strong> the draft and make any changes.</span></li>
-              <li><span><strong>Choose</strong> when to save it to your journal.</span></li>
-            </ol>
-          </PaperCard>
-          <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__example">
-            <h2>Example cooking notes</h2>
-            <p>Fried two eggs with garlic, then tossed them with leftover rice and a splash of soy sauce.</p>
-          </PaperCard>
-        </>}
-      </section> : <>
+      {desktopSpread ? <QuickAiEntryGuide recovery={showRecovery ? recoveryFeedback : undefined} /> : <>
         <header className="mm-quick-ai-intro">
           <div>
             <h1 tabIndex={-1}>Quick AI Entry</h1>
@@ -500,10 +483,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
 
     <section className="mm-quick-ai mm-page-column" aria-label="Quick AI Entry notes"
       data-recovery={page < noteParts.length && (Boolean(error) || retryWait > 0 || persistenceFailed) || undefined}>
-      {desktopSpread && <header className="mm-quick-ai-intro mm-quick-ai-intro--task">
-        <h1 tabIndex={-1}>Quick AI Entry</h1>
-        <p className="mm-quick-ai-intro__copy">Write what you cooked, including amounts and steps you remember. You can review and edit the draft before saving it.</p>
-      </header>}
+      {desktopSpread && <QuickAiEntryHeading />}
       <nav className="mm-quick-ai__back" aria-label="Sheet navigation">
         <Link to={journalReturnTo(location.state)}><span aria-hidden="true">←</span> Back to journal</Link>
       </nav>
@@ -537,7 +517,7 @@ function QuickAiEntrySession({ userId, extract, onExtracted }: {
             <div className="mm-quick-ai__field-meta">
               <p className="mm-quick-ai__helper" id={helpId}>{persistenceFailed
                 ? 'Your notes stay available while this app is open.'
-                : 'Your notes are kept in this tab as you type.'}</p>
+                : desktopSpread ? quickAiNotesHelp : 'Your notes are kept in this tab as you type.'}</p>
               <p className="mm-quick-ai__count" id={countId} aria-live="off">{draft.notes.length.toLocaleString()} / {MAX_EXTRACTION_INPUT_CHARS.toLocaleString()}</p>
             </div>
             {validationMessage && <p className="mm-quick-ai__validation" id={validationId} role="alert">{validationMessage}</p>}

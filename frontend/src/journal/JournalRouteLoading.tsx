@@ -3,7 +3,10 @@ import { LoadingState } from '../components/LoadingState'
 import { RecipeEditorSkeleton } from '../recipe-form/RecipeEditorSkeleton'
 import { RecipeCollectionPages } from '../recipes/RecipeCollectionPages'
 import { RecipeReadingSkeleton, RecipeSkeleton } from '../recipes/RecipeStates'
-import { JournalFacingPage } from './JournalFacingPage'
+import { PaperCard } from './Scrapbook'
+import { QuickAiEntryGuide, QuickAiEntryHeading, quickAiNotesHelp } from '../quick-ai/QuickAiEntryScaffold'
+import { JournalPagination } from './JournalPagination'
+import { JournalFacingPage, JournalPageFooter } from './JournalFacingPage'
 import { useJournalMedia } from './useJournalMedia'
 import '../pages/recipeRevisionSample.css'
 
@@ -30,6 +33,28 @@ export function JournalRouteLoading({ message }: { message: string }) {
     return <RecipeEditorSkeleton message={message} extractionReview={extractionReview}
       title={pathname.endsWith('/new') ? 'New recipe' : extractionReview ? 'Review your recipe' : pathname.endsWith('/review') ? 'Review recipe' : 'Edit recipe'} />
   }
+  if (desktop && pathname === '/app/quick-entry') return <>
+    <span role="status" className="visually-hidden">{message}</span>
+    <JournalFacingPage className="mm-facing-content--quick-ai mm-facing-content--quick-ai-task"><div aria-hidden="true" inert><QuickAiEntryGuide /></div></JournalFacingPage>
+    <section className="mm-quick-ai mm-page-column" aria-busy="true" aria-hidden="true" inert>
+      <QuickAiEntryHeading />
+      <nav className="mm-quick-ai__back"><Link to="/app"><span aria-hidden="true">←</span> Back to journal</Link></nav>
+      <PaperCard surface="fresh" tape="sage" className="mm-quick-ai__sheet">
+        <form>
+          <div className="mm-quick-ai__field">
+            <label htmlFor="loading-cooking-notes">Cooking notes</label>
+            <textarea id="loading-cooking-notes" className="mm-quick-ai__textarea mm-skeleton-block" rows={3} disabled />
+            <div className="mm-quick-ai__field-meta">
+              <p className="mm-quick-ai__helper">{quickAiNotesHelp}</p>
+              <p className="mm-quick-ai__count">0 / 10,000</p>
+            </div>
+          </div>
+          <div className="mm-quick-ai__actions"><button type="button" className="button button-primary" disabled>Organize my notes</button></div>
+        </form>
+      </PaperCard>
+    </section>
+    <JournalPageFooter><JournalPagination loading label="Cooking notes pages" rightNumber="Page 1 of 1" /></JournalPageFooter>
+  </>
   if (pathname === '/app/quick-entry' || pathname === '/app/chef') {
     const notes = pathname.endsWith('/quick-entry')
     const title = notes ? 'Quick AI Entry' : 'What’s in your pantry?'

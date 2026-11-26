@@ -219,20 +219,24 @@ try {
         })
         await page.goto(new URL(routePath, origin).href)
         await requested
-        await page.locator('.mm-skeleton-line').first().waitFor()
+        await page.locator('.mm-skeleton-line, .mm-skeleton-block').first().waitFor()
         await page.evaluate(() => globalThis.document.fonts.ready)
         await page.waitForTimeout(200)
         await page.evaluate(() => { globalThis.__coldBook = globalThis.document.querySelector('.mm-journal-book') })
-        const measureNewEditor = () => Object.fromEntries([
+        const measureWritingLayout = (kind) => Object.fromEntries((kind === 'notes' ? [
+          ['guide', '.mm-quick-ai__support'], ['journey', '.mm-quick-ai__journey'], ['example', '.mm-quick-ai__example'],
+          ['heading', '.mm-quick-ai-intro--task'], ['back', '.mm-quick-ai__back'], ['sheet', '.mm-quick-ai__sheet'],
+          ['notes', '.mm-quick-ai__textarea'], ['metadata', '.mm-quick-ai__field-meta'], ['actions', '.mm-quick-ai__actions'],
+        ] : [
           ['title', '.mm-form-identity [name="title"]'], ['date', '.mm-form-identity input[type="date"]'],
           ['rating', '.mm-form-identity .mm-recipe-star-rating__stars'], ['notes', '.mm-form-identity textarea[name="notes"]'],
           ['ingredients', '.mm-form-recipe h2'], ['information', '.mm-form-identity h3'], ['add', '.mm-form-recipe .mm-row-add'],
-        ].map(([name, selector]) => {
+        ]).map(([name, selector]) => {
           const e = globalThis.document.querySelector(selector)
           return [name, e?.getBoundingClientRect().toJSON()]
         }))
-        const loadingNew = name === 'new' ? await page.evaluate(measureNewEditor) : null
-        if (loadingNew) {
+        const loadingWriting = ['new', 'notes'].includes(name) ? await page.evaluate(measureWritingLayout, name) : null
+        if (name === 'new') {
           await expect(page.locator('.mm-form-identity')).toHaveAttribute('inert', '')
           await expect(page.locator('.mm-form-identity')).toHaveAttribute('aria-hidden', 'true')
           assert.ok(await page.locator('.mm-form-identity textarea').evaluateAll(fields => fields.length === 2 && fields.every(field =>
@@ -242,6 +246,13 @@ try {
             !globalThis.getComputedStyle(field).animationName.includes('mm-paper-field-light'))), `${stamp}: reduced motion disables the paper shimmer`)
           if (width === 1100) await page.screenshot({ path: path.join(output, `${stamp}-loading-reduced.png`), animations: 'disabled' })
           await page.emulateMedia({ reducedMotion: 'no-preference' })
+        }
+        if (name === 'notes') {
+          await expect(page.locator('.mm-quick-ai')).toHaveAttribute('inert', '')
+          await expect(page.locator('.mm-quick-ai')).toHaveAttribute('aria-hidden', 'true')
+          await expect(page.locator('.mm-quick-ai')).toHaveAttribute('aria-busy', 'true')
+          await expect(page.locator('.mm-quick-ai__support').locator('..')).toHaveAttribute('inert', '')
+          assert.ok(await page.locator('.mm-quick-ai__sheet').evaluate(e => e.scrollHeight <= e.clientHeight + 1), `${stamp}: empty notes skeleton fits without scrolling`)
         }
         let loadingReference
         if (name === 'notes-review') {
@@ -256,16 +267,17 @@ try {
           await page.keyboard.press('Escape')
         }
         releaseModule()
-        await expect(page.locator('.mm-skeleton-line')).toHaveCount(0)
+        await expect(page.locator('.mm-skeleton-line, .mm-skeleton-block')).toHaveCount(0)
         await page.waitForTimeout(200)
         await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
-        if (loadingNew) {
-          const loadedNew = await page.evaluate(measureNewEditor)
-          for (const [field, loading] of Object.entries(loadingNew)) {
-            const loaded = loadedNew[field]
+        if (loadingWriting) {
+          const loadedWriting = await page.evaluate(measureWritingLayout, name)
+          for (const [field, loading] of Object.entries(loadingWriting)) {
+            const loaded = loadedWriting[field]
             for (const dimension of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(loading[dimension] - loaded[dimension]) <= 2, `${stamp}: ${field} ${dimension} shifts when loading completes`)
           }
-          await expect(page.locator('.mm-form-identity .mm-recipe-star-rating__stars')).toBeVisible()
+          if (name === 'new') await expect(page.locator('.mm-form-identity .mm-recipe-star-rating__stars')).toBeVisible()
+          if (name === 'notes') assert.ok(await page.locator('.mm-quick-ai__sheet').evaluate(e => e.scrollHeight <= e.clientHeight + 1), `${stamp}: loaded empty notes fit without scrolling`)
         }
         if (loadingReference) {
           const loadedReference = await page.locator('.mm-extraction-notes--facing').boundingBox()

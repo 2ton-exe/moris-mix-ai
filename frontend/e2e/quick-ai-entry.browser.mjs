@@ -621,6 +621,7 @@ try {
   for (const [width, height] of [[1440, 900], [1280, 720], [1100, 640]].filter(([width]) => !desktopOnly || width >= 1100)) {
     await page.setViewportSize({ width, height })
     await settleJournalLayout(page)
+    await expect(notes).toHaveValue('notes that receive a malformed result')
     const error = page.getByRole('alert')
     const retry = page.getByRole('button', { name: 'Retry extraction' })
     await expect(error).toBeInViewport({ ratio: 1 })
