@@ -273,7 +273,7 @@ try {
       await resize.press('Enter')
       const restored = await chat.boundingBox()
       assert.equal(restored.width, initial.width, 'Activating the grip again restores the standard width')
-      assert.ok(restored.height <= 480, 'Reset keeps the dialogue within its content cap')
+      assert.ok(restored.height <= 560, 'Reset restores the default dialogue height')
     } else {
       await expect(resize).toHaveCount(0)
     }
