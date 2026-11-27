@@ -1113,9 +1113,23 @@ test('final cleanup invocation rejects unhealthy responses and invalid targets b
 
 test('final cleanup availability probe is read-only and requires the configured handler', () => {
   const health = step(release, 'Verify finalized image cleanup availability');
-  for (const [status, exitCode] of [['401', 0], ['200', 1], ['404', 1], ['503', 1]]) {
-    const result = spawnSync('bash', ['-c', `curl() { printf '%s' "$TEST_STATUS"; }; ${health.run}`], {
-      encoding: 'utf8', env: { ...process.env, TEST_STATUS: status, VITE_SUPABASE_URL: 'https://synthetic.supabase.co' },
+  for (const [status, body, exitCode] of [
+    ['401', '{"error":"unauthorized"}', 0],
+    ['401', '{"code":401,"message":"Missing authorization header"}', 1],
+    ['401', '<html>unauthorized</html>', 1],
+    ['401', '', 1],
+    ['200', '{"error":"unauthorized"}', 1],
+    ['404', '{"error":"unauthorized"}', 1],
+    ['503', '{"error":"cleanup_unavailable"}', 1],
+  ]) {
+    const result = spawnSync('bash', ['-c', `curl() {
+      while (( $# )); do
+        if [[ "$1" == --output ]]; then printf '%s' "$TEST_BODY" > "$2"; shift; fi
+        shift
+      done
+      printf '%s' "$TEST_STATUS"
+    }; ${health.run}`], {
+      encoding: 'utf8', env: { ...process.env, TEST_STATUS: status, TEST_BODY: body, VITE_SUPABASE_URL: 'https://synthetic.supabase.co' },
     });
     assert.equal(result.status, exitCode, result.stdout + result.stderr);
   }

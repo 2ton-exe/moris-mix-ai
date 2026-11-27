@@ -299,11 +299,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          status="$(curl --silent --show-error --max-time 30 \
-            --output /dev/null --write-out '%{http_code}' --request POST \
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status="$(curl --silent --show-error --max-time 30 --max-filesize 4096 \
+            --output "$response_file" --write-out '%{http_code}' --request POST \
             "${VITE_SUPABASE_URL%/}/functions/v1/recipe-image-final-cleanup")"
-          if [[ "$status" != 401 ]]; then
-            echo "::error::Finalized cleanup must reject an unauthenticated probe with 401; received ${status}. Check deployment and its separate runtime token."
+          if [[ "$status" != 401 ]] || ! jq -e 'type == "object" and .error == "unauthorized"' "$response_file" >/dev/null 2>&1; then
+            echo "::error::Finalized cleanup must return its unauthorized JSON with 401; received ${status}. Check gateway JWT settings, deployment, and its separate runtime token."
             exit 1
           fi
 

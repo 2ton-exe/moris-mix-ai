@@ -184,7 +184,7 @@ This is a separate, **off by default** operation from staging cleanup. This PR p
    unset RECIPE_IMAGE_FINAL_CLEANUP_TOKEN
    ```
 
-4. With the cleanup workflow still paused, set the repository variable `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED=true` and dispatch **Modular Main Validation** on the current `main`. This is the production activation step and requires separate authorization. The release verifies the migration ledger, deploys `recipe-image-final-cleanup` using the existing production release credentials, and sends an unauthenticated POST expecting `401`. A missing runtime token yields `503` and blocks release. This probe never claims or deletes objects. Check the deployment and availability outcomes in the release summary. Do not resume scheduling after a failed deployment or probe.
+4. With the cleanup workflow still paused, set the repository variable `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED=true` and dispatch **Modular Main Validation** on the current `main`. This is the production activation step and requires separate authorization. The release verifies the migration ledger, deploys `recipe-image-final-cleanup` using the existing production release credentials, and sends an unauthenticated POST expecting `401` and the handler JSON `{"error":"unauthorized"}`. A missing runtime token yields `503` and blocks release. This probe never claims or deletes objects. Check the deployment and availability outcomes in the release summary. Do not resume scheduling after a failed deployment or probe.
 
    ```sh
    gh variable set RECIPE_IMAGE_FINAL_CLEANUP_ENABLED --body true --repo 2ton-exe/moris-mix-ai
@@ -230,7 +230,7 @@ The production release order is:
 8. Deploy `recipe-image-attach` (`deploy-recipe-image-attach`).
 9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
 10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-11. Deploy `recipe-image-final-cleanup` and verify its unauthenticated `401` probe only when `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'`. Keep this independent opt-in off until the [activation steps](#enable-finalized-image-cleanup) are complete.
+11. Deploy `recipe-image-final-cleanup` and verify its unauthenticated `401` and `{"error":"unauthorized"}` probe only when `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'`. Keep this independent opt-in off until the [activation steps](#enable-finalized-image-cleanup) are complete.
 12. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`.
 13. Deploy Cloudflare Workers assets.
 14. Verify the production deployment URL.
@@ -892,7 +892,7 @@ manual dispatch on `main` follows the same production path:
 8. Deploy the explicit `recipe-image-attach` Edge Function target.
 9. Deploy `recipe-image-download-url` only when `VITE_RECIPE_IMAGES == 'true'`.
 10. Deploy `recipe-image-upload-cleanup` only when `RECIPE_IMAGE_CLEANUP_ENABLED == 'true'`.
-11. Deploy `recipe-image-final-cleanup` and verify its unauthenticated `401` probe only when `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'`. Keep this independent opt-in off until the [activation steps](#enable-finalized-image-cleanup) are complete.
+11. Deploy `recipe-image-final-cleanup` and verify its unauthenticated `401` and `{"error":"unauthorized"}` probe only when `RECIPE_IMAGE_FINAL_CLEANUP_ENABLED == 'true'`. Keep this independent opt-in off until the [activation steps](#enable-finalized-image-cleanup) are complete.
 12. Deploy `recipe-image-upload-url` only when `VITE_RECIPE_IMAGES == 'true'`. The four unconditional targets and these conditional targets use the Supabase CLI and explicit project reference; handlers enforce authentication.
 13. Deploy to Cloudflare only after all active or enabled conditional function deployments succeed.
 14. Verify the production deployment URL against `PRODUCTION_FRONTEND_URL`.
