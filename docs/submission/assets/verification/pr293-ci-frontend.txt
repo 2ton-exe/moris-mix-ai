@@ -1,0 +1,2 @@
+Modular Frontend / Frontend Checks	UNKNOWN STEP	2026-11-26T21:45:26.7604990Z   node-version: 24
+Modular Frontend / Frontend Checks	UNKNOWN STEP	2026-11-26T21:46:07.1689122Z [2m Test Files [22m [1m[32m55 passed[39m[22m[90m (55)[39m

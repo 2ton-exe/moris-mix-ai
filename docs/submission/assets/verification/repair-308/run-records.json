@@ -1,0 +1,242 @@
+{
+  "runs": [
+    {
+      "id": "backend-generation",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs",
+      "command": [
+        "deno",
+        "test",
+        "--frozen-lockfile",
+        "--node-modules-dir=auto",
+        "--allow-env",
+        "supabase/functions/tests/generate_recipe_test.ts"
+      ],
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "dirty_state": "?? frontend/node_modules\n",
+      "start_pht": "2026-11-27T23:02:44.010059+08:00",
+      "end_pht": "2026-11-27T23:02:46.442961+08:00",
+      "exit_code": 0,
+      "platform": "darwin",
+      "evidence": "backend-generation.txt",
+      "runtime": "Deno 2.9.7, macOS arm64",
+      "limitations": "Synthetic deterministic fixtures; runtime network permission withheld; no hosted database or model acceptance.",
+      "passed": 63,
+      "failed": 0,
+      "skipped": 0,
+      "skip_reasons": [],
+      "count_unit": "tests"
+    },
+    {
+      "id": "backend-original-alias-probe",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs",
+      "command": [
+        "deno",
+        "test",
+        "--frozen-lockfile",
+        "--node-modules-dir=auto",
+        "--allow-env",
+        "/tmp/pr293-repair-verification/backend/revision-alias.ts"
+      ],
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "dirty_state": "?? frontend/node_modules\n",
+      "start_pht": "2026-11-27T23:02:53.981616+08:00",
+      "end_pht": "2026-11-27T23:02:58.720486+08:00",
+      "exit_code": 0,
+      "platform": "darwin",
+      "evidence": "backend-original-alias-probe.txt",
+      "runtime": "Deno 2.9.7, macOS arm64",
+      "limitations": "Synthetic deterministic fixtures; runtime network permission withheld; no hosted database or model acceptance.",
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "skip_reasons": [],
+      "count_unit": "tests"
+    },
+    {
+      "id": "backend-regression",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs",
+      "command": [
+        "deno",
+        "test",
+        "--frozen-lockfile",
+        "--node-modules-dir=auto",
+        "--allow-env",
+        "--filter",
+        "Chef oil quantity revision",
+        "supabase/functions/tests/generate_recipe_test.ts"
+      ],
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "dirty_state": "?? frontend/node_modules\n",
+      "start_pht": "2026-11-27T23:02:42.624863+08:00",
+      "end_pht": "2026-11-27T23:02:43.855518+08:00",
+      "exit_code": 0,
+      "platform": "darwin",
+      "evidence": "backend-regression.txt",
+      "runtime": "Deno 2.9.7, macOS arm64",
+      "limitations": "Synthetic deterministic fixtures; runtime network permission withheld; no hosted database or model acceptance.",
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "skip_reasons": [],
+      "count_unit": "tests"
+    },
+    {
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "tracked_state": "clean",
+      "untracked": [
+        "frontend/node_modules -> /Users/mynt/dev/moris-mix-ai/frontend/node_modules"
+      ],
+      "environment": "macOS arm64; Node26.10.0; pnpm12.14.0; Vitest4.1.12; TypeScript5.7.3; Google Chrome158.0.8127.37; local synthetic records only",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs/frontend",
+      "timezone": "Asia/Manila",
+      "skipped": 0,
+      "skip_reasons": [],
+      "id": "FE-R1",
+      "command": "NODE_OPTIONS=--no-experimental-webstorage pnpm test -- src/recipe-form/RecipePages.test.tsx",
+      "evidence_path": "recipe-pages.log",
+      "result": "failed",
+      "passed": 1014,
+      "failed": 1,
+      "start": "2026-11-27T23:02:32.951366+08:00",
+      "last_log_write": "2026-11-27T23:03:15.082891+08:00",
+      "limitations": [
+        "pnpm12 passed -- separator through, causing full suite execution rather than intended focus. AIChefPage selected-note test exceeded5000ms under concurrent CPU load. No full-suite pass claimed.",
+        "pnpm auto dependency verification warned symlink hoist directory was not real; reused dependencies have byte-identical pnpm lockfile.",
+        "Counts overlap subsequent focused runs."
+      ],
+      "files_passed": 63,
+      "files_failed": 1
+    },
+    {
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "tracked_state": "clean",
+      "untracked": [
+        "frontend/node_modules -> /Users/mynt/dev/moris-mix-ai/frontend/node_modules"
+      ],
+      "environment": "macOS arm64; Node26.10.0; pnpm12.14.0; Vitest4.1.12; TypeScript5.7.3; Google Chrome158.0.8127.37; local synthetic records only",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs/frontend",
+      "timezone": "Asia/Manila",
+      "skipped": 0,
+      "skip_reasons": [],
+      "id": "FE-R2",
+      "command": "NODE_OPTIONS=--no-experimental-webstorage node node_modules/vitest/vitest.mjs run --configLoader runner src/recipe-form/RecipePages.test.tsx --maxWorkers=1",
+      "evidence_path": "recipe-pages-focused.log",
+      "result": "passed",
+      "passed": 53,
+      "failed": 0,
+      "start": "2026-11-27T23:03:15.306975+08:00",
+      "last_log_write": "2026-11-27T23:03:19.480239+08:00",
+      "limitations": [
+        "jsdom simulated geometry; includes two new save-transition regressions; not real browser or hosted persistence.",
+        "Overlaps initial1015-test suite."
+      ],
+      "files_passed": 1
+    },
+    {
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "tracked_state": "clean",
+      "untracked": [
+        "frontend/node_modules -> /Users/mynt/dev/moris-mix-ai/frontend/node_modules"
+      ],
+      "environment": "macOS arm64; Node26.10.0; pnpm12.14.0; Vitest4.1.12; TypeScript5.7.3; Google Chrome158.0.8127.37; local synthetic records only",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs/frontend",
+      "timezone": "Asia/Manila",
+      "skipped": 0,
+      "skip_reasons": [],
+      "id": "FE-R3",
+      "command": "NODE_OPTIONS=--no-experimental-webstorage node node_modules/vitest/vitest.mjs run --configLoader runner src/ai-chef/AIChefPage.test.tsx --maxWorkers=1",
+      "evidence_path": "ai-chef-unit.log",
+      "result": "passed",
+      "passed": 47,
+      "failed": 0,
+      "start": "2026-11-27T23:03:37.226471+08:00",
+      "last_log_write": "2026-11-27T23:03:47.654517+08:00",
+      "limitations": [
+        "Isolated rerun resolves observed timeout for this run only; does not erase failed full-suite attempt.",
+        "Mocked API; overlaps initial1015-test suite."
+      ],
+      "files_passed": 1
+    },
+    {
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "tracked_state": "clean",
+      "untracked": [
+        "frontend/node_modules -> /Users/mynt/dev/moris-mix-ai/frontend/node_modules"
+      ],
+      "environment": "macOS arm64; Node26.10.0; pnpm12.14.0; Vitest4.1.12; TypeScript5.7.3; Google Chrome158.0.8127.37; local synthetic records only",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs/frontend",
+      "timezone": "Asia/Manila",
+      "skipped": 0,
+      "skip_reasons": [],
+      "id": "FE-R4",
+      "command": "MORI_DESKTOP_ONLY=true node e2e/ai-chef.browser.mjs",
+      "evidence_path": "ai-chef-desktop.log",
+      "result": "passed",
+      "passed": 10,
+      "failed": 0,
+      "start": "2026-11-27T23:02:34.179505+08:00",
+      "last_log_write": "2026-11-27T23:03:30.578371+08:00",
+      "limitations": [
+        "Counts are named scenario executions, not assertion/test-block totals:9 distinct behavior journeys executed10times because revision ran at two sizes.",
+        "One Chromium browser; revision1440x900 and1100x640. Other desktop scenarios include1280/1366 and geometry checks wider desktop. Narrow/mobile dimensions excluded by MORI_DESKTOP_ONLY.",
+        "Mocked local HTTP transport and synthetic session; no hosted DB, live provider, production acceptance or model accuracy.",
+        "Generated oil quantity2tsp intentionally edited to2.5tsp before Save; saved copy reopens2.5tsp, rice/tomato unchanged; original remains1tsp and its exact note unchanged; no PATCH or duplicate POST.",
+        "Page errors and Maximum update depth console errors collected; final errors[] empty."
+      ],
+      "count_unit": "scenario executions",
+      "unique_behavior_journeys": 9,
+      "fixture_labels": 8,
+      "revision_executions": 2,
+      "other_executions": 8
+    },
+    {
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "tracked_state": "clean",
+      "untracked": [
+        "frontend/node_modules -> /Users/mynt/dev/moris-mix-ai/frontend/node_modules"
+      ],
+      "environment": "macOS arm64; Node26.10.0; pnpm12.14.0; Vitest4.1.12; TypeScript5.7.3; Google Chrome158.0.8127.37; local synthetic records only",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs/frontend",
+      "timezone": "Asia/Manila",
+      "skipped": 0,
+      "skip_reasons": [],
+      "id": "FE-R5",
+      "command": "pnpm type-check",
+      "evidence_path": "type-check.log",
+      "result": "passed",
+      "passed": null,
+      "failed": 0,
+      "start": "2026-11-27T23:02:43.237424+08:00",
+      "last_log_write": "2026-11-27T23:02:43.648425+08:00",
+      "limitations": [
+        "Non-test gate; no test count. pnpm symlink hoist warning precedes successful tsc execution. Completion observed by23:03:37PHT; last log write precedes process completion."
+      ]
+    },
+    {
+      "sha": "40b5e1051ca7bbdf256eec1e578796b2a8283acb",
+      "tracked_state": "clean",
+      "untracked": [
+        "frontend/node_modules -> /Users/mynt/dev/moris-mix-ai/frontend/node_modules"
+      ],
+      "environment": "macOS arm64; Node26.10.0; pnpm12.14.0; Vitest4.1.12; TypeScript5.7.3; Google Chrome158.0.8127.37; local synthetic records only",
+      "cwd": "/Users/mynt/dev/moris-mix-revision-repairs/frontend",
+      "timezone": "Asia/Manila",
+      "skipped": 0,
+      "skip_reasons": [],
+      "id": "FE-R6",
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.app.json --noEmit",
+      "evidence_path": "type-check-direct.log",
+      "result": "passed",
+      "passed": null,
+      "failed": 0,
+      "start": "2026-11-27T23:03:59.684364+08:00",
+      "last_log_write": "2026-11-27T23:04:06.138973+08:00",
+      "limitations": [
+        "Non-test gate; no test count. Direct rerun avoids pnpm dependency-autoinstall warning."
+      ]
+    }
+  ],
+  "frontend_dependency_check": "frontend/pnpm-lock.yaml byte-identical to installed dependency checkout lockfile via cmp(exit0)",
+  "timestamp_note": "Frontend last_log_write is a log-write timestamp, not an asserted exact process-end time. Backend end_pht records subprocess completion. All results completed/observed by 23:04:06 PHT.",
+  "limitations": "Focused runs overlap; no suite sums, hosted/model acceptance or production-root-cause inference."
+}

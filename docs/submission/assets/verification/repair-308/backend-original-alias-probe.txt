@@ -1,0 +1,10 @@
+Check file:///tmp/pr293-repair-verification/backend/revision-alias.ts
+------- pre-test output -------
+(node:91792) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- pre-test output end -----
+running 3 tests from ../../../../tmp/pr293-repair-verification/backend/revision-alias.ts
+control: canonical unchanged rice cup permits oil 1 tsp to 2 tsp ... ok (780µs)
+legacy equivalent rice cups to cup must not block oil 1 tsp to 2 tsp ... ok (572µs)
+control: equivalent oil amount is not a real change ... ok (335µs)
+
+ok | 3 passed | 0 failed (7ms)

@@ -1,0 +1,2537 @@
+
+===== frontend-focused =====
+
+ RUN  v4.1.12 /Users/mynt/dev/moris-mix-pr293-verification/frontend
+
+
+ Test Files  22 passed (22)
+      Tests  489 passed (489)
+   Start at  22:20:39
+   Duration  20.56s (transform 2.22s, setup 1.50s, import 4.01s, tests 29.08s, environment 4.60s)
+
+
+
+===== edge-focused =====
+Initialize zod@4.6.6
+Initialize @supabase/supabase-js@2.39.8
+Initialize pg@8.23.1
+Initialize @google/generative-ai@0.21.0
+Initialize dotenv@18.0.8
+Initialize @supabase/gotrue-js@2.62.2
+Initialize @supabase/realtime-js@2.9.3
+Initialize @supabase/functions-js@2.1.5
+Initialize @supabase/postgrest-js@1.9.2
+Initialize @supabase/storage-js@2.5.5
+Initialize @supabase/node-fetch@2.6.15
+Initialize pg-types@2.2.0
+Initialize pg-connection-string@2.14.1
+Initialize pg-protocol@1.16.1
+Initialize pg-pool@3.14.0
+Initialize pgpass@1.0.5
+Initialize pg-cloudflare@1.4.1
+Initialize @types/ws@8.18.2
+Initialize @types/phoenix@1.6.7
+Initialize ws@8.22.0
+Initialize whatwg-url@5.0.0
+Initialize postgres-date@1.0.7
+Initialize postgres-bytea@1.0.1
+Initialize postgres-interval@1.2.0
+Initialize pg-int8@1.0.1
+Initialize postgres-array@2.0.0
+Initialize split2@4.2.0
+Initialize @types/node@26.6.5
+Initialize webidl-conversions@3.0.1
+Initialize tr46@0.0.3
+Initialize xtend@4.0.2
+Initialize undici-types@8.9.0
+Check supabase/functions/tests/auth_test.ts
+Check supabase/functions/tests/recipes_test.ts
+Check supabase/functions/tests/usage_test.ts
+Check supabase/functions/tests/ai_contracts_test.ts
+Check supabase/functions/tests/ai_journeys_test.ts
+Check supabase/functions/tests/candidate_token_test.ts
+Check supabase/functions/tests/eval_dataset_test.ts
+Check supabase/functions/tests/cross_user_rls_lineage_test.ts
+Check supabase/functions/tests/gemini_adapter_test.ts
+Check supabase/functions/tests/extract_recipe_test.ts
+Check supabase/functions/tests/generate_recipe_test.ts
+Check supabase/functions/tests/recipe_context_test.ts
+------- pre-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- pre-test output end -----
+running 15 tests from ./supabase/functions/tests/auth_test.ts
+Valid Bearer token with standard, lowercase, or mixed-case scheme resolves to expected authenticated user context without exposing accessToken ... ok (15ms)
+Missing Authorization header is rejected with 401 UNAUTHORIZED and performs zero network calls ... ok (4ms)
+Empty Bearer credential is rejected with 401 UNAUTHORIZED and performs zero network calls ... ok (635µs)
+Malformed Authorization header or unsupported authentication scheme is rejected with 401 UNAUTHORIZED ... ok (1ms)
+Invalid token rejected by Supabase Auth returns 401 UNAUTHORIZED and does not trust unverified JWT claims ... ok (597µs)
+Expired token rejected by Supabase Auth returns 401 UNAUTHORIZED ... ok (761µs)
+Recognized authentication errors on nonstandard upstream statuses return 401 while invalid server API keys, unrecognized 401/403, and unexpected 404/422 return 500 ...
+------- output -------
+Unexpected authentication upstream error status: 401
+Unexpected authentication upstream error status: 401
+Unexpected authentication upstream error status: 401
+Unexpected authentication upstream error status: 403
+Unexpected authentication upstream error status: 404
+Unexpected authentication upstream error status: 422
+----- output end -----
+Recognized authentication errors on nonstandard upstream statuses return 401 while invalid server API keys, unrecognized 401/403, and unexpected 404/422 return 500 ... ok (6ms)
+Upstream HTTP 429 from Supabase Auth returns 503 AUTH_SERVICE_RATE_LIMITED with safe message, security/CORS headers, and never executes database logic ...
+------- output -------
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+{"event":"request_failed","request_id":"259c5790-26df-4f63-9946-b3d6ece29ec5","endpoint":"auth-session","status":503}
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+{"event":"request_failed","request_id":"feb0afa4-872e-4900-add7-2c1c1fb2f8ba","endpoint":"auth-session","status":503}
+----- output end -----
+Upstream HTTP 429 from Supabase Auth returns 503 AUTH_SERVICE_RATE_LIMITED with safe message, security/CORS headers, and never executes database logic ... ok (4ms)
+Upstream HTTP 429 propagates validated Retry-After header and omits invalid or missing Retry-After values ...
+------- output -------
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+Authentication upstream rate limit exceeded
+----- output end -----
+Upstream HTTP 429 propagates validated Retry-After header and omits invalid or missing Retry-After values ... ok (3ms)
+Verified identity cannot be overridden by client-supplied query parameters or headers in protected handler ... ok (2ms)
+Authenticated Supabase client forwards the verified user's Bearer JWT and anon key for PostgreSQL RLS enforcement ... ok (966µs)
+Invalid authentication prevents protected handler database logic from executing ... ok (569µs)
+Error responses never expose JWT contents, secrets, upstream provider details, or stack traces ...
+------- output -------
+Unexpected authentication upstream error status: 401
+{"event":"request_failed","request_id":"36254372-4b6a-4c6f-a69b-021cff6f35ab","endpoint":"auth-session","status":500}
+Error: Fatal internal failure with key mock-anon-public-key-value and UPSTREAM_SECRET_KEY_LEAK_pgrst_jwt_secret_value_12345
+    at mockFetch500 (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/tests/auth_test.ts:811:11)
+    at trackedFetch (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/_shared/auth.ts:263:30)
+    at file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/lib/helpers.js:115:25
+    at _handleRequest (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/lib/fetch.js:73:24)
+    at _request (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/lib/fetch.js:65:24)
+    at SupabaseAuthClient._getUser (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/GoTrueClient.js:811:51)
+    at SupabaseAuthClient.getUser (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/GoTrueClient.js:801:31)
+    at authenticateRequest (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/_shared/auth.ts:307:49)
+    at handleRequest (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/auth-session/index.ts:37:24)
+    at handler (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/auth-session/index.ts:110:26)
+Authentication upstream request failed
+{"event":"request_failed","request_id":"e32ffabb-8645-492e-a75c-49e642464a7e","endpoint":"auth-session","status":500}
+----- output end -----
+Error responses never expose JWT contents, secrets, upstream provider details, or stack traces ... ok (2ms)
+Missing or invalid configuration, upstream 5xx errors, and network failures return 500 INTERNAL_ERROR instead of 401 ...
+------- output -------
+Missing required Supabase authentication configuration
+{"event":"request_failed","request_id":"6ce5dd78-4044-4d8a-9854-5d48e75ad75d","endpoint":"auth-session","status":500}
+Invalid Supabase URL configuration
+{"event":"request_failed","request_id":"b5365444-f8c3-419b-8ed3-b1dbe5ea2546","endpoint":"auth-session","status":500}
+Unexpected authentication upstream error status: 500
+{"event":"request_failed","request_id":"f55c51c1-3999-4036-9135-b6f21444444f","endpoint":"auth-session","status":500}
+Unexpected authentication upstream error status: 502
+{"event":"request_failed","request_id":"4209c0bd-b570-4586-bb0a-bb483210b448","endpoint":"auth-session","status":500}
+Unexpected authentication upstream error status: 503
+{"event":"request_failed","request_id":"f98b4bf6-242a-40d1-8fb5-d5a98243b98e","endpoint":"auth-session","status":500}
+Unexpected authentication upstream error status: 504
+{"event":"request_failed","request_id":"c0d816de-9804-4578-81af-6724ff953c08","endpoint":"auth-session","status":500}
+TypeError: Failed to fetch upstream auth server
+    at fetch (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/tests/auth_test.ts:878:33)
+    at trackedFetch (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/_shared/auth.ts:263:30)
+    at file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/lib/helpers.js:115:25
+    at _handleRequest (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/lib/fetch.js:73:24)
+    at _request (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/lib/fetch.js:65:24)
+    at SupabaseAuthClient._getUser (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/GoTrueClient.js:811:51)
+    at SupabaseAuthClient.getUser (file:///Users/mynt/dev/moris-mix-pr293-verification/node_modules/.deno/@supabase+gotrue-js@2.62.2/node_modules/@supabase/gotrue-js/dist/main/GoTrueClient.js:801:31)
+    at authenticateRequest (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/_shared/auth.ts:307:49)
+    at handleRequest (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/auth-session/index.ts:37:24)
+    at handler (file:///Users/mynt/dev/moris-mix-pr293-verification/supabase/functions/auth-session/index.ts:110:26)
+Authentication upstream request failed
+{"event":"request_failed","request_id":"53492a92-ff48-44af-883c-4ab713c82440","endpoint":"auth-session","status":500}
+----- output end -----
+Missing or invalid configuration, upstream 5xx errors, and network failures return 500 INTERNAL_ERROR instead of 401 ... ok (1ms)
+Protected handler preserves CORS OPTIONS preflight without requiring Authorization and rejects unsupported methods with 405 ... ok (541µs)
+------- post-test output -------
+[BE-06 RLS Integration] Skipping live hosted PostgreSQL RLS integration test for recipes (opt-in RUN_BE06_RLS_INTEGRATION=true not set).
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 170 tests from ./supabase/functions/tests/recipes_test.ts
+CreateRecipeRequestSchema and RecipeResponseSchema validate valid payloads and preserve existing shared schemas ... ok (10ms)
+Recipe request schemas bound text fields and collection sizes ... ok (1ms)
+CORS OPTIONS preflight on /recipes returns 204 with POST, OPTIONS allowed and does not require authentication ... ok (2ms)
+Dynamic ALLOWED_ORIGIN configuration scopes origin and sets Vary on recipes preflight and responses ... ok (1ms)
+Unsupported HTTP methods on collection route return 405 METHOD_NOT_ALLOWED with Allow: GET, POST, OPTIONS and zero network calls ... ok (932µs)
+Unsupported sub-paths on /recipes return 404 NOT_FOUND without calling Auth or database ... ok (1ms)
+Authenticated POST /recipes persists a valid recipe with verified owner and is_public=false and returns 201 Created ... ok (4ms)
+Authenticated POST /recipes persists personal notes independently of raw_input and returns notes in response ... ok (522µs)
+Authenticated POST /recipes accepts minimal payload with optional fields omitted or null and defaults nullable columns to null ... ok (402µs)
+Malformed JSON and non-object JSON bodies return 400 INVALID_JSON without calling PostgREST ... ok (2ms)
+Recipe request body byte limit enforces the exact boundary and request IDs are generated ... ok (1ms)
+Recipe write routes reject unsupported media types before database access ... ok (1ms)
+Invalid recipe payloads fail shared Zod validation with 400 VALIDATION_ERROR and never execute database insert ... ok (3ms)
+Missing, malformed, invalid, or expired Bearer tokens are rejected with 401 UNAUTHORIZED before any database operation ... ok (1ms)
+Client attempts to override ownership, id, or is_public in body, query, or headers are ignored and server enforces verified user_id and is_public=false ... ok (870µs)
+Database insert failures, RLS rejections, ownership mismatches, and invalid DB payloads return safe 500 INTERNAL_ERROR without leaking details ...
+------- post-test output -------
+Database insert failed
+{"event":"request_failed","request_id":"73201837-bbba-4f6a-8542-a2e97858469a","endpoint":"recipes","status":500}
+Database insert failed
+{"event":"request_failed","request_id":"b23949ff-47c4-419e-90e6-30fc9597a738","endpoint":"recipes","status":500}
+Recipe ownership mismatch detected
+{"event":"request_failed","request_id":"ee4a4f51-452b-4bbd-8e87-160e68217732","endpoint":"recipes","status":500}
+Recipe response validation failed on paths: recipe.id, recipe.title, recipe.raw_input, recipe.notes, recipe.ingredients, recipe.instructions, recipe.flavor_scores, recipe.star_rating, recipe.cooked_at, recipe.image_url, recipe.created_at, recipe.updated_at
+{"event":"request_failed","request_id":"6a5ff835-63aa-4880-acf7-139fa40f9187","endpoint":"recipes","status":500}
+----- post-test output end -----
+Database insert failures, RLS rejections, ownership mismatches, and invalid DB payloads return safe 500 INTERNAL_ERROR without leaking details ... ok (3ms)
+RecipeIdParamSchema, RecipeParamsSchema, RecipeListResponseSchema, and UpdateRecipeRequestSchema validate valid payloads and reject invalid inputs ... ok (543µs)
+Authenticated GET /recipes lists owned recipes ordered by created_at descending and validates schema envelope ... ok (1ms)
+Authenticated GET /recipes rejects invalid pagination before querying recipes ... ok (1ms)
+Authenticated GET /recipes returns empty list when user has no recipes ... ok (369µs)
+Authenticated GET /recipes/:id retrieves single owned recipe ... ok (863µs)
+Authenticated GET /recipes and GET /recipes/:id retrieve recipes with populated notes and null notes ... ok (508µs)
+Authenticated GET /recipes/:id returns 404 NOT_FOUND for missing recipe or another user recipe ... ok (266µs)
+Malformed recipe ID on detail, update, and delete returns 400 VALIDATION_ERROR with field details ... ok (1ms)
+Authenticated PATCH /recipes/:id updates allowed fields and persists rating ... ok (748µs)
+Authenticated PATCH /recipes/:id updates notes without modifying raw_input and preserves omitted fields ... ok (419µs)
+Conditional PATCH preserves notes when a second cook update uses a stale recipe version ... ok (2ms)
+Conditional PATCH prevents an older title editor from overwriting newer recipe content ... ok (1ms)
+Authenticated PATCH /recipes/:id clears notes with explicit null while preserving raw_input and vice versa ... ok (603µs)
+Authenticated PATCH /recipes/:id accepts every valid rating 1 to 5 and rejects invalid ratings before database update ... ok (1ms)
+Authenticated PATCH /recipes/:id with empty object body fails validation with 400 VALIDATION_ERROR and zero database calls ... ok (751µs)
+Authenticated PATCH /recipes/:id rejects invalid JSON, non-object JSON, and unsupported or protected fields ... ok (1ms)
+Authenticated PATCH /recipes/:id returns 404 NOT_FOUND for missing recipe or another user recipe ... ok (233µs)
+Authenticated DELETE /recipes/:id deletes owned recipe and returns 204 No Content ... ok (293µs)
+Authenticated DELETE /recipes/:id returns 404 NOT_FOUND for missing recipe or another user recipe ... ok (247µs)
+Member routes reject unsupported HTTP methods with 405 and Allow: GET, PATCH, DELETE, OPTIONS ... ok (205µs)
+Unauthenticated requests across GET list, GET detail, PATCH, and DELETE return 401 UNAUTHORIZED ... ok (603µs)
+Database failures and ownership mismatches on list, detail, update, and delete return safe 500 INTERNAL_ERROR ...
+------- post-test output -------
+Database list query failed
+{"event":"request_failed","request_id":"0be89a6b-7ee4-4a9e-bcc7-774b5d6fd740","endpoint":"recipes","status":500}
+Recipe ownership mismatch detected in list
+{"event":"request_failed","request_id":"28633e65-e80f-4fbf-b385-63cd5ae7fb28","endpoint":"recipes","status":500}
+Database detail query failed
+{"event":"request_failed","request_id":"52a4ddf5-f05b-4933-a14c-cabd7a5f3c85","endpoint":"recipes","status":500}
+Recipe ownership mismatch detected
+{"event":"request_failed","request_id":"88613cb7-c3da-46ed-b04f-69e08c04d24c","endpoint":"recipes","status":500}
+Database update failed
+{"event":"request_failed","request_id":"cbadacbb-856e-4e4d-b02c-2aee28b41a12","endpoint":"recipes","status":500}
+Recipe ownership mismatch detected
+{"event":"request_failed","request_id":"5f3dfa2f-3abd-472d-8a81-ecc34b3f983c","endpoint":"recipes","status":500}
+Database delete failed
+{"event":"request_failed","request_id":"3f79c0bb-dba5-4cbb-8130-fe543f3a2233","endpoint":"recipes","status":500}
+----- post-test output end -----
+Database failures and ownership mismatches on list, detail, update, and delete return safe 500 INTERNAL_ERROR ... ok (1ms)
+Hosted recipe CRUD RLS target safety guards enforce HTTPS, non-local, non-production, distinct keys, project ref verification, and credential isolation ... ok (1ms)
+Live PostgreSQL schema preflight: public.recipes.notes is present and queryable as nullable text (hosted integration) ... ignored (0ms)
+Live PostgreSQL persistence and RLS enforcement for recipe CRUD (hosted integration) ... ignored (0ms)
+RLS test cleanup reports table and auth-user failures, redacts secrets, attempts all users, and preserves primary failures ... ok (512µs)
+cleanupRlsTestResources handles thrown deleteUser exceptions by failing, attempting remaining users, preserving primary errors, and redacting secrets ... ok (329µs)
+Authenticated GET /recipes search filters match title, ingredient, trimmed whitespace, and empty values ... ok (1ms)
+Authenticated GET /recipes search returns empty collection when no recipes match query ... ok (213µs)
+Authenticated GET /recipes rejects duplicate and invalid search and sort query parameters ... ok (1ms)
+Authenticated GET /recipes sorting applies newest and rating modes at database query layer ... ok (523µs)
+Authenticated GET /recipes pagination supports first page, custom limits, next_cursor continuation, and final page ... ok (3ms)
+Authenticated GET /recipes pagination supports rating sort keyset continuation with nullable ratings ... ok (1ms)
+Authenticated GET /recipes rejects malformed cursors and cursors incompatible with filters or sort mode ... ok (1ms)
+Authenticated GET /recipes owner isolation is enforced across search, sorting, and cursor pagination ...
+------- post-test output -------
+Recipe ownership mismatch detected in list
+{"event":"request_failed","request_id":"ecdd0e22-ee3e-432e-8790-dea91d8d0308","endpoint":"recipes","status":500}
+----- post-test output end -----
+Authenticated GET /recipes owner isolation is enforced across search, sorting, and cursor pagination ... ok (1ms)
+Regression BE-08 Task 1: Authenticated GET /recipes ingredient search uses ingredients_text and handles Unicode and isolation ... ok (909µs)
+Regression BE-08 Task 2: Authenticated GET /recipes preserves BE-06 list contract and opt-in cursor mode ... ok (1ms)
+Regression BE-08 Task 3: Authenticated GET /recipes cursor encoding is Unicode-safe, URL-safe, and validated ... ok (1ms)
+Regression BE-08 Task 4: Authenticated GET /recipes offset pagination correctly evaluates has_more across boundaries ... ok (1ms)
+Regression BE-08: Offset pagination probes beyond Supabase's 1000-row cap ... ok (23ms)
+Regression BE-08 Follow-Up: Search safely handles reserved characters and escapes SQL wildcards ... ok (7ms)
+Regression BE-08 Follow-Up: Ingredient search matches names only and does not match JSON metadata ... ok (1ms)
+Regression BE-08 Follow-Up: Validates cursor timestamps and rejects injection or non-ISO dates ... ok (1ms)
+Regression BE-08 Follow-Up: Supports large recipe persistence without index row size failure ... ok (553µs)
+CreateLineageRequestSchema and LineageResponseSchema validate valid lineage payloads ... ok (452µs)
+CreateLineageRequestSchema rejects empty, oversized, duplicate, non-UUID, and extra properties ... ok (179µs)
+CORS preflight OPTIONS on /recipes/:id/lineage returns 204 with Allow GET, POST, OPTIONS ... ok (450µs)
+Unsupported HTTP methods on /recipes/:id/lineage return 405 METHOD_NOT_ALLOWED with Allow GET, POST, OPTIONS ... ok (425µs)
+Unauthenticated requests to /recipes/:id/lineage return 401 UNAUTHORIZED ... ok (662µs)
+Auth rate limit on /recipes/:id/lineage returns 503 AUTH_SERVICE_RATE_LIMITED ...
+------- post-test output -------
+Authentication upstream rate limit exceeded
+{"event":"request_failed","request_id":"e2db353d-e482-45ab-afec-382fdead869f","endpoint":"recipes","status":503}
+----- post-test output end -----
+Auth rate limit on /recipes/:id/lineage returns 503 AUTH_SERVICE_RATE_LIMITED ... ok (2ms)
+Invalid child ID on /recipes/:id/lineage returns 400 VALIDATION_ERROR without calling database ... ok (309µs)
+POST /recipes/:id/lineage rejects malformed JSON, empty bodies, duplicate parents, and limits without database calls ... ok (2ms)
+POST /recipes/:id/lineage rejects self-referencing relationship with 400 VALIDATION_ERROR before database calls ... ok (810µs)
+POST /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does not exist or belongs to another user ... ok (1ms)
+POST /recipes/:id/lineage returns 404 NOT_FOUND when any parent recipe does not exist or is foreign ... ok (437µs)
+POST /recipes/:id/lineage persists single parent and returns 201 Created ... ok (1ms)
+POST /recipes/:id/lineage persists multiple parents atomically and returns 201 Created ... ok (716µs)
+POST /recipes/:id/lineage maps database unique conflict 23505 to 409 CONFLICT ... ok (402µs)
+POST /recipes/:id/lineage maps database check violation 23514 to 400 VALIDATION_ERROR and RLS 42501 to 404 NOT_FOUND ... ok (1ms)
+AI-07: lineage rejects missing, malformed, tampered, expired and wrong-user tokens before database calls ... ok (1ms)
+AI-07: lineage rejects an owned parent outside the token's candidate set ... ok (755µs)
+AI-07: lineage accepts a subset of the token's candidates ... ok (515µs)
+AI-07: lineage fails closed when the candidate token secret is missing ...
+------- post-test output -------
+AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing lineage save.
+{"event":"request_failed","request_id":"8e4d93d3-0ba2-4640-99c8-19574c5c2b25","endpoint":"recipes","status":500}
+----- post-test output end -----
+AI-07: lineage fails closed when the candidate token secret is missing ... ok (620µs)
+GET /recipes/:id/lineage returns 200 OK with ordered lineage records for owned child recipe ... ok (463µs)
+GET /recipes/:id/lineage returns 404 NOT_FOUND when child recipe does not belong to user ... ok (169µs)
+CreateLineageRequestSchema rejects case-insensitive duplicate UUIDs and accepts distinct UUIDs ... ok (265µs)
+POST /recipes/:id/lineage rejects case-insensitive duplicate UUIDs with 400 VALIDATION_ERROR before database calls ... ok (556µs)
+POST /recipes/:id/lineage accepts exact 16384 bytes body and rejects 16385 bytes with 413 INPUT_TOO_LARGE ... ok (758µs)
+POST /recipes/:id/lineage byte limit enforces streaming chunks, cancels stream, and rejects without Content-Length ... ok (312µs)
+POST /recipes/:id/lineage rejects misleading Content-Length and fast-rejects oversized Content-Length ... ok (207µs)
+POST /recipes/:id/lineage measures bytes rather than characters for multibyte UTF-8 ... ok (166µs)
+POST /recipes/:id/lineage decodes chunked streams split across arbitrary byte boundaries ... ok (673µs)
+POST /recipes/:id/lineage safely handles malformed UTF-8 and stream read failures with 400 INVALID_JSON ... ok (514µs)
+Authenticated GET /recipes search routes to search_recipes RPC with relevance ranking and strips internal ranking metadata ... ok (649µs)
+Search offset pagination: title, newest, limit 100, page with continuation ... ok (4ms)
+Search offset pagination: title, newest, limit 100, final full page ... ok (1ms)
+Search offset pagination: title, newest, limit 100, incomplete page ... ok (948µs)
+Search offset pagination: title, newest, limit 101, page with continuation ... ok (1ms)
+Search offset pagination: title, newest, limit 101, final full page ... ok (960µs)
+Search offset pagination: title, newest, limit 101, incomplete page ... ok (857µs)
+Search offset pagination: title, newest, limit 200, page with continuation ... ok (2ms)
+Search offset pagination: title, newest, limit 200, final full page ... ok (1ms)
+Search offset pagination: title, newest, limit 200, incomplete page ... ok (1ms)
+Search offset pagination: title, newest, limit 1000, page with continuation ... ok (8ms)
+Search offset pagination: title, newest, limit 1000, final full page ... ok (8ms)
+Search offset pagination: title, newest, limit 1000, incomplete page ... ok (9ms)
+Search offset pagination: title, rating, limit 100, page with continuation ... ok (1ms)
+Search offset pagination: title, rating, limit 100, final full page ... ok (890µs)
+Search offset pagination: title, rating, limit 100, incomplete page ... ok (809µs)
+Search offset pagination: title, rating, limit 101, page with continuation ... ok (783µs)
+Search offset pagination: title, rating, limit 101, final full page ... ok (946µs)
+Search offset pagination: title, rating, limit 101, incomplete page ... ok (894µs)
+Search offset pagination: title, rating, limit 200, page with continuation ... ok (1ms)
+Search offset pagination: title, rating, limit 200, final full page ... ok (1ms)
+Search offset pagination: title, rating, limit 200, incomplete page ... ok (1ms)
+Search offset pagination: title, rating, limit 1000, page with continuation ... ok (11ms)
+Search offset pagination: title, rating, limit 1000, final full page ... ok (9ms)
+Search offset pagination: title, rating, limit 1000, incomplete page ... ok (8ms)
+Search offset pagination: ingredients, newest, limit 100, page with continuation ... ok (3ms)
+Search offset pagination: ingredients, newest, limit 100, final full page ... ok (1ms)
+Search offset pagination: ingredients, newest, limit 100, incomplete page ... ok (847µs)
+Search offset pagination: ingredients, newest, limit 101, page with continuation ... ok (890µs)
+Search offset pagination: ingredients, newest, limit 101, final full page ... ok (773µs)
+Search offset pagination: ingredients, newest, limit 101, incomplete page ... ok (1ms)
+Search offset pagination: ingredients, newest, limit 200, page with continuation ... ok (1ms)
+Search offset pagination: ingredients, newest, limit 200, final full page ... ok (1ms)
+Search offset pagination: ingredients, newest, limit 200, incomplete page ... ok (1ms)
+Search offset pagination: ingredients, newest, limit 1000, page with continuation ... ok (9ms)
+Search offset pagination: ingredients, newest, limit 1000, final full page ... ok (9ms)
+Search offset pagination: ingredients, newest, limit 1000, incomplete page ... ok (8ms)
+Search offset pagination: ingredients, rating, limit 100, page with continuation ... ok (888µs)
+Search offset pagination: ingredients, rating, limit 100, final full page ... ok (1ms)
+Search offset pagination: ingredients, rating, limit 100, incomplete page ... ok (779µs)
+Search offset pagination: ingredients, rating, limit 101, page with continuation ... ok (793µs)
+Search offset pagination: ingredients, rating, limit 101, final full page ... ok (749µs)
+Search offset pagination: ingredients, rating, limit 101, incomplete page ... ok (704µs)
+Search offset pagination: ingredients, rating, limit 200, page with continuation ... ok (1ms)
+Search offset pagination: ingredients, rating, limit 200, final full page ... ok (1ms)
+Search offset pagination: ingredients, rating, limit 200, incomplete page ... ok (1ms)
+Search offset pagination: ingredients, rating, limit 1000, page with continuation ... ok (7ms)
+Search offset pagination: ingredients, rating, limit 1000, final full page ... ok (9ms)
+Search offset pagination: ingredients, rating, limit 1000, incomplete page ... ok (18ms)
+Search offset pagination: both, newest, limit 100, page with continuation ... ok (1ms)
+Search offset pagination: both, newest, limit 100, final full page ... ok (1ms)
+Search offset pagination: both, newest, limit 100, incomplete page ... ok (1ms)
+Search offset pagination: both, newest, limit 101, page with continuation ... ok (1ms)
+Search offset pagination: both, newest, limit 101, final full page ... ok (1ms)
+Search offset pagination: both, newest, limit 101, incomplete page ... ok (1ms)
+Search offset pagination: both, newest, limit 200, page with continuation ... ok (3ms)
+Search offset pagination: both, newest, limit 200, final full page ... ok (3ms)
+Search offset pagination: both, newest, limit 200, incomplete page ... ok (1ms)
+Search offset pagination: both, newest, limit 1000, page with continuation ... ok (7ms)
+Search offset pagination: both, newest, limit 1000, final full page ... ok (11ms)
+Search offset pagination: both, newest, limit 1000, incomplete page ... ok (7ms)
+Search offset pagination: both, rating, limit 100, page with continuation ... ok (983µs)
+Search offset pagination: both, rating, limit 100, final full page ... ok (1ms)
+Search offset pagination: both, rating, limit 100, incomplete page ... ok (888µs)
+Search offset pagination: both, rating, limit 101, page with continuation ... ok (855µs)
+Search offset pagination: both, rating, limit 101, final full page ... ok (860µs)
+Search offset pagination: both, rating, limit 101, incomplete page ... ok (860µs)
+Search offset pagination: both, rating, limit 200, page with continuation ... ok (1ms)
+Search offset pagination: both, rating, limit 200, final full page ... ok (1ms)
+Search offset pagination: both, rating, limit 200, incomplete page ... ok (1ms)
+Search offset pagination: both, rating, limit 1000, page with continuation ... ok (7ms)
+Search offset pagination: both, rating, limit 1000, final full page ... ok (9ms)
+Search offset pagination: both, rating, limit 1000, incomplete page ... ok (10ms)
+Search offset continuation failure returns safe INTERNAL_ERROR: rpc ...
+------- post-test output -------
+Database search query failed
+{"event":"request_failed","request_id":"ca072b3f-8b40-479a-9318-f84557b94cf1","endpoint":"recipes","status":500}
+----- post-test output end -----
+Search offset continuation failure returns safe INTERNAL_ERROR: rpc ... ok (731µs)
+Search offset continuation failure returns safe INTERNAL_ERROR: null ...
+------- post-test output -------
+Database search query failed
+{"event":"request_failed","request_id":"1e1a02f0-2bf3-42de-8d72-95c1923489ef","endpoint":"recipes","status":500}
+----- post-test output end -----
+Search offset continuation failure returns safe INTERNAL_ERROR: null ... ok (1ms)
+Search offset continuation failure returns safe INTERNAL_ERROR: object ...
+------- post-test output -------
+Database search query failed
+{"event":"request_failed","request_id":"5856ed63-7f63-4fff-bf65-5314b1bfe72a","endpoint":"recipes","status":500}
+----- post-test output end -----
+Search offset continuation failure returns safe INTERNAL_ERROR: object ... ok (564µs)
+Search offset continuation failure returns safe INTERNAL_ERROR: transport ...
+------- post-test output -------
+Database search query failed
+{"event":"request_failed","request_id":"211d42d3-eea1-4580-b458-390d1b171d98","endpoint":"recipes","status":500}
+----- post-test output end -----
+Search offset continuation failure returns safe INTERNAL_ERROR: transport ... ok (1ms)
+Authenticated GET /recipes search validates cursors across search terms and relevance ranks ... ok (833µs)
+Authenticated GET /recipes search routes with searchMode title, ingredients, and both ... ok (542µs)
+Authenticated GET /recipes search handles whitespace-only terms and rejects ownership mismatch ...
+------- post-test output -------
+Recipe ownership mismatch detected in list
+{"event":"request_failed","request_id":"dfd71509-45fe-49df-a46d-ddf516e3e89f","endpoint":"recipes","status":500}
+----- post-test output end -----
+Authenticated GET /recipes search handles whitespace-only terms and rejects ownership mismatch ... ok (297µs)
+Candidate authorization renews only signed owned selections without creating recipes or using AI ... ok (2ms)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 6 tests from ./supabase/functions/tests/usage_test.ts
+account burst resolver preserves fixed default and configured rolling validation ... ok (440µs)
+usage GET returns only the verified account and never consumes AI quota ... ok (9ms)
+usage reader reuses fallback daily20 and configured rolling3 ... ok (259µs)
+usage route requires authentication and only accepts read-only methods ... ok (657µs)
+usage failures return safe unavailable responses without invented counts ...
+------- post-test output -------
+{"event":"ai_quota_rpc_failed","stage":"usage_summary","code":"PGRST202"}
+{"event":"request_failed","request_id":"4560b834-7040-49bf-af4f-d541310ece1b","endpoint":"recipes","status":503}
+{"event":"ai_quota_rpc_failed","stage":"usage_summary"}
+{"event":"request_failed","request_id":"9529cd69-72a1-4097-a3d2-593d852401f0","endpoint":"recipes","status":503}
+{"event":"ai_quota_rpc_failed","stage":"usage_summary"}
+----- post-test output end -----
+usage failures return safe unavailable responses without invented counts ... ok (922µs)
+usage contract rejects malformed times and negative or fractional counters ... ok (114µs)
+running 13 tests from ./supabase/functions/tests/ai_contracts_test.ts
+generation deduplicates pantry identities before entering the pipeline ... ok (3ms)
+ExtractedRecipeSchema validates correct mock ... ok (1ms)
+ExtractedRecipeSchema rejects malformed mock ... ok (427µs)
+GeneratedRecipeSchema validates the mock and keeps structured substitutions ... ok (439µs)
+GeneratedRecipeSchema rejects malformed mock ... ok (178µs)
+GeneratedRecipeSchema requires an explicit substitutions array ... ok (190µs)
+GeneratedRecipeSchema rejects a substitution that names no generated ingredient ... ok (323µs)
+GenerateRecipeRequestSchema trims pantry items and enforces the input caps ... ok (295µs)
+GenerateRecipeResponseSchema validates resolved parent summaries ... ok (662µs)
+manual create, edit and AI extraction normalize units identically without losing amounts ... ok (740µs)
+write and AI schemas require positive supplied quantities and safe bounded units ... ok (807µs)
+GeneratedRecipeSchema normalizes matching substitution and ingredient names ... ok (81µs)
+Recipe create and update agree with editor instruction validation cases ... ok (277µs)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 3 tests from ./supabase/functions/tests/ai_journeys_test.ts
+Extraction stays a preview until the user explicitly creates a recipe ... ok (16ms)
+Chef stays a preview until separate recipe and reviewed-lineage requests ... ok (11ms)
+Malformed output, provider failure, and quota exhaustion never persist a recipe or lineage ...
+------- post-test output -------
+{"event":"request_failed","request_id":"ea849884-6eb2-43a4-9adc-cbacc55f01ff","endpoint":"extract-recipe","status":502}
+{"event":"request_failed","request_id":"cbbf2168-2634-498a-b023-69e85e7d00ae","endpoint":"generate-recipe","status":502}
+{"event":"request_failed","request_id":"e3424e1a-f71a-4f40-870e-db452a46e949","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"2a01eccf-43b9-4589-89cc-cccc074e246f","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+Malformed output, provider failure, and quota exhaustion never persist a recipe or lineage ... ok (5ms)
+running 8 tests from ./supabase/functions/tests/candidate_token_test.ts
+signCandidateToken and verifyCandidateToken round-trip with canonical parent IDs ... ok (2ms)
+verifyCandidateToken rejects a tampered payload, tampered signature and wrong secret ... ok (420µs)
+verifyCandidateToken rejects expired and not-yet-valid tokens ... ok (363µs)
+verifyCandidateToken rejects the wrong user ... ok (227µs)
+verifyCandidateToken rejects malformed tokens and unsupported versions ... ok (69µs)
+verifyCandidateToken rejects correctly signed claims that fail the schema ... ok (171µs)
+candidate token secret and TTL misconfiguration fail closed ... ok (457µs)
+canonicalParentRecipeIds and findDisallowedParentIds enforce subset membership ... ok (60µs)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 4 tests from ./supabase/functions/tests/eval_dataset_test.ts
+EVALUATION_DATASET is versioned, uniquely identified and within the request caps ... ok (10ms)
+extraction evaluation fixtures meet their declared expectations offline ... ok (8ms)
+Chef generation fixtures meet their declared expectations offline ... ok (5ms)
+provider failure fixtures follow the documented recoverable-error contract ... ok (3ms)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 30 tests from ./supabase/functions/tests/cross_user_rls_lineage_test.ts
+Target safety guard strictly validates HTTPS, non-loopback, non-production ref, and matching project references ... ok (1ms)
+Credential state machine shares NON_PRODUCTION_TEST_DATABASE credentials with the BE07 lineage integration and fails closed on incomplete sets ... ok (275µs)
+Layer 1: Deterministic mock - GET /recipes collection is scoped to caller and excludes other user recipes ... ok (14ms)
+Layer 1: Deterministic mock - GET /recipes/:id retrieves own recipe and returns 404 for other user recipe UUID ... ok (3ms)
+Layer 1: Deterministic mock - PATCH /recipes/:id updates own recipe and returns 404 leaving other user recipe untouched ... ok (10ms)
+Layer 1: Deterministic mock - DELETE /recipes/:id deletes own recipe and returns 404 leaving other user recipe intact ... ok (5ms)
+Layer 1: Deterministic mock - Missing and invalid authentication return 401 UNAUTHORIZED before any database operation ... ok (2ms)
+Live PostgreSQL cross-user authorization, PostgREST RLS, and recipe lineage enforcement (hosted integration) ... ignored (0ms)
+Finding 1 regression: Service-role restriction prevents using admin/service-role client for assertion reads ... ok (1ms)
+Finding 1 regression: assertionClient dynamically enforces owner scoping on actual assertion read paths and rejects service-role clients ... ok (443µs)
+Finding 2 regression: Cleanup fails visibly on API-returned errors from recipes, lineage, profiles, and auth, while attempting all remaining cleanup operations ... ok (702µs)
+Finding 2 regression: Cleanup handles thrown exceptions without masking primary error and executes remaining cleanup stages ... ok (533µs)
+Finding 2 regression: Cleanup failure preserves primary test error and chains cause ... ok (445µs)
+Finding 2 regression: Successful cleanup completes without throwing errors ... ok (656µs)
+Finding 3 regression: Direct PostgREST queries filtered by RLS assert zero-row results rather than HTTP errors ... ok (1ms)
+Finding 3 regression: Edge Function handler translates inaccessible or other-user recipes into HTTP 404 NOT_FOUND ... ok (2ms)
+Finding 3 regression: Assert cascade prerequisites rejects error or empty insertion result before cascade deletion ... ok (246µs)
+Finding 3 regression: Simulated lineage scenario fails on insertion failure rather than allowing zero-row cascade assertion to pass ... ok (240µs)
+Finding 4 regression: Parent-deletion cascade verifies prerequisite insertion, parent deletion, and child preservation without falsely claiming RLS-hidden row proves physical deletion ... ok (1ms)
+Finding 4 regression: Child-deletion cascade independently proves lineage deletion via surviving parent ownership ... ok (733µs)
+Finding 4 regression: Simulated orphan lineage row confirms RLS hides uncascaded rows after parent deletion ... ok (197µs)
+Finding 1 review regression: Missing credentials in required mode fails with explicit configuration error ... ok (324µs)
+Finding 1 review regression: Valid non-production credentials resolve successfully in required and optional mode ... ok (268µs)
+Finding 1 review regression: Unsafe production targets and non-HTTPS/loopback targets are strictly rejected ... ok (367µs)
+Finding 3 review regression: Both lineage filters receive explicit arrays of tracked recipe IDs ... ok (181µs)
+Finding 3 review regression: Empty recipe ID arrays cause lineage and recipe deletion queries to be skipped ... ok (173µs)
+Finding 3 review regression: PostgREST API-returned errors remain visible ... ok (268µs)
+Finding 3 review regression: Remaining cleanup stages still execute after lineage deletion failure ... ok (184µs)
+evaluateBatchAtomicityVerification verifies all-or-nothing batch semantics under RLS rejection ... ok (253µs)
+Live PostgreSQL AI quota atomicity, RLS restrictions, RPC authorization, and reconciliation (hosted integration) ... ignored (0ms)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 55 tests from ./supabase/functions/tests/gemini_adapter_test.ts
+extractRecipe returns a parsed recipe from valid JSON ... ok (4ms)
+extractRecipe accepts JSON wrapped in a markdown fence ... ok (633µs)
+extractRecipe rejects non-JSON output ... ok (984µs)
+extractRecipe rejects JSON that fails the schema ... ok (943µs)
+extractRecipe rejects impossible values and reports the field path ... ok (1ms)
+parseExtractionResponse rejects non-sequential step numbers ... ok (2ms)
+parseExtractionResponse keeps an empty instruction list valid ... ok (382µs)
+extractRecipe retries once after a transient provider failure ... ok (1ms)
+extractRecipe waits before retrying a rate limit ... ok (986µs)
+extractRecipe honors SDK RetryInfo durations within the retry budget ... ok (1ms)
+extractRecipe uses jitter for missing or malformed SDK retry metadata ... ok (2ms)
+extractRecipe skips retry when the provider cooldown exceeds the budget ... ok (451µs)
+extractRecipe honors the longest valid cooldown and still tries at most twice ... ok (376µs)
+extractRecipe exposes the provider cooldown as retryAfterSeconds for the AI-05 client ... ok (325µs)
+extractRecipe leaves retryAfterSeconds undefined without usable RetryInfo ... ok (280µs)
+extractRecipe does not retry unexpected local or SDK exceptions ... ok (949µs)
+extractRecipe retries recognized transport failures including SDK-wrapped fetch errors ... ok (301µs)
+extractRecipe stops after two failed attempts ... ok (237µs)
+extractRecipe does not retry permanent 4xx failures ... ok (108µs)
+a 4xx mentioning quota is rejected, not treated as a rate limit ... ok (52µs)
+extractRecipe maps a blocked response from response.text() to provider_rejected without retrying ... ok (376µs)
+provider generation requests include a bounded output-token budget ... ok (1ms)
+AI output schemas and parsers enforce the 8 KiB JSON response budget ... ok (3ms)
+output size limit includes fields added during Zod normalization ... ok (4ms)
+both operations report MAX_TOKENS as output_truncated without retrying ... ok (6ms)
+both operations classify PROHIBITED_CONTENT as provider_rejected even when text() is empty ... ok (12ms)
+extractRecipe does not retry invalid output ... ok (1ms)
+extractRecipe classifies a quota error as rate_limited ... ok (2ms)
+extractRecipe classifies an abort as provider_timeout ... ok (580µs)
+extractRecipe treats HTTP 408 as a retryable timeout ... ok (389µs)
+extractRecipe normalises null optional fields instead of failing ... ok (572µs)
+extractRecipe logs metadata without prompt or recipe text ... ok (1ms)
+a throwing log sink cannot trigger a retry ... ok (2ms)
+a throwing log sink cannot mask a provider error ... ok (2ms)
+generateRecipe uses the Chef prompt, candidate IDs and validated output ... ok (3ms)
+Recipe revision prompts send only the selected observation and exact source amounts ... ok (2ms)
+generateRecipe cold start sends no candidate IDs and accepts no parents ... ok (708µs)
+generateRecipe accepts JSON wrapped in a markdown fence ... ok (1ms)
+generateRecipe rejects an invented parent ID without retrying ... ok (1ms)
+generateRecipe rejects a parent ID when there are no candidates ... ok (1ms)
+generateRecipe rejects malformed output without retrying ... ok (1ms)
+generateRecipe rejects an orphan substitution without retrying ... ok (1ms)
+generateRecipe rejects non-JSON output ... ok (924µs)
+generateRecipe retries once after a transient provider failure ... ok (746µs)
+parseGenerationResponse rejects parents outside the supplied set ... ok (578µs)
+buildExtractionPrompt inserts notes literally ... ok (221µs)
+a blank AI_MODEL falls back to the pinned default model ... ok (534µs)
+an injected generator does not require an API key ... ok (280µs)
+HTTP 500 and 503 provider errors classify as provider_unavailable with nonConsuming: false ...
+------- post-test output -------
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+----- post-test output end -----
+HTTP 500 and 503 provider errors classify as provider_unavailable with nonConsuming: false ... ok (1ms)
+Mixed retries with 429 followed by 503 accumulate nonConsuming: false ...
+------- post-test output -------
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+----- post-test output end -----
+Mixed retries with 429 followed by 503 accumulate nonConsuming: false ... ok (405µs)
+Mixed retries with 503 followed by 429 accumulate nonConsuming: false ...
+------- post-test output -------
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- post-test output end -----
+Mixed retries with 503 followed by 429 accumulate nonConsuming: false ... ok (665µs)
+HTTP 429 rate limit exhaustion classifies as rate_limited with nonConsuming: true ...
+------- post-test output -------
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- post-test output end -----
+HTTP 429 rate limit exhaustion classifies as rate_limited with nonConsuming: true ... ok (593µs)
+Shared Gemini admission preserves the refund decision on a denied retry ... ok (11ms)
+Shared Gemini admission store failure stops before calling Gemini ... ok (483µs)
+A stalled shared Gemini admission aborts before calling Gemini ...
+------- post-test output -------
+{"event":"ai_quota_rpc_failed","stage":"gemini_admission_request"}
+----- post-test output end -----
+A stalled shared Gemini admission aborts before calling Gemini ... ok (2s)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 63 tests from ./supabase/functions/tests/extract_recipe_test.ts
+ExtractRecipe schemas validate the request/response contract and normalise notes ... ok (4ms)
+CORS OPTIONS preflight on /extract-recipe returns 204 without authentication and scopes ALLOWED_ORIGIN ... ok (9ms)
+Unsupported methods return 405 with Allow: POST, OPTIONS and never authenticate or call the provider ... ok (4ms)
+Unknown paths return 404 NOT_FOUND without authenticating ... ok (1ms)
+Unauthenticated requests return 401 UNAUTHORIZED before quota or provider ... ok (3ms)
+An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before quota or provider ...
+------- post-test output -------
+Authentication upstream rate limit exceeded
+{"event":"request_failed","request_id":"ab649f7c-80e8-406a-96cb-b2512ed1a3fe","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before quota or provider ... ok (3ms)
+Extraction defaults off and requires a valid operator opt-in before reading the body or quota ...
+------- post-test output -------
+{"event":"request_failed","request_id":"6b95b811-efe1-4ef5-a31c-c03d0f7feae5","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"d56373e0-4672-41b1-abe8-af7f40307518","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"8721108d-a1b3-4df7-8b01-ad557c0aff98","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"184415e8-9497-441d-ac6b-1505286b6163","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"0b56f0e8-e0e7-4b6a-bab1-fd08600b0c7b","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"66ee8343-8830-4ee1-bcf3-e1eb7043a39a","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"c1c5d0de-d170-44b3-a4ae-108adac967b0"}
+{"event":"ai_quota_consumed","reservationId":"ec594a1f-4d8c-4790-bc8b-c65e84a2361e"}
+{"event":"ai_quota_consumed","reservationId":"d9df80c8-2811-46e7-8e01-b28741fbd715"}
+{"event":"ai_quota_consumed","reservationId":"2c565b7d-0bb7-488a-9cce-4dc060665cd5"}
+{"event":"ai_quota_consumed","reservationId":"49870d17-5139-4881-9458-0a5f3007be72"}
+----- post-test output end -----
+Extraction defaults off and requires a valid operator opt-in before reading the body or quota ... ok (21ms)
+The operator kill switch overrides the extraction opt-in before the quota read or provider ...
+------- post-test output -------
+{"event":"request_failed","request_id":"273f235e-0c3c-4618-a098-83ab47f4d639","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+The operator kill switch overrides the extraction opt-in before the quota read or provider ... ok (3ms)
+Malformed JSON bodies return 400 INVALID_JSON without calling the provider ... ok (2ms)
+AI extraction rejects non-JSON media and invalid UTF-8 before quota or provider work ... ok (1ms)
+Invalid payloads fail Zod validation with 400 VALIDATION_ERROR and never call the provider ... ok (2ms)
+Oversized notes and oversized bodies return 413 INPUT_TOO_LARGE before the provider call ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"0da5b619-3ac1-4351-b31c-2f7896dc36e6"}
+----- post-test output end -----
+Oversized notes and oversized bodies return 413 INPUT_TOO_LARGE before the provider call ... ok (1ms)
+The byte budget is enforced on the stream, not on string length, and cancels an over-limit body ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"4c686b8c-6b62-4714-866f-c65c1c8a2c24"}
+{"event":"ai_quota_consumed","reservationId":"733a9e3b-0f71-42cb-966e-e515fd6e56ab"}
+----- post-test output end -----
+The byte budget is enforced on the stream, not on string length, and cancels an over-limit body ... ok (3ms)
+Streaming byte enforcement cancels at the first over-limit chunk regardless of Content-Length ... ok (1ms)
+Successful extraction returns the validated preview, uses the verified user context, and never persists ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"755a395f-8c75-44bb-ad81-50d40f811257"}
+{"event":"ai_quota_consumed","reservationId":"cd5ed1dd-ca5c-42a5-9d00-4e841cd43e61"}
+----- post-test output end -----
+Successful extraction returns the validated preview, uses the verified user context, and never persists ... ok (667µs)
+The endpoint passes the authenticated user id to the injected quota gate ... ok (484µs)
+Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and never calls the provider ... ok (446µs)
+Short-window AI rate exhaustion returns 429 with Retry-After before provider invocation ... ok (218µs)
+configured account burst reaches the RPC and defers UTC day selection to PostgreSQL ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"0113d6ea-2641-4066-bfc8-0751b88e4a57"}
+----- post-test output end -----
+configured account burst reaches the RPC and defers UTC day selection to PostgreSQL ... ok (354µs)
+daily account denial forwards the database reset time ...
+------- post-test output -------
+{"event":"ai_account_daily_limited","model":"gemini-3.5-flash-lite","op":"extract"}
+----- post-test output end -----
+daily account denial forwards the database reset time ... ok (226µs)
+consumeDailyQuota maps authoritative database rate exhaustion with a bounded retry wait ...
+------- post-test output -------
+{"event":"ai_account_burst_limited","model":"gemini-3.5-flash-lite"}
+----- post-test output end -----
+consumeDailyQuota maps authoritative database rate exhaustion with a bounded retry wait ... ok (154µs)
+QUOTA_EXCEEDED keeps the full wait until the UTC reset instead of capping it at one hour ... ok (1ms)
+Invalid quota retry delays fall back to the real time until the next UTC reset ... ok (1ms)
+The default quota gate reads the daily counter and blocks at the configured limit ... ok (2ms)
+A missing usage row allows zero usage, but a malformed counter fails closed ...
+------- post-test output -------
+{"event":"request_failed","request_id":"867b7ab2-07bc-4f43-b906-b1f836df29d0","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"86c0a7d0-68e0-403c-8eb8-025b7c8e3781","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"375e86a1-9f8c-431c-850c-e450ae742fc1","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"a0e79a39-08c3-4fa4-a597-02d789dd28bb","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"6555090c-ac05-47a5-b189-331093a65af5","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"9a02cb63-34a3-4874-8640-eee71b6f4e56","endpoint":"extract-recipe","status":503}
+{"event":"request_failed","request_id":"10fac478-170a-4bc0-9a5b-2edb4aa93075","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+A missing usage row allows zero usage, but a malformed counter fails closed ... ok (3ms)
+AI_DAILY_LIMIT overrides the default and invalid values fall back safely ... ok (313µs)
+utcDateString and secondsUntilNextUtcDay are UTC-based and bounded ... ok (41µs)
+A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never calls the provider ...
+------- post-test output -------
+{"event":"ai_quota_rpc_failed","stage":"response","code":"PGRST500"}
+{"event":"request_failed","request_id":"e163cede-72a5-4b2e-8872-bc8aa2b24749","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never calls the provider ... ok (311µs)
+Provider failures map to safe, recoverable errors without leaking detail ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"970e1543-c481-44f2-9d53-54c105cf6d6d"}
+{"event":"request_failed","request_id":"12649e0e-c124-486a-9976-5d4a91865e63","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"880a94f7-44f4-4a59-acbd-0319a523aba1"}
+{"event":"request_failed","request_id":"143965b2-bbe7-4b25-b2d4-f0e790998eee","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"a1513b8f-040b-43d6-ab9f-85f93b2b60a5"}
+{"event":"request_failed","request_id":"fbcbc1ce-7ce2-4d62-8237-c541da28098e","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"fe367bfa-3011-4e70-b56c-5ce3615010f0"}
+{"event":"request_failed","request_id":"27d28be4-62aa-47c2-bf88-384cf872ff8f","endpoint":"extract-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"b8f86b5d-d149-41b4-a87a-23f563125616"}
+{"event":"request_failed","request_id":"8ff94cf1-9240-4235-9b3f-ef824046e2a4","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"253d547b-1b53-44d2-9cde-143dd2104eb1"}
+{"event":"ai_quota_consumed","reservationId":"ffe58c3e-5685-4451-b842-eefc4624ddb3"}
+{"event":"ai_quota_consumed","reservationId":"359b65ff-662a-47bc-9e47-432a7a343548"}
+{"event":"ai_quota_consumed","reservationId":"85d4a9d3-10e8-4819-b563-c9dc9d01afa3"}
+{"event":"ai_quota_consumed","reservationId":"71e5575d-072a-40ad-a7f1-dca1486a656c"}
+{"event":"request_failed","request_id":"7b0569b6-5149-4d27-bbcd-2ffbc423feb8","endpoint":"extract-recipe","status":500}
+----- post-test output end -----
+Provider failures map to safe, recoverable errors without leaking detail ... ok (4ms)
+An unexpected provider exception becomes a generic 500 INTERNAL_ERROR with no leaked text ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"cb7ed52a-db31-4efc-952d-23798f343901"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"4ff7e630-a11d-408f-906c-e809ae49bb89","endpoint":"extract-recipe","status":500}
+----- post-test output end -----
+An unexpected provider exception becomes a generic 500 INTERNAL_ERROR with no leaked text ... ok (376µs)
+Malformed output from a provider that forgot to validate is rejected before the frontend sees it ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"e0d62d2d-5086-4088-80ec-cdd6c0497ff0"}
+{"event":"request_failed","request_id":"82f64cc6-e3c5-47c1-b1be-ea3b3d76cd47","endpoint":"extract-recipe","status":502}
+----- post-test output end -----
+Malformed output from a provider that forgot to validate is rejected before the frontend sees it ... ok (724µs)
+AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"4f45c82c-3d61-4e23-bd10-2c073a56c6f8"}
+{"event":"request_failed","request_id":"fb80f2b7-09dd-44e4-846b-25da209c87a3","endpoint":"extract-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"76d24dc2-e7c7-4fcb-a706-7af08d86956a"}
+{"event":"request_failed","request_id":"6f461d4e-5574-46f0-8884-c5873d57a28c","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"917c9683-cd03-4c2c-b645-43d1b57b83fd"}
+{"event":"request_failed","request_id":"b95029ab-372a-4c5b-bd9a-c15f554ac62e","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"49c71612-68d0-48db-a984-b04ed8c0d1a9"}
+{"event":"request_failed","request_id":"3238e3db-8266-4cee-9f4c-d8720322fa6c","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"5f222d7c-f15b-4b0b-a2fe-4ad60131a63c"}
+{"event":"request_failed","request_id":"54b0a1a2-f8e5-41bc-ab1a-76e49d237e44","endpoint":"extract-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"f90c255c-1bb0-4706-bed9-74f7218af642"}
+{"event":"request_failed","request_id":"705411d6-4270-4863-a3c8-952ba9f44464","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"9ce8dda8-0b48-4437-a060-f50f042840a3"}
+{"event":"request_failed","request_id":"65092bbf-db12-4a4b-b249-ed69f6000382","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"44215510-cf52-466a-bbe8-5a150842e655"}
+{"event":"request_failed","request_id":"44688e4c-2a6b-4601-9937-66855a961f97","endpoint":"extract-recipe","status":502}
+----- post-test output end -----
+AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes ... ok (4ms)
+Simulation drills need an allowed environment plus both switches, and exercise the real error contract ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"c509f074-03e1-4c92-a292-6f07870bf356"}
+{"event":"ai_quota_consumed","reservationId":"18f90d41-f0d7-4fb8-aee2-046d66474fd2"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"3a46e258-c522-40fa-b3fe-772bcd7b5790","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"1716ac2a-2fb3-4103-99bd-e0486dcc3214"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"dc969314-9e2a-47df-8ede-8c9915b62f90","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"5e86b642-6d3c-4bad-8836-003b89634641"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"df415561-92a9-4a66-aa04-e0c0687f6f8b","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"5c24cdc1-fcf5-4707-958c-9a60db655336"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"d75b7159-a985-4bd4-b588-fe9a5e4515f0","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"0a0825b3-3b8b-416f-b793-a29cd58dddf0"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"d5135239-33e8-4ca1-aa01-485f972ae1ff","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"ac4bc0d4-357d-41e9-99bc-d72f489d4165"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"274f9188-e9cf-42fd-977d-ec42af79b831","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"6a99980d-8f52-4f4d-ad8a-af15b39e3b45"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"3c01279e-a1db-49d3-a62f-9b53ef6fcca2","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"130a5f01-5772-41d5-b8b0-e15af57ec518"}
+{"event":"request_failed","request_id":"7929ff21-533b-475a-ae33-0dd7632ae694","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"cb49ae72-f0df-41e3-9ebd-9b202e0185f8"}
+{"event":"request_failed","request_id":"af19d375-ba89-4ee5-b36e-13531a61c43a","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"4e72bcc5-efce-4622-9884-516e1612da42"}
+{"event":"request_failed","request_id":"5554e2c0-eb8e-42b1-9bd7-f97a0e183326","endpoint":"extract-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"d3a7b52c-2642-49a1-b979-46fe6ea08402"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"5f8401e5-a203-4633-982a-0ca0b879b275","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"2f56988e-65e1-4ad6-9fb2-cbfe7adea7b8"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"f2d6e857-b1b0-4feb-ba98-a89145cd0fc8","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"6aac257f-911c-44be-90f0-b43119f20909"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"086dfcf7-7244-431c-b7ab-54cd4691de3a","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"9b5c9a7f-a5e8-4894-a072-bae854f59d55"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"f9607bdd-eaf6-47e0-9534-1c60dd34859b","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"f6104de8-b309-4ccd-864d-01bb79e8cd54"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"c3101336-0c24-4d77-b7b4-e879fa0becb5","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"6059e221-cdf4-415a-8fad-b67cc65c87ac"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"a5355673-b754-431c-9d77-b28faf879e8f","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"522b1782-e0c9-4e93-bce4-c50e01c62779"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"4c783d6f-2209-488e-9ffb-fc2d4d34e6a1","endpoint":"extract-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"3b187dd9-bc75-48f4-96df-6ad50aaff47a"}
+{"event":"request_failed","request_id":"ae79384e-f76e-4167-b617-f5e019bdddd1","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"9e6a8b2d-ba81-41e7-8144-07b4c9ef5621"}
+{"event":"request_failed","request_id":"762491c6-5f57-4ef0-b622-a682b2405861","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"da595b64-b1ff-4797-b5d1-65b2b5ab5c90"}
+{"event":"request_failed","request_id":"2c52c6dc-1c5a-49b2-8929-5d4120e772d2","endpoint":"extract-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"75225d48-30c7-4002-8192-cd87f01ccc2b"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"05cf9dbd-6fed-40d5-941b-e67cf35a98c4","endpoint":"extract-recipe","status":500}
+----- post-test output end -----
+Simulation drills need an allowed environment plus both switches, and exercise the real error contract ... ok (7ms)
+Logical AI operation with bounded retry charges 1 quota reservation and confirms on success ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"80bee562-2556-4584-895d-73ca4f7cfed6"}
+----- post-test output end -----
+Logical AI operation with bounded retry charges 1 quota reservation and confirms on success ... ok (455µs)
+Logical AI operation with retry exhaustion refunds the quota reservation ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"2cdc9656-1d50-4679-8831-2373291cb905"}
+----- post-test output end -----
+Logical AI operation with retry exhaustion refunds the quota reservation ... ok (428µs)
+Reservation replay rejection prevents repeated provider invocations under single reservation ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"4dd1af82-d297-41f5-a470-2d197f54a7ca"}
+{"event":"request_failed","request_id":"00fa27da-07c5-4985-a916-126e0e91a931","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+Reservation replay rejection prevents repeated provider invocations under single reservation ... ok (694µs)
+Error preservation returns original provider error even when rollback RPC fails ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"43625c06-28f0-4a36-92e3-a7c77aa931da"}
+{"event":"ai_quota_rollback_failed","reservationId":"43625c06-28f0-4a36-92e3-a7c77aa931da"}
+{"event":"ai_quota_rpc_failed","stage":"rollback","code":"PGRST500"}
+{"event":"request_failed","request_id":"304647ff-3446-45da-93c0-f8c29c96e1cc","endpoint":"extract-recipe","status":502}
+----- post-test output end -----
+Error preservation returns original provider error even when rollback RPC fails ... ok (367µs)
+Confirmation safety delivers 200 OK preview even if confirmation RPC fails ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"8ca729e5-e6c6-49ce-8600-a4295338dc14"}
+{"event":"ai_quota_confirmation_failed","reservationId":"8ca729e5-e6c6-49ce-8600-a4295338dc14"}
+{"event":"ai_quota_rpc_failed","stage":"confirmation","code":"PGRST500"}
+----- post-test output end -----
+Confirmation safety delivers 200 OK preview even if confirmation RPC fails ... ok (393µs)
+Quota consumption logs its reservation once and successful settlement adds no failure logs ... ok (882µs)
+Quota confirm rpc failure logs only the reservation and event and still rejects ... ok (342µs)
+Quota confirm transport failure logs only the reservation and event and still rejects ... ok (648µs)
+Quota rollback rpc failure logs only the reservation and event and still rejects ... ok (639µs)
+Quota rollback transport failure logs only the reservation and event and still rejects ... ok (595µs)
+Quota exceeded does not log successful consumption ... ok (785µs)
+Quota rate_limited does not log successful consumption ... ok (222µs)
+Quota conflict does not log successful consumption ... ok (298µs)
+UTC reset boundaries behave deterministically across midnight transition ... ok (70µs)
+Administrative reconciliation requires audit reason and handles success and errors ... ok (158µs)
+Missing service role credentials fail closed with QUOTA_UNAVAILABLE before provider execution ...
+------- post-test output -------
+Missing service role configuration for quota consumption
+{"event":"request_failed","request_id":"0844ba67-52d9-4bce-b9ac-06eaaad079c7","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+Missing service role credentials fail closed with QUOTA_UNAVAILABLE before provider execution ... ok (1ms)
+Quota RPC failures log only safe diagnostic metadata ... ok (770µs)
+HTTP 503 provider failure across retries confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"2d0a1228-718f-4c8b-bcb9-ec90760626ce"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"d051b3f2-fd94-4a5c-b5e0-70fa430f219a","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+HTTP 503 provider failure across retries confirms quota without refund using GeminiAdapter ... ok (2ms)
+HTTP 500 provider failure across retries confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"cf61aec9-7dd4-467b-aec2-f0f5fcd3859f"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"267e13f8-7e13-4626-93a1-d7a843ea3be1","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+HTTP 500 provider failure across retries confirms quota without refund using GeminiAdapter ... ok (1ms)
+Network transport disconnect failure across retries confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"a3a13f1f-625f-4b04-88d8-6f330b5c985a"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"151a9ff0-a0d7-4d27-8a71-96939164ac20","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+Network transport disconnect failure across retries confirms quota without refund using GeminiAdapter ... ok (1ms)
+Ambiguous provider timeout failure confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"7eece7b9-23c7-4d8f-8b4f-c9deea94a39e"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_timeout"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_timeout"}
+{"event":"request_failed","request_id":"dc24e23e-e0db-4955-aa83-41a6a0ac6c07","endpoint":"extract-recipe","status":504}
+----- post-test output end -----
+Ambiguous provider timeout failure confirms quota without refund using GeminiAdapter ... ok (1ms)
+Mixed retries with timeout followed by 503 confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"558c09e2-937c-4a6b-91f2-878373ee31d7"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_timeout"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"f0547849-bf9c-4185-94af-55095f07f9bf","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+Mixed retries with timeout followed by 503 confirms quota without refund using GeminiAdapter ... ok (1ms)
+Mixed retries with 429 followed by 503 confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"b9bc22d2-6c47-4d30-af54-175eb0efc0b9"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"6257d4ab-dcdd-4ff9-8077-d42bef76f107","endpoint":"extract-recipe","status":503}
+----- post-test output end -----
+Mixed retries with 429 followed by 503 confirms quota without refund using GeminiAdapter ... ok (2ms)
+Mixed retries with 503 followed by 429 confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"068ac502-9748-4be8-97d6-ad9eac00f506"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- post-test output end -----
+Mixed retries with 503 followed by 429 confirms quota without refund using GeminiAdapter ... ok (412µs)
+SDK prompt safety block confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"80467af5-a45f-468c-961e-e04700d94fa1"}
+{"event":"request_failed","request_id":"162a727d-0b89-48d2-ac63-30d0baf10373","endpoint":"extract-recipe","status":502}
+----- post-test output end -----
+SDK prompt safety block confirms quota without refund using GeminiAdapter ... ok (857µs)
+SDK candidate safety block confirms quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"b75e5bb6-53cf-4258-bec0-eee35194e8f1"}
+{"event":"request_failed","request_id":"1608661f-1702-4c62-8387-f00bd9a736db","endpoint":"extract-recipe","status":502}
+----- post-test output end -----
+SDK candidate safety block confirms quota without refund using GeminiAdapter ... ok (352µs)
+Definite non-consuming 429 rate limit across retries refunds quota reservation using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"b07c3fd1-70c3-41b3-ae76-edeae43ea641"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- post-test output end -----
+Definite non-consuming 429 rate limit across retries refunds quota reservation using GeminiAdapter ... ok (358µs)
+Invalid model output schema failure confirms quota and does not refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"7464b6e6-e2c6-4835-af83-e53454e73d59"}
+{"op":"extract","model":"gemini-3.5-flash-lite","promptId":"extraction","promptVersion":"1.1.0","attempt":1,"latencyMs":0,"outcome":"invalid_output","detail":"title, ingredients, instructions"}
+{"event":"request_failed","request_id":"dc0b70c6-6dd6-4355-b232-336026f60e54","endpoint":"extract-recipe","status":502}
+----- post-test output end -----
+Invalid model output schema failure confirms quota and does not refund using GeminiAdapter ... ok (530µs)
+Pre-provider initialization failure refunds reserved quota ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"f1b79141-24be-4da9-9150-a5718f84e755"}
+Unhandled exception in extract-recipe handler
+{"event":"request_failed","request_id":"9e8a9c13-04b6-4fb8-b833-cea4f7c89fbe","endpoint":"extract-recipe","status":500}
+----- post-test output end -----
+Pre-provider initialization failure refunds reserved quota ... ok (328µs)
+Quota consumption falls back to environment variables when dependencies omit service role credentials ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"f2167d85-d5bd-4be8-ba71-583c8cf6b0d5"}
+----- post-test output end -----
+Quota consumption falls back to environment variables when dependencies omit service role credentials ... ok (1ms)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 59 tests from ./supabase/functions/tests/generate_recipe_test.ts
+The generate contract defaults to 20 AI operations per day ... ok (387µs)
+CORS OPTIONS preflight on /generate-recipe returns 204 without authentication and scopes ALLOWED_ORIGIN ... ok (5ms)
+Unsupported methods return 405 with Allow: POST, OPTIONS and never authenticate or call the provider ... ok (1ms)
+Unknown paths return 404 NOT_FOUND without authenticating ... ok (655µs)
+Unauthenticated requests return 401 UNAUTHORIZED before quota, retrieval or provider ... ok (2ms)
+An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before retrieval or provider ...
+------- post-test output -------
+Authentication upstream rate limit exceeded
+{"event":"request_failed","request_id":"36587c6e-882c-40bf-8a48-c937792f8f9c","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before retrieval or provider ... ok (1ms)
+Generation defaults off and requires a valid operator opt-in before reading the body, quota or context ...
+------- post-test output -------
+{"event":"request_failed","request_id":"abad4c94-6246-4846-b968-b938eae64e83","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"15b54c9c-2297-4219-95e4-2e2be8bf9e5e","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"4f0806b8-1c2a-427d-8ad3-60b4811ea1d4","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"b10d8067-b5c9-43d1-ac71-b0073be6ea80","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"af78b53c-6f81-400e-8ff3-535c1184e623","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"0ae5d690-85b3-4cea-9981-2b6caeb1a96a","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"124486dd-3ae8-4a40-bcc3-ed8368b99d9c"}
+{"event":"ai_quota_consumed","reservationId":"e5054c63-4d9f-45e4-931d-0da8f3a91a1e"}
+{"event":"ai_quota_consumed","reservationId":"27ca6219-69fb-47ad-b06c-7fbd43000c13"}
+{"event":"ai_quota_consumed","reservationId":"b67247a3-82d2-4375-b8ea-e1094f748619"}
+{"event":"ai_quota_consumed","reservationId":"0ac0be92-3d90-4887-8bcb-82bff056bb89"}
+----- post-test output end -----
+Generation defaults off and requires a valid operator opt-in before reading the body, quota or context ... ok (8ms)
+The operator kill switch overrides the generation opt-in before quota, retrieval or provider ...
+------- post-test output -------
+{"event":"request_failed","request_id":"9d6b3c11-e3f7-40c3-a4dd-d75879ac65fe","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"3ce3fd50-22d2-4ce1-893f-508a2177607f"}
+----- post-test output end -----
+The operator kill switch overrides the generation opt-in before quota, retrieval or provider ... ok (1ms)
+Malformed JSON bodies return 400 INVALID_JSON without calling quota, retrieval or the provider ... ok (2ms)
+Invalid payloads fail Zod validation with 400 VALIDATION_ERROR and never retrieve or call the provider ... ok (3ms)
+An empty pantry is rejected as a client bug, so EMPTY_PANTRY is unreachable through this endpoint ... ok (832µs)
+Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval or the provider ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"c322f619-69b5-4f6f-94bc-c3c7477eb1b7"}
+{"event":"ai_quota_consumed","reservationId":"25a32615-3229-484b-913b-6e35ebb239ae"}
+----- post-test output end -----
+Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval or the provider ... ok (2ms)
+Streaming byte enforcement cancels at the first over-limit chunk regardless of Content-Length ... ok (1ms)
+Successful generation returns the validated preview, resolves parents and never persists ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"598c3054-f9cc-494c-9814-8ed0045a3a0a"}
+{"event":"ai_quota_consumed","reservationId":"21cc7d39-bda6-477d-a8a8-067424d8283a"}
+----- post-test output end -----
+Successful generation returns the validated preview, resolves parents and never persists ... ok (3ms)
+AI-07: generation returns a candidate token bound to the resolved parents ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"28f9eb8e-33dd-4cfb-8263-477babf6bb15"}
+----- post-test output end -----
+AI-07: generation returns a candidate token bound to the resolved parents ... ok (834µs)
+AI-07: generation fails closed before quota or provider when the candidate token secret is missing ...
+------- post-test output -------
+AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing generation.
+{"event":"request_failed","request_id":"14b2d14c-6263-43b0-9be3-2175ac23957d","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+AI-07: generation fails closed before quota or provider when the candidate token secret is missing ... ok (358µs)
+Candidate-token signing failure after generation confirms the reservation without refunding it ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"bc1ba466-a5a2-48ab-a8a7-a360735c35bb"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"a8f924c9-449f-40e7-87b3-9f8a03223f3c","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+Candidate-token signing failure after generation confirms the reservation without refunding it ... ok (660µs)
+The endpoint passes the authenticated user and trimmed input to retrieval, and returns its MATCHED context ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"5531775c-a427-49ea-b5c4-83700bde91a8"}
+----- post-test output end -----
+The endpoint passes the authenticated user and trimmed input to retrieval, and returns its MATCHED context ... ok (820µs)
+Cold start with no saved recipes still generates an unsaved preview with no parents ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"23ff9583-32f4-4222-8bc7-416b5f228ff5"}
+----- post-test output end -----
+Cold start with no saved recipes still generates an unsaved preview with no parents ... ok (849µs)
+Cold start with saved recipes but no pantry overlap reports NO_PANTRY_OVERLAP and no parents ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"131b17b9-54f7-46c7-bd2b-0ec1d3cc2213"}
+----- post-test output end -----
+Cold start with saved recipes but no pantry overlap reports NO_PANTRY_OVERLAP and no parents ... ok (657µs)
+The real BE-10 retrieval feeds the endpoint and returns a resolved parent without writes ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"f6c903c2-bbb9-4a67-a0e7-0eba40ad2358"}
+----- post-test output end -----
+The real BE-10 retrieval feeds the endpoint and returns a resolved parent without writes ... ok (2ms)
+Duplicate parent IDs collapse to one resolved parent while keeping model order ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"7370f506-223e-4ad5-a55e-26822f0134b0"}
+----- post-test output end -----
+Duplicate parent IDs collapse to one resolved parent while keeping model order ... ok (668µs)
+A provider that skips validation cannot leak an invented parent ID to the client ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"fba76e49-6327-4743-b0cb-ec42e7adb31c"}
+{"event":"request_failed","request_id":"03316157-6a1d-42e9-8a09-cf77b6087a1b","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+A provider that skips validation cannot leak an invented parent ID to the client ... ok (1ms)
+A parent ID with no retrieved candidates is rejected even though the ID is a valid UUID ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"dfe33e1d-460f-44ea-bd9b-e42197830b39"}
+{"event":"request_failed","request_id":"67fac7e9-f2cb-4d57-a21a-ec5dbc94405e","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+A parent ID with no retrieved candidates is rejected even though the ID is a valid UUID ... ok (408µs)
+Malformed provider output is rejected before the frontend sees it ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"93efad94-5fb7-4711-9a91-6e82120f8c17"}
+{"event":"request_failed","request_id":"70784803-1ea8-4f06-bc45-2180ce6ccf9d","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"379d75a5-b915-408c-8562-1f3f8d228b32"}
+{"event":"request_failed","request_id":"e48d3c82-93ce-4e3a-a1f8-e7d4bffbd7cd","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"0806d648-1e77-48db-a180-bcfaa1e99b19"}
+{"event":"request_failed","request_id":"badfaba9-5bce-46c4-9295-b4fe4b8c2c8d","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"a4eeb0fc-6cfc-4a12-9ff6-1f29ad8aff45"}
+{"event":"request_failed","request_id":"8663541a-ff8a-4a35-8b2c-43217613576b","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"85fb8370-ad2b-4703-9cca-1b722fe88aeb"}
+{"event":"request_failed","request_id":"9711eb75-5cff-4574-99b7-9d5621a45e18","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+Malformed provider output is rejected before the frontend sees it ... ok (1ms)
+AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"fbf1c73c-e884-41ac-91b3-08d95ea842e0"}
+{"event":"request_failed","request_id":"feaa4b44-8c51-43c7-b16b-462762dc0395","endpoint":"generate-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"cb2c59b5-14ba-4a79-9e05-bf0e87ea475b"}
+{"event":"request_failed","request_id":"19a60f07-6a6c-4a83-8354-09a649492ba0","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"1486f2d3-9f12-4b98-a227-90d54cce228c"}
+{"event":"request_failed","request_id":"145b8e7a-6105-4658-8561-d8e47c50bc81","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"6379ef0b-33e4-4de1-9a35-7710ffa4eeef"}
+{"event":"request_failed","request_id":"3b21d19e-323b-48dc-9d4f-34b04a3785f9","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"746321c8-7c0d-4881-b015-fd5f3f8ea7fa"}
+{"event":"request_failed","request_id":"fdd783f8-0d19-4bfc-96b8-b63f51127cdc","endpoint":"generate-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"d6069504-a655-4fe4-965c-4c158c7c50b8"}
+{"event":"request_failed","request_id":"d5da77f8-99d7-40b0-b93f-2bb0e4900e06","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"2d8c4387-b34c-4971-b916-322564c5d211"}
+{"event":"request_failed","request_id":"87603dd0-ae25-42fa-aecf-ae8b86edea68","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"bd159ccd-e1ec-4d1a-a30a-92dc388f19ae"}
+{"event":"request_failed","request_id":"2da31e81-e8ec-4218-a00e-3628c43f033d","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes ... ok (2ms)
+AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTENT block without retrying or writing ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"b9aeb24d-45f8-483a-b4e8-207fcbe1e72a"}
+{"event":"request_failed","request_id":"f0d8d7c7-bb83-4846-b3a7-fe156ec50aa1","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"201b89ae-0c47-49e2-8354-3341c465fe2a"}
+{"event":"request_failed","request_id":"1a62e52c-e26d-44a7-9f22-2c1491a3d594","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTENT block without retrying or writing ... ok (838µs)
+Provider failures map to safe, recoverable errors without leaking detail ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"52424bd3-31c1-48dc-85ba-e18353174490"}
+{"event":"request_failed","request_id":"56b0bbde-287d-41f1-a42f-22418cbb81b9","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"cbd0f130-d2a7-499f-a240-cebf1c9ffb6d"}
+{"event":"request_failed","request_id":"94bd07c9-227f-4cfd-807e-a01310f182d0","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"58ce22cd-be1c-4002-9228-94aefdb8bc58"}
+{"event":"request_failed","request_id":"e9c61667-8934-4f17-967d-059b543bfbc1","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"5b8314be-f317-43f4-aa73-960273b8a206"}
+{"event":"request_failed","request_id":"4f8b3d39-d377-43bd-b34c-ddc8e5950960","endpoint":"generate-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"c9e30e58-d10e-46f8-b3f0-622bc40f3c15"}
+{"event":"request_failed","request_id":"669e7bf5-0f10-4393-9cdb-b701358dbc13","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"6cef4831-af20-4e1a-8976-344ce6a97e43"}
+{"event":"ai_quota_consumed","reservationId":"c408b157-2901-4953-8fe5-37b047f1e64f"}
+{"event":"ai_quota_consumed","reservationId":"4d4e247a-4eca-4606-9636-f8aff4aed673"}
+{"event":"ai_quota_consumed","reservationId":"056ea840-5952-4b0d-a088-5adcafb3f46c"}
+{"event":"request_failed","request_id":"3968884b-ba48-4939-9b65-c51cfee69056","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+Provider failures map to safe, recoverable errors without leaking detail ... ok (2ms)
+An unexpected provider exception becomes a generic 500 INTERNAL_ERROR with no leaked text ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"e397b20d-4956-4916-8fdf-07885223bc59"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"4ee0616a-154f-4a1b-9d59-86467f0b5278","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+An unexpected provider exception becomes a generic 500 INTERNAL_ERROR with no leaked text ... ok (355µs)
+A failing retrieval step becomes a generic 500 without calling the provider ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"ffe7e76b-3846-4280-b933-54676b923a9c"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"7c1fc5bc-038f-4aed-8243-84f4ed4ded80","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+A failing retrieval step becomes a generic 500 without calling the provider ... ok (297µs)
+Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and never retrieves or calls the provider ... ok (210µs)
+Short-window AI rate exhaustion returns 429 with Retry-After before context retrieval or provider invocation ... ok (170µs)
+Generated prompt context over the fixed byte budget is rejected and the reservation is rolled back ... ok (246µs)
+Aggregate candidate data over the byte budget is rejected before provider dispatch ... ok (271µs)
+A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never retrieves or calls the provider ...
+------- post-test output -------
+{"event":"ai_quota_rpc_failed","stage":"response","code":"PGRST500"}
+{"event":"request_failed","request_id":"d1a6b567-f0e9-43a8-b852-5e15a0790415","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never retrieves or calls the provider ... ok (335µs)
+The endpoint passes the authenticated user id to the injected quota gate ... ok (353µs)
+The default quota gate reads the daily counter and blocks at the configured limit ... ok (2ms)
+Simulation drills need an allowed environment plus both switches, and exercise the real error contract ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"6fe382bc-7353-47db-a74e-48862a8446eb"}
+{"event":"ai_quota_consumed","reservationId":"b8af88d0-bb23-44af-a3d0-ac70bab16388"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"3f78690d-68ff-4b1a-95c5-b9a9bc0f9d7f","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"c5ea28dd-9500-4c0c-a8b1-9ce7f18fd9a7"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"eaa6dbf3-a4d5-4d2d-9a87-f1c92a5f18ba","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"6563e885-68df-42cd-95d8-1853c07006bb"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"c3b8c1c7-8925-4195-9c03-1bb0642ae88d","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"bca580bf-70b0-43a6-84fb-ad6ac6aa22e0"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"8e915ac2-158d-42ee-9067-321ee034f502","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"e050ca41-b200-4d02-bcb3-eddbee6ad3bf"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"d2b84340-b795-431a-8b1b-807b398a9eac","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"304e2b7b-b18e-44af-89de-7043fe61972b"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"46543799-46b3-474a-8552-2f26705f53ae","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"2e9cf635-c11c-4549-977a-582788f09891"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"bc3b1223-5ef6-485a-8de1-169c92227c13","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"409c11b6-8dba-401a-89c1-3abc75ba1b45"}
+{"event":"request_failed","request_id":"168655eb-5f42-48e7-9f58-c1fc17f2a1f0","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"9c1204bf-a051-425e-b336-11150e8a7576"}
+{"event":"request_failed","request_id":"48e0745c-1e08-40e2-9787-29f5769f2875","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"8f36ec90-2e34-4c3f-97a5-bb637b6c05d1"}
+{"event":"request_failed","request_id":"3e141d36-6f22-4ca1-9e79-ba9b9308b0b2","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"380308e9-e36a-4abd-822b-654baceaa43e"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"5eb80787-878e-4a1c-812c-3d4418d4ff75","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"1b6df9dd-7212-4a98-b98e-e474cd21b1bc"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"21546b97-3b8c-4819-ac98-46bbb31d84f6","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"d2d2e820-e25c-4e6d-8d8e-845748951560"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"223768a8-2367-4482-8cd6-a0baa7e85c38","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"9c17d080-dae4-47be-b10e-b7a5473299eb"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"6a672eb2-05cd-409f-ad76-0cde39bec3c5","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"5c6dc31a-f9af-4fb7-a958-74eb6b161d8a"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"19e7b365-e964-4d06-9e3d-ad3e2eabc37b","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"c83158ca-0c06-4cd4-89f4-9bdd3755cd9b"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"34e944bf-11c9-4e41-99c6-4fa7ff6f2af0","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"f10887ce-a7dc-4276-984d-5092b09a7b84"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"7d514047-0b06-4365-801d-8b3e8a9e7833","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"c248f841-1f2b-4a6f-a896-6ea26a6ab8cb"}
+{"event":"request_failed","request_id":"992bf4ed-9c69-4cd5-a413-6f939857ed9a","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"2f493671-a321-4577-9fc9-7492562a6ae5"}
+{"event":"request_failed","request_id":"a8472862-3ecc-46f8-95d3-6487f3165b1e","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"b65721d7-640b-4a4e-a5e8-e102a27047a0"}
+{"event":"request_failed","request_id":"1dfb9701-1d1b-4296-bdaa-4e52668ab4fd","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"454299e1-f4f8-414a-8955-4751eb99f5db"}
+{"event":"request_failed","request_id":"452b90ed-03a9-4e48-bf9d-77d1b459c581","endpoint":"generate-recipe","status":503}
+Unhandled exception in generate-recipe handler
+{"event":"ai_quota_consumed","reservationId":"cb5bec04-826b-4685-8eeb-0fa5a553a7c8"}
+{"event":"request_failed","request_id":"2aaa49ce-d46f-44fd-a185-108d6392344b","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+Simulation drills need an allowed environment plus both switches, and exercise the real error contract ... ok (13ms)
+Logical AI operation with bounded retry charges 1 quota reservation and confirms on success ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"61563673-3e82-4819-b980-abce29d8a6a2"}
+----- post-test output end -----
+Logical AI operation with bounded retry charges 1 quota reservation and confirms on success ... ok (8ms)
+Logical AI operation with retry exhaustion refunds the quota reservation ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"1073af67-1260-43be-9d5d-5e27b367d672"}
+----- post-test output end -----
+Logical AI operation with retry exhaustion refunds the quota reservation ... ok (3ms)
+Reservation replay rejection prevents repeated provider invocations under single reservation ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"d7e387be-dac8-4e51-982f-b836c4126c8a"}
+{"event":"request_failed","request_id":"e2bb51d3-934b-4253-8e09-7de7dfbb7ece","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+Reservation replay rejection prevents repeated provider invocations under single reservation ... ok (2ms)
+Error preservation returns original provider error even when rollback RPC fails ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"a1d1ad51-6c09-4584-a1ef-9bfc3703b445"}
+{"event":"ai_quota_rollback_failed","reservationId":"a1d1ad51-6c09-4584-a1ef-9bfc3703b445"}
+{"event":"ai_quota_rpc_failed","stage":"rollback","code":"PGRST500"}
+{"event":"request_failed","request_id":"900b5fe5-213f-40ef-a3a9-56c73cfcc841","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+Error preservation returns original provider error even when rollback RPC fails ... ok (1ms)
+Confirmation safety delivers 200 OK preview even if confirmation RPC fails ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"a859d0dd-e4b0-4555-bd65-72c0cbac1bda"}
+{"event":"ai_quota_confirmation_failed","reservationId":"a859d0dd-e4b0-4555-bd65-72c0cbac1bda"}
+{"event":"ai_quota_rpc_failed","stage":"confirmation","code":"PGRST500"}
+----- post-test output end -----
+Confirmation safety delivers 200 OK preview even if confirmation RPC fails ... ok (1ms)
+Missing service role credentials fail closed with QUOTA_UNAVAILABLE before retrieval or provider execution ...
+------- post-test output -------
+Missing service role configuration for quota consumption
+{"event":"request_failed","request_id":"8f9f9e6a-ee42-4bce-9157-233881d9e6d6","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+Missing service role credentials fail closed with QUOTA_UNAVAILABLE before retrieval or provider execution ... ok (847µs)
+HTTP 503 provider failure across retries confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"13527f3d-8fb0-42a8-9870-c6b2e5ee5017"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"e2169ae8-fafb-4b13-a05f-73dba7aab9d9","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+HTTP 503 provider failure across retries confirms generate quota without refund using GeminiAdapter ... ok (742µs)
+HTTP 500 provider failure across retries confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"992d98b6-f0b0-43a5-adbf-0a5d10a004fa"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"095b1d42-a823-4da3-89aa-56f9d7816953","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+HTTP 500 provider failure across retries confirms generate quota without refund using GeminiAdapter ... ok (1ms)
+Network transport disconnect failure across retries confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"15dd03e1-a20f-4ce0-99b2-fe6a381da3c4"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"d93d14f2-60dd-4662-a2a9-d6a4f69a3c75","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+Network transport disconnect failure across retries confirms generate quota without refund using GeminiAdapter ... ok (612µs)
+Ambiguous provider timeout failure confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"fd2a717f-9dab-4910-8371-54b44ae0bed5"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_timeout"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_timeout"}
+{"event":"request_failed","request_id":"6617555a-ded0-4576-8100-f8e7b701673d","endpoint":"generate-recipe","status":504}
+----- post-test output end -----
+Ambiguous provider timeout failure confirms generate quota without refund using GeminiAdapter ... ok (1ms)
+Mixed retries with timeout followed by 503 confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"575793c1-737d-424f-a47c-c880058d30ca"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_timeout"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"c7cf5fd6-464c-43bf-8f56-4eb82847b64d","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+Mixed retries with timeout followed by 503 confirms generate quota without refund using GeminiAdapter ... ok (1ms)
+Mixed retries with 429 followed by 503 confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"89d1e71c-4d86-469e-aec0-8a596169dc66"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"770f01e7-e1bf-4432-8407-463389aed97f","endpoint":"generate-recipe","status":503}
+----- post-test output end -----
+Mixed retries with 429 followed by 503 confirms generate quota without refund using GeminiAdapter ... ok (456µs)
+Mixed retries with 503 followed by 429 confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"1d43fe98-9869-4541-b35d-680c2eaaa624"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- post-test output end -----
+Mixed retries with 503 followed by 429 confirms generate quota without refund using GeminiAdapter ... ok (379µs)
+SDK prompt safety block confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"a09b793a-321c-4d0c-ac64-c9a376382e5e"}
+{"event":"request_failed","request_id":"123d02bb-9081-425b-bc81-47707b2ca99d","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+SDK prompt safety block confirms generate quota without refund using GeminiAdapter ... ok (346µs)
+SDK candidate safety block confirms generate quota without refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"bd23fa7a-cde9-42bc-bc69-f88ee0cac2b3"}
+{"event":"request_failed","request_id":"7f5e9737-6997-464e-91f4-2c650642cb2e","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+SDK candidate safety block confirms generate quota without refund using GeminiAdapter ... ok (240µs)
+Definite non-consuming 429 rate limit across retries refunds generate quota reservation using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"1abf5620-5f7c-4251-bc99-a163b94203ad"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- post-test output end -----
+Definite non-consuming 429 rate limit across retries refunds generate quota reservation using GeminiAdapter ... ok (341µs)
+Invalid model output schema failure confirms generate quota and does not refund using GeminiAdapter ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"93191a1c-8e5f-4ba9-90b7-c89b98422dbf"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"invalid_output","detail":"recipe, substitutions, parentRecipeIds"}
+{"event":"request_failed","request_id":"628dedf4-8ed8-4e7f-a7ae-658960d66026","endpoint":"generate-recipe","status":502}
+----- post-test output end -----
+Invalid model output schema failure confirms generate quota and does not refund using GeminiAdapter ... ok (696µs)
+Pre-provider context retrieval failure refunds reserved generate quota ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"b4bcdb6d-701b-4537-adcb-f830789e5a56"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"6b52862e-0809-43a7-9da1-02d5ce6c4cd1","endpoint":"generate-recipe","status":500}
+----- post-test output end -----
+Pre-provider context retrieval failure refunds reserved generate quota ... ok (380µs)
+Generate quota consumption falls back to environment variables when dependencies omit service role credentials ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"7a3c0881-7297-45d5-a9ce-7603917c3bb9"}
+----- post-test output end -----
+Generate quota consumption falls back to environment variables when dependencies omit service role credentials ... ok (450µs)
+Pantry generation still ignores extra fields from a focused revision ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"09cd89eb-6159-45c7-aef5-0b7816a1c77b"}
+----- post-test output end -----
+Pantry generation still ignores extra fields from a focused revision ... ok (500µs)
+Chef revisions use exact selected evidence and sign only an owned source ...
+------- post-test output -------
+{"event":"ai_quota_consumed","reservationId":"333a19e4-e461-4b3d-9f1a-7c300eb0a9b6"}
+{"event":"ai_quota_consumed","reservationId":"849cfa84-821a-43c6-821e-e26498900126"}
+{"event":"ai_quota_consumed","reservationId":"871e9bed-70fb-4463-968b-722e8bef1a40"}
+{"event":"ai_quota_consumed","reservationId":"e5eed745-86c1-4dd4-8cde-5f83f5b6f0f2"}
+{"event":"ai_quota_consumed","reservationId":"9af476fe-8cd1-4590-a8ae-60ff02f3fee2"}
+{"event":"ai_quota_consumed","reservationId":"5139d6c1-8656-47a5-bb46-a776b77e6769"}
+----- post-test output end -----
+Chef revisions use exact selected evidence and sign only an owned source ... ok (6ms)
+------- post-test output -------
+(node:81453) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- post-test output end -----
+running 26 tests from ./supabase/functions/tests/recipe_context_test.ts
+normalizeIngredientName trims, lowercases, collapses whitespace, and rejects non-strings ... ok (931µs)
+normalizePantryItems deduplicates, normalizes, and rejects non-array or non-string inputs ... ok (409µs)
+computeIngredientOverlap calculates accurate ratio, protects against division by zero, and validates inputs ... ok (236µs)
+compareOrdinal and compareUuidOrdinal provide deterministic case-normalized UUID comparison ... ok (738µs)
+compareRankedCandidates enforces 4-tier precedence and validates both candidates upfront ... ok (5ms)
+ranking uses shared identities regardless of deduplicated pantry alias order ... ok (1ms)
+rankCandidateRecipes produces identical total order across all 24 input permutations including mixed-case UUIDs and timezone offsets ... ok (4ms)
+rankCandidateRecipes validates every candidate upfront and rejects invalid topK, timestamps, ratings, UUIDs, and ingredients ... ok (2ms)
+rankCandidateRecipes accepts full BE-08 Recipe objects without leaking non-context fields ... ok (476µs)
+validateAuthContext rejects invalid user IDs, missing clients, non-authenticated roles, and service-role keys ... ok (1ms)
+Chef ranks across bounded scoring pages before fetching recipe bodies ... ok (3ms)
+Chef keeps global ranking and skips oversized individual bodies across pages ... ok (1ms)
+Chef includes envelope bytes when skipping a near-limit match for a smaller recipe ... ok (8ms)
+retrieveCandidateRecipes bounds selected bodies and preserves scanned candidate count and truncation ... ok (78ms)
+retrieveCandidateRecipes keeps the individual context limit when no matching recipe fits ... ok (2ms)
+retrieveCandidateRecipes rejects malformed responses, RPC errors, owner mismatches, and invalid maxCandidates ... ok (2ms)
+buildChefRecipeContext accepts input size limits and preserves preferences through ranking and prompt formatting ... ok (5ms)
+buildChefRecipeContext rejects oversized or unknown input before recipe retrieval ... ok (3ms)
+buildChefRecipeContext enforces strict cold-start precedence, preserves preferences, and rejects corrupt candidates in cold-start paths ... ok (3ms)
+buildChefRecipeContext propagates database errors without converting to cold start ... ok (261µs)
+resolveChefRecipeContextForRequest enforces authenticated RPC candidate isolation ... ok (9ms)
+formatChefRecipeContextForPrompt formats cold-start and matched states and validates context invariants ... ok (580µs)
+formatChefRecipeContextForPrompt neutralizes triple-quote fence escapes in user data ... ok (532µs)
+Chef context Zod schemas enforce strict candidate and cross-field state invariants ... ok (62ms)
+BE-10 hosted RLS configuration and target safety guards reject production, loopback, and missing required credentials ... ok (1ms)
+Live PostgreSQL cross-user RLS isolation for AI Chef recipe context retrieval (hosted integration) ... ignored (0ms)
+
+ok | 447 passed | 0 failed | 5 ignored (5s)
+
+
+
+===== chef-browser =====
+AI Chef browser acceptance Scenario A passed: keyboard-selected parents, recipe-first save, and confirmed lineage completion.
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByText('Recipe saved.', { exact: true })
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" getByText('Recipe saved.', { exact: true }) with timeout 5000ms
+  - waiting for getByText('Recipe saved.', { exact: true })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/ai-chef.browser.mjs:819:66 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByText('Recipe saved.', { exact: true })\n" +
+      'Expected: visible\n' +
+      'Timeout: 5000ms\n' +
+      'Error: element(s) not found\n' +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByText('Recipe saved.', { exact: true }) with timeout 5000ms\n` +
+      "  - waiting for getByText('Recipe saved.', { exact: true })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByText('Recipe saved.', { exact: true }) with timeout 5000ms`,
+      "  - waiting for getByText('Recipe saved.', { exact: true })"
+    ],
+    timeout: 5000,
+    ariaSnapshot: '- link "Skip to journal content":\n' +
+      '  - /url: "#journal-content"\n' +
+      '- banner:\n' +
+      `  - link "MORI'S MIX":\n` +
+      '    - /url: /app/recipes\n' +
+      '  - navigation "Public pages":\n' +
+      '    - link "Home":\n' +
+      '      - /url: /home\n' +
+      '    - link "About":\n' +
+      '      - /url: /about\n' +
+      '    - link "Demo recipe":\n' +
+      '      - /url: /demo-recipe\n' +
+      '  - text: chef@example.test\n' +
+      '  - button "Log out"\n' +
+      '- main:\n' +
+      '  - region "Facing journal page":\n' +
+      '    - heading "Your recipe is saved." [level=1]\n' +
+      '    - paragraph: Egg and rice skillet\n' +
+      '    - group "Recipe details":\n' +
+      '      - text: Recipe details\n' +
+      '      - region "Recipe details, page 1":\n' +
+      '        - region "Recipe details":\n' +
+      '          - heading "Recipe details" [level=2]\n' +
+      '          - text: Recipe title\n' +
+      '          - textbox "Recipe title": Edited after storage recovered\n' +
+      '          - button "Expand recipe title"\n' +
+      '          - heading "Cooking information" [level=3]\n' +
+      '          - text: Cooked date\n' +
+      '          - textbox "Cooked date"\n' +
+      '          - text: Rating\n' +
+      '          - combobox "Rating":\n' +
+      '            - option "Unrated" [selected]\n' +
+      '            - option "1 / 5"\n' +
+      '            - option "2 / 5"\n' +
+      '            - option "3 / 5"\n' +
+      '            - option "4 / 5"\n' +
+      '            - option "5 / 5"\n' +
+      '          - text: Notes\n' +
+      '          - textbox "Notes"\n' +
+      '          - button "Expand notes"\n' +
+      '    - navigation "Previous Recipe writing pages"\n' +
+      '  - region "Journal entries":\n' +
+      '    - navigation "Journal sections":\n' +
+      '      - link "My recipes":\n' +
+      '        - /url: /app/recipes\n' +
+      '      - link "New recipe":\n' +
+      '        - /url: /app/recipes/new\n' +
+      '      - link "Quick AI Entry":\n' +
+      '        - /url: /app/quick-entry\n' +
+      '      - link "AI Chef":\n' +
+      '        - /url: /app/chef\n' +
+      '    - form "Edit saved recipe":\n' +
+      '      - group "Ingredients":\n' +
+      '        - text: Ingredients\n' +
+      '        - region "Ingredients, page 2":\n' +
+      '          - region "AI Chef generation details":\n' +
+      '            - paragraph: Saved to your journal\n' +
+      '            - region "Ingredients in this suggestion":\n' +
+      '              - heading "Ingredients in this suggestion" [level=3]\n' +
+      '              - list:\n' +
+      '                - listitem: rice\n' +
+      '                - listitem: eggs\n' +
+      '            - region "Suggested parent recipes":\n' +
+      '              - heading "From your journal" [level=3]\n' +
+      '              - paragraph: There are no saved recipes to suggest yet.\n' +
+      '            - group: Your request\n' +
+      '            - group: Suggested substitutions\n' +
+      '            - group: Mori’s optional flavor estimates\n' +
+      '          - region "Ingredients":\n' +
+      '            - heading "Ingredients" [level=2]\n' +
+      '            - group "Ingredient 1":\n' +
+      '              - text: Ingredient 1 leftover rice\n' +
+      `              - 'button "Move ingredient 1: rice"'\n` +
+      `              - 'button "Edit ingredient 1: rice"'\n` +
+      '              - button "Remove ingredient 1"\n' +
+      '            - group "Ingredient 2":\n' +
+      '              - text: Ingredient 2 2 eggs\n' +
+      `              - 'button "Move ingredient 2: eggs"'\n` +
+      `              - 'button "Edit ingredient 2: eggs"'\n` +
+      '              - button "Remove ingredient 2"\n' +
+      '            - button "Add ingredient"\n' +
+      '      - status\n' +
+      '    - alert: The recipe conflicts with a change already on the server. Your edits are still here. Check your journal before trying again.\n' +
+      '    - status: Recipe details and Ingredients · Step 1 of 2\n' +
+      '    - navigation "Recipe review actions":\n' +
+      '      - button "Back to AI Chef"\n' +
+      '      - button "Save changes"\n' +
+      '    - paragraph: Unsaved changes\n' +
+      '    - navigation "Recipe writing pages":\n' +
+      `      - 'button "Next: Instructions and Recipe inspiration"': "Next: Instructions and Recipe inspiration →"\n` +
+      '- text: Drag Mori to move. When focused, use the arrow keys to reposition.\n' +
+      '- group "Mori companion":\n' +
+      '  - button "Talk to Mori"\n' +
+      '- status "Mori says": Your recipe needs a little attention. Check the form message before serving it up.'
+  }
+}
+
+Node.js v24.21.0
+
+
+===== chef-transition =====
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByRole('heading', { name: 'Review Mori\'s recipe.' })
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" getByRole('heading', { name: 'Review Mori\'s recipe.' }) with timeout 5000ms
+  - waiting for getByRole('heading', { name: 'Review Mori\'s recipe.' })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at beginScenario (/Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-chef-probe.mjs:249:78)
+    at async file:///Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-chef-probe.mjs:352:5 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByRole('heading', { name: 'Review Mori\\'s recipe.' })\n" +
+      'Expected: visible\n' +
+      'Timeout: 5000ms\n' +
+      'Error: element(s) not found\n' +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Review Mori\\'s recipe.' }) with timeout 5000ms\n` +
+      "  - waiting for getByRole('heading', { name: 'Review Mori\\'s recipe.' })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Review Mori\\'s recipe.' }) with timeout 5000ms`,
+      "  - waiting for getByRole('heading', { name: 'Review Mori\\'s recipe.' })"
+    ],
+    timeout: 5000,
+    ariaSnapshot: '- link "Skip to journal content":\n' +
+      '  - /url: "#journal-content"\n' +
+      '- banner:\n' +
+      `  - link "MORI'S MIX":\n` +
+      '    - /url: /app/recipes\n' +
+      '  - navigation "Public pages":\n' +
+      '    - link "Home":\n' +
+      '      - /url: /home\n' +
+      '    - link "About":\n' +
+      '      - /url: /about\n' +
+      '    - link "Demo recipe":\n' +
+      '      - /url: /demo-recipe\n' +
+      '  - text: chef@example.test\n' +
+      '  - button "Log out"\n' +
+      '- main:\n' +
+      '  - region "Facing journal page":\n' +
+      '    - heading "From pantry to plate" [level=2]\n' +
+      '    - list "AI Chef progress":\n' +
+      '      - listitem: Pantry\n' +
+      '      - listitem: Review idea\n' +
+      '      - listitem: Your journal\n' +
+      '    - form "Pantry ingredients":\n' +
+      '      - group "Pantry ingredients":\n' +
+      '        - text: Pantry ingredients\n' +
+      '        - paragraph: Add up to 100 ingredients. Press Enter to add one or paste a list separated by commas or line breaks. Cooking preferences are optional.\n' +
+      '        - text: Pantry ingredient\n' +
+      '        - textbox "Pantry ingredient":\n' +
+      '          - /placeholder: e.g. rice, eggs, tomatoes\n' +
+      '        - button "Add ingredient"\n' +
+      '        - group: Quick add common ingredients\n' +
+      '      - status: Added 1 ingredient.\n' +
+      '    - navigation "Previous AI Chef pages"\n' +
+      '  - region "Journal entries":\n' +
+      '    - navigation "Journal sections":\n' +
+      '      - link "My recipes":\n' +
+      '        - /url: /app/recipes\n' +
+      '      - link "New recipe":\n' +
+      '        - /url: /app/recipes/new\n' +
+      '      - link "Quick AI Entry":\n' +
+      '        - /url: /app/quick-entry\n' +
+      '      - link "AI Chef":\n' +
+      '        - /url: /app/chef\n' +
+      '    - region "What’s in your pantry?":\n' +
+      '      - region "AI Chef page 1 of 2":\n' +
+      '        - heading "What’s in your pantry?" [level=1]\n' +
+      '        - region "Pantry list, 1 item":\n' +
+      '          - heading "Your pantry (1)" [level=2]\n' +
+      '          - list:\n' +
+      '            - listitem:\n' +
+      '              - text: rice\n' +
+      '              - button "Remove rice": Remove\n' +
+      '        - alert:\n' +
+      '          - paragraph: Mori returned a recipe that could not be checked safely. Your request is still here; try again.\n' +
+      '          - paragraph: Your pantry list will carry over if you continue by hand.\n' +
+      '          - link "Write recipe manually":\n' +
+      '            - /url: /app/recipes/new\n' +
+      '    - button "Retry recipe suggestion"\n' +
+      '    - paragraph: Nothing is saved until you choose Save recipe.\n' +
+      '    - navigation "AI Chef pages":\n' +
+      '      - text: Page 1 of 2\n' +
+      `      - 'button "Next page: Cooking preferences"': Cooking preferences →\n` +
+      '- text: Drag Mori to move. When focused, use the arrow keys to reposition.\n' +
+      '- group "Mori companion":\n' +
+      '  - button "Talk to Mori"\n' +
+      '- status "Mori says": Mori returned a recipe that could not be checked safely. Your request is still here; try again.'
+  }
+}
+
+Node.js v24.21.0
+
+
+===== frontend-note-contracts =====
+
+ RUN  v4.1.12 /Users/mynt/dev/moris-mix-pr293-verification/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  66 passed (66)
+   Start at  22:22:57
+   Duration  5.17s (transform 316ms, setup 174ms, import 517ms, tests 4.37s, environment 591ms)
+
+
+
+===== revision-probe =====
+Download https://deno.land/std@0.224.0/assert/mod.ts
+Download https://deno.land/std@0.224.0/assert/assert_almost_equals.ts
+Download https://deno.land/std@0.224.0/assert/assert_array_includes.ts
+Download https://deno.land/std@0.224.0/assert/assert_equals.ts
+Download https://deno.land/std@0.224.0/assert/assert_exists.ts
+Download https://deno.land/std@0.224.0/assert/assert_false.ts
+Download https://deno.land/std@0.224.0/assert/assert_greater_or_equal.ts
+Download https://deno.land/std@0.224.0/assert/assert_greater.ts
+Download https://deno.land/std@0.224.0/assert/assert_instance_of.ts
+Download https://deno.land/std@0.224.0/assert/assert_is_error.ts
+Download https://deno.land/std@0.224.0/assert/assert_less_or_equal.ts
+Download https://deno.land/std@0.224.0/assert/assert_less.ts
+Download https://deno.land/std@0.224.0/assert/assert_match.ts
+Download https://deno.land/std@0.224.0/assert/assert_not_equals.ts
+Download https://deno.land/std@0.224.0/assert/assert_not_instance_of.ts
+Download https://deno.land/std@0.224.0/assert/assert_not_match.ts
+Download https://deno.land/std@0.224.0/assert/assert_not_strict_equals.ts
+Download https://deno.land/std@0.224.0/assert/assert_object_match.ts
+Download https://deno.land/std@0.224.0/assert/assert_rejects.ts
+Download https://deno.land/std@0.224.0/assert/assert_strict_equals.ts
+Download https://deno.land/std@0.224.0/assert/assert_string_includes.ts
+Download https://deno.land/std@0.224.0/assert/assert_throws.ts
+Download https://deno.land/std@0.224.0/assert/assert.ts
+Download https://deno.land/std@0.224.0/assert/assertion_error.ts
+Download https://deno.land/std@0.224.0/assert/equal.ts
+Download https://deno.land/std@0.224.0/assert/fail.ts
+Download https://deno.land/std@0.224.0/assert/unimplemented.ts
+Download https://deno.land/std@0.224.0/assert/unreachable.ts
+Download https://deno.land/std@0.224.0/internal/format.ts
+Download https://deno.land/std@0.224.0/internal/mod.ts
+Download https://deno.land/std@0.224.0/fmt/colors.ts
+Download https://deno.land/std@0.224.0/assert/_constants.ts
+Download https://deno.land/std@0.224.0/internal/diff.ts
+error: The lockfile is out of date. Run `deno install --frozen=false`, or rerun with `--frozen=false` to update it.
+changes:
+191 | -    "https://deno.land/std@0.168.0/testing/asserts.ts": "51353e79437361d4b02d8e32f3fc83b22231bc8f8d4c841d86fd32b0b0afe940"
+191 | +    "https://deno.land/std@0.168.0/testing/asserts.ts": "51353e79437361d4b02d8e32f3fc83b22231bc8f8d4c841d86fd32b0b0afe940",
+192 | +    "https://deno.land/std@0.224.0/assert/_constants.ts": "a271e8ef5a573f1df8e822a6eb9d09df064ad66a4390f21b3e31f820a38e0975",
+193 | +    "https://deno.land/std@0.224.0/assert/assert.ts": "09d30564c09de846855b7b071e62b5974b001bb72a4b797958fe0660e7849834",
+194 | +    "https://deno.land/std@0.224.0/assert/assert_almost_equals.ts": "9e416114322012c9a21fa68e187637ce2d7df25bcbdbfd957cd639e65d3cf293",
+195 | +    "https://deno.land/std@0.224.0/assert/assert_array_includes.ts": "14c5094471bc8e4a7895fc6aa5a184300d8a1879606574cb1cd715ef36a4a3c7",
+196 | +    "https://deno.land/std@0.224.0/assert/assert_equals.ts": "3bbca947d85b9d374a108687b1a8ba3785a7850436b5a8930d81f34a32cb8c74",
+197 | +    "https://deno.land/std@0.224.0/assert/assert_exists.ts": "43420cf7f956748ae6ed1230646567b3593cb7a36c5a5327269279c870c5ddfd",
+198 | +    "https://deno.land/std@0.224.0/assert/assert_false.ts": "3e9be8e33275db00d952e9acb0cd29481a44fa0a4af6d37239ff58d79e8edeff",
+199 | +    "https://deno.land/std@0.224.0/assert/assert_greater.ts": "5e57b201fd51b64ced36c828e3dfd773412c1a6120c1a5a99066c9b261974e46",
+200 | +    "https://deno.land/std@0.224.0/assert/assert_greater_or_equal.ts": "9870030f997a08361b6f63400273c2fb1856f5db86c0c3852aab2a002e425c5b",
+201 | +    "https://deno.land/std@0.224.0/assert/assert_instance_of.ts": "e22343c1fdcacfaea8f37784ad782683ec1cf599ae9b1b618954e9c22f376f2c",
+202 | +    "https://deno.land/std@0.224.0/assert/assert_is_error.ts": "f856b3bc978a7aa6a601f3fec6603491ab6255118afa6baa84b04426dd3cc491",
+203 | +    "https://deno.land/std@0.224.0/assert/assert_less.ts": "60b61e13a1982865a72726a5fa86c24fad7eb27c3c08b13883fb68882b307f68",
+204 | +    "https://deno.land/std@0.224.0/assert/assert_less_or_equal.ts": "d2c84e17faba4afe085e6c9123a63395accf4f9e00150db899c46e67420e0ec3",
+205 | +    "https://deno.land/std@0.224.0/assert/assert_match.ts": "ace1710dd3b2811c391946954234b5da910c5665aed817943d086d4d4871a8b7",
+206 | +    "https://deno.land/std@0.224.0/assert/assert_not_equals.ts": "78d45dd46133d76ce624b2c6c09392f6110f0df9b73f911d20208a68dee2ef29",
+207 | +    "https://deno.land/std@0.224.0/assert/assert_not_instance_of.ts": "3434a669b4d20cdcc5359779301a0588f941ffdc2ad68803c31eabdb4890cf7a",
+208 | +    "https://deno.land/std@0.224.0/assert/assert_not_match.ts": "df30417240aa2d35b1ea44df7e541991348a063d9ee823430e0b58079a72242a",
+209 | +    "https://deno.land/std@0.224.0/assert/assert_not_strict_equals.ts": "37f73880bd672709373d6dc2c5f148691119bed161f3020fff3548a0496f71b8",
+210 | +    "https://deno.land/std@0.224.0/assert/assert_object_match.ts": "411450fd194fdaabc0089ae68f916b545a49d7b7e6d0026e84a54c9e7eed2693",
+211 | +    "https://deno.land/std@0.224.0/assert/assert_rejects.ts": "4bee1d6d565a5b623146a14668da8f9eb1f026a4f338bbf92b37e43e0aa53c31",
+212 | +    "https://deno.land/std@0.224.0/assert/assert_strict_equals.ts": "b4f45f0fd2e54d9029171876bd0b42dd9ed0efd8f853ab92a3f50127acfa54f5",
+213 | +    "https://deno.land/std@0.224.0/assert/assert_string_includes.ts": "496b9ecad84deab72c8718735373feb6cdaa071eb91a98206f6f3cb4285e71b8",
+214 | +    "https://deno.land/std@0.224.0/assert/assert_throws.ts": "c6508b2879d465898dab2798009299867e67c570d7d34c90a2d235e4553906eb",
+215 | +    "https://deno.land/std@0.224.0/assert/assertion_error.ts": "ba8752bd27ebc51f723702fac2f54d3e94447598f54264a6653d6413738a8917",
+216 | +    "https://deno.land/std@0.224.0/assert/equal.ts": "bddf07bb5fc718e10bb72d5dc2c36c1ce5a8bdd3b647069b6319e07af181ac47",
+217 | +    "https://deno.land/std@0.224.0/assert/fail.ts": "0eba674ffb47dff083f02ced76d5130460bff1a9a68c6514ebe0cdea4abadb68",
+218 | +    "https://deno.land/std@0.224.0/assert/mod.ts": "48b8cb8a619ea0b7958ad7ee9376500fe902284bb36f0e32c598c3dc34cbd6f3",
+219 | +    "https://deno.land/std@0.224.0/assert/unimplemented.ts": "8c55a5793e9147b4f1ef68cd66496b7d5ba7a9e7ca30c6da070c1a58da723d73",
+220 | +    "https://deno.land/std@0.224.0/assert/unreachable.ts": "5ae3dbf63ef988615b93eb08d395dda771c96546565f9e521ed86f6510c29e19",
+221 | +    "https://deno.land/std@0.224.0/fmt/colors.ts": "508563c0659dd7198ba4bbf87e97f654af3c34eb56ba790260f252ad8012e1c5",
+222 | +    "https://deno.land/std@0.224.0/internal/diff.ts": "6234a4b493ebe65dc67a18a0eb97ef683626a1166a1906232ce186ae9f65f4e6",
+223 | +    "https://deno.land/std@0.224.0/internal/format.ts": "0a98ee226fd3d43450245b1844b47003419d34d210fa989900861c79820d21c2",
+224 | +    "https://deno.land/std@0.224.0/internal/mod.ts": "534125398c8e7426183e12dc255bb635d94e06d0f93c60a297723abe69d3b22e"
+
+
+===== db-migrate =====
+◇ injected env (0) from .env
+Applying migration 20261013000000_initial_schema.sql...
+SUCCESS: Applied migration 20261013000000_initial_schema.sql
+Applying migration 20261017000001_add_is_public_to_recipes.sql...
+SUCCESS: Applied migration 20261017000001_add_is_public_to_recipes.sql
+Applying migration 20261023000002_add_notes_to_recipes.sql...
+SUCCESS: Applied migration 20261023000002_add_notes_to_recipes.sql
+Applying migration 20261026000003_add_recipe_search_indexes.sql...
+SUCCESS: Applied migration 20261026000003_add_recipe_search_indexes.sql
+Applying migration 20261026000004_add_recipe_ingredient_search.sql...
+SUCCESS: Applied migration 20261026000004_add_recipe_ingredient_search.sql
+Applying migration 20261031000005_recipe_search_ranking.sql...
+SUCCESS: Applied migration 20261031000005_recipe_search_ranking.sql
+Applying migration 20261031000006_fix_recipe_search_token_ranking.sql...
+SUCCESS: Applied migration 20261031000006_fix_recipe_search_token_ranking.sql
+Applying migration 20261031000007_ai_quota_enforcement.sql...
+SUCCESS: Applied migration 20261031000007_ai_quota_enforcement.sql
+Applying migration 20261101000008_harden_recipe_search_rpc.sql...
+SUCCESS: Applied migration 20261101000008_harden_recipe_search_rpc.sql
+Applying migration 20261102000009_recipe_image_upload_intents.sql...
+SUCCESS: Applied migration 20261102000009_recipe_image_upload_intents.sql
+Applying migration 20261102000010_recipe_image_upload_lifecycle.sql...
+SUCCESS: Applied migration 20261102000010_recipe_image_upload_lifecycle.sql
+Applying migration 20261102000011_recipe_image_upload_cleanup_claim_qualification.sql...
+SUCCESS: Applied migration 20261102000011_recipe_image_upload_cleanup_claim_qualification.sql
+Applying migration 20261102000012_recipe_image_staging_reconciliation.sql...
+SUCCESS: Applied migration 20261102000012_recipe_image_staging_reconciliation.sql
+Applying migration 20261102000013_recipe_image_staging_reconciliation_conflict_target.sql...
+SUCCESS: Applied migration 20261102000013_recipe_image_staging_reconciliation_conflict_target.sql
+Applying migration 20261102000014_recipe_image_staging_abandoned_claims.sql...
+SUCCESS: Applied migration 20261102000014_recipe_image_staging_abandoned_claims.sql
+Applying migration 20261106000015_recipe_image_attached_staging_cleanup.sql...
+SUCCESS: Applied migration 20261106000015_recipe_image_attached_staging_cleanup.sql
+Applying migration 20261107000016_recipe_image_final_lifecycle.sql...
+SUCCESS: Applied migration 20261107000016_recipe_image_final_lifecycle.sql
+Applying migration 20261108152005_recipe_image_upload_reservation.sql...
+SUCCESS: Applied migration 20261108152005_recipe_image_upload_reservation.sql
+Applying migration 20261114000018_bounded_chef_candidate_retrieval.sql...
+SUCCESS: Applied migration 20261114000018_bounded_chef_candidate_retrieval.sql
+Applying migration 20261114000019_ai_short_window_rate_limit.sql...
+SUCCESS: Applied migration 20261114000019_ai_short_window_rate_limit.sql
+Applying migration 20261115000020_recipe_image_upload_idempotency.sql...
+SUCCESS: Applied migration 20261115000020_recipe_image_upload_idempotency.sql
+Applying migration 20261115000021_recipe_image_download_outcomes.sql...
+SUCCESS: Applied migration 20261115000021_recipe_image_download_outcomes.sql
+Applying migration 20261115000022_supabase_roundtrip_performance.sql...
+SUCCESS: Applied migration 20261115000022_supabase_roundtrip_performance.sql
+Applying migration 20261116000023_recipe_image_upload_quota_increase.sql...
+SUCCESS: Applied migration 20261116000023_recipe_image_upload_quota_increase.sql
+Applying migration 20261120000001_ai_account_rolling_burst.sql...
+SUCCESS: Applied migration 20261120000001_ai_account_rolling_burst.sql
+Applying migration 20261120000002_ai_gemini_capacity.sql...
+SUCCESS: Applied migration 20261120000002_ai_gemini_capacity.sql
+Applying migration 20261127000001_ai_usage_summary.sql...
+SUCCESS: Applied migration 20261127000001_ai_usage_summary.sql
+Applying migration 20261127113008_paged_chef_candidate_retrieval.sql...
+SUCCESS: Applied migration 20261127113008_paged_chef_candidate_retrieval.sql
+SUCCESS: Migrations applied successfully.
+INFO: Skipping demo seeding. Set SEED_DEMO=true or pass --seed flag to seed demo data.
+
+
+===== chef-transition-corrected =====
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByText('Recipe inspiration', { exact: true })
+Expected: visible
+Error: strict mode violation: getByText('Recipe inspiration', { exact: true }) resolved to 2 elements:
+    1) <legend class="visually-hidden">Recipe inspiration</legend> aka getByRole('form', { name: 'Create recipe' }).locator('legend')
+    2) <span>…</span> aka getByRole('region', { name: 'Recipe inspiration, page' }).getByText('Recipe inspiration')
+
+Call log:
+  - Expect "toBeVisible" getByText('Recipe inspiration', { exact: true }) with timeout 5000ms
+  - waiting for getByText('Recipe inspiration', { exact: true })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-chef-probe.mjs:355:73 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByText('Recipe inspiration', { exact: true })\n" +
+      'Expected: visible\n' +
+      "Error: strict mode violation: getByText('Recipe inspiration', { exact: true }) resolved to 2 elements:\n" +
+      `    1) <legend class="visually-hidden">Recipe inspiration</legend> aka getByRole('form', { name: 'Create recipe' }).locator('legend')\n` +
+      "    2) <span>…</span> aka getByRole('region', { name: 'Recipe inspiration, page' }).getByText('Recipe inspiration')\n" +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByText('Recipe inspiration', { exact: true }) with timeout 5000ms\n` +
+      "  - waiting for getByText('Recipe inspiration', { exact: true })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByText('Recipe inspiration', { exact: true }) with timeout 5000ms`,
+      "  - waiting for getByText('Recipe inspiration', { exact: true })"
+    ],
+    timeout: undefined,
+    ariaSnapshot: undefined
+  }
+}
+
+Node.js v24.21.0
+
+
+===== db-rls =====
+◇ injected env (0) from .env
+CI target assertion failed: RLS tests in CI must execute strictly against local PostgreSQL service container on port 5432 with database 'postgres' without remote overrides (expected localhost/127.0.0.1:5432/postgres, got 127.0.0.1:55493/postgres)
+
+
+===== db-lifecycle =====
+◇ injected env (0) from .env
+◇ injected env (0) from .env
+Starting migration runner test suite...
+PASS: Migration discovery, integrity, and ingredient-search migration safety verified.
+PASS: Search migration role guards, canonical dependency restoration, and version-only history handling verified.
+PASS: Schema completeness verification and unit assertions verified.
+PASS: Database catalog foreign key cascade verification unit tests passed.
+PASS: PostgREST probe uses compatible auth headers for modern and legacy API keys.
+INFO: Skipping test database migration preflight (opt-in flag not set).
+PASS: Test database target extraction, validation, and preflight configuration verified.
+PASS: Migration lifecycle default and explicit opt-in behavior verified.
+TEST SUITE FAILED: Error: CI target assertion failed: Database tests in CI must execute strictly against local PostgreSQL service container on port 5432 with database 'postgres' without remote overrides (expected localhost/127.0.0.1:5432/postgres, got 127.0.0.1:55493/postgres)
+    at runDatabaseLifecycleIntegrationTests (file:///Users/mynt/dev/moris-mix-pr293-verification/test-migrations.mjs:1758:13)
+    at main (file:///Users/mynt/dev/moris-mix-pr293-verification/test-migrations.mjs:2799:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+
+===== revision-probe-corrected =====
+Check .pr293-revision-probe.ts
+------- pre-test output -------
+(node:81937) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- pre-test output end -----
+running 8 tests from ./.pr293-revision-probe.ts
+exact olive-oil note is preserved in the versioned prompt ... ok (465µs)
+valid olive oil 1 teaspoon to 2 teaspoons is accepted, rice/tomato and original preserved ... ok (2ms)
+explicit quantities and teaspoon aliases parse deterministically ... ok (149µs)
+unchanged output is rejected without a verified change ... ok (752µs)
+a second ingredient amount change is rejected ... ok (195µs)
+missing reason and unrelated direction rewrite are rejected ... ok (242µs)
+numeric source plus quantityText is conservatively unsupported ... ok (94µs)
+structural verifier does not establish the note target amount ... ok (53µs)
+
+ok | 8 passed | 0 failed (7ms)
+
+
+
+===== db-lifecycle-local =====
+◇ injected env (0) from .env
+◇ injected env (0) from .env
+Starting migration runner test suite...
+PASS: Migration discovery, integrity, and ingredient-search migration safety verified.
+PASS: Search migration role guards, canonical dependency restoration, and version-only history handling verified.
+PASS: Schema completeness verification and unit assertions verified.
+PASS: Database catalog foreign key cascade verification unit tests passed.
+PASS: PostgREST probe uses compatible auth headers for modern and legacy API keys.
+INFO: Skipping test database migration preflight (opt-in flag not set).
+PASS: Test database target extraction, validation, and preflight configuration verified.
+PASS: Migration lifecycle default and explicit opt-in behavior verified.
+PASS: Policy verification accepts auth in the session search path without changing the session or policies.
+PASS: All four quota RPCs reject null and non-service role claims; service-role settlement contracts remain unchanged.
+PASS: Concurrent Gemini dispatch limits, rolling expiry, and RPC permissions verified.
+PASS: Read-only AI usage preserves counters, respects account ownership, fixed/rolling windows, UTC resets, refunds, and concurrent admissions.
+PASS: Final cleanup due-time scheduling advances ordinary work and all watches across bounded batches, with exclusive claims, retries, lease recovery, and active-reference protection.
+PASS: PostgreSQL upload reservations admit one competing claimant, require the winning release token, permit reacquisition, reject foreign/expired intents, and deny browser roles.
+PASS: Attached staging cleanup waits for expiry, retries exclusively, releases quota, preserves attached results/final keys, and reconciles late PUTs.
+PASS: Recipe-image attempt outputs are isolated, stale copy attempts remain watched, active images are protected, and final cleanup is recoverable in PostgreSQL.
+PASS: Recipe-image quotas serialize concurrent signing, cleanup claims are exclusive, and expiry/retry state fences hold in PostgreSQL.
+PASS: Search migration preserves existing helpers, restores missing helpers, restricts RPC permissions, and leaves migration history unchanged.
+PASS: Chef scans a journal above 64 KiB in bounded scoring pages, retains older candidates, bounds selected bodies, and preserves caller ownership and RPC permissions.
+PASS: Fresh database initialization applied all migrations once, verified catalog cascade foreign keys (parent and child), and proved physical ON DELETE CASCADE for both parent and child deletions.
+PASS: Repeated migration execution skipped applied migrations and preserved demo recipe state.
+PASS: Ambiguous legacy state halted automatic reconciliation and left data untouched.
+PASS: Explicit reconciliation recorded history without executing SQL and preserved demo recipe state.
+PASS: Disabled RLS rejected initial schema reconciliation and preserved unapplied history state.
+PASS: Missing owner-scoped policy rejected initial schema reconciliation.
+PASS: Weakened policy predicate containing tokens rejected initial schema reconciliation.
+PASS: Policy command mismatch rejected initial schema reconciliation.
+PASS: Policy roles mismatch rejected initial schema reconciliation.
+PASS: Complete and intact RLS policies reconciled initial schema successfully after correction.
+PASS: Transactional failure rolled back cleanly without recording migration version.
+PASS: Advisory lock serialized concurrent migration executions safely.
+PASS: Partially initialized database aborted safely without destructive recovery.
+
+--- Migration Lifecycle Test Report ---
+Target: 127.0.0.1:55493/postgres
+Opt-in: true
+Scenarios Executed: 13
+Scenarios Passed: 13
+Skipped: false
+--------------------------------------
+
+CLEANUP: Ephemeral database test_mig_suite_1795789407255_668964 dropped.
+ALL MIGRATION RUNNER TESTS COMPLETED SUCCESSFULLY.
+
+
+===== chef-transition-final =====
+PASS 1440x900: generated preview -> Instructions -> inspiration -> selected parent -> explicit save -> lineage -> reopen.
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+locator.check: Timeout 30000ms exceeded.
+Call log:
+  - waiting for getByRole('checkbox', { name: /Sunday fried rice/ })
+
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-chef-probe.mjs:356:69 {
+  log: [
+    "  - waiting for getByRole('checkbox', { name: /Sunday fried rice/ })"
+  ],
+  name: 'TimeoutError'
+}
+
+Node.js v24.21.0
+
+
+===== db-rls-local =====
+◇ injected env (0) from .env
+Connected to database for RLS regression testing.
+✓ Provisioned test users User A (0637a46d-07ed-4d80-bd19-e3ef959606ed) and User B (718313d1-be95-4138-b285-46d045061d4c)
+✓ Provisioned baseline ai_usage_daily record for User A
+✓ User A successfully inserted and read own recipes
+✓ User A profile read and update authorization verified
+✓ User A ai_usage_daily read authorization verified
+✓ User A recipe_lineage creation and read authorization verified
+✓ User A search_recipes exact, partial, fuzzy, ranking, and pagination verified
+✓ User B read, update, and delete isolation on User A recipe verified (0 rows affected)
+✓ User B cross-user profile read and update isolation verified (0 rows affected)
+✓ User B cross-user ai_usage_daily isolation verified (0 rows returned)
+✓ User B cross-user recipe_lineage read and delete isolation verified (0 rows affected)
+✓ User B cross-user search_recipes isolation verified (0 rows returned)
+✓ User B insertion forged with User A owner ID blocked by WITH CHECK
+✓ User B successfully inserted and read their own recipe
+✓ User B cross-owner recipe_lineage insertions blocked by WITH CHECK for both parent and child
+✓ User A cross-user read and update isolation on User B records verified (0 rows returned/affected)
+✓ Recipe ownership transfer attempt blocked by WITH CHECK boundary
+✓ User A successfully deleted own recipe lineage
+
+PASSED: All RLS policy regression tests completed successfully.
+
+--- RLS Policy Regression Test Report ---
+Target: 127.0.0.1:55493/postgres
+Assertions Executed: 137
+Assertions Passed: 137
+Skipped: false
+-----------------------------------------
+
+✓ Test records cleaned up successfully.
+
+
+===== chef-transition-complete =====
+Browser: 158.0.8127.37
+PASS 1440x900: generated preview -> Instructions -> inspiration -> selected parent -> explicit save -> lineage -> reopen.
+PASS 1100x640: generated preview -> Instructions -> inspiration -> selected parent -> explicit save -> lineage -> reopen.
+PASS lineage recovery: one recipe, failed link, reload, retry and confirmed lineage; no duplicate save.
+
+
+===== doc-typecheck =====
+
+
+===== doc-build =====
+vite v6.4.5 building for production...
+transforming...
+../../moris-mix-ai/frontend/node_modules/.pnpm/zod@4.6.6/node_modules/zod/v4/core/regexes.js (74:0): A comment
+
+"/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+ * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+ * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+
+in "../../moris-mix-ai/frontend/node_modules/.pnpm/zod@4.6.6/node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+../../moris-mix-ai/frontend/node_modules/.pnpm/zod@4.6.6/node_modules/zod/v4/core/util.js (400:0): A comment
+
+"// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+
+in "../../moris-mix-ai/frontend/node_modules/.pnpm/zod@4.6.6/node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+✓ 2463 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/sparkle-zYWdtq0H.svg                     0.32 kB │ gzip:   0.23 kB
+dist/assets/egg-DYYzGsf2.svg                         0.32 kB │ gzip:   0.24 kB
+dist/assets/salt-BWAFBau-.svg                        0.35 kB │ gzip:   0.25 kB
+dist/assets/chocolate-DoCu-jVC.svg                   0.36 kB │ gzip:   0.25 kB
+dist/assets/scrapbook-hearts-BQ1LwPim.svg            0.36 kB │ gzip:   0.25 kB
+dist/assets/flask-CB14fkg7.svg                       0.36 kB │ gzip:   0.26 kB
+dist/assets/chat-bubble-CRtFyWMN.svg                 0.37 kB │ gzip:   0.26 kB
+dist/assets/clipboard-CI323R7j.svg                   0.38 kB │ gzip:   0.25 kB
+dist/assets/garlic-ClMOJIV8.svg                      0.38 kB │ gzip:   0.27 kB
+dist/assets/mushroom-njaHSrn2.svg                    0.42 kB │ gzip:   0.28 kB
+dist/assets/strawberry-BS_82FVT.svg                  0.42 kB │ gzip:   0.28 kB
+dist/assets/lemon-BLEEOHUX.svg                       0.42 kB │ gzip:   0.29 kB
+dist/assets/tomato-BCE7qJpy.svg                      0.43 kB │ gzip:   0.29 kB
+dist/assets/chili-B50plkP-.svg                       0.43 kB │ gzip:   0.28 kB
+dist/assets/rice-bowl-CXgxg3M0.svg                   0.47 kB │ gzip:   0.31 kB
+dist/assets/cooking-pot-Ba-75oF-.svg                 0.47 kB │ gzip:   0.30 kB
+dist/assets/pork-0MwdRJBY.svg                        0.49 kB │ gzip:   0.31 kB
+dist/assets/recipe-book-C6mAp6Ng.svg                 0.50 kB │ gzip:   0.32 kB
+dist/assets/peppercorns-BjpaTS5m.svg                 0.53 kB │ gzip:   0.28 kB
+dist/assets/pantry-bottle-CgCfWK0K.svg               0.55 kB │ gzip:   0.31 kB
+dist/index.html                                      0.55 kB │ gzip:   0.34 kB
+dist/assets/mixing-bowl-m1qGUPr-.svg                 1.09 kB │ gzip:   0.53 kB
+dist/assets/ingredient-basket-CF59HhMq.svg           2.04 kB │ gzip:   0.86 kB
+dist/assets/herb-sprig-CeE9Pw47.svg                  3.00 kB │ gzip:   0.61 kB
+dist/assets/idle-Bo0sAPxB.svg                        4.82 kB │ gzip:   1.28 kB
+dist/assets/idle-gshqIMH-.svg                        4.92 kB │ gzip:   1.09 kB
+dist/assets/idle-B8N6Oecl.svg                        5.27 kB │ gzip:   1.21 kB
+dist/assets/idle-Apstk3ln.svg                        5.28 kB │ gzip:   1.21 kB
+dist/assets/idle-BlId6ePP.svg                        5.39 kB │ gzip:   1.31 kB
+dist/assets/idle-spYEv0G8.svg                        5.57 kB │ gzip:   1.34 kB
+dist/assets/walk-05-BpCTtybE.svg                     5.67 kB │ gzip:   1.20 kB
+dist/assets/walk-04-BPPiteFK.svg                     5.68 kB │ gzip:   1.20 kB
+dist/assets/walk-01-BEYJoe6S.svg                     5.68 kB │ gzip:   1.20 kB
+dist/assets/walk-02-CsgwVoSv.svg                     5.68 kB │ gzip:   1.20 kB
+dist/assets/walk-06-C8nSkaej.svg                     5.68 kB │ gzip:   1.20 kB
+dist/assets/walk-03-VKa5YaAY.svg                     5.69 kB │ gzip:   1.20 kB
+dist/assets/walk-02-BCzUMDJ7.svg                     5.81 kB │ gzip:   1.36 kB
+dist/assets/walk-01-BXq058UV.svg                     5.81 kB │ gzip:   1.36 kB
+dist/assets/walk-05-CG-F82rt.svg                     5.81 kB │ gzip:   1.36 kB
+dist/assets/walk-03-DeE4Zodf.svg                     5.82 kB │ gzip:   1.36 kB
+dist/assets/walk-04-BHnH_IVY.svg                     5.82 kB │ gzip:   1.36 kB
+dist/assets/walk-06-IyNMAXfG.svg                     5.82 kB │ gzip:   1.36 kB
+dist/assets/walk-02-DzkdJwmH.svg                     6.09 kB │ gzip:   1.33 kB
+dist/assets/walk-05-ChZr5Lbb.svg                     6.09 kB │ gzip:   1.33 kB
+dist/assets/walk-01-BkybqhAw.svg                     6.10 kB │ gzip:   1.34 kB
+dist/assets/walk-04-aF20vMEb.svg                     6.10 kB │ gzip:   1.34 kB
+dist/assets/walk-02-BJYQJ8TH.svg                     6.10 kB │ gzip:   1.33 kB
+dist/assets/walk-01-Curl0aZX.svg                     6.10 kB │ gzip:   1.34 kB
+dist/assets/walk-05-Tme5m1Ci.svg                     6.11 kB │ gzip:   1.33 kB
+dist/assets/walk-03-DrS9MVBa.svg                     6.11 kB │ gzip:   1.34 kB
+dist/assets/walk-06-C6JW_t_P.svg                     6.11 kB │ gzip:   1.34 kB
+dist/assets/walk-04-BmvYw_xe.svg                     6.12 kB │ gzip:   1.34 kB
+dist/assets/walk-06-CsTEWSoJ.svg                     6.12 kB │ gzip:   1.34 kB
+dist/assets/walk-03-L5Zrhupf.svg                     6.13 kB │ gzip:   1.34 kB
+dist/assets/idle-B0R5VtcO.svg                        6.13 kB │ gzip:   1.51 kB
+dist/assets/walk-01-fePyNhqo.svg                     6.14 kB │ gzip:   1.42 kB
+dist/assets/walk-02-DgPn-W8d.svg                     6.15 kB │ gzip:   1.41 kB
+dist/assets/walk-04-wN_046Cl.svg                     6.15 kB │ gzip:   1.42 kB
+dist/assets/walk-05-Bs1W7nGV.svg                     6.15 kB │ gzip:   1.42 kB
+dist/assets/walk-03-DqcRmc0I.svg                     6.15 kB │ gzip:   1.42 kB
+dist/assets/walk-06-nDVW09ZG.svg                     6.16 kB │ gzip:   1.42 kB
+dist/assets/idle-CSnxrX0E.svg                        6.31 kB │ gzip:   1.56 kB
+dist/assets/walk-05-cae8F2YK.svg                     6.33 kB │ gzip:   1.45 kB
+dist/assets/walk-01-BkpPsVfL.svg                     6.33 kB │ gzip:   1.46 kB
+dist/assets/walk-04-CmpymHdh.svg                     6.33 kB │ gzip:   1.46 kB
+dist/assets/walk-02-C4P1Zk9Q.svg                     6.33 kB │ gzip:   1.45 kB
+dist/assets/walk-03-B4hQQFP8.svg                     6.33 kB │ gzip:   1.45 kB
+dist/assets/walk-06-CSgolzQV.svg                     6.34 kB │ gzip:   1.45 kB
+dist/assets/walk-05-DscWXO_x.svg                     6.88 kB │ gzip:   1.62 kB
+dist/assets/walk-02-DWu4NK_B.svg                     6.89 kB │ gzip:   1.63 kB
+dist/assets/walk-04-BxH_GoW1.svg                     6.89 kB │ gzip:   1.62 kB
+dist/assets/walk-01-Bq_8gvpA.svg                     6.89 kB │ gzip:   1.62 kB
+dist/assets/walk-06-B6KZqDTa.svg                     6.90 kB │ gzip:   1.63 kB
+dist/assets/walk-03-Pkj4gzVu.svg                     6.90 kB │ gzip:   1.63 kB
+dist/assets/walk-02-h_5NiWvx.svg                     7.06 kB │ gzip:   1.67 kB
+dist/assets/walk-05-DCGdNPdz.svg                     7.07 kB │ gzip:   1.67 kB
+dist/assets/walk-01-BMwxxzni.svg                     7.08 kB │ gzip:   1.67 kB
+dist/assets/walk-03-0dNOwisJ.svg                     7.08 kB │ gzip:   1.67 kB
+dist/assets/walk-04-Bel2GA9v.svg                     7.08 kB │ gzip:   1.67 kB
+dist/assets/walk-06-C5-7kdSf.svg                     7.09 kB │ gzip:   1.67 kB
+dist/assets/spoon-DkI5Rcz4.webp                     11.07 kB
+dist/assets/figtree-latin-D_ZTVpCC.woff2            20.16 kB
+dist/assets/sprig-BIbwGOw_.webp                     20.20 kB
+dist/assets/whisk-BDNVclGn.webp                     31.61 kB
+dist/assets/flour-4R9yQKCw.webp                     41.90 kB
+dist/assets/fraunces-latin-DihXLNYH.woff2           67.30 kB
+dist/assets/caveat-latin-C1hSzPvX.woff2             74.93 kB
+dist/assets/kitchen-tiles-CuSlHVfE.webp             97.40 kB
+dist/assets/leather-relief-CUq1WQum.jpg            121.11 kB
+dist/assets/desk-oak-CGsZ5qUb.jpg                  334.82 kB
+dist/assets/UnsavedChangesDialog-CMrAaMqu.css        1.78 kB │ gzip:   0.73 kB
+dist/assets/quickAiEntry-CTkcbkQj.css                7.10 kB │ gzip:   1.81 kB
+dist/assets/CreateRecipePage-DcrcLzmE.css            9.27 kB │ gzip:   2.36 kB
+dist/assets/ChefRecipeReviewPage-BRmDe1zs.css       10.36 kB │ gzip:   2.60 kB
+dist/assets/useRecipeSave-MQciYVIX.css              21.85 kB │ gzip:   4.46 kB
+dist/assets/aiChef-YCWVvCkm.css                     28.11 kB │ gzip:   5.53 kB
+dist/assets/index-BVkDsY57.css                     143.73 kB │ gzip:  28.10 kB
+dist/assets/JournalLogoutGuardContext-QLYdfz0p.js    0.09 kB │ gzip:   0.10 kB
+dist/assets/errors-CsWg7NED.js                       0.12 kB │ gzip:   0.14 kB
+dist/assets/plus-D9_Zq3jv.js                         0.36 kB │ gzip:   0.28 kB
+dist/assets/routeState-D6wDhPok.js                   0.72 kB │ gzip:   0.41 kB
+dist/assets/aiChef-B-95mVot.js                       1.02 kB │ gzip:   0.56 kB
+dist/assets/indexNavigation-DAQLlilE.js              1.17 kB │ gzip:   0.63 kB
+dist/assets/CreateRecipePage-pfp5v9qZ.js             1.34 kB │ gzip:   0.72 kB
+dist/assets/JournalPagination-ChJph1WL.js            1.37 kB │ gzip:   0.63 kB
+dist/assets/useUnsavedChangesGuard-BqTo5ilz.js       1.40 kB │ gzip:   0.69 kB
+dist/assets/JournalPage-YjAQyTf1.js                  1.61 kB │ gzip:   0.88 kB
+dist/assets/EditRecipePage-Bq4tzcf9.js               2.11 kB │ gzip:   1.11 kB
+dist/assets/PublicJournalPages-BE-Vt54H.js           2.56 kB │ gzip:   0.99 kB
+dist/assets/EmailVerificationPage-B0JY_Lau.js        3.26 kB │ gzip:   1.55 kB
+dist/assets/DemoRecipePage-DZrzoPXQ.js               3.63 kB │ gzip:   1.58 kB
+dist/assets/AuthPage-CUSKfETu.js                     4.37 kB │ gzip:   1.86 kB
+dist/assets/JournalShell-jmnj9s0N.js                 6.40 kB │ gzip:   2.14 kB
+dist/assets/UnsavedChangesDialog-B04IJn-H.js         6.91 kB │ gzip:   2.79 kB
+dist/assets/ExtractedRecipeReviewPage-C1wnXXFS.js    7.74 kB │ gzip:   3.25 kB
+dist/assets/queries-Doq2KdhF.js                     10.23 kB │ gzip:   3.66 kB
+dist/assets/RecipeReading-Dn8q2696.js               10.47 kB │ gzip:   4.05 kB
+dist/assets/RecipeDetailPage-DS6QQm14.js            13.01 kB │ gzip:   4.65 kB
+dist/assets/readingPagination-BZqrs3uZ.js           14.79 kB │ gzip:   5.32 kB
+dist/assets/QuickAiEntryPage-BRo4gFOQ.js            17.06 kB │ gzip:   5.88 kB
+dist/assets/RecipeDashboardPage-D4Hb57nu.js         21.66 kB │ gzip:   7.25 kB
+dist/assets/ChefRecipeReviewPage-CS9mzgwB.js        21.89 kB │ gzip:   7.23 kB
+dist/assets/AIChefPage-_wEU79zu.js                  25.68 kB │ gzip:   9.04 kB
+dist/assets/JournalPageTurn-CxwUKdFI.js             42.81 kB │ gzip:   9.84 kB
+dist/assets/useRecipeSave-hpUhPcs1.js               51.26 kB │ gzip:  15.03 kB
+dist/assets/index-D4nilcqK.js                      580.04 kB │ gzip: 181.95 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.59s
+
+
+===== revision-browser =====
+Browser: 158.0.8127.37
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByRole('heading', { name: 'Your recipe is saved.', exact: true })
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms
+  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-revision-browser.mjs:390:91 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByRole('heading', { name: 'Your recipe is saved.', exact: true })\n" +
+      'Expected: visible\n' +
+      'Timeout: 5000ms\n' +
+      'Error: element(s) not found\n' +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms\n` +
+      "  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms`,
+      "  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })"
+    ],
+    timeout: 5000,
+    ariaSnapshot: '- link "Skip to journal content":\n' +
+      '  - /url: "#journal-content"\n' +
+      '- banner:\n' +
+      `  - link "MORI'S MIX":\n` +
+      '    - /url: /app/recipes\n' +
+      '  - navigation "Public pages":\n' +
+      '    - link "Home":\n' +
+      '      - /url: /home\n' +
+      '    - link "About":\n' +
+      '      - /url: /about\n' +
+      '    - link "Demo recipe":\n' +
+      '      - /url: /demo-recipe\n' +
+      '  - text: chef@example.test\n' +
+      '  - button "Log out"\n' +
+      '- main:\n' +
+      '  - region "Facing journal page":\n' +
+      '    - text: Cooking journal\n' +
+      '    - paragraph: This journal belongs to\n' +
+      '    - paragraph: chef\n' +
+      '  - region "Journal entries":\n' +
+      '    - navigation "Journal sections":\n' +
+      '      - link "My recipes":\n' +
+      '        - /url: /app/recipes\n' +
+      '      - link "New recipe":\n' +
+      '        - /url: /app/recipes/new\n' +
+      '      - link "Quick AI Entry":\n' +
+      '        - /url: /app/quick-entry\n' +
+      '      - link "AI Chef":\n' +
+      '        - /url: /app/chef\n' +
+      '    - alert: Could not load this page. Reload to try again.\n' +
+      '    - button "Try again"\n' +
+      '- text: Drag Mori to move. When focused, use the arrow keys to reposition.\n' +
+      '- group "Mori companion":\n' +
+      '  - button "Talk to Mori"'
+  }
+}
+
+Node.js v26.10.0
+
+
+===== revision-alias =====
+Check .pr293-revision-alias.ts
+------- pre-test output -------
+(node:83367) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- pre-test output end -----
+running 3 tests from ./.pr293-revision-alias.ts
+control: canonical unchanged rice cup permits oil 1 tsp to 2 tsp ... ok (1ms)
+legacy equivalent rice cups to cup must not block oil 1 tsp to 2 tsp ... FAILED (2ms)
+control: equivalent oil amount is not a real change ... ok (61µs)
+
+ ERRORS
+
+legacy equivalent rice cups to cup must not block oil 1 tsp to 2 tsp => ./.pr293-revision-alias.ts:22:6
+error: AssertionError: Values are not equal.
+
+
+    [Diff] Actual / Expected
+
+
++   {
++     quantity: 2,
++     unit: "tsp",
++   }
+-   undefined
+
+  throw new AssertionError(message);
+        ^
+    at assertEquals (https://jsr.io/@std/assert/1.0.19/equals.ts:67:9)
+    at file:///Users/mynt/dev/moris-mix-pr293-verification/.pr293-revision-alias.ts:26:3
+
+ FAILURES
+
+legacy equivalent rice cups to cup must not block oil 1 tsp to 2 tsp => ./.pr293-revision-alias.ts:22:6
+
+FAILED | 2 passed | 1 failed (6ms)
+
+error: Test failed
+
+
+===== revision-browser-diagnostic =====
+Browser: 158.0.8127.37
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toContainText(expected) failed
+
+Locator: getByRole('region', { name: 'Ingredients' })
+Expected substring: "2 tsp olive oil"
+Error: strict mode violation: getByRole('region', { name: 'Ingredients' }) resolved to 2 elements:
+    1) <div tabindex="0" role="region" class="mm-continuation-body mm-recipe-reading-body" aria-label="Recipe ingredients, instructions and notes">…</div> aka getByRole('region', { name: 'Recipe ingredients,' })
+    2) <section data-splittable="true" data-unit="ingredient-0" data-section="ingredients" aria-labelledby="right-ingredient-0" class="mm-reading-unit mm-reading-ingredients">…</section> aka getByRole('region', { name: 'Ingredients', exact: true })
+
+Call log:
+  - Expect "toContainText" getByRole('region', { name: 'Ingredients' }) with timeout 5000ms
+  - waiting for getByRole('region', { name: 'Ingredients' })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toContainText (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-revision-browser.mjs:401:67 {
+  matcherResult: {
+    name: 'toContainText',
+    expected: '2 tsp olive oil',
+    message: 'expect(locator).toContainText(expected) failed\n' +
+      '\n' +
+      "Locator: getByRole('region', { name: 'Ingredients' })\n" +
+      'Expected substring: "2 tsp olive oil"\n' +
+      "Error: strict mode violation: getByRole('region', { name: 'Ingredients' }) resolved to 2 elements:\n" +
+      `    1) <div tabindex="0" role="region" class="mm-continuation-body mm-recipe-reading-body" aria-label="Recipe ingredients, instructions and notes">…</div> aka getByRole('region', { name: 'Recipe ingredients,' })\n` +
+      `    2) <section data-splittable="true" data-unit="ingredient-0" data-section="ingredients" aria-labelledby="right-ingredient-0" class="mm-reading-unit mm-reading-ingredients">…</section> aka getByRole('region', { name: 'Ingredients', exact: true })\n` +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toContainText" getByRole('region', { name: 'Ingredients' }) with timeout 5000ms\n` +
+      "  - waiting for getByRole('region', { name: 'Ingredients' })\n",
+    pass: false,
+    actual: undefined,
+    log: [
+      `  - Expect "toContainText" getByRole('region', { name: 'Ingredients' }) with timeout 5000ms`,
+      "  - waiting for getByRole('region', { name: 'Ingredients' })"
+    ],
+    timeout: undefined,
+    ariaSnapshot: undefined
+  }
+}
+
+Node.js v26.10.0
+
+
+===== revision-browser-final =====
+Browser: 158.0.8127.37
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByRole('heading', { name: 'Your recipe is saved.', exact: true })
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms
+  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-revision-browser.mjs:391:91 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByRole('heading', { name: 'Your recipe is saved.', exact: true })\n" +
+      'Expected: visible\n' +
+      'Timeout: 5000ms\n' +
+      'Error: element(s) not found\n' +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms\n` +
+      "  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms`,
+      "  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })"
+    ],
+    timeout: 5000,
+    ariaSnapshot: '- link "Skip to journal content":\n' +
+      '  - /url: "#journal-content"\n' +
+      '- banner:\n' +
+      `  - link "MORI'S MIX":\n` +
+      '    - /url: /app/recipes\n' +
+      '  - navigation "Public pages":\n' +
+      '    - link "Home":\n' +
+      '      - /url: /home\n' +
+      '    - link "About":\n' +
+      '      - /url: /about\n' +
+      '    - link "Demo recipe":\n' +
+      '      - /url: /demo-recipe\n' +
+      '  - text: chef@example.test\n' +
+      '  - button "Log out"\n' +
+      '- main:\n' +
+      '  - region "Facing journal page":\n' +
+      '    - text: Cooking journal\n' +
+      '    - paragraph: This journal belongs to\n' +
+      '    - paragraph: chef\n' +
+      '  - region "Journal entries":\n' +
+      '    - navigation "Journal sections":\n' +
+      '      - link "My recipes":\n' +
+      '        - /url: /app/recipes\n' +
+      '      - link "New recipe":\n' +
+      '        - /url: /app/recipes/new\n' +
+      '      - link "Quick AI Entry":\n' +
+      '        - /url: /app/quick-entry\n' +
+      '      - link "AI Chef":\n' +
+      '        - /url: /app/chef\n' +
+      '    - alert: Could not load this page. Reload to try again.\n' +
+      '    - button "Try again"\n' +
+      '- text: Drag Mori to move. When focused, use the arrow keys to reposition.\n' +
+      '- group "Mori companion":\n' +
+      '  - button "Talk to Mori"'
+  }
+}
+
+Node.js v26.10.0
+
+
+===== revision-browser-console =====
+Browser: 158.0.8127.37
+CONSOLE %o
+
+%s
+
+%s
+ Error: Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops.
+    at getRootForUpdatedFiber (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:3741:128)
+    at enqueueConcurrentHookUpdate (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:3725:16)
+    at dispatchSetStateInternal (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:7107:20)
+    at dispatchSetState (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:7078:9)
+    at measure (http://127.0.0.1:5173/src/recipe-form/RecipeFormEditor.tsx:220:7)
+    at http://127.0.0.1:5173/src/recipe-form/RecipeFormEditor.tsx:284:5
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:20317:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:1133:72)
+    at commitHookEffectListMount (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:9773:163)
+    at commitHookLayoutEffects (http://127.0.0.1:5173/node_modules/.vite/deps/react-dom_client.js?v=facce12d:9753:60) The above error occurred in the <RecipeFormEditor> component. React will try to recreate this component tree from scratch using the error boundary you provided, RouteLoadBoundary.
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByRole('heading', { name: 'Your recipe is saved.', exact: true })
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms
+  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-revision-browser.mjs:392:91 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByRole('heading', { name: 'Your recipe is saved.', exact: true })\n" +
+      'Expected: visible\n' +
+      'Timeout: 5000ms\n' +
+      'Error: element(s) not found\n' +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms\n` +
+      "  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByRole('heading', { name: 'Your recipe is saved.', exact: true }) with timeout 5000ms`,
+      "  - waiting for getByRole('heading', { name: 'Your recipe is saved.', exact: true })"
+    ],
+    timeout: 5000,
+    ariaSnapshot: '- link "Skip to journal content":\n' +
+      '  - /url: "#journal-content"\n' +
+      '- banner:\n' +
+      `  - link "MORI'S MIX":\n` +
+      '    - /url: /app/recipes\n' +
+      '  - navigation "Public pages":\n' +
+      '    - link "Home":\n' +
+      '      - /url: /home\n' +
+      '    - link "About":\n' +
+      '      - /url: /about\n' +
+      '    - link "Demo recipe":\n' +
+      '      - /url: /demo-recipe\n' +
+      '  - text: chef@example.test\n' +
+      '  - button "Log out"\n' +
+      '- main:\n' +
+      '  - region "Facing journal page":\n' +
+      '    - text: Cooking journal\n' +
+      '    - paragraph: This journal belongs to\n' +
+      '    - paragraph: chef\n' +
+      '  - region "Journal entries":\n' +
+      '    - navigation "Journal sections":\n' +
+      '      - link "My recipes":\n' +
+      '        - /url: /app/recipes\n' +
+      '      - link "New recipe":\n' +
+      '        - /url: /app/recipes/new\n' +
+      '      - link "Quick AI Entry":\n' +
+      '        - /url: /app/quick-entry\n' +
+      '      - link "AI Chef":\n' +
+      '        - /url: /app/chef\n' +
+      '    - alert: Could not load this page. Reload to try again.\n' +
+      '    - button "Try again"\n' +
+      '- text: Drag Mori to move. When focused, use the arrow keys to reposition.\n' +
+      '- group "Mori companion":\n' +
+      '  - button "Talk to Mori"'
+  }
+}
+
+Node.js v26.10.0
+
+
+===== revision-browser-measure =====
+Browser: 158.0.8127.37
+CONSOLE PR293-MEASURE {"width":468,"height":536,"desktopReview":true,"flowingReview":false,"pending":true,"saved":false,"leaves":4,"visible":"2,3"}
+node:internal/modules/run_main:111
+    triggerUncaughtException(
+    ^
+
+ExpectError: expect(locator).toBeVisible() failed
+
+Locator: getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true })
+Expected: visible
+Error: strict mode violation: getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true }) resolved to 2 elements:
+    1) <p>Change olive oil from 1 teaspoon to 2 teaspoons w…</p> aka getByRole('region', { name: 'Left recipe page' }).getByText('Change olive oil from 1')
+    2) <p>Change olive oil from 1 teaspoon to 2 teaspoons w…</p> aka getByRole('region', { name: 'Journal entries' }).getByText('Change olive oil from 1')
+
+Call log:
+  - Expect "toBeVisible" getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true }) with timeout 5000ms
+  - waiting for getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true })
+
+    at captureRawStack (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:9282:17)
+    at callMatcherAsStep (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13316:57)
+    at Object.toBeVisible (/Users/mynt/dev/moris-mix-ai/frontend/node_modules/.pnpm/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13308:23)
+    at /Users/mynt/dev/moris-mix-pr293-verification/frontend/e2e/.pr293-revision-browser.mjs:411:60 {
+  matcherResult: {
+    message: 'expect(locator).toBeVisible() failed\n' +
+      '\n' +
+      "Locator: getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true })\n" +
+      'Expected: visible\n' +
+      "Error: strict mode violation: getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true }) resolved to 2 elements:\n" +
+      "    1) <p>Change olive oil from 1 teaspoon to 2 teaspoons w…</p> aka getByRole('region', { name: 'Left recipe page' }).getByText('Change olive oil from 1')\n" +
+      "    2) <p>Change olive oil from 1 teaspoon to 2 teaspoons w…</p> aka getByRole('region', { name: 'Journal entries' }).getByText('Change olive oil from 1')\n" +
+      '\n' +
+      'Call log:\n' +
+      `  - Expect "toBeVisible" getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true }) with timeout 5000ms\n` +
+      "  - waiting for getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true })\n",
+    pass: false,
+    actual: undefined,
+    name: 'toBeVisible',
+    expected: 'visible',
+    log: [
+      `  - Expect "toBeVisible" getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true }) with timeout 5000ms`,
+      "  - waiting for getByText('Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.', { exact: true })"
+    ],
+    timeout: undefined,
+    ariaSnapshot: undefined
+  }
+}
+
+Node.js v26.10.0
+
+
+===== revision-browser-settled =====
+Browser: 158.0.8127.37
+PASS exact revision journey: selected olive-oil note -> editable preview -> edited title -> explicit new copy -> lineage -> actual reopened copy with 2 tsp oil and unchanged rice/tomato.
+PASS original preservation: original reopened with 1 tsp oil and unchanged note; no PATCH and no automatic post-save note update.
+
+===== doc-textures =====
+Created textures/desk-oak.jpg (2000 × 1474)
+Created textures/leather-relief.jpg (1000 × 825)

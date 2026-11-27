@@ -1,0 +1,38 @@
+✓ Lockfile passes supply-chain policies (verified 21h ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+Error:   × installing dependencies
+  ╰─▶ Failed to create directory at "/Users/mynt/dev/moris-mix-revision-
+      repairs/frontend/node_modules": workspace hoist directory is not a real
+      directory
+
+[WARN] The install that runs before scripts failed, so your node_modules may be out of sync with your lockfile. Set "verifyDepsBeforeRun: false" to skip this install.
+$ vitest run --configLoader runner -- src/recipe-form/RecipePages.test.tsx
+
+ RUN  v4.1.12 /Users/mynt/dev/moris-mix-revision-repairs/frontend
+
+ ❯ src/ai-chef/AIChefPage.test.tsx (47 tests | 1 failed) 37565ms
+     × shares only the selected note and keeps Mori’s advice distinct from an edited revision 5470ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/ai-chef/AIChefPage.test.tsx > AI Chef pantry and review workflow > shares only the selected note and keeps Mori’s advice distinct from an edited revision
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/ai-chef/AIChefPage.test.tsx:271:3
+    269|   })
+    270|
+    271|   it('shares only the selected note and keeps Mori’s advice distinct f…
+       |   ^
+    272|     const currentMatchMedia = window.matchMedia
+    273|     vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 63 passed (64)
+      Tests  1 failed | 1014 passed (1015)
+   Start at  23:02:33
+   Duration  41.36s (transform 8.00s, setup 11.99s, import 27.91s, tests 221.93s, environment 47.23s)
+
+[ELIFECYCLE] Test failed. See above for more details.

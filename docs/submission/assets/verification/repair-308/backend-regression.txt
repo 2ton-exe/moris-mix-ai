@@ -1,0 +1,26 @@
+------- pre-test output -------
+(node:91723) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- pre-test output end -----
+running 4 tests from ./supabase/functions/tests/generate_recipe_test.ts
+Chef oil quantity revision: canonical units ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"985956a2-d9df-4516-956b-767606802794"}
+----- output end -----
+Chef oil quantity revision: canonical units ... ok (125ms)
+Chef oil quantity revision: legacy unit aliases ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"e6ef19e2-0fe0-491d-8afe-b06a81353ceb"}
+----- output end -----
+Chef oil quantity revision: legacy unit aliases ... ok (8ms)
+Chef oil quantity revision: equivalent amount conversion ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"f23f29ee-e363-4d8f-86a6-e6611802494a"}
+----- output end -----
+Chef oil quantity revision: equivalent amount conversion ... ok (1ms)
+Chef oil quantity revision: two actual ingredient changes ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"2919f873-0729-4a08-9037-9d5d319def31"}
+----- output end -----
+Chef oil quantity revision: two actual ingredient changes ... ok (3ms)
+
+ok | 4 passed | 0 failed | 59 filtered out (148ms)

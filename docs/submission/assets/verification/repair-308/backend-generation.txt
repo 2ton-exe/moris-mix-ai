@@ -1,0 +1,425 @@
+------- pre-test output -------
+(node:91760) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+----- pre-test output end -----
+running 63 tests from ./supabase/functions/tests/generate_recipe_test.ts
+The generate contract defaults to 20 AI operations per day ... ok (1ms)
+CORS OPTIONS preflight on /generate-recipe returns 204 without authentication and scopes ALLOWED_ORIGIN ... ok (133ms)
+Unsupported methods return 405 with Allow: POST, OPTIONS and never authenticate or call the provider ... ok (12ms)
+Unknown paths return 404 NOT_FOUND without authenticating ... ok (20ms)
+Unauthenticated requests return 401 UNAUTHORIZED before quota, retrieval or provider ... ok (17ms)
+An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before retrieval or provider ...
+------- output -------
+Authentication upstream rate limit exceeded
+{"event":"request_failed","request_id":"c75468f5-64cd-4096-ade6-5b1a830c315d","endpoint":"generate-recipe","status":503}
+----- output end -----
+An auth-service 429 becomes 503 AUTH_SERVICE_RATE_LIMITED with Retry-After, before retrieval or provider ... ok (50ms)
+Generation defaults off and requires a valid operator opt-in before reading the body, quota or context ...
+------- output -------
+{"event":"request_failed","request_id":"91002297-c03f-4dff-8155-e5444d9713fa","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"5dc11806-e1d0-4c80-8d4a-db64178c689c","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"a604c6f2-094e-4eeb-a534-13112dd5b990","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"dfd1880b-7143-45c0-a3fb-9ffa6ce985f2","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"a779410b-4b9e-4187-8146-45614214f345","endpoint":"generate-recipe","status":503}
+{"event":"request_failed","request_id":"6f24eeb4-447b-402a-8f25-661490ce8770","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"aa98e9f1-b32b-45d6-92bc-b446e6e3b7d4"}
+{"event":"ai_quota_consumed","reservationId":"a89f739d-eee7-4aea-ab95-c7470da6430a"}
+{"event":"ai_quota_consumed","reservationId":"752eeca9-bca4-4f0a-a553-53db7f281b4d"}
+{"event":"ai_quota_consumed","reservationId":"7eac4c04-8421-4e39-84e9-1ddf2357234f"}
+{"event":"ai_quota_consumed","reservationId":"21ee0c50-e09f-43d5-9f90-b82eb05ad33e"}
+----- output end -----
+Generation defaults off and requires a valid operator opt-in before reading the body, quota or context ... ok (101ms)
+The operator kill switch overrides the generation opt-in before quota, retrieval or provider ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"a05250fb-81e0-4250-8f91-6fd0a18232f5"}
+{"event":"request_failed","request_id":"1d245dae-81ff-478c-9183-0ed607f10c2e","endpoint":"generate-recipe","status":503}
+----- output end -----
+The operator kill switch overrides the generation opt-in before quota, retrieval or provider ... ok (3ms)
+Malformed JSON bodies return 400 INVALID_JSON without calling quota, retrieval or the provider ... ok (41ms)
+Invalid payloads fail Zod validation with 400 VALIDATION_ERROR and never retrieve or call the provider ... ok (132ms)
+An empty pantry is rejected as a client bug, so EMPTY_PANTRY is unreachable through this endpoint ... ok (3ms)
+Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval or the provider ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"9e046e1c-ee54-4b53-b8e4-a6fdfb042152"}
+{"event":"ai_quota_consumed","reservationId":"132561ff-611c-41c3-8def-900a68a5eaae"}
+----- output end -----
+Oversized bodies return 413 INPUT_TOO_LARGE before quota, retrieval or the provider ... ok (21ms)
+Streaming byte enforcement cancels at the first over-limit chunk regardless of Content-Length ... ok (5ms)
+Successful generation returns the validated preview, resolves parents and never persists ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"c2e5c7b8-9695-4351-8ac0-3caa4d8bde70"}
+{"event":"ai_quota_consumed","reservationId":"3b8c63ac-518e-44dc-9086-176580aabcf1"}
+----- output end -----
+Successful generation returns the validated preview, resolves parents and never persists ... ok (9ms)
+AI-07: generation returns a candidate token bound to the resolved parents ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"2dcacb7f-b2f0-4a1c-b7bd-71cf8d594438"}
+----- output end -----
+AI-07: generation returns a candidate token bound to the resolved parents ... ok (3ms)
+AI-07: generation fails closed before quota or provider when the candidate token secret is missing ...
+------- output -------
+AI_CANDIDATE_TOKEN_SECRET is missing or too short; refusing generation.
+{"event":"request_failed","request_id":"4d8d26fe-d0af-4edd-bb6d-2a9888319223","endpoint":"generate-recipe","status":500}
+----- output end -----
+AI-07: generation fails closed before quota or provider when the candidate token secret is missing ... ok (1ms)
+Candidate-token signing failure after generation confirms the reservation without refunding it ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"95c75c1e-cd4f-4001-89a7-5b9e1cf9b5c3"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"a37820b4-4837-4813-be30-7af6970177dc","endpoint":"generate-recipe","status":500}
+----- output end -----
+Candidate-token signing failure after generation confirms the reservation without refunding it ... ok (2ms)
+The endpoint passes the authenticated user and trimmed input to retrieval, and returns its MATCHED context ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"d7049af1-fc70-4c6a-a56d-7f86e482712b"}
+----- output end -----
+The endpoint passes the authenticated user and trimmed input to retrieval, and returns its MATCHED context ... ok (2ms)
+Cold start with no saved recipes still generates an unsaved preview with no parents ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"04575462-9b5c-47cb-b35b-14969fc4cf87"}
+----- output end -----
+Cold start with no saved recipes still generates an unsaved preview with no parents ... ok (2ms)
+Cold start with saved recipes but no pantry overlap reports NO_PANTRY_OVERLAP and no parents ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"081459d9-11e6-466d-ad86-add8c0c53610"}
+----- output end -----
+Cold start with saved recipes but no pantry overlap reports NO_PANTRY_OVERLAP and no parents ... ok (2ms)
+The real BE-10 retrieval feeds the endpoint and returns a resolved parent without writes ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"91a9c486-e903-43d0-af2a-1608956127d3"}
+----- output end -----
+The real BE-10 retrieval feeds the endpoint and returns a resolved parent without writes ... ok (15ms)
+Duplicate parent IDs collapse to one resolved parent while keeping model order ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"909194ef-c02f-4355-87a0-5f6cce26e4cc"}
+----- output end -----
+Duplicate parent IDs collapse to one resolved parent while keeping model order ... ok (5ms)
+A provider that skips validation cannot leak an invented parent ID to the client ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"cd7d2279-0e4f-4d41-9229-131abddd579b"}
+{"event":"request_failed","request_id":"1dcc2d82-e6e1-4875-8c5b-fa1f8fc40982","endpoint":"generate-recipe","status":502}
+----- output end -----
+A provider that skips validation cannot leak an invented parent ID to the client ... ok (2ms)
+A parent ID with no retrieved candidates is rejected even though the ID is a valid UUID ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"07397dfc-9fe7-460e-a528-366dd97303b4"}
+{"event":"request_failed","request_id":"2cd1b0ef-fd00-4e1b-90f4-ca351722663b","endpoint":"generate-recipe","status":502}
+----- output end -----
+A parent ID with no retrieved candidates is rejected even though the ID is a valid UUID ... ok (2ms)
+Malformed provider output is rejected before the frontend sees it ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"72eb182e-2b4d-4918-be01-4f2f56556c25"}
+{"event":"request_failed","request_id":"917d3d92-bb65-4cfd-9dab-d716ac694288","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"9b1dc873-ed89-48aa-ba70-400af9e22b63"}
+{"event":"request_failed","request_id":"07f02285-a16f-4e09-894b-28c5ad21cbc1","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"45a0d268-3144-4494-abef-ceb7f072db5a"}
+{"event":"request_failed","request_id":"20c45729-5be1-4a69-9aa2-b9fe4dbe4ec4","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"feee286b-35f9-4475-b754-7f74e568bb62"}
+{"event":"request_failed","request_id":"4b59bcce-812c-456d-bb95-46070a3f300d","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"5eff0210-827b-4131-9baa-4d161d08714e"}
+{"event":"request_failed","request_id":"0d8c0c0b-f2cd-43ff-bfac-6ec0c6e4a79c","endpoint":"generate-recipe","status":502}
+----- output end -----
+Malformed provider output is rejected before the frontend sees it ... ok (14ms)
+AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"48d4787b-fdce-49aa-9050-e0acdfdc0ab2"}
+{"event":"request_failed","request_id":"c7c26162-6459-442d-b7d9-0717cab21893","endpoint":"generate-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"22825288-2752-4996-b6b9-793c7783cab8"}
+{"event":"request_failed","request_id":"88ca69fc-cede-45b5-b62c-fb46c82555fd","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"31015ba3-aa08-4414-b7a2-fc5a14fd3424"}
+{"event":"request_failed","request_id":"e3059520-c90b-4ed0-8b29-307f9beae1c6","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"ed7218d8-f13a-4185-a279-2a5e4f13d928"}
+{"event":"request_failed","request_id":"56dfa6c1-059c-4451-9348-eb4d647c15d9","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"26fc2cdd-6018-4d40-a81a-e0ac18f3d876"}
+{"event":"request_failed","request_id":"b090e08a-f699-4e8f-8702-53cf81124286","endpoint":"generate-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"3b9604a3-f015-4178-9c5c-3ab395fc374c"}
+{"event":"request_failed","request_id":"c2e9a877-e1ed-4a32-bbf8-e450b93ef5c3","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"bc476d34-1ae3-4fa5-86d8-cd8e0bb45e3c"}
+{"event":"request_failed","request_id":"9d916f8c-0ae8-4cad-82e3-ac0ab49fd238","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"895ace69-de41-4005-8136-a54983d6d804"}
+{"event":"request_failed","request_id":"70a45de2-1e0d-46de-9a55-d73320cc9ad6","endpoint":"generate-recipe","status":502}
+----- output end -----
+AI-09: a real adapter timeout, outage, malformed output or safety block fails safely and never writes ... ok (91ms)
+AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTENT block without retrying or writing ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"bf058f60-5f4f-4084-bab8-b97644575505"}
+{"event":"request_failed","request_id":"3933a8c3-462b-4518-a956-0a0f20fb3743","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"59fea52c-aa53-4ad7-abfe-d389a232d83e"}
+{"event":"request_failed","request_id":"240c3ec4-9cb8-4a6f-9415-49cbf9b446fc","endpoint":"generate-recipe","status":502}
+----- output end -----
+AI-09: the generation endpoint classifies a real SDK PROHIBITED_CONTENT block without retrying or writing ... ok (24ms)
+Provider failures map to safe, recoverable errors without leaking detail ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"bd706d3f-a415-42f1-93e0-d15b4a9d26c5"}
+{"event":"request_failed","request_id":"a57b9151-d654-4d66-9b4a-8b2b50a3b9ed","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"28d36997-130c-4004-a58f-226e10bb66fd"}
+{"event":"request_failed","request_id":"ef9af839-fad4-4fe4-82a5-94f170634d9d","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"8cb35fd0-b4a1-4a3d-bb9a-015f07232521"}
+{"event":"request_failed","request_id":"2f4069b9-da6f-4c63-aad9-f4b8c75b011d","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"e74e5e1a-6724-4207-8d97-947f5342f001"}
+{"event":"request_failed","request_id":"bbd1250b-99cb-4677-9b5b-e2dd75d32a1d","endpoint":"generate-recipe","status":504}
+{"event":"ai_quota_consumed","reservationId":"99269285-7564-4eb4-aa89-08d6e97e4127"}
+{"event":"request_failed","request_id":"a593035e-2f23-4604-902e-ba0e61aacd40","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"38dd5596-125b-4915-b06e-905a2e840fd0"}
+{"event":"ai_quota_consumed","reservationId":"07b88601-671c-4851-82b2-aa83ec2c794e"}
+{"event":"ai_quota_consumed","reservationId":"147ae388-87fe-42b7-81d6-b4b0e924bb79"}
+{"event":"ai_quota_consumed","reservationId":"1b43d2b7-d781-4e46-94bb-77e3386e5baf"}
+{"event":"request_failed","request_id":"ddce8ddb-da2f-4a82-9b8b-081186f15cd6","endpoint":"generate-recipe","status":500}
+----- output end -----
+Provider failures map to safe, recoverable errors without leaking detail ... ok (20ms)
+An unexpected provider exception becomes a generic 500 INTERNAL_ERROR with no leaked text ...
+------- output -------
+Unhandled exception in generate-recipe handler
+{"event":"ai_quota_consumed","reservationId":"bfafa345-3be7-47b1-b712-1a0982e0b620"}
+{"event":"request_failed","request_id":"7f2c2c38-b2b5-4eae-813d-951c0278f98f","endpoint":"generate-recipe","status":500}
+----- output end -----
+An unexpected provider exception becomes a generic 500 INTERNAL_ERROR with no leaked text ... ok (1ms)
+A failing retrieval step becomes a generic 500 without calling the provider ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"19e13ae1-1b49-4bca-ac5f-04877800a04e"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"697afce3-b3ec-46ba-a4f4-a15d0fd97b55","endpoint":"generate-recipe","status":500}
+----- output end -----
+A failing retrieval step becomes a generic 500 without calling the provider ... ok (3ms)
+Quota exhaustion returns 429 QUOTA_EXCEEDED with Retry-After and never retrieves or calls the provider ... ok (1ms)
+Short-window AI rate exhaustion returns 429 with Retry-After before context retrieval or provider invocation ... ok (1ms)
+Generated prompt context over the fixed byte budget is rejected and the reservation is rolled back ... ok (1ms)
+Aggregate candidate data over the byte budget is rejected before provider dispatch ... ok (1ms)
+A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never retrieves or calls the provider ...
+------- output -------
+{"event":"ai_quota_rpc_failed","stage":"response","code":"PGRST500"}
+{"event":"request_failed","request_id":"5d7bfc96-fb89-46ba-b740-600064617204","endpoint":"generate-recipe","status":503}
+----- output end -----
+A failing quota check returns a safe 503 QUOTA_UNAVAILABLE and never retrieves or calls the provider ... ok (2ms)
+The endpoint passes the authenticated user id to the injected quota gate ... ok (2ms)
+The default quota gate reads the daily counter and blocks at the configured limit ... ok (10ms)
+Simulation drills need an allowed environment plus both switches, and exercise the real error contract ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"b7d27b5e-5ffa-4223-8af8-548b46d5412a"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"9107d854-1a6a-4d66-813d-8cee3da85897","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"ai_quota_consumed","reservationId":"b2607255-31a2-47f9-b2e6-fa62b4779c32"}
+{"event":"ai_quota_consumed","reservationId":"edd7ee6a-56f8-4f0e-9bc2-b8089896e1ba"}
+{"event":"request_failed","request_id":"9fc0a954-7b62-472a-b574-19923062aa07","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"f3772ab1-c194-4719-b119-5989c14d6f3d"}
+{"event":"ai_quota_consumed","reservationId":"2305c734-25e9-4f2b-a66e-a860ad805590"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"8d631caf-fbb4-4a99-8134-282e4469ae59","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"ai_quota_consumed","reservationId":"55639707-d936-4482-9aff-0712c9768c2e"}
+{"event":"ai_quota_consumed","reservationId":"cddf2ffe-6026-42cb-864e-e371296d24d1"}
+{"event":"request_failed","request_id":"2c22e543-1b23-467f-9413-fb48a4b0393f","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"bb069358-7792-4293-bd87-ea1f4f1f133f","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"2cef9d6f-9220-4d7d-8511-6a67651b7796","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"a391ab74-05cf-41d8-bad5-b21bb7987a4c"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"33c68126-9224-4ca4-b81a-3c02944aaaeb","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"2a629b1d-5a1a-4c95-ac9d-4e49b08e11f4"}
+{"event":"request_failed","request_id":"3103aafc-2c24-4876-aa9c-c730cb016c9a","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"5c12fec0-e244-4d48-a478-4d871ead604a"}
+{"event":"request_failed","request_id":"9fa9c7c2-6eb8-48e0-96ee-0ef8e7596c65","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"945929ae-ef2a-42b9-9386-29b902cef56f"}
+{"event":"request_failed","request_id":"4b28d9aa-989d-4076-a7bf-174325b93294","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"c6550308-ae7f-4b69-8a17-3097ac5689f4"}
+Unhandled exception in generate-recipe handler
+{"event":"ai_quota_consumed","reservationId":"95eaf536-f96c-421b-90bb-27d52a316fda"}
+{"event":"request_failed","request_id":"6825e311-7493-4a02-84c2-77379514cbfc","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"2d9f1da4-7ff4-4ac7-8187-030852b5935e","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"5f03e834-7ca0-428e-8e47-6283b9b6a32f"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"43e1ee57-9702-4df1-8a32-8fb878c8a0d0","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"e7e11d7b-047a-4db4-a69d-311a7bfbffea"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"d209b7c4-3211-4c0f-b6a2-934dfadabd5a","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"4768a3c9-1ce2-4d4f-a8e0-4972ab174e05","endpoint":"generate-recipe","status":500}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"1484ede5-0472-4172-821e-43f19bb7b9a4","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"f765ddc5-9dd5-40c9-aadf-a9b1db0d2d87"}
+{"event":"ai_quota_consumed","reservationId":"ec72a060-2b23-46df-a676-efe84253b560"}
+{"event":"ai_quota_consumed","reservationId":"2135fff5-e422-4a5a-b59b-8a512dbbd7b5"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"f7378aad-5365-4897-91b0-b039ce6f2817","endpoint":"generate-recipe","status":500}
+{"event":"ai_quota_consumed","reservationId":"c24a4669-f8ef-446e-bc4c-47669b3af46a"}
+{"event":"request_failed","request_id":"41406045-7b82-4629-a455-556e99b628bd","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"00dcd3ac-c0b1-42d3-8624-673ad547cf35"}
+{"event":"request_failed","request_id":"a747aaec-4a8a-467e-9090-c41ab21b6316","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"8675e3b4-8765-41b3-85be-c56e6ab83079"}
+{"event":"request_failed","request_id":"2fea8d6c-5a63-4b2f-861c-4d44134451b9","endpoint":"generate-recipe","status":502}
+{"event":"ai_quota_consumed","reservationId":"30663c4e-7200-42a2-84aa-682022c0b446"}
+{"event":"request_failed","request_id":"478abf8c-0bef-423d-9a4b-29f4792e312e","endpoint":"generate-recipe","status":503}
+{"event":"ai_quota_consumed","reservationId":"6a2cf60d-fc5b-4c0a-96d1-b086633a561e"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"a4812e97-1a36-4751-8f46-583b7c7c4670","endpoint":"generate-recipe","status":500}
+----- output end -----
+Simulation drills need an allowed environment plus both switches, and exercise the real error contract ... ok (73ms)
+Logical AI operation with bounded retry charges 1 quota reservation and confirms on success ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"5a2bf76c-349a-44c8-9201-a14deadb5396"}
+----- output end -----
+Logical AI operation with bounded retry charges 1 quota reservation and confirms on success ... ok (44ms)
+Logical AI operation with retry exhaustion refunds the quota reservation ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"38a914c6-d231-4210-aaa1-0a65b327ba2f"}
+----- output end -----
+Logical AI operation with retry exhaustion refunds the quota reservation ... ok (1ms)
+Reservation replay rejection prevents repeated provider invocations under single reservation ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"e978b410-92e6-4e71-9837-1498b96f4480"}
+{"event":"request_failed","request_id":"8bbdc5af-6e00-4869-b5ac-3adba97bf85f","endpoint":"generate-recipe","status":503}
+----- output end -----
+Reservation replay rejection prevents repeated provider invocations under single reservation ... ok (1ms)
+Error preservation returns original provider error even when rollback RPC fails ...
+------- output -------
+{"event":"ai_quota_rollback_failed","reservationId":"cdcab9e8-68d9-4e18-87c7-6e3f31a68906"}
+{"event":"ai_quota_consumed","reservationId":"cdcab9e8-68d9-4e18-87c7-6e3f31a68906"}
+{"event":"ai_quota_rpc_failed","stage":"rollback","code":"PGRST500"}
+{"event":"request_failed","request_id":"e63eb022-3d2d-40cb-9f0b-40308066309a","endpoint":"generate-recipe","status":502}
+----- output end -----
+Error preservation returns original provider error even when rollback RPC fails ... ok (6ms)
+Confirmation safety delivers 200 OK preview even if confirmation RPC fails ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"4b16658f-71c2-4d20-990b-dff3d4f72efb"}
+{"event":"ai_quota_confirmation_failed","reservationId":"4b16658f-71c2-4d20-990b-dff3d4f72efb"}
+{"event":"ai_quota_rpc_failed","stage":"confirmation","code":"PGRST500"}
+----- output end -----
+Confirmation safety delivers 200 OK preview even if confirmation RPC fails ... ok (5ms)
+Missing service role credentials fail closed with QUOTA_UNAVAILABLE before retrieval or provider execution ...
+------- output -------
+Missing service role configuration for quota consumption
+{"event":"request_failed","request_id":"19aa9e3f-d792-443f-a081-346dbda7fe47","endpoint":"generate-recipe","status":503}
+----- output end -----
+Missing service role credentials fail closed with QUOTA_UNAVAILABLE before retrieval or provider execution ... ok (1ms)
+HTTP 503 provider failure across retries confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"d4904e19-b092-4f52-9ecc-adbdb4aa0c1c"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":1,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"6bc93954-dcd1-49cc-8597-81377950782f","endpoint":"generate-recipe","status":503}
+----- output end -----
+HTTP 503 provider failure across retries confirms generate quota without refund using GeminiAdapter ... ok (4ms)
+HTTP 500 provider failure across retries confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"e839f051-d4d2-4eb5-ad73-720e9ac2b187"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":1,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"01a97171-2986-457f-bf9c-25f4a646a7c3","endpoint":"generate-recipe","status":503}
+----- output end -----
+HTTP 500 provider failure across retries confirms generate quota without refund using GeminiAdapter ... ok (4ms)
+Network transport disconnect failure across retries confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"b0b1e9b0-dad2-44d8-aacc-e5cc9176a1d2"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"28367f60-0431-40c4-8029-48c6401a376a","endpoint":"generate-recipe","status":503}
+----- output end -----
+Network transport disconnect failure across retries confirms generate quota without refund using GeminiAdapter ... ok (3ms)
+Ambiguous provider timeout failure confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"2790fe05-7b03-45c9-bc5c-e8e5510b3216"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_timeout"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_timeout"}
+{"event":"request_failed","request_id":"53dd7c79-e51a-43f5-a5a8-b548702b1557","endpoint":"generate-recipe","status":504}
+----- output end -----
+Ambiguous provider timeout failure confirms generate quota without refund using GeminiAdapter ... ok (3ms)
+Mixed retries with timeout followed by 503 confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"cc67f652-0aee-45f7-9848-644cda972598"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_timeout"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"a8853d91-765d-4990-a51b-9847bad93ed7","endpoint":"generate-recipe","status":503}
+----- output end -----
+Mixed retries with timeout followed by 503 confirms generate quota without refund using GeminiAdapter ... ok (3ms)
+Mixed retries with 429 followed by 503 confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"e81054b3-c52c-42a6-b585-283adea4702e"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":1,"outcome":"rate_limited"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"provider_unavailable"}
+{"event":"request_failed","request_id":"8d664ec1-c2d4-4567-9658-16014f465457","endpoint":"generate-recipe","status":503}
+----- output end -----
+Mixed retries with 429 followed by 503 confirms generate quota without refund using GeminiAdapter ... ok (10ms)
+Mixed retries with 503 followed by 429 confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"6beabdbb-d223-49e5-908e-e3027051718e"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"provider_unavailable"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- output end -----
+Mixed retries with 503 followed by 429 confirms generate quota without refund using GeminiAdapter ... ok (3ms)
+SDK prompt safety block confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"f072ea57-c9c5-445d-a29b-2272197de8ff"}
+{"event":"request_failed","request_id":"deb87ba3-9875-42e2-9226-b44b33ac4cf5","endpoint":"generate-recipe","status":502}
+----- output end -----
+SDK prompt safety block confirms generate quota without refund using GeminiAdapter ... ok (83ms)
+SDK candidate safety block confirms generate quota without refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"7e1eb1dc-6012-4059-bdc1-f8dfc1fb2e5b"}
+{"event":"request_failed","request_id":"7942adcf-a770-450b-93e8-f8bcb57bb78c","endpoint":"generate-recipe","status":502}
+----- output end -----
+SDK candidate safety block confirms generate quota without refund using GeminiAdapter ... ok (2ms)
+Definite non-consuming 429 rate limit across retries refunds generate quota reservation using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"c152243f-a79e-4f20-9c69-9ff09b99951d"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"rate_limited"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":2,"latencyMs":0,"outcome":"rate_limited"}
+----- output end -----
+Definite non-consuming 429 rate limit across retries refunds generate quota reservation using GeminiAdapter ... ok (2ms)
+Invalid model output schema failure confirms generate quota and does not refund using GeminiAdapter ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"80fcf4cd-daad-4e76-a8b7-cd8102cfbb97"}
+{"op":"generate","model":"gemini-3.5-flash-lite","promptId":"chef","promptVersion":"1.2.0","attempt":1,"latencyMs":0,"outcome":"invalid_output","detail":"recipe, substitutions, parentRecipeIds"}
+{"event":"request_failed","request_id":"609332c8-9aee-4509-b3d7-d8fc5bf98c4b","endpoint":"generate-recipe","status":502}
+----- output end -----
+Invalid model output schema failure confirms generate quota and does not refund using GeminiAdapter ... ok (1ms)
+Pre-provider context retrieval failure refunds reserved generate quota ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"c43c1bab-11fd-422a-b5f3-3e6b52a0d09d"}
+Unhandled exception in generate-recipe handler
+{"event":"request_failed","request_id":"a90c8d91-de72-4d85-85f6-f0be8d50b989","endpoint":"generate-recipe","status":500}
+----- output end -----
+Pre-provider context retrieval failure refunds reserved generate quota ... ok (889µs)
+Generate quota consumption falls back to environment variables when dependencies omit service role credentials ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"8686788b-6c55-4506-bcc2-a5cb942b859f"}
+----- output end -----
+Generate quota consumption falls back to environment variables when dependencies omit service role credentials ... ok (2ms)
+Pantry generation still ignores extra fields from a focused revision ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"ce619313-3655-46ca-92fb-968632b09ec9"}
+----- output end -----
+Pantry generation still ignores extra fields from a focused revision ... ok (1ms)
+Chef revisions use exact selected evidence and sign only an owned source ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"7985f1e7-ea37-4986-b490-64be969d3843"}
+{"event":"ai_quota_consumed","reservationId":"a329df6a-202e-4b7d-9d60-616de8771ef2"}
+{"event":"ai_quota_consumed","reservationId":"8321c737-4195-4061-be98-325cfb733ca2"}
+{"event":"ai_quota_consumed","reservationId":"babef978-efbb-48b8-98e9-bf5f5ad54caf"}
+{"event":"ai_quota_consumed","reservationId":"171b707d-c691-4ae5-bc4c-2f855fa72df4"}
+{"event":"ai_quota_consumed","reservationId":"9cd56833-9944-446b-aaec-e3b3c08c9c24"}
+----- output end -----
+Chef revisions use exact selected evidence and sign only an owned source ... ok (31ms)
+Chef oil quantity revision: canonical units ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"b67798bc-33ad-4ab5-a569-ad8b4623d1e6"}
+----- output end -----
+Chef oil quantity revision: canonical units ... ok (7ms)
+Chef oil quantity revision: legacy unit aliases ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"fb5ad38d-6a65-4615-a23a-090b69c2b13b"}
+----- output end -----
+Chef oil quantity revision: legacy unit aliases ... ok (33ms)
+Chef oil quantity revision: equivalent amount conversion ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"e000e64c-4faa-42f1-9ea0-606dd741a6ad"}
+----- output end -----
+Chef oil quantity revision: equivalent amount conversion ... ok (1ms)
+Chef oil quantity revision: two actual ingredient changes ...
+------- output -------
+{"event":"ai_quota_consumed","reservationId":"131cf3f8-1aca-42c6-b41e-b8c335e76738"}
+----- output end -----
+Chef oil quantity revision: two actual ingredient changes ... ok (2ms)
+
+ok | 63 passed | 0 failed (1s)

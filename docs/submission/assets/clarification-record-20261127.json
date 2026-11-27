@@ -1,0 +1,37 @@
+{
+  "recorded_date": "2026-11-27 Asia/Manila",
+  "reviewed_document_revision": "3677bce219a5ce6ad1be78bfb4b3e152859e1366",
+  "approved_by": "Yuan Paulo Sebastian M. Belen / myntchoc",
+  "approval_source": "Direct user clarification in this conversation; includes disclosed limitations and approved corrections",
+  "approved_artifact_sha256": {
+    "final-brief.md": "b1bf13a6eb2c71ffae52d476211bb6af18885fc4abe5dcee093ad7b10147b9ee",
+    "final-brief.docx": "6a1670a4ef6f51eba6c6846413cebe18f5a487145723cad56eba4fde580e5e07",
+    "final-brief.pdf": "6d98464daaf007ff96248f24181e87835dda3e778257f4a07e51ca1b9995a5d8"
+  },
+  "report_source_filename": "MORIS_MIX_PRODUCTION_ACCEPTANCE_2026-11-27.docx",
+  "report_sha256": "2cd8eb69c1604ec132a5a023980517b5b4d6607db67c0e88021b25fcc4e57952",
+  "suffix_resolution": "Only unsuffixed DOCX located locally; title PA-20261127, Figure1/2, and later18:36 R2 operator addendum establish content identity of the referenced report; no suffix-based version inference.",
+  "screenshots": [
+    {
+      "path": "PA-20261127-DUR-01-post-deployment.png",
+      "package_part": "word/media/image1.png",
+      "relationship": "rId9",
+      "figure": "Figure 1: witness reopened after production deployment",
+      "original_capture_time": "2026-11-27 18:10 PHT",
+      "sha256": "2d59a66e0801ba6650064337e26286f37fe5b4adafce04f81851cb6e39b00cc3"
+    },
+    {
+      "path": "PA-20261127-DUR-01-cleanup.png",
+      "package_part": "word/media/image2.png",
+      "relationship": "rId10",
+      "figure": "Figure 2: former witness page after deletion",
+      "original_capture_time": "2026-11-27 18:15 PHT",
+      "sha256": "484f69043bb1fd70091808dd71afcf10fbf718bd45622d8c76e95dd039948ba0"
+    }
+  ],
+  "authoritative_format": {
+    "endterm_format.md": "0ccd5f3c6501513b214234ad3a447b0ad12674ffb1d628398fd795713b87098a",
+    "reconciliation-of-facts.md": "185d20faf82b3b6625e7b4b5f73adf07b76616959d47d6e3433f5ea968f825ef",
+    "workflow.md": "c8b38e52ab3525ab3e8f68ec06e2925d587ece4635217c7864eb1a915df8eaa8"
+  }
+}

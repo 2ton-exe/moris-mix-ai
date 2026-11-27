@@ -2,6 +2,11 @@
 
 An AI-assisted recipe journal and leftover-meal assistant developed by Team 2ton.exe. Save recipes, structure cooking notes, and generate meal ideas from available ingredients.
 
+## Submission evidence
+
+Read the [three-page technical brief (PDF)](docs/submission/final-brief.pdf), [FINAL DOCUMENT Google Doc](https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/edit?tab=t.0), [editable DOCX](docs/submission/final-brief.docx) and [reviewer evidence index](docs/submission/final-brief.md#10-reviewer-evidence-index). This reviewable submission integrates the approved clarifications and v1.0.0 DevOps packet. [Specific remaining evidence/access gaps](docs/submission/outstanding-confirmations.md) remain explicit; document completion does not establish overall submission readiness.
+
+
 ## Project Setup
 
 See the [local development and troubleshooting guide](docs/development-setup.md) for frontend setup, the local Supabase stack, migrations and demo seed, and the demo API. It uses local-only credentials and does not require real Supabase or Gemini secrets.

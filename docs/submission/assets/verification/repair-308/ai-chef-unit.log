@@ -1,0 +1,8 @@
+
+ RUN  v4.1.12 /Users/mynt/dev/moris-mix-revision-repairs/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  47 passed (47)
+   Start at  23:03:37
+   Duration  10.07s (transform 706ms, setup 81ms, import 1.10s, tests 8.48s, environment 253ms)

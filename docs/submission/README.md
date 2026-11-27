@@ -1,0 +1,76 @@
+# Submission brief and current evidence
+
+**27 November 2026, Asia/Manila · reviewed revision `3677bce` approved by myntchoc; clarification corrections approved; submission evidence still partial.** This pack reconciles dated evidence for [draft PR #293](https://github.com/2ton-exe/moris-mix-ai/pull/293). **myntchoc owns current non-DevOps documentation, verification, synthesis and final approval.** Historical contributors retain their attribution. The November 25 audits and supplied November 27 acceptance report remain dated originals; newer local results do not overwrite them.
+
+**Review the [three-page PDF](final-brief.pdf), [editable DOCX](final-brief.docx) or [brief text](final-brief.md), and the updated [FINAL DOCUMENT tab](https://docs.google.com/document/d/1USkQIcd6oCz7vO2sAsE2ssJcLbs-OOlsEqgfmDamqcI/edit?tab=t.0).** The [single input register](outstanding-confirmations.md) contains the Q1–Q6 dispositions and only narrower remaining gaps, the disposition of the now-implemented application repairs, and five separate DevOps dependencies. Document approval is recorded; no overall submission-ready designation is made.
+
+| Evidence map | Purpose |
+|---|---|
+| [Process evidence](process-evidence.md) / [board evidence](board-evidence.md) | Four sprints, originals versus reconstruction/recollection, 78 captured rows and 159 issue/PR pairs, actual historical authors/reviews and exact process gaps |
+| [External-work disclosure](external-work-disclosure.md) / [asset register](asset-register.tsv) | Incorporated tool/source declarations, all 151 image/font paths/hashes, retained notices and grouped A05–A08 permission decisions |
+| [Compilation record and verification](compilation-record.md#verification-record) | Exact commands, revisions/dirty state, runtimes, timestamps, pass/fail/skip units, source identities, diagnostics and access boundaries |
+| [PA-20261127 original supplied report](assets/PA-20261127.md) | Production observations including later operator-reported object presence; both embedded DUR screenshots extracted with [report provenance](assets/clarification-record-20261127.json) |
+| [DevOps handoff](assets/devops-handoff-20261127.md) | D1–D5 packet: designated release, exact delivery/current CI, rollback/restore limits, operational and access gaps |
+| [Remaining facts and decisions](outstanding-confirmations.md) | One manual-input register; behavior failures, missing originals/media, declarations and access issues; separate DevOps packet |
+
+## Revision identities
+
+Refs were fetched on 27 November before investigation. These are different identities, not interchangeable release labels.
+
+| Identity | Exact revision / interpretation |
+|---|---|
+| PR #293 head at intake | `60f580f9cc82f6a9079494a7f300e83ba209966e`, `docs/submission-evidence`; draft. Its original base was `7e5260be9c92d0dc07a94ae06447020655b1381b`. |
+| PR #293 head at repair follow-up intake | `1f536479cb7416f6ff272ef88284ee20313d7a4f`; still draft. The follow-up documentation commit is identified in the PR description/history. |
+| Original source-era main checkpoint | `87e320a2e09888c1d1312796fa1534d30eaa7799`. Source verification was frozen at `d329285ce0be5e955ee6ac76751cf97f6e58f799`; the later #307 diff changes only a public demo signup label and its assertions (3 files, 3 lines). No AI/editor/database change; original results remain at `d329285`, and separate repair checks below use `40b5e10`. [#282](https://github.com/2ton-exe/moris-mix-ai/pull/282) merged at `7918d99c7370103dd30334ef720334b2ed3aacb0` on **27 November 15:47:17 PHT** and is in this history. |
+| Original local behavior verification | `d329285ce0be5e955ee6ac76751cf97f6e58f799`; no tracked application changes. Untracked probe/dependency state and each command are recorded in the verification appendix. |
+| Repair verification | `40b5e1051ca7bbdf256eec1e578796b2a8283acb` in separate [PR #308](https://github.com/2ton-exe/moris-mix-ai/pull/308), based on `87e320a`; subsequently merged as `66ccff12a63f9640303475b4877bc51acd9dee67` at 23:06:57 PHT. The DevOps packet records deployment; no production journey retest is inferred. This repair SHA is separate from #293 and production acceptance. |
+| Release / current main | **v1.0.0** at `c49a8406a535d9b3475634f4f3c6ff998223e246`; [release/changelog](https://github.com/2ton-exe/moris-mix-ai/releases/tag/v1.0.0), [successful deployment/CI](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46024556206). This is not the earlier feature-acceptance revision. |
+| Production-tested revision | `5cad4b8be8c04e2fcec4cccc4266ddcdcbcb10e7` for PA feature observations; `05c9b322cecb61ed0344f9c4ed479170afb7a5c7` additionally for durability readback. Backend per-function runtime identity was not independently measured. |
+| Documentation revision | Reconciliation commits in **PR #293**, based on intake `60f580f`; [file history](https://github.com/2ton-exe/moris-mix-ai/commits/docs/submission-evidence/docs/submission/README.md). This branch is behind current application main: links for current implementation pin `d329285`; its old tree is not presented as including #282. The exact delivered documentation commit is recorded with the review handoff. |
+
+## Current evidence
+
+Shared status definitions live in [process evidence](process-evidence.md#evidence-rules-and-source-coverage). **PA** = unchanged supplied [PA-20261127 report](assets/PA-20261127.md); **local** = [exact verification record](compilation-record.md#verification-record). “Readable” below means present in this review pack; it does not establish an individual panel account's access.
+
+| Claim | Scope | Result | Revision | Environment / date PHT | Evidence | Panel accessibility | Limitation | Current decision owner |
+|---|---|---|---|---|---|---|---|---|
+| AUTH-01 | Signed-in journal | Pass | `5cad4b8` | Production, 27 Nov from 17:34:55 | PA | Text readable; captures pending | Reused session; no fresh credential-entry acceptance | myntchoc |
+| CRUD-01 | Create/reopen/edit/delete synthetic recipe | Pass | `5cad4b8` | Production, 27 Nov | PA | Text readable; other journey media pending | Applies to recorded synthetic flow/revision | myntchoc |
+| DUR-01 | Same witness after deployment, then cleanup | Pass | `5cad4b8`→`05c9b32` | Production, 27 Nov; follow-ups through 18:15 | PA; [deployment](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45977892706) | Both report figures supplied in this pack | No later-head durability claim | myntchoc |
+| AI-EX-01 | Editable extraction, edit/save/reopen | Pass | `5cad4b8` | Production, 27 Nov | PA | Text readable; redacted capture pending | One app submission; no accuracy score | myntchoc |
+| AI-CH-01 | Chef preview through lineage/reopen | Failed end-to-end | `5cad4b8` | Production, 27 Nov | PA | Text readable; boundary diagnostics absent | Preview existed; Instructions step 4→inspiration failed before parent selection/save | myntchoc |
+| AI-REV-282 | Oil 1→2 tsp note revision | Failed end-to-end | `5cad4b8` | Production, 27 Nov | PA | Text readable; source/provider output absent | Quantity verification rejected; linked save, lineage/reopen and post-save behavior unaccepted | myntchoc |
+| R2-01 | Upload/replace/private read/app removal | Pass for app lifecycle | `5cad4b8` | Production, 27 Nov | PA | Text readable; media pending | Recipe deletion ended app access; physical deletion separate | myntchoc |
+| R2-02 | Physical finalized-object cleanup | Partial | PA release checkpoint | Production, 27 Nov; object A 18:36:22, B 18:36:36 | PA operator addendum | Report readable; keys intentionally omitted | Both present; queue zero attempts; no later purge evidence | DevOps |
+| Local Chef | Preview→instructions→inspiration→selected parent→save→lineage→reopen; failed-link recovery | Passed synthetic checks | `d329285` | macOS/Chrome, 27 Nov 22:24 | local | Sanitized logs/probe readable | Mock transport; 2 distinct journeys, happy path at 2 sizes; not production root-cause proof | myntchoc |
+| Baseline local revision | Exact note, valid/invalid output; linked-copy UI and original preservation | Historical mixed result; superseded locally by repair below | `d329285` | Local, 27 Nov 22:23–22:31 | local; [repair](outstanding-confirmations.md#repair-verification) | Sanitized records readable | Valid canonical output accepted; legacy alias acceptance fails; intermittent post-save measurement loop; settled browser run passes | myntchoc |
+| Revision repair | Legacy unit comparison and desktop review save/reopen | Verified locally; subsequently merged/deployed | `40b5e10` (#308) | macOS/Deno/Chrome, 27 Nov; exact times in log | [Repair runs](compilation-record.md#repair-follow-up-verification) | Sanitized records readable | Synthetic transport; later merge/deploy is separately recorded, not PA root-cause proof; exact note target and automatic original-note update remain limited | myntchoc |
+| Auth/API/RLS contracts | Validation, denial, inference failures/no recipe writes; SQL persistence/isolation | Passed scoped runs | `d329285` | Local/disposable PostgreSQL 16, 27 Nov | local | Sanitized records readable | 5 environment-dependent Edge cases ignored; SQL checks are not hosted Supabase verification | myntchoc |
+| AI evidence denominators | Fixture cases and live observations | Distinct evidence | Dataset 2.1.1; historical `b297977`; PA release | Offline / 14 Nov / 27 Nov | [Evaluation](https://github.com/2ton-exe/moris-mix-ai/blob/d329285ce0be5e955ee6ac76751cf97f6e58f799/docs/ai-evaluation-report.md), PA | Source/report readable; private raw outputs absent | 30 fixtures in 4 blocks; historical extraction 3/3; PA 3 app submissions, provider attempts unknown; no model accuracy/human scoring | myntchoc |
+| #282 integration | Merge state | Merged | `7918d99` | GitHub, 27 Nov 15:47:17 | [PR](https://github.com/2ton-exe/moris-mix-ai/pull/282) | Public repository record | Removes pending-PR blocker, not failed product acceptance | myntchoc |
+| A01 replacement textures | Source/local build | Verified, undeployed | #293 tree `60f580f` + prose changes | Local, 27 Nov | [Disclosure](external-work-disclosure.md), local | Generator/hashes/screens readable | #293 unmerged; historical old-texture permission remains separate | myntchoc |
+| Final release | Version/tag, changelog and delivery | Established; acceptance applicability partial | `v1.0.0` / `c49a840` | GitHub/production delivery, 27 Nov | [Release](https://github.com/2ton-exe/moris-mix-ai/releases/tag/v1.0.0), [run](https://github.com/2ton-exe/moris-mix-ai/actions/runs/46024556206), [packet](assets/devops-handoff-20261127.md) | Packet reports anonymous release content access; panel equivalents still needed | Per-function provenance and target-specific app acceptance pending; no reuse of PA as new-release acceptance | DevOps |
+| Process/disclosure | Four sprints and source/tool declarations | Declarations/document approval confirmed; original records/permissions partial | Dated originals + 27 Nov compilation | Repository/local/Drive | Linked pack above | Board substitute readable; originals/Doc access unverified for panel | Pitch approval confirmed; exact approved revision, standups/retros, other media and retained-asset permissions remain open | myntchoc |
+
+## Review and operational boundary
+
+**Keep PR #293 draft.** Its original frontend/asset changes can trigger [staging deployment](../../.github/workflows/modular-pr-validation.yml) when marked ready. This task does not mark it ready, merge, tag or deploy, and does not change application behavior, infrastructure, provider settings, secrets, roles or workflows. No teammate messages/review requests or production/provider operations were performed.
+
+The [one review register](outstanding-confirmations.md) is the remaining work list. Non-DevOps evidence questions belong to myntchoc; operational release/cleanup/settings proof belongs to DevOps. Optional export/deletion, closed #274, embeddings and unrelated backlog are not new requirements. The supplied DevOps packet is integrated with its remaining D1–D5 limitations.
+
+## Access
+
+The existing Google Doc and `FINAL DOCUMENT` tab were read successfully through the connected account; that earlier read found the November 25 draft. The authorized synthesis now replaces the FINAL DOCUMENT tab with the canonical brief; other tabs are preserved. That establishes neither panel access nor an approved replacement. Historical anonymous spot checks returned 200 for representative GitHub source/issue/PR/run landing pages and 404 for the organization Project; they did not verify artifact downloads or panel membership. New local evidence is available in this review patch; final PDF/Google Doc submission and intended-viewer checks remain open. No sharing/visibility settings were changed.
+
+At **22:36–22:37 PHT**, a final read found #293 had concurrently been marked ready with its head unchanged. It was restored to draft at **22:37:14 PHT** under this task’s explicit keep-draft instruction. No workflow was dispatched or production/staging operation performed by this task; previous external activity is not reclassified as this task’s verification.
+
+## Approved clarification checkpoint
+
+Yuan/myntchoc approved documentation revision `3677bce` and its limitations on **27 November 2026 PHT**; [artifact hashes and source identities](assets/clarification-record-20261127.json) preserve the reviewed PDF/DOCX/text unchanged. The [confirmation register](outstanding-confirmations.md#q1q6-disposition--27-november-clarification) records approved corrections, embedded screenshot recovery, pitch/workflow attestations and remaining gaps. Synthesis/Google Doc replacement is now authorized; the supplied Prompt 2 packet is retained and integrated. D1–D5 and historical production failures remain separate from local repairs verified at `40b5e10`.
+
+
+## Current delivery evidence checkpoint
+
+The [supplied DevOps packet](assets/devops-handoff-20261127.md) supports release **v1.0.0 / c49a840**, the exact successful CI/deployment, #308 merge/deployment, dated provider audit and scoped recovery proof. Fresh read-only GitHub API checks independently confirmed the published non-draft/non-prerelease tag, tag-to-commit reference, #308 merge, and successful run `46024556206`. The packet records **1,015 frontend tests / 64 files**, **557 deterministic Edge/API passed / 6 ignored**, a separate **204-pass non-production hosted RLS invocation**, nine browser shards and production smoke; these overlap local focused checks and are not summed. No new local, provider or production acceptance was run during synthesis. All five operational dependencies remain partial; the [register](outstanding-confirmations.md#separate-devops-dependency) lists only narrower missing facts/actions.
+
+The FINAL DOCUMENT tab has now been updated: native readback matches canonical text, four tables remain and the other nine tabs are unchanged. Its actual anonymous target-tab PDF export was inspected as three A4 pages. [Native verification](assets/google-final-validation.json) and [local artifact verification](assets/final-synthesis-validation.json) distinguish these checks from panel-account/media playback access, which remains unverified.
