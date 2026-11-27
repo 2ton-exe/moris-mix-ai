@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { editorState } from './draft'
-import { FORM_ROWS_PER_LEAF, formPagePosition, formTextRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, splitFormText, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
+import { FORM_ROWS_PER_LEAF, formPagePosition, formTextRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, measuredTextRows, recipeFormLeaves, splitFormText, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
 import { recipeFormFixture } from './testing/fixtures'
 
 it('keeps identity first and groups complete ordered rows by section', () => {
@@ -116,4 +116,50 @@ it('packs three short desktop steps while keeping long continuations intact', ()
   state.instructions[1].text = 'Keep stirring slowly. '.repeat(60)
   const longPages = recipeFormLeaves(state, false, null, true, true, 600, 8, 40)
   expect(longPages.filter(leaf => leaf.kind === 'instructions' && leaf.rowKeys.includes(state.instructions[1].key)).every(leaf => 'rowKeys' in leaf && leaf.rowKeys.length === 1)).toBe(true)
+})
+
+it('uses the available method rows without reserving the heading twice', () => {
+  const text = 'Gently stir the onion and garlic until fragrant, then fold in the tomatoes and simmer for five minutes.'
+  const state = editorState({ ...recipeFormFixture, instructions: Array.from({ length: 4 }, (_, index) => ({ step: index + 1, text })) })
+  const instructionLayout = { rows: 7, overhead: 2, countRows: (text: string, continued: boolean) => formTextRows(text, continued ? 30 : 20) }
+  const pages = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout })
+  expect(pages.filter(leaf => leaf.kind === 'instructions')).toHaveLength(4)
+  expect(splitInstructionText(text, 80, 3, 33, instructionLayout)).toEqual([text])
+  const longText = text.repeat(4)
+  const parts = splitInstructionText(longText, 80, 3, 33, instructionLayout)
+  expect(parts.join('')).toBe(longText)
+  expect(parts.every((part, index) => instructionLayout.countRows(part, index > 0) <= instructionLayout.rows)).toBe(true)
+  expect(parts[1].length).toBeGreaterThan(parts[0].length)
+})
+
+it('wraps measured words and wide Unicode characters without losing source text', () => {
+  const measureWidth = (text: string) => Array.from(text).reduce((sum, character) => sum + (character === 'W' || character === '🍅' ? 2 : 1), 0)
+  expect(measuredTextRows('ab cd ef', 5, measureWidth)).toBe(2)
+  expect(measuredTextRows('WWWWWW', 4, measureWidth)).toBe(3)
+  expect(measuredTextRows('🍅🍅🍅', 4, measureWidth)).toBe(2)
+  expect(measuredTextRows('ab\n\ncd', 5, measureWidth)).toBe(3)
+  const text = 'WWWWWW\n🍅🍅🍅 add the tomatoes gently.'
+  const layout = { rows: 2, overhead: 2, countRows: (value: string, continued: boolean) => measuredTextRows(value, continued ? 8 : 4, measureWidth) }
+  const parts = splitInstructionText(text, 1, 1, 1, layout)
+  expect(parts.join('')).toBe(text)
+  expect(parts.every((part, index) => layout.countRows(part, index > 0) <= layout.rows)).toBe(true)
+})
+
+it('reuses unchanged measured steps and recalculates changed text or paper geometry', () => {
+  let measurements = 0
+  const layout = { rows: 2, overhead: 2, countRows: (text: string) => { measurements++; return formTextRows(text, 12) } }
+  const text = 'Warm the pan gently and stir the tomatoes until soft.'
+  const first = splitInstructionText(text, 1, 1, 1, layout)
+  const initialMeasurements = measurements
+  expect(splitInstructionText(text, 1, 1, 1, layout)).toEqual(first)
+  expect(measurements).toBe(initialMeasurements)
+  expect(splitInstructionText(text + ' Taste.', 1, 1, 1, layout).join('')).toBe(text + ' Taste.')
+  expect(measurements).toBeGreaterThan(initialMeasurements)
+  const state = editorState({ ...recipeFormFixture, instructions: Array.from({ length: 3 }, (_, index) => ({ step: index + 1, text })) })
+  const pages = recipeFormLeaves(state, false, null, true, true, 80, 3, 33, { instructionLayout: layout })
+  const unchangedMeasurements = measurements
+  expect(recipeFormLeaves({ ...state, title: 'A revised title' }, false, null, true, true, 80, 3, 33, { instructionLayout: layout })).toEqual(pages)
+  expect(measurements).toBe(unchangedMeasurements)
+  const largerPaper = { ...layout, rows: 10 }
+  expect(splitInstructionText(text, 1, 1, 1, largerPaper)).toEqual([text])
 })

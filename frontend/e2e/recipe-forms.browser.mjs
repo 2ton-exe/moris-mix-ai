@@ -541,7 +541,7 @@ try {
   const addCookingSteps = page.getByRole('link', { name: 'Add cooking steps' })
   await addCookingSteps.click()
   await expect(page).toHaveURL(editUrl(methodless.id) + '?section=method')
-  const addStep = page.getByRole('button', { name: 'Add cooking step' })
+  const addStep = page.getByRole('button', { name: /^Add (cooking )?step$/ })
   await expect(addStep).toBeFocused()
   await addStep.press('Enter')
   await page.getByRole('textbox', { name: 'Step 1 description' }).fill('Cook until golden.')
@@ -562,7 +562,7 @@ try {
   await page.getByRole('button', { name: 'Discard Changes' }).click()
   await page.goto(editUrl(longRecipe.id) + '?section=method')
   await expect(page.getByRole('textbox', { name: 'Step 1 description', exact: true })).toBeFocused()
-  const addFromFirstMethodSpread = page.getByRole('button', { name: 'Add cooking step', exact: true })
+  const addFromFirstMethodSpread = page.getByRole('button', { name: /^Add (cooking )?step$/ })
   await expect(addFromFirstMethodSpread).toBeInViewport()
   await addFromFirstMethodSpread.press('Enter')
   await expect(page.getByRole('textbox', { name: 'Step 15 description', exact: true })).toBeFocused()
@@ -581,12 +581,15 @@ try {
   async function collectRowsAcrossPages() {
     const ingredients = new Set()
     const steps = new Set()
+    const stepTexts = new Map()
     const turns = []
     for (;;) {
       const clippedSteps = await page.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(fields => fields
         .filter(field => field.scrollHeight > field.clientHeight + 1)
         .map(field => ({ name: field.name, visible: field.clientHeight, content: field.scrollHeight })))
       assert.deepEqual(clippedSteps, [], 'Method text must fit its field when a continuation page opens')
+      const parts = await page.locator('.mm-journal-book > .mm-journal-spread textarea[name^="instructions."]').evaluateAll(fields => fields.map(field => ({ name: field.name, text: field.value })))
+      parts.forEach(({ name, text }) => stepTexts.set(name, (stepTexts.get(name) ?? '') + text))
       const visible = await collectVisibleRows()
       const overflow = await page.locator('.mm-journal-book > .mm-journal-spread .mm-writing-leaf').evaluateAll((leaves) => leaves
         .filter((leaf) => leaf.scrollHeight > leaf.clientHeight + 2)
@@ -600,12 +603,13 @@ try {
       if (!(await next.count()) || !(await next.isEnabled())) break
       await turnPage(page, next)
     }
-    return { ingredients, steps, turns }
+    return { ingredients, steps, stepTexts, turns }
   }
   assert.equal(await page.locator('.mm-writing-leaf').count(), 2)
   const allPages = await collectRowsAcrossPages()
   assert.equal(allPages.ingredients.size, 18, `All ingredient rows must be reachable on physical pages: ${JSON.stringify(allPages.turns)}`)
   assert.equal(allPages.steps.size, 14, 'All instruction steps must be reachable on physical pages')
+  assert.deepEqual([...allPages.stepTexts.values()], longRecipe.instructions.map(({ text }) => text), 'Every method character must appear exactly once in page-turn order')
   assert.deepEqual([...allPages.ingredients].sort((a, b) => Number(a) - Number(b)), Array.from({ length: 18 }, (_, index) => String(index)), 'All ingredients continue in their original order')
   assert.deepEqual(allPages.turns.flatMap(({ ingredients }) => ingredients).map(Number), Array.from({ length: 18 }, (_, index) => index), 'Physical pages retain ingredient order')
   assert.ok(allPages.turns.filter(({ ingredients }) => ingredients.length > 0).length > 1, 'Large ingredient lists continue to later physical leaves')

@@ -3,6 +3,9 @@ import type { IngredientRow, RecipeEditorState } from './draft'
 export const FORM_ROWS_PER_LEAF = 2
 export const DEFAULT_FORM_TEXT_CHARS_PER_LEAF = 600
 
+export interface InstructionLayout { readonly rows: number; readonly overhead: number; readonly countRows: (text: string, continued: boolean) => number }
+const measuredInstructionParts = new WeakMap<InstructionLayout, Map<string, string[]>>()
+
 export function replaceFormTextPart(parts: string[], index: number, value: string) {
   return [...parts.slice(0, index), value, ...parts.slice(index + 1)].join('')
 }
@@ -12,24 +15,48 @@ export function formTextRows(text: string, columns = Number.POSITIVE_INFINITY) {
   return text.split(/\r\n|\r|\n/).reduce((rows, line) => rows + Math.max(1, Math.ceil(Array.from(line).length / charsPerRow)), 0)
 }
 
-export function splitFormText(text: string, limit = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, maxRows = Number.POSITIVE_INFINITY, columns = Number.POSITIVE_INFINITY): string[] {
+export function measuredTextRows(text: string, width: number, measureWidth: (text: string) => number) {
+  let rows = 0
+  for (const line of text.replace(/\t/g, '        ').split(/\r\n|\r|\n/)) {
+    let current = ''
+    for (const word of line.match(/\S+\s*|\s+/gu) ?? []) {
+      if (measureWidth((current + word).trimEnd()) <= width) {
+        current += word
+        continue
+      }
+      if (current.trim()) { rows++; current = '' }
+      for (const character of word) {
+        if (current && measureWidth((current + character).trimEnd()) > width) {
+          rows++
+          current = ''
+        }
+        current += character
+      }
+    }
+    rows++
+  }
+  return rows
+}
+
+export function splitFormText(text: string, limit = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, maxRows = Number.POSITIVE_INFINITY, columns = Number.POSITIVE_INFINITY, measureRows?: (text: string) => number): string[] {
   if (!text) return ['']
   if (!Number.isFinite(limit) || limit < 1) return [text]
   const rows = Number.isFinite(maxRows) ? Math.max(1, Math.floor(maxRows)) : Number.POSITIVE_INFINITY
-  if (text.length <= limit && formTextRows(text, columns) <= rows) return [text]
+  const countRows = measureRows ?? ((value: string) => formTextRows(value, columns))
+  if (text.length <= limit && countRows(text) <= rows) return [text]
   const parts: string[] = []
   let offset = 0
   while (offset < text.length) {
     let end = Math.min(offset + limit, text.length)
     if (end < text.length && end > offset && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end++
-    if (formTextRows(text.slice(offset, end), columns) > rows) {
+    if (countRows(text.slice(offset, end)) > rows) {
       let low = offset + 1
       let high = end
       while (low < high) {
         const midpoint = Math.ceil((low + high) / 2)
         let middle = midpoint
         if (middle < text.length && /[\uD800-\uDBFF]/.test(text[middle - 1]) && /[\uDC00-\uDFFF]/.test(text[middle])) middle++
-        if (formTextRows(text.slice(offset, middle), columns) <= rows) low = midpoint
+        if (countRows(text.slice(offset, middle)) <= rows) low = midpoint
         else high = midpoint - 1
       }
       end = low
@@ -41,7 +68,7 @@ export function splitFormText(text: string, limit = DEFAULT_FORM_TEXT_CHARS_PER_
     }
     const candidate = text.slice(offset, end)
     const boundary = Math.max(candidate.lastIndexOf(' '), candidate.lastIndexOf('\n'), candidate.lastIndexOf('\t'))
-    const cut = boundary >= Math.floor(limit * .6) ? offset + boundary + 1 : end
+    const cut = boundary >= Math.floor((measureRows ? candidate.length : limit) * .6) ? offset + boundary + 1 : end
     parts.push(text.slice(offset, cut))
     offset = cut
   }
@@ -53,7 +80,28 @@ export function splitIdentityNotes(text: string, limit: number, maxRows: number,
   return [first, ...splitFormText(rest.join(''), limit, maxRows, columns).filter(Boolean)]
 }
 
-export function splitInstructionText(text: string, limit: number, maxRows: number, columns: number) {
+export function splitInstructionText(text: string, limit: number, maxRows: number, columns: number, layout?: InstructionLayout) {
+  if (layout) {
+    const cache = measuredInstructionParts.get(layout) ?? new Map<string, string[]>()
+    const cached = cache.get(text)
+    if (cached) {
+      cache.delete(text)
+      cache.set(text, cached)
+      return cached
+    }
+    const rows = Math.floor(layout.rows)
+    const [first = '', ...rest] = splitFormText(text, Math.max(1, text.length), rows, Infinity, value => layout.countRows(value, false))
+    const continued = rest.join('')
+    const parts = [first, ...splitFormText(continued, Math.max(1, continued.length), rows, Infinity, value => layout.countRows(value, true)).filter(Boolean)]
+    cache.set(text, parts)
+    // Keep the current 100 steps plus recent edits without retaining every keystroke.
+    if (cache.size > 200) {
+      const oldest = cache.keys().next().value
+      if (oldest !== undefined) cache.delete(oldest)
+    }
+    measuredInstructionParts.set(layout, cache)
+    return parts
+  }
   const [first = '', ...rest] = splitFormText(text, limit, Math.max(1, maxRows - 4), columns)
   return [first, ...splitFormText(rest.join(''), limit, Math.max(1, maxRows - 2), columns).filter(Boolean)]
 }
@@ -101,23 +149,28 @@ function ingredientLeaves(rows: IngredientRow[], groupSize: number, compactPairs
 }
 
 /** Keep identity fixed and group rows only when the paper can fit them. */
-export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, { expandedNotes = false, compactIngredientRows = 1, instructionColumns = textPageColumns } = {}): RecipeFormLeaf[] {
+export function recipeFormLeaves(state: RecipeEditorState, single = false, reviewTitle: string | null = null, compact = false, desktop = false, textPageLength = DEFAULT_FORM_TEXT_CHARS_PER_LEAF, textPageRows = Number.POSITIVE_INFINITY, textPageColumns = Number.POSITIVE_INFINITY, { expandedNotes = false, compactIngredientRows = 1, instructionColumns = textPageColumns, instructionLayout }: { expandedNotes?: boolean; compactIngredientRows?: number; instructionColumns?: number; instructionLayout?: InstructionLayout } = {}): RecipeFormLeaf[] {
   const groupSize = single ? 1 : compact ? compactIngredientRows : desktop ? FORM_ROWS_PER_LEAF * 2 : FORM_ROWS_PER_LEAF
   const instructionGroupSize = single ? 1 : desktop && reviewTitle === null ? 3 : compact ? 1 : FORM_ROWS_PER_LEAF
   const compactInstructions = desktop && !single && reviewTitle === null
-  const instructionTextRows = Math.max(1, textPageRows - instructionGroupSize * (compactInstructions ? 1 : 4))
+  const instructionTextRows = instructionLayout?.rows ?? Math.max(1, textPageRows - instructionGroupSize * (compactInstructions ? 1 : 4))
+  const instructionLimit = instructionLayout ? Infinity : textPageLength
+  const instructionRows = (text: string) => instructionLayout?.countRows(text, false) ?? formTextRows(text, instructionColumns)
   const noteParts = reviewTitle === null && !expandedNotes ? splitIdentityNotes(state.notes, textPageLength, textPageRows, textPageColumns) : []
   const instructionLeaves: RecipeFormLeaf[] = []
   for (const row of state.instructions) {
-    const parts = splitInstructionText(row.text, textPageLength, textPageRows, instructionColumns)
+    const parts = splitInstructionText(row.text, textPageLength, textPageRows, instructionColumns, instructionLayout)
     for (const [part] of parts.entries()) {
       const previous = instructionLeaves.at(-1)
-      const previousLength = previous?.kind === 'instructions' ? previous.textParts.reduce((sum, item) => sum + (state.instructions.find((candidate) => candidate.key === item.rowKey)?.text.length ?? 0), 0) : Infinity
-      const previousRows = previous?.kind === 'instructions' ? previous.rowKeys.reduce((sum, key) => sum + formTextRows(state.instructions.find((candidate) => candidate.key === key)?.text ?? '', instructionColumns), 0) : Infinity
-      const rowRows = formTextRows(row.text, instructionColumns)
-      if (part === 0 && parts.length === 1 && previous?.kind === 'instructions' && previous.textParts.every((item) => item.part === 0) && previous.rowKeys.length < instructionGroupSize && previousLength + row.text.length <= textPageLength && previousRows + rowRows <= instructionTextRows) {
-        instructionLeaves[instructionLeaves.length - 1] = { ...previous, rowKeys: [...previous.rowKeys, row.key], textParts: [...previous.textParts, { rowKey: row.key, part }] }
-      } else instructionLeaves.push({ key: `instructions:${instructionLeaves.length}`, kind: 'instructions', rowKeys: [row.key], textParts: [{ rowKey: row.key, part }] })
+      if (part === 0 && parts.length === 1 && previous?.kind === 'instructions' && previous.textParts.every((item) => item.part === 0) && previous.rowKeys.length < instructionGroupSize) {
+        const previousLength = previous.textParts.reduce((sum, item) => sum + (state.instructions.find((candidate) => candidate.key === item.rowKey)?.text.length ?? 0), 0)
+        const previousRows = previous.rowKeys.reduce((sum, key) => sum + instructionRows(state.instructions.find((candidate) => candidate.key === key)?.text ?? ''), 0)
+        if (previousLength + row.text.length <= instructionLimit && previousRows + instructionRows(row.text) + previous.rowKeys.length * (instructionLayout?.overhead ?? 0) <= instructionTextRows) {
+          instructionLeaves[instructionLeaves.length - 1] = { ...previous, rowKeys: [...previous.rowKeys, row.key], textParts: [...previous.textParts, { rowKey: row.key, part }] }
+          continue
+        }
+      }
+      instructionLeaves.push({ key: `instructions:${instructionLeaves.length}`, kind: 'instructions', rowKeys: [row.key], textParts: [{ rowKey: row.key, part }] })
     }
   }
   const instructionPages: RecipeFormLeaf[] = instructionLeaves.length ? instructionLeaves : [{ key: 'instructions-empty', kind: 'instructions-empty', rowKeys: [] }]

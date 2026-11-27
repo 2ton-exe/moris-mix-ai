@@ -12,8 +12,8 @@ import { JournalFacingPage, JournalPageFooter } from '../journal/JournalFacingPa
 import { requestJournalPageTurnFrom, useJournalPageTurn } from '../journal/JournalPageTurn'
 import { useJournalMedia } from '../journal/useJournalMedia'
 import { RecipeWritingTurns } from './RecipeWritingTurns'
-import { DEFAULT_FORM_TEXT_CHARS_PER_LEAF, formPagePosition, formTextPageColumns, formTextPageLimit, formTextPageRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, recipeFormLeaves, recipeFormSection, replaceFormTextPart, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
-import type { RecipeFormLeaf } from './physicalFormPages'
+import { DEFAULT_FORM_TEXT_CHARS_PER_LEAF, formPagePosition, formTextPageColumns, formTextPageLimit, formTextPageRows, leafAnchorForPage, leafIndexForAnchor, leafKeyForFieldPath, measuredTextRows, recipeFormLeaves, recipeFormSection, replaceFormTextPart, splitIdentityNotes, splitInstructionText, visibleFormLeafIndices } from './physicalFormPages'
+import type { InstructionLayout, RecipeFormLeaf } from './physicalFormPages'
 import type { RecipeFormProps } from './RecipeForm'
 import { useIngredientDrag } from './useIngredientDrag'
 import { ScrapbookSticker } from '../journal/ScrapbookSticker'
@@ -85,6 +85,8 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const [textPageLength, setTextPageLength] = useState(DEFAULT_FORM_TEXT_CHARS_PER_LEAF)
   const [textPageRows, setTextPageRows] = useState(12)
   const [textPageColumns, setTextPageColumns] = useState(56)
+  const [measuredInstructions, setMeasuredInstructions] = useState<InstructionLayout | undefined>()
+  const instructionMeasurement = useRef('')
   const [roomForTwoIngredientRows, setRoomForTwoIngredientRows] = useState(false)
   const requestedStart = useRef(0)
   const single = useJournalMedia('(max-width: 1099.98px), (max-height: 639.98px)')
@@ -111,10 +113,11 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   }, [movingRow])
   const expandedNotes = desktopReview || (desktopRecipeEditor && notesSupported)
   const instructionColumns = desktopRecipeEditor ? Math.max(1, textPageColumns - 18) : textPageColumns
+  const instructionLayout = desktopEdit ? measuredInstructions : undefined
   const hasComparison = Boolean(reviewComparison)
   const flowingReview = desktopReview && hasComparison
   const leaves = useMemo(() => {
-    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows, instructionColumns })
+    const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows, instructionColumns, instructionLayout })
     if (reviewWorkflow && reviewPage) {
       const reviewIndex = pages.findIndex((leaf) => leaf.kind === 'review')
       if (reviewIndex >= 0) {
@@ -125,7 +128,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     if (desktopReview && hasComparison) pages.unshift({ key: 'comparison', kind: 'comparison' })
     if (supplement && desktop && !single && !desktopEdit) pages.push({ key: 'supplement', kind: 'supplement' })
     return pages
-  }, [supplement, state, single, desktopReview, hasComparison, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes, instructionColumns])
+  }, [supplement, state, single, desktopReview, hasComparison, reviewPage, reviewWorkflow, compact, compactIngredientRows, desktop, desktopEdit, textPageLength, textPageRows, textPageColumns, expandedNotes, instructionColumns, instructionLayout])
   const currentLeafIndex = leafIndexForAnchor(leaves, previewAnchor ?? pageAnchor)
   const position = formPagePosition(currentLeafIndex, leaves.length, single)
   const visibleIndices = visibleFormLeafIndices(currentLeafIndex, leaves.length, single)
@@ -215,6 +218,50 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       setTextPageLength((current) => current === next ? current : next)
       setTextPageRows((current) => current === nextRows ? current : nextRows)
       setTextPageColumns((current) => current === nextColumns ? current : nextColumns)
+      const paperLeaves = Array.from(editorScope(form).querySelectorAll<HTMLElement>('.mm-journal-book > .mm-journal-spread .mm-writing-leaf'))
+      const methods = paperLeaves.flatMap(leaf => {
+        const field = leaf.querySelector<HTMLTextAreaElement>('textarea[name^="instructions."]')
+        return field ? [{ leaf, field }] : []
+      })
+      if (desktopEdit && !pending && !message && !saved && methods.length > 0) {
+        const { field } = methods[0]
+        const card = field.closest('fieldset')
+        if (card) {
+          const fieldStyle = getComputedStyle(field)
+          const cardStyle = getComputedStyle(card)
+          const section = card.closest('.recipe-form-section')
+          const sectionStyle = section ? getComputedStyle(section) : null
+          const cardBounds = card.getBoundingClientRect()
+          const fieldBounds = field.getBoundingClientRect()
+          const lineHeight = parseFloat(fieldStyle.lineHeight)
+          const fieldPadding = parseFloat(fieldStyle.paddingTop) + parseFloat(fieldStyle.paddingBottom)
+          // Both paper sides share a budget; the Add control must not change part boundaries on each turn.
+          const offset = Math.max(...methods.map(({ leaf, field }) => field.getBoundingClientRect().top - leaf.getBoundingClientRect().top + leaf.scrollTop))
+          const height = Math.min(...paperLeaves.map(leaf => leaf.clientHeight))
+          const contentWidth = card.clientWidth - parseFloat(cardStyle.paddingLeft) - parseFloat(cardStyle.paddingRight)
+          const numberWidth = parseFloat(cardStyle.getPropertyValue('--mm-step-number-width'))
+          const actionWidth = parseFloat(cardStyle.getPropertyValue('--mm-step-action-width'))
+          const gap = parseFloat(cardStyle.columnGap)
+          const width = Math.floor((contentWidth - numberWidth - 2 * actionWidth - 3 * gap) / 4) * 4
+          const continuationWidth = Math.floor((contentWidth - numberWidth - gap) / 4) * 4
+          const inlinePadding = parseFloat(fieldStyle.paddingLeft) + parseFloat(fieldStyle.paddingRight)
+          const tail = cardBounds.bottom - fieldBounds.bottom + parseFloat(cardStyle.marginBottom)
+            + (sectionStyle ? parseFloat(sectionStyle.paddingBottom) + parseFloat(sectionStyle.marginBottom) : 0)
+            + parseFloat(getComputedStyle(methods[0].leaf).paddingBottom)
+          const rows = Math.max(1, Math.floor((height - offset - fieldPadding - tail) / lineHeight))
+          const overhead = (fieldPadding + cardBounds.height - fieldBounds.height + parseFloat(cardStyle.marginTop) + parseFloat(cardStyle.marginBottom)) / lineHeight
+          // A final unpaired leaf must not enlarge the budget and shift already visited text parts.
+          const key = `${window.innerWidth}:${window.innerHeight}:${compact}:${fieldStyle.font}`
+          if (instructionMeasurement.current !== key) {
+            const context = document.createElement('canvas').getContext('2d')
+            if (context) {
+              context.font = fieldStyle.font
+              setMeasuredInstructions({ rows, overhead, countRows: (text, continued) => measuredTextRows(text, (continued ? continuationWidth : width) - inlinePadding, value => context.measureText(value).width) })
+              instructionMeasurement.current = key
+            }
+          }
+        }
+      }
       // shortcut: use a 350px budget for two summaries until rows are measured individually.
       setRoomForTwoIngredientRows(desktopEdit && height >= 350)
     }
@@ -225,7 +272,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     window.addEventListener('resize', measure, true)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true) }
-  }, [single, compact, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus])
+  }, [single, compact, desktopEdit, flowingReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved])
 
   useLayoutEffect(() => {
     editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))
@@ -818,7 +865,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       }).filter((entry): entry is { item: RecipeEditorState['instructions'][number]; rowIndex: number; part: number } => entry !== null) : []
       const containsLast = items.some(({ item }) => item.key === state.instructions.at(-1)?.key)
       const isLastMethodLeafOnSpread = !visibleIndices.some((visibleIndex) => visibleIndex > index && leaves[visibleIndex]?.kind === 'instructions')
-      const addStepButton = <button className="button mm-row-add" type="button" name="add-step" ref={!items.length ? focusInitialMethod : undefined} data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> Add cooking step</button>
+      const addStepButton = <button className="button mm-row-add" type="button" name="add-step" ref={!items.length ? focusInitialMethod : undefined} data-form-focus-key="add-step" onClick={addStep} disabled={state.instructions.length >= 100}><Plus size={16} aria-hidden="true" /> {desktopEdit ? 'Add step' : 'Add cooking step'}</button>
       pageContent = <section className="recipe-form-section" aria-labelledby={headingId}>
         <div className="recipe-section-heading">
           <h2 id={headingId} tabIndex={-1}>{sectionTitle}</h2>
@@ -827,7 +874,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
         </div>
         {!items.length && <p className="editor-empty">No cooking steps yet.</p>}
         {items.map(({ item, rowIndex, part }) => {
-          const parts = splitInstructionText(item.text, textPageLength, textPageRows, instructionColumns)
+          const parts = splitInstructionText(item.text, textPageLength, textPageRows, instructionColumns, instructionLayout)
           const partText = parts[part] ?? ''
           const fieldId = `${prefix}-instructions-${rowIndex}-${part}`
           const fieldLabel = 'Step ' + (rowIndex + 1) + (part > 0 ? ' continued' : '') + ' description'

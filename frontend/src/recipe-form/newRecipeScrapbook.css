@@ -268,8 +268,10 @@
 
 @media (min-width: 1100px) and (min-height: 640px) {
   .mm-recipe-form-editor .mm-writing-leaf .recipe-step-card {
+    --mm-step-number-width: 32px;
+    --mm-step-action-width: 44px;
     display: grid;
-    grid-template-columns: 32px minmax(0, 1fr) 44px 44px;
+    grid-template-columns: var(--mm-step-number-width) minmax(0, 1fr) var(--mm-step-action-width) var(--mm-step-action-width);
     align-items: start;
     gap: 4px;
     position: relative;
@@ -291,6 +293,7 @@
   }
   .recipe-step-slot:nth-of-type(3n + 2) .recipe-step-card__number { background: var(--mm-color-lilac-100, #e6dff0); }
   .mm-recipe-form-editor .mm-writing-leaf .recipe-step-card > .recipe-form-field { grid-column: 2; grid-row: 1; margin: 0; }
+  .mm-edit-recipe .mm-writing-leaf .recipe-step-card:not(:has(> .recipe-row-actions)) > .recipe-form-field { grid-column: 2 / -1; }
   .mm-recipe-form-editor .mm-writing-leaf .recipe-step-card textarea[name^='instructions.'] {
     field-sizing: content;
     inline-size: 100%;

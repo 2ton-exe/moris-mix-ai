@@ -140,7 +140,7 @@ it.each([true, false])('opens the method directly and focuses its first control 
   } }))
   const control = hasSteps
     ? screen.getByRole('textbox', { name: 'Step 1 description' })
-    : screen.getByRole('button', { name: 'Add cooking step' })
+    : screen.getByRole('button', { name: /^Add (cooking )?step$/ })
   expect(document.activeElement).toBe(control)
 })
 
