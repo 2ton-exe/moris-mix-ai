@@ -215,7 +215,18 @@ try {
       assert.equal(conversation.width, initial.width, 'Starting a conversation must not widen the bubble')
       assert.ok(conversation.height < 480, 'A short conversation stays compact until the user expands it')
       await expect(chat.getByRole('navigation', { name: 'Open a journal page' })).toBeHidden()
+      await page.evaluate(() => {
+        globalThis.__moriDisclosureFrames = []
+        const sample = () => {
+          const panel = globalThis.document.querySelector('.mori-pet-panel').getBoundingClientRect()
+          globalThis.__moriDisclosureFrames.push({ top: panel.top, bottom: panel.bottom })
+          if (globalThis.__moriDisclosureFrames.length < 16) globalThis.requestAnimationFrame(sample)
+        }
+        globalThis.requestAnimationFrame(sample)
+      })
       await chat.getByText('Journal pages', { exact: true }).click()
+      await page.waitForFunction(() => globalThis.__moriDisclosureFrames.length === 16)
+      assert.ok(await page.evaluate(() => globalThis.__moriDisclosureFrames.every(frame => frame.top >= 0 && frame.bottom <= globalThis.innerHeight)), 'Disclosure growth stays inside the viewport on every rendered frame')
       await expect(chat.getByRole('button', { name: 'Open recipe editor' })).toBeVisible()
       assert.ok((await chat.getByRole('log').boundingBox()).height >= 128, 'Open shortcuts must preserve a readable conversation')
       await page.screenshot({ path: path.join(output, 'mori-chat-open-shortcuts.png'), animations: 'disabled' })

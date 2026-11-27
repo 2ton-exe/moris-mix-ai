@@ -191,6 +191,10 @@ try {
       ['notes-review-slash', '/app/quick-entry/review/', 'quick-ai/ExtractedRecipeReviewPage.tsx'],
       ['chef-review-slash', '/app/chef/review/', 'ai-chef/ChefRecipeReviewPage.tsx'],
       ['revision-sample-slash', '/demo-recipe/try-a-revision/', 'pages/RecipeRevisionSamplePage.tsx'],
+      ['edit-missing', `/app/recipes/${recipe.id}/edit`, 'pages/EditRecipePage.tsx'],
+      ['edit-forbidden', `/app/recipes/${recipe.id}/edit`, 'pages/EditRecipePage.tsx'],
+      ['edit-expired', `/app/recipes/${recipe.id}/edit`, 'pages/EditRecipePage.tsx'],
+      ['edit-network', `/app/recipes/${recipe.id}/edit`, 'pages/EditRecipePage.tsx'],
     ]
     for (const [width, height] of [[1470, 803], [1280, 720], [1100, 640]]) {
       for (const [caseName, routePath, modulePath] of coldRoutes.filter(([name]) => !process.env.MORI_COLD_ROUTES || process.env.MORI_COLD_ROUTES.split(',').includes(name))) {
@@ -219,6 +223,11 @@ try {
           assert.equal(url.origin, apiOrigin)
           if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'browser-test@example.test' } })
           if (url.pathname.endsWith('/recipe-image-download-url')) return route.fulfill({ status: 404, json: { error: { code: 'IMAGE_NOT_FOUND', message: 'No photo' } } })
+          if (name.startsWith('edit-') && url.pathname.includes('/functions/v1/recipes/')) {
+            if (name === 'edit-network') return route.abort('failed')
+            const status = name === 'edit-expired' ? 401 : name === 'edit-forbidden' ? 403 : 404
+            return route.fulfill({ status, json: { error: { code: status === 401 ? 'UNAUTHORIZED' : status === 403 ? 'FORBIDDEN' : 'NOT_FOUND', message: 'Synthetic edit recovery' } } })
+          }
           if (name === 'collection' && url.pathname.endsWith('/recipes') && collectionState === 'error') return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR', message: 'Test collection failure' } } })
           return route.fulfill({ json: { recipes: collectionState === 'empty' ? [] : recipes, recipe, has_more: false, next_cursor: null } })
         })
@@ -295,6 +304,15 @@ try {
         await page.waitForTimeout(200)
         await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`) })
         await assertRouteFrame()
+        if (name.startsWith('edit-')) {
+          await expect(page.getByRole('heading', { name: 'Recipe unavailable', exact: true })).toBeVisible()
+          await expect.poll(async () => {
+            const heading = await page.getByRole('heading', { name: 'Recipe unavailable', exact: true }).boundingBox()
+            const mori = await page.locator('.mori-pet-trigger .mm-mori').boundingBox()
+            return heading && mori && (mori.x + mori.width <= heading.x || heading.x + heading.width <= mori.x || mori.y + mori.height <= heading.y || heading.y + heading.height <= mori.y)
+          }, { message: `${stamp}: Mori must leave the recovery heading readable` }).toBe(true)
+          await page.screenshot({ path: path.join(output, `${stamp}-loaded.png`), animations: 'disabled' })
+        }
         if (loadingWriting) {
           const loadedWriting = await page.evaluate(measureWritingLayout, name)
           for (const [field, loading] of Object.entries(loadingWriting)) {
