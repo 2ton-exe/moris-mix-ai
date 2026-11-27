@@ -240,7 +240,8 @@
   .mori-pet-panel[data-dialogue] .mori-chat[data-empty='false'] .mori-chat-task { display: none; }
   .mori-pet-panel[data-dialogue] .mori-chat[data-empty='false'] .mori-chat-log { min-block-size: 128px; }
   .mori-pet-panel[data-dialogue][data-sized] .mori-chat[data-empty='false'] .mori-chat-log { flex: 1; max-block-size: none; }
-  .mori-pet-panel[data-dialogue] .mori-chat[data-empty='false'] .mori-chat-tools { flex-shrink: 1; min-block-size: 32px; max-block-size: 128px; overflow: auto; overscroll-behavior: contain; }
+  .mori-pet-panel[data-dialogue] .mori-chat[data-empty='false'] .mori-chat-tools { flex-shrink: 1; min-block-size: 32px; max-block-size: 208px; overflow: auto; overscroll-behavior: contain; }
+  .mori-pet-panel[data-dialogue]:not([data-sized]) .mori-chat[data-empty='false'] .mori-chat-tools { flex-shrink: 0; }
   .mori-pet-panel[data-dialogue] .mori-chat-log:not(:focus-visible)[data-overflow-before] { mask-image: linear-gradient(to bottom, transparent, black 12px); }
   .mori-pet-panel[data-dialogue] .mori-chat-log:not(:focus-visible)[data-overflow-after] { mask-image: linear-gradient(to top, transparent, black 12px); }
   .mori-pet-panel[data-dialogue] .mori-chat-log:not(:focus-visible)[data-overflow-before][data-overflow-after] { mask-image: linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent); }
