@@ -5,7 +5,7 @@ import { createRecipe, signIn, waitForCollection } from './recipe-journey-helper
 async function expectRecipeContents(page) {
   await expect(
     page.getByRole('region', { name: 'Ingredients', exact: true }).getByRole('listitem'),
-  ).toHaveText('2 tablespoons olive oil')
+  ).toHaveText('2 tbsp olive oil')
   await expect(
     page.getByRole('region', { name: 'In the kitchen', exact: true }).getByRole('listitem'),
   ).toContainText('Warm the oil and fold in the herbs.')

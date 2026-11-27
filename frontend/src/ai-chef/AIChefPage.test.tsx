@@ -10,6 +10,8 @@ import type { AuthState } from '../auth/context'
 import { MoriCompanion } from '../mori/MoriCompanion'
 import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
 import { JournalShell } from '../journal/JournalShell'
+import { editorState } from '../recipe-form/draft'
+import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import { JournalLogoutGuardContext, type RegisterJournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
 import type { SaveRecipeDraft } from '../recipe-form/submission'
 import { recipeFormApi } from '../recipe-form/api'
@@ -54,7 +56,7 @@ function authState(userId = 'chef-cook'): AuthState {
   }
 }
 
-function WorkspaceLayout() { return <MoriCompanionProvider><Outlet /><MoriCompanion /></MoriCompanionProvider> }
+function WorkspaceLayout({ userId }: { userId?: string }) { return <MoriCompanionProvider><Outlet /><MoriCompanion userId={userId} /></MoriCompanionProvider> }
 function JournalLayout() { return <JournalShell><Outlet /></JournalShell> }
 function ManualRecipeRoute() {
   const location = useLocation()
@@ -70,12 +72,12 @@ class RouterTestRequest extends NativeRequest {
 
 let matchMediaDescriptor: PropertyDescriptor | undefined
 
-function renderChef({ userId = 'chef-cook', save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })), source = defaultRecipeSource }: { userId?: string; save?: SaveRecipeDraft; source?: RecipeSource } = {}) {
+function renderChef({ userId = 'chef-cook', signedCompanion = false, save = vi.fn<SaveRecipeDraft>(async () => ({ id: savedRecipeId })), source = defaultRecipeSource }: { userId?: string; signedCompanion?: boolean; save?: SaveRecipeDraft; source?: RecipeSource } = {}) {
   const state = authState(userId)
   const registerLogoutGuard = vi.fn<RegisterJournalLogoutGuard>(() => () => {})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const router = createMemoryRouter([
-    { path: '/app', element: <WorkspaceLayout />, children: [
+    { path: '/app', element: <WorkspaceLayout userId={signedCompanion ? userId : undefined} />, children: [
       { element: <JournalLayout />, children: [{ path: 'chef', element: <AIChefPage /> }, { path: 'recipes/:recipeId', element: <RecipeDetailPage /> }] },
       { path: 'chef/review', element: <ChefRecipeReviewPage save={save} /> },
       { path: 'recipes/new', element: <ManualRecipeRoute /> },
@@ -185,6 +187,85 @@ afterEach(() => {
 })
 
 describe('AI Chef pantry and review workflow', () => {
+  function desktopPantry() {
+    Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: (query: string) => ({
+      matches: query.includes('prefers-reduced-motion') || query.includes('min-width: 1024px') || query.includes('min-width: 1100px'),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }) })
+  }
+
+  it('highlights normalized manual and pasted duplicates, keeps entry focus, and uses Mori dialogue', () => {
+    desktopPantry()
+    renderChef({ signedCompanion: true })
+    const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+    fireEvent.change(input, { target: { value: 'composing' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(screen.getByRole('region', { name: 'Pantry list, 0 items' })).toBeTruthy()
+    addIngredient(' Green   Onions ')
+    fireEvent.change(input, { target: { value: 'scallion' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add ingredient' }))
+    expect(document.activeElement).toBe(input)
+    const pantry = screen.getByRole('region', { name: 'Pantry list, 1 item' })
+    expect(pantry.querySelector('[data-duplicate]')?.textContent).toContain('Green Onions')
+    expect(pantry.querySelector('[data-duplicate]')?.textContent).toContain('Already in your pantry')
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+    expect(within(screen.getByRole('region', { name: 'Mori' })).getByText(/one spot in the pantry, twice the enthusiasm/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close Mori' }))
+
+    fireEvent.paste(input, { clipboardData: { getData: () => 'EGGS, egg\nscallions\nchicken breast, chicken thighs' } })
+    expect(document.activeElement).toBe(input)
+    const updated = screen.getByRole('region', { name: 'Pantry list, 4 items' })
+    expect(updated.querySelectorAll('li')).toHaveLength(4)
+    expect(updated.querySelectorAll('[data-duplicate]')).toHaveLength(2)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('keeps off-leaf duplicates discoverable on short desktops without moving entry focus', async () => {
+    renderChef()
+    addIngredient('rice, beans, tomatoes')
+    addIngredient('TOMATO')
+    const input = screen.getByRole('textbox', { name: 'Pantry ingredient' })
+    expect(document.activeElement).toBe(input)
+    expect(screen.queryByRole('button', { name: 'Remove tomatoes' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show existing ingredient' }))
+    await finishJournalTurn(() => Boolean(screen.queryByRole('button', { name: 'Remove tomatoes' })))
+    expect(screen.getByRole('button', { name: 'Remove tomatoes' }).closest('li')?.getAttribute('data-duplicate')).toBe('true')
+    expect(screen.getByRole('region', { name: 'Pantry list, 3 items' })).toBeTruthy()
+  })
+
+  it('reflects normalized quick-add membership and allows adding again after removal', () => {
+    desktopPantry()
+    renderChef()
+    addIngredient('Egg')
+    expect(screen.getByRole('button', { name: 'eggs' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Egg' }))
+    const quickAdd = screen.getByRole('button', { name: 'eggs' })
+    expect(quickAdd.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(quickAdd)
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Pantry ingredient' }))
+    expect(screen.getByRole('region', { name: 'Pantry list, 1 item' }).textContent).toContain('eggs')
+    expect(quickAdd.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('deduplicates restored pantry identities and the eventual generation payload without merging varieties', async () => {
+    desktopPantry()
+    const generate = vi.spyOn(generateRecipeApi, 'generate').mockResolvedValue(response)
+    sessionStorage.setItem('moris-mix:ai-chef:v1:chef-cook', JSON.stringify({
+      input: {
+        pantryItems: ['  Tomatoes ', 'tomato', 'Green Onions', 'scallions', 'chicken breast', 'chicken thighs', 'cooked chicken'],
+        pantryInput: '', preferences: 'Quick dinner',
+      },
+      handoff: null,
+    }))
+    renderChef()
+    expect(screen.getByRole('region', { name: 'Pantry list, 5 items' }).querySelectorAll('li')).toHaveLength(5)
+    expect(screen.getByRole('button', { name: 'tomatoes' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Mori for a recipe' }))
+    await waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    expect(generate.mock.calls[0]?.[0]).toEqual(['Tomatoes', 'Green Onions', 'chicken breast', 'chicken thighs', 'cooked chicken'])
+    expect(generate.mock.calls[0]?.[1]).toBe('Quick dinner')
+  })
+
   it('shares only the selected note and keeps Mori’s advice distinct from an edited revision', async () => {
     const currentMatchMedia = window.matchMedia
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
@@ -1108,7 +1189,7 @@ describe('AI Chef pantry and review workflow', () => {
 
   })
 
-  it('removes only the selected instance of a repeated ingredient recovered from a preview', () => {
+  it('collapses repeated ingredients recovered from a preview and removes the remaining ingredient', () => {
     const userId = 'chef-duplicate-recovery'
     const pantryItems = ['rice', 'rice']
     writeChefDraft(userId, {
@@ -1119,9 +1200,9 @@ describe('AI Chef pantry and review workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard preview' }))
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard preview' }))
     const removeControls = screen.getAllByRole('button', { name: 'Remove rice' })
-    expect(removeControls).toHaveLength(2)
+    expect(removeControls).toHaveLength(1)
     fireEvent.click(removeControls[0])
-    expect(screen.getAllByRole('button', { name: 'Remove rice' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Remove rice' })).toBeNull()
   })
 
   it('shows draft actions on return to the pantry and restores pantry input after discard', async () => {
@@ -1329,4 +1410,55 @@ it('does not overwrite a newer preview while retrying failed storage', async () 
   expect(writes).not.toHaveBeenCalled()
   expect(JSON.parse(sessionStorage.getItem(`moris-mix:ai-chef:v1:${userId}`) ?? 'null').handoff.response.recipe.title).toBe('Newer preview')
   expect(screen.getByRole('link', { name: 'Open current recipe review' })).toBeTruthy()
+})
+
+
+it('restores a legacy AI Chef preview with edits and requires a positive amount to save', async () => {
+  const recipe = { ...response.recipe, ingredients: [{ name: 'tomatoes', quantity: 0, unit: null, inferred: false }] }
+  const initial = mapAiRecipeToDraft(recipe)
+  if (!initial) throw new Error('Legacy recipe must initialize')
+  const reviewDraft = { ...editorState(initial), title: 'My edited legacy tomatoes' }
+  sessionStorage.setItem('moris-mix:ai-chef:v1:chef-cook', JSON.stringify({
+    input: { pantryItems: ['tomatoes'], pantryInput: '', preferences: '' },
+    handoff: { request: { pantryItems: ['tomatoes'] }, response: { ...response, recipe },
+      reviewDraft, selectedParentIds: [], saved: false },
+  }))
+  const { router, save } = renderChef()
+  await act(() => router.navigate('/app/chef/review'))
+  expect(screen.getByLabelText('Recipe title')).toHaveProperty('value', reviewDraft.title)
+  await advanceChefReviewToSave()
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  expect(save).not.toHaveBeenCalled()
+  expect(screen.getByLabelText('Ingredient 1 quantity')).toHaveProperty('value', '0')
+  fireEvent.change(screen.getByLabelText('Ingredient 1 quantity'), { target: { value: '2' } })
+  await advanceChefReviewToSave()
+  fireEvent.click(screen.getByRole('button', { name: 'Save recipe' }))
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+})
+
+it('recovers legacy saved previews and parent links without creating another recipe', async () => {
+  const recipe = { ...response.recipe, ingredients: [{ name: 'tomatoes', quantity: 0, unit: null, inferred: false }] }
+  const initial = mapAiRecipeToDraft(recipe)
+  if (!initial) throw new Error('Legacy recipe must initialize')
+  const reviewDraft = { ...editorState(initial), title: 'Edited before the partial save' }
+  sessionStorage.setItem('moris-mix:ai-chef:v1:chef-cook', JSON.stringify({
+    input: { pantryItems: ['tomatoes'], pantryInput: '', preferences: '' },
+    handoff: { request: { pantryItems: ['tomatoes'] }, response: { ...response, recipe }, reviewDraft,
+      selectedParentIds: [response.parents[0].id], savedRecipeId, lineageStatus: 'pending', saved: false },
+  }))
+  vi.spyOn(lineageApi, 'get').mockResolvedValue({ lineage: [] })
+  const saveLineage = vi.spyOn(lineageApi, 'save').mockResolvedValue({ lineage: [{
+    id: '66666666-6666-4666-8666-666666666666', parent_recipe_id: response.parents[0].id,
+    child_recipe_id: savedRecipeId, created_at: '2026-11-07T00:00:00.000Z',
+  }] })
+  const { router, save } = renderChef()
+  await act(() => router.navigate('/app/chef/review'))
+  const restored = JSON.parse(sessionStorage.getItem('moris-mix:ai-chef:v1:chef-cook') ?? 'null').handoff
+  expect(restored).toMatchObject({ savedRecipeId, lineageStatus: 'pending',
+    selectedParentIds: [response.parents[0].id], reviewDraft: { title: reviewDraft.title } })
+  for (let index = 0; index < 20 && !screen.queryByRole('button', { name: 'Retry recipe links' }); index += 1) await nextChefReviewPage()
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry recipe links' }))
+  await screen.findByText('Recipe and selected parent links saved.')
+  expect(saveLineage).toHaveBeenCalledWith(savedRecipeId, [response.parents[0].id], [response.parents[0].id], response.candidate_token, expect.anything())
+  expect(save).not.toHaveBeenCalled()
 })

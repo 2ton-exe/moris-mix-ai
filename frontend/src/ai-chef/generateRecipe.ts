@@ -1,14 +1,15 @@
 import { z } from 'zod'
+import { uniquePantryIngredients } from '../../../supabase/functions/_shared/ingredient-identity.ts'
 import { apiClient } from '../api/config'
 import { aiRateLimitReason } from '../api/aiRateLimit'
 import { HttpError, httpErrorCode } from '../api/http'
 import { retryAfterMessage } from '../api/retryAfter'
-import { extractedRecipeSchema } from '../quick-ai/extractRecipe'
+import { extractedRecipeSchema, storedExtractedRecipeSchema } from '../quick-ai/extractRecipe'
 import type { RecipeRequest } from '../recipes/types'
 
 /** Mirrors GenerateRecipeRequestSchema from supabase/functions/_shared/ai/schemas.ts. */
 export const generateRecipeRequestSchema = z.object({
-  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100),
+  pantryItems: z.array(z.string().trim().min(1).max(100)).min(1).max(100).transform(uniquePantryIngredients),
   preferences: z.string().trim().max(1000).optional(),
 })
 
@@ -28,7 +29,7 @@ const revisionEvidenceSchema = z.object({
 })
 
 const substitutionSchema = z.object({
-  original: z.string().min(1),
+  original: z.string().trim().min(1),
   replacement: z.string().min(1),
   reason: z.string().min(1).optional(),
 })
@@ -73,6 +74,10 @@ export const generateRecipeResponseSchema = z.object({
   if (value.parents.length === 0 && value.candidate_token !== null) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['candidate_token'], message: 'A candidate token must be null without suggested parents.' })
   }
+})
+
+export const storedGenerateRecipeResponseSchema = generateRecipeResponseSchema.safeExtend({
+  recipe: storedExtractedRecipeSchema,
 })
 
 export type GenerateRecipeRequest = z.infer<typeof generateRecipeRequestSchema>

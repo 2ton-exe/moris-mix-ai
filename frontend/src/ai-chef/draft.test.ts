@@ -30,12 +30,43 @@ const handoff: ChefReviewHandoff = {
 }
 
 describe('account-scoped AI Chef session drafts', () => {
+  it('deduplicates restored pantry aliases without changing the saved recipe recovery', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('moris-mix:ai-chef:v1:chef-aliases', JSON.stringify({
+      input: { pantryItems: [' Green   onions ', 'scallions', 'tomatoes', 'tomato', 'cherry tomatoes'], pantryInput: 'garlic', preferences: 'quick' },
+      handoff,
+    }))
+    const restored = readChefDraftResult('chef-aliases', storage)
+    expect(restored).toEqual({
+      status: 'available',
+      draft: {
+        input: { pantryItems: ['Green onions', 'tomatoes', 'cherry tomatoes'], pantryInput: 'garlic', preferences: 'quick' },
+        handoff,
+      },
+    })
+    expect(writeChefDraft('chef-aliases', restored.draft, storage)).toEqual({ persisted: true })
+    expect(readChefDraftResult('chef-aliases', storage)).toEqual(restored)
+  })
+
   it('round-trips pantry input and a validated unsaved generation handoff', () => {
     const storage = new MemoryStorage()
     const draft = { input: { pantryItems: ['rice'], pantryInput: '', preferences: 'quick' }, handoff }
 
     expect(writeChefDraft('chef-roundtrip', draft, storage)).toEqual({ persisted: true })
     expect(readChefDraftResult('chef-roundtrip', storage)).toEqual({ draft, status: 'available' })
+  })
+
+  it('restores a revision handoff with legacy amounts without losing its selected note', () => {
+    const storage = new MemoryStorage()
+    const request = { sourceRecipeId: '123e4567-e89b-42d3-a456-426614174000', noteExcerpt: 'Use less salt.' }
+    const response = { ...handoff.response, recipe: { ...handoff.response.recipe,
+      ingredients: [{ name: 'rice', quantity: 0, unit: 'old custom unit', inferred: false }],
+    }, revision: { noteExcerpt: request.noteExcerpt, ingredient: 'rice', ingredientIndex: 0,
+      before: { quantity: 2, unit: null }, after: { quantity: 1, unit: null }, reason: 'Use a smaller amount.',
+    } }
+    const draft = { ...emptyChefDraft(), handoff: { ...handoff, request, response } }
+    expect(writeChefDraft('chef-legacy-revision', draft, storage)).toEqual({ persisted: true })
+    expect(readChefDraftResult('chef-legacy-revision', storage)).toEqual({ draft, status: 'available' })
   })
 
   it('uses distinct per-account keys and does not expose one cook’s pantry to another', () => {

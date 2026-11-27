@@ -207,7 +207,7 @@
   .mm-recipe-form-editor .recipe-ingredient-edit-step {
     position: relative;
     margin-block-start: 6px;
-    padding: 8px var(--mm-new-card-padding) 10px;
+    padding: 8px var(--mm-new-card-padding) 6px;
     border-radius: 13px;
     background: var(--mm-color-fresh) var(--mm-tex-grain);
   }

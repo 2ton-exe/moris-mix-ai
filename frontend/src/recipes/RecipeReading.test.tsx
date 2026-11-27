@@ -253,3 +253,14 @@ it('opens the first spread safely when a direct URL names an unavailable content
   expect(live().getByText('Rice')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Previous Page' })).toBeNull()
 })
+
+
+it('renders amount descriptions before structured quantities and restores amounts after editing', () => {
+  const ingredient = { name: 'Oil', quantity: 1, unit: 'teaspoons', quantityText: 'as needed', inferred: false }
+  const data = { ...recipe, ingredients: [ingredient] }
+  const view = render(<MemoryRouter><RouteView data={data} /></MemoryRouter>)
+  expect(live().getByText('Oil, as needed')).toBeTruthy()
+  expect(live().queryByText('1 tsp Oil')).toBeNull()
+  view.rerender(<MemoryRouter><RouteView data={{ ...data, ingredients: [{ ...ingredient, quantityText: '' }] }} /></MemoryRouter>)
+  expect(live().getByText('1 tsp Oil')).toBeTruthy()
+})

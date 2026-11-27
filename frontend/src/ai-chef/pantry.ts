@@ -1,3 +1,5 @@
+import { normalizePantryIngredient, uniquePantryIngredients } from '../../../supabase/functions/_shared/ingredient-identity.ts'
+
 export const MAX_PANTRY_ITEMS = 100
 export const MAX_PANTRY_ITEM_CHARS = 100
 export const MAX_PREFERENCES_CHARS = 1000
@@ -8,40 +10,43 @@ export interface PantryEntryResult {
   items: string[]
   added: number
   duplicates: number
+  duplicateIdentities: string[]
   error: PantryEntryError | null
 }
 
-/** Add trimmed, case-insensitive unique values while matching the backend limits. */
+/** Add unique pantry identities while retaining the first label and backend limits. */
 export function addPantryItems(current: readonly string[], entries: readonly string[]): PantryEntryResult {
+  const unchanged = { items: [...current], added: 0, duplicates: 0, duplicateIdentities: [] }
   if (entries.length === 0 || entries.every((entry) => !entry.trim())) {
-    return { items: [...current], added: 0, duplicates: 0, error: 'empty' }
+    return { ...unchanged, error: 'empty' }
   }
 
-  const normalized = entries.map((entry) => entry.trim()).filter(Boolean)
-  if (normalized.some((entry) => entry.length > MAX_PANTRY_ITEM_CHARS)) {
-    return { items: [...current], added: 0, duplicates: 0, error: 'too-long' }
+  const normalized = entries.map(normalizePantryIngredient).filter(({ label }) => label)
+  if (normalized.some(({ label }) => label.length > MAX_PANTRY_ITEM_CHARS)) {
+    return { ...unchanged, error: 'too-long' }
   }
   if (current.length > MAX_PANTRY_ITEMS) {
-    return { items: [...current], added: 0, duplicates: 0, error: 'too-many' }
+    return { ...unchanged, error: 'too-many' }
   }
 
-  const seen = new Set(current.map((item) => item.trim().toLowerCase()))
-  const next = [...current]
+  const next = uniquePantryIngredients(current)
+  const seen = new Set(next.map((item) => normalizePantryIngredient(item).identity))
+  const duplicateIdentities = new Set<string>()
   let added = 0
   let duplicates = 0
-  for (const entry of normalized) {
-    const key = entry.toLowerCase()
+  for (const { identity: key, label } of normalized) {
     if (seen.has(key)) {
       duplicates++
+      duplicateIdentities.add(key)
       continue
     }
     seen.add(key)
-    next.push(entry)
+    next.push(label)
     added++
   }
 
-  if (next.length > MAX_PANTRY_ITEMS) return { items: [...current], added: 0, duplicates: 0, error: 'too-many' }
-  return { items: next, added, duplicates, error: null }
+  if (next.length > MAX_PANTRY_ITEMS) return { ...unchanged, error: 'too-many' }
+  return { items: next, added, duplicates, duplicateIdentities: [...duplicateIdentities], error: null }
 }
 
 /** Pasted shopping-list text can be split into pantry tokens. Typed text stays intact. */

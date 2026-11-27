@@ -56,6 +56,17 @@ it('populates edit mode including multiline notes, rating, quantities and calend
   expect((screen.getByLabelText('Step 1 description') as HTMLTextAreaElement).value).toBe(recipeFormFixture.instructions[0].text)
 })
 
+it('labels the editable unit suggestions and places amount guidance directly below its field', () => {
+  render(<RecipeForm mode="edit" initialValues={recipeFormFixture} />)
+  const unit = screen.getByRole('combobox', { name: 'Ingredient 1 unit' })
+  expect(unit.getAttribute('placeholder')).toBe('Select or type')
+  const description = screen.getByLabelText('Ingredient 1 amount description (optional)')
+  expect(description.getAttribute('placeholder')).toBe('e.g. to taste')
+  expect(description.nextElementSibling?.textContent).toBe('Overrides quantity and unit when provided.')
+  expect(description.getAttribute('aria-describedby')).toBe(description.nextElementSibling?.id)
+  expect(screen.queryByText(/A written amount like/)).toBeNull()
+})
+
 it('defaults missing optional notes to an empty editor', () => {
   render(<RecipeForm mode="edit" initialValues={{ ...editable, notes: undefined }} />)
   expect((screen.getByLabelText(/^Notes(?: \(optional\))?$/) as HTMLTextAreaElement).value).toBe('')
@@ -105,7 +116,7 @@ it('adds ingredients, edits amounts, removes rows and submits normalized values'
   await screen.findByText('Recipe saved.')
   expect(submit.mock.calls[0][0]).toMatchObject({ title: 'Ginger rice', ingredients: [
     { name: 'ginger', quantity: null, unit: null, inferred: false },
-    { name: 'rice', quantity: 2.5, unit: 'cups', inferred: false },
+    { name: 'rice', quantity: 2.5, unit: 'cup', inferred: false },
   ] })
 })
 
@@ -181,8 +192,8 @@ it('turns to the first invalid leaf and announces errors on additional pages', (
   click('Save changes')
   const first = screen.getByLabelText('Ingredient 1 quantity')
   expect(first.getAttribute('aria-invalid')).toBe('true')
-  expect(screen.getByRole('alert').textContent).toContain('Ingredient 1 quantity: Enter a finite number, or leave the quantity blank.')
-  expect(screen.getByRole('alert').textContent).toContain('Ingredient 3 quantity: Enter a finite number, or leave the quantity blank.')
+  expect(screen.getByRole('alert').textContent).toContain('Ingredient 1 quantity: Enter a positive number, or leave the quantity blank.')
+  expect(screen.getByRole('alert').textContent).toContain('Ingredient 3 quantity: Enter a positive number, or leave the quantity blank.')
   expect(document.activeElement).toBe(first)
   const otherPage = screen.getByRole('button', { name: /another recipe page with errors/i })
   expect(otherPage.textContent).toContain('1 other page has errors')
@@ -227,7 +238,7 @@ it('shows field-level quantity errors and preserves all entered values for corre
   render(<RecipeForm mode="edit" initialValues={editable} onSubmit={submit} />)
   fill('Ingredient 1 quantity', 'a few')
   click('Save changes')
-  expect(screen.getByText('Enter a finite number, or leave the quantity blank.')).toBeTruthy()
+  expect(screen.getByText('Enter a positive number, or leave the quantity blank.')).toBeTruthy()
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('a few')
   expect(submit).not.toHaveBeenCalled()
 })

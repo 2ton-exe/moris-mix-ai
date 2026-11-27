@@ -19,6 +19,7 @@ import { useIngredientDrag } from './useIngredientDrag'
 import { ScrapbookSticker } from '../journal/ScrapbookSticker'
 import { ReviewDetailDialog } from './ReviewDetailDialog'
 import { IngredientEmoji } from './IngredientEmojiView'
+import { IngredientUnitCombobox } from './IngredientUnitCombobox'
 import './newRecipeScrapbook.css'
 
 type RecipeFormEditorProps = Omit<RecipeFormProps, 'initialValues'> & { initialValues?: RecipeDraft }
@@ -593,7 +594,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
       const next: Record<string, string> = {}
       for (const issue of result.error.issues) {
         const path = issue.path.join('.')
-        next[path] = path === 'title' ? 'Enter a recipe title.' : path.endsWith('.quantity') ? 'Enter a finite number, or leave the quantity blank.' : path === 'star_rating' ? 'Choose a rating from 1 to 5, or leave it unrated.' : path === 'cooked_at' ? 'Enter a valid calendar date.' : 'Check this value.'
+        next[path] = path === 'title' ? 'Enter a recipe title.' : path.endsWith('.quantity') ? 'Enter a positive number, or leave the quantity blank.' : path === 'star_rating' ? 'Choose a rating from 1 to 5, or leave it unrated.' : path === 'cooked_at' ? 'Enter a valid calendar date.' : 'Check this value.'
       }
       const first = result.error.issues.map((issue) => issue.path.join('.')).find(fieldPathExists)
       showValidationErrors(next, first)
@@ -771,7 +772,6 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           {estimateCount > 0 && <span className="recipe-review-count">{estimateCount} to review</span>}
           {reviewWorkflow && estimateCount === 0 && items.length > 0 && (invalidReviewFields.includes('ingredients') ? <span className="recipe-review-count">Check fields</span> : !desktopReview && <span className="recipe-review-count" data-review-ready>Ready</span>)}
         </div>
-        <p className="field-hint">A written amount like “to taste” overrides quantity and unit.</p>
         {desktopEdit && items.length > 0 && !editing && <p className="field-hint">Use the pencil to edit an ingredient.{state.ingredients.length > 1 && ' Drag a handle to reorder, or select it to choose a position.'}</p>}
         {showExtractionHints && estimateCount > 0 && <p className="field-hint" role="note">Mori’s ingredient suggestions stay editable. Check the names and amounts, then mark them reviewed if they look right; you can still save with a review flag left on.</p>}
         <div className="recipe-ingredient-list" hidden={desktop && Boolean(editing)}>
@@ -835,18 +835,18 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
               </p>}
               <div className="recipe-ingredient-fields">
                 <RecipeFormField id={field('ingredients.' + rowIndex + '.name').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>name</>} error={errors['ingredients.' + rowIndex + '.name']}>
-                  <input {...field('ingredients.' + rowIndex + '.name', false, 'ingredient:' + item.key + ':name')} maxLength={200} value={item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, name: event.target.value } : row) })} />
+                  <input {...field('ingredients.' + rowIndex + '.name', false, 'ingredient:' + item.key + ':name')} placeholder="Ingredient name" maxLength={200} value={item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, name: event.target.value } : row) })} />
                 </RecipeFormField>
                 <div className="recipe-amount-row">
                   <RecipeFormField id={field('ingredients.' + rowIndex + '.quantity').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>quantity</>} error={errors['ingredients.' + rowIndex + '.quantity']}>
-                    <input {...field('ingredients.' + rowIndex + '.quantity', false, 'ingredient:' + item.key + ':quantity')} inputMode="decimal" value={item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantity: event.target.value } : row) })} />
+                    <input {...field('ingredients.' + rowIndex + '.quantity', false, 'ingredient:' + item.key + ':quantity')} placeholder="e.g. 2" inputMode="decimal" value={item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantity: event.target.value } : row) })} />
                   </RecipeFormField>
                   <RecipeFormField id={field('ingredients.' + rowIndex + '.unit').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>unit</>} error={errors['ingredients.' + rowIndex + '.unit']}>
-                    <input {...field('ingredients.' + rowIndex + '.unit', false, 'ingredient:' + item.key + ':unit')} maxLength={100} value={item.unit} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, unit: event.target.value } : row) })} />
+                    <IngredientUnitCombobox {...field('ingredients.' + rowIndex + '.unit', false, 'ingredient:' + item.key + ':unit')} value={item.unit} onChange={(unit) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, unit } : row) })} />
                   </RecipeFormField>
                 </div>
-                <RecipeFormField id={field('ingredients.' + rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>amount description <small>(optional)</small></>} error={errors['ingredients.' + rowIndex + '.quantityText']}>
-                  <input {...field('ingredients.' + rowIndex + '.quantityText', false, 'ingredient:' + item.key + ':quantityText')} maxLength={200} value={item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantityText: event.target.value } : row) })} />
+                <RecipeFormField id={field('ingredients.' + rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {rowIndex + 1} </span>amount description <small>(optional)</small></>} error={errors['ingredients.' + rowIndex + '.quantityText']} hint="Overrides quantity and unit when provided.">
+                  <input {...field('ingredients.' + rowIndex + '.quantityText', true, 'ingredient:' + item.key + ':quantityText')} placeholder="e.g. to taste" maxLength={200} value={item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === item.key ? { ...row, quantityText: event.target.value } : row) })} />
                 </RecipeFormField>
               </div>
               {single && <div className="recipe-row-actions">
@@ -882,18 +882,18 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
           </p>}
           <div className="recipe-ingredient-fields">
             <RecipeFormField id={field('ingredients.' + editing.rowIndex + '.name').id} label={<><span className="visually-hidden">Ingredient {editing.rowIndex + 1} </span>name</>} error={errors['ingredients.' + editing.rowIndex + '.name']}>
-              <input {...field('ingredients.' + editing.rowIndex + '.name', false, 'ingredient:' + editing.item.key + ':name')} maxLength={200} value={editing.item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, name: event.target.value } : row) })} />
+              <input {...field('ingredients.' + editing.rowIndex + '.name', false, 'ingredient:' + editing.item.key + ':name')} placeholder="Ingredient name" maxLength={200} value={editing.item.name} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, name: event.target.value } : row) })} />
             </RecipeFormField>
             <div className="recipe-amount-row">
               <RecipeFormField id={field('ingredients.' + editing.rowIndex + '.quantity').id} label={<><span className="visually-hidden">Ingredient {editing.rowIndex + 1} </span>quantity</>} error={errors['ingredients.' + editing.rowIndex + '.quantity']}>
-                <input {...field('ingredients.' + editing.rowIndex + '.quantity', false, 'ingredient:' + editing.item.key + ':quantity')} inputMode="decimal" value={editing.item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, quantity: event.target.value } : row) })} />
+                <input {...field('ingredients.' + editing.rowIndex + '.quantity', false, 'ingredient:' + editing.item.key + ':quantity')} placeholder="e.g. 2" inputMode="decimal" value={editing.item.quantity} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, quantity: event.target.value } : row) })} />
               </RecipeFormField>
               <RecipeFormField id={field('ingredients.' + editing.rowIndex + '.unit').id} label={<><span className="visually-hidden">Ingredient {editing.rowIndex + 1} </span>unit</>} error={errors['ingredients.' + editing.rowIndex + '.unit']}>
-                <input {...field('ingredients.' + editing.rowIndex + '.unit', false, 'ingredient:' + editing.item.key + ':unit')} maxLength={100} value={editing.item.unit} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, unit: event.target.value } : row) })} />
+                <IngredientUnitCombobox {...field('ingredients.' + editing.rowIndex + '.unit', false, 'ingredient:' + editing.item.key + ':unit')} value={editing.item.unit} onChange={(unit) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, unit } : row) })} />
               </RecipeFormField>
             </div>
-            <RecipeFormField id={field('ingredients.' + editing.rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {editing.rowIndex + 1} </span>amount description <small>(optional)</small></>} error={errors['ingredients.' + editing.rowIndex + '.quantityText']}>
-              <input {...field('ingredients.' + editing.rowIndex + '.quantityText', false, 'ingredient:' + editing.item.key + ':quantityText')} maxLength={200} value={editing.item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, quantityText: event.target.value } : row) })} />
+            <RecipeFormField id={field('ingredients.' + editing.rowIndex + '.quantityText').id} label={<><span className="visually-hidden">Ingredient {editing.rowIndex + 1} </span>amount description <small>(optional)</small></>} error={errors['ingredients.' + editing.rowIndex + '.quantityText']} hint="Overrides quantity and unit when provided.">
+              <input {...field('ingredients.' + editing.rowIndex + '.quantityText', true, 'ingredient:' + editing.item.key + ':quantityText')} placeholder="e.g. to taste" maxLength={200} value={editing.item.quantityText} onChange={(event) => change({ ...state, ingredients: state.ingredients.map((row) => row.key === editing.item.key ? { ...row, quantityText: event.target.value } : row) })} />
             </RecipeFormField>
           </div>
           <div className="recipe-ingredient-edit-step__actions">

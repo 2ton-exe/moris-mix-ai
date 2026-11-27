@@ -174,6 +174,18 @@ async function handleApiRequest(request, response) {
     return
   }
   const recipeRoute = /^\/functions\/v1\/recipes\/([^/]+)$/.exec(url.pathname)
+  if (recipeRoute && request.method === 'GET') {
+    const recipeId = decodeURIComponent(recipeRoute[1])
+    const saved = recipeWrites.at(-1)
+    if (!saved || recipeId !== scenarioRecipeIds[activeScenario]) {
+      sendJson(request, response, 404, { error: { code: 'NOT_FOUND' } })
+      return
+    }
+    sendJson(request, response, 200, { recipe: {
+      id: recipeId, user_id: userId, ...saved.body, flavor_scores: null,
+    } })
+    return
+  }
   if (recipeRoute && request.method === 'PATCH') {
     const recipeId = decodeURIComponent(recipeRoute[1])
     recipeUpdates.push({ recipeId, body, authorization: request.headers.authorization })
@@ -378,6 +390,19 @@ try {
   assert.equal(new Set(cardBoxes.map(({ left }) => left)).size, 3)
   assert.equal(new Set(cardBoxes.map(({ top }) => top)).size, 4)
   assert.ok(await page.evaluate(() => globalThis.document.documentElement.scrollHeight <= globalThis.innerHeight + 1), 'The pantry must fit the viewport')
+  const pantryLayout = await page.evaluate(() => {
+    const bounds = (selector) => globalThis.document.querySelector(selector).getBoundingClientRect()
+    return {
+      entry: bounds('.mm-ai-chef__entry-panel').toJSON(),
+      progress: bounds('.mm-ai-chef__journey').toJSON(),
+      heading: bounds('.mm-ai-chef__heading').toJSON(),
+      boardBottom: bounds('.mm-ai-chef__pantry-list:not(.mm-ai-chef__measure)').bottom,
+      footerTop: bounds('.mm-journal-page-footer').top,
+    }
+  })
+  assert.ok(pantryLayout.progress.bottom <= pantryLayout.entry.top && pantryLayout.entry.right < pantryLayout.heading.left, 'Progress and pantry entry stay on the left leaf beside the ingredient board')
+  assert.ok(pantryLayout.footerTop - pantryLayout.boardBottom <= 24, 'The pantry board uses the available height above the anchored action')
+
   await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-board-1440.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 1586, height: 992 })
   await settleJournalLayout(page)
@@ -443,8 +468,32 @@ try {
   await expect(longCard).toBeVisible()
   await expect(longCard.locator('img')).toHaveAttribute('src', '/twemoji/svg/1f37d.svg')
   assert.ok(await longCard.evaluate((card) => card.scrollWidth <= card.clientWidth))
+  await pantryInput.fill('  VINEGAR  ')
+  await pantryInput.press('Enter')
+  const expandedBoard = page.getByRole('region', { name: 'Pantry list, 13 items' })
+  const duplicateCard = expandedBoard.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Remove Vinegar', exact: true }) })
+  await expect(duplicateCard).toHaveAttribute('data-duplicate', 'true')
+  await expect(pantryInput).toBeFocused()
+  await expect(expandedBoard).toHaveAccessibleName('Pantry list, 13 items')
+  await nextIngredients.click()
+  await expect(longCard).toBeVisible()
   await longCard.getByRole('button').click()
   await expect(page.getByRole('navigation', { name: 'Pantry board pages' })).toHaveCount(0)
+  await expect(firstCards).toHaveCount(12)
+
+  await sort.selectOption('ascending')
+  const longBulkItems = ['A', 'B', 'C'].map((letter) => letter.repeat(96) + ' oil')
+  await pantryInput.fill([...longBulkItems, 'OLIVE OIL'].join(', '))
+  await pantryInput.press('Enter')
+  const mixedBoard = page.getByRole('region', { name: 'Pantry list, 15 items' })
+  await expect(mixedBoard.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Remove Olive Oil', exact: true }) })).toHaveAttribute('data-duplicate', 'true')
+  await expect(pantryInput).toBeFocused()
+  const previousIngredients = page.getByRole('button', { name: 'Previous ingredients' })
+  await previousIngredients.click()
+  await expect(pantryInput).not.toBeFocused()
+  while (await previousIngredients.isEnabled()) await previousIngredients.click()
+  for (const name of longBulkItems) await page.getByRole('button', { name: 'Remove ' + name, exact: true }).click()
+  await sort.selectOption('added')
   await expect(firstCards).toHaveCount(12)
 
   await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -780,15 +829,17 @@ try {
   await expect(page.getByRole('heading', { name: 'Your recipe is saved.' })).toBeVisible()
   await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Reload recovery created a second recipe')
-  await returnChefReviewToTitle(page)
+  await page.getByRole('button', { name: 'Edit saved recipe', exact: true }).click()
+  await expect(page).toHaveURL(`${origin}app/recipes/${partialChildId}/edit`)
   await page.getByLabel('Recipe title').fill('Edited after recovery')
-  await advanceChefReviewToSave(page, 'Save changes')
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
+  await expect(page.getByText('Recipe saved.', { exact: true })).toBeVisible()
   assert.equal(recipeUpdates.length, 1, 'Editing a recovered recipe did not use its existing ID')
   assert.equal(recipeUpdates[0].recipeId, partialChildId)
   assert.equal(recipeUpdates[0].body.title, 'Edited after recovery')
   assert.equal(recipeWrites.length, 1, 'Editing a recovered recipe created another child')
+  await page.goto(`${origin}app/chef/review`)
+  await expect(page.getByText('Recipe saved. Parent links still need attention.')).toBeVisible()
   await page.getByRole('button', { name: 'Retry recipe links' }).click()
   await expect(page.getByText('Recipe and selected parent links saved.')).toBeVisible()
   assert.equal(recipeWrites.length, 1, 'Lineage retry created a second recipe')
@@ -838,8 +889,14 @@ try {
   await page.goto(`${origin}app/chef`)
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).fill('rice')
   await page.getByRole('textbox', { name: 'Pantry ingredient' }).press('Enter')
+  await settleJournalLayout(page)
   await page.locator('.mm-ai-chef__quick-add summary').click()
+  await expect(page.locator('.mm-ai-chef__quick-add')).toHaveAttribute('open', '')
   await page.getByRole('button', { name: 'eggs', exact: true }).click({ trial: true })
+  assert.ok(await page.locator('.mm-ai-chef__entry-panel').evaluate((panel) =>
+    panel.getBoundingClientRect().bottom <= panel.closest('.mm-journal-flyleaf').querySelector('.mm-pagination-slot--left').getBoundingClientRect().top
+  ), 'Expanded pantry suggestions stay above the left page-turn control')
+  await page.screenshot({ path: path.join(os.tmpdir(), 'moris-pantry-expanded-1280.png'), animations: 'disabled' })
   const preferencesJump = page.getByRole('button', { name: /^Next page/ })
   await expect(preferencesJump).toBeInViewport({ ratio: 1 })
   await expect(preferencesJump).toContainText('Cooking preferences')

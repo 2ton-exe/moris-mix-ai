@@ -7,6 +7,8 @@ import { AuthContext } from '../auth/context'
 import type { AuthState } from '../auth/context'
 import { JournalLogoutGuardContext } from '../journal/JournalLogoutGuardContext'
 import type { JournalLogoutGuard } from '../journal/JournalLogoutGuardContext'
+import { editorState } from '../recipe-form/draft'
+import { mapAiRecipeToDraft } from '../recipe-form/aiRecipeDraft'
 import { JournalShell } from '../journal/JournalShell'
 import { MoriCompanion } from '../mori/MoriCompanion'
 import { MoriCompanionProvider } from '../mori/MoriCompanionContext'
@@ -30,6 +32,11 @@ const handoff = {
     flavor_scores: { sweet: 0, salty: 4, sour: 0, bitter: 0, umami: 3, spicy: 0 },
   },
   saved: false as const,
+}
+
+const normalizedHandoff = {
+  ...handoff, recipe: { ...handoff.recipe, ingredients: handoff.recipe.ingredients.map((ingredient) =>
+    ingredient.unit === 'cups' ? { ...ingredient, unit: 'cup' } : ingredient) },
 }
 
 function authState(id = 'cook-a'): AuthState {
@@ -101,7 +108,7 @@ it('opens the review workflow with extraction fields and original notes kept sep
 
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('Garlic soy rice')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('2')
-  expect((screen.getByLabelText('Ingredient 1 unit') as HTMLInputElement).value).toBe('cups')
+  expect((screen.getByLabelText('Ingredient 1 unit') as HTMLInputElement).value).toBe('cup')
   expect((screen.getByLabelText('Ingredient 2 amount description (optional)') as HTMLInputElement).value).toBe('a splash')
   expect(screen.getByText('2 to review')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Mark as reviewed: ingredient 2' }))
@@ -186,7 +193,7 @@ it('persists corrected and temporarily invalid fields across remounts without sa
   renderReview()
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('  My edited rice  ')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('not-a-number')
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
 })
 
 it('warns when the edited review cannot be persisted and protects sign-out until storage recovers', async () => {
@@ -230,7 +237,7 @@ it('keeps successive review edits in account-scoped memory across a remount when
   renderReview()
   expect((screen.getByLabelText('Recipe title') as HTMLTextAreaElement).value).toBe('The latest corrected rice')
   expect((screen.getByLabelText('Ingredient 1 quantity') as HTMLInputElement).value).toBe('not-a-number')
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
 })
 
 it('warns if a confirmed save cannot clear its old handoff and retries the cleanup', async () => {
@@ -275,7 +282,7 @@ it('shows accessible validation feedback and keeps corrections after failed save
   fireEvent.click(screen.getByRole('button', { name: 'Previous: Recipe details and Ingredients' }))
   expect(screen.getByDisplayValue('Corrected recipe')).toBeTruthy()
   expect(document.body.textContent).not.toContain('private save detail')
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
   expect(readQuickAiEntryDraft('cook-a').reviewDraft?.title).toBe('Corrected recipe')
 })
 
@@ -327,7 +334,7 @@ it('blocks leaving even before the user edits AI-prefilled values and keeps note
   fireEvent.click(screen.getByRole('button', { name: 'Discard Changes' }))
   expect(await screen.findByRole('heading', { name: 'Quick AI Entry' })).toBeTruthy()
   expect(readQuickAiEntryDraft('cook-a').notes).toBe(sourceNotes)
-  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(handoff)
+  expect(readQuickAiEntryDraft('cook-a').handoff).toEqual(normalizedHandoff)
 })
 
 it('shows a recoverable state for a missing handoff and never renders an empty recipe form', () => {
@@ -369,4 +376,25 @@ it('does not expose another account’s extraction after an account change', () 
   expect(screen.getByRole('heading', { name: 'No recipe draft to review' })).toBeTruthy()
   expect(screen.queryByText(sourceNotes)).toBeNull()
   expect(screen.queryByDisplayValue('Garlic soy rice')).toBeNull()
+})
+
+
+it('restores legacy zero amounts and user edits, requiring correction before saving', async () => {
+  const recipe = { ...handoff.recipe, ingredients: [{ name: 'rice', quantity: 0, unit: 'cup', inferred: false }] }
+  const initial = mapAiRecipeToDraft(recipe)
+  if (!initial) throw new Error('Legacy recipe must initialize')
+  const reviewDraft = { ...editorState(initial), title: 'My edited legacy rice' }
+  sessionStorage.setItem('moris-mix:quick-ai-entry:v1:cook-a', JSON.stringify({
+    notes: sourceNotes, handoff: { ...handoff, recipe }, reviewDraft,
+  }))
+  const { save } = renderReview()
+  expect(screen.getByLabelText('Recipe title')).toHaveProperty('value', reviewDraft.title)
+  expect(screen.getByLabelText('Ingredient 1 quantity')).toHaveProperty('value', '0')
+  saveRecipe()
+  expect(save).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText('Ingredient 1 quantity'), { target: { value: '2' } })
+  saveRecipe()
+  await waitFor(() => expect(save).toHaveBeenCalledOnce())
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ title: reviewDraft.title,
+    ingredients: [expect.objectContaining({ quantity: 2 })] }), expect.anything())
 })

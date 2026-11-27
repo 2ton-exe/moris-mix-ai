@@ -65,6 +65,19 @@ The whole request body must be **≤ 128 KiB**. The endpoint streams the body an
 ```
 
 `recipe` matches `ExtractedRecipeSchema` in `supabase/functions/_shared/ai/schemas.ts`.
+Extraction and generation share deterministic ingredient normalization with
+manual recipe writes: recognized unit aliases become canonical values, unknown
+units remain trimmed custom values, and unspecified quantities stay `null`.
+Supplied quantities must be positive numbers. The prompt asks the model to parse
+fractions in source notes into numeric quantities, but the server does not derive
+quantities from the notes; a stated fraction may still return `quantity: null`.
+Units are bounded to 100 characters without
+control characters. `quantityText` is an amount override, not a preparation note;
+it preserves any supplied quantity/unit and takes precedence only in display
+and scaling. See [ingredient amount semantics](recipes.md#ingredient-amounts-and-units).
+These rules require no extra model call. Automated coverage uses mocked providers;
+AI remains intentionally disabled in staging.
+
 `flavor_scores` and per-ingredient `quantityText` are optional. Instruction steps are
 numbered `1..n` in order. **No recipe or lineage row is created; the quota reservation
 and daily usage counter are recorded.**
@@ -213,6 +226,17 @@ POST, OPTIONS`). Any other method → `405 METHOD_NOT_ALLOWED`.
 | `pantryItems` | string[] | Required, **1–100** items, each non-empty after trimming and **≤ 100 characters** |
 | `preferences` | string | Optional, trimmed, **≤ 1,000 characters** |
 
+Pantry membership uses a shared deterministic identity: capitalization and whitespace
+are normalized, known plural food nouns are singularized, and curated aliases
+(for example, scallions/green onions and aubergine/eggplant) are matched. The first
+label is retained for display and the request; identity never replaces that label.
+Variety, cut, form, and preparation qualifiers remain significant (for example,
+chicken breast, ground chicken, and cooked chicken stay separate). Unknown names
+are not stemmed or fuzzily matched. Manual, pasted, quick-add, and restored pantry
+lists use the same identity. Both request boundaries deduplicate before retrieval
+or generation, without an additional AI call. Existing item/character limits are
+validated before deduplication.
+
 The whole request body must be **≤ 128 KiB**. The endpoint streams and enforces this cap, accepts an omitted content type for compatibility, rejects an explicit non-JSON content type, and returns `X-Request-ID`. Pantry requests ignore unknown fields. Pantry items
 are normalized (trimmed, de-duplicated, lowercased) by BE-10 before retrieval and the
 prompt. An empty pantry is a `400 VALIDATION_ERROR`: a cold start means **no saved
@@ -240,7 +264,7 @@ source title and ID, ingredient amounts, and directions to the model.
   "recipe": {
     "title": "Quick Egg Fried Rice",
     "ingredients": [
-      { "name": "rice", "quantity": 2, "unit": "cups", "inferred": false },
+      { "name": "rice", "quantity": 2, "unit": "cup", "inferred": false },
       { "name": "eggs", "quantity": 2, "unit": null, "inferred": false }
     ],
     "instructions": [ { "step": 1, "text": "Scramble the eggs, then fold in the rice." } ],

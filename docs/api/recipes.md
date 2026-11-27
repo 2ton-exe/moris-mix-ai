@@ -231,6 +231,32 @@ If `:id` does not exist or belongs to another user, returns `404 Not Found` with
 
 If `:id` is malformed (not a valid UUID), returns `400 Bad Request` with `{ "error": { "code": "VALIDATION_ERROR", "message": "Invalid recipe ID.", "details": [...] } }`.
 
+### Ingredient amounts and units
+
+Recipe writes require a nonempty trimmed ingredient name and a finite positive
+numeric `quantity` when supplied (`null` means unspecified). The editor accepts
+decimals, common fractions such as `1/2`, mixed fractions such as `1 1/2`, and
+Unicode cooking fractions; JSON quantities remain numbers.
+
+`unit` is optional. Recognized aliases and plurals normalize before persistence
+(e.g. `tablespoons` → `tbsp`, `cups` → `cup`, `pcs` → `piece`); `T` and `t`
+retain their distinct tablespoon/teaspoon meanings. Custom units retain their
+spelling and case after trimming, with a 100-character limit and no control
+characters. No package capacities, measurement system, density, or conversions
+are inferred.
+
+`quantityText` is the optional amount description (up to 200 characters), such as
+`to taste` or `as needed`. It overrides quantity and unit during presentation and
+excludes the overridden amount from scaling, while preserving the underlying
+values. Removing it restores the structured display. Preparation instructions
+belong in the ingredient name or cooking steps, not the amount description.
+
+Reads continue to accept legacy arbitrary unit strings and existing quantities;
+normalization applies on valid writes without rewriting stored recipes. The
+shared quantity-scaling rule multiplies numeric amounts (including count,
+informal, packaging, and custom units) and leaves unspecified or described
+amounts unchanged. The current product has no serving-size adjustment control.
+
 ## 3. POST /recipes — Create recipe
 
 Creates a new recipe owned by the authenticated caller.

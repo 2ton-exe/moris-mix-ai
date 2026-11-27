@@ -598,3 +598,16 @@ it.each([
   send(command)
   await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('/app/quick-entry/review'))
 })
+
+
+it('uses amount descriptions without leaking the overridden unit into the extraction preview', async () => {
+  vi.spyOn(extractRecipeApi, 'extract').mockResolvedValue({
+    ...recipe(), ingredients: [{ name: 'Oil', quantity: 1, unit: 'tsp', quantityText: 'as needed', inferred: false }],
+  })
+  renderChat('mori-chat-overridden-amount')
+  choosePrompt('Record a recipe')
+  send('Soup with oil as needed; simmer gently.')
+  await screen.findByRole('button', { name: 'Review draft' })
+  expect(screen.getByText('Oil, as needed')).toBeTruthy()
+  expect(screen.queryByText('as needed tsp Oil')).toBeNull()
+})

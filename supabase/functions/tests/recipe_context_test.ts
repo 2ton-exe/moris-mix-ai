@@ -1,3 +1,4 @@
+import { GenerateRecipeRequestSchema } from "../_shared/ai/schemas.ts";
 import {
   assertEquals,
   assertFalse,
@@ -306,6 +307,30 @@ Deno.test("compareRankedCandidates enforces 4-tier precedence and validates both
     matched_ingredients: ["garlic"],
   };
   assertThrows(() => compareRankedCandidates(undefinedRatingItem, itemLowerOverlap), Error);
+});
+
+Deno.test("ranking uses shared identities regardless of deduplicated pantry alias order", () => {
+  const greenOnions = createMockRecipe({ ingredients: [mockIng("green onions")] });
+  const scallions = createMockRecipe({
+    id: "22222222-2222-4222-8222-222222222222",
+    ingredients: [mockIng("scallion")],
+  });
+  const differentVariety = createMockRecipe({
+    id: "33333333-3333-4333-8333-333333333333",
+    ingredients: [mockIng("red onion")],
+  });
+  const candidates = [greenOnions, scallions, differentVariety];
+  const rank = (pantryItems: string[]) => rankCandidateRecipes(
+    candidates, GenerateRecipeRequestSchema.parse({ pantryItems }).pantryItems,
+  );
+  const forward = rank(["scallions", "green onions"]);
+  const reverse = rank(["green onions", "scallions"]);
+  assertEquals(forward, reverse);
+  assertEquals(forward.matchedCount, 2);
+  assertEquals(forward.ranked.map((item) => item.id), [greenOnions.id, scallions.id]);
+  assertEquals(forward.ranked.map((item) => item.overlap_ratio), [1, 1]);
+  assertEquals(forward.ranked[0].ingredients, greenOnions.ingredients);
+  assertEquals(forward.ranked[1].ingredients, scallions.ingredients);
 });
 
 Deno.test("rankCandidateRecipes produces identical total order across all 24 input permutations including mixed-case UUIDs and timezone offsets", () => {
@@ -747,7 +772,7 @@ Deno.test("buildChefRecipeContext enforces strict cold-start precedence, preserv
   assertEquals(resNoOverlap.recipes, []);
   assertEquals(resNoOverlap.totalCandidateCount, 1);
   assertEquals(resNoOverlap.matchedCandidateCount, 0);
-  assertEquals(resNoOverlap.pantryItems, ["garlic", "shallots"]);
+  assertEquals(resNoOverlap.pantryItems, ["garlic", "shallot"]);
   assertEquals(resNoOverlap.preferences, undefined);
 
   const matchingRecipe = createMockRecipe({

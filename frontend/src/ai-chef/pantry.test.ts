@@ -4,8 +4,16 @@ import { addPantryItems, MAX_PANTRY_ITEM_CHARS, MAX_PANTRY_ITEMS, pantryEntryErr
 describe('pantry ingredient tokens', () => {
   it('trims values, skips case-insensitive duplicates, and preserves the first label', () => {
     expect(addPantryItems(['Rice'], ['  rice ', 'eggs', ' Eggs '])).toEqual({
-      items: ['Rice', 'eggs'], added: 1, duplicates: 2, error: null,
+      items: ['Rice', 'eggs'], added: 1, duplicates: 2, duplicateIdentities: ['rice', 'egg'], error: null,
     })
+  })
+
+  it('uses the same identity for bulk aliases, plurals, and existing entries', () => {
+    expect(addPantryItems(['Green onions', 'Tomato'], [' scallions ', 'tomatoes', 'aubergines', 'eggplant', 'chickpeas', 'garbanzo beans']))
+      .toEqual({
+        items: ['Green onions', 'Tomato', 'aubergines', 'chickpeas'], added: 2, duplicates: 4,
+        duplicateIdentities: ['green onion', 'tomato', 'eggplant', 'chickpea'], error: null,
+      })
   })
 
   it('rejects empty, oversized, and over-limit input without changing the current list', () => {

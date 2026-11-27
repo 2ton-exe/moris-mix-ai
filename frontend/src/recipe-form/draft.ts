@@ -1,16 +1,8 @@
 import { z } from 'zod'
-import type { Ingredient, Instruction } from '../api/demoRecipe'
+import { parseIngredientQuantity } from '../../../supabase/functions/_shared/ingredient-units.ts'
+import type { Instruction } from '../api/demoRecipe'
+import { ingredientInputSchema } from '../api/ingredient'
 
-// Frontend draft, NOT a POST/PATCH contract. Field shapes follow the published
-// Deno Zod schemas in _shared/ai/schemas.ts; npm: imports cannot run in Vite.
-// Keep this bridge aligned until a browser-compatible shared package exists.
-const ingredientSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  quantity: z.number().finite().nonnegative().nullable(),
-  unit: z.string().max(100).nullable(),
-  quantityText: z.string().max(200).optional(),
-  inferred: z.boolean().default(false),
-}) satisfies z.ZodType<Ingredient>
 const instructionSchema = z.object({ step: z.number().finite(), text: z.string().max(2_000) }) satisfies z.ZodType<Instruction>
 
 function calendarDate(value: string) {
@@ -21,11 +13,18 @@ function calendarDate(value: string) {
 
 export const recipeDraftSchema = z.object({
   title: z.string().trim().min(1, 'Enter a recipe title.').max(200),
-  ingredients: z.array(ingredientSchema).max(100),
+  ingredients: z.array(ingredientInputSchema).max(100),
   instructions: z.array(instructionSchema).max(100),
   star_rating: z.number().int().min(1).max(5).nullable(),
   cooked_at: z.string().refine(calendarDate, 'Enter a valid calendar date.').nullable(),
   notes: z.string().max(20_000).default(''),
+})
+// Load legacy values unchanged; saving still validates against the write schema.
+export const recipeInitialDraftSchema = recipeDraftSchema.extend({
+  ingredients: z.array(ingredientInputSchema.extend({
+    quantity: z.number().finite().nonnegative().nullable().default(null),
+    unit: z.string().nullable().default(null),
+  })).max(100),
 })
 export type RecipeDraft = z.infer<typeof recipeDraftSchema>
 export type RecipeDraftInput = z.input<typeof recipeDraftSchema>
@@ -84,17 +83,11 @@ export function findOriginalIngredientIndex(rows: IngredientRow[], name: string,
   return matches.length === 1 ? matches[0] : -1
 }
 
-function quantity(value: string) {
-  if (!value.trim()) return null
-  // Decimal notation, including scientific notation; no unit/fraction guessing.
-  return /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()) ? Number(value) : NaN
-}
-
 export function validateEditor(state: RecipeEditorState) {
   return recipeDraftSchema.safeParse({
     title: state.title,
     ingredients: state.ingredients.map((item) => ({
-      name: item.name, quantity: quantity(item.quantity), unit: item.unit.trim() || null,
+      name: item.name, quantity: parseIngredientQuantity(item.quantity), unit: item.unit.trim() || null,
       ...(item.quantityText.trim() ? { quantityText: item.quantityText.trim() } : {}), inferred: item.inferred,
     })),
     instructions: state.instructions.map((item, index) => ({ step: index + 1, text: item.text })),

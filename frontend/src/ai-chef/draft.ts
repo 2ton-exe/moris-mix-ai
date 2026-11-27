@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { uniquePantryIngredients } from '../../../supabase/functions/_shared/ingredient-identity.ts'
 import { recipeEditorStateSchema } from '../recipe-form/draft'
 import type { RecipeEditorState } from '../recipe-form/draft'
-import { generateRecipeRequestSchema, generateRecipeResponseSchema, revisionRequestSchema } from './generateRecipe'
+import { generateRecipeRequestSchema, storedGenerateRecipeResponseSchema, revisionRequestSchema } from './generateRecipe'
 import type { GenerateRecipeRequest, GenerateRecipeResponse, RevisionRequest } from './generateRecipe'
 
 const pantryInputSchema = z.object({
-  pantryItems: z.array(z.string()),
+  pantryItems: z.array(z.string()).transform(uniquePantryIngredients),
   pantryInput: z.string(),
   preferences: z.string(),
 })
@@ -14,7 +15,7 @@ const lineageStatusSchema = z.enum(['pending', 'expired', 'blocked', 'confirmed'
 
 const reviewHandoffSchema = z.object({
   request: z.union([generateRecipeRequestSchema, revisionRequestSchema]),
-  response: generateRecipeResponseSchema,
+  response: storedGenerateRecipeResponseSchema,
   reviewDraft: recipeEditorStateSchema.nullable().optional(),
   selectedParentIds: z.array(z.string().uuid()).max(10).default([]),
   savedRecipeId: z.string().uuid().optional(),

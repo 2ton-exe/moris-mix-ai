@@ -33,6 +33,16 @@ const generated = {
 const request: RecipeRequest = { userId: 'chef-user', signal: new AbortController().signal }
 
 describe('AI Chef request and response contract', () => {
+  it('normalizes ingredient membership before building the generation payload', async () => {
+    const postAuthenticatedJson = vi.fn().mockResolvedValue(generated)
+    await createGenerateRecipeApi({ postAuthenticatedJson }).generate(
+      [' Green   onions ', 'scallions', 'EGGS', 'egg', 'chicken breast', 'chicken thigh'], '', request,
+    )
+    expect(postAuthenticatedJson).toHaveBeenCalledWith(GENERATE_RECIPE_PATH, {
+      pantryItems: ['Green onions', 'EGGS', 'chicken breast', 'chicken thigh'],
+    }, request)
+  })
+
   it('mirrors backend pantry and preference limits and normalizes whitespace', () => {
     const parsed = generateRecipeRequestSchema.safeParse({ pantryItems: [' rice ', 'eggs'], preferences: ' quick, no frying ' })
     expect(parsed.success && parsed.data).toEqual({ pantryItems: ['rice', 'eggs'], preferences: 'quick, no frying' })
@@ -124,6 +134,13 @@ describe('AI Chef request and response contract', () => {
     expect(generateRecipeErrorMessage(new Error('timeout'), true)).toContain('took too long')
     expect(generateRecipeErrorMessage(http(500, 'INTERNAL_ERROR'))).not.toContain('private')
   })
+})
+
+
+it('rejects zero amounts from new generation responses', () => {
+  expect(generateRecipeResponseSchema.safeParse({ ...generated, recipe: {
+    ...recipe, ingredients: [{ name: 'tomatoes', quantity: 0, unit: null, inferred: false }],
+  } }).success).toBe(false)
 })
 
 it('explains oversized revisions without suggesting a quota-consuming retry', () => {
