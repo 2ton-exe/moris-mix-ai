@@ -83,16 +83,15 @@ recorded successful deployment URL, AI-route, and runtime smoke steps.
 
 ### Production credential isolation
 
-At the reviewed main revision, release and backup still read legacy
-repository-scope Cloudflare and Supabase credentials. The main-only workflow
-guards allow these jobs to run on main, while repository secrets remain
-available to eligible same-repository PR workflows. The release workflow in
-this change uses three dedicated names from `production-release`, and the
-backup uses two separate Supabase names from `production-backup`. GitHub
-lists all five entries. Both environments allow only the `main` branch.
-Administrator bypass is disabled for `production-release` and enabled for
-`production-backup`. Keep repository and organization copies of the new
-names absent.
+The original November 26 review found repository-scope Cloudflare and Supabase
+credentials in the release and backup paths. The active release now uses three
+dedicated names in `production-release`. The backup uses two separate Supabase
+names in `production-backup`. GitHub lists all five entries. Both environments
+are restricted to `main`. Administrator bypass is disabled for both
+environments. GitHub readback on November 27 confirmed the backup environment
+still had only its branch rule and that the automatic workflow remained active
+after the bypass setting changed. Keep the dedicated names at their environment
+scopes.
 [GitHub Actions secret scopes](https://docs.github.com/en/enterprise-cloud@latest/code-security/reference/secret-security/secret-types)
 
 The release rejects missing and whitespace-only credentials before checkout.
@@ -100,29 +99,49 @@ Before any provider write, it verifies the dedicated Cloudflare token is active
 and reads the enabled production Worker's HTTPS URL from its Worker-scoped
 record. A failed read or mismatch with `PRODUCTION_FRONTEND_URL` stops the job.
 The post-deployment URL and smoke checks still run on successful releases.
-Backup validates its dedicated inputs before project link and dump.
-The release reads Supabase migration history only when the recipe-image or
-image-cleanup flag is enabled.
+The release always reads Supabase migration history for the Chef prerequisite
+and checks additional migration versions when recipe-image flags require them.
 
-Before an authorized cutover, verify Supabase release PAT authentication on the
-exact production project by reading a known Edge Function and migration history.
-For backup, verify a production-project Management API read granted to the
-backup PAT and authenticate to the intended database over verified TLS with
-`SELECT 1`. Record only the target and sanitized result. Review the provider
-policies for write and backup grants, then verify the authorized release and
-backup after cutover.
+Production cutover passed in [run 45997105147](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45997105147)
+at main `c09c25e15fa32be7e9edc612a1e8ee5ee1a016a3`. The protected job verified
+the dedicated credentials, deployed the intended Edge Functions and Worker,
+and passed URL, AI-route, and runtime smoke checks. The
+[incident log](incident-log.md#incident-2026-11-27--production-release-credentials-unavailable)
+records the reusable-workflow correction and recovery timing.
+
+Backup validates its dedicated inputs before project link and dump. The
+existing database password passed a read-only `SELECT 1` over hostname-verified
+TLS. The saved backup PAT returned HTTP 403 for production pooler configuration.
+Supabase did not identify a missing grant in its response, and the credential
+used for the earlier HTTP 200 was not established. The hosted dump needs
+effective Connection Pooling read access for its IPv4 connection path.
+Dedicated link, logical dump, consistency, private R2 upload, and integrity
+verification remain pending. The latest verified capture remains the earlier
+[scheduled backup](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45083275244).
+Keep the scheduled workflow and last verified backup in place. Review the next
+run and record its result. A failed capture means backup freshness has slipped
+and calls for owner coordination before a data-risking change. Confirm a
+current, verified backup before such a change proceeds.
 [Cloudflare Worker metadata](https://developers.cloudflare.com/api/resources/workers/subresources/beta/subresources/workers/methods/get/) ·
 [Supabase PAT permissions](https://supabase.com/docs/guides/platform/personal-access-tokens)
 
+The three backup R2 names also exist at repository scope. The protected backup
+job uses the environment entries by GitHub's secret precedence rules. The
+repository copies remain available to eligible workflows and their provider
+identity and external or recovery use still require owner confirmation.
+[GitHub secret precedence](https://docs.github.com/en/actions/reference/security/secrets#naming-your-secrets)
+
 PR #154 proposed migration steps that referenced legacy Supabase credentials
 and closed unmerged. The dormant reusable Cloudflare workflow still references
-the generic Cloudflare names. Verify active and external consumers with the
-release and backup owners before retiring credentials. Coordinate production
-release and rollback readiness with #165 and backup verification with #159
-before live operations. Keep a known-good Worker version, previous Edge Function
-artifacts, and an approved recovery path available for cutover. The repository
-boundary stays open until equivalent legacy access is retired or its risk is
-explicitly accepted.
+the generic Cloudflare names. Before retiring legacy entries, verify the
+dedicated backup, confirm external and recovery consumers with credential
+owners, and obtain approval for the exact entries. Coordinate supervised backup
+verification with the separately owned #165 rehearsal. Keep recovery references
+available. The owner approved deferring backup authorization and execution,
+legacy credential retirement, and direct audit attribution for the staging
+replacement token from the [Sprint 4 scope](https://github.com/2ton-exe/moris-mix-ai/issues/163).
+The owner retained responsibility for the next backup review and the
+[deferred security work](https://github.com/2ton-exe/moris-mix-ai/issues/311).
 [Closed migration proposal](https://github.com/2ton-exe/moris-mix-ai/pull/154) ·
 [Rollback rehearsal](https://github.com/2ton-exe/moris-mix-ai/issues/165) ·
 [Backup and restore](https://github.com/2ton-exe/moris-mix-ai/issues/159)
