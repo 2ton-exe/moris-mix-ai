@@ -135,6 +135,12 @@ jobs:
             exit 1
           fi
 
+      - name: Verify production Cloudflare Worker URL
+        env:
+          PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: ${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN }}
+          PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/verify-production-worker-url.mjs
+
       - name: Verify recipe image release prerequisites
         if: env.VITE_RECIPE_IMAGES == 'true' || vars.RECIPE_IMAGE_CLEANUP_ENABLED == 'true'
         env:

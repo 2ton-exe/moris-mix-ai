@@ -95,16 +95,17 @@ Administrator bypass is disabled for `production-release` and enabled for
 names absent.
 [GitHub Actions secret scopes](https://docs.github.com/en/enterprise-cloud@latest/code-security/reference/secret-security/secret-types)
 
-The release preflight rejects missing and whitespace-only credentials before
-checkout and any provider writes. Backup validates its dedicated inputs before
-project link and dump. These checks establish that the inputs are present.
+The release rejects missing and whitespace-only credentials before checkout.
+Before any provider write, it verifies the dedicated Cloudflare token is active
+and reads the enabled production Worker's HTTPS URL from its Worker-scoped
+record. A failed read or mismatch with `PRODUCTION_FRONTEND_URL` stops the job.
+The post-deployment URL and smoke checks still run on successful releases.
+Backup validates its dedicated inputs before project link and dump.
 The release reads Supabase migration history only when the recipe-image or
 image-cleanup flag is enabled.
 
-Before an authorized cutover, use the intended credentials on the exact
-production targets from a trusted operator session. Read the Cloudflare Worker
-record and confirm `result.subdomain.url` matches the configured production URL.
-Verify Supabase release PAT authentication by reading a known Edge Function.
+Before an authorized cutover, verify Supabase release PAT authentication on the
+exact production project by reading a known Edge Function and migration history.
 For backup, verify a production-project Management API read granted to the
 backup PAT and authenticate to the intended database over verified TLS with
 `SELECT 1`. Record only the target and sanitized result. Review the provider

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getCACertificates } from 'node:tls';
 import { getSupabaseDatabaseCaCertificates, getSupabaseDatabaseConnection } from './supabase-database-target.mjs';
+import { verifyProductionWorkerUrl } from './verify-production-worker-url.mjs';
 
 // Use the YAML parser already installed with the locked frontend ESLint tooling.
 const require = createRequire(import.meta.url);
@@ -279,7 +280,7 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SMOKE_BACKEND_REVISION: '${{ vars.PRODUCTION_DEMO_RECIPE_REVISION }}',
   });
   const ordered = ['Validate production release credentials', 'Validate production deployment configuration', 'Install frontend dependencies', 'Build frontend',
-    'Reject stale production revision', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
+    'Reject stale production revision', 'Verify production Cloudflare Worker URL', 'Verify recipe image release prerequisites', 'Deploy recipes Edge Function',
     'Deploy account-export Edge Function',
     'Deploy extract-recipe Edge Function', 'Deploy generate-recipe Edge Function', 'Deploy recipe-image-attach Edge Function',
     'Deploy recipe-image-download-url Edge Function', 'Deploy recipe image upload cleanup Edge Function',
@@ -326,6 +327,14 @@ test('single release body preserves order, explicit targets, smoke, evidence and
     SUPABASE_ACCESS_TOKEN: releaseSecrets.PRODUCTION_RELEASE_SUPABASE_ACCESS_TOKEN,
   };
   assert.match(configuration.run, /configuration\(process\.env\)/);
+  const workerPreflight = step(release, 'Verify production Cloudflare Worker URL');
+  assert.equal(workerPreflight.run, 'node scripts/verify-production-worker-url.mjs');
+  assert.deepEqual(workerPreflight.env, {
+    PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN,
+    PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: releaseSecrets.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID,
+  });
+  assert.equal(workerPreflight.if, undefined);
+  assert.equal(workerPreflight['continue-on-error'], undefined);
   for (const guard of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_ANON_KEY',
     'SUPABASE_PROJECT_REF', 'supabase/config.toml',
     'https://${SUPABASE_PROJECT_REF}.supabase.co']) assert.ok(configuration.run.includes(guard), guard);
@@ -412,6 +421,48 @@ test('single release body preserves order, explicit targets, smoke, evidence and
   for (const name of Object.keys(summary.env)) assert.ok(summary.run.includes('${' + name + '}'), name);
   assert.deepEqual(release.concurrency, { group: 'cloudflare-production', 'cancel-in-progress': false, queue: 'max' });
   assert.deepEqual(release.permissions, { contents: 'read' });
+});
+
+test('production Worker URL preflight authenticates and fails closed', async t => {
+  const env = {
+    PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+    PRODUCTION_RELEASE_CLOUDFLARE_API_TOKEN: 'invalid-test-token',
+    SMOKE_FRONTEND_URL: 'https://production.example',
+  };
+  const accountUrl = 'https://api.cloudflare.com/client/v4/accounts/' + env.PRODUCTION_RELEASE_CLOUDFLARE_ACCOUNT_ID;
+  const active = { success: true, result: { status: 'active' } };
+  const worker = url => ({ success: true, result: { name: 'moris-mix-ai', subdomain: { enabled: true, url } } });
+  const expectedWorker = worker('https://PRODUCTION.EXAMPLE:443/');
+  const cases = [
+    ['matching HTTPS origin', active, expectedWorker, undefined],
+    ['authentication failure', 401, expectedWorker, 'Cloudflare production token authentication failed.'],
+    ['inactive token', { success: true, result: { status: 'disabled' } }, expectedWorker, 'Cloudflare production token authentication failed.'],
+    ['malformed Worker response', active, 'private upstream response', 'Cloudflare production Worker metadata is invalid or unavailable.'],
+    ['unexpected Worker', active, { success: true, result: { ...expectedWorker.result, name: 'other-worker' } }, 'Cloudflare production Worker metadata is invalid or unavailable.'],
+    ['missing URL', active, worker(undefined), 'Cloudflare production Worker has no valid HTTPS origin.'],
+    ['non-HTTPS URL', active, worker('http://production.example'), 'Cloudflare production Worker has no valid HTTPS origin.'],
+    ['mismatched URL', active, worker('https://staging.example'), 'Cloudflare Worker URL does not match PRODUCTION_FRONTEND_URL.'],
+  ];
+  for (const [name, authentication, metadata, message] of cases) {
+    await t.test(name, async () => {
+      const calls = [];
+      const request = async (url, options) => {
+        calls.push(url);
+        assert.equal(options.headers.Authorization, 'Bearer invalid-test-token');
+        assert.equal(options.method ?? 'GET', 'GET');
+        assert.equal(options.redirect, 'error');
+        const body = calls.length === 1 ? authentication : metadata;
+        if (typeof body === 'number') return new Response('private upstream response', { status: body });
+        return typeof body === 'string' ? new Response(body) : Response.json(body);
+      };
+      const result = verifyProductionWorkerUrl(env, request);
+      if (message) await assert.rejects(result, { message });
+      else await result;
+      const expected = [accountUrl + '/tokens/verify'];
+      if (authentication === active) expected.push(accountUrl + '/workers/workers/moris-mix-ai');
+      assert.deepEqual(calls, expected);
+    });
+  }
 });
 
 test('production deployment URL check compares normalized bare HTTPS origins', () => {
