@@ -559,3 +559,21 @@ html[data-ingredient-dragging] * { cursor: grabbing !important; }
 @media (forced-colors: active) {
   .recipe-unit-options [aria-selected="true"] { color: HighlightText; background: Highlight; outline-color: Highlight; }
 }
+
+@media (min-width: 1100px) and (min-height: 640px) {
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-ingredient-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+    gap: 4px 10px;
+  }
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-ingredient-fields > .recipe-form-field:first-child { grid-column: 1 / -1; }
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-amount-row { display: contents; }
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-ingredient-fields :is(.recipe-amount-row > .recipe-form-field, .recipe-form-field:last-child) {
+    display: grid;
+    grid-row: 2 / span 3;
+    grid-template-rows: subgrid;
+    align-self: stretch;
+    row-gap: 0;
+  }
+  .mm-journal-editor .recipe-ingredient-edit-step .recipe-amount-row label { overflow-wrap: normal; }
+}
