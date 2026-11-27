@@ -1,4 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { HttpError } from '../api/http'
@@ -12,6 +14,11 @@ import * as moriSpriteAtlas from '../journal/moriSpriteAtlas'
 import { MoriCompanion } from './MoriCompanion'
 import { MoriCompanionProvider, useMoriActivity, useMoriReviewCompletion } from './MoriCompanionContext'
 import { MoriChatPanel } from './MoriChatPanel'
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderUI(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> })
+}
 
 function Location() {
   const location = useLocation()

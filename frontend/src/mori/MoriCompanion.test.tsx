@@ -1,4 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, fireEvent, render as renderUI, screen, within } from '@testing-library/react'
 import { Link, MemoryRouter, useLocation } from 'react-router'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MoriCompanion } from './MoriCompanion'
@@ -6,6 +8,11 @@ import { MoriCompanionProvider, useMoriActivity, useMoriGuidance } from './MoriC
 import type { MoriActivity } from './MoriCompanionContext'
 import * as navigationMotion from './moriNavigationMotion'
 import { JOURNAL_SINGLE_LAYOUT_QUERY } from '../journal/pageTurnMotion'
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderUI(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> })
+}
 
 function Activity({ activity }: { activity: MoriActivity | null }) { useMoriActivity(activity); return null }
 function Guidance() { useMoriGuidance({ message: 'Your journal is ready.', action: { label: 'Write a recipe', onClick: () => undefined } }); return null }

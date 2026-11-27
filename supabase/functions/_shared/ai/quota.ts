@@ -53,6 +53,18 @@ export function resolveDailyLimit(
   return parsed;
 }
 
+export function resolveAccountBurstLimit(
+  raw: string | undefined = Deno.env.get(AI_ACCOUNT_BURST_LIMIT_ENV),
+): number | null {
+  const configured = raw?.trim();
+  if (!configured) return null;
+  const limit = Number(configured);
+  if (!/^\d+$/.test(configured) || !Number.isInteger(limit) || limit < 1 || limit > 2_147_483_647) {
+    throw new Error("Invalid account burst limit");
+  }
+  return limit;
+}
+
 export function utcDateString(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
@@ -153,14 +165,10 @@ export const consumeDailyQuota: QuotaCheck = async (
 ) => {
   const limit = resolveDailyLimit();
   const reservationId = deps?.reservationId ?? crypto.randomUUID();
-  const configuredBurstLimit = Deno.env.get(AI_ACCOUNT_BURST_LIMIT_ENV)?.trim();
-  const burstLimit = configuredBurstLimit ? Number(configuredBurstLimit) : null;
-  if (
-    burstLimit !== null &&
-    (!/^\d+$/.test(configuredBurstLimit ?? "") ||
-      !Number.isInteger(burstLimit) ||
-      burstLimit < 1 || burstLimit > 2_147_483_647)
-  ) {
+  let burstLimit: number | null;
+  try {
+    burstLimit = resolveAccountBurstLimit();
+  } catch {
     logQuotaRpcFailure("invalid_account_burst_configuration");
     return { status: "unavailable", limit };
   }

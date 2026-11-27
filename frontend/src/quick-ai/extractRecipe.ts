@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { apiClient } from '../api/config'
+import { notifyAIUsageChanged } from '../api/aiUsage'
 import { ingredientInputSchema } from '../api/ingredient'
 import { recipeInitialDraftSchema } from '../recipe-form/draft'
 import type { RecipeRequest } from '../recipes/types'
@@ -64,7 +65,7 @@ type ExtractionClient = Pick<typeof apiClient, 'postAuthenticatedJson'>
 export function createExtractRecipeApi(client: ExtractionClient = apiClient) {
   return {
     async extract(notes: string, request: RecipeRequest): Promise<ExtractedRecipe> {
-      const response = await client.postAuthenticatedJson(EXTRACT_RECIPE_PATH, { notes }, request)
+      const response = await client.postAuthenticatedJson(EXTRACT_RECIPE_PATH, { notes }, request).finally(() => notifyAIUsageChanged(request.userId))
       const validated = extractRecipeResponseSchema.safeParse(response)
       if (!validated.success) throw new InvalidExtractionResponse()
       return validated.data.recipe

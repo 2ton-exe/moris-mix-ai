@@ -1,3 +1,4 @@
+import { subscribeAIUsageChanged } from '../api/aiUsage'
 import { describe, expect, it, vi } from 'vitest'
 import type { Session } from '@supabase/supabase-js'
 import { createHttpClient, HttpError } from '../api/http'
@@ -147,4 +148,27 @@ it('explains oversized revisions without suggesting a quota-consuming retry', ()
   const error = new HttpError('http', 'Unprocessable', 422, { error: { code: 'REVISION_SOURCE_TOO_LARGE' } })
   expect(revisionErrorMessage(error)).toContain('You can edit it directly')
   expect(revisionErrorMessage(error)).toContain('no AI request was used')
+})
+
+
+it('refreshes usage for generation, revision, and failed operations without charging local validation', async () => {
+  const changed = vi.fn()
+  const unsubscribe = subscribeAIUsageChanged(changed)
+  const sourceRecipeId = generated.parents[0].id
+  const noteExcerpt = 'Add more tomatoes'
+  const revision = { noteExcerpt, ingredient: 'tomatoes', reason: 'Use more tomatoes.', before: { quantity: 2, unit: null }, after: { quantity: 3, unit: null } }
+  const failure = new Error('rate limited')
+  const client = { postAuthenticatedJson: vi.fn()
+    .mockResolvedValueOnce(generated)
+    .mockResolvedValueOnce({ ...generated, revision })
+    .mockRejectedValueOnce(failure) }
+  const api = createGenerateRecipeApi(client)
+  try {
+    await api.generate(['rice'], '', request)
+    await api.revise(sourceRecipeId, noteExcerpt, request)
+    await expect(api.generate(['rice'], '', request)).rejects.toBe(failure)
+    expect(changed.mock.calls).toEqual([[request.userId], [request.userId], [request.userId]])
+    await expect(api.generate([], '', request)).rejects.toThrow()
+    expect(changed).toHaveBeenCalledTimes(3)
+  } finally { unsubscribe() }
 })

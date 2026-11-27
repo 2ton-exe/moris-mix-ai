@@ -410,7 +410,7 @@ export function MoriCompanion({ userId }: { userId?: string } = {}) {
           {!userId && <><p className="mori-pet-context">{page.label}</p>
           <p className="mori-pet-message">{companionMessage}</p></>}
           {userId && activity.kind !== 'idle' && activity.source !== 'chat' && <p className="mori-pet-message" role="status" aria-label="Mori says">{companionMessage}</p>}
-          {userId && <MoriChatPanel key={userId} userId={userId} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
+          {userId && <MoriChatPanel key={userId} userId={userId} active={open} playNavigationTap={playNavigationTap} playNavigationTravel={playNavigationTravel} traveling={traveling} />}
           {!userId && activity.kind === 'idle' && pageGuidance?.action && <button className="button button-secondary" type="button" onClick={() => {
             pageGuidance.action?.onClick()
             if (!bubble.current?.contains(document.activeElement)) setOpen(false)

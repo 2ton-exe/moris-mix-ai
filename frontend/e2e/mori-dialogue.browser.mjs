@@ -1,7 +1,7 @@
 // Companion acceptance through the signed-in app with isolated API responses.
 // This journey never contacts hosted Supabase or performs recipe mutations.
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -34,7 +34,8 @@ const extractionResponse = {
     instructions: [{ step: 1, text: 'Simmer the rice with tomatoes.' }],
   },
 }
-const outputDir = await mkdtemp(path.join(os.tmpdir(), 'moris-ui01-dialogue-'))
+const outputDir = process.env.MORI_USAGE_ONLY === '1' ? path.join(root, 'test-results', `mori-usage-${process.env.MORI_BROWSER ?? 'chromium'}`) : await mkdtemp(path.join(os.tmpdir(), 'moris-ui01-dialogue-'))
+await mkdir(outputDir, { recursive: true })
 const server = await createServer({
   root, configFile: false, envDir: false, plugins: [react()],
   define: {
@@ -54,6 +55,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
   page.setDefaultTimeout(30_000)
   const errors = []
   const apiRequests = []
+  let usage = { dailyUsed: 3, shortUsed: 2, limit: 10, unavailable: false }
   let releaseCursor
   let releaseExtraction
   const extractionReady = new Promise((resolve) => { releaseExtraction = resolve })
@@ -77,6 +79,16 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
       return route.fulfill({ json: chefResponse })
     }
     assert.equal(route.request().method(), 'GET', `Unexpected write or mutation request: ${route.request().method()} ${url.pathname}`)
+    if (url.pathname === '/functions/v1/recipes/ai-usage') {
+      if (usage.unavailable) return route.fulfill({ status: 503, json: { error: { code: 'QUOTA_UNAVAILABLE' } } })
+      const now = new Date()
+      const resetAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString()
+      return route.fulfill({ json: {
+        observedAt: now.toISOString(),
+        daily: { limit: usage.limit, used: usage.dailyUsed, remaining: Math.max(0, usage.limit - usage.dailyUsed), resetAt },
+        shortTerm: { mode: 'fixed', limit: 5, used: usage.shortUsed, remaining: Math.max(0, 5 - usage.shortUsed), nextChangeAt: new Date(now.getTime() + 60_000).toISOString(), retryAt: usage.shortUsed >= 5 ? new Date(now.getTime() + 60_000).toISOString() : null },
+      } })
+    }
     if (url.pathname === '/auth/v1/user') return route.fulfill({ json: { id: userId, aud: 'authenticated', email: 'mori@example.test' } })
     if (url.pathname === `/functions/v1/recipes/${recipe.id}`) return route.fulfill({ json: { recipe: readingRecipe } })
     if (url.pathname === '/functions/v1/demo-recipe') return route.fulfill({ json: { recipe: readingRecipe } })
@@ -108,7 +120,7 @@ async function createJournal(width, { reducedMotion = false, empty = false, chef
     const token = `${globalThis.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${globalThis.btoa(JSON.stringify({ sub: id, exp: expires_at }))}.test-signature`
     globalThis.localStorage.setItem('sb-mori-dialogue-auth-token', JSON.stringify({ access_token: token, refresh_token: 'local-refresh', expires_at, expires_in: 3600, token_type: 'bearer', user }))
   }, { id: userId })
-  return { context, page, errors, apiRequests, releaseCursor, releaseExtraction: () => releaseExtraction(), failNextCursor: () => { failCursor = true }, allowCursor: () => { failCursor = false } }
+  return { context, page, errors, apiRequests, setUsage: (next) => { usage = { ...usage, ...next } }, releaseCursor, releaseExtraction: () => releaseExtraction(), failNextCursor: () => { failCursor = true }, allowCursor: () => { failCursor = false } }
 }
 
 async function reachable(page, locator) {
@@ -248,6 +260,89 @@ try {
   const engine = process.env.MORI_BROWSER ?? 'chromium'
   browser = await ({ chromium, firefox, webkit })[engine].launch({ ...(engine === 'chromium' ? { channel: 'chrome' } : {}), headless: true })
 
+  if (process.env.MORI_USAGE_ONLY === '1') {
+    const app = await createJournal(1440, { reducedMotion: true })
+    const { page } = app
+    await page.goto(`${origin}app/chef`)
+    await page.getByRole('heading', { name: /What.s in your pantry/ }).waitFor()
+    const toggle = page.getByRole('button', { name: 'Talk to Mori', exact: true })
+    await toggle.click()
+    const panel = page.getByRole('region', { name: 'Mori', exact: true })
+    const meter = panel.getByRole('button', { name: "Mori's AI usage", exact: true })
+    const state = panel.locator('.mori-ai-usage')
+    const card = page.getByRole('tooltip', { name: "Mori's AI usage", exact: true })
+    const hint = panel.locator('.mori-chat-hint')
+    const send = panel.getByRole('button', { name: 'Send', exact: true })
+    async function captureUsage(name) {
+      const panelBox = await panel.boundingBox()
+      const cardBox = await card.isVisible() ? await card.boundingBox() : null
+      const x = Math.max(0, Math.min(panelBox.x, cardBox?.x ?? panelBox.x) - 20)
+      const y = Math.max(0, Math.min(panelBox.y, cardBox?.y ?? panelBox.y) - 20)
+      const right = Math.min(1440, Math.max(panelBox.x + panelBox.width, cardBox ? cardBox.x + cardBox.width : 0) + 20)
+      const bottom = Math.min(900, Math.max(panelBox.y + panelBox.height, cardBox ? cardBox.y + cardBox.height : 0) + 20)
+      await page.screenshot({ path: path.join(outputDir, `usage-${name}.png`), clip: { x, y, width: right - x, height: bottom - y } })
+    }
+    async function aligned() {
+      await expect(async () => {
+        const [ringBox, sendBox, hintBox] = await Promise.all([meter.boundingBox(), send.boundingBox(), hint.boundingBox()])
+        assert.ok(ringBox && sendBox && hintBox)
+        assert.ok(Math.abs(ringBox.x + ringBox.width / 2 - sendBox.x - sendBox.width / 2) <= 1.5, `Ring centers under Send: ${JSON.stringify({ ringBox, sendBox })}`)
+        assert.ok(Math.abs(ringBox.y + ringBox.height / 2 - hintBox.y - hintBox.height / 2) <= 1.5, `Usage ring and keyboard hint share the same footer line: ${JSON.stringify({ ringBox, hintBox })}`)
+        assert.ok(ringBox.y >= sendBox.y + sendBox.height, 'Usage ring stays below Send')
+      }).toPass({ timeout: 5_000 })
+    }
+    await expect(state).toHaveAttribute('data-state', 'normal')
+    await aligned()
+    await captureUsage('normal')
+    const beforeHover = await panel.boundingBox()
+    await meter.hover()
+    await expect(card).toBeVisible()
+    await expect(card).toContainText('7 of 10 left')
+    await expect(card).toContainText('3 of 5 left')
+    await expect(card).toContainText('8:00 AM PHT')
+    await reachable(page, card)
+    assert.deepEqual(await panel.boundingBox(), beforeHover, 'Opening the usage card does not resize or move chat')
+    await card.hover()
+    await expect(card).toBeVisible()
+    await captureUsage('hover')
+    await meter.focus()
+    await page.keyboard.press('Escape')
+    await expect(card).toBeHidden()
+    await expect(panel).toBeVisible()
+    await expect(meter).toBeFocused()
+    for (const [name, dailyUsed, shortUsed] of [['low', 8, 2], ['exhausted', 10, 2], ['temporary', 3, 5]]) {
+      if (await card.isVisible()) await page.keyboard.press('Escape')
+      await panel.getByRole('button', { name: 'Close Mori', exact: true }).click()
+      app.setUsage({ dailyUsed, shortUsed })
+      await toggle.click()
+      await expect(state).toHaveAttribute('data-state', name === 'temporary' ? 'normal' : name)
+      await meter.click()
+      await expect(card).toContainText(`${10 - dailyUsed} of 10 left`)
+      if (name === 'exhausted') await expect(card).toContainText("You've used today's AI allowance.")
+      if (name === 'temporary') await expect(card).toContainText('Mori needs a moment.')
+      await aligned()
+      await captureUsage(name)
+    }
+    if (await card.isVisible()) await page.keyboard.press('Escape')
+    await panel.getByRole('button', { name: 'Close Mori', exact: true }).click()
+    app.setUsage({ unavailable: true })
+    await toggle.click()
+    await expect(state).toHaveAttribute('data-state', 'unavailable')
+    await meter.click()
+    await expect(card).toContainText('temporarily unavailable')
+    await expect(card.locator('table')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    const resize = page.getByRole('button', { name: 'Resize Mori chat' })
+    await resize.focus()
+    await resize.press('ArrowLeft')
+    await aligned()
+    await meter.focus()
+    await reachable(page, card)
+    assert.deepEqual(app.errors, [])
+    assert.equal(app.apiRequests.filter(({ method }) => method !== 'GET').length, 0, 'Reading usage never consumes an AI operation')
+    await app.context.close()
+    process.stdout.write(`Usage footer alignment, hover/focus/Escape, states and resize passed. Screenshots: ${outputDir}\n`)
+  } else {
   for (const width of [1440, 375]) {
     const { context, page, errors } = await createJournal(width)
     await page.goto(`${origin}app/recipes?view=index`)
@@ -385,7 +480,7 @@ try {
     const trigger = page.getByRole('button', { name: 'Talk to Mori', exact: true })
     const character = page.getByRole('group', { name: 'Mori companion' })
     await reachable(page, trigger)
-    const requestsBefore = apiRequests.length
+    const requestsBefore = apiRequests.filter(({ path }) => path !== '/functions/v1/recipes/ai-usage').length
     await trigger.focus()
     await page.keyboard.press('Enter')
     const panel = page.getByRole('region', { name: 'Mori', exact: true })
@@ -458,7 +553,7 @@ try {
     await reachable(page, trigger)
     await expect(panel).toHaveCount(0)
     const savedPosition = await character.boundingBox()
-    assert.equal(apiRequests.length, requestsBefore, 'Companion interactions must not initiate API requests')
+    assert.equal(apiRequests.filter(({ path }) => path !== '/functions/v1/recipes/ai-usage').length, requestsBefore, 'Companion interactions only read AI usage')
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Saved recipes (1)' })).toBeVisible()
     await settleJournalLayout(page)
@@ -954,6 +1049,7 @@ try {
   await context.close()
   await writeFile(path.join(outputDir, 'measurements.json'), JSON.stringify({ browser: process.env.MORI_BROWSER ?? 'chromium', independentPageTurns: true }, null, 2))
   process.stdout.write(`Empty guidance and reduced motion passed. Screenshots: ${outputDir}\n`)
+  }
   }
 } finally {
   await browser?.close()

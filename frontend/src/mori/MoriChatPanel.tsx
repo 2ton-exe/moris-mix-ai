@@ -1,3 +1,4 @@
+import { AIUsageIndicator } from './AIUsageIndicator'
 import { formatIngredient } from '../../../supabase/functions/_shared/ingredient-units.ts'
 import { useContext, useEffect, useLayoutEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate, type NavigateOptions } from 'react-router'
@@ -73,8 +74,9 @@ function DraftCard({ draft, onReview, disabled, consumed }: { draft: MoriDraft; 
 
 type PlayNavigationMotion = (anchor: () => HTMLElement | null, signal: AbortSignal) => Promise<void | boolean>
 
-export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false }: {
+export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel, traveling = false, active = true }: {
   userId: string
+  active?: boolean
   playNavigationTap?: PlayNavigationMotion
   playNavigationTravel?: PlayNavigationMotion
   traveling?: boolean
@@ -676,7 +678,10 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
         <button type="submit" disabled={pending || navigating || !composer.trim()}>Send</button>
       </form>
       {!dialogue && shortcuts}
-      <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
+      <div className="mori-chat-footer">
+        <p className="mori-chat-hint">Enter a new line; press Ctrl/⌘ + Enter to send.</p>
+        <AIUsageIndicator userId={userId} active={active} />
+      </div>
     </div>
   </div>
 }

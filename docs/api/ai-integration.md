@@ -166,6 +166,34 @@ uses the same `422 AI_CONTEXT_TOO_LARGE` response.
 Apply the bounded Chef retrieval and AI rate-limit migrations through the normal
 non-production validation and deployment workflow before deploying these handlers.
 
+### Read-only account usage
+
+`GET /recipes/ai-usage` requires the current account's bearer token. It returns
+`observedAt`, `daily` (`limit`, `used`, `remaining`, `resetAt`), and `shortTerm`
+(`mode`, `limit`, `used`, `remaining`, `nextChangeAt`, `retryAt`). Times are ISO 8601
+server timestamps. The response is private and never cached.
+
+The endpoint uses the same `AI_DAILY_LIMIT` and `AI_ACCOUNT_BURST_LIMIT` settings
+as admission. The daily fallback is 20; the configured beta allowance is 10.
+An unset burst override means a fixed five-operation window, while a configured
+override selects rolling admission. Daily refunds do not release short-term
+slots. The next rolling count change can precede the time another request is
+allowed. Daily allowance resets at midnight UTC, or 8:00 AM Philippine time.
+
+Reading usage neither reserves an operation nor calls Gemini. The server derives
+the account from authentication, and the summary RPC is executable only by the
+service role. Apply `20261120000001`, `20261120000002`, and
+`20261127000001_ai_usage_summary.sql` through the validated database release
+before deploying the summary endpoint. Missing RPCs or unavailable accounting
+return `503 QUOTA_UNAVAILABLE`; the meter shows unavailable instead of inventing
+an allowance.
+
+Mori's footer ring shows daily allowance remaining. Its details also show the
+60-second limit. The existing account query cache refreshes on popup opening,
+shared extraction/generation/revision completion (including failed operations),
+stale tab focus, and the next reported reset or count change. Closing the popup
+stops usage reads without clearing the conversation.
+
 ### Quota (AI-17)
 
 Quota is reserved **before** the provider call using `consumeDailyQuota` in
