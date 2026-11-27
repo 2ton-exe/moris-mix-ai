@@ -2,22 +2,33 @@
 
 This document tracks the DEVOPS-10 recovery path for Mori's Mix. It describes what the backup automation is intended to protect, what it does **not** protect, and what evidence is still required before the project can claim that database recovery is proven.
 
-Related issue: #159.
+Related issue: [#159](https://github.com/2ton-exe/moris-mix-ai/issues/159).
 
 ## Evidence state
 
-As of 2026-11-02:
+Provider and environment setup recorded on 2026-11-02:
 
 - A dedicated private Cloudflare R2 bucket, `moris-mix-db-backups-prod`, is configured.
 - A bucket-scoped R2 Account API token is configured with Object Read & Write access only to that bucket.
 - The GitHub Environment `production-backup` contains the R2 backup credentials and bucket variable.
 - The production Supabase organization is on the Free plan, so provider-managed daily-backup retention and PITR are not established as the project's recovery path.
+
+Workflow and execution records reviewed on 2026-11-27 PHT against main
+`5cad4b8be8c04e2fcec4cccc4266ddcdcbcb10e7`:
+
 - `.github/workflows/database-backup.yml` configures a main-only manual and weekly logical-backup job.
 - The backup job shares the production release concurrency group so repository-managed production deployment/migration work cannot execute at the same time as a backup capture.
 - The backup fails before upload if a pre/post comparison detects changes to role definitions, application schema, or the `supabase_migrations` ledger during the dump window.
 - R2 verification re-downloads the uploaded archive and compares SHA-256, in addition to checking object size.
-- **No successful backup run is claimed until a merged-main/manual workflow run actually creates, uploads, re-downloads, and verifies a private R2 object.**
-- **No restore capability is claimed until a selected backup is restored and verified in an isolated safe target.**
+- Scheduled runs [42527306948](https://github.com/2ton-exe/moris-mix-ai/actions/runs/42527306948), [43770460419](https://github.com/2ton-exe/moris-mix-ai/actions/runs/43770460419), and [45083275244](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45083275244) passed archive creation, private upload, remote integrity verification, and runner cleanup.
+- The retention target is four weekly and three monthly backups. The read-only R2 lifecycle request returned HTTP 403. The active storage policy and retained generations remain unverified. The storage or DevOps owner must record retention evidence or explicitly decide how to handle the gap in #159 before closure.
+- Production-backup recoverability remains unverified. The owner deferred further production-backup restoration and protected teammate execution for this release.
+
+### Restore test evidence
+
+- **Local generated-archive round trip.** The retained execution transcript and log excerpt record Supabase CLI 2.122.0 generating a logical archive from a disposable database with synthetic data. The harness used producer revision `7e5260be9c92d0dc07a94ae06447020655b1381b` and the recovery patch corresponding to initial [PR #294](https://github.com/2ton-exe/moris-mix-ai/pull/294) head `090171eada269ec6de0a0d7339e06c4c92dd4606`. It verified the archive and all five SQL component checksums, replayed into a separate initially clean PostgreSQL 17.11 target, matched five application table counts and the migration version set, verified seven application FK mappings and references, and passed the Auth-role profile probe with rollback and cleanup. The original temporary archive and standalone log are unavailable. The local target used an internal Docker bridge after hosted-style startup failed in nested Docker. R2 transfer, independent protected approval and the hosted startup firewall were outside that local exercise. See the evidence record in [#159](https://github.com/2ton-exe/moris-mix-ai/issues/159).
+- **Hosted synthetic replay.** At final #294 head `0262e0de1e25b20b2d17c55d6688b15c2ab0904f`, [Synthetic Compatibility](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45941712593) passed with handcrafted SQL fixtures. It exercised startup and isolation, transactional replay and rollback, Auth handler verification including CRLF, FK checks, owner reconstruction, and cleanup. [Modular PR Validation](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45941712709) passed, with staging and Hosted RLS Integration skipped.
+- **Current main and historical production attempts.** #294 closed unmerged. Its future-candidate selection and Auth trigger reconstruction are absent from main. Existing Stage B still has its fixed Backup #7 implementation. [Backup #4](https://github.com/2ton-exe/moris-mix-ai/actions/runs/44945307509) and [Backup #7](https://github.com/2ton-exe/moris-mix-ai/actions/runs/45838153133) failed during `data.sql` replay. Their respective missing-relation and missing-column hints were untrusted, and the causes remain unresolved.
 
 ## Backup trigger and ownership
 
@@ -91,7 +102,7 @@ Production SQL dumps and the archive are **not** uploaded as normal GitHub Actio
 
 This is a **PostgreSQL logical backup**, not a complete snapshot of every Supabase/Cloudflare resource.
 
-Until the first dump and restore drill prove otherwise, do not claim full recovery of Supabase-managed schemas such as `auth` or `storage`. Supabase CLI applies special filtering to managed/internal schemas, and current Supabase documentation has different backup/migration flows depending on the restore target. The first recovery drill must record exactly what is restored rather than assuming coverage from configuration alone.
+Supabase CLI filters managed and internal schemas, and coverage depends on the target. The local exercise observed recovery of one synthetic Auth user, one identity, and one Storage bucket metadata row. Full managed-schema recovery and point-in-time recovery remain unverified. Record observed coverage for any future authorized recovery.
 
 The database backup does not independently recover:
 
@@ -106,7 +117,7 @@ The database backup does not independently recover:
 
 Recipe-image storage and database-backup storage remain separate recovery concerns.
 
-## First backup verification
+## Verify an authorized backup run
 
 After the workflow is merged to `main` and all required secrets/variables are confirmed by name:
 
@@ -122,14 +133,14 @@ After the workflow is merged to `main` and all required secrets/variables are co
 
 A configured workflow is not a backup. Completion of these steps proves only backup creation/upload/round-trip integrity verification.
 
-## Restore drill — pending execution
+## Protected restore — deferred for this release
 
 The restore drill must use an isolated disposable target. It must **not** restore over:
 
 - production project `gtbwblxskctpsqhbpebg`;
 - the hosted `moris-mix-be04-rls-test` project used by CI.
 
-The preferred target is an isolated local Supabase-compatible environment because it can be destroyed after verification and does not risk shared hosted data. The exact restore commands will be finalized against the first real backup and current Supabase restore guidance before execution.
+The preferred target is an isolated disposable Supabase-compatible environment. The requirements below document the existing safety boundary for a future separately authorized run.
 
 The drill must, at minimum:
 
@@ -142,9 +153,9 @@ The drill must, at minimum:
 7. prove production remained unchanged by the drill;
 8. destroy/reset the disposable target after evidence is captured.
 
-A backup upload is not restore proof. DEVOPS-10 remains open until this drill succeeds and another teammate can follow the tested procedure.
+Under the revised #159 scope, the local generated-archive exercise and hosted synthetic replay provide the restore-test evidence. Issue closure requires reviewed integration of this documentation and an explicit owner decision on any remaining retention gap. Production-backup recovery and the protected teammate walkthrough remain deferred and unverified.
 
-For the current #159 selection, Stage B has no candidate dispatch input and is fixed to ordinary Backup #7 recovery. It cannot select Backup #4 or provide the private statement/catalog evidence required by #276/#280. Before configuring candidate secrets, Ramos (or a different independent verifier explicitly designated by Haresco) must receive the exact proposed UTF-8 manifest bytes through the restricted owner channel, reconcile the Backup #7 entry against the successful producer run and evidence in the restricted record, and independently compute the SHA-256 of those exact bytes. The authorized secret steward sets `RESTORE_CANDIDATES_JSON` and `RESTORE_CANDIDATE_MANIFEST_SHA256`; Ramos must set the separate `RESTORE_CANDIDATE_APPROVED_SHA256` only after completing that reconciliation. The workflow requires the exact manifest bytes, the operational pin, and Ramos's independent approval digest to match before database startup or any R2 credential is injected, then rechecks them after target setup immediately before the first R2 request. That final check creates a fresh mode-0600 candidate mapping and passes the validated fields to later steps as environment data; it never sources the earlier preflight file. Missing, malformed, or mismatched values fail closed. Do not read back, print, or publish any secret or digest. Any later change requires the same independent review and replacement of the approval digest. The digest binds approval to exact bytes; it is not provenance proof by itself. Keep the manifest and both digests private.
+On main, Stage B has no candidate dispatch input and is fixed to ordinary Backup #7 recovery. It cannot select Backup #4 or provide the private statement/catalog evidence required by #276/#280. For any future separately authorized use, before configuring candidate secrets, Ramos (or a different independent verifier explicitly designated by Haresco) must receive the exact proposed UTF-8 manifest bytes through the restricted owner channel, reconcile the Backup #7 entry against the successful producer run and evidence in the restricted record, and independently compute the SHA-256 of those exact bytes. The authorized secret steward sets `RESTORE_CANDIDATES_JSON` and `RESTORE_CANDIDATE_MANIFEST_SHA256`; the independent verifier must set the separate `RESTORE_CANDIDATE_APPROVED_SHA256` only after completing that reconciliation. The workflow requires the exact manifest bytes, the operational pin, and the independent approval digest to match before database startup or any R2 credential is injected, then rechecks them after target setup immediately before the first R2 request. That final check creates a fresh mode-0600 candidate mapping and passes the validated fields to later steps as environment data; it never sources the earlier preflight file. Missing, malformed, or mismatched values fail closed. Do not read back, print, or publish any secret or digest. Any later change requires the same independent review and replacement of the approval digest. The digest binds approval to exact bytes; it is not provenance proof by itself. Keep the manifest and both digests private.
 
 The `database-restore-drill` Environment remains a per-execution protected gate. Its reviewers must be restricted to people authorized to accept both this ordinary restore's residual egress risk and the run's candidate-approval state; prevent self-review, disable administrator bypass, and allow only `main`. After approval, Stage B reads that run's approval history and proceeds only if an approved record is from someone other than the dispatcher/rerunner and its complete public comment consists of exactly these two lines (in either order):
 
@@ -153,7 +164,7 @@ MORI-STAGEB-ORDINARY-EGRESS-ACCEPTED run_id=<run-id> run_attempt=1
 MORI-STAGEB-CANDIDATE-APPROVAL-CONFIRMED run_id=<run-id> run_attempt=1
 ```
 
-The comment is a public authorization record and must contain only these fixed labels and the public Actions run ID/attempt. Do not include the manifest, digest, backup identifiers, SQL, or private diagnostics; any extra or duplicate line fails closed. The run must be attempt `1`: GitHub's approval-history response is run-scoped and does not identify an attempt, so Stage B rejects reruns rather than reusing an earlier attempt's approval. Start a new `workflow_dispatch` run to obtain a fresh per-execution approval. A missing, invalid, stale-attempt, self-approved, rerun, or unavailable approval record stops before candidate preflight and before R2 credentials are provided. For each run, the authorized environment reviewer must confirm through the restricted owner channel that Ramos completed the independent candidate review, then explicitly accept runner-host TCP/DNS exposure in the environment approval. GitHub requires approval from one of the configured reviewers, so every configured reviewer must be authorized for this decision.
+The comment is a public authorization record and must contain only these fixed labels and the public Actions run ID/attempt. Do not include the manifest, digest, backup identifiers, SQL, or private diagnostics; any extra or duplicate line fails closed. The run must be attempt `1`: GitHub's approval-history response is run-scoped and does not identify an attempt, so Stage B rejects reruns rather than reusing an earlier attempt's approval. A future separately authorized execution requires a new `workflow_dispatch` run and fresh per-execution approval. A missing, invalid, stale-attempt, self-approved, rerun, or unavailable approval record stops before candidate preflight and before R2 credentials are provided. For each run, the authorized environment reviewer must confirm through the restricted owner channel that the designated verifier completed the independent candidate review, then explicitly accept runner-host TCP/DNS exposure in the environment approval. GitHub requires approval from one of the configured reviewers, so every configured reviewer must be authorized for this decision.
 
 GitHub does not provide a per-secret writer ACL. Haresco must restrict and audit environment-secret administration so only Ramos or the separately designated independent verifier can provision `RESTORE_CANDIDATE_APPROVED_SHA256`. If that role separation cannot be established, do not run Stage B. Revoke candidate authorization by removing or rotating the approved-digest secret; the preflight then fails. Each egress acceptance applies only to the named run attempt; reject the pending environment deployment or cancel that run to revoke it. Cancel an active run immediately if authorization is withdrawn and revoke the R2 read key if private access may already have occurred.
 
@@ -165,11 +176,12 @@ The [credential-free PostgreSQL 17 experiment](https://github.com/2ton-exe/moris
 reproduced SQLSTATE `42501` for synthetic membership and parameter grants as
 local `postgres`, which had `CREATEROLE` and `CREATEDB` but lacked superuser
 privileges. Both grants succeeded as local `supabase_admin`, and the failed
-transactions rolled back. This explains a possible cause of the archived
-restore failure. The exact statement in Backup #4 remains unverified.
+transactions rolled back. This supports the disposable replay identity check.
+The exact statement and cause of the Backup #4 failure remain unverified.
 
-Stage B and the role-only diagnostic use `supabase_admin` only on the freshly
-started disposable PostgreSQL 17 target at `127.0.0.1`. Before opening the
+Stage B and the role-only diagnostic use `supabase_admin` only on a freshly
+started disposable PostgreSQL 17 target. Stage B uses the internal Docker
+bridge at `db:5432`, and the role-only diagnostic uses loopback. Before opening the
 first SQL file, the pinned client checks the login, effective role and superuser
 flag in the same replay session. An unavailable login or failed identity check
 stops replay. The supplied SQL is still replayed in its original order and in one
@@ -180,7 +192,8 @@ Stage B still checks the five application counts and migration version set as
 local `postgres`. Synthetic fixtures exercise both restored ownership and
 explicit read grants. If that role cannot read the restored tables, or its row
 visibility produces different counts, verification fails. Objects with implicit
-ownership can take the replay role as owner. Backup #7 is the selected candidate for the ordinary #159 recovery drill; its success does not diagnose or resolve Backup #4's failure under #276/#280. The drill
+ownership can take the replay role as owner. The existing fixed Backup #7
+workflow cannot diagnose Backup #4's failure under #276/#280. The drill
 does not establish recovery of excluded managed services or Storage objects.
 
 ## Failure handling
@@ -232,9 +245,8 @@ unchanged. These transformations run only on temporary comparison streams:
 the original data/role/schema dumps used for restoration are never rewritten.
 
 Offline regression tests run in the existing Frontend Checks CI context.
-The change is **not** backup or restore proof: after review, merge, and a
-successful production workflow run, verify the R2 round trip and then perform
-the isolated restore drill before closing #159 or unblocking #154.
+The scheduled producer evidence above records subsequent R2 round trips.
+Production restore remains deferred under #159. PR #154 closed unmerged.
 
 ## Role-only protected diagnostic (proposed; not restore proof)
 
