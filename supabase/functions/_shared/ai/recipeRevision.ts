@@ -1,4 +1,5 @@
 import type { AuthContext } from "../auth.ts";
+import { normalizeIngredientUnit } from "../ingredient-units.ts";
 import type { GeneratedRevision } from "./AIProvider.ts";
 import { normalizeIngredientName } from "./recipeContext.ts";
 import {
@@ -123,7 +124,9 @@ export function explainRecipeRevision(
       return null;
     }
     if (
-      original.quantity === draft.quantity && original.unit === draft.unit &&
+      original.quantity === draft.quantity &&
+      normalizeIngredientUnit(original.unit) ===
+        normalizeIngredientUnit(draft.unit) &&
       original.quantityText === draft.quantityText
     ) {
       continue;

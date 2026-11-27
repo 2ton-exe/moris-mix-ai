@@ -33,7 +33,8 @@ function editorScope(form: HTMLFormElement | null) {
 function reviewPageSize(form: HTMLFormElement) {
   const page = editorScope(form).querySelector<HTMLElement>('.mm-journal-spread > .mm-journal-page')
   if (!page?.parentElement) return null
-  const height = Number.parseFloat(getComputedStyle(page.parentElement).minHeight)
+  const spreadStyle = getComputedStyle(page.parentElement)
+  const height = Number.parseFloat(spreadStyle.height) || Number.parseFloat(spreadStyle.minHeight)
   if (!height) return null
   const style = getComputedStyle(page)
   return {
@@ -117,7 +118,6 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
   const instructionColumns = desktopRecipeEditor ? Math.max(1, textPageColumns - 18) : textPageColumns
   const instructionLayout = desktopMethod ? measuredInstructions?.layout : undefined
   const hasComparison = Boolean(reviewComparison)
-  const flowingReview = desktopReview && hasComparison
   const leaves = useMemo(() => {
     const pages = recipeFormLeaves(state, single, desktopReview ? reviewPage.title : null, compact, desktop, textPageLength, textPageRows, textPageColumns, { expandedNotes, compactIngredientRows, instructionColumns, instructionLayout })
     if (reviewWorkflow && reviewPage) {
@@ -203,7 +203,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     if (!book || single || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
       // Ingredient editors need extra room on short spreads.
-      const fixedPage = flowingReview && formRef.current && reviewPageSize(formRef.current)
+      const fixedPage = desktopReview && formRef.current && reviewPageSize(formRef.current)
       const overhang = fixedPage ? Number.parseFloat(getComputedStyle(book).paddingBlockStart) * 2 : 0
       const next = (fixedPage ? fixedPage.height + overhang : entry.contentRect.height) < 740
       if (!(document.activeElement instanceof HTMLElement) || !document.activeElement.dataset.instructionKey) rememberFocus(document.activeElement)
@@ -212,7 +212,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     })
     observer.observe(book)
     return () => observer.disconnect()
-  }, [single, compact, flowingReview, rememberFocus])
+  }, [single, compact, desktopReview, rememberFocus])
 
   useLayoutEffect(() => {
     const form = formRef.current
@@ -223,9 +223,9 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     const measure = () => {
       if (document.activeElement instanceof HTMLElement && !document.activeElement.dataset.instructionKey) rememberFocus(document.activeElement)
       const leaf = editorScope(form).querySelector<HTMLElement>('.mm-writing-leaf')
-      // A flowing review grows with its content. Paginate against the journal's
-      // viewport-based page size so a rendered leaf cannot change its own capacity.
-      const fixedPage = flowingReview ? reviewPageSize(form) : null
+      // Keep the review budget stable when saving removes comparison content;
+      // a rendered leaf must not change its own pagination capacity.
+      const fixedPage = desktopReview ? reviewPageSize(form) : null
       const width = fixedPage?.width ?? leaf?.clientWidth ?? 0
       const height = fixedPage?.height ?? leaf?.clientHeight ?? 0
       if (width <= 0 || height <= 0) return
@@ -303,7 +303,7 @@ export function RecipeFormEditor({ mode, initialSection, initialValues, initialE
     document.fonts?.addEventListener('loadingdone', measureFonts)
     measure()
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure, true); document.fonts?.removeEventListener('loadingdone', measureFonts) }
-  }, [single, compact, paperLayout.viewport, desktopEdit, desktopMethod, flowingReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved, isTurning])
+  }, [single, compact, paperLayout.viewport, desktopEdit, desktopMethod, desktopReview, leaves.length, visibleIndicesKey, rememberFocus, pending, message, saved, isTurning])
 
   useLayoutEffect(() => {
     editorScope(formRef.current)?.querySelectorAll<HTMLTextAreaElement>('[data-form-autosize]').forEach((textarea) => resizeTextarea(textarea))

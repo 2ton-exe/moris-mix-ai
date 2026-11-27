@@ -12,6 +12,7 @@ import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 import { assertJournalSemantics } from './journal-accessibility-audit.mjs'
 import { settleJournalLayout } from './journal-geometry.mjs'
+import { readAllRecipePages } from './reading-pages.mjs'
 
 const desktopOnly = process.env.MORI_DESKTOP_ONLY === 'true'
 
@@ -58,6 +59,36 @@ const expandedSuggestion = {
   parents: [...generated.parents, extraParent],
   context: { ...generated.context, totalCandidateCount: 3 },
 }
+const fixtureUpdatedAt = '2026-11-27T00:00:00.000Z'
+const exactNote = 'Change olive oil from 1 teaspoon to 2 teaspoons while keeping rice and tomato unchanged.'
+const revisionOriginal = {
+  id: generated.parents[0].id, user_id: userId, title: 'Synthetic tomato rice original',
+  notes: exactNote, cooked_at: '2026-11-27', updated_at: fixtureUpdatedAt,
+  star_rating: null, flavor_scores: null,
+  ingredients: [
+    { name: 'rice', quantity: 1, unit: 'cup', inferred: false },
+    { name: 'tomato', quantity: 1, unit: 'piece', inferred: false },
+    { name: 'olive oil', quantity: 1, unit: 'tsp', inferred: false },
+  ],
+  instructions: [
+    { step: 1, text: 'Warm the olive oil and tomato.' },
+    { step: 2, text: 'Stir in the cooked rice.' },
+  ],
+}
+const revisionSuggestion = {
+  ...generated,
+  recipe: {
+    title: 'Synthetic olive oil revision', flavor_scores: generated.recipe.flavor_scores,
+    ingredients: revisionOriginal.ingredients.map((item) => item.name === 'olive oil' ? { ...item, quantity: 2 } : { ...item }),
+    instructions: revisionOriginal.instructions,
+  },
+  substitutions: [], parents: [{ ...generated.parents[0], title: revisionOriginal.title }],
+  revision: {
+    noteExcerpt: exactNote, ingredient: 'olive oil', ingredientIndex: 2,
+    before: { quantity: 1, unit: 'tsp' }, after: { quantity: 2, unit: 'tsp' },
+    reason: 'Use two teaspoons of olive oil as requested.',
+  },
+}
 const requests = []
 const recipeWrites = []
 const recipeUpdates = []
@@ -69,6 +100,7 @@ const scenarioRecipeIds = {
   partial: '77777777-7777-4777-8777-777777777777',
   expired: '88888888-8888-4888-8888-888888888888',
   uncertain: '99999999-9999-4999-8999-999999999999',
+  revision: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
 }
 let activeScenario = 'success'
 let appOrigin
@@ -135,10 +167,16 @@ async function handleApiRequest(request, response) {
     return
   }
   if (url.pathname === '/functions/v1/recipes' && request.method === 'GET') {
-    sendJson(request, response, 200, { recipes: [], has_more: false, next_cursor: null })
+    sendJson(request, response, 200, { recipes: activeScenario === 'revision' ? [revisionOriginal] : [], has_more: false, next_cursor: null })
     return
   }
   if (url.pathname === '/functions/v1/generate-recipe' && request.method === 'POST') {
+    if (activeScenario === 'revision') {
+      assert.equal(body.sourceRecipeId, revisionOriginal.id)
+      assert.equal(body.noteExcerpt, exactNote)
+      sendJson(request, response, 200, revisionSuggestion)
+      return
+    }
     if (activeScenario === 'generation-failure') {
       response.setHeader('Retry-After', '2')
       response.setHeader('Access-Control-Expose-Headers', 'Retry-After')
@@ -169,20 +207,24 @@ async function handleApiRequest(request, response) {
   if (url.pathname === '/functions/v1/recipes' && request.method === 'POST') {
     recipeWrites.push({ body, authorization: request.headers.authorization })
     sendJson(request, response, 201, { recipe: {
-      id: scenarioRecipeIds[activeScenario], user_id: userId, ...body, flavor_scores: null,
+      id: scenarioRecipeIds[activeScenario], user_id: userId, ...body, updated_at: fixtureUpdatedAt, flavor_scores: null,
     } })
     return
   }
   const recipeRoute = /^\/functions\/v1\/recipes\/([^/]+)$/.exec(url.pathname)
   if (recipeRoute && request.method === 'GET') {
     const recipeId = decodeURIComponent(recipeRoute[1])
+    if (activeScenario === 'revision' && recipeId === revisionOriginal.id) {
+      sendJson(request, response, 200, { recipe: revisionOriginal })
+      return
+    }
     const saved = recipeWrites.at(-1)
     if (!saved || recipeId !== scenarioRecipeIds[activeScenario]) {
       sendJson(request, response, 404, { error: { code: 'NOT_FOUND' } })
       return
     }
     sendJson(request, response, 200, { recipe: {
-      id: recipeId, user_id: userId, ...saved.body, flavor_scores: null,
+      id: recipeId, user_id: userId, ...saved.body, updated_at: fixtureUpdatedAt, flavor_scores: null,
     } })
     return
   }
@@ -190,7 +232,7 @@ async function handleApiRequest(request, response) {
     const recipeId = decodeURIComponent(recipeRoute[1])
     recipeUpdates.push({ recipeId, body, authorization: request.headers.authorization })
     sendJson(request, response, 200, { recipe: {
-      id: recipeId, user_id: userId, ...body, flavor_scores: null,
+      id: recipeId, user_id: userId, ...body, updated_at: fixtureUpdatedAt, flavor_scores: null,
     } })
     return
   }
@@ -298,6 +340,60 @@ async function returnChefReviewToMethod(page) {
   return method
 }
 
+async function verifyRevisionSave(page, origin, width, height) {
+  resetScenario('revision')
+  await page.evaluate(() => globalThis.sessionStorage.clear())
+  await page.setViewportSize({ width, height })
+  const originalSnapshot = globalThis.structuredClone(revisionOriginal)
+  await page.goto(origin + 'app/recipes/' + revisionOriginal.id)
+  await settleJournalLayout(page)
+  await page.getByRole('button', { name: 'Revise with Mori', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Make a version for next time' })
+  await dialog.getByRole('radio', { name: exactNote, exact: true }).check()
+  await dialog.getByRole('button', { name: 'Ask Mori for a revision', exact: true }).click()
+  await expect(page.getByRole('heading', { name: "Review Mori's recipe.", exact: true })).toBeVisible()
+  const proposal = page.getByRole('region', { name: 'Mori’s proposed change' }).first()
+  await expect(proposal).toContainText(exactNote)
+  await expect(proposal).toContainText('2 tsp')
+  await page.getByRole('button', { name: 'Edit proposed amount', exact: true }).click()
+  const quantity = page.getByRole('textbox', { name: 'Ingredient 3 quantity', exact: true })
+  await expect(quantity).toHaveValue('2')
+  await quantity.fill('2.5')
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+  await advanceChefReviewToSave(page, 'Save new version')
+  const title = await returnChefReviewToTitle(page)
+  await title.fill('Edited olive oil revision')
+  await advanceChefReviewToSave(page, 'Save new version')
+  assert.equal(recipeWrites.length, 0, 'Editing a revision must not write before Save')
+  assert.equal(lineageWrites.length, 0)
+  // Save after the final review turn without waiting for journal geometry to settle.
+  await page.getByRole('button', { name: 'Save new version', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Your recipe is saved.', exact: true })).toBeVisible()
+  await expect(page.getByText('Recipe and selected parent links saved.', { exact: true })).toBeVisible()
+  assert.equal(recipeWrites.length, 1)
+  assert.equal(lineageWrites.length, 1)
+  assert.deepEqual(lineageWrites[0].body.parent_recipe_ids, [revisionOriginal.id])
+  assert.equal(recipeWrites[0].body.title, 'Edited olive oil revision')
+  assert.equal(recipeWrites[0].body.ingredients[2].quantity, 2.5)
+  assert.deepEqual(recipeWrites[0].body.ingredients.slice(0, 2), revisionOriginal.ingredients.slice(0, 2))
+  await page.getByRole('link', { name: 'Open saved version', exact: true }).first().click()
+  await expect(page).toHaveURL(origin + 'app/recipes/' + scenarioRecipeIds.revision)
+  await settleJournalLayout(page)
+  const savedText = (await readAllRecipePages(page)).map(({ text }) => text).join('\n')
+  const savedContent = savedText.replace(/\s+/g, '')
+  assert.ok(savedContent.includes('2½tspoliveoil'), savedText)
+  assert.ok(savedContent.includes('1cuprice') && savedContent.includes('1piecetomato'), savedText)
+  await page.goto(origin + 'app/recipes/' + revisionOriginal.id)
+  await settleJournalLayout(page)
+  const originalText = (await readAllRecipePages(page)).map(({ text }) => text).join('\n')
+  const originalContent = originalText.replace(/\s+/g, '')
+  assert.ok(originalContent.includes('1tspoliveoil') && originalContent.includes(exactNote.replace(/\s+/g, '')), originalText)
+  assert.equal(recipeUpdates.length, 0, 'Linked-copy save must not PATCH the original or its notes')
+  assert.equal(recipeWrites.length, 1, 'Receipt/reopen must not duplicate the recipe')
+  assert.deepEqual(revisionOriginal, originalSnapshot)
+  process.stdout.write(`Revision save regression passed at ${width}×${height}: edited preview, immediate save, lineage, actual copy/original reopen, no duplicate or original PATCH.\n`)
+}
+
 async function continueLocalRequest(route) {
   const url = new URL(route.request().url())
   assert.ok(url.origin === appOrigin || url.origin === apiOrigin, `Unexpected external request: ${url.origin}`)
@@ -330,12 +426,20 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true })
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
   const page = await context.newPage()
+  page.setDefaultTimeout(15_000)
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error' && message.text().includes('Maximum update depth')) errors.push(message.text())
+  })
   const storageKey = `sb-${new URL(apiOrigin).hostname.split('.')[0]}-auth-token`
   await page.addInitScript(({ session, storageKey }) => globalThis.localStorage.setItem(storageKey, JSON.stringify(session)), { session, storageKey })
   await context.route('**/*', continueLocalRequest)
 
+  await page.goto(`${origin}app`)
+  for (const [width, height] of [[1440, 900], [1100, 640]]) await verifyRevisionSave(page, origin, width, height)
+  resetScenario('success')
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${origin}app`)
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible()
   const moriBookmark = page.getByRole('button', { name: 'Talk to Mori' })
