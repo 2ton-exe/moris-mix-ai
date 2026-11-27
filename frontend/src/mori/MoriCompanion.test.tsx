@@ -206,3 +206,44 @@ it('routes chapter clicks immediately while Mori walks independently and cancels
   view.unmount()
   expect(cancel).toHaveBeenCalledTimes(2)
 })
+
+
+it('speaks current signed-in activity with chat closed without moving focus, and clears it with its owner', () => {
+  const app = (activity: MoriActivity | null) => <Companion userId="signed-in-cook"><label>Recipe title<input /></label><Activity activity={activity} /></Companion>
+  const view = render(app(null))
+  const input = screen.getByRole('textbox', { name: 'Recipe title' })
+  input.focus()
+  expect(screen.queryByRole('status', { name: 'Mori says' })).toBeNull()
+  view.rerender(app({ kind: 'curious', message: 'Eggs are already here.' }))
+  expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toBe('Eggs are already here.')
+  expect(screen.queryByRole('region', { name: 'Mori' })).toBeNull()
+  expect(document.activeElement).toBe(input)
+  view.rerender(app({ kind: 'confused', message: 'Photo needs another try.' }))
+  expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toBe('Photo needs another try.')
+  expect(document.activeElement).toBe(input)
+  view.rerender(app(null))
+  expect(screen.queryByRole('status', { name: 'Mori says' })).toBeNull()
+})
+
+it('retains current activity in signed-in chat and returns it beside Mori after closing', () => {
+  render(<Companion userId="signed-in-cook"><Activity activity={{ kind: 'working', message: 'Adding your recipe photo…' }} /></Companion>)
+  fireEvent.click(screen.getByRole('button', { name: 'Talk to Mori' }))
+  const panel = screen.getByRole('region', { name: 'Mori' })
+  expect(within(panel).getByRole('status', { name: 'Mori says' }).textContent).toBe('Adding your recipe photo…')
+  fireEvent.click(screen.getByRole('button', { name: 'Close Mori' }))
+  expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toBe('Adding your recipe photo…')
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Talk to Mori' }))
+})
+
+it('shows the highest priority closed-chat message and expires celebrations without replaying them', () => {
+  vi.useFakeTimers()
+  const app = (problem: boolean) => <Companion userId="signed-in-cook">{problem && <Activity activity={{ kind: 'attention', message: 'Check your pantry.' }} />}<Activity activity={{ kind: 'celebrating', message: 'Recipe saved.' }} /></Companion>
+  const view = render(app(true))
+  expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toBe('Check your pantry.')
+  view.rerender(app(false))
+  expect(screen.queryByRole('status', { name: 'Mori says' })).toBeNull()
+  view.rerender(<Companion userId="signed-in-cook"><Activity activity={{ kind: 'celebrating', message: 'A new recipe saved.' }} /></Companion>)
+  expect(screen.getByRole('status', { name: 'Mori says' }).textContent).toBe('A new recipe saved.')
+  act(() => vi.advanceTimersByTime(2600))
+  expect(screen.queryByRole('status', { name: 'Mori says' })).toBeNull()
+})
