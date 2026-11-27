@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-export type MoriActivity = { kind: 'idle' | 'curious' | 'working' | 'thinking' | 'celebrating' | 'confused' | 'attention'; message: string }
+export type MoriActivity = { kind: 'idle' | 'curious' | 'working' | 'thinking' | 'celebrating' | 'confused' | 'attention'; message: string; source?: 'chat' }
 type Guidance = { message: string; action?: { label: string; onClick: () => void } }
 const idle: MoriActivity = { kind: 'idle', message: 'A little inspiration, whenever you need it.' }
 const priority = { idle: 0, celebrating: 1, curious: 2, working: 2, thinking: 2, confused: 3, attention: 3 }
@@ -52,12 +52,13 @@ export function useMoriActivity(activity: MoriActivity | null) {
   const id = useId()
   const kind = activity?.kind
   const message = activity?.message
+  const source = activity?.source
   useEffect(() => {
     if (!setActivity || !kind || message === undefined) return
-    setActivity(id, { kind, message })
+    setActivity(id, { kind, message, source })
     const timer = kind === 'celebrating' ? window.setTimeout(() => setActivity(id, null), 2500) : undefined
     return () => { window.clearTimeout(timer); setActivity(id, null) }
-  }, [id, kind, message, setActivity])
+  }, [id, kind, message, source, setActivity])
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- optional guidance hooks share the provider contract

@@ -121,7 +121,7 @@ export function MoriChatPanel({ userId, playNavigationTap, playNavigationTravel,
       selectedPromptCaret.current = null
     }
   }, [composer, composerId, promptSelection])
-  useMoriActivity(pending ? { kind: 'working', message: pendingTask === 'search' ? 'I’m looking through your saved recipes…' : 'I’m putting your recipe together…' } : null)
+  useMoriActivity(pending ? { kind: 'working', source: 'chat', message: pendingTask === 'search' ? 'I’m looking through your saved recipes…' : 'I’m putting your recipe together…' } : null)
 
   useEffect(() => {
     const deadlines = Object.values(cooldowns).filter((until): until is number => until !== undefined && until > now)
