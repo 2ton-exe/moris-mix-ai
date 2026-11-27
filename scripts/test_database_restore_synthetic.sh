@@ -324,7 +324,9 @@ CREATE ROLE devops_restore_synthetic NOLOGIN;
 SQL
 cat > "$fixture/schema.sql" <<'SQL'
 CREATE TABLE public.profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id)
+  id uuid PRIMARY KEY REFERENCES auth.users(id),
+  display_name text,
+  avatar_url text
 );
 CREATE TABLE public.recipes (
   id uuid PRIMARY KEY,
@@ -373,6 +375,7 @@ COPY public.ai_quota_reservations (id, daily_usage_id, user_id) FROM stdin;
 SQL
 cat > "$fixture/history-data.sql" <<'SQL'
 COPY devops_restore_synthetic.schema_migrations (version) FROM stdin;
+20261013000000
 20261114000000
 20261114000001
 \.
@@ -786,6 +789,8 @@ require_clean_restore() {
   if [[ "$(principal_query "$admin_db" \
       "SELECT (to_regclass('public.profiles') IS NULL
                AND to_regclass('supabase_migrations.schema_migrations') IS NULL
+               AND NOT EXISTS (SELECT FROM auth.users
+                               WHERE id = '00000000-0000-0000-0000-000000000001')
                AND NOT EXISTS (SELECT FROM pg_roles
                                WHERE rolname IN ('devops_restore_synthetic', 'devops_restore_reader')))::int")" != 1 ]]; then
     echo '::error::Synthetic administrative replay did not preserve the clean baseline'
@@ -808,6 +813,10 @@ ALTER TABLE public.profiles OWNER TO postgres;
 GRANT SELECT ON public.recipes, public.recipe_lineage, public.ai_usage_daily,
   public.ai_quota_reservations TO postgres;
 SQL
+# Include the checked-in handler as the archive schema would. The new replay
+# step alone reconstructs the trigger on the managed Auth table.
+sed -e 's/\r$//' "$script_dir/../supabase/migrations/20261013000000_initial_schema.sql" |
+  sed -n '/^create or replace function public[.]handle_new_user()/,/^[$][$];$/p' >> "$fixture/schema.sql"
 cat > "$fixture/history-schema.sql" <<'SQL'
 CREATE SCHEMA IF NOT EXISTS supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations (version text PRIMARY KEY);
@@ -1038,6 +1047,49 @@ require_clean_restore
 cp "$root/history-data.sql" "$fixture/history-data.sql"
 echo 'synthetic-admin-replay=expected-failure exit=3 sqlstate=22012 rollback=pass'
 
+require_auth_reconstruction_failure() {
+  local state="$1" status=0
+  run_restore_step admin-restore || status=$?
+  if [[ "$status" != 3 ]] ||
+      ! grep -Eq "^psql:/reviewed-auth-profile-trigger[.]sql:[0-9]+: ERROR:  $state$" "$root/private-restore-stderr.log" ||
+      ! grep -Fq 'exit_code=3 component_hint=unknown ' "$root/step.out" ||
+      grep -Eq 'SYNTHETIC_ADMIN_FILES_REACHED|reviewed-auth-profile-trigger[.]sql' "$root/step.out" "$root/step.err"; then
+    echo '::error::Synthetic Auth reconstruction did not fail closed'
+    exit 1
+  fi
+  require_clean_restore
+}
+
+sed '/^20261013000000$/d' "$root/history-data.sql" > "$fixture/history-data.sql"
+require_auth_reconstruction_failure P0001
+cp "$root/history-data.sql" "$fixture/history-data.sql"
+
+cp "$fixture/schema.sql" "$root/auth-handler-schema.sql"
+cat >> "$fixture/schema.sql" <<'SQL'
+CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp
+AS $$ BEGIN RETURN NEW; END; $$;
+SQL
+require_auth_reconstruction_failure P0001
+cp "$root/auth-handler-schema.sql" "$fixture/schema.sql"
+
+principal_query "$admin_db" "
+  CREATE FUNCTION public.synthetic_conflicting_handler() RETURNS trigger
+    LANGUAGE plpgsql AS \$\$ BEGIN RETURN NEW; END; \$\$;
+  CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.synthetic_conflicting_handler();
+" > "$root/auth-trigger-conflict.out"
+require_auth_reconstruction_failure 42710
+[[ "$(principal_query "$admin_db" "
+  SELECT (tgfoid = 'public.synthetic_conflicting_handler()'::regprocedure)::int
+  FROM pg_trigger WHERE tgrelid = 'auth.users'::regclass AND tgname = 'on_auth_user_created'
+")" == 1 ]]
+principal_query "$admin_db" "
+  DROP TRIGGER on_auth_user_created ON auth.users;
+  DROP FUNCTION public.synthetic_conflicting_handler();
+" > "$root/auth-trigger-conflict-cleanup.out"
+echo 'synthetic-auth-reconstruction=expected-failure missing-version=yes wrong-function=yes conflict=yes rollback=pass'
+
 if ! run_restore_step admin-restore ||
     ! grep -Fq 'Transactional isolated SQL restore passed.' "$root/step.out" ||
     grep -Fq 'SYNTHETIC_ADMIN_FILES_REACHED' "$root/step.out" "$root/step.err"; then
@@ -1054,6 +1106,18 @@ effects="$(principal_query "$admin_db" \
   exit 1
 }
 echo 'synthetic-admin-replay=pass membership=pass parameter=pass ownership=pass'
+if [[ "$(principal_query "$admin_db" "
+  SELECT (
+    EXISTS (SELECT FROM pg_trigger WHERE tgrelid = 'auth.users'::regclass
+            AND tgname = 'on_auth_user_created' AND tgenabled = 'O'
+            AND tgfoid = 'public.handle_new_user()'::regprocedure)
+    AND NOT EXISTS (SELECT FROM auth.users WHERE email LIKE 'mori-restore-probe-%@example.invalid')
+  )::int
+")" != 1 ]]; then
+  echo '::error::Synthetic Auth trigger binding or probe rollback was not verified'
+  exit 1
+fi
+echo 'synthetic-auth-reconstruction=pass auth-role-probe=pass probe-rollback=pass'
 
 if ! run_restore_step aggregates ||
     ! grep -Fq 'Five application table counts and the migration version set match the backup.' "$root/step.out"; then

@@ -250,6 +250,25 @@ docker() {
   return 99
 }
 export -f docker
+sudo() {
+  [[ "$1" == env && "$2" == "RUNNER_TEMP=$RUNNER_TEMP" &&
+     "$3" == python3 && "$4" == */restore_runner_network_guard.py ]] || return 99
+  local marker="$RUNNER_TEMP/restore-runner-bootstrap-guard.json"
+  case "$5" in
+    bootstrap)
+      [[ "$#" == 7 && "$6" == --marker && "$7" == "$marker" ]] || return 99
+      touch "$marker"
+      ;;
+    remove-bootstrap)
+      [[ "$#" == 9 && "$6" == --project-id && "$7" == "$RESTORE_PROJECT_ID" &&
+         "$8" == --marker && "$9" == "$marker" && -f "$marker" ]] || return 99
+      rm -- "$marker"
+      printf '%s\n' 'restore-runner-bootstrap-ingress-cleanup=pass'
+      ;;
+    *) return 99 ;;
+  esac
+}
+export -f sudo
 bash scripts/test_database_restore_synthetic.sh
 """],
                     cwd=Path(__file__).resolve().parents[1],

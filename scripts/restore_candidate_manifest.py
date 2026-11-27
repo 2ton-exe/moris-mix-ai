@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-CANDIDATES = {"backup-7"}
+ORDINARY_CANDIDATE = "next-ordinary-recovery"
 FIELDS = (
     "object_prefix",
     "archive_name",
@@ -30,7 +30,7 @@ ERROR = "::error::Selected restore candidate configuration is missing or invalid
 
 
 def resolve_candidate(candidate: str, raw_manifest: str) -> dict[str, str]:
-    if candidate not in CANDIDATES or not raw_manifest:
+    if candidate != ORDINARY_CANDIDATE or not raw_manifest:
         raise ValueError("invalid candidate configuration")
 
     def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -187,6 +187,11 @@ def main(argv: list[str]) -> int:
             os.environ.get("RESTORE_CANDIDATE_APPROVED_SHA256", ""),
         )
         values = resolve_candidate(argv[1], raw_manifest)
+        # Both preflights must bind the archived source to the reviewed main
+        # revision executing this workflow. The archive/evidence check later
+        # verifies the source revision against this independently pinned record.
+        if values["source_revision"] != os.environ.get("GITHUB_SHA"):
+            raise ValueError("candidate source revision does not match workflow")
         write_shell_environment(Path(argv[2]), values)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         print(ERROR, file=sys.stderr)

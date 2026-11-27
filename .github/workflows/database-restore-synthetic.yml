@@ -29,6 +29,8 @@ on:
       - scripts/test_database_restore_drill.py
       - scripts/classify_restore_component.py
       - scripts/verify_restore_foreign_keys.sql
+      - scripts/restore_auth_profile_trigger.sql
+      - supabase/migrations/20261013000000_initial_schema.sql
 
 permissions:
   contents: read

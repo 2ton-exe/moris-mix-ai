@@ -144,7 +144,13 @@ The drill must, at minimum:
 
 A backup upload is not restore proof. DEVOPS-10 remains open until this drill succeeds and another teammate can follow the tested procedure.
 
-For the current #159 selection, Stage B has no candidate dispatch input and is fixed to ordinary Backup #7 recovery. It cannot select Backup #4 or provide the private statement/catalog evidence required by #276/#280. Before configuring candidate secrets, Ramos (or a different independent verifier explicitly designated by Haresco) must receive the exact proposed UTF-8 manifest bytes through the restricted owner channel, reconcile the Backup #7 entry against the successful producer run and evidence in the restricted record, and independently compute the SHA-256 of those exact bytes. The authorized secret steward sets `RESTORE_CANDIDATES_JSON` and `RESTORE_CANDIDATE_MANIFEST_SHA256`; Ramos must set the separate `RESTORE_CANDIDATE_APPROVED_SHA256` only after completing that reconciliation. The workflow requires the exact manifest bytes, the operational pin, and Ramos's independent approval digest to match before database startup or any R2 credential is injected, then rechecks them after target setup immediately before the first R2 request. That final check creates a fresh mode-0600 candidate mapping and passes the validated fields to later steps as environment data; it never sources the earlier preflight file. Missing, malformed, or mismatched values fail closed. Do not read back, print, or publish any secret or digest. Any later change requires the same independent review and replacement of the approval digest. The digest binds approval to exact bytes; it is not provenance proof by itself. Keep the manifest and both digests private.
+Stage B has no candidate dispatch input. It accepts one explicitly selected ordinary recovery artifact for #159 under the fixed manifest key `next-ordinary-recovery`. Use this slot for a new backup after reviewing and merging the correction. Keep the failed Backup #4 and #7 artifacts and evidence under their original identities. Stage B cannot provide the private statement and catalog evidence required by #276/#280.
+
+Before capture, the database owner must confirm a controlled window without schema, role, migration-ledger, or managed-catalog changes and confirm the supported disposable target catalog for all included data, including Auth and Storage database rows. Check the live source's application-owned Auth binding and function against the reviewed initial migration. The producer retains the shared release lock and before-and-after checks. Separate dump sessions do not share a snapshot, and the comparisons cannot establish snapshot consistency or detect every transient or excluded managed-schema change.
+
+After merge, generate and verify the new backup from the same reviewed `main` commit that will run Stage B. Both manifest checks require `source_revision` to equal the workflow's exact GitHub commit SHA. The archive and private sidecar must also match that source revision and the approved identity. If `main` advances before dispatch, capture and independently review a fresh candidate on the new reviewed commit. Do not substitute a historical backup under the new key.
+
+Before configuring candidate secrets, the independent verifier designated by Haresco must receive the exact proposed UTF-8 manifest bytes through the restricted owner channel, reconcile the single entry against the successful producer run and evidence in the restricted record, and independently compute the SHA-256 of those exact bytes. The authorized secret steward sets `RESTORE_CANDIDATES_JSON` and `RESTORE_CANDIDATE_MANIFEST_SHA256`. The independent verifier sets `RESTORE_CANDIDATE_APPROVED_SHA256` only after that reconciliation. Stage B requires the exact manifest bytes and both digests to match before database startup or any R2 credential is injected. It rechecks them immediately before the first R2 request and creates a fresh mode-0600 candidate mapping. Missing, malformed, or mismatched configuration fails closed. The digest binds approval to exact bytes. The independent producer reconciliation establishes provenance. Keep the manifest and both digests private. Any later change requires the same independent review and replacement of the approval digest.
 
 The `database-restore-drill` Environment remains a per-execution protected gate. Its reviewers must be restricted to people authorized to accept both this ordinary restore's residual egress risk and the run's candidate-approval state; prevent self-review, disable administrator bypass, and allow only `main`. After approval, Stage B reads that run's approval history and proceeds only if an approved record is from someone other than the dispatcher/rerunner and its complete public comment consists of exactly these two lines (in either order):
 
@@ -153,11 +159,11 @@ MORI-STAGEB-ORDINARY-EGRESS-ACCEPTED run_id=<run-id> run_attempt=1
 MORI-STAGEB-CANDIDATE-APPROVAL-CONFIRMED run_id=<run-id> run_attempt=1
 ```
 
-The comment is a public authorization record and must contain only these fixed labels and the public Actions run ID/attempt. Do not include the manifest, digest, backup identifiers, SQL, or private diagnostics; any extra or duplicate line fails closed. The run must be attempt `1`: GitHub's approval-history response is run-scoped and does not identify an attempt, so Stage B rejects reruns rather than reusing an earlier attempt's approval. Start a new `workflow_dispatch` run to obtain a fresh per-execution approval. A missing, invalid, stale-attempt, self-approved, rerun, or unavailable approval record stops before candidate preflight and before R2 credentials are provided. For each run, the authorized environment reviewer must confirm through the restricted owner channel that Ramos completed the independent candidate review, then explicitly accept runner-host TCP/DNS exposure in the environment approval. GitHub requires approval from one of the configured reviewers, so every configured reviewer must be authorized for this decision.
+The comment is a public authorization record and must contain only these fixed labels and the public Actions run ID/attempt. Do not include the manifest, digest, backup identifiers, SQL, or private diagnostics; any extra or duplicate line fails closed. The run must be attempt `1`: GitHub's approval-history response is run-scoped and does not identify an attempt, so Stage B rejects reruns rather than reusing an earlier attempt's approval. Start a new `workflow_dispatch` run to obtain a fresh per-execution approval. A missing, invalid, stale-attempt, self-approved, rerun, or unavailable approval record stops before candidate preflight and before R2 credentials are provided. For each run, the authorized environment reviewer must confirm through the restricted owner channel that the designated independent verifier completed the candidate review, then explicitly accept runner-host TCP/DNS exposure in the environment approval. GitHub requires approval from one of the configured reviewers, so every configured reviewer must be authorized for this decision.
 
 GitHub does not provide a per-secret writer ACL. Haresco must restrict and audit environment-secret administration so only Ramos or the separately designated independent verifier can provision `RESTORE_CANDIDATE_APPROVED_SHA256`. If that role separation cannot be established, do not run Stage B. Revoke candidate authorization by removing or rotating the approved-digest secret; the preflight then fails. Each egress acceptance applies only to the named run attempt; reject the pending environment deployment or cancel that run to revoke it. Cancel an active run immediately if authorization is withdrawn and revoke the R2 read key if private access may already have occurred.
 
-Stage B isolates the disposable containers but does not deny outbound TCP/DNS from the runner host; it observes and reports that connectivity. The per-run protected approval records explicit acceptance of this residual risk for ordinary Backup #7 recovery. It does not meet the stricter #276/#280 owner-diagnostic network requirements.
+Stage B isolates the disposable containers but does not deny outbound TCP/DNS from the runner host; it observes and reports that connectivity. The per-run protected approval records explicit acceptance of this residual risk for the selected ordinary recovery. It does not meet the stricter #276/#280 owner-diagnostic network requirements.
 
 ### Disposable restore principal
 
@@ -168,20 +174,11 @@ privileges. Both grants succeeded as local `supabase_admin`, and the failed
 transactions rolled back. This explains a possible cause of the archived
 restore failure. The exact statement in Backup #4 remains unverified.
 
-Stage B and the role-only diagnostic use `supabase_admin` only on the freshly
-started disposable PostgreSQL 17 target at `127.0.0.1`. Before opening the
-first SQL file, the pinned client checks the login, effective role and superuser
-flag in the same replay session. An unavailable login or failed identity check
-stops replay. The supplied SQL is still replayed in its original order and in one
-fail-fast transaction. The archive remains immutable, and access still requires
-the protected `database-restore-drill` Environment.
+Stage B uses `supabase_admin` only on the freshly started disposable PostgreSQL 17 target, through `db:5432` on the verified internal Docker bridge. The role-only diagnostic has its own local replay. Before opening the first archive SQL file, the pinned client checks the login, effective role, and superuser flag in the same replay session. An unavailable login or failed identity check stops replay. The archive remains immutable, and access requires the protected `database-restore-drill` environment.
 
-Stage B still checks the five application counts and migration version set as
-local `postgres`. Synthetic fixtures exercise both restored ownership and
-explicit read grants. If that role cannot read the restored tables, or its row
-visibility produces different counts, verification fails. Objects with implicit
-ownership can take the replay role as owner. Backup #7 is the selected candidate for the ordinary #159 recovery drill; its success does not diagnose or resolve Backup #4's failure under #276/#280. The drill
-does not establish recovery of excluded managed services or Storage objects.
+Stage B replays the five archive components in their existing order and runs a separately mounted, reviewed SQL file as the last action in that transaction. The replay requires the original Auth profile migration in the restored ledger and checks the managed and application relations and the restored handler's definition and security attributes. It applies the checked-in application trigger binding. An existing same-name binding or incompatible definition fails the transaction. The verifier inserts a synthetic Auth user as the local `supabase_auth_admin` role with origin triggers enabled, checks that the expected profile appears, and rolls the probe back to a savepoint before replay commits.
+
+Stage B separately verifies the five application counts, migration versions, and seven foreign-key mappings and reference checks as local `postgres`. These checks and the Auth database probe cover the restored application tables and the checked-in Auth profile behavior. They do not establish provider sign-in, sessions, email delivery, platform settings, Storage object bytes, or compatibility of every managed-schema customization. Preserve the Backup #4 and #7 failures separately.
 
 ## Failure handling
 
@@ -307,7 +304,7 @@ permission root cause unverified.
 ## Owner-run private restore inspection (not recovery proof)
 
 Issue #280 adds a separate owner-controlled local procedure for bounded
-`data.sql` failure inspection. It replays the exact Stage B single transaction
+`data.sql` failure inspection. It replays the original Backup #4-era Stage B transaction
 on one disposable PostgreSQL 17 target, then uses a separate fresh target for
 the committed pre-data reconstruction and catalog query. Before private SQL,
 it requires a second owner’s approval, provider-level ingress and egress

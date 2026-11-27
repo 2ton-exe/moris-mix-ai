@@ -13,7 +13,7 @@ name. The helper emits `sequence` only for SQLSTATE `42P01` when the reconstruct
 catalog confirms the named relation is absent.
 
 The procedure intentionally uses two disposable PostgreSQL targets. Target A
-replays the complete Stage B command in its original single transaction. A
+replays the original Backup #4-era Stage B command in one transaction. A
 failure rolls back the schema changes, so Target B is a fresh cluster used for
 a separate committed reconstruction of the ordered pre-data components and a
 private catalog query. Never treat Target B as the post-failure state of
@@ -252,9 +252,12 @@ R2_RESTORE_ENDPOINT='https://<account-id>.r2.cloudflarestorage.com'
 
 Set the expected identity values from the restricted, independently
 reviewed Backup #4 producer record. Stage B no longer contains private
-identity constants; its protected `RESTORE_CANDIDATES_JSON`, manifest pin,
-and independent approval digest are for ordinary Backup #7 recovery only
-and are not an identity source for this diagnostic. Do not copy private
+identity constants. Its protected `RESTORE_CANDIDATES_JSON`, manifest pin,
+and independent approval digest are reserved for the selected ordinary
+recovery and cannot establish the identity for this historical diagnostic.
+Replay the original historical components for this diagnosis. Stage B's
+reviewed Auth reconstruction is only for the separately selected future
+ordinary recovery. Do not copy private
 identifiers into public issue #159 or derive expected values only from
 downloaded evidence.
 Set `BACKUP_SHA256`, `BACKUP_SIZE`, `BACKUP_RUN_ID`,
@@ -406,7 +409,7 @@ The target guard requires PostgreSQL 17, the local `postgres` database, the
 Supabase `auth.users` baseline, and absent `public.recipes` and
 `public.profiles` sentinels. If it fails, stop.
 
-## 5. Replay the exact Stage B transaction on Target A
+## 5. Replay the original Backup #4-era transaction on Target A
 
 Use the same connection role, identity check, component order, fail-fast flags,
 single transaction, and replication-role command as
@@ -603,7 +606,7 @@ destruction of private data.
 The PR's credential-free unit tests exercise archive verification, input
 bounds, output redaction, target guards, fixed-label classification, firewall
 rule validation, host and Docker egress probes, and local database reachability.
-The PostgreSQL synthetic integration replays the Stage B command against a
+The PostgreSQL synthetic integration replays the historical Stage B command against a
 synthetic failure, proves its transaction rolls back, reconstructs catalog
 state on a separate target, checks the fixed label, and removes both targets
 and private files. The credential-free abort rehearsal above covers transfer

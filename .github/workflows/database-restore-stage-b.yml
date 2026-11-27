@@ -1,7 +1,7 @@
 name: Database Restore Drill (Stage B)
-run-name: "Protected ordinary Backup #7 restore - reviewer authorization required"
+run-name: "Protected ordinary database recovery - reviewer authorization required"
 
-# Ordinary recovery only: this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic.
+# Ordinary recovery only: this workflow cannot perform historical backup owner diagnostics.
 # No PR, push, or scheduled access to the selected production backup.
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   isolated-restore:
-    name: "Protected Backup #7 recovery - egress and candidate approval required"
+    name: "Protected ordinary recovery - egress and candidate approval required"
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -24,25 +24,26 @@ jobs:
       # Official postgres:17.11-alpine multi-platform index (Docker Library).
       # Immutable client code is important because this container reads private SQL.
       PSQL_IMAGE: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
-      RESTORE_CANDIDATE: backup-7
+      RESTORE_CANDIDATE: next-ordinary-recovery
       RESTORE_PROJECT_ID: moris-restore-local
       RESTORE_DOCKER_NETWORK: moris-restore-${{ github.run_id }}-${{ github.run_attempt }}
       AWS_DEFAULT_REGION: auto
       AWS_EC2_METADATA_DISABLED: "true"
 
     steps:
-      - name: Enforce fixed ordinary Backup #7 scope
+      - name: Enforce fixed ordinary recovery scope
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$RESTORE_CANDIDATE" != "backup-7" ]]; then
-            echo "::error::Stage B is restricted to the ordinary Backup #7 recovery drill"
+          if [[ "$RESTORE_CANDIDATE" != "next-ordinary-recovery" ]]; then
+            echo "::error::Stage B is restricted to the selected ordinary recovery drill"
             exit 1
           fi
 
       - name: Checkout reviewed restore workflow
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify explicit per-run protected deployment approval
@@ -57,7 +58,7 @@ jobs:
           GITHUB_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: python3 scripts/restore_deployment_authorization.py
 
-      - name: Verify independently approved Backup #7 manifest
+      - name: Verify independently approved ordinary recovery manifest
         shell: bash
         env:
           RESTORE_CANDIDATES_JSON: ${{ secrets.RESTORE_CANDIDATES_JSON }}
@@ -68,7 +69,7 @@ jobs:
           umask 077
           for key in RESTORE_CANDIDATES_JSON RESTORE_CANDIDATE_MANIFEST_SHA256 RESTORE_CANDIDATE_APPROVED_SHA256; do
             if [[ -z "${!key:-}" ]]; then
-              echo "::error::Required Backup #7 authorization is missing"
+              echo "::error::Required ordinary recovery authorization is missing"
               exit 1
             fi
           done
@@ -308,7 +309,7 @@ jobs:
           umask 077
           for key in RESTORE_CANDIDATES_JSON RESTORE_CANDIDATE_MANIFEST_SHA256 RESTORE_CANDIDATE_APPROVED_SHA256; do
             if [[ -z "${!key:-}" ]]; then
-              echo "::error::Required Backup #7 authorization is missing"
+              echo "::error::Required ordinary recovery authorization is missing"
               exit 1
             fi
           done
@@ -536,10 +537,11 @@ jobs:
             --user "$(id -u):$(id -g)" --cap-drop ALL \
             --security-opt no-new-privileges --read-only \
             --mount "type=bind,source=$RUNNER_TEMP/restore-verified-sql,target=/backup,readonly" \
+            --mount "type=bind,source=$PWD/scripts/restore_auth_profile_trigger.sql,target=/reviewed-auth-profile-trigger.sql,readonly" \
             "$PSQL_IMAGE")
           checked client "${client[@]}" psql --version
           checked files "${client[@]}" sh -c \
-            'for file in /backup/roles.sql /backup/schema.sql /backup/history-schema.sql /backup/data.sql /backup/history-data.sql; do test -f "$file" && test -r "$file" || exit 1; done'
+            'for file in /backup/roles.sql /backup/schema.sql /backup/history-schema.sql /backup/data.sql /backup/history-data.sql /reviewed-auth-profile-trigger.sql; do test -f "$file" && test -r "$file" || exit 1; done'
           # Validate the local login inside the same transaction before any private SQL.
           restore_db='postgresql://supabase_admin:postgres@db:5432/postgres'
           require_admin="$(cat <<'SQL'
@@ -564,7 +566,8 @@ jobs:
               -f /backup/history-schema.sql \
               -c 'SET session_replication_role = replica' \
               -f /backup/data.sql \
-              -f /backup/history-data.sql -d "$restore_db"
+              -f /backup/history-data.sql \
+              -f /reviewed-auth-profile-trigger.sql -d "$restore_db"
           echo 'Transactional isolated SQL restore passed.'
 
       - name: Validate restored application counts, migration versions and foreign keys
@@ -680,11 +683,12 @@ jobs:
           {
             echo '### Database Restore Drill — Stage B'
             echo '- Approved recovery candidate identity: withheld from public output'
-            echo '- Purpose: ordinary Backup #7 recovery only; this run cannot diagnose Backup #4 for #276/#280'
+            echo '- Purpose: ordinary recovery only. Historical backup diagnostics remain separate'
             echo '- Target: disposable PostgreSQL 17; private data is introduced after the internal network and runner-ingress guard pass'
             echo '- Runner-host outbound TCP/DNS: observed separately and not restricted by this workflow; residual egress risk remains'
             echo '- R2 byte-integrity, metadata, component checksums: passed'
             echo '- Transactional SQL restore: passed'
+            echo '- App Auth profile trigger restored and tested under the Auth database role; probe rolled back'
             echo '- Application counts and migration history: passed'
             echo '- Application foreign-key integrity: passed'
             echo '- Excluded: Storage object bytes, platform secrets/settings, unverified managed schemas'

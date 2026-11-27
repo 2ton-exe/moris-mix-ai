@@ -160,11 +160,11 @@ class StageBOfflineTests(unittest.TestCase):
         dispatch = workflow.split("  workflow_dispatch:", 1)[1].split("permissions:", 1)[0]
         self.assertNotIn("inputs:", dispatch)
         self.assertNotIn("candidate:", dispatch)
-        self.assertIn("RESTORE_CANDIDATE: backup-7", workflow)
+        self.assertIn("RESTORE_CANDIDATE: next-ordinary-recovery", workflow)
         self.assertNotIn("inputs.candidate", workflow)
-        self.assertIn('if [[ "$RESTORE_CANDIDATE" != "backup-7" ]]', workflow)
+        self.assertIn('if [[ "$RESTORE_CANDIDATE" != "next-ordinary-recovery" ]]', workflow)
         self.assertIn(
-            "this workflow is pinned to Backup #7 and cannot perform the #276/#280 Backup #4 owner diagnostic",
+            "this workflow cannot perform historical backup owner diagnostics",
             workflow,
         )
         self.assertIn("environment: database-restore-drill", workflow)
@@ -172,12 +172,12 @@ class StageBOfflineTests(unittest.TestCase):
 
         approval = workflow.split(
             "      - name: Verify explicit per-run protected deployment approval", 1
-        )[1].split("      - name: Verify independently approved Backup #7 manifest", 1)[0]
+        )[1].split("      - name: Verify independently approved ordinary recovery manifest", 1)[0]
         self.assertIn("restore_deployment_authorization.py", approval)
         self.assertIn("GITHUB_TOKEN: " + "$" + "{{ github.token }}", approval)
 
         candidate = workflow.split(
-            "      - name: Verify independently approved Backup #7 manifest", 1
+            "      - name: Verify independently approved ordinary recovery manifest", 1
         )[1].split("      - name: Set up Supabase CLI", 1)[0]
         for secret in (
             "RESTORE_CANDIDATES_JSON",
@@ -235,7 +235,7 @@ class StageBOfflineTests(unittest.TestCase):
         first_download = workflow.index("aws s3 cp")
         self.assertLess(workflow.index("restore_deployment_authorization.py"), first_download)
         self.assertLess(
-            workflow.index("Verify independently approved Backup #7 manifest"),
+            workflow.index("Verify independently approved ordinary recovery manifest"),
             first_download,
         )
         self.assertLess(
@@ -1328,7 +1328,9 @@ docker() {
     # Exercise the actual mounted-file probe against synthetic local files.
     # Insert a quoted variable reference, never the filesystem path as code.
     local backup_reference='"$RUNNER_TEMP/restore-verified-sql"'
-    sh -c "${arg//\/backup/$backup_reference}"
+    local probe_reference='"$RUNNER_TEMP/reviewed-auth-profile-trigger.sql"'
+    arg="${arg//\/backup/$backup_reference}"
+    sh -c "${arg//\/reviewed-auth-profile-trigger.sql/$probe_reference}"
     return $?
   fi
   return 0
@@ -1346,6 +1348,7 @@ python3() {
             root = Path(td)
             backup = root / "restore-verified-sql"
             backup.mkdir()
+            (root / "reviewed-auth-profile-trigger.sql").write_text("SELECT 1;")
             for name in SQL:
                 if not (missing_file and name == "data.sql"):
                     path = backup / name
@@ -1407,6 +1410,9 @@ python3() {
             self.assertIn("ALL", call)
             self.assertIn("synthetic-pinned-image", call)
             self.assertTrue(any(arg.endswith("target=/backup,readonly") for arg in call))
+            self.assertTrue(any(arg.endswith(
+                "/scripts/restore_auth_profile_trigger.sql,target=/reviewed-auth-profile-trigger.sql,readonly"
+            ) for arg in call))
         restore = calls[-1]
         admin_db = "postgresql://supabase_admin:postgres@db:5432/postgres"
         self.assertEqual(calls[-2][-2:], ["-d", admin_db])
@@ -1424,7 +1430,22 @@ python3() {
             "-f", "/backup/history-schema.sql",
             "-c", "SET session_replication_role = replica",
             "-f", "/backup/data.sql", "-f", "/backup/history-data.sql",
-            "-d", admin_db])
+            "-f", "/reviewed-auth-profile-trigger.sql", "-d", admin_db])
+
+    def test_reconstruction_matches_the_original_auth_migration(self):
+        repository = WORKFLOW.parents[2]
+        migration = (
+            repository / "supabase/migrations/20261013000000_initial_schema.sql"
+        ).read_text(encoding="utf-8")
+        replay = (repository / "scripts/restore_auth_profile_trigger.sql").read_text(encoding="utf-8")
+        expected_body = migration.split("create or replace function public.handle_new_user()", 1)[1]
+        expected_body = expected_body.split("as $$", 1)[1].split("$$;", 1)[0]
+        self.assertEqual(replay.split("$expected$", 2)[1], expected_body)
+        expected_trigger = "create trigger on_auth_user_created" + migration.split(
+            "create trigger on_auth_user_created", 1
+        )[1].split(";", 1)[0] + ";"
+        self.assertIn(expected_trigger, replay)
+        self.assertNotIn("DROP TRIGGER", replay.upper())
 
     def test_bash_syntax(self):
         result = subprocess.run([self.bash, "--noprofile", "--norc", "-n"],
